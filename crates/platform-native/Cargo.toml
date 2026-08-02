@@ -1,0 +1,24 @@
+[package]
+name = "platform-native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+graph-core = { path = "../graph-core" }
+rusqlite.workspace = true
+serde_json.workspace = true
+sync-protocol = { path = "../sync-protocol" }
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[[bin]]
+name = "native-spike"
+path = "src/main.rs"
+
+[[bin]]
+name = "native-sync-peer"
+path = "src/bin/native-sync-peer.rs"

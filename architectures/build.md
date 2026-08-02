@@ -14,21 +14,25 @@ image and documented version.
 
 ## Flake Outputs
 
-The flake exposes:
+The Step 1 flake exposes:
 
 - `devShells.default`: Rust, Node/pnpm, Wasm, database/client, formatting, and
   test tools for core and web work;
-- platform shells for Android and macOS packaging prerequisites;
-- packages for the Rust core, Wasm bundle, web static application, sync server,
-  and server container closure;
-- apps for local client, sync server, database migration, and integration stack;
-- checks for formatting, linting, tests, dependency policy, generated-contract
-  drift, architecture links/line limits, and build smoke tests.
+- `devShells.android` with the JDK, Android SDK/NDK, Gradle, and Rust Android
+  targets;
+- packages for the native core, Wasm core/bindings, web static application,
+  sync spike server, unsigned macOS bundle, and Android debug APK;
+- apps for cross-runtime parity, persistence/reload, and reordered/duplicated
+  WebSocket synchronization spikes;
+- a Darwin-only Android emulator smoke app that installs and starts the APK;
+- checks for Rust formatting, strict Clippy, tests, dependency policy,
+  generated-contract drift, web builds, and browser persistence.
 
 Rust targets and components are pinned together. The Android shell supplies the
 JDK, Android command-line tools/SDK/NDK and explicit accepted license
-configuration. The macOS shell verifies the expected Xcode/SDK installation and
-fails with a clear diagnostic when it differs.
+configuration. The macOS host check records the selected Xcode Command Line
+Tools, macOS SDK, and Clang and fails with a clear diagnostic when they are
+unavailable.
 
 ## Workspace Build Graph
 
@@ -56,10 +60,9 @@ nix build .#web
 nix build .#sync-server
 ```
 
-Platform run/package tasks wrap Tauri commands while still consuming pinned
-workspace artifacts. A local integration app starts PostgreSQL, applies
-migrations, starts the server, and supplies non-secret development
-configuration.
+Platform package tasks wrap Tauri commands while still consuming pinned
+workspace artifacts. Later server steps will add the PostgreSQL integration
+stack and migrations.
 
 No build script downloads unpinned tools at execution time. Cargo and pnpm
 network resolution is separated from sandboxed builds and represented by lock
@@ -132,7 +135,8 @@ vertical slices:
    state;
 3. synchronize two native/Wasm peers through the server with offline divergence;
 4. package the same UI/core as a macOS app and Android debug APK;
-5. run one query corpus identically in native and Wasm.
+5. exchange divergent updates between native and Wasm peers while a relay
+   duplicates and reorders frames, then compare semantic state hashes.
 
 Failure of a spike changes the relevant adapter, not the domain or `CorePort`
 boundary. Tauri prerequisites and platform packaging follow the official

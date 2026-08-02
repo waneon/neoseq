@@ -1,0 +1,10 @@
+{
+  "name": "neoseq-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "build": "pnpm --filter @neoseq/client build",
+    "check": "pnpm --filter @neoseq/client check",
+    "test:indexeddb": "pnpm --filter @neoseq/client test:indexeddb"
+  }
+}

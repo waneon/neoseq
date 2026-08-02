@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NeoSeq CorePort spike contract",
+  "contractVersion": 1,
+  "request": {
+    "name": "PingRequest",
+    "fields": {
+      "client_version": "string"
+    }
+  },
+  "response": {
+    "name": "PingResponse",
+    "fields": {
+      "contract_version": "u32",
+      "core_version": "string",
+      "echo": "string"
+    }
+  }
+}
+

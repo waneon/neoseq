@@ -1,6 +1,10 @@
 # 01. 재현 가능한 기반과 기술 위험 스파이크
 
-상태: 계획됨
+상태: 완료 (2026-08-03)
+
+구현 및 검증 결과는 [`verification/step-1.md`](../verification/step-1.md)에
+기록한다. 기계 판독 가능한 결과는
+[`verification/step-1-results.json`](../verification/step-1-results.json)이다.
 
 ## 목표
 
@@ -89,13 +93,13 @@ runner에서 실행한다. 생성 artifact에는 source revision과 toolchain ma
 
 ## 완료 조건
 
-- [ ] native/Wasm state fixture hash가 동일하다.
-- [ ] SQLite/IndexedDB 재시작 왕복이 모두 통과한다.
-- [ ] reorder/duplicate된 update 교환 후 peer state가 동일하다.
-- [ ] macOS bundle과 Android APK가 실제 target에서 시작된다.
-- [ ] Nix 외부 입력과 재현성 한계가 report에 기록된다.
-- [ ] 실패한 가정이 있다면 adapter 대안과 아키텍처 문서가 함께 갱신된다.
-- [ ] spike의 임시 protocol/domain 타입이 정식 API로 누출되지 않는다.
+- [x] native/Wasm state fixture hash가 동일하다.
+- [x] SQLite/IndexedDB 재시작 왕복이 모두 통과한다.
+- [x] reorder/duplicate된 update 교환 후 peer state가 동일하다.
+- [x] macOS bundle과 Android APK가 실제 target에서 시작된다.
+- [x] Nix 외부 입력과 재현성 한계가 report에 기록된다.
+- [x] 실패한 가정은 없으며 확인된 build adapter 제약을 문서와 flake에 반영했다.
+- [x] spike의 임시 protocol/domain 타입이 정식 API로 누출되지 않는다.
 
 ## 이 단계에서 하지 않는 것
 

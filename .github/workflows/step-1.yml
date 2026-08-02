@@ -1,0 +1,45 @@
+name: Step 1 gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fast-and-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - run: nix flake check --print-build-logs
+      - run: nix build .#core-native .#core-wasm .#web
+      - run: nix run .#spike-cross-runtime
+      - run: nix run .#spike-persistence
+      - run: nix run .#spike-sync
+
+  macos-bundle:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - run: scripts/check-macos-host.sh
+      - run: nix build .#macos-smoke
+      - run: test -x 'result/NeoSeq Step 1.app/Contents/MacOS/neoseq-client'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: neoseq-step1-macos
+          path: result/NeoSeq Step 1.app
+
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - run: nix build .#android-debug
+      - uses: actions/upload-artifact@v7
+        with:
+          name: neoseq-step1-android
+          path: result/*.apk
