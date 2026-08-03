@@ -1,168 +1,105 @@
 # Build, Delivery, and Verification Architecture
 
-## Reproducibility Boundary
+## Current Boundary
 
-The repository uses a Nix flake as the supported entry point for development,
-checks, and CI. `flake.lock`, `Cargo.lock`, and `pnpm-lock.yaml` pin the Nix
-inputs, Rust dependencies, and frontend dependencies respectively. Builds do not
-depend on developer shell profiles or globally installed package managers.
+Nix is the supported entry point for development, checks, and CI. `flake.lock`,
+`Cargo.lock`, and `pnpm-lock.yaml` pin tool and dependency resolution. Step 4
+ships only the static Web application and its Rust/Wasm core. Native shells,
+sync services, mobile SDKs, signing, and release provenance are introduced by
+the steps that actually use them.
 
-Nix reproducibility does not include secrets, Apple code-signing/notarization
-services, Google Play signing, physical devices, or Apple's redistributability-
-restricted Xcode/macOS SDK. Those are declared host inputs and pinned by CI
-image and documented version.
+## Source Boundaries
+
+Derivations consume explicit source sets instead of the repository root:
+
+- Cargo builds receive workspace manifests, crates, and core fixtures;
+- production Web builds receive frontend sources, manifests, and runtime
+  property definitions;
+- browser harnesses additionally receive Playwright/Vitest tests and golden
+  CorePort fixtures;
+- generated-contract drift receives only its schema, generator, and outputs;
+- dependency installation receives only pnpm workspace manifests and lockfile.
+
+Consequently an edit to `flake.nix`, documentation, native plans, or historical
+verification does not invalidate Cargo, Wasm, pnpm dependency, or Web source
+derivations. Nix still evaluates the changed flake and may recreate a tiny app
+wrapper when its value changes; it does not rebuild unrelated product inputs.
+
+Source revision and toolchain manifests are release provenance, not runtime
+inputs. They are deliberately absent at Step 4 so a metadata-only change cannot
+rebuild Wasm and every downstream Web artifact.
 
 ## Flake Outputs
 
-The flake exposes:
+- `packages.web`: the production static application;
+- `packages.core-wasm` and `wasm-bindings`: product Rust/Wasm adapter artifacts;
+- `packages.core-tools`: YAML scenario runner built with the Rust
+  `test-support` feature;
+- `packages.browser-harness`: one test-mode Web build reused by browser suites;
+- `apps.web-dev`: checkout-backed Vite server with Nix dependencies and Wasm;
+- `apps.web-preview`: serves the exact production package on port 4174;
+- focused Rust, IndexedDB, component, and Web E2E test apps;
+- `devShells.default`: Rust, Node/pnpm, Wasm binding, and core build tools;
+- `devShells.browser-test`: the default shell plus Playwright browsers.
 
-- `devShells.default`: Rust, Node/pnpm, Wasm, database/client, formatting, and
-  test tools for core and web work;
-- `devShells.android` with the JDK, Android SDK/NDK, Gradle, and Rust Android
-  targets;
-- `web-dev` app for the current checkout's Vite development server with HMR,
-  using Nix-provided Wasm bindings and, when `node_modules` is absent, frontend
-  dependencies;
-- `web-preview` app for locally serving the exact Nix-built production web
-  bundle on a default port distinct from `web-dev`, so both can run together;
-- packages for the native core, Wasm core/bindings, web static application,
-  sync spike server, unsigned macOS bundle, and Android debug APK;
-- apps for cross-runtime parity, persistence/reload, and reordered/duplicated
-  WebSocket synchronization spikes;
-- Step 2 apps for domain tests, reference-model tests, saved-seed convergence
-  tests, and the YAML-driven headless core scenario;
-- Step 3 apps for SQLite/IndexedDB conformance, native/Worker CorePort, and
-  cross-adapter recovery fault matrices;
-- a Darwin-only Android emulator smoke app that installs and starts the APK;
-- checks for Rust formatting, strict Clippy, tests, dependency policy,
-  generated-contract drift, web builds, and browser persistence. Browser
-  persistence is a sandboxed flake check on Linux and a devShell-hosted
-  Playwright check on Darwin because macOS blocks browser access to required
-  host services inside the Nix build sandbox.
+The Rust toolchain is the minimal profile with formatting, Clippy, and the
+`wasm32-unknown-unknown` target. Android targets, JDK, Gradle, Tauri, PostgreSQL,
+and release-only tools are not part of the normal development closure.
 
-Rust targets and components are pinned together. The Android shell supplies the
-JDK, Android command-line tools/SDK/NDK and explicit accepted license
-configuration. The macOS host check records the selected Xcode Command Line
-Tools, macOS SDK, and Clang and fails with a clear diagnostic when they are
-unavailable.
-
-## Workspace Build Graph
+## Build Graph
 
 ```text
-domain ───────────────┐
-query ────────────────┼─> graph-core ─┬─> platform-web -> Wasm -> web app
-sync-protocol ────────┘               └─> platform-native -> Tauri macOS/Android
-sync-protocol ───────────────────────────> sync-server -> server image
+domain ──> graph-core ──> platform-web ──> Wasm bindings ──> production Web
+   │             │                                  └──────> browser harness
+   └─────────────┴──> platform-native (headless SQLite tests)
+query (independent Step 5 foundation)
+pnpm manifests ──> dependency closure ──> Web/component/browser consumers
 ```
 
-Feature flags keep platform dependencies out of pure crates. Domain and query
-code must build and test for native targets and `wasm32-unknown-unknown`.
-Generated TypeScript contracts are build outputs checked for drift, not manually
-edited parallel definitions.
+The production Web bundle is built once. Browser persistence and product E2E
+checks copy and run the same test-mode harness instead of rebuilding Vite.
+Component tests reuse a dependency/source harness and do not depend on Wasm or
+a production build.
+
+## Product and Verification Modes
+
+Normal `vite build` emits only user routes, the real wall clock, and ordinary
+CorePort/adapter operations. `vite build --mode test` additionally enables the
+storage contract route, deterministic clock, and fault controls. The golden
+CorePort transcript is imported by this test-only chunk rather than copied to
+public assets.
+
+Playwright persistence tests select one corpus each, so persistence, Worker
+contract, and recovery cases do not rerun the full matrix in every test.
+
+## Checks and CI
+
+`nix flake check` is the single Step 4 CI command. It covers:
+
+- Rust formatting, strict Clippy, workspace tests, and dependency policy;
+- product Wasm and Web builds;
+- generated CorePort drift;
+- frontend component tests and bundle budgets;
+- on Linux, the focused IndexedDB contract and Web E2E suites.
+
+Darwin browser processes require host services unavailable in the Nix build
+sandbox, so browser apps run those same prebuilt harnesses on the host. CI does
+not repeat explicit builds already contained in the check graph, and does not
+build macOS/Android/sync spikes before their implementation steps.
 
 ## Developer Workflow
 
-The canonical commands are exposed through flake apps or a small task runner
-inside the Nix shell:
-
 ```text
 nix develop
+nix develop .#browser-test
 nix run .#web-dev
 nix run .#web-preview
 nix flake check
-nix build .#web
-nix build .#sync-server
-nix run .#test-domain
-nix run .#test-core-model
-nix run .#test-core-convergence
-nix run .#core-scenario -- fixtures/core/basic.yaml
-nix run .#test-persistence -- --adapter sqlite
-nix run .#test-persistence -- --adapter indexeddb
-nix run .#test-core-port -- --adapter native
-nix run .#test-core-port -- --adapter web-worker
-nix run .#test-recovery
-nix develop -c pnpm --filter @neoseq/client test:indexeddb # Darwin browser gate
+nix run .#test-indexeddb
+nix run .#test-client-components
+nix run .#test-e2e-web
 ```
 
-Platform package tasks wrap Tauri commands while still consuming pinned
-workspace artifacts. Later server steps will add the PostgreSQL integration
-stack and migrations.
-
-No build script downloads unpinned tools at execution time. Cargo and pnpm
-network resolution is separated from sandboxed builds and represented by lock
-files/hashes.
-
-## CI Stages
-
-1. **Fast checks:** formatting, Rust/TypeScript lint, unit tests, schema/codegen
-   drift, architecture validation.
-2. **Cross-runtime:** native and Wasm domain/query conformance plus browser
-   worker tests.
-3. **Integration:** PostgreSQL server tests and multi-client
-   synchronization/fault scenarios.
-4. **Platform smoke:** web production build, macOS unsigned bundle, Android
-   debug APK on matching platform runners.
-5. **Release:** signed/notarized macOS artifact, signed Android AAB, immutable
-   web assets, and server image/SBOM/provenance.
-
-Pure checks run on Linux where possible. macOS and Android packaging use
-dedicated runners because successful Nix evaluation is not proof that platform
-SDK packaging works.
-
-## Quality Gates
-
-- `cargo fmt`, strict Clippy policy, Rust tests, and public API documentation
-  checks;
-- frontend formatting, lint, typecheck, component tests, and bundle-size budget;
-- native/Wasm DTO and query golden parity;
-- randomized Loro convergence and persistence recovery tests;
-- server protocol, database migration, authorization, and load/backpressure
-  tests;
-- dependency license/advisory review, secret scan, SBOM, and pinned-source
-  checks;
-- rendered architecture link validation and the required sub-300-line limit for
-  each architecture document.
-
-Changes to a CRDT schema, well-known property definition, query-language
-version, `CorePort`, archive, or sync wire protocol require compatibility
-fixtures in the same change.
-
-## Configuration and Secrets
-
-Compile-time configuration is limited to public product metadata and protocol
-ranges. Server runtime configuration uses validated environment/file input;
-deployment secrets come from the platform secret store. Client credentials use
-OS secure storage on native platforms and secure, server-managed web sessions in
-the browser. `.env` files are development conveniences and are neither required
-nor committed.
-
-## Release Compatibility
-
-Artifacts embed application version, source revision, CRDT schema range,
-CorePort version, sync protocol range, query-language version, and build target.
-The server advertises minimum/supported client and schema ranges before
-accepting updates.
-
-Rollout order for a compatible change is server first, then clients. A breaking
-schema migration requires an explicit write gate and minimum-client rollout; an
-old client may export/read supported state but cannot write an incompatible
-graph.
-
-## Initial Technical Spikes
-
-Before feature implementation, CI proves the riskiest boundaries with disposable
-vertical slices:
-
-1. compile the pinned Rust Loro stack inside both native and Wasm graph-core
-   builds;
-2. edit and persist one graph in SQLite and IndexedDB, restart, and compare
-   state;
-3. synchronize two native/Wasm peers through the server with offline divergence;
-4. package the same UI/core as a macOS app and Android debug APK;
-5. exchange divergent updates between native and Wasm peers while a relay
-   duplicates and reorders frames, then compare semantic state hashes.
-
-Failure of a spike changes the relevant adapter, not the domain or `CorePort`
-boundary. Tauri prerequisites and platform packaging follow the official
-[Tauri prerequisite](https://v2.tauri.app/start/prerequisites/) and
-[distribution](https://v2.tauri.app/distribute/) guidance.
+No build script downloads unpinned tools during a sandboxed build. Production
+metadata added in the release step must be emitted beside artifacts, not linked
+into the Wasm runtime unless product behavior consumes it.

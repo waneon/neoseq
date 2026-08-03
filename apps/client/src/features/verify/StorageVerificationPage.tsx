@@ -1,31 +1,40 @@
-// Step 3 verification harness, kept on a dedicated route so the persistence,
-// CorePort, and recovery gates keep running against the production bundle.
+// Test-build-only verification harness. Production routing never imports it.
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   runIndexedDbFaultCorpus,
   runIndexedDbPersistenceCorpus,
   runWorkerCorePortCorpus,
-} from "../../step3-corpus";
+} from "../../storage-test-corpus";
 
 type State =
   | { status: "running" }
   | { status: "failed"; error: string }
-  | { status: "passed"; persistence: boolean; corePort: boolean; recovery: boolean };
+  | { status: "passed"; corpus: Corpus };
 
-export function Step3Page() {
+type Corpus = "persistence" | "core-port" | "recovery";
+
+const corpora = {
+  persistence: runIndexedDbPersistenceCorpus,
+  "core-port": runWorkerCorePortCorpus,
+  recovery: runIndexedDbFaultCorpus,
+} satisfies Record<Corpus, () => Promise<unknown>>;
+
+export function StorageVerificationPage() {
   const [state, setState] = useState<State>({ status: "running" });
+  const [searchParams] = useSearchParams();
+  const requested = searchParams.get("corpus");
+  const corpus: Corpus = requested === "core-port" || requested === "recovery"
+    ? requested
+    : "persistence";
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      runIndexedDbPersistenceCorpus(),
-      runWorkerCorePortCorpus(),
-      runIndexedDbFaultCorpus(),
-    ])
+    void corpora[corpus]()
       .then(() => {
         if (!cancelled) {
-          setState({ status: "passed", persistence: true, corePort: true, recovery: true });
+          setState({ status: "passed", corpus });
         }
       })
       .catch((error) => {
@@ -39,7 +48,7 @@ export function Step3Page() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [corpus]);
 
   return (
     <main className="picker">
@@ -51,11 +60,9 @@ export function Step3Page() {
           aria-live="polite"
           data-testid="result"
           data-status={state.status}
-          data-persistence={state.status === "passed" ? String(state.persistence) : "false"}
-          data-core-port={state.status === "passed" ? String(state.corePort) : "false"}
-          data-recovery={state.status === "passed" ? String(state.recovery) : "false"}
+          data-corpus={state.status === "passed" ? state.corpus : corpus}
         >
-          {state.status === "running" && <strong>Running persistence corpus…</strong>}
+          {state.status === "running" && <strong>Running {corpus} corpus…</strong>}
           {state.status === "failed" && <strong>Failed: {state.error}</strong>}
           {state.status === "passed" && <strong>Status passed</strong>}
         </section>

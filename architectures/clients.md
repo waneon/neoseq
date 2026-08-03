@@ -3,9 +3,9 @@
 ## Shared Application
 
 The client is a React and TypeScript single-page application bundled by Vite.
-The same components and interaction model run in the browser and Tauri 2
-webviews on macOS and Android. Responsive layout and capability detection
-replace platform forks; platform-specific code is isolated behind adapters.
+The current Step 4 application runs in the browser. Later Tauri shells reuse the
+same components and interaction model on macOS and Android; responsive layout
+and capability detection replace platform forks.
 
 React owns transient presentation state only: focus, selection, open panels,
 optimistic text composition, and viewport caches. Canonical block Markdown and
@@ -34,15 +34,15 @@ storage capabilities, saved/dirty state, bounded cursors, and stable timeout,
 schema, storage, and handle errors. Native and Worker suites consume one golden
 transcript.
 
-### Native Adapter
+### Native Adapter (headless parity only at Step 4)
 
-On macOS and Android, `CorePort` invokes Tauri commands implemented by
+In the later native clients, `CorePort` invokes Tauri commands implemented by
 `platform-native`. The graph runtime, SQLite repository, and sync transport run
 in the native Rust process. A bounded event channel forwards semantic events to
 the webview. Tauri capabilities allow only the explicit commands needed by the
 app.
 
-The Step 3 `NativeCorePort` owns a graph-handle map and one SQLite profile
+The current headless `NativeCorePort` owns a graph-handle map and one SQLite profile
 database. Opening replays verified records; clean close writes a checkpoint and
 compaction marker. This adapter is exercised headlessly before editor UI work.
 
@@ -55,7 +55,9 @@ WebSocket implementations satisfy core ports through thin Wasm-facing adapters.
 Keeping the runtime off the main thread protects typing, scrolling, and
 rendering latency.
 
-The Worker owns the Wasm core, IndexedDB transactions, pending unsaved bytes,
+The product Worker lazily initializes Wasm only for graph operations; graph
+listing and deletion use IndexedDB without paying Wasm startup cost. It owns
+the Wasm core, IndexedDB transactions, pending unsaved bytes,
 and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
 buffers transfer rather than clone. Opening a local locator creates no network
 transport.
@@ -69,6 +71,11 @@ display names are app-level bookkeeping in a small localStorage directory;
 canonical note data never lives there. A `GraphSession` on the main thread
 serializes commands, and after every command drains the event stream and
 re-reads the authoritative snapshot — the UI has no other state path.
+
+Production uses the wall clock and exposes no verification route or storage
+fault controls. A separate Vite `test` mode adds a lazily loaded verification
+page, deterministic time, and a `TestCoreWorker`; those symbols and the golden
+transcript are test-harness inputs rather than public assets.
 
 ## Editor State and Input
 
@@ -155,14 +162,14 @@ or failed schema migration is.
   Session shutdown is cancellation-safe, and peer IDs are never reused
   concurrently.
 
-### macOS
+### macOS (planned)
 
 - Window/menu/shortcut integration lives in Tauri-specific modules.
 - App suspension/quit requests a bounded core flush and shows unsaved failures.
 - Packaging, signing, notarization, and updater configuration are delivery
   concerns, not domain code.
 
-### Android
+### Android (planned)
 
 - Back navigation, soft keyboard, safe areas, sharing intents, and lifecycle
   events are adapter concerns.
@@ -211,9 +218,9 @@ navigation, not shared mutable stores.
 - Component tests use a fake `CorePort`; they do not instantiate Loro.
 - Contract suites run against both native and worker adapters and verify that
   well-known, repeated, and unknown properties round-trip without loss.
-- End-to-end suites cover IME, offline restart, reconnect/merge, deep outlines,
-  property-driven task/query controls, Android lifecycle, and macOS keyboard
-  navigation.
+- Current end-to-end suites cover the local Web product and offline restart.
+  Later suites add reconnect/merge, Android lifecycle, and macOS navigation as
+  those deployment units are implemented.
 
 Tauri 2 is selected because its maintained architecture supports web frontends
 with Rust commands and packaging for both

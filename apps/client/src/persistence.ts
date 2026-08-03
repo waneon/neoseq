@@ -1,13 +1,11 @@
 import type { CorePortErrorCode, GraphLocatorDto, StorageCapabilitiesDto } from "./generated/core-port";
 
 const DATABASE = "neoseq-local-v1";
-const VERSION = 1;
+const VERSION = 2;
 const STORES = {
   metadata: "metadata",
   updates: "updates",
   checkpoints: "checkpoints",
-  outbox: "outbox",
-  indexCache: "index_cache",
   quarantine: "quarantine",
 } as const;
 
@@ -66,7 +64,7 @@ export class IndexedDbGraphRepository {
 
   async openGraph(locator: GraphLocatorDto, now: string): Promise<MetadataRecord> {
     if (locator.location !== "local") {
-      throw new StorageError("invalid_request", "Step 3 opens local graphs only", false);
+      throw new StorageError("invalid_request", "only local graphs are supported", false);
     }
     const database = await openDatabase();
     const transaction = database.transaction(STORES.metadata, "readwrite");
@@ -114,25 +112,31 @@ export class IndexedDbGraphRepository {
     this.storageFault();
     if (this.takeFault("append_before")) throw new StorageError("dirty_unsaved", "append failed before commit", true);
     const digest = await checksum(payload);
-    const existing = (await this.updatesAfter(graphId, 0)).find((record) => record.checksum === digest);
-    if (existing) return { local_sequence: existing.local_sequence, checksum: digest };
     const database = await openDatabase();
-    const transaction = database.transaction([STORES.metadata, STORES.updates, STORES.outbox], "readwrite");
+    const transaction = database.transaction([STORES.metadata, STORES.updates], "readwrite");
     const metadataStore = transaction.objectStore(STORES.metadata);
+    const updateStore = transaction.objectStore(STORES.updates);
+    const existing = await request<UpdateRecord | undefined>(
+      updateStore.index("by_checksum").get([graphId, digest]),
+    );
+    if (existing) {
+      await complete(transaction);
+      database.close();
+      return { local_sequence: existing.local_sequence, checksum: digest };
+    }
     const metadata = await request<MetadataRecord | undefined>(metadataStore.get(graphId));
     if (!metadata) {
       transaction.abort();
       throw new StorageError("graph_not_open", "graph metadata not found", false);
     }
     const localSequence = metadata.next_sequence;
-    transaction.objectStore(STORES.updates).put({
+    updateStore.put({
       graph_id: graphId,
       local_sequence: localSequence,
       checksum: digest,
       payload,
       created_at: now,
     } satisfies UpdateRecord);
-    transaction.objectStore(STORES.outbox).put({ graph_id: graphId, local_sequence: localSequence, ready: true });
     metadataStore.put({ ...metadata, next_sequence: localSequence + 1, updated_at: now });
     if (this.takeFault("abort")) transaction.abort();
     await complete(transaction);
@@ -172,32 +176,18 @@ export class IndexedDbGraphRepository {
     return digest;
   }
 
-  async markCompacted(graphId: string, sequence: number): Promise<void> {
+  async compact(graphId: string, sequence: number): Promise<void> {
     const database = await openDatabase();
-    const transaction = database.transaction(STORES.metadata, "readwrite");
-    const store = transaction.objectStore(STORES.metadata);
-    const metadata = await request<MetadataRecord | undefined>(store.get(graphId));
-    if (!metadata) throw new StorageError("graph_not_open", "graph metadata not found", false);
-    store.put({ ...metadata, compacted_through: Math.max(metadata.compacted_through, sequence) });
-    await complete(transaction);
-    database.close();
-  }
-
-  async loadIndexCache(graphId: string, cacheKey: string): Promise<ArrayBuffer | undefined> {
-    const database = await openDatabase();
-    const transaction = database.transaction(STORES.indexCache, "readonly");
-    const value = await request<{ payload: ArrayBuffer } | undefined>(
-      transaction.objectStore(STORES.indexCache).get([graphId, cacheKey]),
+    const transaction = database.transaction(
+      [STORES.metadata, STORES.updates, STORES.checkpoints],
+      "readwrite",
     );
-    await complete(transaction);
-    database.close();
-    return value?.payload;
-  }
-
-  async storeIndexCache(graphId: string, cacheKey: string, payload: ArrayBuffer): Promise<void> {
-    const database = await openDatabase();
-    const transaction = database.transaction(STORES.indexCache, "readwrite");
-    transaction.objectStore(STORES.indexCache).put({ graph_id: graphId, cache_key: cacheKey, payload });
+    const metadataStore = transaction.objectStore(STORES.metadata);
+    const metadata = await request<MetadataRecord | undefined>(metadataStore.get(graphId));
+    if (!metadata) throw new StorageError("graph_not_open", "graph metadata not found", false);
+    metadataStore.put({ ...metadata, compacted_through: Math.max(metadata.compacted_through, sequence) });
+    await deleteSequences(transaction.objectStore(STORES.updates), graphId, (value) => value <= sequence);
+    await deleteSequences(transaction.objectStore(STORES.checkpoints), graphId, (value) => value < sequence);
     await complete(transaction);
     database.close();
   }
@@ -295,15 +285,26 @@ async function openDatabase(): Promise<IDBDatabase> {
     const open = indexedDB.open(DATABASE, VERSION);
     open.onupgradeneeded = () => {
       const database = open.result;
-      database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
-      for (const name of [STORES.updates, STORES.checkpoints, STORES.outbox]) {
-        const store = database.createObjectStore(name, { keyPath: ["graph_id", "local_sequence"] });
-        store.createIndex("by_graph", "graph_id", { unique: false });
+      const transaction = open.transaction;
+      if (!database.objectStoreNames.contains(STORES.metadata)) {
+        database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
       }
-      const indexCache = database.createObjectStore(STORES.indexCache, { keyPath: ["graph_id", "cache_key"] });
-      indexCache.createIndex("by_graph", "graph_id", { unique: false });
-      const quarantine = database.createObjectStore(STORES.quarantine, { keyPath: ["graph_id", "export_handle"] });
-      quarantine.createIndex("by_graph", "graph_id", { unique: false });
+      for (const name of [STORES.updates, STORES.checkpoints]) {
+        if (!database.objectStoreNames.contains(name)) {
+          const store = database.createObjectStore(name, { keyPath: ["graph_id", "local_sequence"] });
+          store.createIndex("by_graph", "graph_id", { unique: false });
+        }
+      }
+      if (!database.objectStoreNames.contains(STORES.quarantine)) {
+        const quarantine = database.createObjectStore(STORES.quarantine, { keyPath: ["graph_id", "export_handle"] });
+        quarantine.createIndex("by_graph", "graph_id", { unique: false });
+      }
+      if (database.objectStoreNames.contains("outbox")) database.deleteObjectStore("outbox");
+      if (database.objectStoreNames.contains("index_cache")) database.deleteObjectStore("index_cache");
+      const updates = transaction?.objectStore(STORES.updates);
+      if (updates && !updates.indexNames.contains("by_checksum")) {
+        updates.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
+      }
     };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(mapDomError(open.error));
@@ -317,6 +318,17 @@ async function allByGraph<T>(storeName: string, graphId: string): Promise<T[]> {
   await complete(transaction);
   database.close();
   return values;
+}
+
+async function deleteSequences(
+  store: IDBObjectStore,
+  graphId: string,
+  shouldDelete: (sequence: number) => boolean,
+): Promise<void> {
+  const keys = await request<IDBValidKey[]>(store.index("by_graph").getAllKeys(graphId));
+  for (const key of keys) {
+    if (Array.isArray(key) && shouldDelete(Number(key[1]))) store.delete(key);
+  }
 }
 
 function request<T>(value: IDBRequest<T>): Promise<T> {

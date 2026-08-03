@@ -12,6 +12,11 @@ property. Users can query blocks and pages with a safe declarative language.
 This document is the architectural source of truth. Component-level detail lives
 under [`architectures/`](architectures/).
 
+The implemented Step 4 boundary is the local Web client, shared domain/core,
+Wasm adapter, IndexedDB repository, and a headless SQLite parity adapter. Native
+application shells, remote synchronization, and release provenance shown below
+are target architecture for later steps and are not current build artifacts.
+
 ## Architectural Drivers
 
 - The product must work offline and support local-only graphs.
@@ -70,7 +75,7 @@ agent.
   adapters. It contains no domain decisions.
 - `app-ui` owns editing interaction, navigation, and responsive presentation. It
   does not hold canonical graph state.
-- `sync-server` owns authentication boundaries, graph authorization, durable
+- The future `sync-server` owns authentication boundaries, graph authorization, durable
   update relay, and compaction. It does not interpret notes or execute queries.
 
 Detailed contracts are in:
@@ -151,14 +156,13 @@ step 3 succeeds. Network failure never blocks local editing.
 
 ## Deployment Units
 
-- **Web client:** static assets, Web Worker-hosted Rust/Wasm core, IndexedDB
-  repository, Web Locks-enforced single-tab editing per graph, and WebSocket
-  sync transport.
-- **macOS client:** Tauri application, in-process Rust core, SQLite repository,
+- **Web client (current):** static assets, Web Worker-hosted Rust/Wasm core,
+  IndexedDB repository, and Web Locks-enforced single-tab editing per graph.
+- **macOS client (planned):** Tauri application, in-process Rust core, SQLite repository,
   and native WebSocket transport.
-- **Android client:** Tauri application with the same frontend and Rust core,
+- **Android client (planned):** Tauri application with the same frontend and Rust core,
   SQLite repository, and platform lifecycle integration.
-- **Sync service:** stateless HTTP/WebSocket Rust processes backed by
+- **Sync service (planned):** stateless HTTP/WebSocket Rust processes backed by
   PostgreSQL; graph rooms are disposable caches reconstructed from checkpoints
   and updates.
 
@@ -184,12 +188,10 @@ crates/
   domain/             # Pure domain model and commands
   graph-core/         # Loro-backed runtime and application services
   query/              # Parser, planner, indexes, executor
-  platform-native/    # SQLite, native transport, Tauri bridge
-  platform-web/       # wasm-bindgen, IndexedDB and browser transport ports
-  sync-protocol/      # Shared, versioned wire messages
-  sync-server/        # HTTP/WebSocket service and PostgreSQL adapters
+  platform-native/    # Headless SQLite and native CorePort parity adapter
+  platform-web/       # Product wasm-bindgen graph-core adapter
 apps/
-  client/             # React/TypeScript UI and Tauri shell
+  client/             # React/TypeScript Web UI, Worker, and IndexedDB adapter
 architectures/        # Component architecture documents
 steps/                # Verifiable, staged implementation plan
 flake.nix
@@ -200,8 +202,8 @@ pnpm-lock.yaml
 ```
 
 Dependencies point inward: platform and delivery crates depend on application
-and domain crates, never the reverse. `sync-protocol` contains transport types
-only and does not expose server persistence models.
+and domain crates, never the reverse. The future sync protocol will contain
+transport types only and will not expose server persistence models.
 
 ## Evolution Rules
 

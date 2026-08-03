@@ -143,13 +143,14 @@ groups its operations for local undo and emits an exported binary update. Undo
 only tracks local command groups; imported remote changes are never undone by
 another user's local undo action.
 
-The Step 2 implementation expresses the actor boundary as the single-owner
+The implementation expresses the actor boundary as the single-owner
 `GraphRuntime<R, C>` message loop. Its mutable receiver serializes execute,
 remote import, snapshot read, and subscription work on native and Wasm without
 exposing a lock or Loro container. The generic repository and clock ports have
-deterministic in-memory adapters; durable adapters are added in Step 3.
+deterministic in-memory adapters; durable runtimes use the platform persistence
+boundary.
 
-Step 3 adds a pending-write state. A command mutates the owned CRDT, but its
+Durable runtimes add a pending-write state. A command mutates the owned CRDT, but its
 semantic and `SavedLocally` events are withheld until append commits. On failure
 the exact bytes and event metadata remain in memory; another mutation and clean
 close are rejected until retry succeeds. After-commit retries are idempotent at

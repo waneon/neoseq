@@ -33,8 +33,56 @@ function shellServiceWorker(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), shellServiceWorker()],
+function testRoutes(mode: string): Plugin {
+  const virtualId = "virtual:neoseq-test-routes";
+  const resolvedId = `\0${virtualId}`;
+  const implementation = fileURLToPath(new URL("./src/app/test-routes.tsx", import.meta.url));
+  return {
+    name: "neoseq-test-routes",
+    resolveId(id) {
+      if (id === virtualId) return resolvedId;
+      if (id === implementation) return implementation;
+      return undefined;
+    },
+    load(id) {
+      if (id !== resolvedId) return undefined;
+      return mode === "test"
+        ? `export { testRoutes } from ${JSON.stringify(implementation)};`
+        : "export const testRoutes = [];";
+    },
+  };
+}
+
+function workerFactory(mode: string): Plugin {
+  const virtualId = "virtual:neoseq-worker-factory";
+  const resolvedId = `\0${virtualId}`;
+  const productionWorker = fileURLToPath(new URL("./src/core-worker.ts", import.meta.url));
+  const testWorker = fileURLToPath(new URL("./src/test-core-worker.ts", import.meta.url));
+  return {
+    name: "neoseq-worker-factory",
+    resolveId(id) {
+      if (id === virtualId) return resolvedId;
+      if (id === productionWorker || id === testWorker) return id;
+      return undefined;
+    },
+    load(id) {
+      if (id !== resolvedId) return undefined;
+      return mode === "test"
+        ? `import { TestCoreWorker } from ${JSON.stringify(testWorker)};
+           export const createCoreWorker = () => new TestCoreWorker();
+           export const injectStorageFault = (worker, graphHandle, fault) =>
+             worker.injectFault(graphHandle, fault);
+           export const clearTestHook = () => { delete window.__neoseqTest; };`
+        : `import { CoreWorker } from ${JSON.stringify(productionWorker)};
+           export const createCoreWorker = () => new CoreWorker();
+           export const injectStorageFault = undefined;
+           export const clearTestHook = () => {};`;
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => ({
+  plugins: [testRoutes(mode), workerFactory(mode), react(), tailwindcss(), shellServiceWorker()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -45,11 +93,8 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 4173,
     strictPort: true,
-    watch: {
-      ignored: ["**/src-tauri/**"],
-    },
   },
   worker: {
     format: "es",
   },
-});
+}));

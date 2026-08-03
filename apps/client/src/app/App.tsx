@@ -1,16 +1,16 @@
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
+import { testRoutes } from "virtual:neoseq-test-routes";
 import { GraphPicker } from "../features/graphs/GraphPicker";
 import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
 import { PageView } from "../features/page/PageView";
 import { SettingsView } from "../features/settings/SettingsView";
-import { Step3Page } from "../features/verify/Step3Page";
 
 // Hash routing keeps the production bundle deployable on any static file
 // server without rewrite rules; page identity is the stable PageId.
 const router = createHashRouter([
   { path: "/", element: <GraphPicker /> },
-  { path: "/verify/step-3", element: <Step3Page /> },
+  ...testRoutes,
   {
     path: "/g/:graphId",
     element: <GraphShell />,

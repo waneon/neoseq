@@ -34,26 +34,34 @@ interface OpenState {
   pending?: PendingWrite;
 }
 
-const ready = init();
+let wasmReady: Promise<unknown> | undefined;
 const states = new Map<string, OpenState>();
-let tick = 0;
+let testTick = 0;
+
+function ensureWasm(): Promise<unknown> {
+  wasmReady ??= init();
+  return wasmReady;
+}
 
 self.onmessage = async (event: MessageEvent<Message>) => {
   const { id, operation, payload } = event.data;
   try {
-    await ready;
     let value: unknown;
-    switch (operation) {
-      case "open_graph": value = await openGraph(payload as OpenGraphRequest); break;
-      case "execute": value = await execute(payload as ExecuteRequest); break;
-      case "read": value = read(payload as ReadRequest); break;
-      case "subscribe": value = subscribe(payload as SubscribeRequest); break;
-      case "close_graph": value = await closeGraph(payload as CloseGraphRequest); break;
-      case "retry_pending": value = await retryPending(payload as { graph_handle: string }); break;
-      case "list_graphs": value = await new IndexedDbGraphRepository().allMetadata(); break;
-      case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
-      case "test_control": value = await testControl(payload as Record<string, unknown>); break;
-      default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
+    if (import.meta.env.MODE === "test" && operation === "test_control") {
+      await ensureWasm();
+      value = await testControl(payload as Record<string, unknown>);
+    } else {
+      switch (operation) {
+        case "open_graph": await ensureWasm(); value = await openGraph(payload as OpenGraphRequest); break;
+        case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest); break;
+        case "read": await ensureWasm(); value = read(payload as ReadRequest); break;
+        case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
+        case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
+        case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
+        case "list_graphs": value = await new IndexedDbGraphRepository().allMetadata(); break;
+        case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
+        default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
+      }
     }
     if (value instanceof ArrayBuffer) {
       self.postMessage({ id, ok: true, value }, { transfer: [value] });
@@ -70,7 +78,7 @@ async function openGraph(request: OpenGraphRequest) {
     throw failure("unsupported_contract", "unsupported CorePort contract version", false);
   }
   if (request.locator.location !== "local") {
-    throw failure("invalid_request", "Step 3 opens local graph locators only", false);
+    throw failure("invalid_request", "only local graph locators are supported", false);
   }
   const handle = `local:${request.locator.graph_id}`;
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
@@ -225,7 +233,7 @@ async function closeGraph(request: CloseGraphRequest) {
   const metadata = await state.repository.metadata(state.graphId);
   const through = metadata.next_sequence - 1;
   await state.repository.saveCheckpoint(state.graphId, ownedBuffer(state.core.exportSnapshot()), through, now());
-  await state.repository.markCompacted(state.graphId, through);
+  await state.repository.compact(state.graphId, through);
   states.delete(request.graph_handle);
   return { closed: true };
 }
@@ -257,11 +265,6 @@ async function testControl(payload: Record<string, unknown>) {
     case "corrupt_update": return repository.corruptUpdate(String(payload.graph_id), Number(payload.sequence)).then(() => null);
     case "quarantine_count": return (await repository.quarantined(String(payload.graph_id))).length;
     case "export_quarantine": return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
-    case "index_cache": {
-      const bytes = new Uint8Array([1, 2, 3, 4]).buffer;
-      await repository.storeIndexCache(String(payload.graph_id), "step3", bytes);
-      return (await repository.loadIndexCache(String(payload.graph_id), "step3"))?.byteLength ?? 0;
-    }
     case "set_schema": return repository.setSchemaVersion(String(payload.graph_id), Number(payload.schema_version)).then(() => null);
     case "delete_local": return repository.deleteLocal(String(payload.graph_id)).then(() => null);
     default: throw failure("invalid_request", "unknown test control action", false);
@@ -276,7 +279,7 @@ function requireState(handle: string): OpenState {
 
 function push(state: OpenState, source: "local" | "remote", kind: Record<string, unknown>) {
   state.events.push({ cursor: state.nextCursor++, source, kind });
-  while (state.events.length > 4) state.events.shift();
+  while (state.events.length > 64) state.events.shift();
 }
 
 function failure(code: CorePortError["code"], message: string, retryable: boolean): CorePortError {
@@ -298,5 +301,8 @@ function ownedBuffer(value: Uint8Array): ArrayBuffer {
 }
 
 function now(): string {
-  return `2026-08-03T13:00:${String(tick++ % 60).padStart(2, "0")}Z`;
+  if (import.meta.env.MODE === "test") {
+    return `2026-08-03T13:00:${String(testTick++ % 60).padStart(2, "0")}Z`;
+  }
+  return new Date().toISOString();
 }

@@ -1,6 +1,8 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
-import { CorePortFailure, CoreWorker } from "./core-worker";
+import golden from "../../../fixtures/core-port/v1.json";
+import { CorePortFailure } from "./core-worker";
+import { TestCoreWorker } from "./test-core-worker";
 
 interface Snapshot {
   schema_version: number;
@@ -45,7 +47,7 @@ async function expectCode(action: Promise<unknown>, code: string): Promise<void>
 
 export async function runIndexedDbPersistenceCorpus() {
   const graph = graphId("indexeddb-corpus");
-  const creator = new CoreWorker();
+  const creator = new TestCoreWorker();
   const opened = await creator.openGraph(openRequest(graph, 201));
   assert(opened.snapshot && opened.capabilities.durable, "open must expose durable storage capability");
   const saved = await creator.execute({
@@ -56,26 +58,24 @@ export async function runIndexedDbPersistenceCorpus() {
   assert(saved.save_status.status === "saved_locally", "execute must acknowledge local durability");
   assert(saved.save_status.checksum.length === 64, "saved update checksum must be SHA-256");
   const before = await creator.read({ graph_handle: opened.graph_handle });
-  assert(await creator.roundTripIndexCache(graph) === 4, "IndexedDB index cache did not round-trip");
   await creator.closeGraph({ graph_handle: opened.graph_handle });
   creator.terminate();
 
-  const restorer = new CoreWorker();
+  const restorer = new TestCoreWorker();
   const reopened = await restorer.openGraph(openRequest(graph, 202));
   assert(JSON.stringify(reopened.snapshot) === JSON.stringify(before.snapshot), "worker restart changed the canonical snapshot");
   assert(reopened.recovery.checkpoint_sequence === 1, "close checkpoint was not selected on reopen");
   await restorer.closeGraph({ graph_handle: reopened.graph_handle });
-  await restorer.deleteLocal(graph);
+  await restorer.deleteGraph(graph);
   restorer.terminate();
   return { graph, local_sequence: saved.save_status.status === "saved_locally" ? saved.save_status.local_sequence : 0 };
 }
 
 export async function runWorkerCorePortCorpus() {
-  const golden = await fetch("/core-port-v1.json").then((response) => response.json());
   assert(golden.contract_version === CORE_PORT_VERSION, "golden contract version mismatch");
   assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "subscribe", "close_graph"]), "golden operations changed");
   const graph = graphId("worker-port");
-  const worker = new CoreWorker();
+  const worker = new TestCoreWorker();
   await expectCode(worker.read({ graph_handle: "missing" }), "graph_not_open");
   const unsupported = openRequest(graph, 211);
   unsupported.contract_version += 1;
@@ -99,7 +99,7 @@ export async function runWorkerCorePortCorpus() {
     command: ensurePage(graph, "timeout", "timeout"),
     timeout_ms: 0,
   }), golden.transcript.timeout_error);
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < 33; index += 1) {
     await worker.execute({
       graph_handle: opened.graph_handle,
       command: ensurePage(graph, `overflow-${index}`, `overflow-${index}`),
@@ -109,14 +109,14 @@ export async function runWorkerCorePortCorpus() {
   const overflow = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
   assert(overflow.resync_required && overflow.events.length === 0, "subscription overflow did not request resync");
   await worker.closeGraph({ graph_handle: opened.graph_handle });
-  await worker.deleteLocal(graph);
+  await worker.deleteGraph(graph);
   worker.terminate();
   return { operations: golden.operations.length, errors: golden.error_codes.length };
 }
 
 export async function runIndexedDbFaultCorpus() {
   const afterGraph = graphId("append-after");
-  const after = new CoreWorker();
+  const after = new TestCoreWorker();
   const afterOpen = await after.openGraph(openRequest(afterGraph, 221));
   await after.injectFault(afterOpen.graph_handle, "append_after");
   await expectCode(after.execute({
@@ -125,15 +125,15 @@ export async function runIndexedDbFaultCorpus() {
     timeout_ms: 1_000,
   }), "dirty_unsaved");
   after.terminate();
-  const afterRecovery = new CoreWorker();
+  const afterRecovery = new TestCoreWorker();
   const recovered = await afterRecovery.openGraph(openRequest(afterGraph, 222));
   assert((recovered.snapshot as Snapshot).pages.length === 1, "after-commit process kill lost durable update");
   await afterRecovery.closeGraph({ graph_handle: recovered.graph_handle });
-  await afterRecovery.deleteLocal(afterGraph);
+  await afterRecovery.deleteGraph(afterGraph);
   afterRecovery.terminate();
 
   const corruptGraph = graphId("corrupt-tail");
-  const corruptWriter = new CoreWorker();
+  const corruptWriter = new TestCoreWorker();
   const corruptOpen = await corruptWriter.openGraph(openRequest(corruptGraph, 231));
   await corruptWriter.execute({
     graph_handle: corruptOpen.graph_handle,
@@ -141,7 +141,7 @@ export async function runIndexedDbFaultCorpus() {
     timeout_ms: 1_000,
   });
   corruptWriter.terminate();
-  const corruptRecovery = new CoreWorker();
+  const corruptRecovery = new TestCoreWorker();
   await corruptRecovery.corruptUpdate(corruptGraph, 1);
   const recoveredCorrupt = await corruptRecovery.openGraph(openRequest(corruptGraph, 232));
   assert(recoveredCorrupt.recovery.quarantined_records[0] === "update-1", "corrupt update was not quarantined");
@@ -154,11 +154,11 @@ export async function runIndexedDbFaultCorpus() {
     timeout_ms: 1_000,
   });
   await corruptRecovery.closeGraph({ graph_handle: recoveredCorrupt.graph_handle });
-  await corruptRecovery.deleteLocal(corruptGraph);
+  await corruptRecovery.deleteGraph(corruptGraph);
   corruptRecovery.terminate();
 
   const abortGraph = graphId("abort-quota");
-  const abortWorker = new CoreWorker();
+  const abortWorker = new TestCoreWorker();
   const abortOpen = await abortWorker.openGraph(openRequest(abortGraph, 241));
   await abortWorker.injectFault(abortOpen.graph_handle, "quota");
   await expectCode(abortWorker.execute({
@@ -167,10 +167,13 @@ export async function runIndexedDbFaultCorpus() {
     timeout_ms: 1_000,
   }), "storage_full");
   await expectCode(abortWorker.closeGraph({ graph_handle: abortOpen.graph_handle }), "dirty_unsaved");
+  await abortWorker.retryPending(abortOpen.graph_handle);
+  await abortWorker.closeGraph({ graph_handle: abortOpen.graph_handle });
+  await abortWorker.deleteGraph(abortGraph);
   abortWorker.terminate();
 
   const transactionGraph = graphId("transaction-abort");
-  const transactionWorker = new CoreWorker();
+  const transactionWorker = new TestCoreWorker();
   const transactionOpen = await transactionWorker.openGraph(openRequest(transactionGraph, 245));
   await transactionWorker.injectFault(transactionOpen.graph_handle, "abort");
   await expectCode(transactionWorker.execute({
@@ -180,11 +183,11 @@ export async function runIndexedDbFaultCorpus() {
   }), "dirty_unsaved");
   await transactionWorker.retryPending(transactionOpen.graph_handle);
   await transactionWorker.closeGraph({ graph_handle: transactionOpen.graph_handle });
-  await transactionWorker.deleteLocal(transactionGraph);
+  await transactionWorker.deleteGraph(transactionGraph);
   transactionWorker.terminate();
 
   const checkpointGraph = graphId("checkpoint-fault");
-  const checkpoint = new CoreWorker();
+  const checkpoint = new TestCoreWorker();
   const checkpointOpen = await checkpoint.openGraph(openRequest(checkpointGraph, 251));
   await checkpoint.execute({
     graph_handle: checkpointOpen.graph_handle,
@@ -196,16 +199,16 @@ export async function runIndexedDbFaultCorpus() {
   await checkpoint.injectFault(checkpointOpen.graph_handle, "checkpoint_after");
   await expectCode(checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle }), "internal");
   await checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle });
-  await checkpoint.deleteLocal(checkpointGraph);
+  await checkpoint.deleteGraph(checkpointGraph);
   checkpoint.terminate();
 
   const schemaGraph = graphId("unsupported-schema");
-  const schemaWriter = new CoreWorker();
+  const schemaWriter = new TestCoreWorker();
   const schemaOpen = await schemaWriter.openGraph(openRequest(schemaGraph, 261));
   await schemaWriter.closeGraph({ graph_handle: schemaOpen.graph_handle });
   await schemaWriter.setSchemaVersion(schemaGraph, 2);
   await expectCode(schemaWriter.openGraph(openRequest(schemaGraph, 262)), "unsupported_schema");
-  await schemaWriter.deleteLocal(schemaGraph);
+  await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();
   return { append_after_recovered: true, corrupt_quarantined: true, quota_typed: true, transaction_abort: true, checkpoint_phases: true, unsupported_schema: true };
 }

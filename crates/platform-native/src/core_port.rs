@@ -49,7 +49,7 @@ impl NativeCorePort {
         if !matches!(request.locator.location, GraphLocationDto::Local) {
             return Err(port_error(
                 CorePortErrorCode::InvalidRequest,
-                "Step 3 opens local graph locators only",
+                "only local graph locators are supported",
                 false,
             ));
         }

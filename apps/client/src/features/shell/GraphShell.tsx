@@ -11,7 +11,11 @@ import {
   SettingsIcon,
   Undo2Icon,
 } from "lucide-react";
-import { CoreWorker } from "../../core-worker";
+import {
+  clearTestHook,
+  createCoreWorker,
+  injectStorageFault,
+} from "virtual:neoseq-worker-factory";
 import { GraphSession } from "../../core-port/session";
 import { graphName } from "../../core-port/directory";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
@@ -36,20 +40,30 @@ export function GraphShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const worker = new CoreWorker();
-    const created = new GraphSession(graphId, worker);
-    setSession(created);
-    void created.open();
-    // Test-only hook used by the E2E storage-failure scenario; it reaches
-    // the Worker's fault injection without exposing storage to the UI.
-    window.__neoseqTest = {
-      injectStorageFault: (fault: string) =>
-        worker.injectFault(`local:${graphId}`, fault as never),
-    };
+    let cancelled = false;
+    let created: GraphSession | undefined;
+    void (async () => {
+      const worker = createCoreWorker();
+      if (cancelled) {
+        worker.terminate();
+        return;
+      }
+      created = new GraphSession(graphId, worker);
+      setSession(created);
+      void created.open();
+      const faultInjector = injectStorageFault;
+      if (faultInjector) {
+        window.__neoseqTest = {
+          injectStorageFault: (fault: string) =>
+            faultInjector(worker, `local:${graphId}`, fault),
+        };
+      }
+    })();
     return () => {
-      delete window.__neoseqTest;
+      cancelled = true;
+      clearTestHook();
       setSession(null);
-      void created.close();
+      void created?.close();
     };
   }, [graphId]);
 

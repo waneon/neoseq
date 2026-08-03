@@ -1,6 +1,10 @@
 # Remote Synchronization Server Architecture
 
-## Responsibilities
+## Status and Responsibilities
+
+This is the Step 6 target architecture. There is no sync server or wire-protocol
+crate in the Step 4 workspace; the disposable feasibility relay was removed so
+it cannot be mistaken for a production service.
 
 The server makes a remote graph available to authorized replicas. It owns:
 
@@ -139,7 +143,8 @@ reconstruction time.
 
 ## Verification
 
-- Protocol conformance tests run against the shared `sync-protocol` crate.
+- Protocol conformance tests will run against the shared `sync-protocol` crate
+  introduced with the service.
 - Multi-peer tests reorder, duplicate, drop, and reconnect update streams and
   assert convergence.
 - Authorization tests cover revocation during live sessions and graph isolation.

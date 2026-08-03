@@ -22,7 +22,7 @@ export default defineConfig({
     {
       name: "mobile-chromium",
       use: { ...devices["Pixel 7"] },
-      // The Step 3 persistence corpus is a contract suite, not a product
+      // The persistence corpus is a contract suite, not a product
       // scenario; one engine run keeps its gate unchanged.
       testIgnore: /persistence\.spec\.ts/,
     },

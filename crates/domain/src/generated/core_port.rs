@@ -5,18 +5,6 @@ use serde_json::Value;
 pub const CORE_PORT_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct PingRequest {
-    pub client_version: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct PingResponse {
-    pub contract_version: u32,
-    pub core_version: String,
-    pub echo: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphLocationDto {
     Local,

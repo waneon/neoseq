@@ -140,8 +140,7 @@ load latest checkpoint
 stream update records after checkpoint
 append update atomically
 save checkpoint atomically
-mark update prefix compacted
-store/load derived-index cache
+compact an update prefix after a durable checkpoint
 delete local replica explicitly
 ```
 
@@ -150,11 +149,11 @@ and optional remote acknowledgement metadata. The Loro version vector/frontiers
 remain the synchronization truth; repository sequences only address local
 records.
 
-The Step 3 `LocalGraphRepository` fixes these DTOs and operations in
+`LocalGraphRepository` fixes these DTOs and operations in
 `graph-core`. SHA-256 covers the exact stored bytes. Append returns the assigned
 local sequence and checksum; identical bytes are idempotent so an adapter can
 report an after-commit failure and safely retry. Graph locators distinguish
-local and remote metadata, but Step 3 rejects remote opens.
+local and remote metadata, while the current local Web boundary rejects remote opens.
 
 ### Native Storage
 
@@ -177,7 +176,12 @@ atomically append an update and advance local metadata. Storage
 quota/persistence status is surfaced to the UI. A Service Worker caches
 application assets, but never acts as the graph's sole persistence layer.
 
-IndexedDB version 1 mirrors the six logical SQLite collections. The Worker owns
+IndexedDB version 2 stores metadata, updates, checkpoints, and quarantine
+records. Upgrade removes the obsolete feasibility outbox and derived-index cache
+stores. A unique `(graph_id, checksum)` index makes update retry idempotence an
+indexed lookup instead of an O(n) payload scan. Clean close writes a checkpoint,
+deletes the included update prefix and older checkpoints, and advances the
+compaction marker in one transaction. The Worker owns
 both Wasm core and repository, so update/checkpoint buffers normally never
 cross the main-thread boundary. Binary diagnostic exports use transferable
 `ArrayBuffer`s. Browser persistence and quota estimates populate the storage

@@ -12,7 +12,7 @@ import type {
   SubscribeRequest,
   SubscribeResponse,
 } from "./generated/core-port";
-import type { FaultPoint, MetadataRecord } from "./persistence";
+import type { MetadataRecord } from "./persistence";
 
 export type GraphMetadata = Pick<
   MetadataRecord,
@@ -40,7 +40,7 @@ export class CorePortFailure extends Error {
 
 export class CoreWorker implements CorePort {
   private nextId = 1;
-  private readonly worker = new Worker(new URL("./spike-worker.ts", import.meta.url), {
+  private readonly worker = new Worker(new URL("./graph-worker.ts", import.meta.url), {
     type: "module",
   });
 
@@ -76,39 +76,11 @@ export class CoreWorker implements CorePort {
     return this.request("delete_graph", { graph_id: graphId });
   }
 
-  injectFault(graphHandle: string, fault: FaultPoint): Promise<void> {
-    return this.request("test_control", { action: "inject", graph_handle: graphHandle, fault });
-  }
-
-  corruptUpdate(graphId: string, sequence: number): Promise<void> {
-    return this.request("test_control", { action: "corrupt_update", graph_id: graphId, sequence });
-  }
-
-  quarantineCount(graphId: string): Promise<number> {
-    return this.request("test_control", { action: "quarantine_count", graph_id: graphId });
-  }
-
-  exportQuarantine(graphId: string, exportHandle: string): Promise<ArrayBuffer> {
-    return this.request("test_control", { action: "export_quarantine", graph_id: graphId, export_handle: exportHandle });
-  }
-
-  roundTripIndexCache(graphId: string): Promise<number> {
-    return this.request("test_control", { action: "index_cache", graph_id: graphId });
-  }
-
-  setSchemaVersion(graphId: string, schemaVersion: number): Promise<void> {
-    return this.request("test_control", { action: "set_schema", graph_id: graphId, schema_version: schemaVersion });
-  }
-
-  deleteLocal(graphId: string): Promise<void> {
-    return this.request("test_control", { action: "delete_local", graph_id: graphId });
-  }
-
   terminate(): void {
     this.worker.terminate();
   }
 
-  private request<T>(operation: string, payload: unknown): Promise<T> {
+  protected request<T>(operation: string, payload: unknown): Promise<T> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const workerError = (event: ErrorEvent) => {
