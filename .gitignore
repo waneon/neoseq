@@ -1,7 +1,7 @@
 /target/
 /result
 /result-*
-**/node_modules/
+**/node_modules
 /apps/client/dist/
 /apps/client/.vite/
 /apps/client/src/wasm/
