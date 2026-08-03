@@ -149,6 +149,12 @@ remote import, snapshot read, and subscription work on native and Wasm without
 exposing a lock or Loro container. The generic repository and clock ports have
 deterministic in-memory adapters; durable adapters are added in Step 3.
 
+Step 3 adds a pending-write state. A command mutates the owned CRDT, but its
+semantic and `SavedLocally` events are withheld until append commits. On failure
+the exact bytes and event metadata remain in memory; another mutation and clean
+close are rejected until retry succeeds. After-commit retries are idempotent at
+the repository checksum boundary.
+
 ## Read and Event Model
 
 Callers receive immutable DTOs:
@@ -170,9 +176,9 @@ types remain private to `graph-core`.
 ## Failure Semantics
 
 - Validation failure leaves the document unchanged.
-- Step 2 uses the infallible in-memory repository. The Step 3 durable runtime
-  will enter `dirty-unsaved` after an append failure, retain and retry the exact
-  exported bytes, and block graph close without an explicit user decision.
+- The durable runtime enters `dirty-unsaved` after an append failure, retains
+  and retries the exact exported bytes, and blocks graph close until durability
+  succeeds or a future explicit discard workflow is selected.
 - Invalid remote bytes are quarantined and reported; the last valid local state
   remains usable.
 - A future unsupported schema opens read-only to permit export, never silent

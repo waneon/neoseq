@@ -9,6 +9,8 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+domain = { path = "../domain" }
 graph-core = { path = "../graph-core" }
 js-sys = "=0.3.98"
+serde_json.workspace = true
 wasm-bindgen.workspace = true

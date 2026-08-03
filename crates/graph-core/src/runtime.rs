@@ -1,4 +1,4 @@
-use crate::{CoreError, GraphCore};
+use crate::{AppendReceipt, CoreError, GraphCore, checksum};
 use domain::{CommandEnvelope, CommandResult, GraphId, GraphSnapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -14,7 +14,14 @@ pub enum EventSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GraphEventKind {
-    Semantic { name: String, command_id: String },
+    Semantic {
+        name: String,
+        command_id: String,
+    },
+    SavedLocally {
+        local_sequence: u64,
+        checksum: String,
+    },
     RemoteImported,
 }
 
@@ -38,18 +45,23 @@ pub enum EventBatch {
     },
 }
 
-pub trait GraphRepository {
-    type Error: std::error::Error + Send + Sync + 'static;
-    fn append_update(&mut self, update: Vec<u8>) -> Result<(), Self::Error>;
+pub use crate::persistence::GraphRepository;
+
+#[derive(Debug, Clone)]
+pub struct InMemoryUpdate {
+    pub local_sequence: u64,
+    pub checksum: String,
+    pub bytes: Vec<u8>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Default)]
 pub struct InMemoryRepository {
-    updates: Vec<Vec<u8>>,
+    updates: Vec<InMemoryUpdate>,
 }
 
 impl InMemoryRepository {
-    pub fn updates(&self) -> &[Vec<u8>] {
+    pub fn updates(&self) -> &[InMemoryUpdate] {
         &self.updates
     }
 }
@@ -60,11 +72,29 @@ pub struct InMemoryRepositoryError;
 
 impl GraphRepository for InMemoryRepository {
     type Error = InMemoryRepositoryError;
-    fn append_update(&mut self, update: Vec<u8>) -> Result<(), Self::Error> {
-        if !update.is_empty() {
-            self.updates.push(update);
+    fn append_update(
+        &mut self,
+        update: &[u8],
+        created_at: &str,
+    ) -> Result<AppendReceipt, Self::Error> {
+        let digest = checksum(update);
+        if let Some(existing) = self.updates.iter().find(|record| record.checksum == digest) {
+            return Ok(AppendReceipt {
+                local_sequence: existing.local_sequence,
+                checksum: digest,
+            });
         }
-        Ok(())
+        let local_sequence = self.updates.len() as u64 + 1;
+        self.updates.push(InMemoryUpdate {
+            local_sequence,
+            checksum: digest.clone(),
+            bytes: update.to_vec(),
+            created_at: created_at.to_owned(),
+        });
+        Ok(AppendReceipt {
+            local_sequence,
+            checksum: digest,
+        })
     }
 }
 
@@ -101,6 +131,8 @@ pub enum RuntimeError {
     Core(#[from] CoreError),
     #[error("repository append failed: {0}")]
     Repository(String),
+    #[error("graph has an update that is not saved locally: {0}")]
+    DirtyUnsaved(String),
     #[error("event capacity must be positive")]
     ZeroEventCapacity,
 }
@@ -115,9 +147,38 @@ pub struct GraphRuntime<R: GraphRepository, C: Clock> {
     events: VecDeque<GraphEvent>,
     event_capacity: usize,
     next_cursor: u64,
+    pending: Option<PendingWrite>,
+}
+
+struct PendingWrite {
+    update: Vec<u8>,
+    created_at: String,
+    source: EventSource,
+    semantic: String,
+    command_id: Option<String>,
 }
 
 impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
+    pub fn from_core(
+        core: GraphCore,
+        repository: R,
+        clock: C,
+        event_capacity: usize,
+    ) -> Result<Self, RuntimeError> {
+        if event_capacity == 0 {
+            return Err(RuntimeError::ZeroEventCapacity);
+        }
+        Ok(Self {
+            core,
+            repository,
+            clock,
+            events: VecDeque::new(),
+            event_capacity,
+            next_cursor: 1,
+            pending: None,
+        })
+    }
+
     pub fn new(
         graph_id: GraphId,
         peer_id: u64,
@@ -139,6 +200,7 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             events: VecDeque::new(),
             event_capacity,
             next_cursor: 1,
+            pending: None,
         })
     }
 
@@ -153,42 +215,43 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         if event_capacity == 0 {
             return Err(RuntimeError::ZeroEventCapacity);
         }
-        Ok(Self {
-            core: GraphCore::from_snapshot(graph_id, peer_id, snapshot)?,
+        Self::from_core(
+            GraphCore::from_snapshot(graph_id, peer_id, snapshot)?,
             repository,
             clock,
-            events: VecDeque::new(),
             event_capacity,
-            next_cursor: 1,
-        })
+        )
     }
 
     pub fn execute(&mut self, command: CommandEnvelope) -> Result<CommandResult, RuntimeError> {
+        self.require_clean()?;
         let now = self.clock.now();
         let command_id = command.command_id.to_string();
         let execution = self.core.execute(command, &now)?;
-        if !execution.duplicate {
-            self.repository
-                .append_update(execution.update)
-                .map_err(|error| RuntimeError::Repository(error.to_string()))?;
-            self.push(
-                EventSource::Local,
-                GraphEventKind::Semantic {
-                    name: execution.semantic,
-                    command_id,
-                },
-            );
+        if !execution.duplicate && !execution.update.is_empty() {
+            self.pending = Some(PendingWrite {
+                update: execution.update,
+                created_at: now,
+                source: EventSource::Local,
+                semantic: execution.semantic,
+                command_id: Some(command_id),
+            });
+            self.persist_pending()?;
         }
         Ok(execution.result)
     }
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), RuntimeError> {
+        self.require_clean()?;
         self.core.import_remote(update)?;
-        self.repository
-            .append_update(update.to_vec())
-            .map_err(|error| RuntimeError::Repository(error.to_string()))?;
-        self.push(EventSource::Remote, GraphEventKind::RemoteImported);
-        Ok(())
+        self.pending = Some(PendingWrite {
+            update: update.to_vec(),
+            created_at: self.clock.now(),
+            source: EventSource::Remote,
+            semantic: "RemoteImported".to_owned(),
+            command_id: None,
+        });
+        self.persist_pending()
     }
 
     pub fn read(&self) -> Result<GraphSnapshot, RuntimeError> {
@@ -225,6 +288,72 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
 
     pub fn repository(&self) -> &R {
         &self.repository
+    }
+
+    pub fn repository_mut(&mut self) -> &mut R {
+        &mut self.repository
+    }
+
+    pub fn is_dirty_unsaved(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub fn retry_pending(&mut self) -> Result<(), RuntimeError> {
+        if self.pending.is_none() {
+            return Ok(());
+        }
+        self.persist_pending()
+    }
+
+    pub fn close(self) -> Result<(R, C), RuntimeError> {
+        if self.pending.is_some() {
+            return Err(RuntimeError::DirtyUnsaved(
+                "close rejected until the pending update is durable".to_owned(),
+            ));
+        }
+        Ok((self.repository, self.clock))
+    }
+
+    fn require_clean(&self) -> Result<(), RuntimeError> {
+        if self.pending.is_some() {
+            Err(RuntimeError::DirtyUnsaved(
+                "retry the pending update before another mutation".to_owned(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn persist_pending(&mut self) -> Result<(), RuntimeError> {
+        let pending = self.pending.as_ref().expect("pending write checked above");
+        let receipt = self
+            .repository
+            .append_update(&pending.update, &pending.created_at)
+            .map_err(|error| RuntimeError::DirtyUnsaved(error.to_string()))?;
+        let pending = self
+            .pending
+            .take()
+            .expect("pending write remains available");
+        match pending.source {
+            EventSource::Local => self.push(
+                EventSource::Local,
+                GraphEventKind::Semantic {
+                    name: pending.semantic,
+                    command_id: pending.command_id.unwrap_or_default(),
+                },
+            ),
+            EventSource::Remote => {
+                self.push(EventSource::Remote, GraphEventKind::RemoteImported);
+            }
+        }
+        self.push(
+            pending.source,
+            GraphEventKind::SavedLocally {
+                local_sequence: receipt.local_sequence,
+                checksum: receipt.checksum,
+            },
+        );
+        Ok(())
     }
 
     fn push(&mut self, source: EventSource, kind: GraphEventKind) {
@@ -274,10 +403,91 @@ mod tests {
         assert!(matches!(
             runtime.subscribe(0),
             EventBatch::ResyncRequired {
-                oldest_cursor: 2,
-                latest_cursor: 3
+                oldest_cursor: 5,
+                latest_cursor: 6
             }
         ));
-        assert!(matches!(runtime.subscribe(1), EventBatch::Events { .. }));
+        assert!(matches!(runtime.subscribe(4), EventBatch::Events { .. }));
+        let EventBatch::Events { events, .. } = runtime.subscribe(4) else {
+            panic!("expected retained events");
+        };
+        assert!(matches!(events[0].kind, GraphEventKind::Semantic { .. }));
+        assert!(matches!(
+            events[1].kind,
+            GraphEventKind::SavedLocally {
+                local_sequence: 3,
+                ..
+            }
+        ));
+    }
+
+    #[derive(Debug, Error)]
+    #[error("injected append failure")]
+    struct InjectedFailure;
+
+    #[derive(Default)]
+    struct FailingRepository {
+        fail: bool,
+        records: Vec<Vec<u8>>,
+    }
+
+    impl GraphRepository for FailingRepository {
+        type Error = InjectedFailure;
+
+        fn append_update(
+            &mut self,
+            update: &[u8],
+            _created_at: &str,
+        ) -> Result<AppendReceipt, Self::Error> {
+            if self.fail {
+                return Err(InjectedFailure);
+            }
+            self.records.push(update.to_vec());
+            Ok(AppendReceipt {
+                local_sequence: self.records.len() as u64,
+                checksum: checksum(update),
+            })
+        }
+    }
+
+    #[test]
+    fn persistence_saved_event_follows_append_and_dirty_bytes_can_retry() {
+        let graph = GraphId::new("runtime-failure").unwrap();
+        let mut runtime = GraphRuntime::new(
+            graph.clone(),
+            1,
+            FailingRepository {
+                fail: true,
+                records: Vec::new(),
+            },
+            InMemoryClock::new("tick"),
+            8,
+        )
+        .unwrap();
+        assert!(matches!(
+            runtime.execute(envelope(&graph, 1)),
+            Err(RuntimeError::DirtyUnsaved(_))
+        ));
+        assert!(runtime.is_dirty_unsaved());
+        assert!(matches!(
+            runtime.subscribe(0),
+            EventBatch::Events { ref events, .. } if events.is_empty()
+        ));
+        assert!(matches!(
+            runtime.execute(envelope(&graph, 2)),
+            Err(RuntimeError::DirtyUnsaved(_))
+        ));
+        runtime.repository_mut().fail = false;
+        runtime.retry_pending().unwrap();
+        assert!(!runtime.is_dirty_unsaved());
+        assert_eq!(runtime.repository().records.len(), 1);
+        let EventBatch::Events { events, .. } = runtime.subscribe(0) else {
+            panic!("events expected after durable retry");
+        };
+        assert!(matches!(events[0].kind, GraphEventKind::Semantic { .. }));
+        assert!(matches!(
+            events[1].kind,
+            GraphEventKind::SavedLocally { .. }
+        ));
     }
 }

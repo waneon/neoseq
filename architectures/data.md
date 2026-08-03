@@ -150,6 +150,12 @@ and optional remote acknowledgement metadata. The Loro version vector/frontiers
 remain the synchronization truth; repository sequences only address local
 records.
 
+The Step 3 `LocalGraphRepository` fixes these DTOs and operations in
+`graph-core`. SHA-256 covers the exact stored bytes. Append returns the assigned
+local sequence and checksum; identical bytes are idempotent so an adapter can
+report an after-commit failure and safely retry. Graph locators distinguish
+local and remote metadata, but Step 3 rejects remote opens.
+
 ### Native Storage
 
 macOS and Android use SQLite in WAL mode. Metadata, update blobs, checkpoints,
@@ -158,12 +164,24 @@ Large graph blobs may move to content-addressed files later without changing the
 port. OS-provided app storage and backup policies are used; no graph is placed
 in a user-visible directory without an explicit export.
 
+SQLite migration version 1 creates metadata, update, checkpoint, outbox-ready,
+index-cache, and quarantine tables. Update append atomically inserts the update
+and outbox row and advances `next_sequence`. Checkpoint insertion precedes the
+compaction marker; neither operation deletes recovery evidence. Busy, locked,
+full, and corrupt SQLite results map to stable storage errors.
+
 ### Browser Storage
 
 The web client uses IndexedDB with the same logical records. Transactions
 atomically append an update and advance local metadata. Storage
 quota/persistence status is surfaced to the UI. A Service Worker caches
 application assets, but never acts as the graph's sole persistence layer.
+
+IndexedDB version 1 mirrors the six logical SQLite collections. The Worker owns
+both Wasm core and repository, so update/checkpoint buffers normally never
+cross the main-thread boundary. Binary diagnostic exports use transferable
+`ArrayBuffer`s. Browser persistence and quota estimates populate the storage
+capability DTO.
 
 ## Checkpointing and Recovery
 
@@ -178,6 +196,13 @@ application assets, but never acts as the graph's sole persistence layer.
   overwritten.
 - Compaction is triggered by update bytes/count and idle time, never on every
   edit.
+
+`CheckpointTracker` implements count, byte, and idle thresholds; adapters also
+checkpoint on a clean close. Startup validates repository schema metadata,
+tries checkpoints newest-first, and replays the contiguous checksum-valid tail.
+After a corrupt tail member, it and all later records remain quarantined under
+stable export handles. Stored graphs never silently reopen as an empty graph
+when no valid checkpoint exists.
 
 ## Schema Evolution
 

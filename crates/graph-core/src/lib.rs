@@ -1,6 +1,7 @@
 //! Loro-backed graph core plus retained Step 1 feasibility helpers.
 
 mod core;
+mod persistence;
 mod runtime;
 pub mod scenario;
 
@@ -8,6 +9,11 @@ pub mod scenario;
 mod convergence_tests;
 
 pub use core::{CoreError, CoreExecution, GraphCore, SCHEMA_VERSION};
+pub use persistence::{
+    AppendReceipt, CheckpointPolicy, CheckpointRecord, CheckpointTracker, GraphLocation,
+    GraphLocator, GraphMetadata, LocalGraphRepository, QuarantineRecord, RecoveryError,
+    RecoveryReport, StorageCapabilities, UpdateRecord, checksum, recover_graph, valid_checksum,
+};
 pub use runtime::{
     Clock, EventBatch, EventSource, GraphEvent, GraphEventKind, GraphRepository, GraphRuntime,
     InMemoryClock, InMemoryRepository, RuntimeError,

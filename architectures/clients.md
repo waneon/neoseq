@@ -28,6 +28,12 @@ Request, response, event, and error types are generated from a shared schema.
 Contract version negotiation happens on startup. No component calls Tauri APIs,
 WebAssembly exports, IndexedDB, or WebSocket directly.
 
+CorePort version 1 fixes `open_graph`, `execute`, `read`, `subscribe`, and
+`close_graph`. Generated Rust/TypeScript DTOs cover locators, recovery and
+storage capabilities, saved/dirty state, bounded cursors, and stable timeout,
+schema, storage, and handle errors. Native and Worker suites consume one golden
+transcript.
+
 ### Native Adapter
 
 On macOS and Android, `CorePort` invokes Tauri commands implemented by
@@ -35,6 +41,10 @@ On macOS and Android, `CorePort` invokes Tauri commands implemented by
 in the native Rust process. A bounded event channel forwards semantic events to
 the webview. Tauri capabilities allow only the explicit commands needed by the
 app.
+
+The Step 3 `NativeCorePort` owns a graph-handle map and one SQLite profile
+database. Opening replays verified records; clean close writes a checkpoint and
+compaction marker. This adapter is exercised headlessly before editor UI work.
 
 ### Browser Adapter
 
@@ -44,6 +54,11 @@ Worker. `CorePort` messages cross a typed worker protocol; transferable
 WebSocket implementations satisfy core ports through thin Wasm-facing adapters.
 Keeping the runtime off the main thread protects typing, scrolling, and
 rendering latency.
+
+The Worker owns the Wasm core, IndexedDB transactions, pending unsaved bytes,
+and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
+buffers transfer rather than clone. Opening a local locator creates no network
+transport.
 
 ## Editor State and Input
 

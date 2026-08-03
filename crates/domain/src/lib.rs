@@ -7,7 +7,7 @@ mod ids;
 mod model;
 mod property;
 
-pub use generated::core_port::{CORE_PORT_VERSION, PingRequest, PingResponse};
+pub use generated::core_port::*;
 pub use ids::{BlockId, CommandId, GraphId, IdError, LocalDate, PageId, PropertyKey};
 pub use model::{
     BlockSnapshot, Command, CommandEnvelope, CommandResult, EntityId, GraphSnapshot, PageSnapshot,

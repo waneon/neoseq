@@ -1,22 +1,24 @@
 import { expect, test } from "@playwright/test";
 
-test("Wasm fixture survives an IndexedDB and Worker restart", async ({ page }) => {
+test.beforeEach(async ({ page }) => {
+  const externalRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.hostname !== "127.0.0.1") externalRequests.push(request.url());
+  });
   await page.goto("/");
-  const result = page.getByTestId("result");
-  await expect(result).toHaveAttribute("data-status", "passed");
-  const text = await result.textContent();
-  expect(text).toContain("Statuspassed");
-
-  const previousHash = await page.evaluate(() =>
-    localStorage.getItem("neoseq-step-1-hash"),
-  );
-  expect(previousHash).toMatch(/^[a-f0-9]{64}$/);
-
-  await page.reload();
-  await expect(result).toHaveAttribute("data-status", "passed");
-  const currentHash = await page.evaluate(() =>
-    localStorage.getItem("neoseq-step-1-hash"),
-  );
-  expect(currentHash).toBe(previousHash);
+  await expect(page.getByTestId("result")).toHaveAttribute("data-status", "passed");
+  expect(externalRequests).toEqual([]);
 });
 
+test("IndexedDB repository passes persistence and restart corpus", async ({ page }) => {
+  await expect(page.getByTestId("result")).toHaveAttribute("data-persistence", "true");
+});
+
+test("Web Worker adapter matches CorePort v1 golden contract", async ({ page }) => {
+  await expect(page.getByTestId("result")).toHaveAttribute("data-core-port", "true");
+});
+
+test("IndexedDB fault injection preserves recoverable state", async ({ page }) => {
+  await expect(page.getByTestId("result")).toHaveAttribute("data-recovery", "true");
+});

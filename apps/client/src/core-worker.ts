@@ -1,61 +1,121 @@
+import type {
+  CloseGraphRequest,
+  CloseGraphResponse,
+  CorePort,
+  CorePortError,
+  ExecuteRequest,
+  ExecuteResponse,
+  OpenGraphRequest,
+  OpenGraphResponse,
+  ReadRequest,
+  ReadResponse,
+  SubscribeRequest,
+  SubscribeResponse,
+} from "./generated/core-port";
+import type { FaultPoint } from "./persistence";
+
 interface WorkerResponse {
   id: number;
   ok: boolean;
-  error?: string;
-  contractVersion?: number;
-  coreVersion?: string;
-  hash?: string;
-  payload?: ArrayBuffer;
+  value?: unknown;
+  error?: CorePortError;
 }
 
-export interface CreatedFixture {
-  contractVersion: number;
-  coreVersion: string;
-  hash: string;
-  payload: ArrayBuffer;
+export class CorePortFailure extends Error {
+  constructor(public readonly detail: CorePortError) {
+    super(detail.message);
+  }
 }
 
-export class CoreWorker {
+export class CoreWorker implements CorePort {
   private nextId = 1;
   private readonly worker = new Worker(new URL("./spike-worker.ts", import.meta.url), {
     type: "module",
   });
 
-  create(): Promise<CreatedFixture> {
-    return this.request<CreatedFixture>({ type: "create" });
+  openGraph(request: OpenGraphRequest): Promise<OpenGraphResponse> {
+    return this.request("open_graph", request);
   }
 
-  restore(payload: ArrayBuffer): Promise<{ hash: string }> {
-    return this.request<{ hash: string }>({ type: "restore", payload }, [payload]);
+  execute(request: ExecuteRequest): Promise<ExecuteResponse> {
+    return this.request("execute", request);
   }
 
-  close(): void {
+  read(request: ReadRequest): Promise<ReadResponse> {
+    return this.request("read", request);
+  }
+
+  subscribe(request: SubscribeRequest): Promise<SubscribeResponse> {
+    return this.request("subscribe", request);
+  }
+
+  closeGraph(request: CloseGraphRequest): Promise<CloseGraphResponse> {
+    return this.request("close_graph", request);
+  }
+
+  injectFault(graphHandle: string, fault: FaultPoint): Promise<void> {
+    return this.request("test_control", { action: "inject", graph_handle: graphHandle, fault });
+  }
+
+  retryPending(graphHandle: string): Promise<void> {
+    return this.request("test_control", { action: "retry", graph_handle: graphHandle });
+  }
+
+  corruptUpdate(graphId: string, sequence: number): Promise<void> {
+    return this.request("test_control", { action: "corrupt_update", graph_id: graphId, sequence });
+  }
+
+  quarantineCount(graphId: string): Promise<number> {
+    return this.request("test_control", { action: "quarantine_count", graph_id: graphId });
+  }
+
+  exportQuarantine(graphId: string, exportHandle: string): Promise<ArrayBuffer> {
+    return this.request("test_control", { action: "export_quarantine", graph_id: graphId, export_handle: exportHandle });
+  }
+
+  roundTripIndexCache(graphId: string): Promise<number> {
+    return this.request("test_control", { action: "index_cache", graph_id: graphId });
+  }
+
+  setSchemaVersion(graphId: string, schemaVersion: number): Promise<void> {
+    return this.request("test_control", { action: "set_schema", graph_id: graphId, schema_version: schemaVersion });
+  }
+
+  deleteLocal(graphId: string): Promise<void> {
+    return this.request("test_control", { action: "delete_local", graph_id: graphId });
+  }
+
+  terminate(): void {
     this.worker.terminate();
   }
 
-  private request<T>(
-    body: Record<string, unknown>,
-    transfer: Transferable[] = [],
-  ): Promise<T> {
+  private request<T>(operation: string, payload: unknown): Promise<T> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const workerError = (event: ErrorEvent) => {
-        this.worker.removeEventListener("error", workerError);
+        cleanup();
         reject(new Error(event.message || "worker failed to initialize"));
       };
       const listener = (event: MessageEvent<WorkerResponse>) => {
         if (event.data.id !== id) return;
-        this.worker.removeEventListener("message", listener);
-        this.worker.removeEventListener("error", workerError);
+        cleanup();
         if (!event.data.ok) {
-          reject(new Error(event.data.error ?? "worker request failed"));
+          reject(new CorePortFailure(event.data.error ?? {
+            code: "internal",
+            message: "worker request failed",
+            retryable: false,
+          }));
           return;
         }
-        resolve(event.data as unknown as T);
+        resolve(event.data.value as T);
       };
-      this.worker.addEventListener("error", workerError);
+      const cleanup = () => {
+        this.worker.removeEventListener("message", listener);
+        this.worker.removeEventListener("error", workerError);
+      };
       this.worker.addEventListener("message", listener);
-      this.worker.postMessage({ id, ...body }, transfer);
+      this.worker.addEventListener("error", workerError);
+      this.worker.postMessage({ id, operation, payload });
     });
   }
 }

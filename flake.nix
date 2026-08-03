@@ -275,6 +275,30 @@
           '';
         };
 
+        step3BrowserHarness = pkgs.stdenvNoCC.mkDerivation {
+          pname = "neoseq-step3-browser-harness";
+          version = "0.1.0";
+          src = fullSource;
+          inherit pnpmDeps;
+          pnpmWorkspaces = [ "@neoseq/client" ];
+          nativeBuildInputs = [
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+            pkgs.pnpmConfigHook
+          ];
+          buildPhase = ''
+            runHook preBuild
+            mkdir -p apps/client/src/wasm
+            cp -R ${wasmBindings}/* apps/client/src/wasm/
+            pnpm --filter @neoseq/client build
+            runHook postBuild
+          '';
+          installPhase = ''
+            mkdir -p $out/source
+            cp -R . $out/source/
+          '';
+        };
+
         tauriArgs = commonArgs // {
           pname = "neoseq-client";
           src = fullSource;
@@ -495,6 +519,12 @@
           export LIBRARY_PATH="${pkgs.libiconv}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
           export NIX_LDFLAGS="-L${pkgs.libiconv}/lib ''${NIX_LDFLAGS:-}"
         '';
+        browserGateEnvironment = ''
+          export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
+          browser_harness="$(mktemp -d)/source"
+          cp -R ${step3BrowserHarness}/source "$browser_harness"
+          chmod -R u+w "$browser_harness"
+        '';
         spikeCrossRuntime = pkgs.writeShellApplication {
           name = "neoseq-spike-cross-runtime";
           runtimeInputs = [
@@ -525,10 +555,17 @@
         };
         spikePersistence = pkgs.writeShellApplication {
           name = "neoseq-spike-persistence";
-          runtimeInputs = [ pkgs.jq ];
+          runtimeInputs = [
+            pkgs.jq
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+            pkgs.playwright-driver
+          ];
           text = ''
             native_report="$(${coreNative}/bin/native-spike persistence "$(mktemp -d)/step-1.sqlite")"
-            browser_report="$(cat ${browserPersistenceCheck}/report.json)"
+            ${browserGateEnvironment}
+            (cd "$browser_harness/apps/client" && pnpm exec playwright test)
+            browser_report='{"adapter":"indexeddb","status":"passed"}'
             jq -n --argjson native "$native_report" --argjson browser "$browser_report" \
               '{native:$native,browser:$browser,status:"passed"}'
           '';
@@ -557,12 +594,79 @@
             exec cargo test -p graph-core convergence_ -- --nocapture "$@"
           '';
         };
+        step3BrowserInputs = [
+          pkgs.nodejs_22
+          pkgs.pnpm_10
+          pkgs.playwright-driver
+        ];
+        testPersistence = pkgs.writeShellApplication {
+          name = "neoseq-test-persistence";
+          runtimeInputs = [ rustToolchain ] ++ step3BrowserInputs;
+          text = ''
+            ${appEnvironment}
+            adapter=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --adapter) adapter="''${2:-}"; shift 2 ;;
+                *) echo "unknown argument: $1" >&2; exit 2 ;;
+              esac
+            done
+            case "$adapter" in
+              sqlite)
+                exec cargo test -p platform-native persistence_ -- --nocapture
+                ;;
+              indexeddb)
+                ${browserGateEnvironment}
+                cd "$browser_harness/apps/client"
+                exec pnpm exec playwright test --grep 'IndexedDB repository|IndexedDB fault'
+                ;;
+              *) echo "--adapter must be sqlite or indexeddb" >&2; exit 2 ;;
+            esac
+          '';
+        };
+        testCorePort = pkgs.writeShellApplication {
+          name = "neoseq-test-core-port";
+          runtimeInputs = [ rustToolchain ] ++ step3BrowserInputs;
+          text = ''
+            ${appEnvironment}
+            adapter=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --adapter) adapter="''${2:-}"; shift 2 ;;
+                *) echo "unknown argument: $1" >&2; exit 2 ;;
+              esac
+            done
+            case "$adapter" in
+              native)
+                exec cargo test -p platform-native core_port_native_ -- --nocapture
+                ;;
+              web-worker)
+                ${browserGateEnvironment}
+                cd "$browser_harness/apps/client"
+                exec pnpm exec playwright test --grep 'Web Worker adapter'
+                ;;
+              *) echo "--adapter must be native or web-worker" >&2; exit 2 ;;
+            esac
+          '';
+        };
+        testRecovery = pkgs.writeShellApplication {
+          name = "neoseq-test-recovery";
+          runtimeInputs = [ rustToolchain ] ++ step3BrowserInputs;
+          text = ''
+            ${appEnvironment}
+            cargo test -p platform-native recovery_ -- --nocapture
+            ${browserGateEnvironment}
+            cd "$browser_harness/apps/client"
+            exec pnpm exec playwright test --grep 'fault injection'
+          '';
+        };
       in
       {
         packages = {
           core-native = coreNative;
           core-wasm = coreWasm;
           core-tools = coreTools;
+          browser-harness = step3BrowserHarness;
           wasm-bindings = wasmBindings;
           inherit web toolchainManifest;
           sync-server = syncServer;
@@ -580,6 +684,9 @@
           test-domain = app "${testDomain}/bin/neoseq-test-domain";
           test-core-model = app "${testCoreModel}/bin/neoseq-test-core-model";
           test-core-convergence = app "${testCoreConvergence}/bin/neoseq-test-core-convergence";
+          test-persistence = app "${testPersistence}/bin/neoseq-test-persistence";
+          test-core-port = app "${testCorePort}/bin/neoseq-test-core-port";
+          test-recovery = app "${testRecovery}/bin/neoseq-test-recovery";
           spike-cross-runtime = app "${spikeCrossRuntime}/bin/neoseq-spike-cross-runtime";
           spike-persistence = app "${spikePersistence}/bin/neoseq-spike-persistence";
           spike-sync = app "${spikeSync}/bin/neoseq-spike-sync";

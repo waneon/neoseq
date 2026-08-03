@@ -2,8 +2,8 @@
 
 NeoSeq is a local-first outliner whose only user-facing data outside block
 Markdown is a uniform typed property model. The repository is currently at the
-schema-v1 domain and Loro graph-core stage. Persistence, UI, and transport
-productization follow in later steps.
+schema-v1 domain, Loro graph core, and local-persistence/CorePort stage. The
+user-facing editor and remote transport follow in later steps.
 
 ## Core verification
 
@@ -24,6 +24,11 @@ nix run .#test-domain
 nix run .#test-core-model
 nix run .#test-core-convergence
 nix run .#core-scenario -- fixtures/core/basic.yaml
+nix run .#test-persistence -- --adapter sqlite
+nix run .#test-persistence -- --adapter indexeddb
+nix run .#test-core-port -- --adapter native
+nix run .#test-core-port -- --adapter web-worker
+nix run .#test-recovery
 ```
 
 On Darwin, Playwright needs macOS host services that are unavailable inside the
@@ -41,5 +46,5 @@ pnpm are supplied by the pinned flake. The emulator smoke command additionally
 requires working host virtualization.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for system boundaries and
-[steps/02-domain-and-crdt-core.md](steps/02-domain-and-crdt-core.md) for the
-current core acceptance gate.
+[steps/03-local-persistence-and-ports.md](steps/03-local-persistence-and-ports.md)
+for the current persistence acceptance gate.

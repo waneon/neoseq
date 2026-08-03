@@ -1,6 +1,9 @@
 # 03. Local persistence와 CorePort
 
-상태: 계획됨
+상태: 완료 (2026-08-03)
+
+검증 기록: [Step 3 보고서](../verification/step-3.md) ·
+[machine-readable results](../verification/step-3-results.json)
 
 ## 목표
 
@@ -85,12 +88,12 @@ busy/disk full을 포함한다.
 
 ## 완료 조건
 
-- [ ] SQLite와 IndexedDB가 동일 repository conformance suite를 통과한다.
-- [ ] 저장 성공과 UI-visible saved event 사이의 순서가 test로 고정된다.
-- [ ] crash/reload 후 acknowledged local command가 유실되지 않는다.
-- [ ] corrupt data가 silent coercion 또는 전체 graph 손실을 만들지 않는다.
-- [ ] native/Worker CorePort DTO와 error code가 golden fixture와 일치한다.
-- [ ] local-only graph를 열고 편집하는 동안 network call이 발생하지 않는다.
+- [x] SQLite와 IndexedDB가 동일 repository conformance suite를 통과한다.
+- [x] 저장 성공과 UI-visible saved event 사이의 순서가 test로 고정된다.
+- [x] crash/reload 후 acknowledged local command가 유실되지 않는다.
+- [x] corrupt data가 silent coercion 또는 전체 graph 손실을 만들지 않는다.
+- [x] native/Worker CorePort DTO와 error code가 golden fixture와 일치한다.
+- [x] local-only graph를 열고 편집하는 동안 network call이 발생하지 않는다.
 
 ## 이 단계에서 하지 않는 것
 

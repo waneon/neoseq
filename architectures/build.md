@@ -26,6 +26,8 @@ The flake exposes:
   WebSocket synchronization spikes;
 - Step 2 apps for domain tests, reference-model tests, saved-seed convergence
   tests, and the YAML-driven headless core scenario;
+- Step 3 apps for SQLite/IndexedDB conformance, native/Worker CorePort, and
+  cross-adapter recovery fault matrices;
 - a Darwin-only Android emulator smoke app that installs and starts the APK;
 - checks for Rust formatting, strict Clippy, tests, dependency policy,
   generated-contract drift, web builds, and browser persistence. Browser
@@ -67,6 +69,11 @@ nix run .#test-domain
 nix run .#test-core-model
 nix run .#test-core-convergence
 nix run .#core-scenario -- fixtures/core/basic.yaml
+nix run .#test-persistence -- --adapter sqlite
+nix run .#test-persistence -- --adapter indexeddb
+nix run .#test-core-port -- --adapter native
+nix run .#test-core-port -- --adapter web-worker
+nix run .#test-recovery
 nix develop -c pnpm --filter @neoseq/client test:indexeddb # Darwin browser gate
 ```
 

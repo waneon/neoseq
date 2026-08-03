@@ -2856,11 +2856,14 @@ name = "platform-native"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "domain",
  "futures-util",
  "graph-core",
  "rusqlite",
+ "serde",
  "serde_json",
  "sync-protocol",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-tungstenite",
 ]
@@ -2869,8 +2872,10 @@ dependencies = [
 name = "platform-web"
 version = "0.1.0"
 dependencies = [
+ "domain",
  "graph-core",
  "js-sys",
+ "serde_json",
  "wasm-bindgen",
 ]
 
