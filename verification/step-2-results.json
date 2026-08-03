@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "step": "02-domain-and-crdt-core",
+  "status": "passed",
+  "verified_at": "2026-08-03T11:30:07+09:00",
+  "source": {
+    "parent_revision": "3289c4b38b5f",
+    "working_copy": "dirty"
+  },
+  "host": {
+    "system": "aarch64-darwin",
+    "darwin": "24.6.0",
+    "architecture": "arm64"
+  },
+  "gates": {
+    "core_native": "passed",
+    "core_wasm": "passed",
+    "domain_tests": "passed",
+    "core_model_tests": "passed",
+    "core_convergence_tests": "passed",
+    "core_scenario": "passed",
+    "native_wasm_scenario_parity": "passed",
+    "flake_check": "passed",
+    "darwin_host_playwright": "passed"
+  },
+  "tests": {
+    "domain": 6,
+    "core_model": 6,
+    "workspace_rust": 16,
+    "saved_convergence_seeds": 5,
+    "generated_convergence_seeds": 48,
+    "playwright": 1
+  },
+  "scenario": {
+    "fixture": "fixtures/core/basic.yaml",
+    "peers": 2,
+    "pages": 4,
+    "semantic_events": 33,
+    "quarantined_entries": 0,
+    "converged": true
+  },
+  "seeds": {
+    "saved": [
+      "0x0200000001",
+      "0x0200000002",
+      "0x0200000042",
+      "0x02c0decafe",
+      "0x02deadbeef"
+    ],
+    "generated_count": 48,
+    "generator_initial_state": "0x025eedf00d"
+  },
+  "hashes": {
+    "canonical_graph_fingerprint": "56ae202f64b975920393e1dd0da3b413d82d5bbf0111a9edb769c627be2836ac",
+    "native_wasm_scenario": "e1dd61458b8c9b5e2437f834b9bc96e0c0c9227da27bb67cfd9ca2edece28092"
+  },
+  "platform_notes": {
+    "darwin_browser_gate": "Runs in the devShell because the Nix Darwin build sandbox blocks browser host services.",
+    "linux_browser_gate": "Remains a sandboxed flake check."
+  }
+}

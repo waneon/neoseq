@@ -1,9 +1,13 @@
 //! Native feasibility adapters for Step 1.
 
 use anyhow::{Context, Result, ensure};
-use graph_core::{SpikePeer, fixture_snapshot, restore_snapshot, semantic_hash};
+use graph_core::{SpikePeer, fixture_snapshot, replay_semantic_hash};
 use rusqlite::{Connection, params};
 use std::path::Path;
+
+pub fn core_basic_scenario_json() -> Result<String> {
+    Ok(graph_core::scenario::basic_scenario_json()?)
+}
 
 pub fn sqlite_round_trip(path: &Path) -> Result<(String, usize, String)> {
     let snapshot = fixture_snapshot()?;
@@ -52,19 +56,19 @@ pub fn sqlite_round_trip(path: &Path) -> Result<(String, usize, String)> {
             |row| row.get(0),
         )
         .context("reload persisted Loro snapshot")?;
-    let restored_doc = restore_snapshot(&restored)?;
-    let replayed_updates = {
+    let (pending, replayed_updates) = {
         let mut statement = connection
             .prepare("SELECT payload FROM spike_update WHERE graph_id = ?1 ORDER BY sequence")?;
         let updates = statement.query_map(["step-1"], |row| row.get::<_, Vec<u8>>(0))?;
+        let mut pending = Vec::new();
         let mut replayed = 0;
         for update in updates {
-            restored_doc.import(&update?)?;
+            pending.push(update?);
             replayed += 1;
         }
-        replayed
+        (pending, replayed)
     };
-    let actual = semantic_hash(&restored_doc)?;
+    let actual = replay_semantic_hash(&restored, &pending)?;
     ensure!(actual == expected, "SQLite round-trip hash mismatch");
     Ok((actual, replayed_updates, "wal".to_owned()))
 }

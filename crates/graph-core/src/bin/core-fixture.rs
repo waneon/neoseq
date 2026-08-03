@@ -1,5 +1,5 @@
 use anyhow::Result;
-use graph_core::{fixture_document, fixture_hash, fixture_snapshot, ping, semantic_json};
+use graph_core::{fixture_hash, fixture_semantic_json, fixture_snapshot, ping};
 use serde_json::json;
 
 fn main() -> Result<()> {
@@ -12,7 +12,6 @@ fn main() -> Result<()> {
         "snapshot" => std::io::Write::write_all(&mut std::io::stdout(), &fixture_snapshot()?)?,
         "manifest" => {
             let response = ping("native-spike");
-            let doc = fixture_document()?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
@@ -20,7 +19,7 @@ fn main() -> Result<()> {
                     "core_version": response.core_version,
                     "echo": response.echo,
                     "fixture_hash": fixture_hash()?,
-                    "fixture": serde_json::from_str::<serde_json::Value>(&semantic_json(&doc)?)?,
+                    "fixture": serde_json::from_str::<serde_json::Value>(&fixture_semantic_json()?)?,
                     "loro_version": "1.13.7"
                 }))?
             );

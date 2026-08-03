@@ -2,9 +2,10 @@
 
 NeoSeq is a local-first outliner whose only user-facing data outside block
 Markdown is a uniform typed property model. The repository is currently at the
-foundation and technical-spike stage.
+schema-v1 domain and Loro graph-core stage. Persistence, UI, and transport
+productization follow in later steps.
 
-## Step 1 verification
+## Core verification
 
 Nix is the supported tool entry point. On a clean checkout, run:
 
@@ -17,8 +18,20 @@ nix build .#macos-smoke       # macOS host
 nix build .#android-debug     # Linux or macOS host
 nix run .#android-emulator-smoke  # Apple Silicon macOS smoke target
 nix run .#spike-cross-runtime
-nix run .#spike-persistence
+nix run .#spike-persistence   # Linux; Darwin browser gate is shown below
 nix run .#spike-sync
+nix run .#test-domain
+nix run .#test-core-model
+nix run .#test-core-convergence
+nix run .#core-scenario -- fixtures/core/basic.yaml
+```
+
+On Darwin, Playwright needs macOS host services that are unavailable inside the
+Nix build sandbox. Run the equivalent browser persistence gate from the pinned
+devShell:
+
+```sh
+nix develop -c pnpm --filter @neoseq/client test:indexeddb
 ```
 
 The macOS build treats Xcode Command Line Tools and the macOS SDK as explicit
@@ -28,5 +41,5 @@ pnpm are supplied by the pinned flake. The emulator smoke command additionally
 requires working host virtualization.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for system boundaries and
-[steps/01-foundation-and-spikes.md](steps/01-foundation-and-spikes.md) for the
-current acceptance gate.
+[steps/02-domain-and-crdt-core.md](steps/02-domain-and-crdt-core.md) for the
+current core acceptance gate.

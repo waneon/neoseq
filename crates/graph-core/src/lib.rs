@@ -1,4 +1,17 @@
-//! Disposable Loro feasibility surface for Step 1.
+//! Loro-backed graph core plus retained Step 1 feasibility helpers.
+
+mod core;
+mod runtime;
+pub mod scenario;
+
+#[cfg(test)]
+mod convergence_tests;
+
+pub use core::{CoreError, CoreExecution, GraphCore, SCHEMA_VERSION};
+pub use runtime::{
+    Clock, EventBatch, EventSource, GraphEvent, GraphEventKind, GraphRepository, GraphRuntime,
+    InMemoryClock, InMemoryRepository, RuntimeError,
+};
 
 use domain::{PingRequest, PingResponse};
 use loro::{ExportMode, LoroDoc, LoroEncodeError, LoroError, ToJson};
@@ -23,7 +36,7 @@ pub fn ping(client_version: impl Into<String>) -> PingResponse {
     })
 }
 
-pub fn fixture_document() -> Result<LoroDoc, SpikeError> {
+fn fixture_document() -> Result<LoroDoc, SpikeError> {
     let doc = LoroDoc::new();
     doc.set_peer_id(FIXTURE_PEER_ID)?;
 
@@ -52,12 +65,12 @@ pub fn fixture_snapshot() -> Result<Vec<u8>, SpikeError> {
     Ok(fixture_document()?.export(ExportMode::Snapshot)?)
 }
 
-pub fn semantic_json(doc: &LoroDoc) -> Result<String, SpikeError> {
+fn semantic_json(doc: &LoroDoc) -> Result<String, SpikeError> {
     let value = doc.get_deep_value().to_json_value();
     Ok(serde_json::to_string(&value)?)
 }
 
-pub fn semantic_hash(doc: &LoroDoc) -> Result<String, SpikeError> {
+fn semantic_hash(doc: &LoroDoc) -> Result<String, SpikeError> {
     let digest = Sha256::digest(semantic_json(doc)?.as_bytes());
     Ok(hex::encode(digest))
 }
@@ -66,8 +79,27 @@ pub fn fixture_hash() -> Result<String, SpikeError> {
     semantic_hash(&fixture_document()?)
 }
 
-pub fn restore_snapshot(snapshot: &[u8]) -> Result<LoroDoc, SpikeError> {
+pub fn fixture_semantic_json() -> Result<String, SpikeError> {
+    semantic_json(&fixture_document()?)
+}
+
+fn restore_snapshot(snapshot: &[u8]) -> Result<LoroDoc, SpikeError> {
     Ok(LoroDoc::from_snapshot(snapshot)?)
+}
+
+pub fn snapshot_semantic_hash(snapshot: &[u8]) -> Result<String, SpikeError> {
+    semantic_hash(&restore_snapshot(snapshot)?)
+}
+
+pub fn replay_semantic_hash(
+    snapshot: &[u8],
+    updates: impl IntoIterator<Item = impl AsRef<[u8]>>,
+) -> Result<String, SpikeError> {
+    let doc = restore_snapshot(snapshot)?;
+    for update in updates {
+        doc.import(update.as_ref())?;
+    }
+    semantic_hash(&doc)
 }
 
 pub struct SpikePeer {

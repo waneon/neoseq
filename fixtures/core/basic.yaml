@@ -1,0 +1,113 @@
+graph_id: basic-graph
+peer_id: 1
+commands:
+  - op: ensure_page
+    page_id: home
+    title: Home
+  - op: ensure_page
+    page_id: projects
+    title: Projects
+  - op: ensure_journal
+    date: 2026-08-03
+    as_id: journal
+  - op: set_page_default
+    page_id: projects
+    key: task.status
+    value: { type: string, value: todo }
+  - op: set_page_default
+    page_id: projects
+    key: custom.reviewed
+    value: { type: checkbox, value: false }
+  - op: insert_block
+    as_id: root
+    page_id: home
+    markdown: "# NeoSeq"
+  - op: insert_block
+    as_id: first
+    page_id: home
+    index: 1
+    markdown: First child
+  - op: indent_block
+    block: first
+  - op: insert_block
+    as_id: second
+    page_id: home
+    parent: root
+    index: 1
+    markdown: Second child
+  - op: edit_markdown
+    block: second
+    markdown: "Second child **edited**"
+  - op: outdent_block
+    block: first
+  - op: move_block
+    block: first
+    page_id: home
+    parent: root
+    index: 0
+  - op: set_property
+    entity: block:first
+    key: query.source
+    value: { type: string, value: "task.status = todo" }
+  - op: set_property
+    entity: block:first
+    key: query.language
+    value: { type: string, value: neoseq }
+  - op: set_property
+    entity: block:first
+    key: task.priority
+    value: { type: string, value: high }
+  - op: set_property
+    entity: block:first
+    key: task.scheduled
+    value: { type: date, value: 2026-08-04 }
+  - op: set_property
+    entity: block:first
+    key: task.deadline
+    value: { type: date, value: 2026-08-05 }
+  - op: set_property
+    entity: block:first
+    key: custom.estimate
+    value: { type: number, value: 2.5 }
+  - op: set_property
+    entity: block:first
+    key: custom.owner
+    value: { type: page, value: home }
+  - op: add_tag
+    block: first
+    page_id: projects
+  - op: remove_property
+    entity: block:first
+    key: custom.estimate
+  - op: undo
+  - op: redo
+peers:
+  - peer_id: 11
+    commands:
+      - op: splice_markdown
+        block: first
+        index: 0
+        insert: "[left] "
+      - op: move_block
+        block: second
+        page_id: projects
+        index: 0
+      - op: set_property
+        entity: block:first
+        key: task.status
+        value: { type: string, value: doing }
+      - op: ensure_journal
+        date: 2026-08-04
+  - peer_id: 12
+    commands:
+      - op: splice_markdown
+        block: first
+        index: 0
+        insert: "[right] "
+      - op: delete_block
+        block: second
+      - op: remove_property
+        entity: block:first
+        key: task.status
+      - op: ensure_journal
+        date: 2026-08-04

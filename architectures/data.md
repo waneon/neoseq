@@ -89,8 +89,9 @@ each `tag: PageId` entry uses the referenced page ID, making tag addition
 idempotent while allowing multiple tags. The public model remains a collection
 of string key/typed value pairs and does not expose slot encoding.
 
-Each entry value is atomic so concurrent writes cannot combine a type from one
-write with a payload from another:
+Each entry value is one canonical JSON UTF-8 string in the Loro map, so a
+concurrent write cannot combine a type from one write with a payload from
+another. Its decoded form is:
 
 ```text
 { type: "number",   value: finite f64 }
@@ -100,10 +101,12 @@ write with a payload from another:
 { type: "date",     value: YYYY-MM-DD }
 ```
 
-The concrete binary representation is canonical and versioned. It is decoded
-into domain `PropertyValue` immediately; raw JSON/CBOR does not escape the data
-adapter. Map semantics make property slots merge independently, and concurrent
-writes to one slot resolve as one complete value.
+The JSON representation is canonical and versioned with document schema 1. It
+is decoded into `PropertyEntry` and `PropertyValue` immediately; raw JSON does
+not escape the projection. A single slot is `s:<key>`. A repeated slot is
+`r:<key>:<sha256(canonical-value)>`, which makes equal member addition
+idempotent. Map semantics merge slots independently, and concurrent writes to
+one slot resolve as one complete value.
 
 Well-known entries include `tag`, `query.source`, `query.language`, task fields,
 `page.title`, `page.kind`, `journal.date`, and `block.page`. They use exactly
@@ -120,10 +123,12 @@ Deletion is initially logical:
 - references to deleted entities remain inspectable;
 - restoring a page removes that property and reveals surviving roots.
 
-Repair is deterministic, idempotent, and produces normal CRDT operations. It
-runs after import and migration, and records diagnostics. Physical history
-trimming is a separate checkpoint/retention operation and must not be presented
-as undoable deletion.
+Validation after import is deterministic. Unsafe remote encodings, invalid
+property targets/defaults, descendants carrying `block.page`, and roots with an
+invalid page are omitted from the domain projection and reported in a sorted
+quarantine list; supported dangling tag references remain lossless. Local
+commands prevent these states before mutation. Future physical repair uses
+normal CRDT operations and is separate from checkpoint/retention trimming.
 
 ## Local Repository Port
 

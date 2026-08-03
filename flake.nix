@@ -123,7 +123,13 @@
               || lib.hasPrefix "verification/" relative
             );
         };
-        cargoSource = craneLib.cleanCargoSource fullSource;
+        cargoSource = lib.cleanSourceWith {
+          src = fullSource;
+          filter = path: type:
+            craneLib.filterCargoSources path type
+            || lib.hasSuffix ".yaml" path
+            || lib.hasSuffix ".json" path;
+        };
 
         darwinInputs = lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
         commonArgs = {
@@ -156,6 +162,16 @@
               mkdir -p $out/share/neoseq
               cp ${toolchainManifest}/manifest.json $out/share/neoseq/toolchain.json
             '';
+          }
+        );
+
+        coreTools = craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            pname = "neoseq-core-tools";
+            cargoExtraArgs = "-p graph-core";
+            doCheck = false;
           }
         );
 
@@ -447,7 +463,6 @@
             }
           );
           inherit coreNative coreWasm web toolchainManifest;
-          browser-persistence = browserPersistenceCheck;
           licenses = craneLib.cargoDeny (
             commonArgs
             // {
@@ -464,12 +479,17 @@
             bash scripts/check-generated.sh
             touch $out
           '';
+        } // lib.optionalAttrs (!pkgs.stdenv.hostPlatform.isDarwin) {
+          # macOS browser processes require host services that the Nix Darwin
+          # build sandbox blocks. Run the same Playwright test from devShell on
+          # Darwin; Linux CI retains the hermetic flake check.
+          browser-persistence = browserPersistenceCheck;
         };
 
         app = program: {
           type = "app";
           inherit program;
-          meta.description = "NeoSeq Step 1 verification app";
+          meta.description = "NeoSeq verification app";
         };
         appEnvironment = ''
           export LIBRARY_PATH="${pkgs.libiconv}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
@@ -481,6 +501,7 @@
             rustToolchain
             pkgs.nodejs_22
             pkgs.wasm-bindgen-cli
+            pkgs.coreutils
           ];
           text = ''
             ${appEnvironment}
@@ -512,11 +533,36 @@
               '{native:$native,browser:$browser,status:"passed"}'
           '';
         };
+        testDomain = pkgs.writeShellApplication {
+          name = "neoseq-test-domain";
+          runtimeInputs = [ rustToolchain ];
+          text = ''
+            ${appEnvironment}
+            exec cargo test -p domain "$@"
+          '';
+        };
+        testCoreModel = pkgs.writeShellApplication {
+          name = "neoseq-test-core-model";
+          runtimeInputs = [ rustToolchain ];
+          text = ''
+            ${appEnvironment}
+            exec cargo test -p graph-core model_ "$@"
+          '';
+        };
+        testCoreConvergence = pkgs.writeShellApplication {
+          name = "neoseq-test-core-convergence";
+          runtimeInputs = [ rustToolchain ];
+          text = ''
+            ${appEnvironment}
+            exec cargo test -p graph-core convergence_ -- --nocapture "$@"
+          '';
+        };
       in
       {
         packages = {
           core-native = coreNative;
           core-wasm = coreWasm;
+          core-tools = coreTools;
           wasm-bindings = wasmBindings;
           inherit web toolchainManifest;
           sync-server = syncServer;
@@ -530,6 +576,10 @@
         inherit checks;
 
         apps = {
+          core-scenario = app "${coreTools}/bin/core-scenario";
+          test-domain = app "${testDomain}/bin/neoseq-test-domain";
+          test-core-model = app "${testCoreModel}/bin/neoseq-test-core-model";
+          test-core-convergence = app "${testCoreConvergence}/bin/neoseq-test-core-convergence";
           spike-cross-runtime = app "${spikeCrossRuntime}/bin/neoseq-spike-cross-runtime";
           spike-persistence = app "${spikePersistence}/bin/neoseq-spike-persistence";
           spike-sync = app "${spikeSync}/bin/neoseq-spike-sync";

@@ -28,9 +28,13 @@ pub fn fixture_snapshot() -> Result<Vec<u8>, JsValue> {
 }
 
 #[wasm_bindgen]
+pub fn core_basic_scenario_json() -> Result<String, JsValue> {
+    graph_core::scenario::basic_scenario_json().map_err(js_error)
+}
+
+#[wasm_bindgen]
 pub fn snapshot_hash(bytes: &[u8]) -> Result<String, JsValue> {
-    let doc = graph_core::restore_snapshot(bytes).map_err(js_error)?;
-    graph_core::semantic_hash(&doc).map_err(js_error)
+    graph_core::snapshot_semantic_hash(bytes).map_err(js_error)
 }
 
 #[wasm_bindgen]

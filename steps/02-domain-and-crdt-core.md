@@ -1,6 +1,9 @@
 # 02. Domain과 Loro CRDT core
 
-상태: 계획됨
+상태: 완료 (2026-08-03)
+
+검증 기록: [Step 2 보고서](../verification/step-2.md) ·
+[machine-readable results](../verification/step-2-results.json)
 
 ## 목표
 
@@ -96,14 +99,14 @@ nix flake check
 
 ## 완료 조건
 
-- [ ] architecture의 schema와 실제 fixture가 일치한다.
-- [ ] 모든 비 Markdown feature state가 `PropertyBag`에만 존재한다.
-- [ ] 다섯 value type과 single/repeated/unknown key가 lossless round-trip한다.
-- [ ] tag default는 기존 값을 덮어쓰지 않고, 후속 default 변경은 소급되지
+- [x] architecture의 schema와 실제 fixture가 일치한다.
+- [x] 모든 비 Markdown feature state가 `PropertyBag`에만 존재한다.
+- [x] 다섯 value type과 single/repeated/unknown key가 lossless round-trip한다.
+- [x] tag default는 기존 값을 덮어쓰지 않고, 후속 default 변경은 소급되지
       않는다.
-- [ ] randomized convergence test seed가 저장되고 실패를 재현할 수 있다.
-- [ ] local undo가 imported remote command를 되돌리지 않는다.
-- [ ] native/Wasm core fixture 결과가 byte 또는 canonical semantic form으로
+- [x] randomized convergence test seed가 저장되고 실패를 재현할 수 있다.
+- [x] local undo가 imported remote command를 되돌리지 않는다.
+- [x] native/Wasm core fixture 결과가 byte 또는 canonical semantic form으로
       같다.
 
 ## 이 단계에서 하지 않는 것

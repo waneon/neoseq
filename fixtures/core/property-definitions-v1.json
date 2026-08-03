@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "properties": [
+    {"key":"tag","type":"page","cardinality":"repeated","defaultable":false,"allowed_strings":[]},
+    {"key":"query.source","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]},
+    {"key":"query.language","type":"string","cardinality":"single","defaultable":false,"allowed_strings":["neoseq"]},
+    {"key":"task.status","type":"string","cardinality":"single","defaultable":true,"allowed_strings":["todo","doing","done","cancelled"]},
+    {"key":"task.scheduled","type":"date","cardinality":"single","defaultable":true,"allowed_strings":[]},
+    {"key":"task.deadline","type":"date","cardinality":"single","defaultable":true,"allowed_strings":[]},
+    {"key":"task.priority","type":"string","cardinality":"single","defaultable":true,"allowed_strings":["low","medium","high"]},
+    {"key":"page.title","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]},
+    {"key":"page.kind","type":"string","cardinality":"single","defaultable":false,"allowed_strings":["regular","journal"]},
+    {"key":"journal.date","type":"date","cardinality":"single","defaultable":false,"allowed_strings":[]},
+    {"key":"block.page","type":"page","cardinality":"single","defaultable":false,"allowed_strings":[]},
+    {"key":"system.created-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]},
+    {"key":"system.deleted-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]}
+  ]
+}

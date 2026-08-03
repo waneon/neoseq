@@ -44,6 +44,13 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
+The schema-v1 registry is a checked-in compatibility fixture. It defines
+`tag`, query, task, page, journal, block-membership, and system keys. The five
+value types are number, string, page reference, checkbox, and local date.
+Unknown keys accept any of those types and retain the command-selected single
+or repeated cardinality. ID and date deserialization passes through the same
+validation as direct construction.
+
 ## Command Model
 
 Commands describe user intent rather than storage mutations. Representative
@@ -136,6 +143,12 @@ groups its operations for local undo and emits an exported binary update. Undo
 only tracks local command groups; imported remote changes are never undone by
 another user's local undo action.
 
+The Step 2 implementation expresses the actor boundary as the single-owner
+`GraphRuntime<R, C>` message loop. Its mutable receiver serializes execute,
+remote import, snapshot read, and subscription work on native and Wasm without
+exposing a lock or Loro container. The generic repository and clock ports have
+deterministic in-memory adapters; durable adapters are added in Step 3.
+
 ## Read and Event Model
 
 Callers receive immutable DTOs:
@@ -150,12 +163,16 @@ Events identify semantic impact (`BlockTextChanged`, `SubtreeMoved`,
 has a monotonic runtime cursor. If a slow consumer falls behind the bounded
 event buffer, it receives `ResyncRequired` and requests a fresh snapshot.
 
+Public core values are domain DTOs, typed errors, semantic events, and opaque
+update/snapshot bytes. Raw maps, trees, text handlers, tree IDs, and other Loro
+types remain private to `graph-core`.
+
 ## Failure Semantics
 
 - Validation failure leaves the document unchanged.
-- If durable append fails after an in-memory CRDT transaction, the runtime
-  enters `dirty-unsaved`, retains and retries the exact exported bytes, and
-  blocks graph close without an explicit user decision.
+- Step 2 uses the infallible in-memory repository. The Step 3 durable runtime
+  will enter `dirty-unsaved` after an append failure, retain and retry the exact
+  exported bytes, and block graph close without an explicit user decision.
 - Invalid remote bytes are quarantined and reported; the last valid local state
   remains usable.
 - A future unsupported schema opens read-only to permit export, never silent

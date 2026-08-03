@@ -14,7 +14,7 @@ image and documented version.
 
 ## Flake Outputs
 
-The Step 1 flake exposes:
+The flake exposes:
 
 - `devShells.default`: Rust, Node/pnpm, Wasm, database/client, formatting, and
   test tools for core and web work;
@@ -24,9 +24,14 @@ The Step 1 flake exposes:
   sync spike server, unsigned macOS bundle, and Android debug APK;
 - apps for cross-runtime parity, persistence/reload, and reordered/duplicated
   WebSocket synchronization spikes;
+- Step 2 apps for domain tests, reference-model tests, saved-seed convergence
+  tests, and the YAML-driven headless core scenario;
 - a Darwin-only Android emulator smoke app that installs and starts the APK;
 - checks for Rust formatting, strict Clippy, tests, dependency policy,
-  generated-contract drift, web builds, and browser persistence.
+  generated-contract drift, web builds, and browser persistence. Browser
+  persistence is a sandboxed flake check on Linux and a devShell-hosted
+  Playwright check on Darwin because macOS blocks browser access to required
+  host services inside the Nix build sandbox.
 
 Rust targets and components are pinned together. The Android shell supplies the
 JDK, Android command-line tools/SDK/NDK and explicit accepted license
@@ -58,6 +63,11 @@ nix develop
 nix flake check
 nix build .#web
 nix build .#sync-server
+nix run .#test-domain
+nix run .#test-core-model
+nix run .#test-core-convergence
+nix run .#core-scenario -- fixtures/core/basic.yaml
+nix develop -c pnpm --filter @neoseq/client test:indexeddb # Darwin browser gate
 ```
 
 Platform package tasks wrap Tauri commands while still consuming pinned
