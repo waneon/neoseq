@@ -150,7 +150,10 @@ or failed schema migration is.
   settings, together with quarantined-record recovery reports.
 - Multi-tab graph editing uses a per-tab random Loro peer ID and a Web Locks
   lease per graph; without the lease, a second tab opens the graph read-only.
-  Peer IDs are never reused concurrently.
+  A tab-local coordinator serializes transient session replacement onto the
+  same lease, so development remounts cannot impersonate a competing tab.
+  Session shutdown is cancellation-safe, and peer IDs are never reused
+  concurrently.
 
 ### macOS
 

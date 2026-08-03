@@ -49,6 +49,8 @@ export class GraphSession {
   private handle = "";
   private cursor = 0;
   private lease: Lease | null = null;
+  private opening: Promise<void> | null = null;
+  private closeRequested = false;
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
 
@@ -75,15 +77,22 @@ export class GraphSession {
 
   getState = (): SessionState => this.state;
 
-  async open(): Promise<void> {
+  open(): Promise<void> {
+    if (!this.opening) this.opening = this.openNow();
+    return this.opening;
+  }
+
+  private async openNow(): Promise<void> {
     try {
       this.lease = await acquireLease(this.graphId);
+      if (this.closeRequested) return;
       const opened = await this.port.openGraph({
         contract_version: CORE_PORT_VERSION,
         locator: { graph_id: this.graphId, location: "local", remote_graph_id: null },
         peer_id: randomPeerId(),
       });
       this.handle = opened.graph_handle;
+      if (this.closeRequested) return;
       this.patch({
         status: "ready",
         mode: this.lease.mode,
@@ -92,8 +101,11 @@ export class GraphSession {
         recovery: opened.recovery,
       });
     } catch (error) {
-      this.lease?.release();
-      this.patch({ status: "error", error: toPortError(error) });
+      if (!this.closeRequested) {
+        this.lease?.release();
+        this.lease = null;
+        this.patch({ status: "error", error: toPortError(error) });
+      }
     }
   }
 
@@ -116,8 +128,10 @@ export class GraphSession {
   }
 
   async close(): Promise<void> {
+    this.closeRequested = true;
+    await this.opening?.catch(() => undefined);
     await this.queue.catch(() => undefined);
-    if (this.state.status === "ready" && this.state.save.kind !== "unsaved") {
+    if (this.handle && this.state.save.kind !== "unsaved") {
       try {
         await this.port.closeGraph({ graph_handle: this.handle });
       } catch {
@@ -125,6 +139,7 @@ export class GraphSession {
       }
     }
     this.lease?.release();
+    this.lease = null;
     this.port.terminate?.();
     this.patch({ status: "closed" });
   }

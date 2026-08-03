@@ -152,7 +152,8 @@ step 3 succeeds. Network failure never blocks local editing.
 ## Deployment Units
 
 - **Web client:** static assets, Web Worker-hosted Rust/Wasm core, IndexedDB
-  repository, and WebSocket sync transport.
+  repository, Web Locks-enforced single-tab editing per graph, and WebSocket
+  sync transport.
 - **macOS client:** Tauri application, in-process Rust core, SQLite repository,
   and native WebSocket transport.
 - **Android client:** Tauri application with the same frontend and Rust core,
