@@ -9,6 +9,7 @@ import {
   type GraphSummary,
 } from "../../core-port/directory";
 import { Callout, Dialog } from "../../ui/components";
+import { Input } from "@/ui/shadcn/input";
 
 type LoadState =
   | { status: "loading" }
@@ -87,8 +88,7 @@ export function GraphPicker() {
           </ul>
         )}
         <form className="picker-new" onSubmit={create}>
-          <input
-            className="text-input"
+          <Input
             placeholder="New graph name"
             aria-label="New graph name"
             value={newName}
@@ -149,9 +149,8 @@ function RenameDialog({
         <label className="field-label" htmlFor="rename-graph-input">
           Graph name
         </label>
-        <input
+        <Input
           id="rename-graph-input"
-          className="text-input"
           value={name}
           onChange={(event) => setName(event.target.value)}
           data-testid="rename-graph-name"

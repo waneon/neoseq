@@ -3,7 +3,8 @@
 // (allowed-string selects, date fields, page autocomplete) without hiding
 // their uniform representation; unknown keys use the same path.
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { XIcon } from "lucide-react";
 import type { Command, EntityRef } from "../../core-port/commands";
 import type { PropertyEntry, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
@@ -21,6 +22,10 @@ import {
   type ValidationIssue,
 } from "../../entities/properties";
 import { todayLocalDate } from "../../entities/journal";
+import { Input } from "@/ui/shadcn/input";
+import { NativeSelect } from "@/ui/shadcn/native-select";
+import { Button } from "@/ui/shadcn/button";
+import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 
@@ -171,12 +176,23 @@ function PropertyRow({
           data-testid={`remove-${entry.key}`}
           onClick={onRemove}
         >
-          ✕
+          <XIcon />
         </button>
       ) : (
         <span />
       )}
     </div>
+  );
+}
+
+/** A native checkbox tinted to the brand and sized to align with text rows. */
+function Checkbox(props: ComponentProps<"input">) {
+  return (
+    <input
+      type="checkbox"
+      className="size-4 shrink-0 cursor-pointer accent-[var(--primary)]"
+      {...props}
+    />
   );
 }
 
@@ -200,8 +216,7 @@ function ValueEditor({
 
   if (value.type === "checkbox") {
     return (
-      <input
-        type="checkbox"
+      <Checkbox
         checked={value.value}
         aria-label={`${entryKey} value`}
         onChange={(event) => onCommit({ type: "checkbox", value: event.target.checked })}
@@ -211,9 +226,9 @@ function ValueEditor({
 
   if (value.type === "date") {
     return (
-      <input
+      <Input
         type="date"
-        className="text-input"
+        className="h-8"
         value={value.value}
         aria-label={`${entryKey} value`}
         onChange={(event) => {
@@ -256,8 +271,8 @@ function ValueEditor({
 
   if (known && known.allowed_strings.length > 0) {
     return (
-      <select
-        className="select-input"
+      <NativeSelect
+        className="h-8"
         value={value.value}
         aria-label={`${entryKey} value`}
         onChange={(event) => onCommit({ type: "string", value: event.target.value })}
@@ -267,7 +282,7 @@ function ValueEditor({
             {allowed}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     );
   }
 
@@ -285,7 +300,7 @@ function ValueEditor({
 function ReadonlyValue({ value }: { value: PropertyValue }): ReactNode {
   const state = useSessionState();
   if (value.type === "checkbox") {
-    return <input type="checkbox" checked={value.value} disabled aria-label="value" />;
+    return <Checkbox checked={value.value} disabled aria-label="value" />;
   }
   if (value.type === "page") {
     const page = findPage(state.snapshot, value.value);
@@ -310,8 +325,8 @@ function CommitOnBlurInput({
     if (draft !== initial) onCommit(draft);
   };
   return (
-    <input
-      className="text-input"
+    <Input
+      className="h-8"
       type={type}
       value={draft}
       aria-label={label}
@@ -372,8 +387,7 @@ function AddPropertyRow({
   return (
     <div className="props-add" data-testid={`props-add-${kind}`}>
       <div>
-        <input
-          className="text-input"
+        <Input
           list={datalistId}
           placeholder="Property key"
           aria-label="New property key"
@@ -386,8 +400,7 @@ function AddPropertyRow({
           ))}
         </datalist>
       </div>
-      <select
-        className="select-input"
+      <NativeSelect
         aria-label="New property type"
         value={effectiveType}
         disabled={known !== undefined}
@@ -402,7 +415,7 @@ function AddPropertyRow({
             {item}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       <NewValueInput
         type={effectiveType}
         entryKey={key}
@@ -410,9 +423,9 @@ function AddPropertyRow({
         onChange={setDraft}
         onSubmit={() => void submit()}
       />
-      <button className="btn btn-utility" onClick={() => void submit()} data-testid="props-add-submit">
+      <Button variant="secondary" onClick={() => void submit()} data-testid="props-add-submit">
         Add
-      </button>
+      </Button>
     </div>
   );
 }
@@ -440,19 +453,19 @@ function NewValueInput({
 
   if (type === "checkbox") {
     return (
-      <input
-        type="checkbox"
-        aria-label="New property value"
-        checked={value.type === "checkbox" && value.value}
-        onChange={(event) => onChange({ type: "checkbox", value: event.target.checked })}
-      />
+      <div className="flex h-9 items-center">
+        <Checkbox
+          aria-label="New property value"
+          checked={value.type === "checkbox" && value.value}
+          onChange={(event) => onChange({ type: "checkbox", value: event.target.checked })}
+        />
+      </div>
     );
   }
   if (type === "date") {
     return (
-      <input
+      <Input
         type="date"
-        className="text-input"
         aria-label="New property value"
         value={value.type === "date" ? value.value : ""}
         onChange={(event) => onChange({ type: "date", value: event.target.value })}
@@ -461,9 +474,8 @@ function NewValueInput({
   }
   if (type === "number") {
     return (
-      <input
+      <Input
         type="number"
-        className="text-input"
         aria-label="New property value"
         value={value.type === "number" ? String(value.value) : "0"}
         onChange={(event) => onChange({ type: "number", value: Number(event.target.value) })}
@@ -484,8 +496,7 @@ function NewValueInput({
   }
   if (known && known.allowed_strings.length > 0) {
     return (
-      <select
-        className="select-input"
+      <NativeSelect
         aria-label="New property value"
         value={value.type === "string" ? value.value : known.allowed_strings[0]}
         onChange={(event) => onChange({ type: "string", value: event.target.value })}
@@ -496,12 +507,11 @@ function NewValueInput({
             {allowed}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     );
   }
   return (
-    <input
-      className="text-input"
+    <Input
       aria-label="New property value"
       placeholder="Value"
       value={value.type === "string" ? value.value : ""}

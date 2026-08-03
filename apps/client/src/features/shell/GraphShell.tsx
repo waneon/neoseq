@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router";
+import {
+  CalendarDaysIcon,
+  FileTextIcon,
+  LibraryIcon,
+  Loader2Icon,
+  MenuIcon,
+  PlusIcon,
+  Redo2Icon,
+  SettingsIcon,
+  Undo2Icon,
+} from "lucide-react";
 import { CoreWorker } from "../../core-worker";
 import { GraphSession } from "../../core-port/session";
 import { graphName } from "../../core-port/directory";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { Callout } from "../../ui/components";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
 
@@ -45,7 +57,7 @@ export function GraphShell() {
     setSidebarOpen(false);
   }, [location]);
 
-  if (!session) return <ShellFallback label="Opening graph…" />;
+  if (!session) return <ShellLoading />;
   return (
     <SessionContext.Provider value={session}>
       <ShellBody
@@ -107,7 +119,9 @@ function ShellBody({
     [state.snapshot],
   );
 
-  if (state.status === "opening") return <ShellFallback label="Opening graph…" />;
+  // A calm, delayed loader (rather than a full-bleed card) prevents the
+  // sub-frame "Opening graph…" flash on fast local opens.
+  if (state.status === "opening") return <ShellLoading />;
 
   if (state.status === "error") {
     return (
@@ -147,24 +161,29 @@ function ShellBody({
         </div>
         <div className="shell-nav">
           <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
-            <span aria-hidden>📆</span> Journal
+            <CalendarDaysIcon aria-hidden strokeWidth={2.25} /> Journal
           </NavLink>
           <NavLink className="shell-nav-item" to={`/g/${graphId}/settings`}>
-            <span aria-hidden>⚙️</span> Settings
+            <SettingsIcon aria-hidden strokeWidth={2.25} /> Settings
           </NavLink>
           <button className="shell-nav-item" onClick={onExit}>
-            <span aria-hidden>🗂️</span> All graphs
+            <LibraryIcon aria-hidden strokeWidth={2.25} /> All graphs
           </button>
         </div>
         <div className="eyebrow shell-section-title">Pages</div>
         <div className="shell-nav" data-testid="page-list">
           {pages.map((page) => (
             <NavLink key={page.id} className="shell-nav-item" to={`/g/${graphId}/p/${page.id}`}>
-              {pageTitle(page)}
+              <FileTextIcon aria-hidden strokeWidth={2.25} />
+              <span className="nav-label">{pageTitle(page)}</span>
             </NavLink>
           ))}
-          <button className="shell-nav-item" onClick={() => void createPage()} data-testid="new-page">
-            <span aria-hidden>＋</span> New page
+          <button
+            className="shell-nav-item shell-nav-muted"
+            onClick={() => void createPage()}
+            data-testid="new-page"
+          >
+            <PlusIcon aria-hidden strokeWidth={2.25} /> New page
           </button>
         </div>
       </nav>
@@ -175,28 +194,36 @@ function ShellBody({
             aria-label="Open menu"
             onClick={onToggleSidebar}
           >
-            ☰
+            <MenuIcon />
           </button>
-          <button
-            className="btn btn-ghost"
-            aria-label="Undo"
-            title="Undo (⌘Z)"
-            disabled={state.mode === "readonly"}
-            onClick={() => void session.execute({ type: "undo" }).catch(() => {})}
-            data-testid="undo"
-          >
-            ↩ Undo
-          </button>
-          <button
-            className="btn btn-ghost"
-            aria-label="Redo"
-            title="Redo (⇧⌘Z)"
-            disabled={state.mode === "readonly"}
-            onClick={() => void session.execute({ type: "redo" }).catch(() => {})}
-            data-testid="redo"
-          >
-            ↪ Redo
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="btn btn-ghost"
+                aria-label="Undo"
+                disabled={state.mode === "readonly"}
+                onClick={() => void session.execute({ type: "undo" }).catch(() => {})}
+                data-testid="undo"
+              >
+                <Undo2Icon aria-hidden /> Undo
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Undo · ⌘Z</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="btn btn-ghost"
+                aria-label="Redo"
+                disabled={state.mode === "readonly"}
+                onClick={() => void session.execute({ type: "redo" }).catch(() => {})}
+                data-testid="redo"
+              >
+                <Redo2Icon aria-hidden /> Redo
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Redo · ⇧⌘Z</TooltipContent>
+          </Tooltip>
           <span className="spacer" />
           {state.mode === "readonly" && (
             <span className="status-pill" data-testid="readonly-pill">
@@ -211,7 +238,7 @@ function ShellBody({
             recovery. Intact data up to the last valid state was restored.
           </Callout>
         )}
-        <div className="shell-content">
+        <div className="shell-content enter-fade" key={graphId}>
           <Outlet />
         </div>
       </div>
@@ -219,10 +246,23 @@ function ShellBody({
   );
 }
 
-function ShellFallback({ label }: { label: string }) {
+/**
+ * A flicker-free loading state: renders nothing for a short grace period, then
+ * fades in a quiet spinner only if the open is genuinely slow. Fast local
+ * opens (the common case) show no loading screen at all.
+ */
+function ShellLoading() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShow(true), 220);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!show) return <main className="shell-loading" aria-busy="true" aria-hidden />;
   return (
-    <main className="tombstone" aria-busy="true">
-      <h1>{label}</h1>
+    <main className="shell-loading" role="status" aria-busy="true">
+      <Loader2Icon className="spinner" aria-hidden />
+      <p>Opening graph…</p>
     </main>
   );
 }

@@ -5,7 +5,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { findJournalPage } from "../../core-port/snapshot";
+import { Input } from "@/ui/shadcn/input";
 import {
   addDays,
   formatJournalTitle,
@@ -52,10 +54,11 @@ export function JournalView() {
         <span className="eyebrow">Journal</span>
         <span style={{ flex: 1 }} />
         <button className="icon-btn" aria-label="Previous day" onClick={() => go(addDays(date, -1))}>
-          ←
+          <ChevronLeftIcon />
         </button>
-        <input
+        <Input
           type="date"
+          className="h-8 w-auto"
           aria-label="Jump to date"
           value={date}
           data-testid="journal-date"
@@ -64,7 +67,7 @@ export function JournalView() {
           }}
         />
         <button className="icon-btn" aria-label="Next day" onClick={() => go(addDays(date, 1))}>
-          →
+          <ChevronRightIcon />
         </button>
         {date !== today && (
           <button className="btn btn-utility" onClick={() => go(today)}>

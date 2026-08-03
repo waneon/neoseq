@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
 // Generates the application-shell Service Worker with the built asset list
@@ -33,7 +34,12 @@ function shellServiceWorker(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), shellServiceWorker()],
+  plugins: [react(), tailwindcss(), shellServiceWorker()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   clearScreen: false,
   server: {
     host: "127.0.0.1",

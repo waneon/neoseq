@@ -2,6 +2,7 @@
 // property editor over the same bag. Adding a tag routes through AddTag so
 // the target page's defaults materialize onto the block in one transaction.
 
+import { XIcon } from "lucide-react";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
@@ -21,15 +22,15 @@ export function BlockInspector({
 
   return (
     <div
-      className="card"
-      style={{ margin: "4px 0 12px", padding: "var(--space-md)" }}
+      className="card animate-in slide-in-from-top-1 duration-150"
+      style={{ margin: "6px 0 12px", padding: "var(--space-md)" }}
       data-testid="block-inspector"
     >
       <header style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="eyebrow">Block properties</span>
         <span style={{ flex: 1 }} />
         <button className="icon-btn" aria-label="Close block properties" onClick={onClose}>
-          ✕
+          <XIcon />
         </button>
       </header>
       <div

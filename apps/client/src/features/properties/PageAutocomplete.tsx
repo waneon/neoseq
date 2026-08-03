@@ -1,9 +1,23 @@
 // Page reference autocomplete backed by the core snapshot's page index.
 // Selecting an entry writes a stable PageId; an optional create action
 // makes a new page and then resolves to its id.
+//
+// The option list renders in a portal so it escapes the outline's scroll
+// container and virtualized stacking context (which otherwise clipped it).
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
+import { Input } from "@/ui/shadcn/input";
+import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
 
 interface Option {
@@ -31,6 +45,9 @@ export function PageAutocomplete({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
+  const listId = useId();
 
   const options = useMemo<Option[]>(() => {
     const lower = query.trim().toLowerCase();
@@ -47,6 +64,25 @@ export function PageAutocomplete({
     }
     return result;
   }, [state.snapshot, query, allowCreate]);
+
+  const reposition = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setAnchor({ left: rect.left, top: rect.bottom + 4, width: rect.width });
+  }, []);
+
+  // Keep the portaled list glued to the input while open.
+  useLayoutEffect(() => {
+    if (!open) return;
+    reposition();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open, reposition, options.length]);
 
   const pick = async (option: Option) => {
     setOpen(false);
@@ -66,6 +102,7 @@ export function PageAutocomplete({
     if (event.nativeEvent.isComposing) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      setOpen(true);
       setActive((index) => Math.min(index + 1, options.length - 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
@@ -79,15 +116,19 @@ export function PageAutocomplete({
     }
   };
 
+  const optionId = (index: number) => `${listId}-opt-${index}`;
+
   return (
     <div className="autocomplete">
-      <input
+      <Input
+        ref={inputRef}
         id={inputId}
-        className="text-input"
         role="combobox"
         aria-expanded={open}
+        aria-controls={open && options.length > 0 ? listId : undefined}
         aria-autocomplete="list"
         aria-label={placeholder}
+        aria-activedescendant={open && options[active] ? optionId(active) : undefined}
         placeholder={placeholder}
         value={query}
         autoFocus={autoFocus}
@@ -103,26 +144,51 @@ export function PageAutocomplete({
         }}
         onKeyDown={onKeyDown}
       />
-      {open && (
-        <ul className="autocomplete-list" role="listbox">
-          {options.length === 0 && <li className="autocomplete-hint">No matching pages</li>}
-          {options.map((option, index) => (
-            <li key={option.create ? "__create" : option.id} data-active={index === active}>
-              <button
-                role="option"
-                aria-selected={index === active}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  if (blurTimer.current) clearTimeout(blurTimer.current);
-                  void pick(option);
-                }}
-              >
-                {option.create ? `Create page “${option.label}”` : option.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {open &&
+        anchor &&
+        createPortal(
+          <div
+            className="ac-popover"
+            style={{
+              left: anchor.left,
+              top: anchor.top,
+              minWidth: anchor.width,
+              maxWidth: Math.max(anchor.width, 320),
+            }}
+          >
+            {options.length === 0 ? (
+              <div role="status" className="autocomplete-hint">
+                No matching pages
+              </div>
+            ) : (
+              <ul id={listId} role="listbox" className="m-0 list-none p-0">
+                {options.map((option, index) => (
+                  <li key={option.create ? "__create" : option.id}>
+                    <button
+                      id={optionId(index)}
+                      role="option"
+                      aria-selected={index === active}
+                      data-active={index === active}
+                      className={cn(
+                        "flex w-full items-center gap-1.5 truncate rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors",
+                        "hover:bg-accent data-[active=true]:bg-accent",
+                      )}
+                      onMouseEnter={() => setActive(index)}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        if (blurTimer.current) clearTimeout(blurTimer.current);
+                        void pick(option);
+                      }}
+                    >
+                      {option.create ? `Create page “${option.label}”` : option.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

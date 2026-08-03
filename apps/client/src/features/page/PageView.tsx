@@ -66,7 +66,7 @@ export function PageBody({
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   return (
     <div className="page-scroll" ref={setScrollElement}>
-      <article className="page-body">
+      <article className="page-body enter-fade" key={page.id}>
         {header ?? (
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <EditableTitle page={page} />

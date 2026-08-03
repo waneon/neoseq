@@ -3,6 +3,7 @@
 // same entries.
 
 import { useNavigate, useParams } from "react-router";
+import { XIcon } from "lucide-react";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle, repeatedValues } from "../../core-port/snapshot";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -22,7 +23,12 @@ export function TagChips({ block }: { block: BlockSnapshot }) {
         const missing = !page || isDeleted(page);
         const label = page ? pageTitle(page) : value.value;
         return (
-          <span className="chip" data-tombstone={missing} key={value.value} data-testid="tag-chip">
+          <span
+            className="chip animate-in fade-in-0 zoom-in-95 duration-150"
+            data-tombstone={missing}
+            key={value.value}
+            data-testid="tag-chip"
+          >
             <button
               className="chip-link"
               title={missing ? "This page was deleted" : `Open ${label}`}
@@ -45,7 +51,7 @@ export function TagChips({ block }: { block: BlockSnapshot }) {
                     .catch(() => undefined)
                 }
               >
-                ✕
+                <XIcon className="size-3" />
               </button>
             )}
           </span>

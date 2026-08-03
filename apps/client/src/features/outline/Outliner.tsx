@@ -14,7 +14,26 @@ import {
   type RefObject,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CornerDownRightIcon,
+  IndentDecreaseIcon,
+  IndentIncreaseIcon,
+  MoreHorizontalIcon,
+  Settings2Icon,
+  Trash2Icon,
+} from "lucide-react";
 import type { GraphSession } from "../../core-port/session";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/shadcn/dropdown-menu";
 import type { PageSnapshot } from "../../core-port/snapshot";
 import { findBlock, repeatedValues } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
@@ -595,7 +614,6 @@ function BlockRow({
   editor: EditorContext;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const isFocused = editor.focusedId === row.block.id;
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
@@ -644,14 +662,9 @@ function BlockRow({
           tabIndex={-1}
           onClick={() => editor.toggleCollapse(row.block.id)}
         >
-          {row.collapsed ? "▶" : "▼"}
+          {row.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
         </button>
-        <button
-          className="outline-bullet"
-          aria-label="Block actions"
-          data-testid="block-bullet"
-          onClick={() => setMenuOpen((open) => !open)}
-        />
+        <span className="outline-bullet" data-testid="block-bullet" aria-hidden />
       </span>
       <div className="outline-text">
         <textarea
@@ -681,93 +694,70 @@ function BlockRow({
         )}
       </div>
       <div className="row-menu" style={pending ? { visibility: "hidden" } : undefined}>
-        <button
-          className="icon-btn"
-          aria-label="More block actions"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          data-testid="block-menu"
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          ⋯
-        </button>
-        {menuOpen && (
-          <div className="row-menu-list" role="menu" onMouseLeave={() => setMenuOpen(false)}>
-            <button
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                editor.toggleInspect(row.block.id);
-              }}
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <button className="icon-btn" aria-label="More block actions" data-testid="block-menu">
+              <MoreHorizontalIcon />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
               data-testid="menu-properties"
+              onSelect={() => editor.toggleInspect(row.block.id)}
             >
-              Properties & tags
-            </button>
-            <button
-              role="menuitem"
+              <Settings2Icon aria-hidden />
+              Properties &amp; tags
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               disabled={editor.readonly}
-              onClick={() => {
-                setMenuOpen(false);
-                editor.menu.addChild(row);
-              }}
+              onSelect={() => editor.menu.addChild(row)}
             >
+              <CornerDownRightIcon aria-hidden />
               Add child block
-            </button>
-            <button
-              role="menuitem"
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={editor.readonly || row.index === 0}
-              onClick={() => {
-                setMenuOpen(false);
-                editor.menu.indent(row);
-              }}
+              onSelect={() => editor.menu.indent(row)}
             >
+              <IndentIncreaseIcon aria-hidden />
               Indent
-            </button>
-            <button
-              role="menuitem"
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={editor.readonly || row.depth === 0}
-              onClick={() => {
-                setMenuOpen(false);
-                editor.menu.outdent(row);
-              }}
+              onSelect={() => editor.menu.outdent(row)}
             >
+              <IndentDecreaseIcon aria-hidden />
               Outdent
-            </button>
-            <button
-              role="menuitem"
-              disabled={editor.readonly || row.index === 0}
-              onClick={() => {
-                setMenuOpen(false);
-                editor.menu.move(row, -1);
-              }}
+            </DropdownMenuItem>
+            <DropdownMenuItem
               data-testid="menu-move-up"
+              disabled={editor.readonly || row.index === 0}
+              onSelect={() => editor.menu.move(row, -1)}
             >
+              <ArrowUpIcon aria-hidden />
               Move up
-            </button>
-            <button
-              role="menuitem"
-              disabled={editor.readonly || row.index >= row.siblingCount - 1}
-              onClick={() => {
-                setMenuOpen(false);
-                editor.menu.move(row, 1);
-              }}
+            </DropdownMenuItem>
+            <DropdownMenuItem
               data-testid="menu-move-down"
+              disabled={editor.readonly || row.index >= row.siblingCount - 1}
+              onSelect={() => editor.menu.move(row, 1)}
             >
+              <ArrowDownIcon aria-hidden />
               Move down
-            </button>
-            <button
-              role="menuitem"
-              disabled={editor.readonly}
-              onClick={() => {
-                setMenuOpen(false);
-                editor.menu.remove(row, rows);
-              }}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               data-testid="menu-delete"
+              variant="destructive"
+              disabled={editor.readonly}
+              onSelect={() => editor.menu.remove(row, rows)}
             >
+              <Trash2Icon aria-hidden />
               Delete block
-            </button>
-          </div>
-        )}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

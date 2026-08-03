@@ -213,7 +213,7 @@
           src = fullSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-j72AAwdQw0s2+I/Ml3ZRu8y4uDuwm+KCLbireJNaClc=";
+          hash = "sha256-Qk427mZd5Wcl/O6mMxsxSkHvfzFeswxa1Exvc+llEzE=";
         };
 
         web = pkgs.stdenvNoCC.mkDerivation {

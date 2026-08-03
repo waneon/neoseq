@@ -177,8 +177,20 @@ features/        editor and property-driven journal/query/task/graph views
 entities/        page/block view models and renderers
 core-port/       session, commands, snapshot DTOs, graph directory, lease
 generated/       CorePort contract types (path fixed by the drift check)
-ui/              reusable presentational components and design tokens
+lib/             framework-agnostic UI helpers (class-name merge)
+ui/              design tokens, Tailwind v4 theme, and shadcn/Radix primitives
 ```
+
+The presentation layer is Tailwind CSS v4 with shadcn/ui primitives built on
+Radix. NeoSeq's Notion-derived design tokens in `ui/app.css` remain the source
+of truth and are bridged to shadcn's semantic CSS variables in
+`ui/globals.css`, so Radix-backed overlays (dropdown menus, dialogs, tooltips)
+and native form controls (kept native for accessibility and uniform value
+handling) share one visual system. Overlays that must escape the virtualized
+outline's scroll container and stacking context — the block action menu and the
+page autocomplete — render in portals. Motion is deliberately restrained:
+entrance animations are opacity-based so they stay contrast-safe and never move
+a target out from under a pointer.
 
 The property registry the UI validates against is imported from the versioned
 core fixture (`fixtures/core/property-definitions-v1.json`), so client and

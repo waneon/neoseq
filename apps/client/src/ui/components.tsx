@@ -1,4 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import {
+  Dialog as DialogRoot,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/ui/shadcn/dialog";
 
 export function Dialog({
   title,
@@ -9,41 +15,22 @@ export function Dialog({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>(
-      "input, select, textarea, button",
-    );
-    first?.focus();
-    return () => previous?.focus();
-  }, []);
-
+  // Rendered only while open (parents mount it conditionally), so the Radix
+  // root is always open; closing via Escape, the backdrop, or the X reports
+  // back through onOpenChange. Radix owns focus trapping and restoration.
   return (
-    <div
-      className="dialog-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        ref={ref}
+    <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.stopPropagation();
-            onClose();
-          }
+          if (event.key === "Escape") event.stopPropagation();
         }}
       >
-        <h2>{title}</h2>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         {children}
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   );
 }
 

@@ -7,6 +7,8 @@ import {
   setConfiguredTimezone,
 } from "../../entities/journal";
 import { Callout, Dialog } from "../../ui/components";
+import { Input } from "@/ui/shadcn/input";
+import { NativeSelect } from "@/ui/shadcn/native-select";
 import { useSessionState } from "../shell/session-context";
 
 export function SettingsView() {
@@ -41,8 +43,7 @@ export function SettingsView() {
         <section className="card" aria-label="Graph">
           <span className="eyebrow">Graph</span>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <input
-              className="text-input"
+            <Input
               aria-label="Graph name"
               value={name}
               data-testid="settings-graph-name"
@@ -60,8 +61,7 @@ export function SettingsView() {
           <p className="page-subtitle" style={{ margin: "4px 0 12px" }}>
             “Today” for journals is resolved in this IANA timezone.
           </p>
-          <select
-            className="select-input"
+          <NativeSelect
             aria-label="Timezone"
             value={timezone}
             data-testid="settings-timezone"
@@ -75,7 +75,7 @@ export function SettingsView() {
                 {zone}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </section>
 
         <section className="card" aria-label="Local storage">
