@@ -14,4 +14,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: DeterminateSystems/determinate-nix-action@v3
-      - run: nix flake check --print-build-logs
+      - name: Run Nix flake checks
+        run: nix flake check --print-build-logs --keep-failed
+
+      - name: Collect Playwright failure diagnostics
+        if: ${{ failure() }}
+        run: |
+          mkdir -p artifacts/playwright
+          sudo find /tmp \
+            -type d \
+            -path '/tmp/nix-build-neoseq-web-e2e.drv-*/source/apps/client/test-results' \
+            -print0 \
+            | while IFS= read -r -d '' results_dir; do
+                sudo cp -R "$results_dir"/. artifacts/playwright/
+              done
+          sudo chmod -R a+rX artifacts/playwright
+
+      - name: Upload Playwright failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/playwright
+          if-no-files-found: warn
+          retention-days: 14

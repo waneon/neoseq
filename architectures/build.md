@@ -102,6 +102,8 @@ Darwin browser processes require host services unavailable in the Nix build
 sandbox, so browser apps run those same prebuilt harnesses on the host. CI does
 not repeat explicit builds already contained in the check graph, and does not
 build macOS/Android/sync spikes before their implementation steps.
+On failure, CI preserves the failed Nix build directory long enough to upload
+Playwright traces and error contexts as a short-lived diagnostic artifact.
 
 ## Developer Workflow
 
