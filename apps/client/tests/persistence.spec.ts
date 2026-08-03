@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
     const url = new URL(request.url());
     if (url.hostname !== "127.0.0.1") externalRequests.push(request.url());
   });
-  await page.goto("/");
+  await page.goto("/#/verify/step-3");
   await expect(page.getByTestId("result")).toHaveAttribute("data-status", "passed");
   expect(externalRequests).toEqual([]);
 });

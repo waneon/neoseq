@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "step": "04-local-web-app",
+  "status": "passed",
+  "verified_at": "2026-08-03T17:23:12+09:00",
+  "source": {
+    "parent_revision": "d59b801445bc",
+    "working_copy": "dirty"
+  },
+  "host": {
+    "system": "aarch64-darwin",
+    "darwin": "24.6.0",
+    "architecture": "arm64"
+  },
+  "gates": {
+    "web_build": "passed",
+    "client_components": "passed",
+    "e2e_web_chromium": "passed",
+    "e2e_web_mobile_chromium": "passed",
+    "persistence_indexeddb_regression": "passed",
+    "core_port_web_worker_regression": "passed",
+    "recovery_regression": "passed",
+    "flake_check": "passed"
+  },
+  "tests": {
+    "client_components": 19,
+    "e2e_chromium": 18,
+    "e2e_mobile_chromium": 17,
+    "step3_browser_corpus": 3,
+    "workspace_rust": 27
+  },
+  "scenarios": {
+    "graph_create_journal_reload": "passed",
+    "journal_date_navigation": "passed",
+    "graph_rename_delete": "passed",
+    "second_tab_readonly_lease": "passed",
+    "deep_outline_keyboard_and_subtree_reorder": "passed",
+    "block_split_and_empty_delete": "passed",
+    "touch_block_menu_commands": "passed",
+    "ime_composition_not_interrupted": "passed",
+    "all_property_types_and_unknown_fallback": "passed",
+    "invalid_default_validation_error": "passed",
+    "tag_default_copy_without_overwrite": "passed",
+    "deleted_page_tombstone_and_restore": "passed",
+    "offline_edit_reload_edit": "passed",
+    "storage_abort_unsaved_retry": "passed",
+    "quota_typed_storage_full": "passed",
+    "accessibility_axe_wcag2aa": "passed"
+  },
+  "bundle_budget_gzip_bytes": {
+    "js": { "actual": 122390, "budget": 262144 },
+    "css": { "actual": 3494, "budget": 32768 },
+    "wasm": { "actual": 1311697, "budget": 2097152 }
+  },
+  "contracts": {
+    "core_port_version": 1,
+    "core_port_changed": false,
+    "worker_adapter_operations": ["retry_pending", "list_graphs", "delete_graph"],
+    "property_registry_source": "fixtures/core/property-definitions-v1.json"
+  },
+  "network": {
+    "external_requests_in_scenarios": 0
+  },
+  "platform_notes": {
+    "darwin_browser_gate": "Nix assembles a self-contained harness (built client + Playwright browsers) that runs on the host because the Darwin sandbox blocks browser host services; Linux flake check additionally runs the hermetic web-e2e check."
+  }
+}

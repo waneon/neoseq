@@ -2,8 +2,10 @@
 
 NeoSeq is a local-first outliner whose only user-facing data outside block
 Markdown is a uniform typed property model. The repository is currently at the
-schema-v1 domain, Loro graph core, and local-persistence/CorePort stage. The
-user-facing editor and remote transport follow in later steps.
+local Web alpha stage: a browser app with journals, a virtualized outliner,
+Markdown blocks, and the uniform property experience, running fully offline on
+the schema-v1 domain, Loro graph core, and IndexedDB persistence. Query/task
+features and remote transport follow in later steps.
 
 ## Core verification
 
@@ -29,15 +31,15 @@ nix run .#test-persistence -- --adapter indexeddb
 nix run .#test-core-port -- --adapter native
 nix run .#test-core-port -- --adapter web-worker
 nix run .#test-recovery
+nix run .#test-client-components
+nix run .#test-e2e-web -- --project chromium
+nix run .#test-e2e-web -- --project mobile-chromium
 ```
 
 On Darwin, Playwright needs macOS host services that are unavailable inside the
-Nix build sandbox. Run the equivalent browser persistence gate from the pinned
-devShell:
-
-```sh
-nix develop -c pnpm --filter @neoseq/client test:indexeddb
-```
+Nix build sandbox; the browser gates above assemble a self-contained harness
+and run it on the host. On Linux, `nix flake check` additionally runs the
+hermetic `browser-persistence` and `web-e2e` checks.
 
 The macOS build treats Xcode Command Line Tools and the macOS SDK as explicit
 host inputs. `scripts/check-macos-host.sh` records them. Android SDK 36, build
@@ -46,5 +48,5 @@ pnpm are supplied by the pinned flake. The emulator smoke command additionally
 requires working host virtualization.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for system boundaries and
-[steps/03-local-persistence-and-ports.md](steps/03-local-persistence-and-ports.md)
-for the current persistence acceptance gate.
+[steps/04-local-web-app.md](steps/04-local-web-app.md) for the current
+local Web acceptance gate.

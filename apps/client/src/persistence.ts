@@ -87,6 +87,17 @@ export class IndexedDbGraphRepository {
     return metadata;
   }
 
+  async allMetadata(): Promise<MetadataRecord[]> {
+    const database = await openDatabase();
+    const transaction = database.transaction(STORES.metadata, "readonly");
+    const values = await request<MetadataRecord[]>(
+      transaction.objectStore(STORES.metadata).getAll(),
+    );
+    await complete(transaction);
+    database.close();
+    return values.sort((left, right) => left.created_at.localeCompare(right.created_at));
+  }
+
   async metadata(graphId: string): Promise<MetadataRecord> {
     const database = await openDatabase();
     const transaction = database.transaction(STORES.metadata, "readonly");

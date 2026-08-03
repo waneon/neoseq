@@ -1,6 +1,6 @@
 # 04. Local-first Web application
 
-상태: 계획됨
+상태: 완료
 
 ## 목표
 
@@ -89,12 +89,15 @@ Web E2E는 실제 Worker와 IndexedDB를 사용하고 다음을 포함한다.
 
 ## 완료 조건
 
-- [ ] 사용자 시나리오가 browser UI만으로 끝까지 가능하다.
-- [ ] UI state store에 canonical page/block/property 복제본이 생기지 않는다.
-- [ ] Markdown 외 기능 데이터가 generic property inspector에서 모두 보인다.
-- [ ] keyboard-only로 outline과 property editor의 주요 기능을 사용할 수 있다.
-- [ ] reload/offline 후 acknowledged local state가 유지된다.
-- [ ] production bundle budget과 basic accessibility audit가 통과한다.
+- [x] 사용자 시나리오가 browser UI만으로 끝까지 가능하다.
+- [x] UI state store에 canonical page/block/property 복제본이 생기지 않는다.
+- [x] Markdown 외 기능 데이터가 generic property inspector에서 모두 보인다.
+- [x] keyboard-only로 outline과 property editor의 주요 기능을 사용할 수 있다.
+- [x] reload/offline 후 acknowledged local state가 유지된다.
+- [x] production bundle budget과 basic accessibility audit가 통과한다.
+
+검증 결과와 재현 명령은 [verification/step-4.md](../verification/step-4.md)에
+기록되어 있다.
 
 ## 이 단계에서 하지 않는 것
 

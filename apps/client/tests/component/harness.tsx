@@ -1,0 +1,57 @@
+// Component test harness: real GraphSession over the in-memory FakeCorePort,
+// mounted inside the app's route shape so router hooks resolve.
+
+import { render, type RenderResult } from "@testing-library/react";
+import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
+import type { ReactElement } from "react";
+import { GraphSession } from "../../src/core-port/session";
+import {
+  FakeCorePort,
+  openFakeSession,
+} from "../../src/core-port/testing/fake-core-port";
+import { SessionContext } from "../../src/features/shell/session-context";
+import { JournalView } from "../../src/features/journal/JournalView";
+import { PageView } from "../../src/features/page/PageView";
+
+export const GRAPH_ID = "test-graph";
+
+export interface Harness {
+  session: GraphSession;
+  port: FakeCorePort;
+  view: RenderResult;
+}
+
+export async function mountAt(
+  initialPath: string,
+  custom?: ReactElement,
+): Promise<Harness> {
+  const { session, port } = await openFakeSession(GRAPH_ID);
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/g/:graphId",
+        element: (
+          <SessionContext.Provider value={session}>
+            <Outlet />
+          </SessionContext.Provider>
+        ),
+        children: [
+          { path: "journal", element: custom ?? <JournalView /> },
+          { path: "journal/:date", element: custom ?? <JournalView /> },
+          { path: "p/:pageId", element: custom ?? <PageView /> },
+          { path: "custom", element: custom ?? <div /> },
+        ],
+      },
+      { path: "*", element: <div data-testid="elsewhere" /> },
+    ],
+    { initialEntries: [initialPath] },
+  );
+  const view = render(<RouterProvider router={router} />);
+  return { session, port, view };
+}
+
+/** Waits until the session queue settles and React flushed the state. */
+export async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}

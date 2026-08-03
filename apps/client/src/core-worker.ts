@@ -12,7 +12,18 @@ import type {
   SubscribeRequest,
   SubscribeResponse,
 } from "./generated/core-port";
-import type { FaultPoint } from "./persistence";
+import type { FaultPoint, MetadataRecord } from "./persistence";
+
+export type GraphMetadata = Pick<
+  MetadataRecord,
+  "graph_id" | "schema_version" | "created_at" | "updated_at"
+>;
+
+export interface SavedReceipt {
+  status: "saved_locally";
+  local_sequence: number;
+  checksum: string;
+}
 
 interface WorkerResponse {
   id: number;
@@ -53,12 +64,20 @@ export class CoreWorker implements CorePort {
     return this.request("close_graph", request);
   }
 
-  injectFault(graphHandle: string, fault: FaultPoint): Promise<void> {
-    return this.request("test_control", { action: "inject", graph_handle: graphHandle, fault });
+  retryPending(graphHandle: string): Promise<SavedReceipt> {
+    return this.request("retry_pending", { graph_handle: graphHandle });
   }
 
-  retryPending(graphHandle: string): Promise<void> {
-    return this.request("test_control", { action: "retry", graph_handle: graphHandle });
+  listGraphs(): Promise<GraphMetadata[]> {
+    return this.request("list_graphs", {});
+  }
+
+  deleteGraph(graphId: string): Promise<void> {
+    return this.request("delete_graph", { graph_id: graphId });
+  }
+
+  injectFault(graphHandle: string, fault: FaultPoint): Promise<void> {
+    return this.request("test_control", { action: "inject", graph_handle: graphHandle, fault });
   }
 
   corruptUpdate(graphId: string, sequence: number): Promise<void> {

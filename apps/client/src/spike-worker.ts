@@ -49,6 +49,9 @@ self.onmessage = async (event: MessageEvent<Message>) => {
       case "read": value = read(payload as ReadRequest); break;
       case "subscribe": value = subscribe(payload as SubscribeRequest); break;
       case "close_graph": value = await closeGraph(payload as CloseGraphRequest); break;
+      case "retry_pending": value = await retryPending(payload as { graph_handle: string }); break;
+      case "list_graphs": value = await new IndexedDbGraphRepository().allMetadata(); break;
+      case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
       case "test_control": value = await testControl(payload as Record<string, unknown>); break;
       default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
     }
@@ -225,6 +228,21 @@ async function closeGraph(request: CloseGraphRequest) {
   await state.repository.markCompacted(state.graphId, through);
   states.delete(request.graph_handle);
   return { closed: true };
+}
+
+async function retryPending(payload: { graph_handle: string }) {
+  const receipt = await persistPending(requireState(payload.graph_handle));
+  return { status: "saved_locally", ...receipt };
+}
+
+async function deleteGraph(payload: { graph_id: string }) {
+  for (const state of states.values()) {
+    if (state.graphId === payload.graph_id) {
+      throw failure("invalid_request", "close the graph before deleting it", false);
+    }
+  }
+  await new IndexedDbGraphRepository().deleteLocal(payload.graph_id);
+  return { deleted: true };
 }
 
 async function testControl(payload: Record<string, unknown>) {

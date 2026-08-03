@@ -60,6 +60,16 @@ and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
 buffers transfer rather than clone. Opening a local locator creates no network
 transport.
 
+Beyond the five CorePort v1 operations, the worker protocol carries three
+adapter-level operations the local Web app needs: `retry_pending` (persist the
+exact pending update bytes after a storage failure), `list_graphs` (stored
+graph metadata), and `delete_graph` (explicit local deletion of a closed
+graph). They are adapter concerns, not CorePort contract surface. Graph
+display names are app-level bookkeeping in a small localStorage directory;
+canonical note data never lives there. A `GraphSession` on the main thread
+serializes commands, and after every command drains the event stream and
+re-reads the authoritative snapshot — the UI has no other state path.
+
 ## Editor State and Input
 
 Each rendered block has a stable `BlockId`. The editor maintains a viewport
@@ -77,6 +87,14 @@ Text input follows this sequence:
 Structural commands such as indent, outdent, and move go directly to the core
 and render optimistically only when the inverse is known. A rejected command
 restores the authoritative subtree and retains focus where possible.
+
+The one optimistic structure is block insertion: Enter mounts a focused
+pending row immediately so fast typing lands in the new block, and the row
+swaps to its real `BlockId` when the core acknowledges the insert. Pending
+rows may chain; queued inserts, indent/outdent intents, and raced keystrokes
+replay in order against real ids, and the known inverse (drop the row) applies
+if the insert is rejected. Text drafts are dropped only once the authoritative
+snapshot matches them, so debounced splices are never lost.
 
 ## Property-Driven Features
 
@@ -125,12 +143,14 @@ or failed schema migration is.
 
 ### Web
 
-- The app is deployable as static assets with a Service Worker for shell
-  caching.
-- IndexedDB persistence permission/quota is checked and visible to the user.
-- Multi-tab graph editing requires a per-tab Loro peer ID and a coordination
-  lease; without a lease, a second tab opens the graph read-only. Peer IDs are
-  never reused concurrently.
+- The app is deployable as static assets (hash routing, no rewrite rules) with
+  a build-generated Service Worker that precaches the shell — HTML, JS, CSS,
+  and the Wasm core — so an offline reload boots. It never caches graph data.
+- IndexedDB persistence permission/quota is checked and visible to the user in
+  settings, together with quarantined-record recovery reports.
+- Multi-tab graph editing uses a per-tab random Loro peer ID and a Web Locks
+  lease per graph; without the lease, a second tab opens the graph read-only.
+  Peer IDs are never reused concurrently.
 
 ### macOS
 
@@ -155,9 +175,14 @@ or failed schema migration is.
 app/             composition, routing, lifecycle
 features/        editor and property-driven journal/query/task/graph views
 entities/        page/block view models and renderers
-core-port/       generated contracts and native/browser adapters
+core-port/       session, commands, snapshot DTOs, graph directory, lease
+generated/       CorePort contract types (path fixed by the drift check)
 ui/              reusable presentational components and design tokens
 ```
+
+The property registry the UI validates against is imported from the versioned
+core fixture (`fixtures/core/property-definitions-v1.json`), so client and
+core share one definition source.
 
 Feature modules may depend on `entities`, `core-port`, and `ui`; reverse imports
 are forbidden. Cross-feature actions are domain commands or app-level

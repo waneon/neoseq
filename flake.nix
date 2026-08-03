@@ -115,6 +115,8 @@
                 "verification"
                 "AGENTS.md"
                 "ARCHITECTURE.md"
+                "CLAUDE.md"
+                "DESIGN.md"
                 "README.md"
               ]
               || lib.hasPrefix ".github/" relative
@@ -211,7 +213,7 @@
           src = fullSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-Rj9hkp001JKd6h1yGEznTUOKLHPfk950D7EQ5H+Ro6s=";
+          hash = "sha256-j72AAwdQw0s2+I/Ml3ZRu8y4uDuwm+KCLbireJNaClc=";
         };
 
         web = pkgs.stdenvNoCC.mkDerivation {
@@ -275,8 +277,84 @@
           '';
         };
 
-        step3BrowserHarness = pkgs.stdenvNoCC.mkDerivation {
-          pname = "neoseq-step3-browser-harness";
+        clientComponentCheck = pkgs.stdenvNoCC.mkDerivation {
+          pname = "neoseq-client-components";
+          version = "0.1.0";
+          src = fullSource;
+          inherit pnpmDeps;
+          pnpmWorkspaces = [ "@neoseq/client" ];
+          nativeBuildInputs = [
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+            pkgs.pnpmConfigHook
+          ];
+          buildPhase = ''
+            runHook preBuild
+            mkdir -p apps/client/src/wasm
+            cp -R ${wasmBindings}/* apps/client/src/wasm/
+            pnpm --filter @neoseq/client exec vitest run
+            runHook postBuild
+          '';
+          installPhase = ''
+            mkdir -p $out
+            echo '{"suite":"client-components","status":"passed"}' > $out/report.json
+          '';
+        };
+
+        webE2eCheck = pkgs.stdenvNoCC.mkDerivation {
+          pname = "neoseq-web-e2e";
+          version = "0.1.0";
+          src = fullSource;
+          inherit pnpmDeps;
+          pnpmWorkspaces = [ "@neoseq/client" ];
+          nativeBuildInputs = [
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+            pkgs.pnpmConfigHook
+            pkgs.playwright-driver
+          ];
+          PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+          buildPhase = ''
+            runHook preBuild
+            mkdir -p apps/client/src/wasm
+            cp -R ${wasmBindings}/* apps/client/src/wasm/
+            pnpm --filter @neoseq/client build
+            cd apps/client
+            pnpm exec playwright test e2e/
+            cd ../..
+            runHook postBuild
+          '';
+          installPhase = ''
+            mkdir -p $out
+            echo '{"suite":"web-e2e","status":"passed"}' > $out/report.json
+          '';
+        };
+
+        bundleBudget = pkgs.runCommand "neoseq-web-bundle-budget" {
+          nativeBuildInputs = [ pkgs.gzip pkgs.gawk ];
+        } ''
+          root=${web}/share/neoseq-web
+          check() {
+            local label="$1" budget="$2" total=0
+            shift 2
+            for file in "$@"; do
+              size=$(gzip -c "$file" | wc -c)
+              total=$((total + size))
+            done
+            echo "$label: $total bytes gzipped (budget $budget)"
+            if [ "$total" -gt "$budget" ]; then
+              echo "bundle budget exceeded for $label" >&2
+              exit 1
+            fi
+          }
+          check "js" 262144 "$root"/assets/*.js
+          check "css" 32768 "$root"/assets/*.css
+          check "wasm" 2097152 "$root"/assets/*.wasm
+          touch $out
+        '';
+
+        browserHarness = pkgs.stdenvNoCC.mkDerivation {
+          pname = "neoseq-browser-harness";
           version = "0.1.0";
           src = fullSource;
           inherit pnpmDeps;
@@ -487,6 +565,8 @@
             }
           );
           inherit coreNative coreWasm web toolchainManifest;
+          client-components = clientComponentCheck;
+          bundle-budget = bundleBudget;
           licenses = craneLib.cargoDeny (
             commonArgs
             // {
@@ -505,9 +585,10 @@
           '';
         } // lib.optionalAttrs (!pkgs.stdenv.hostPlatform.isDarwin) {
           # macOS browser processes require host services that the Nix Darwin
-          # build sandbox blocks. Run the same Playwright test from devShell on
-          # Darwin; Linux CI retains the hermetic flake check.
+          # build sandbox blocks. Run the same Playwright suites via
+          # `nix run` on Darwin; Linux CI retains the hermetic flake checks.
           browser-persistence = browserPersistenceCheck;
+          web-e2e = webE2eCheck;
         };
 
         app = program: {
@@ -522,7 +603,7 @@
         browserGateEnvironment = ''
           export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
           browser_harness="$(mktemp -d)/source"
-          cp -R ${step3BrowserHarness}/source "$browser_harness"
+          cp -R ${browserHarness}/source "$browser_harness"
           chmod -R u+w "$browser_harness"
         '';
         spikeCrossRuntime = pkgs.writeShellApplication {
@@ -594,14 +675,14 @@
             exec cargo test -p graph-core convergence_ -- --nocapture "$@"
           '';
         };
-        step3BrowserInputs = [
+        browserToolInputs = [
           pkgs.nodejs_22
           pkgs.pnpm_10
           pkgs.playwright-driver
         ];
         testPersistence = pkgs.writeShellApplication {
           name = "neoseq-test-persistence";
-          runtimeInputs = [ rustToolchain ] ++ step3BrowserInputs;
+          runtimeInputs = [ rustToolchain ] ++ browserToolInputs;
           text = ''
             ${appEnvironment}
             adapter=""
@@ -626,7 +707,7 @@
         };
         testCorePort = pkgs.writeShellApplication {
           name = "neoseq-test-core-port";
-          runtimeInputs = [ rustToolchain ] ++ step3BrowserInputs;
+          runtimeInputs = [ rustToolchain ] ++ browserToolInputs;
           text = ''
             ${appEnvironment}
             adapter=""
@@ -649,9 +730,30 @@
             esac
           '';
         };
+        testClientComponents = pkgs.writeShellApplication {
+          name = "neoseq-test-client-components";
+          runtimeInputs = [
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+          ];
+          text = ''
+            ${browserGateEnvironment}
+            cd "$browser_harness/apps/client"
+            exec pnpm exec vitest run "$@"
+          '';
+        };
+        testE2eWeb = pkgs.writeShellApplication {
+          name = "neoseq-test-e2e-web";
+          runtimeInputs = browserToolInputs;
+          text = ''
+            ${browserGateEnvironment}
+            cd "$browser_harness/apps/client"
+            exec pnpm exec playwright test e2e/ "$@"
+          '';
+        };
         testRecovery = pkgs.writeShellApplication {
           name = "neoseq-test-recovery";
-          runtimeInputs = [ rustToolchain ] ++ step3BrowserInputs;
+          runtimeInputs = [ rustToolchain ] ++ browserToolInputs;
           text = ''
             ${appEnvironment}
             cargo test -p platform-native recovery_ -- --nocapture
@@ -666,7 +768,7 @@
           core-native = coreNative;
           core-wasm = coreWasm;
           core-tools = coreTools;
-          browser-harness = step3BrowserHarness;
+          browser-harness = browserHarness;
           wasm-bindings = wasmBindings;
           inherit web toolchainManifest;
           sync-server = syncServer;
@@ -687,6 +789,8 @@
           test-persistence = app "${testPersistence}/bin/neoseq-test-persistence";
           test-core-port = app "${testCorePort}/bin/neoseq-test-core-port";
           test-recovery = app "${testRecovery}/bin/neoseq-test-recovery";
+          test-client-components = app "${testClientComponents}/bin/neoseq-test-client-components";
+          test-e2e-web = app "${testE2eWeb}/bin/neoseq-test-e2e-web";
           spike-cross-runtime = app "${spikeCrossRuntime}/bin/neoseq-spike-cross-runtime";
           spike-persistence = app "${spikePersistence}/bin/neoseq-spike-persistence";
           spike-sync = app "${spikeSync}/bin/neoseq-spike-sync";
