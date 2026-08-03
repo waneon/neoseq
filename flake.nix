@@ -154,7 +154,11 @@
           src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-Qk427mZd5Wcl/O6mMxsxSkHvfzFeswxa1Exvc+llEzE=";
+          hash =
+            if pkgs.stdenvNoCC.isLinux then
+              "sha256-XllRNAvK/bJL8MNT2lsWMZcyNbMncw2BmOodz1Csdxg="
+            else
+              "sha256-Qk427mZd5Wcl/O6mMxsxSkHvfzFeswxa1Exvc+llEzE=";
         };
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {
