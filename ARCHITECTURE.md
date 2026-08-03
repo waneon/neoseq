@@ -28,6 +28,8 @@ are target architecture for later steps and are not current build artifacts.
   webview or JavaScript runtime.
 - Development and builds must be reproducible through Nix, subject to Apple
   signing and SDK constraints.
+- Nix dependency caches must be invalidated by dependency-manifest content, not
+  by machine-local store history or host-platform assumptions.
 - User-authored queries must be expressive without gaining filesystem, network,
   or process capabilities.
 - All non-Markdown features must use one property model instead of adding

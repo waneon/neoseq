@@ -84,14 +84,20 @@
             ./fixtures/core-port/v1.json
           ];
         };
+        pnpmDependencyFiles = [
+          ./package.json
+          ./pnpm-lock.yaml
+          ./pnpm-workspace.yaml
+          ./apps/client/package.json
+        ];
+        pnpmDependencyFingerprint = builtins.substring 0 12 (
+          builtins.hashString "sha256" (
+            lib.concatMapStringsSep "\n" (path: builtins.hashFile "sha256" path) pnpmDependencyFiles
+          )
+        );
         pnpmSource = lib.fileset.toSource {
           root = ./.;
-          fileset = lib.fileset.unions [
-            ./package.json
-            ./pnpm-lock.yaml
-            ./pnpm-workspace.yaml
-            ./apps/client/package.json
-          ];
+          fileset = lib.fileset.unions pnpmDependencyFiles;
         };
 
         commonArgs = {
@@ -149,16 +155,14 @@
         });
 
         pnpmDeps = pkgs.fetchPnpmDeps {
-          pname = "neoseq-client";
+          # A content-derived name prevents a stale fixed-output store path from
+          # hiding a manifest change when its hash was not updated.
+          pname = "neoseq-client-${pnpmDependencyFingerprint}";
           version = "0.1.0";
           src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash =
-            if pkgs.stdenvNoCC.isLinux then
-              "sha256-XllRNAvK/bJL8MNT2lsWMZcyNbMncw2BmOodz1Csdxg="
-            else
-              "sha256-Qk427mZd5Wcl/O6mMxsxSkHvfzFeswxa1Exvc+llEzE=";
+          hash = "sha256-XllRNAvK/bJL8MNT2lsWMZcyNbMncw2BmOodz1Csdxg=";
         };
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {
@@ -349,6 +353,7 @@
             mkdir -p "$project_root/apps/client/src/wasm"
             cp -R ${wasmDevBindings}/. "$project_root/apps/client/src/wasm/"
             chmod -R u+w "$project_root/apps/client/src/wasm"
+            export NEOSEQ_VITE_CACHE_DIR="$project_root/apps/client/.vite"
             cd "$project_root"
             pnpm --filter @neoseq/client dev "$@"
           '';

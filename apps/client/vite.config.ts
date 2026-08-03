@@ -82,6 +82,7 @@ function workerFactory(mode: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
+  cacheDir: process.env.NEOSEQ_VITE_CACHE_DIR,
   plugins: [testRoutes(mode), workerFactory(mode), react(), tailwindcss(), shellServiceWorker()],
   resolve: {
     alias: {

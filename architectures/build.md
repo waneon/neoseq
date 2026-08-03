@@ -20,6 +20,12 @@ Derivations consume explicit source sets instead of the repository root:
 - generated-contract drift receives only its schema, generator, and outputs;
 - dependency installation receives only pnpm workspace manifests and lockfile.
 
+The pnpm dependency fetcher's output name includes a fingerprint of those
+manifests and the lockfile. Any dependency-input change therefore creates a new
+fixed-output path and validates the declared dependency hash, even when an older
+dependency closure remains in the local Nix store. The fetched closure is
+platform-independent and uses one hash across supported systems.
+
 Consequently an edit to `flake.nix`, documentation, native plans, or historical
 verification does not invalidate Cargo, Wasm, pnpm dependency, or Web source
 derivations. Nix still evaluates the changed flake and may recreate a tiny app
@@ -38,7 +44,7 @@ rebuild Wasm and every downstream Web artifact.
   `test-support` feature;
 - `packages.browser-harness`: one test-mode Web build reused by browser suites;
 - `apps.web-dev`: checkout-backed Vite server with Nix dependencies and
-  development Wasm;
+  development Wasm plus a writable checkout-local optimizer cache;
 - `apps.web-preview`: serves the exact production package with negotiated
   response compression on port 4174;
 - focused Rust, IndexedDB, component, and Web E2E test apps;
