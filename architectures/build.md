@@ -32,12 +32,15 @@ rebuild Wasm and every downstream Web artifact.
 ## Flake Outputs
 
 - `packages.web`: the production static application;
-- `packages.core-wasm` and `wasm-bindings`: product Rust/Wasm adapter artifacts;
+- `packages.core-wasm` and `wasm-bindings`: size-optimized product Rust/Wasm
+  adapter artifacts;
 - `packages.core-tools`: YAML scenario runner built with the Rust
   `test-support` feature;
 - `packages.browser-harness`: one test-mode Web build reused by browser suites;
-- `apps.web-dev`: checkout-backed Vite server with Nix dependencies and Wasm;
-- `apps.web-preview`: serves the exact production package on port 4174;
+- `apps.web-dev`: checkout-backed Vite server with Nix dependencies and
+  development Wasm;
+- `apps.web-preview`: serves the exact production package with negotiated
+  response compression on port 4174;
 - focused Rust, IndexedDB, component, and Web E2E test apps;
 - `devShells.default`: Rust, Node/pnpm, Wasm binding, and core build tools;
 - `devShells.browser-test`: the default shell plus Playwright browsers.
@@ -49,8 +52,8 @@ and release-only tools are not part of the normal development closure.
 ## Build Graph
 
 ```text
-domain ──> graph-core ──> platform-web ──> Wasm bindings ──> production Web
-   │             │                                  └──────> browser harness
+domain ──> graph-core ──> platform-web ──> size Wasm bindings ──> production Web
+   │             │                 └──────> development bindings ──> Web dev/tests
    └─────────────┴──> platform-native (headless SQLite tests)
 query (independent Step 5 foundation)
 pnpm manifests ──> dependency closure ──> Web/component/browser consumers
@@ -60,6 +63,13 @@ The production Web bundle is built once. Browser persistence and product E2E
 checks copy and run the same test-mode harness instead of rebuilding Vite.
 Component tests reuse a dependency/source harness and do not depend on Wasm or
 a production build.
+
+Production Wasm uses the `wasm-release` Cargo profile with size optimization,
+fat LTO, one codegen unit, aborting panics, and stripped symbols. Development
+and browser-test bindings retain the ordinary release profile so editing the
+core does not add fat-LTO latency to the normal feedback loop. The production
+delivery boundary must negotiate Brotli or gzip for hashed static assets;
+`web-preview` exercises that behavior locally.
 
 ## Product and Verification Modes
 
@@ -79,7 +89,7 @@ contract, and recovery cases do not rerun the full matrix in every test.
 - Rust formatting, strict Clippy, workspace tests, and dependency policy;
 - product Wasm and Web builds;
 - generated CorePort drift;
-- frontend component tests and bundle budgets;
+- frontend component tests and raw plus gzip bundle budgets;
 - on Linux, the focused IndexedDB contract and Web E2E suites.
 
 Darwin browser processes require host services unavailable in the Nix build

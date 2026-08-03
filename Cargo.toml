@@ -24,3 +24,11 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 thiserror = "2.0"
 wasm-bindgen = "=0.2.121"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

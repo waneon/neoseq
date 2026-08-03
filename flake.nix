@@ -109,23 +109,39 @@
           cargoExtraArgs = "-p platform-web";
           doCheck = false;
         };
-        wasmCargoArtifacts = craneLib.buildDepsOnly wasmArgs;
-        coreWasm = craneLib.buildPackage (wasmArgs // {
-          cargoArtifacts = wasmCargoArtifacts;
-          pname = "neoseq-core-wasm";
+        wasmDevCargoArtifacts = craneLib.buildDepsOnly wasmArgs;
+        coreWasmDev = craneLib.buildPackage (wasmArgs // {
+          cargoArtifacts = wasmDevCargoArtifacts;
+          pname = "neoseq-core-wasm-dev";
           installPhaseCommand = ''
             mkdir -p $out/lib
             cp target/wasm32-unknown-unknown/release/platform_web.wasm \
               $out/lib/neoseq_core.wasm
           '';
         });
-        wasmBindings = pkgs.runCommand "neoseq-wasm-bindings" {
-          nativeBuildInputs = [ pkgs.wasm-bindgen-cli ];
-        } ''
-          mkdir -p $out
-          wasm-bindgen ${coreWasm}/lib/neoseq_core.wasm \
-            --target web --out-dir $out --out-name neoseq_core
-        '';
+        wasmReleaseArgs = wasmArgs // {
+          CARGO_PROFILE = "wasm-release";
+        };
+        wasmReleaseCargoArtifacts = craneLib.buildDepsOnly wasmReleaseArgs;
+        coreWasm = craneLib.buildPackage (wasmReleaseArgs // {
+          cargoArtifacts = wasmReleaseCargoArtifacts;
+          pname = "neoseq-core-wasm";
+          installPhaseCommand = ''
+            mkdir -p $out/lib
+            cp target/wasm32-unknown-unknown/wasm-release/platform_web.wasm \
+              $out/lib/neoseq_core.wasm
+          '';
+        });
+        makeWasmBindings = name: wasm:
+          pkgs.runCommand name {
+            nativeBuildInputs = [ pkgs.wasm-bindgen-cli ];
+          } ''
+            mkdir -p $out
+            wasm-bindgen ${wasm}/lib/neoseq_core.wasm \
+              --target web --out-dir $out --out-name neoseq_core
+          '';
+        wasmBindings = makeWasmBindings "neoseq-wasm-bindings" coreWasm;
+        wasmDevBindings = makeWasmBindings "neoseq-wasm-bindings-dev" coreWasmDev;
         coreTools = craneLib.buildPackage (commonArgs // {
           pname = "neoseq-core-tools";
           cargoExtraArgs = "-p graph-core --features test-support --bin core-scenario";
@@ -170,7 +186,7 @@
           version = "0.1.0";
           preBuild = ''
             mkdir -p apps/client/src/wasm
-            cp -R ${wasmBindings}/. apps/client/src/wasm/
+            cp -R ${wasmDevBindings}/. apps/client/src/wasm/
           '';
           buildPhase = ''
             runHook preBuild
@@ -228,22 +244,33 @@
         '';
 
         bundleBudget = pkgs.runCommand "neoseq-web-bundle-budget" {
-          nativeBuildInputs = [ pkgs.gzip pkgs.gawk ];
+          nativeBuildInputs = [ pkgs.gzip ];
         } ''
           root=${web}/share/neoseq-web
-          check() {
+          check_gzip() {
             local label="$1" budget="$2" total=0
             shift 2
             for file in "$@"; do
-              size=$(gzip -c "$file" | wc -c)
+              size=$(gzip -9 -n -c "$file" | wc -c)
               total=$((total + size))
             done
             echo "$label: $total bytes gzipped (budget $budget)"
             test "$total" -le "$budget"
           }
-          check js 262144 "$root"/assets/*.js
-          check css 32768 "$root"/assets/*.css
-          check wasm 2097152 "$root"/assets/*.wasm
+          check_raw() {
+            local label="$1" budget="$2" total=0
+            shift 2
+            for file in "$@"; do
+              size=$(wc -c < "$file")
+              total=$((total + size))
+            done
+            echo "$label: $total raw bytes (budget $budget)"
+            test "$total" -le "$budget"
+          }
+          check_gzip js 262144 "$root"/assets/*.js
+          check_gzip css 32768 "$root"/assets/*.css
+          check_raw wasm 2621440 "$root"/assets/*.wasm
+          check_gzip wasm 1048576 "$root"/assets/*.wasm
           touch $out
         '';
 
@@ -316,7 +343,7 @@
               client_created=true
             fi
             mkdir -p "$project_root/apps/client/src/wasm"
-            cp -R ${wasmBindings}/. "$project_root/apps/client/src/wasm/"
+            cp -R ${wasmDevBindings}/. "$project_root/apps/client/src/wasm/"
             chmod -R u+w "$project_root/apps/client/src/wasm"
             cd "$project_root"
             pnpm --filter @neoseq/client dev "$@"
@@ -324,7 +351,7 @@
         };
         webPreview = pkgs.writeShellApplication {
           name = "neoseq-web-preview";
-          runtimeInputs = [ pkgs.python3 ];
+          runtimeInputs = [ pkgs.miniserve ];
           text = ''
             host=127.0.0.1
             port=4174
@@ -338,7 +365,13 @@
                 *) echo "unknown argument: $1" >&2; exit 2 ;;
               esac
             done
-            exec python -m http.server "$port" --bind "$host" --directory ${web}/share/neoseq-web
+            exec miniserve \
+              --interfaces "$host" \
+              --port "$port" \
+              --index index.html \
+              --spa \
+              --compress-response \
+              ${web}/share/neoseq-web
           '';
         };
         rustTestApp = name: command: pkgs.writeShellApplication {
