@@ -704,7 +704,7 @@
           runtimeInputs = [ pkgs.python3 ];
           text = ''
             host=127.0.0.1
-            port=4173
+            port=4174
             while [ "$#" -gt 0 ]; do
               case "$1" in
                 --host)

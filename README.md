@@ -38,7 +38,8 @@ nix run .#test-e2e-web -- --project chromium
 nix run .#test-e2e-web -- --project mobile-chromium
 ```
 
-Both web apps listen on `127.0.0.1:4173` by default. Override the address with,
+The development server listens on `127.0.0.1:4173` by default, while the
+production preview listens on `127.0.0.1:4174`. Override either address with,
 for example, `nix run .#web-dev -- --host 0.0.0.0 --port 5173` or the equivalent
 `web-preview` command.
 

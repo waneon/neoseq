@@ -24,7 +24,7 @@ The flake exposes:
   using Nix-provided Wasm bindings and, when `node_modules` is absent, frontend
   dependencies;
 - `web-preview` app for locally serving the exact Nix-built production web
-  bundle;
+  bundle on a default port distinct from `web-dev`, so both can run together;
 - packages for the native core, Wasm core/bindings, web static application,
   sync spike server, unsigned macOS bundle, and Android debug APK;
 - apps for cross-runtime parity, persistence/reload, and reordered/duplicated
