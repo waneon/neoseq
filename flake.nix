@@ -229,9 +229,13 @@
           '';
         });
 
+        browserFontConfig = pkgs.makeFontsConf {
+          fontDirectories = [ pkgs.dejavu_fonts ];
+        };
         browserCheck = name: command: pkgs.runCommand name {
           nativeBuildInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.playwright-driver ];
           PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+          FONTCONFIG_FILE = browserFontConfig;
         } ''
           cp -R ${browserHarness}/source source
           chmod -R u+w source
@@ -321,6 +325,7 @@
         '';
         browserEnvironment = ''
           export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
+          export FONTCONFIG_FILE=${browserFontConfig}
           browser_harness="$(mktemp -d)/source"
           cp -R ${browserHarness}/source "$browser_harness"
           chmod -R u+w "$browser_harness"
@@ -448,6 +453,7 @@
           inputsFrom = [ self.devShells.${system}.default ];
           packages = [ pkgs.playwright-driver ];
           PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+          FONTCONFIG_FILE = browserFontConfig;
         };
       }
     );
