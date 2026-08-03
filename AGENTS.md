@@ -14,3 +14,7 @@
 - Like ARCHITECTURE.md, covers the slightly more detailed architecture of each component rather than implementation details.
 - Kept concise, under 300 lines.
 - These files must be written in English.
+
+## DESIGN.md
+* Treat this document as the source of truth when implementing the frontend in this repository.
+* Always take this document into account and design and implement the UI/UX at a production-quality level.
