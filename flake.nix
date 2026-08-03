@@ -207,10 +207,19 @@
             --out-name neoseq_core
         '';
 
+        pnpmSource = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./package.json
+            ./pnpm-lock.yaml
+            ./pnpm-workspace.yaml
+            ./apps/client/package.json
+          ];
+        };
         pnpmDeps = pkgs.fetchPnpmDeps {
           pname = "neoseq-client";
           version = "0.1.0";
-          src = fullSource;
+          src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
           hash = "sha256-Qk427mZd5Wcl/O6mMxsxSkHvfzFeswxa1Exvc+llEzE=";
@@ -501,6 +510,27 @@
           };
         };
 
+        webDevDependencies = pkgs.stdenvNoCC.mkDerivation {
+          pname = "neoseq-web-dev-dependencies";
+          version = "0.1.0";
+          src = pnpmSource;
+          inherit pnpmDeps;
+          pnpmWorkspaces = [ "@neoseq/client" ];
+          nativeBuildInputs = [
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+            pkgs.pnpmConfigHook
+          ];
+          dontBuild = true;
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/apps/client
+            cp -R node_modules $out/node_modules
+            cp -R apps/client/node_modules $out/apps/client/node_modules
+            runHook postInstall
+          '';
+        };
+
         syncServer = craneLib.buildPackage (
           commonArgs
           // {
@@ -591,11 +621,12 @@
           web-e2e = webE2eCheck;
         };
 
-        app = program: {
+        appWithDescription = program: description: {
           type = "app";
           inherit program;
-          meta.description = "NeoSeq verification app";
+          meta.description = description;
         };
+        app = program: appWithDescription program "NeoSeq verification app";
         appEnvironment = ''
           export LIBRARY_PATH="${pkgs.libiconv}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
           export NIX_LDFLAGS="-L${pkgs.libiconv}/lib ''${NIX_LDFLAGS:-}"
@@ -606,6 +637,100 @@
           cp -R ${browserHarness}/source "$browser_harness"
           chmod -R u+w "$browser_harness"
         '';
+        webDev = pkgs.writeShellApplication {
+          name = "neoseq-web-dev";
+          runtimeInputs = [
+            pkgs.nodejs_22
+            pkgs.pnpm_10
+            pkgs.coreutils
+          ];
+          text = ''
+            project_root="$PWD"
+            while [ ! -f "$project_root/apps/client/package.json" ]; do
+              if [ "$project_root" = / ]; then
+                echo "web-dev must be run from inside the NeoSeq checkout" >&2
+                exit 2
+              fi
+              project_root="$(dirname "$project_root")"
+            done
+
+            root_modules_created=false
+            client_modules_created=false
+            client_modules_dir=""
+            cleanup() {
+              if "$client_modules_created"; then
+                if [ "$(readlink "$project_root/apps/client/node_modules")" = "$client_modules_dir" ]; then
+                  rm -- "$project_root/apps/client/node_modules"
+                fi
+                rm -r -- "$client_modules_dir"
+              fi
+              if "$root_modules_created"; then
+                if [ "$(readlink "$project_root/node_modules")" = "${webDevDependencies}/node_modules" ]; then
+                  rm -- "$project_root/node_modules"
+                fi
+              fi
+            }
+            trap cleanup EXIT
+
+            if [ ! -e "$project_root/node_modules" ]; then
+              ln -s ${webDevDependencies}/node_modules "$project_root/node_modules"
+              root_modules_created=true
+            fi
+            if [ ! -e "$project_root/apps/client/node_modules" ]; then
+              client_modules_dir="$(mktemp -d "''${TMPDIR:-/tmp}/neoseq-web-dev-node-modules.XXXXXX")"
+              client_modules_created=true
+              for dependency in \
+                ${webDevDependencies}/apps/client/node_modules/* \
+                ${webDevDependencies}/apps/client/node_modules/.[!.]* \
+                ${webDevDependencies}/apps/client/node_modules/..?*; do
+                if [ -e "$dependency" ]; then
+                  ln -s "$dependency" \
+                    "$client_modules_dir/$(basename "$dependency")"
+                fi
+              done
+              ln -s "$client_modules_dir" "$project_root/apps/client/node_modules"
+            fi
+
+            mkdir -p "$project_root/apps/client/src/wasm"
+            cp -R ${wasmBindings}/. "$project_root/apps/client/src/wasm/"
+            chmod -R u+w "$project_root/apps/client/src/wasm"
+
+            cd "$project_root"
+            pnpm --filter @neoseq/client dev "$@"
+          '';
+        };
+        webPreview = pkgs.writeShellApplication {
+          name = "neoseq-web-preview";
+          runtimeInputs = [ pkgs.python3 ];
+          text = ''
+            host=127.0.0.1
+            port=4173
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --host)
+                  host="''${2:-}"
+                  [ -n "$host" ] || { echo "--host requires a value" >&2; exit 2; }
+                  shift 2
+                  ;;
+                --host=*) host="''${1#*=}"; shift ;;
+                --port)
+                  port="''${2:-}"
+                  [ -n "$port" ] || { echo "--port requires a value" >&2; exit 2; }
+                  shift 2
+                  ;;
+                --port=*) port="''${1#*=}"; shift ;;
+                -h|--help)
+                  echo "Usage: nix run .#web-preview -- [--host HOST] [--port PORT]"
+                  exit 0
+                  ;;
+                *) echo "unknown argument: $1" >&2; exit 2 ;;
+              esac
+            done
+            exec python -m http.server "$port" \
+              --bind "$host" \
+              --directory ${web}/share/neoseq-web
+          '';
+        };
         spikeCrossRuntime = pkgs.writeShellApplication {
           name = "neoseq-spike-cross-runtime";
           runtimeInputs = [
@@ -782,6 +907,8 @@
         inherit checks;
 
         apps = {
+          web-dev = appWithDescription "${webDev}/bin/neoseq-web-dev" "Run the NeoSeq Vite development server";
+          web-preview = appWithDescription "${webPreview}/bin/neoseq-web-preview" "Serve the Nix-built NeoSeq production web bundle";
           core-scenario = app "${coreTools}/bin/core-scenario";
           test-domain = app "${testDomain}/bin/neoseq-test-domain";
           test-core-model = app "${testCoreModel}/bin/neoseq-test-core-model";

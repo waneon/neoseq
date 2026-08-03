@@ -20,6 +20,11 @@ The flake exposes:
   test tools for core and web work;
 - `devShells.android` with the JDK, Android SDK/NDK, Gradle, and Rust Android
   targets;
+- `web-dev` app for the current checkout's Vite development server with HMR,
+  using Nix-provided Wasm bindings and, when `node_modules` is absent, frontend
+  dependencies;
+- `web-preview` app for locally serving the exact Nix-built production web
+  bundle;
 - packages for the native core, Wasm core/bindings, web static application,
   sync spike server, unsigned macOS bundle, and Android debug APK;
 - apps for cross-runtime parity, persistence/reload, and reordered/duplicated
@@ -62,6 +67,8 @@ inside the Nix shell:
 
 ```text
 nix develop
+nix run .#web-dev
+nix run .#web-preview
 nix flake check
 nix build .#web
 nix build .#sync-server

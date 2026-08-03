@@ -12,6 +12,8 @@ features and remote transport follow in later steps.
 Nix is the supported tool entry point. On a clean checkout, run:
 
 ```sh
+nix run .#web-dev           # Vite development server with HMR
+nix run .#web-preview       # Nix-built production bundle
 nix flake check
 nix build .#core-native
 nix build .#core-wasm
@@ -35,6 +37,10 @@ nix run .#test-client-components
 nix run .#test-e2e-web -- --project chromium
 nix run .#test-e2e-web -- --project mobile-chromium
 ```
+
+Both web apps listen on `127.0.0.1:4173` by default. Override the address with,
+for example, `nix run .#web-dev -- --host 0.0.0.0 --port 5173` or the equivalent
+`web-preview` command.
 
 On Darwin, Playwright needs macOS host services that are unavailable inside the
 Nix build sandbox; the browser gates above assemble a self-contained harness
