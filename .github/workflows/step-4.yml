@@ -21,14 +21,24 @@ jobs:
         if: ${{ failure() }}
         run: |
           mkdir -p artifacts/playwright
-          sudo find /tmp \
-            -type d \
-            -path '/tmp/nix-build-neoseq-web-e2e.drv-*/source/apps/client/test-results' \
-            -print0 \
+          {
+            for build_root in /nix/var/nix/builds /tmp; do
+              if sudo test -d "$build_root"; then
+                sudo find "$build_root" \
+                  -type d \
+                  -path '*/source/apps/client/test-results' \
+                  -print0
+              fi
+            done
+          } \
             | while IFS= read -r -d '' results_dir; do
                 sudo cp -R "$results_dir"/. artifacts/playwright/
               done
           sudo chmod -R a+rX artifacts/playwright
+          if ! compgen -G 'artifacts/playwright/*' > /dev/null; then
+            echo '::error::Playwright diagnostics were not found in any retained Nix build directory.'
+            exit 1
+          fi
 
       - name: Upload Playwright failure diagnostics
         if: ${{ failure() }}
