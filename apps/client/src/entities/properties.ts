@@ -3,7 +3,7 @@
 // against one definition source. Unknown keys are first-class: they render
 // and edit through the same generic path.
 
-import registryFixture from "../../../../fixtures/core/property-definitions-v1.json";
+import registryFixture from "../../../../fixtures/core/property-definitions-v2.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
 
 export interface PropertyDefinition {
@@ -19,7 +19,7 @@ export const REGISTRY: PropertyDefinition[] = registryFixture.properties as Prop
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 
 /** Keys the app writes through dedicated commands or system paths. */
-const RESERVED_KEYS = new Set(["page.title", "page.kind", "journal.date", "block.page"]);
+const RESERVED_KEYS = new Set(["page.title", "page.kind", "journal.date"]);
 
 export function definition(key: string): PropertyDefinition | undefined {
   return REGISTRY.find((item) => item.key === key);

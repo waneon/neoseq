@@ -4,10 +4,10 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EntityId {
-    Page(PageId),
-    Block(BlockId),
+    Page { id: PageId },
+    Block { page_id: PageId, id: BlockId },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,10 +37,12 @@ pub enum Command {
         markdown: String,
     },
     EditMarkdown {
+        page_id: PageId,
         block_id: BlockId,
         markdown: String,
     },
     SpliceMarkdown {
+        page_id: PageId,
         block_id: BlockId,
         index: usize,
         delete: usize,
@@ -53,12 +55,15 @@ pub enum Command {
         index: usize,
     },
     IndentBlock {
+        page_id: PageId,
         block_id: BlockId,
     },
     OutdentBlock {
+        page_id: PageId,
         block_id: BlockId,
     },
     DeleteBlock {
+        page_id: PageId,
         block_id: BlockId,
     },
     SetProperty {
@@ -90,8 +95,9 @@ pub enum Command {
         key: PropertyKey,
     },
     AddTag {
+        block_page_id: PageId,
         block_id: BlockId,
-        page_id: PageId,
+        tag_page_id: PageId,
     },
     Undo,
     Redo,
@@ -145,4 +151,19 @@ pub struct GraphSnapshot {
     pub graph_id: GraphId,
     pub pages: Vec<PageSnapshot>,
     pub quarantined: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GraphSummary {
+    pub schema_version: u32,
+    pub graph_id: GraphId,
+    pub pages: Vec<PageSummary>,
+    pub quarantined: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageSummary {
+    pub id: PageId,
+    pub properties: PropertyBag,
+    pub defaults: PropertyBag,
 }

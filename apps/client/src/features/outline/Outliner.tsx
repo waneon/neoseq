@@ -160,7 +160,12 @@ export function Outliner({
       if (!splice) return;
       baselines.current.set(id, draft);
       session
-        .execute({ type: "splice_markdown", block_id: id, ...splice })
+        .execute({
+          type: "splice_markdown",
+          page_id: pageRef.current.id,
+          block_id: id,
+          ...splice,
+        })
         .catch(() => {
           // The core rejected the edit; fall back to authoritative text.
           drafts.current.delete(id);
@@ -273,6 +278,7 @@ export function Outliner({
             await session
               .execute({
                 type: kind === "indent" ? "indent_block" : "outdent_block",
+                page_id: pageRef.current.id,
                 block_id: realId,
               })
               .catch(() => undefined);
@@ -401,11 +407,19 @@ export function Outliner({
       },
       indent: (row) => {
         flushNow(row.block.id);
-        void run({ type: "indent_block", block_id: row.block.id });
+        void run({
+          type: "indent_block",
+          page_id: authoritativePage.id,
+          block_id: row.block.id,
+        });
       },
       outdent: (row) => {
         flushNow(row.block.id);
-        void run({ type: "outdent_block", block_id: row.block.id });
+        void run({
+          type: "outdent_block",
+          page_id: authoritativePage.id,
+          block_id: row.block.id,
+        });
       },
       move: (row, delta) => {
         flushNow(row.block.id);
@@ -422,7 +436,11 @@ export function Outliner({
       remove: (row, allRows) => {
         const position = rowIndexOf(allRows, row.block.id);
         const previous = allRows[position - 1]?.block.id ?? null;
-        void run({ type: "delete_block", block_id: row.block.id }).then(() => {
+        void run({
+          type: "delete_block",
+          page_id: authoritativePage.id,
+          block_id: row.block.id,
+        }).then(() => {
           setFocus(previous);
         });
       },
@@ -729,6 +747,7 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
       void editor.session
         .execute({
           type: "splice_markdown",
+          page_id: editor.pageId,
           block_id: id,
           index: caretPoint,
           delete: codePointLength(draft) - caretPoint,
@@ -859,11 +878,15 @@ function BlockRow({
         />
         {tags.length > 0 && (
           <div className="outline-tags">
-            <TagChips block={row.block} />
+            <TagChips pageId={editor.pageId} block={row.block} />
           </div>
         )}
         {editor.inspectedId === row.block.id && (
-          <BlockInspector block={row.block} onClose={() => editor.toggleInspect(row.block.id)} />
+          <BlockInspector
+            pageId={editor.pageId}
+            block={row.block}
+            onClose={() => editor.toggleInspect(row.block.id)}
+          />
         )}
       </div>
       <div className="row-menu" style={pending ? { visibility: "hidden" } : undefined}>

@@ -2,8 +2,9 @@ use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CommandEnvelope, CorePortError,
     CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, GraphLocationDto,
-    OpenGraphRequest, OpenGraphResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
-    StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
+    OpenGraphRequest, OpenGraphResponse, PageId, ReadPageRequest, ReadPageResponse, ReadRequest,
+    ReadResponse, RecoveryDto, SaveStatusDto, StorageCapabilitiesDto, SubscribeRequest,
+    SubscribeResponse,
 };
 use graph_core::{
     EventBatch, GraphLocation, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository,
@@ -92,7 +93,7 @@ impl NativeCorePort {
                 )
                 .map_err(map_storage_error)?;
         }
-        let snapshot = serde_json::to_value(core.snapshot().map_err(map_core_error)?)
+        let summary = serde_json::to_value(core.summary().map_err(map_core_error)?)
             .map_err(map_json_error)?;
         let capabilities = repository.capabilities();
         let runtime = GraphRuntime::from_core(
@@ -105,7 +106,7 @@ impl NativeCorePort {
         self.runtimes.insert(handle.clone(), runtime);
         Ok(OpenGraphResponse {
             graph_handle: handle,
-            snapshot,
+            summary,
             capabilities: StorageCapabilitiesDto {
                 durable: capabilities.durable,
                 persisted: capabilities.persisted,
@@ -153,12 +154,28 @@ impl NativeCorePort {
     }
 
     pub fn read(&mut self, request: ReadRequest) -> Result<ReadResponse, CorePortError> {
-        let snapshot = self
+        let summary = self
             .runtime_mut(&request.graph_handle)?
-            .read()
+            .read_summary()
             .map_err(map_runtime_error)?;
         Ok(ReadResponse {
-            snapshot: serde_json::to_value(snapshot).map_err(map_json_error)?,
+            summary: serde_json::to_value(summary).map_err(map_json_error)?,
+        })
+    }
+
+    pub fn read_page(
+        &mut self,
+        request: ReadPageRequest,
+    ) -> Result<ReadPageResponse, CorePortError> {
+        let page_id = PageId::new(request.page_id).map_err(|error| {
+            port_error(CorePortErrorCode::InvalidRequest, &error.to_string(), false)
+        })?;
+        let page = self
+            .runtime_mut(&request.graph_handle)?
+            .read_page(&page_id)
+            .map_err(map_runtime_error)?;
+        Ok(ReadPageResponse {
+            page: serde_json::to_value(page).map_err(map_json_error)?,
         })
     }
 

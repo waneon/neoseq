@@ -1,7 +1,7 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
-    GraphId, GraphSnapshot, PageId, PageSnapshot, PropertyBag, PropertyEntry, PropertyError,
-    PropertyKey, PropertyValue, validate_default, validate_property,
+    GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot, PageSummary, PropertyBag,
+    PropertyEntry, PropertyError, PropertyKey, PropertyValue, validate_default, validate_property,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 
 #[derive(Debug, Error)]
@@ -28,7 +28,7 @@ pub enum CoreError {
     InvalidHierarchy(String),
     #[error("property {key} is not valid on {entity}")]
     InvalidPropertyTarget { key: String, entity: &'static str },
-    #[error("text exceeds the v1 resource limit")]
+    #[error("text exceeds the resource limit")]
     TextTooLong,
     #[error("property validation failed: {0}")]
     Property(#[from] PropertyError),
@@ -69,8 +69,6 @@ impl GraphCore {
         meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
         let _ = meta.ensure_mergeable_map("applied_migrations")?;
         let _ = doc.get_map("pages");
-        let outline = doc.get_tree("outline");
-        outline.enable_fractional_index(0);
         doc.set_next_commit_origin("system:init");
         doc.set_next_commit_message(&format!("initialize graph at {now}"));
         doc.commit();
@@ -92,7 +90,7 @@ impl GraphCore {
         let doc = LoroDoc::from_snapshot(snapshot)?;
         doc.set_peer_id(peer_id)?;
         verify_schema(&doc, &graph_id)?;
-        doc.get_tree("outline").enable_fractional_index(0);
+        enable_page_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
         Ok(Self {
             graph_id,
@@ -187,7 +185,6 @@ impl GraphCore {
 
     pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
         let pages = self.doc.get_map("pages");
-        let outline = self.doc.get_tree("outline");
         let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
         let mut quarantined = Vec::new();
 
@@ -240,21 +237,121 @@ impl GraphCore {
             );
         });
 
-        for root in outline.roots() {
-            match root_page(&outline, root) {
-                Ok(page_id) if snapshots.contains_key(&page_id) => {
-                    let block = block_snapshot(&outline, root, &mut quarantined)?;
-                    snapshots
-                        .get_mut(&page_id)
-                        .expect("checked page")
-                        .blocks
-                        .push(block);
-                }
-                Ok(page_id) => quarantined.push(format!("block:{root}:dangling-page:{page_id}")),
-                Err(reason) => quarantined.push(format!("block:{root}:{reason}")),
+        for (page_id, snapshot) in &mut snapshots {
+            let page = self.require_page(page_id)?;
+            let Some(outline) = page.get("outline").and_then(value_into_tree) else {
+                quarantined.push(format!("page:{page_id}:outline:missing-or-invalid"));
+                continue;
+            };
+            for root in outline.roots() {
+                snapshot
+                    .blocks
+                    .push(block_snapshot(&outline, root, &mut quarantined)?);
             }
         }
 
+        quarantined.sort();
+        Ok(GraphSnapshot {
+            schema_version: SCHEMA_VERSION,
+            graph_id: self.graph_id.clone(),
+            pages: snapshots.into_values().collect(),
+            quarantined,
+        })
+    }
+
+    pub fn summary(&self) -> Result<GraphSummary, CoreError> {
+        let snapshot = self.snapshot_metadata()?;
+        Ok(GraphSummary {
+            schema_version: snapshot.schema_version,
+            graph_id: snapshot.graph_id,
+            pages: snapshot
+                .pages
+                .into_iter()
+                .map(|page| PageSummary {
+                    id: page.id,
+                    properties: page.properties,
+                    defaults: page.defaults,
+                })
+                .collect(),
+            quarantined: snapshot.quarantined,
+        })
+    }
+
+    pub fn page_snapshot(&self, page_id: &PageId) -> Result<PageSnapshot, CoreError> {
+        let page = self.require_live_page(page_id)?;
+        let (mut properties, mut quarantined) = decode_bag_child(&page, "properties");
+        properties.retain(|entry| valid_target_kind(true, &entry.key));
+        let (mut defaults, mut issues) = decode_bag_child(&page, "defaults");
+        defaults.retain(|entry| validate_default(&entry.key, &entry.value).is_ok());
+        quarantined.append(&mut issues);
+        let outline = page
+            .get("outline")
+            .and_then(value_into_tree)
+            .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".to_owned()))?;
+        let mut blocks = Vec::new();
+        for root in outline.roots() {
+            blocks.push(block_snapshot(&outline, root, &mut quarantined)?);
+        }
+        Ok(PageSnapshot {
+            id: page_id.clone(),
+            properties,
+            defaults,
+            blocks,
+        })
+    }
+
+    fn snapshot_metadata(&self) -> Result<GraphSnapshot, CoreError> {
+        let pages = self.doc.get_map("pages");
+        let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
+        let mut quarantined = Vec::new();
+        pages.for_each(|raw_id, value| {
+            let Ok(page_id) = PageId::new(raw_id) else {
+                quarantined.push(format!("page:{raw_id}:invalid-id"));
+                return;
+            };
+            let Some(page) = value_into_map(value) else {
+                quarantined.push(format!("page:{raw_id}:not-map"));
+                return;
+            };
+            let (mut properties, mut issues) = decode_bag_child(&page, "properties");
+            quarantined.append(&mut issues);
+            properties.retain(|entry| {
+                if valid_target_kind(true, &entry.key) {
+                    true
+                } else {
+                    quarantined.push(format!(
+                        "page:{raw_id}:property:{}:invalid-target",
+                        entry.key
+                    ));
+                    false
+                }
+            });
+            if bag_has_key(&properties, "system.deleted-at") {
+                return;
+            }
+            let (mut defaults, mut issues) = decode_bag_child(&page, "defaults");
+            quarantined.append(&mut issues);
+            defaults.retain(|entry| {
+                if validate_default(&entry.key, &entry.value).is_ok() {
+                    true
+                } else {
+                    quarantined.push(format!(
+                        "page:{raw_id}:default:{}:not-defaultable",
+                        entry.key
+                    ));
+                    false
+                }
+            });
+            snapshots.insert(
+                page_id.clone(),
+                PageSnapshot {
+                    id: page_id,
+                    properties,
+                    defaults,
+                    blocks: Vec::new(),
+                },
+            );
+        });
         quarantined.sort();
         Ok(GraphSnapshot {
             schema_version: SCHEMA_VERSION,
@@ -304,22 +401,24 @@ impl GraphCore {
                 self.require_live_page(page_id)?;
                 validate_text(markdown, 1_048_576)?;
                 if let Some(parent) = parent {
-                    let parent_tree = self.require_block(parent)?;
-                    if self.page_for_node(parent_tree)? != *page_id {
-                        return Err(CoreError::InvalidHierarchy(
-                            "parent belongs to another page".into(),
-                        ));
-                    }
+                    self.require_block(page_id, parent)?;
                 }
             }
-            Command::EditMarkdown { block_id, markdown } => {
-                self.require_block(block_id)?;
+            Command::EditMarkdown {
+                page_id,
+                block_id,
+                markdown,
+            } => {
+                self.require_block(page_id, block_id)?;
                 validate_text(markdown, 1_048_576)?;
             }
             Command::SpliceMarkdown {
-                block_id, insert, ..
+                page_id,
+                block_id,
+                insert,
+                ..
             } => {
-                self.require_block(block_id)?;
+                self.require_block(page_id, block_id)?;
                 validate_text(insert, 1_048_576)?;
             }
             Command::MoveBlock {
@@ -328,26 +427,21 @@ impl GraphCore {
                 parent,
                 ..
             } => {
-                let block = self.require_block(block_id)?;
                 self.require_live_page(page_id)?;
+                let block = self.require_block(page_id, block_id)?;
                 if let Some(parent) = parent {
-                    let parent = self.require_block(parent)?;
-                    if parent == block || self.is_descendant(parent, block) {
+                    let parent = self.require_block(page_id, parent)?;
+                    if parent == block || self.is_descendant(page_id, parent, block)? {
                         return Err(CoreError::InvalidHierarchy(
                             "move would create a cycle".into(),
                         ));
                     }
-                    if self.page_for_node(parent)? != *page_id {
-                        return Err(CoreError::InvalidHierarchy(
-                            "parent belongs to another page".into(),
-                        ));
-                    }
                 }
             }
-            Command::IndentBlock { block_id }
-            | Command::OutdentBlock { block_id }
-            | Command::DeleteBlock { block_id } => {
-                self.require_block(block_id)?;
+            Command::IndentBlock { page_id, block_id }
+            | Command::OutdentBlock { page_id, block_id }
+            | Command::DeleteBlock { page_id, block_id } => {
+                self.require_block(page_id, block_id)?;
             }
             Command::DeletePage { page_id }
             | Command::RestorePage { page_id }
@@ -377,9 +471,13 @@ impl GraphCore {
                 self.require_page(page_id)?;
                 validate_default(key, value)?;
             }
-            Command::AddTag { block_id, page_id } => {
-                self.require_block(block_id)?;
-                self.require_live_page(page_id)?;
+            Command::AddTag {
+                block_page_id,
+                block_id,
+                tag_page_id,
+            } => {
+                self.require_block(block_page_id, block_id)?;
+                self.require_live_page(tag_page_id)?;
             }
             Command::EnsureJournal { .. } | Command::Undo | Command::Redo => {}
         }
@@ -430,43 +528,39 @@ impl GraphCore {
                 index,
                 markdown,
             } => {
-                let outline = self.doc.get_tree("outline");
+                let outline = self.page_outline(page_id)?;
                 let parent_tree = parent.as_ref().map(tree_id).transpose()?;
-                let tree_index = match parent_tree {
-                    Some(parent) => {
-                        let available = outline.children(parent).map_or(0, |items| items.len());
-                        (*index).min(available)
-                    }
-                    None => page_root_insert_index(&outline, page_id, *index),
-                };
+                let available = parent_tree.map_or_else(
+                    || outline.roots().len(),
+                    |parent| outline.children(parent).map_or(0, |items| items.len()),
+                );
+                let tree_index = (*index).min(available);
                 let node = outline.create_at(parent_tree, tree_index)?;
                 let meta = outline.get_meta(node)?;
                 meta.ensure_mergeable_text("markdown")?
                     .insert(0, markdown)?;
-                let properties = meta.ensure_mergeable_map("properties")?;
-                if parent.is_none() {
-                    set_single(
-                        &properties,
-                        &key("block.page"),
-                        &PropertyValue::Page(page_id.clone()),
-                    )?;
-                }
+                let _ = meta.ensure_mergeable_map("properties")?;
                 result.created_block = Some(block_id(node));
             }
-            Command::EditMarkdown { block_id, markdown } => {
-                let text = self.block_text(block_id)?;
+            Command::EditMarkdown {
+                page_id,
+                block_id,
+                markdown,
+            } => {
+                let text = self.block_text(page_id, block_id)?;
                 if text.len_unicode() > 0 {
                     text.delete(0, text.len_unicode())?;
                 }
                 text.insert(0, markdown)?;
             }
             Command::SpliceMarkdown {
+                page_id,
                 block_id,
                 index,
                 delete,
                 insert,
             } => {
-                let text = self.block_text(block_id)?;
+                let text = self.block_text(page_id, block_id)?;
                 if index.saturating_add(*delete) > text.len_unicode() {
                     return Err(CoreError::InvalidHierarchy(
                         "markdown splice is out of bounds".into(),
@@ -487,10 +581,10 @@ impl GraphCore {
             } => {
                 self.move_block(block_id, page_id, parent.as_ref(), *index)?;
             }
-            Command::IndentBlock { block_id } => self.indent(block_id)?,
-            Command::OutdentBlock { block_id } => self.outdent(block_id)?,
-            Command::DeleteBlock { block_id } => {
-                self.doc.get_tree("outline").delete(tree_id(block_id)?)?
+            Command::IndentBlock { page_id, block_id } => self.indent(page_id, block_id)?,
+            Command::OutdentBlock { page_id, block_id } => self.outdent(page_id, block_id)?,
+            Command::DeleteBlock { page_id, block_id } => {
+                self.page_outline(page_id)?.delete(tree_id(block_id)?)?
             }
             Command::SetProperty { entity, key, value } => {
                 set_single(&self.entity_bag(entity)?, key, value)?;
@@ -516,10 +610,18 @@ impl GraphCore {
                 self.page_bag(page_id, "defaults")?
                     .delete(&single_slot(key))?;
             }
-            Command::AddTag { block_id, page_id } => {
-                let block = self.block_bag(block_id)?;
-                set_repeated(&block, &key("tag"), &PropertyValue::Page(page_id.clone()))?;
-                for entry in decode_bag(&self.page_bag(page_id, "defaults")?).0 {
+            Command::AddTag {
+                block_page_id,
+                block_id,
+                tag_page_id,
+            } => {
+                let block = self.block_bag(block_page_id, block_id)?;
+                set_repeated(
+                    &block,
+                    &key("tag"),
+                    &PropertyValue::Page(tag_page_id.clone()),
+                )?;
+                for entry in decode_bag(&self.page_bag(tag_page_id, "defaults")?).0 {
                     if !bag_contains_key(&block, &entry.key) {
                         set_single(&block, &entry.key, &entry.value)?;
                     }
@@ -543,6 +645,8 @@ impl GraphCore {
         let page = pages.ensure_mergeable_map(page_id.as_str())?;
         let properties = page.ensure_mergeable_map("properties")?;
         let _ = page.ensure_mergeable_map("defaults")?;
+        let outline = page.ensure_mergeable_tree("outline")?;
+        outline.enable_fractional_index(0);
         if !existed {
             set_single(
                 &properties,
@@ -581,43 +685,32 @@ impl GraphCore {
         parent: Option<&BlockId>,
         index: usize,
     ) -> Result<(), CoreError> {
-        let outline = self.doc.get_tree("outline");
+        let outline = self.page_outline(page_id)?;
         let block = tree_id(block_id)?;
         let parent = parent.map(tree_id).transpose()?;
-        if let Some(parent) = parent {
-            let available = outline.children(parent).map_or(0, |items| items.len());
-            outline.mov_to(block, parent, index.min(available))?;
-        } else {
-            let page_roots = page_roots(&outline, page_id)
-                .into_iter()
-                .filter(|candidate| *candidate != block)
-                .collect::<Vec<_>>();
-            let index = index.min(page_roots.len());
-            if let Some(before) = page_roots.get(index) {
-                outline.mov_before(block, *before)?;
-            } else if let Some(after) = page_roots.last() {
-                outline.mov_after(block, *after)?;
-            } else {
-                outline.mov(block, None)?;
-            }
-        }
-        let bag = outline
-            .get_meta(block)?
-            .ensure_mergeable_map("properties")?;
-        if parent.is_none() {
-            set_single(
-                &bag,
-                &key("block.page"),
-                &PropertyValue::Page(page_id.clone()),
-            )?;
-        } else {
-            bag.delete(&single_slot(&key("block.page")))?;
-        }
+        let available = parent.map_or_else(
+            || {
+                outline
+                    .roots()
+                    .into_iter()
+                    .filter(|item| *item != block)
+                    .count()
+            },
+            |parent| {
+                outline
+                    .children(parent)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|item| *item != block)
+                    .count()
+            },
+        );
+        outline.mov_to(block, parent, index.min(available))?;
         Ok(())
     }
 
-    fn indent(&self, block_id: &BlockId) -> Result<(), CoreError> {
-        let outline = self.doc.get_tree("outline");
+    fn indent(&self, page_id: &PageId, block_id: &BlockId) -> Result<(), CoreError> {
+        let outline = self.page_outline(page_id)?;
         let block = tree_id(block_id)?;
         let parent = outline
             .parent(block)
@@ -634,34 +727,21 @@ impl GraphCore {
         }
         let new_parent = siblings[position - 1];
         outline.mov(block, new_parent)?;
-        outline
-            .get_meta(block)?
-            .ensure_mergeable_map("properties")?
-            .delete(&single_slot(&key("block.page")))?;
         Ok(())
     }
 
-    fn outdent(&self, block_id: &BlockId) -> Result<(), CoreError> {
-        let outline = self.doc.get_tree("outline");
+    fn outdent(&self, page_id: &PageId, block_id: &BlockId) -> Result<(), CoreError> {
+        let outline = self.page_outline(page_id)?;
         let block = tree_id(block_id)?;
         let Some(TreeParentId::Node(parent)) = outline.parent(block) else {
             return Err(CoreError::InvalidHierarchy(
                 "root block cannot be outdented".into(),
             ));
         };
-        let grandparent = outline
+        outline
             .parent(parent)
             .ok_or_else(|| CoreError::InvalidHierarchy("missing grandparent".into()))?;
         outline.mov_after(block, parent)?;
-        let bag = outline
-            .get_meta(block)?
-            .ensure_mergeable_map("properties")?;
-        if grandparent == TreeParentId::Root {
-            let page = self.page_for_node(parent)?;
-            set_single(&bag, &key("block.page"), &PropertyValue::Page(page))?;
-        } else {
-            bag.delete(&single_slot(&key("block.page")))?;
-        }
         Ok(())
     }
 
@@ -684,71 +764,72 @@ impl GraphCore {
         Ok(page)
     }
 
-    fn require_block(&self, block_id: &BlockId) -> Result<TreeID, CoreError> {
-        let tree = tree_id(block_id).map_err(|_| CoreError::BlockNotFound(block_id.clone()))?;
-        let outline = self.doc.get_tree("outline");
-        if !outline.contains(tree) || outline.is_node_deleted(&tree)? {
-            return Err(CoreError::BlockNotFound(block_id.clone()));
-        }
-        Ok(tree)
+    fn page_outline(&self, page_id: &PageId) -> Result<LoroTree, CoreError> {
+        let outline = self
+            .require_page(page_id)?
+            .get("outline")
+            .and_then(value_into_tree)
+            .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".to_owned()))?;
+        outline.enable_fractional_index(0);
+        Ok(outline)
+    }
+
+    fn require_block(&self, page_id: &PageId, block_id: &BlockId) -> Result<TreeID, CoreError> {
+        let outline = self.page_outline(page_id)?;
+        require_block_in(&outline, block_id)
     }
 
     fn page_bag(&self, page_id: &PageId, name: &str) -> Result<LoroMap, CoreError> {
         Ok(self.require_page(page_id)?.ensure_mergeable_map(name)?)
     }
 
-    fn block_bag(&self, block_id: &BlockId) -> Result<LoroMap, CoreError> {
-        Ok(self
-            .doc
-            .get_tree("outline")
-            .get_meta(self.require_block(block_id)?)?
+    fn block_bag(&self, page_id: &PageId, block_id: &BlockId) -> Result<LoroMap, CoreError> {
+        let outline = self.page_outline(page_id)?;
+        Ok(outline
+            .get_meta(require_block_in(&outline, block_id)?)?
             .ensure_mergeable_map("properties")?)
     }
 
-    fn block_text(&self, block_id: &BlockId) -> Result<LoroText, CoreError> {
-        Ok(self
-            .doc
-            .get_tree("outline")
-            .get_meta(self.require_block(block_id)?)?
+    fn block_text(&self, page_id: &PageId, block_id: &BlockId) -> Result<LoroText, CoreError> {
+        let outline = self.page_outline(page_id)?;
+        Ok(outline
+            .get_meta(require_block_in(&outline, block_id)?)?
             .ensure_mergeable_text("markdown")?)
     }
 
     fn entity_bag(&self, entity: &EntityId) -> Result<LoroMap, CoreError> {
         match entity {
-            EntityId::Page(id) => self.page_bag(id, "properties"),
-            EntityId::Block(id) => self.block_bag(id),
+            EntityId::Page { id } => self.page_bag(id, "properties"),
+            EntityId::Block { page_id, id } => self.block_bag(page_id, id),
         }
     }
 
     fn validate_entity(&self, entity: &EntityId) -> Result<(), CoreError> {
         match entity {
-            EntityId::Page(id) => {
+            EntityId::Page { id } => {
                 self.require_page(id)?;
             }
-            EntityId::Block(id) => {
-                self.require_block(id)?;
+            EntityId::Block { page_id, id } => {
+                self.require_block(page_id, id)?;
             }
         }
         Ok(())
     }
 
-    fn is_descendant(&self, mut candidate: TreeID, ancestor: TreeID) -> bool {
-        let outline = self.doc.get_tree("outline");
+    fn is_descendant(
+        &self,
+        page_id: &PageId,
+        mut candidate: TreeID,
+        ancestor: TreeID,
+    ) -> Result<bool, CoreError> {
+        let outline = self.page_outline(page_id)?;
         loop {
             match outline.parent(candidate) {
-                Some(TreeParentId::Node(parent)) if parent == ancestor => return true,
+                Some(TreeParentId::Node(parent)) if parent == ancestor => return Ok(true),
                 Some(TreeParentId::Node(parent)) => candidate = parent,
-                _ => return false,
+                _ => return Ok(false),
             }
         }
-    }
-
-    fn page_for_node(&self, mut node: TreeID) -> Result<PageId, CoreError> {
-        let outline = self.doc.get_tree("outline");
-        while let Some(TreeParentId::Node(parent)) = outline.parent(node) {
-            node = parent;
-        }
-        root_page(&outline, node).map_err(CoreError::InvalidHierarchy)
     }
 }
 
@@ -774,16 +855,15 @@ fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
 }
 
 fn validate_target(entity: &EntityId, key: &PropertyKey) -> Result<(), CoreError> {
-    let valid = valid_target_kind(matches!(entity, EntityId::Page(_)), key)
-        && !(matches!(entity, EntityId::Block(_)) && key.as_str() == "block.page");
+    let valid = valid_target_kind(matches!(entity, EntityId::Page { .. }), key);
     if valid {
         Ok(())
     } else {
         Err(CoreError::InvalidPropertyTarget {
             key: key.to_string(),
             entity: match entity {
-                EntityId::Page(_) => "page",
-                EntityId::Block(_) => "block",
+                EntityId::Page { .. } => "page",
+                EntityId::Block { .. } => "block",
             },
         })
     }
@@ -795,6 +875,7 @@ fn valid_target_kind(page: bool, key: &PropertyKey) -> bool {
     } else {
         !key.as_str().starts_with("page.")
             && key.as_str() != "journal.date"
+            && key.as_str() != "block.page"
             && !key.as_str().starts_with("system.")
     }
 }
@@ -831,6 +912,14 @@ fn block_id(value: TreeID) -> BlockId {
 }
 fn tree_id(value: &BlockId) -> Result<TreeID, CoreError> {
     TreeID::try_from(value.as_str()).map_err(CoreError::Loro)
+}
+
+fn require_block_in(outline: &LoroTree, block_id: &BlockId) -> Result<TreeID, CoreError> {
+    let tree = tree_id(block_id).map_err(|_| CoreError::BlockNotFound(block_id.clone()))?;
+    if !outline.contains(tree) || outline.is_node_deleted(&tree)? {
+        return Err(CoreError::BlockNotFound(block_id.clone()));
+    }
+    Ok(tree)
 }
 
 fn single_slot(key: &PropertyKey) -> String {
@@ -938,10 +1027,8 @@ fn block_snapshot(
     };
     let (mut properties, mut issues) = decode_bag_child(&meta, "properties");
     quarantined.append(&mut issues);
-    let is_root = outline.parent(node) == Some(TreeParentId::Root);
     properties.retain(|entry| {
-        let valid =
-            valid_target_kind(false, &entry.key) && (entry.key.as_str() != "block.page" || is_root);
+        let valid = valid_target_kind(false, &entry.key);
         if !valid {
             quarantined.push(format!(
                 "block:{node}:property:{}:invalid-target",
@@ -962,59 +1049,34 @@ fn block_snapshot(
     })
 }
 
-fn root_page(outline: &LoroTree, node: TreeID) -> Result<PageId, String> {
-    let meta = outline
-        .get_meta(node)
-        .map_err(|_| "missing-meta".to_owned())?;
-    let properties = meta
-        .get("properties")
-        .and_then(value_into_map)
-        .ok_or_else(|| "missing-properties".to_owned())?;
-    let (entries, _) = decode_bag(&properties);
-    entries
-        .into_iter()
-        .find_map(|entry| match (entry.key.as_str(), entry.value) {
-            ("block.page", PropertyValue::Page(page)) => Some(page),
-            _ => None,
-        })
-        .ok_or_else(|| "missing-block.page".to_owned())
-}
-
-fn page_roots(outline: &LoroTree, page_id: &PageId) -> Vec<TreeID> {
-    outline
-        .roots()
-        .into_iter()
-        .filter(|root| root_page(outline, *root).as_ref() == Ok(page_id))
-        .collect()
-}
-
-/// Converts a page-local root index into the shared Loro forest's root index.
-///
-/// Root blocks from every page share one tree. Snapshots project that forest
-/// into a separate ordered `blocks` array per page, so command indices for root
-/// blocks are page-local and cannot be passed to `create_at(None, index)`
-/// directly.
-fn page_root_insert_index(outline: &LoroTree, page_id: &PageId, index: usize) -> usize {
-    let roots = outline.roots();
-    let positions = roots
-        .iter()
-        .enumerate()
-        .filter_map(|(position, root)| {
-            (root_page(outline, *root).as_ref() == Ok(page_id)).then_some(position)
-        })
-        .collect::<Vec<_>>();
-    positions
-        .get(index)
-        .copied()
-        .or_else(|| positions.last().map(|position| position + 1))
-        .unwrap_or(roots.len())
-}
-
 fn value_into_map(value: ValueOrContainer) -> Option<LoroMap> {
     match value {
         ValueOrContainer::Container(Container::Map(map)) => Some(map),
         _ => None,
     }
+}
+
+fn value_into_tree(value: ValueOrContainer) -> Option<LoroTree> {
+    match value {
+        ValueOrContainer::Container(Container::Tree(tree)) => Some(tree),
+        _ => None,
+    }
+}
+
+fn enable_page_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
+    let pages = doc.get_map("pages");
+    let mut outlines = Vec::new();
+    pages.for_each(|_, value| {
+        if let Some(page) = value_into_map(value)
+            && let Some(outline) = page.get("outline").and_then(value_into_tree)
+        {
+            outlines.push(outline);
+        }
+    });
+    for outline in outlines {
+        outline.enable_fractional_index(0);
+    }
+    Ok(())
 }
 
 fn value_into_string(value: ValueOrContainer) -> Option<String> {
@@ -1151,8 +1213,9 @@ mod tests {
             envelope(
                 "tag",
                 Command::AddTag {
+                    block_page_id: page(),
                     block_id: block.clone(),
-                    page_id: page(),
+                    tag_page_id: page(),
                 },
             ),
             "t4",
@@ -1162,7 +1225,10 @@ mod tests {
             envelope(
                 "direct",
                 Command::SetProperty {
-                    entity: EntityId::Block(block.clone()),
+                    entity: EntityId::Block {
+                        page_id: page(),
+                        id: block.clone(),
+                    },
                     key: key("task.status"),
                     value: PropertyValue::String("doing".into()),
                 },
@@ -1174,8 +1240,9 @@ mod tests {
             envelope(
                 "tag-again",
                 Command::AddTag {
+                    block_page_id: page(),
                     block_id: block.clone(),
-                    page_id: page(),
+                    tag_page_id: page(),
                 },
             ),
             "t6",
@@ -1198,7 +1265,10 @@ mod tests {
                 envelope(
                     id,
                     Command::AddRepeatedProperty {
-                        entity: EntityId::Block(block.clone()),
+                        entity: EntityId::Block {
+                            page_id: page(),
+                            id: block.clone(),
+                        },
                         key: key("custom.labels"),
                         value: PropertyValue::String(label.into()),
                     },
@@ -1211,7 +1281,10 @@ mod tests {
             envelope(
                 "repeat-remove",
                 Command::RemoveRepeatedProperty {
-                    entity: EntityId::Block(block),
+                    entity: EntityId::Block {
+                        page_id: page(),
+                        id: block,
+                    },
                     key: key("custom.labels"),
                     value: PropertyValue::String("one".into()),
                 },
@@ -1275,7 +1348,7 @@ mod tests {
     }
 
     #[test]
-    fn root_indices_are_page_local_when_pages_share_the_outline_tree() {
+    fn page_local_outlines_isolate_root_indices() {
         let first_page = page();
         let second_page = PageId::new("second").unwrap();
 
@@ -1338,6 +1411,38 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["second 2", "second 1"]
         );
+    }
+
+    #[test]
+    fn summary_omits_blocks_and_page_reads_are_owner_scoped() {
+        let first_page = page();
+        let second_page = PageId::new("second").unwrap();
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page-1", &first_page);
+        ensure_regular_page(&mut core, "page-2", &second_page);
+        let first_block = insert_root(&mut core, "block-1", &first_page, 0, "first");
+        insert_root(&mut core, "block-2", &second_page, 0, "second");
+
+        let summary = core.summary().unwrap();
+        assert_eq!(summary.pages.len(), 2);
+        let first = core.page_snapshot(&first_page).unwrap();
+        assert_eq!(first.blocks.len(), 1);
+        assert_eq!(first.blocks[0].markdown, "first");
+
+        let error = core
+            .execute(
+                envelope(
+                    "wrong-owner",
+                    Command::EditMarkdown {
+                        page_id: second_page,
+                        block_id: first_block,
+                        markdown: "not allowed".into(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap_err();
+        assert!(matches!(error, CoreError::BlockNotFound(_)));
     }
 
     #[test]
@@ -1456,7 +1561,7 @@ mod tests {
             .created_block
             .unwrap();
         set_single(
-            &core.block_bag(&child).unwrap(),
+            &core.block_bag(&page(), &child).unwrap(),
             &key("block.page"),
             &PropertyValue::Page(page()),
         )

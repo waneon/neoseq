@@ -2,9 +2,9 @@
 // commands, reconciles state through the CorePort event/read path, and
 // exposes an immutable state object for React (useSyncExternalStore).
 //
-// The UI never holds a mutable replica of pages/blocks/properties: every
-// state change re-reads the authoritative snapshot DTO from the core after
-// the semantic event for the command has been observed.
+// The UI never holds a mutable replica of pages/blocks/properties. It keeps
+// immutable DTOs from the core: a graph summary plus page snapshots hydrated
+// on demand and refreshed after commands that affect those pages.
 
 import type {
   CorePort,
@@ -16,8 +16,8 @@ import { CORE_PORT_VERSION } from "../generated/core-port";
 import { CorePortFailure, type SavedReceipt } from "../core-worker";
 import type { Command, CommandResult } from "./commands";
 import { envelope } from "./commands";
-import type { GraphSnapshot } from "./snapshot";
-import { EMPTY_SNAPSHOT } from "./snapshot";
+import type { GraphSnapshot, GraphSummary, PageSnapshot } from "./snapshot";
+import { EMPTY_SNAPSHOT, mergePage, mergeSummary } from "./snapshot";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 
 const COMMAND_TIMEOUT_MS = 10_000;
@@ -35,8 +35,9 @@ export interface SessionState {
   capabilities: StorageCapabilitiesDto | null;
   recovery: RecoveryDto | null;
   error: CorePortError | null;
-  /** Increments on every authoritative snapshot refresh. */
+  /** Increments on every authoritative summary or page refresh. */
   revision: number;
+  hydratedPages: ReadonlySet<string>;
 }
 
 export interface SessionPort extends CorePort {
@@ -67,6 +68,7 @@ export class GraphSession {
       recovery: null,
       error: null,
       revision: 0,
+      hydratedPages: new Set(),
     };
   }
 
@@ -96,7 +98,7 @@ export class GraphSession {
       this.patch({
         status: "ready",
         mode: this.lease.mode,
-        snapshot: opened.snapshot as GraphSnapshot,
+        snapshot: mergeSummary(opened.summary as GraphSummary),
         capabilities: opened.capabilities,
         recovery: opened.recovery,
       });
@@ -111,11 +113,17 @@ export class GraphSession {
 
   /**
    * Executes a domain command. Commands are serialized; the returned promise
-   * resolves after the authoritative snapshot has been reconciled.
+   * resolves after the authoritative summary/page state has been reconciled.
    */
   execute(command: Command): Promise<CommandResult> {
     const run = this.queue.then(() => this.executeNow(command));
     // Keep the queue alive after failures so later commands still run.
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  hydratePage(pageId: string): Promise<void> {
+    const run = this.queue.then(() => this.hydratePageNow(pageId));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -166,7 +174,11 @@ export class GraphSession {
         response.save_status.status === "saved_locally"
           ? { kind: "saved", sequence: response.save_status.local_sequence }
           : { kind: "unsaved", code: "dirty_unsaved", message: "the last change is not durable yet", retryable: true };
-      await this.reconcile(save);
+      await this.reconcile(
+        save,
+        commandPageId(command, response.result as CommandResult),
+        command.type === "undo" || command.type === "redo",
+      );
       return response.result as CommandResult;
     } catch (error) {
       const detail = toPortError(error);
@@ -178,7 +190,7 @@ export class GraphSession {
           code: detail.code,
           message: detail.message,
           retryable: detail.retryable,
-        });
+        }, commandPageId(command));
       } else {
         // The command was rejected before applying; canonical state and the
         // previous save state are unchanged.
@@ -202,8 +214,24 @@ export class GraphSession {
     }
   }
 
-  /** Drains the event stream, then re-reads the authoritative snapshot. */
-  private async reconcile(save: SaveState): Promise<void> {
+  private async hydratePageNow(pageId: string): Promise<void> {
+    if (this.state.status !== "ready") return;
+    const response = await this.port.readPage({ graph_handle: this.handle, page_id: pageId });
+    const hydratedPages = new Set(this.state.hydratedPages);
+    hydratedPages.add(pageId);
+    this.patch({
+      snapshot: mergePage(this.state.snapshot, response.page as PageSnapshot),
+      hydratedPages,
+      revision: this.state.revision + 1,
+    });
+  }
+
+  /** Drains events, refreshes graph metadata, then refreshes only the affected page. */
+  private async reconcile(
+    save: SaveState,
+    pageId?: string,
+    refreshHydrated = false,
+  ): Promise<void> {
     try {
       const batch = await this.port.subscribe({ graph_handle: this.handle, after_cursor: this.cursor });
       this.cursor = batch.next_cursor;
@@ -211,7 +239,25 @@ export class GraphSession {
       // A failed event poll falls through to the full re-read below.
     }
     const read = await this.port.read({ graph_handle: this.handle });
-    this.patch({ snapshot: read.snapshot as GraphSnapshot, save, revision: this.state.revision + 1 });
+    let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
+    const pageIdsToRead = refreshHydrated
+      ? [...this.state.hydratedPages]
+      : pageId
+        ? [pageId]
+        : [];
+    for (const id of pageIdsToRead) {
+      if (!snapshot.pages.some((page) => page.id === id)) continue;
+      const response = await this.port.readPage({ graph_handle: this.handle, page_id: id });
+      snapshot = mergePage(snapshot, response.page as PageSnapshot);
+    }
+    const pageIds = new Set(snapshot.pages.map((page) => page.id));
+    const hydratedPages = new Set(
+      [...this.state.hydratedPages].filter((id) => pageIds.has(id)),
+    );
+    for (const id of pageIdsToRead) {
+      if (pageIds.has(id)) hydratedPages.add(id);
+    }
+    this.patch({ snapshot, hydratedPages, save, revision: this.state.revision + 1 });
   }
 
   private previousStableSave(): SaveState {
@@ -221,6 +267,37 @@ export class GraphSession {
   private patch(partial: Partial<SessionState>): void {
     this.state = { ...this.state, ...partial };
     for (const listener of this.listeners) listener();
+  }
+}
+
+function commandPageId(command: Command, result?: CommandResult): string | undefined {
+  switch (command.type) {
+    case "ensure_page":
+    case "rename_page":
+    case "delete_page":
+    case "restore_page":
+    case "insert_block":
+    case "edit_markdown":
+    case "splice_markdown":
+    case "move_block":
+    case "indent_block":
+    case "outdent_block":
+    case "delete_block":
+    case "set_page_default":
+    case "remove_page_default":
+      return command.page_id;
+    case "add_tag":
+      return command.block_page_id;
+    case "set_property":
+    case "remove_property":
+    case "add_repeated_property":
+    case "remove_repeated_property":
+      return command.entity.kind === "block" ? command.entity.page_id : command.entity.id;
+    case "ensure_journal":
+      return result?.created_page ?? undefined;
+    case "undo":
+    case "redo":
+      return undefined;
   }
 }
 

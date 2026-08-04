@@ -7,7 +7,7 @@ control, synchronization, and deletion independent. A peer/session ID is
 generated for every simultaneously active graph runtime and is never shared
 between tabs, processes, or devices.
 
-The document has three stable root containers:
+The document has two stable root containers:
 
 ```text
 meta: Map
@@ -15,7 +15,6 @@ meta: Map
   schema_version: integer
   applied_migrations: Map<migration_id, true>
 pages: Map<PageId, PageMap>
-outline: MovableTree<BlockData>
 ```
 
 Root names and container types are permanent protocol. New root fields may be
@@ -28,6 +27,7 @@ added, but an existing name cannot change type.
 ```text
 properties: PropertyBag
 defaults: PropertyBag
+outline: MovableTree<BlockData>
 ```
 
 Regular pages have `page.kind: "regular"` and an atomic `page.title: String`
@@ -47,32 +47,32 @@ ordering determines merge results.
 
 ## Blocks and Ordering
 
-`outline` is one graph-wide movable tree. Every tree node is a block and its
-Loro tree ID is wrapped as the stable external `BlockId`. Node data contains:
+Every page owns one nested `outline` movable tree. Every tree node is a block
+and its Loro tree ID is wrapped as the stable external `BlockId`. Node data
+contains:
 
 ```text
 markdown: Text
 properties: PropertyBag
 ```
 
-`markdown` is the only user semantic stored outside the property bag. A root
-block has a single `block.page: PageId` property; descendants derive their page
-from the root and omit it. Roots for different pages may interleave in the
-underlying fractional order; filtering preserves relative order within each
-page. Moving a subtree between pages is one transaction that moves the node and
-sets or removes `block.page` according to whether it becomes a root.
+`markdown` is the only user semantic stored outside the property bag. Page
+membership is structural and immutable: the containing `PageMap.outline` owns
+the block. Indent, outdent, reorder, and subtree moves operate only inside that
+tree. Moving content to another page is an explicit copy with new block IDs,
+not a cross-tree move.
 
 The runtime enforces and repairs these projection invariants:
 
-- only roots carry the `block.page` property;
-- every visible root refers to a known, non-deleted page;
+- every visible block is reachable from exactly one live page outline;
 - no visible cycle exists;
 - repeated `tag` entries have page values, though deleted/missing targets remain
   as dangling refs;
 - invalid property encodings are quarantined instead of coerced.
 
-Loro provides conflict-free hierarchy moves and sibling ordering. The core owns
-the additional page-membership invariant.
+Loro provides conflict-free hierarchy moves and sibling ordering. A block
+command carries its owning `PageId` as a locality hint, and the core rejects a
+page/block mismatch without searching other page trees.
 
 ## Uniform Property Bag and Encoding
 
@@ -101,7 +101,7 @@ another. Its decoded form is:
 { type: "date",     value: YYYY-MM-DD }
 ```
 
-The JSON representation is canonical and versioned with document schema 1. It
+The JSON representation is canonical and versioned with document schema 2. It
 is decoded into `PropertyEntry` and `PropertyValue` immediately; raw JSON does
 not escape the projection. A single slot is `s:<key>`. A repeated slot is
 `r:<key>:<sha256(canonical-value)>`, which makes equal member addition
@@ -109,7 +109,7 @@ idempotent. Map semantics merge slots independently, and concurrent writes to
 one slot resolve as one complete value.
 
 Well-known entries include `tag`, `query.source`, `query.language`, task fields,
-`page.title`, `page.kind`, `journal.date`, and `block.page`. They use exactly
+`page.title`, `page.kind`, and `journal.date`. They use exactly
 the same encoding and synchronization path as user-defined properties. The
 registry adds type/cardinality validation and feature projection but no extra
 storage.
@@ -119,16 +119,16 @@ storage.
 Deletion is initially logical:
 
 - block deletion uses the tree CRDT's deletion semantics;
-- page deletion writes `system.deleted-at` and hides its root blocks;
+- page deletion writes `system.deleted-at` and hides its nested outline;
 - references to deleted entities remain inspectable;
-- restoring a page removes that property and reveals surviving roots.
+- restoring a page removes that property and reveals its surviving outline.
 
 Validation after import is deterministic. Unsafe remote encodings, invalid
-property targets/defaults, descendants carrying `block.page`, and roots with an
-invalid page are omitted from the domain projection and reported in a sorted
-quarantine list; supported dangling tag references remain lossless. Local
-commands prevent these states before mutation. Future physical repair uses
-normal CRDT operations and is separate from checkpoint/retention trimming.
+property targets/defaults, and malformed page outline containers are omitted
+from the domain projection and reported in a sorted quarantine list; supported
+dangling tag references remain lossless. Local commands prevent these states
+before mutation. Future physical repair uses normal CRDT operations and is
+separate from checkpoint/retention trimming.
 
 ## Local Repository Port
 
@@ -210,11 +210,15 @@ when no valid checkpoint exists.
 
 ## Schema Evolution
 
-The core supports a bounded range of schema versions. Migrations are monotonic,
-idempotent functions identified in `applied_migrations`. A remote graph
-migration requires a server-advertised minimum client version so an older client
-cannot write an incompatible shape. Fixtures from every supported schema are
-loaded by both native and Wasm tests.
+The current core opens document schema 2 only. Schema 1 used one graph-global
+outline and encoded page membership as a block property; moving those nodes
+into nested page trees cannot preserve their Loro tree IDs. The core therefore
+rejects schema 1 explicitly instead of silently rewriting block identity. Its
+fixtures remain as historical compatibility inputs, while schema-2 fixtures are
+loaded by native and Wasm tests. Future identity-preserving migrations are
+monotonic, idempotent functions recorded in `applied_migrations`. A remote graph
+migration also requires a server-advertised minimum client version so an older
+client cannot write an incompatible shape.
 
 ## Export and Import
 

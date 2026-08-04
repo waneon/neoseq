@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import {
   InfoIcon,
@@ -24,8 +24,14 @@ import { useSession, useSessionState } from "../shell/session-context";
 
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
+  const session = useSession();
   const state = useSessionState();
   const page = findPage(state.snapshot, pageId);
+
+  useEffect(() => {
+    if (!page || state.status !== "ready" || state.hydratedPages.has(pageId)) return;
+    void session.hydratePage(pageId).catch(() => undefined);
+  }, [page, pageId, session, state.hydratedPages, state.status]);
 
   if (!page) {
     // Deleted pages are soft-deleted and leave the snapshot, so a missing

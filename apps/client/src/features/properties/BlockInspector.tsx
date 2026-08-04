@@ -17,9 +17,11 @@ import { PropertyBagEditor } from "./PropertyBagEditor";
 import { TagChips } from "./TagChips";
 
 export function BlockInspector({
+  pageId,
   block,
   onClose,
 }: {
+  pageId: string;
   block: BlockSnapshot;
   onClose: () => void;
 }) {
@@ -50,15 +52,20 @@ export function BlockInspector({
         </button>
       </header>
       <div className="inspector-tags">
-        <TagChips block={block} />
+        <TagChips pageId={pageId} block={block} />
         {!readonly && (
           <div className="inspector-tag-input">
             <PageAutocomplete
               placeholder="Add tag…"
               allowCreate
-              onPick={(pageId) =>
+              onPick={(tagPageId) =>
                 void session
-                  .execute({ type: "add_tag", block_id: block.id, page_id: pageId })
+                  .execute({
+                    type: "add_tag",
+                    block_page_id: pageId,
+                    block_id: block.id,
+                    tag_page_id: tagPageId,
+                  })
                   .catch(() => undefined)
               }
             />
@@ -67,6 +74,7 @@ export function BlockInspector({
       </div>
       <PropertyBagEditor
         kind="block"
+        pageId={pageId}
         targetId={block.id}
         bag={block.properties}
         title="Properties"

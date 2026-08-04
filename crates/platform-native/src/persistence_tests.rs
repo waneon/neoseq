@@ -108,7 +108,7 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
         .unwrap();
     runtime
         .repository_mut()
-        .store_index_cache("pages-v1", b"cached-index")
+        .store_index_cache("pages-v2", b"cached-index")
         .unwrap();
     runtime
         .execute(envelope(
@@ -132,7 +132,7 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
     assert_eq!(
         restored
             .repository_mut()
-            .load_index_cache("pages-v1")
+            .load_index_cache("pages-v2")
             .unwrap(),
         Some(b"cached-index".to_vec())
     );

@@ -186,7 +186,7 @@ pub fn run_scenario_str(source: &str) -> Result<String, ScenarioError> {
     if scenario.peers.is_empty() {
         let fingerprint = base.fingerprint()?;
         let output = ScenarioOutput {
-            schema: 1,
+            schema: 2,
             graph: base.snapshot()?,
             fingerprint: fingerprint.clone(),
             converged: true,
@@ -251,7 +251,7 @@ pub fn run_scenario_str(source: &str) -> Result<String, ScenarioError> {
         (peer.fingerprint()?, peer.snapshot()?)
     };
     let output = ScenarioOutput {
-        schema: 1,
+        schema: 2,
         graph,
         fingerprint,
         converged,
@@ -269,7 +269,7 @@ fn run_commands(
     core: &mut GraphCore,
     peer_id: u64,
     commands: &[ScenarioCommand],
-    aliases: &mut BTreeMap<String, BlockId>,
+    aliases: &mut BTreeMap<String, (PageId, BlockId)>,
     events: &mut Vec<ScenarioEvent>,
 ) -> Result<(), ScenarioError> {
     for (index, scenario_command) in commands.iter().enumerate() {
@@ -284,8 +284,10 @@ fn run_commands(
             },
             &format!("scenario-{peer_id:04}-{index:06}"),
         )?;
-        if let (Some(alias), Some(block)) = (block_alias, execution.result.created_block.clone()) {
-            aliases.insert(alias, block);
+        if let (Some((alias, page_id)), Some(block)) =
+            (block_alias, execution.result.created_block.clone())
+        {
+            aliases.insert(alias, (page_id, block));
         }
         if let (Some(_alias), Some(_page)) = (journal_alias, execution.result.created_page.clone())
         {
@@ -306,8 +308,8 @@ fn run_commands(
 
 fn translate(
     input: &ScenarioCommand,
-    aliases: &BTreeMap<String, BlockId>,
-) -> Result<(Command, Option<String>, Option<String>), ScenarioError> {
+    aliases: &BTreeMap<String, (PageId, BlockId)>,
+) -> Result<(Command, Option<(String, PageId)>, Option<String>), ScenarioError> {
     let block = |alias: &str| {
         aliases
             .get(alias)
@@ -316,11 +318,12 @@ fn translate(
     };
     let entity = |raw: &str| -> Result<EntityId, ScenarioError> {
         if let Some(id) = raw.strip_prefix("page:") {
-            Ok(EntityId::Page(PageId::new(id).map_err(|error| {
-                ScenarioError::Invalid(error.to_string())
-            })?))
+            Ok(EntityId::Page {
+                id: PageId::new(id).map_err(|error| ScenarioError::Invalid(error.to_string()))?,
+            })
         } else if let Some(alias) = raw.strip_prefix("block:") {
-            Ok(EntityId::Block(block(alias)?))
+            let (page_id, id) = block(alias)?;
+            Ok(EntityId::Block { page_id, id })
         } else {
             Err(ScenarioError::Invalid(format!(
                 "entity must start with page: or block:: {raw}"
@@ -372,20 +375,24 @@ fn translate(
         } => (
             Command::InsertBlock {
                 page_id: page_id.clone(),
-                parent: parent.as_deref().map(block).transpose()?,
+                parent: parent.as_deref().map(block).transpose()?.map(|(_, id)| id),
                 index: *index,
                 markdown: markdown.clone(),
             },
-            Some(as_id.clone()),
+            Some((as_id.clone(), page_id.clone())),
             None,
         ),
         ScenarioCommand::EditMarkdown {
             block: id,
             markdown,
         } => (
-            Command::EditMarkdown {
-                block_id: block(id)?,
-                markdown: markdown.clone(),
+            {
+                let (page_id, block_id) = block(id)?;
+                Command::EditMarkdown {
+                    page_id,
+                    block_id,
+                    markdown: markdown.clone(),
+                }
             },
             None,
             None,
@@ -396,11 +403,15 @@ fn translate(
             delete,
             insert,
         } => (
-            Command::SpliceMarkdown {
-                block_id: block(id)?,
-                index: *index,
-                delete: *delete,
-                insert: insert.clone(),
+            {
+                let (page_id, block_id) = block(id)?;
+                Command::SpliceMarkdown {
+                    page_id,
+                    block_id,
+                    index: *index,
+                    delete: *delete,
+                    insert: insert.clone(),
+                }
             },
             None,
             None,
@@ -412,31 +423,34 @@ fn translate(
             index,
         } => (
             Command::MoveBlock {
-                block_id: block(id)?,
+                block_id: block(id)?.1,
                 page_id: page_id.clone(),
-                parent: parent.as_deref().map(block).transpose()?,
+                parent: parent.as_deref().map(block).transpose()?.map(|(_, id)| id),
                 index: *index,
             },
             None,
             None,
         ),
         ScenarioCommand::IndentBlock { block: id } => (
-            Command::IndentBlock {
-                block_id: block(id)?,
+            {
+                let (page_id, block_id) = block(id)?;
+                Command::IndentBlock { page_id, block_id }
             },
             None,
             None,
         ),
         ScenarioCommand::OutdentBlock { block: id } => (
-            Command::OutdentBlock {
-                block_id: block(id)?,
+            {
+                let (page_id, block_id) = block(id)?;
+                Command::OutdentBlock { page_id, block_id }
             },
             None,
             None,
         ),
         ScenarioCommand::DeleteBlock { block: id } => (
-            Command::DeleteBlock {
-                block_id: block(id)?,
+            {
+                let (page_id, block_id) = block(id)?;
+                Command::DeleteBlock { page_id, block_id }
             },
             None,
             None,
@@ -510,9 +524,13 @@ fn translate(
             None,
         ),
         ScenarioCommand::AddTag { block: id, page_id } => (
-            Command::AddTag {
-                block_id: block(id)?,
-                page_id: page_id.clone(),
+            {
+                let (block_page_id, block_id) = block(id)?;
+                Command::AddTag {
+                    block_page_id,
+                    block_id,
+                    tag_page_id: page_id.clone(),
+                }
             },
             None,
             None,

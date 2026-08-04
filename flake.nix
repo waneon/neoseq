@@ -33,7 +33,7 @@
             ./crates
             ./contracts/core-port.json
             ./fixtures/core
-            ./fixtures/core-port/v1.json
+            ./fixtures/core-port/v2.json
           ];
         };
         testClientFiles = lib.fileset.unions [
@@ -56,7 +56,7 @@
             ./apps/client/tsconfig.json
             ./apps/client/tsconfig.node.json
             ./apps/client/vite.config.ts
-            ./fixtures/core/property-definitions-v1.json
+            ./fixtures/core/property-definitions-v2.json
         ];
         webSource = lib.fileset.toSource {
           root = ./.;
@@ -70,7 +70,7 @@
             ./apps/client/playwright.config.ts
             ./apps/client/vitest.config.ts
             ./apps/client/tests
-            ./fixtures/core-port/v1.json
+            ./fixtures/core-port/v2.json
           ];
         };
         generatedSource = lib.fileset.toSource {
@@ -81,7 +81,7 @@
             ./scripts/generate-contracts.mjs
             ./crates/domain/src/generated/core_port.rs
             ./apps/client/src/generated/core-port.ts
-            ./fixtures/core-port/v1.json
+            ./fixtures/core-port/v2.json
           ];
         };
         pnpmDependencyFiles = [

@@ -2,7 +2,7 @@ use crate::{LocalDate, PageId, PropertyKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 1;
+pub const REGISTRY_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -141,13 +141,6 @@ pub const REGISTRY: &[PropertyDefinition] = &[
     PropertyDefinition {
         key: "journal.date",
         value_type: PropertyType::Date,
-        cardinality: Cardinality::Single,
-        defaultable: false,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "block.page",
-        value_type: PropertyType::Page,
         cardinality: Cardinality::Single,
         defaultable: false,
         allowed_strings: NONE,
@@ -326,7 +319,7 @@ mod tests {
     #[test]
     fn registry_matches_the_versioned_fixture() {
         let expected: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../fixtures/core/property-definitions-v1.json"
+            "../../../fixtures/core/property-definitions-v2.json"
         ))
         .unwrap();
         assert_eq!(registry_fixture(), expected);

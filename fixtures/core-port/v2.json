@@ -1,7 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "NeoSeq CorePort v2",
-  "contractVersion": 2,
+  "contract_version": 2,
   "operations": [
     "open_graph",
     "execute",
@@ -10,7 +8,7 @@
     "subscribe",
     "close_graph"
   ],
-  "errorCodes": [
+  "error_codes": [
     "unsupported_contract",
     "invalid_request",
     "graph_not_open",
@@ -25,6 +23,14 @@
     "storage_corrupt",
     "internal"
   ],
-  "binaryTransport": "transferable_array_buffer",
-  "graphLocations": ["local", "remote"]
+  "transcript": {
+    "open": "summary_available",
+    "execute": "saved_locally",
+    "read": "schema_v2_summary",
+    "read_page": "page_snapshot",
+    "subscribe": ["semantic", "saved_locally"],
+    "close": "closed",
+    "timeout_error": "command_timeout",
+    "dirty_error": "dirty_unsaved"
+  }
 }

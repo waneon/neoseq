@@ -1,5 +1,7 @@
 use crate::{AppendReceipt, CoreError, GraphCore, checksum};
-use domain::{CommandEnvelope, CommandResult, GraphId, GraphSnapshot};
+use domain::{
+    CommandEnvelope, CommandResult, GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use thiserror::Error;
@@ -256,6 +258,14 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
 
     pub fn read(&self) -> Result<GraphSnapshot, RuntimeError> {
         Ok(self.core.snapshot()?)
+    }
+
+    pub fn read_summary(&self) -> Result<GraphSummary, RuntimeError> {
+        Ok(self.core.summary()?)
+    }
+
+    pub fn read_page(&self, page_id: &PageId) -> Result<PageSnapshot, RuntimeError> {
+        Ok(self.core.page_snapshot(page_id)?)
     }
 
     pub fn subscribe(&self, after_cursor: u64) -> EventBatch {

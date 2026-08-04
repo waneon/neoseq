@@ -35,7 +35,7 @@ describe("tags and page defaults", () => {
     // The block already tracks its own status.
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", id: "b-1" },
+      entity: { kind: "block", page_id: "home", id: "b-1" },
       key: "task.status",
       value: { type: "string", value: "doing" },
     });
@@ -57,7 +57,12 @@ describe("tags and page defaults", () => {
   it("materializes missing defaults and supports chip removal", async () => {
     const { session } = await mountTagged();
     const user = userEvent.setup();
-    await session.execute({ type: "add_tag", block_id: "b-1", page_id: "project" });
+    await session.execute({
+      type: "add_tag",
+      block_page_id: "home",
+      block_id: "b-1",
+      tag_page_id: "project",
+    });
 
     await user.click(await screen.findByTestId("block-menu"));
     await user.click(await screen.findByTestId("menu-properties"));

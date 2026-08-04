@@ -57,7 +57,7 @@ pub struct OpenGraphRequest {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OpenGraphResponse {
     pub graph_handle: String,
-    pub snapshot: Value,
+    pub summary: Value,
     pub capabilities: StorageCapabilitiesDto,
     pub recovery: RecoveryDto,
 }
@@ -92,7 +92,18 @@ pub struct ReadRequest {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReadResponse {
-    pub snapshot: Value,
+    pub summary: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReadPageRequest {
+    pub graph_handle: String,
+    pub page_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ReadPageResponse {
+    pub page: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -140,12 +151,14 @@ export interface GraphLocatorDto { graph_id: string; location: GraphLocationDto;
 export interface StorageCapabilitiesDto { durable: boolean; persisted?: boolean | null; quota_bytes?: number | null; usage_bytes?: number | null; }
 export interface RecoveryDto { checkpoint_sequence: number; replayed_updates: number; quarantined_records: string[]; }
 export interface OpenGraphRequest { contract_version: number; locator: GraphLocatorDto; peer_id: number; }
-export interface OpenGraphResponse { graph_handle: string; snapshot: unknown; capabilities: StorageCapabilitiesDto; recovery: RecoveryDto; }
+export interface OpenGraphResponse { graph_handle: string; summary: unknown; capabilities: StorageCapabilitiesDto; recovery: RecoveryDto; }
 export interface ExecuteRequest { graph_handle: string; command: unknown; timeout_ms: number; }
 export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; checksum: string } | { status: "dirty_unsaved" };
 export interface ExecuteResponse { result: unknown; save_status: SaveStatusDto; }
 export interface ReadRequest { graph_handle: string; }
-export interface ReadResponse { snapshot: unknown; }
+export interface ReadResponse { summary: unknown; }
+export interface ReadPageRequest { graph_handle: string; page_id: string; }
+export interface ReadPageResponse { page: unknown; }
 export interface SubscribeRequest { graph_handle: string; after_cursor: number; }
 export interface SubscribeResponse { events: unknown[]; next_cursor: number; resync_required: boolean; }
 export interface CloseGraphRequest { graph_handle: string; }
@@ -157,6 +170,7 @@ export interface CorePort {
   openGraph(request: OpenGraphRequest): Promise<OpenGraphResponse>;
   execute(request: ExecuteRequest): Promise<ExecuteResponse>;
   read(request: ReadRequest): Promise<ReadResponse>;
+  readPage(request: ReadPageRequest): Promise<ReadPageResponse>;
   subscribe(request: SubscribeRequest): Promise<SubscribeResponse>;
   closeGraph(request: CloseGraphRequest): Promise<CloseGraphResponse>;
 }

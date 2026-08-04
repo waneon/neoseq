@@ -9,6 +9,8 @@ import type {
   OpenGraphResponse,
   ReadRequest,
   ReadResponse,
+  ReadPageRequest,
+  ReadPageResponse,
   SubscribeRequest,
   SubscribeResponse,
 } from "./generated/core-port";
@@ -54,6 +56,10 @@ export class CoreWorker implements CorePort {
 
   read(request: ReadRequest): Promise<ReadResponse> {
     return this.request("read", request);
+  }
+
+  readPage(request: ReadPageRequest): Promise<ReadPageResponse> {
+    return this.request("read_page", request);
   }
 
   subscribe(request: SubscribeRequest): Promise<SubscribeResponse> {

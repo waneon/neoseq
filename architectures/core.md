@@ -31,7 +31,7 @@ into Loro operations and Loro changes back into domain DTOs.
   “today” using the user's configured IANA timezone before invoking the journal
   command.
 - `PropertyKey` is a non-empty normalized Unicode string with a configured
-  length limit. Keys are case-sensitive in v1.
+  length limit. Keys are case-sensitive in schema v2.
 - `PropertyEntry` pairs a key and typed value. A property bag supports both
   single-valued and repeated keys; every entry has a stable internal slot.
 - `PropertyValue` is exactly one of finite number, string, page reference,
@@ -44,8 +44,8 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The schema-v1 registry is a checked-in compatibility fixture. It defines
-`tag`, query, task, page, journal, block-membership, and system keys. The five
+The schema-v2 registry is a checked-in compatibility fixture. It defines
+`tag`, query, task, page, journal, and system keys. The five
 value types are number, string, page reference, checkbox, and local date.
 Unknown keys accept any of those types and retain the command-selected single
 or repeated cardinality. ID and date deserialization passes through the same
@@ -109,11 +109,11 @@ mechanics rather than user-visible semantics and are the explicit exceptions.
 2. read the page's default property bag;
 3. copy each default only when that property key is absent on the block.
 
-The registry rejects non-defaultable structural keys such as `block.page`,
-`page.*`, `journal.date`, `tag`, and `system.*` from a page's default bag. Task
+The registry rejects non-defaultable keys such as `page.*`, `journal.date`,
+`tag`, and `system.*` from a page's default bag. Task
 properties and unknown user-defined keys are defaultable; other well-known
 feature keys declare the policy explicitly. A default bag has at most one value
-per key in v1.
+per key in schema v2.
 
 This is materialization, not inheritance. Removing a tag does not remove copied
 properties, values already visible to the tagging command are never overwritten,

@@ -10,6 +10,8 @@ import type {
   ExecuteResponse,
   OpenGraphRequest,
   OpenGraphResponse,
+  ReadPageRequest,
+  ReadPageResponse,
   ReadRequest,
   ReadResponse,
   SubscribeRequest,
@@ -20,6 +22,7 @@ import type { Command, CommandEnvelope } from "../commands";
 import type {
   BlockSnapshot,
   GraphSnapshot,
+  GraphSummary,
   PageSnapshot,
   PropertyEntry,
   PropertyValue,
@@ -63,7 +66,7 @@ export class FakeCorePort implements SessionPort {
     this.graphId = request.locator.graph_id;
     return {
       graph_handle: `fake:${this.graphId}`,
-      snapshot: this.snapshot(),
+      summary: this.summary(),
       capabilities: { durable: true, persisted: true, quota_bytes: 10_000_000, usage_bytes: 1_000 },
       recovery: { checkpoint_sequence: 0, replayed_updates: 0, quarantined_records: [] },
     };
@@ -103,7 +106,12 @@ export class FakeCorePort implements SessionPort {
 
   async read(_request: ReadRequest): Promise<ReadResponse> {
     if (!this.open) fail("graph_not_open", "graph is not open");
-    return { snapshot: this.snapshot() };
+    return { summary: this.summary() };
+  }
+
+  async readPage(request: ReadPageRequest): Promise<ReadPageResponse> {
+    if (!this.open) fail("graph_not_open", "graph is not open");
+    return { page: clone(this.requirePage(request.page_id)) };
   }
 
   async subscribe(request: SubscribeRequest): Promise<SubscribeResponse> {
@@ -132,11 +140,19 @@ export class FakeCorePort implements SessionPort {
 
   private snapshot(): GraphSnapshot {
     return clone({
-      schema_version: 1,
+      schema_version: 2,
       graph_id: this.graphId,
       pages: this.pages.filter((page) => !hasKey(page.properties, "system.deleted-at")),
       quarantined: [],
     });
+  }
+
+  private summary(): GraphSummary {
+    const snapshot = this.snapshot();
+    return {
+      ...snapshot,
+      pages: snapshot.pages.map(({ blocks: _blocks, ...page }) => page),
+    };
   }
 
   private pushEvent(kind: Record<string, unknown>): void {
@@ -189,23 +205,21 @@ export class FakeCorePort implements SessionPort {
         const block: BlockSnapshot = {
           id,
           markdown: command.markdown,
-          properties: command.parent
-            ? []
-            : [{ key: "block.page", value: { type: "page", value: command.page_id } }],
+          properties: [],
           children: [],
         };
         const siblings = command.parent
-          ? this.requireBlock(command.parent).block.children
+          ? this.requireBlock(command.page_id, command.parent).block.children
           : page.blocks;
         siblings.splice(Math.min(command.index, siblings.length), 0, block);
         result.created_block = id;
         break;
       }
       case "edit_markdown":
-        this.requireBlock(command.block_id).block.markdown = command.markdown;
+        this.requireBlock(command.page_id, command.block_id).block.markdown = command.markdown;
         break;
       case "splice_markdown": {
-        const block = this.requireBlock(command.block_id).block;
+        const block = this.requireBlock(command.page_id, command.block_id).block;
         const points = Array.from(block.markdown);
         if (command.index + command.delete > points.length) {
           fail("internal", "markdown splice is out of bounds");
@@ -215,49 +229,38 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "move_block": {
-        const { block } = this.requireBlock(command.block_id);
-        this.detach(command.block_id);
+        const { block } = this.requireBlock(command.page_id, command.block_id);
+        this.detach(command.page_id, command.block_id);
         const page = this.requirePage(command.page_id);
         if (command.parent) {
-          block.properties = block.properties.filter((entry) => entry.key !== "block.page");
-          const siblings = this.requireBlock(command.parent).block.children;
+          const siblings = this.requireBlock(command.page_id, command.parent).block.children;
           siblings.splice(Math.min(command.index, siblings.length), 0, block);
         } else {
-          setSingle(block.properties, "block.page", { type: "page", value: command.page_id });
           page.blocks.splice(Math.min(command.index, page.blocks.length), 0, block);
         }
         break;
       }
       case "indent_block": {
-        const found = this.requireBlock(command.block_id);
+        const found = this.requireBlock(command.page_id, command.block_id);
         const siblings = found.siblings;
         const position = siblings.indexOf(found.block);
         if (position === 0) fail("internal", "first sibling cannot be indented");
         const target = siblings[position - 1];
         siblings.splice(position, 1);
-        found.block.properties = found.block.properties.filter(
-          (entry) => entry.key !== "block.page",
-        );
         target.children.push(found.block);
         break;
       }
       case "outdent_block": {
-        const found = this.requireBlock(command.block_id);
+        const found = this.requireBlock(command.page_id, command.block_id);
         if (!found.parent) fail("internal", "root block cannot be outdented");
-        const parentFound = this.requireBlock(found.parent.id);
+        const parentFound = this.requireBlock(command.page_id, found.parent.id);
         found.siblings.splice(found.siblings.indexOf(found.block), 1);
         const grandSiblings = parentFound.siblings;
-        if (parentFound.parent === null) {
-          setSingle(found.block.properties, "block.page", {
-            type: "page",
-            value: parentFound.page.id,
-          });
-        }
         grandSiblings.splice(grandSiblings.indexOf(parentFound.block) + 1, 0, found.block);
         break;
       }
       case "delete_block":
-        this.detach(command.block_id);
+        this.detach(command.page_id, command.block_id);
         break;
       case "set_property": {
         const issue = validateValue(command.key, command.value, "single");
@@ -297,9 +300,9 @@ export class FakeCorePort implements SessionPort {
         removeAll(this.requirePage(command.page_id).defaults, command.key);
         break;
       case "add_tag": {
-        const block = this.requireBlock(command.block_id).block;
-        const page = this.requirePage(command.page_id);
-        const tag: PropertyValue = { type: "page", value: command.page_id };
+        const block = this.requireBlock(command.block_page_id, command.block_id).block;
+        const page = this.requirePage(command.tag_page_id);
+        const tag: PropertyValue = { type: "page", value: command.tag_page_id };
         if (!block.properties.some((e) => e.key === "tag" && sameValue(e.value, tag))) {
           block.properties.push({ key: "tag", value: tag });
         }
@@ -346,28 +349,27 @@ export class FakeCorePort implements SessionPort {
     return page;
   }
 
-  private requireBlock(id: string): {
+  private requireBlock(pageId: string, id: string): {
     block: BlockSnapshot;
     siblings: BlockSnapshot[];
     parent: BlockSnapshot | null;
     page: PageSnapshot;
   } {
-    for (const page of this.pages) {
-      const found = findIn(page.blocks, null, id, page);
-      if (found) return found;
-    }
+    const page = this.requirePage(pageId);
+    const found = findIn(page.blocks, null, id, page);
+    if (found) return found;
     fail("internal", `block does not exist or is deleted: ${id}`);
   }
 
-  private detach(id: string): void {
-    const found = this.requireBlock(id);
+  private detach(pageId: string, id: string): void {
+    const found = this.requireBlock(pageId, id);
     found.siblings.splice(found.siblings.indexOf(found.block), 1);
   }
 
-  private entityBag(entity: { kind: "page" | "block"; id: string }): PropertyEntry[] {
+  private entityBag(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): PropertyEntry[] {
     return entity.kind === "page"
       ? this.requirePage(entity.id).properties
-      : this.requireBlock(entity.id).block.properties;
+      : this.requireBlock(entity.page_id, entity.id).block.properties;
   }
 }
 

@@ -1,6 +1,6 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
-import golden from "../../../fixtures/core-port/v1.json";
+import golden from "../../../fixtures/core-port/v2.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
 
@@ -49,7 +49,7 @@ export async function runIndexedDbPersistenceCorpus() {
   const graph = graphId("indexeddb-corpus");
   const creator = new TestCoreWorker();
   const opened = await creator.openGraph(openRequest(graph, 201));
-  assert(opened.snapshot && opened.capabilities.durable, "open must expose durable storage capability");
+  assert(opened.summary && opened.capabilities.durable, "open must expose durable storage capability");
   const saved = await creator.execute({
     graph_handle: opened.graph_handle,
     command: ensurePage(graph, "create-home", "home"),
@@ -63,7 +63,7 @@ export async function runIndexedDbPersistenceCorpus() {
 
   const restorer = new TestCoreWorker();
   const reopened = await restorer.openGraph(openRequest(graph, 202));
-  assert(JSON.stringify(reopened.snapshot) === JSON.stringify(before.snapshot), "worker restart changed the canonical snapshot");
+  assert(JSON.stringify(reopened.summary) === JSON.stringify(before.summary), "worker restart changed the canonical summary");
   assert(reopened.recovery.checkpoint_sequence === 1, "close checkpoint was not selected on reopen");
   await restorer.closeGraph({ graph_handle: reopened.graph_handle });
   await restorer.deleteGraph(graph);
@@ -73,7 +73,7 @@ export async function runIndexedDbPersistenceCorpus() {
 
 export async function runWorkerCorePortCorpus() {
   assert(golden.contract_version === CORE_PORT_VERSION, "golden contract version mismatch");
-  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "subscribe", "close_graph"]), "golden operations changed");
+  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "read_page", "subscribe", "close_graph"]), "golden operations changed");
   const graph = graphId("worker-port");
   const worker = new TestCoreWorker();
   await expectCode(worker.read({ graph_handle: "missing" }), "graph_not_open");
@@ -89,7 +89,9 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.snapshot as Snapshot).schema_version === 1, "worker read did not return schema v1");
+  assert((read.summary as Snapshot).schema_version === 2, "worker read did not return schema v2");
+  const page = await worker.readPage({ graph_handle: opened.graph_handle, page_id: "home" });
+  assert((page.page as { id: string }).id === "home", "worker page read returned the wrong page");
   const subscription = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
   assert(subscription.events.length === 2 && !subscription.resync_required, "worker subscription transcript differs");
   const eventTypes = subscription.events.map((event) => (event as { kind: { type: string } }).kind.type);
@@ -127,7 +129,7 @@ export async function runIndexedDbFaultCorpus() {
   after.terminate();
   const afterRecovery = new TestCoreWorker();
   const recovered = await afterRecovery.openGraph(openRequest(afterGraph, 222));
-  assert((recovered.snapshot as Snapshot).pages.length === 1, "after-commit process kill lost durable update");
+  assert((recovered.summary as Snapshot).pages.length === 1, "after-commit process kill lost durable update");
   await afterRecovery.closeGraph({ graph_handle: recovered.graph_handle });
   await afterRecovery.deleteGraph(afterGraph);
   afterRecovery.terminate();
@@ -145,7 +147,7 @@ export async function runIndexedDbFaultCorpus() {
   await corruptRecovery.corruptUpdate(corruptGraph, 1);
   const recoveredCorrupt = await corruptRecovery.openGraph(openRequest(corruptGraph, 232));
   assert(recoveredCorrupt.recovery.quarantined_records[0] === "update-1", "corrupt update was not quarantined");
-  assert((recoveredCorrupt.snapshot as Snapshot).pages.length === 0, "corrupt update was silently coerced");
+  assert((recoveredCorrupt.summary as Snapshot).pages.length === 0, "corrupt update was silently coerced");
   assert(await corruptRecovery.quarantineCount(corruptGraph) === 1, "quarantine payload/export handle missing");
   assert((await corruptRecovery.exportQuarantine(corruptGraph, "update-1")).byteLength > 0, "transferable quarantine export is empty");
   await corruptRecovery.execute({
@@ -206,7 +208,7 @@ export async function runIndexedDbFaultCorpus() {
   const schemaWriter = new TestCoreWorker();
   const schemaOpen = await schemaWriter.openGraph(openRequest(schemaGraph, 261));
   await schemaWriter.closeGraph({ graph_handle: schemaOpen.graph_handle });
-  await schemaWriter.setSchemaVersion(schemaGraph, 2);
+  await schemaWriter.setSchemaVersion(schemaGraph, 3);
   await expectCode(schemaWriter.openGraph(openRequest(schemaGraph, 262)), "unsupported_schema");
   await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();

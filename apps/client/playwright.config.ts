@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const previewPort = Number.parseInt(process.env.NEOSEQ_PLAYWRIGHT_PORT ?? "4173", 10);
+
 export default defineConfig({
   testDir: "./tests",
   testMatch: /.*\.spec\.ts/,
@@ -11,7 +13,7 @@ export default defineConfig({
     timeout: 30_000,
   },
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: `http://127.0.0.1:${previewPort}`,
     trace: "retain-on-failure",
   },
   projects: [
@@ -35,8 +37,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm vite preview --host 127.0.0.1 --port 4173",
-    port: 4173,
+    command: `pnpm vite preview --host 127.0.0.1 --port ${previewPort}`,
+    port: previewPort,
     reuseExistingServer: false,
   },
 });

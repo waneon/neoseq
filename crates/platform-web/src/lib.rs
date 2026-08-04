@@ -68,6 +68,18 @@ impl WasmGraphCore {
         serde_json::to_string(&self.inner.snapshot().map_err(js_error)?).map_err(js_error)
     }
 
+    #[wasm_bindgen(js_name = summaryJson)]
+    pub fn summary_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.inner.summary().map_err(js_error)?).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = pageSnapshotJson)]
+    pub fn page_snapshot_json(&self, page_id: &str) -> Result<String, JsValue> {
+        let page_id = domain::PageId::new(page_id).map_err(js_error)?;
+        serde_json::to_string(&self.inner.page_snapshot(&page_id).map_err(js_error)?)
+            .map_err(js_error)
+    }
+
     #[wasm_bindgen(js_name = exportSnapshot)]
     pub fn export_snapshot(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.export_snapshot().map_err(js_error)

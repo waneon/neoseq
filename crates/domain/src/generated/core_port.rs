@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CORE_PORT_VERSION: u32 = 1;
+pub const CORE_PORT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,7 +43,7 @@ pub struct OpenGraphRequest {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OpenGraphResponse {
     pub graph_handle: String,
-    pub snapshot: Value,
+    pub summary: Value,
     pub capabilities: StorageCapabilitiesDto,
     pub recovery: RecoveryDto,
 }
@@ -78,7 +78,18 @@ pub struct ReadRequest {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReadResponse {
-    pub snapshot: Value,
+    pub summary: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReadPageRequest {
+    pub graph_handle: String,
+    pub page_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ReadPageResponse {
+    pub page: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

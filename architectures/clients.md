@@ -28,8 +28,8 @@ Request, response, event, and error types are generated from a shared schema.
 Contract version negotiation happens on startup. No component calls Tauri APIs,
 WebAssembly exports, IndexedDB, or WebSocket directly.
 
-CorePort version 1 fixes `open_graph`, `execute`, `read`, `subscribe`, and
-`close_graph`. Generated Rust/TypeScript DTOs cover locators, recovery and
+CorePort version 2 fixes `open_graph`, `execute`, graph-summary `read`,
+`read_page`, `subscribe`, and `close_graph`. Generated Rust/TypeScript DTOs cover locators, recovery and
 storage capabilities, saved/dirty state, bounded cursors, and stable timeout,
 schema, storage, and handle errors. Native and Worker suites consume one golden
 transcript.
@@ -62,15 +62,16 @@ and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
 buffers transfer rather than clone. Opening a local locator creates no network
 transport.
 
-Beyond the five CorePort v1 operations, the worker protocol carries three
+Beyond the six CorePort v2 operations, the worker protocol carries three
 adapter-level operations the local Web app needs: `retry_pending` (persist the
 exact pending update bytes after a storage failure), `list_graphs` (stored
 graph metadata), and `delete_graph` (explicit local deletion of a closed
 graph). They are adapter concerns, not CorePort contract surface. Graph
 display names are app-level bookkeeping in a small localStorage directory;
 canonical note data never lives there. A `GraphSession` on the main thread
-serializes commands, and after every command drains the event stream and
-re-reads the authoritative snapshot — the UI has no other state path.
+serializes commands, and after every command drains the event stream, refreshes
+the graph summary, and rehydrates only the affected page. The UI never copies
+unrelated page outlines through the Worker boundary.
 
 Production uses the wall clock and exposes no verification route or storage
 fault controls. A separate Vite `test` mode adds a lazily loaded verification
@@ -249,7 +250,7 @@ transform, so a surface is never contrast-unsafe while an audit reads it and
 never moves while a pointer travels toward it.
 
 The property registry the UI validates against is imported from the versioned
-core fixture (`fixtures/core/property-definitions-v1.json`), so client and
+core fixture (`fixtures/core/property-definitions-v2.json`), so client and
 core share one definition source.
 
 Feature modules may depend on `entities`, `core-port`, and `ui`; reverse imports

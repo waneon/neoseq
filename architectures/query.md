@@ -62,7 +62,7 @@ discard stale work completed after a newer edit.
 Indexes are per open graph and reconstructable from CRDT state:
 
 - entity tables for pages and blocks;
-- page-to-root and parent/child relationships;
+- block-to-page and parent/child relationships;
 - property presence and typed value indexes by key, including repeated values
   such as `tag`;
 - normalized text token/trigram index;

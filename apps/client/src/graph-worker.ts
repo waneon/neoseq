@@ -5,6 +5,7 @@ import type {
   CorePortError,
   ExecuteRequest,
   OpenGraphRequest,
+  ReadPageRequest,
   ReadRequest,
   SubscribeRequest,
 } from "./generated/core-port";
@@ -55,6 +56,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "open_graph": await ensureWasm(); value = await openGraph(payload as OpenGraphRequest); break;
         case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest); break;
         case "read": await ensureWasm(); value = read(payload as ReadRequest); break;
+        case "read_page": await ensureWasm(); value = readPage(payload as ReadPageRequest); break;
         case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
         case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
         case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
@@ -84,7 +86,7 @@ async function openGraph(request: OpenGraphRequest) {
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = new IndexedDbGraphRepository();
   const metadata = await repository.openGraph(request.locator, now());
-  if (metadata.schema_version !== 1) {
+  if (metadata.schema_version !== 2) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
   const recovery = await recover(repository, request.locator.graph_id, request.peer_id);
@@ -98,7 +100,7 @@ async function openGraph(request: OpenGraphRequest) {
   states.set(handle, state);
   return {
     graph_handle: handle,
-    snapshot: JSON.parse(state.core.snapshotJson()),
+    summary: JSON.parse(state.core.summaryJson()),
     capabilities: await repository.capabilities(),
     recovery: recovery.report,
   };
@@ -111,7 +113,7 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (checkpoint.schema_version !== 1) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
+    if (checkpoint.schema_version !== 2) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {
@@ -210,7 +212,13 @@ async function persistPending(state: OpenState) {
 }
 
 function read(request: ReadRequest) {
-  return { snapshot: JSON.parse(requireState(request.graph_handle).core.snapshotJson()) };
+  return { summary: JSON.parse(requireState(request.graph_handle).core.summaryJson()) };
+}
+
+function readPage(request: ReadPageRequest) {
+  return {
+    page: JSON.parse(requireState(request.graph_handle).core.pageSnapshotJson(request.page_id)),
+  };
 }
 
 function subscribe(request: SubscribeRequest) {

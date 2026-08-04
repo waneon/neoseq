@@ -12,7 +12,7 @@ import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle, repeatedValues } from "../../core-port/snapshot";
 import { useSession, useSessionState } from "../shell/session-context";
 
-export function TagChips({ block }: { block: BlockSnapshot }) {
+export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
   const session = useSession();
   const state = useSessionState();
   const navigate = useNavigate();
@@ -46,7 +46,7 @@ export function TagChips({ block }: { block: BlockSnapshot }) {
                   void session
                     .execute({
                       type: "remove_repeated_property",
-                      entity: { kind: "block", id: block.id },
+                      entity: { kind: "block", page_id: pageId, id: block.id },
                       key: "tag",
                       value,
                     })

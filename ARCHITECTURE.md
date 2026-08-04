@@ -103,8 +103,10 @@ Loro containers.
 The boundary is asynchronous and versioned:
 
 ```text
-open_graph(locator) -> graph_handle + initial_view
+open_graph(locator) -> graph_handle + graph_summary
 execute(graph_handle, command) -> command_result
+read(graph_handle) -> graph_summary
+read_page(graph_handle, page_id) -> page_view
 query(graph_handle, source, parameters) -> result_set
 subscribe(graph_handle, cursor) -> graph_events
 close_graph(graph_handle)
@@ -118,16 +120,17 @@ TypeScript, native, and WebAssembly adapters compatible.
 
 - A graph is one Loro document and one independent synchronization/security
   unit.
-- Pages are stored by stable `PageId`; blocks are nodes in one ordered, movable
-  Loro tree.
+- Pages are stored by stable `PageId`; each page owns one ordered, movable Loro
+  tree containing only that page's blocks.
 - Block Markdown is the only user content outside the uniform property model.
   Page titles/kinds, journal dates, tags, query programs, and task state,
   schedule, deadline, and priority are all properties.
 - Tags are repeated `tag` properties whose typed value is a page reference.
   Query and task features are projections over well-known property keys, not
   separate persisted entity shapes.
-- Only root blocks have a page-reference property. A descendant belongs to the
-  page of its root, allowing a subtree to move between pages atomically.
+- Block ownership is structural: a block belongs to the page whose nested tree
+  contains it. Moves are page-local, and block commands carry both `PageId` and
+  `BlockId` so reads and writes never scan other pages.
 - Property entries merge independently. Each value is an atomic tagged scalar:
   number, string, page reference, checkbox, or local date.
 - Journal identity is deterministic from `(GraphId, local date)`, making journal
@@ -212,8 +215,10 @@ transport types only and will not expose server persistence models.
 
 ## Evolution Rules
 
-- CRDT schema changes require an idempotent migration, compatibility fixtures,
-  and an updated [data architecture](architectures/data.md).
+- CRDT schema changes require compatibility fixtures and an updated
+  [data architecture](architectures/data.md). They use an idempotent migration
+  when entity identity can be preserved; otherwise the old schema is rejected
+  explicitly and requires a separate import/conversion boundary.
 - `CorePort` and sync-protocol changes are explicitly versioned and tolerate one
   supported rolling-upgrade window.
 - New platforms implement existing ports; they do not fork domain behavior.

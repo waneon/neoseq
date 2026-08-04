@@ -113,7 +113,7 @@ describe("generic property editor", () => {
     });
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", id: "b-1" },
+      entity: { kind: "block", page_id: "home", id: "b-1" },
       key: "task.status",
       value: { type: "string", value: "todo" },
     });

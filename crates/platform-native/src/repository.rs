@@ -92,7 +92,7 @@ impl SqliteGraphRepository {
                 "INSERT INTO graph_metadata(
                     graph_id, location, schema_version, next_sequence,
                     compacted_through, created_at, updated_at
-                 ) VALUES (?1, ?2, 1, 1, 0, ?3, ?3)
+                 ) VALUES (?1, ?2, 2, 1, 0, ?3, ?3)
                  ON CONFLICT(graph_id) DO NOTHING",
                 params![locator.graph_id.as_str(), location, now],
             )
@@ -351,7 +351,7 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .execute(
                 "INSERT INTO graph_checkpoint(
                     graph_id, local_sequence, schema_version, checksum, payload, created_at
-                 ) VALUES (?1, ?2, 1, ?3, ?4, ?5)
+                 ) VALUES (?1, ?2, 2, ?3, ?4, ?5)
                  ON CONFLICT(graph_id, local_sequence) DO UPDATE SET
                     schema_version = excluded.schema_version,
                     checksum = excluded.checksum,

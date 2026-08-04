@@ -15,7 +15,6 @@ const REPRODUCIBLE_SEEDS: &[u64] = &[
 struct Fixture {
     graph: GraphId,
     page_a: PageId,
-    page_b: PageId,
     tag_a: PageId,
     tag_b: PageId,
     text: BlockId,
@@ -110,7 +109,10 @@ fn base_fixture(seed: u64) -> Fixture {
         1,
         20,
         Command::SetProperty {
-            entity: EntityId::Block(text.clone()),
+            entity: EntityId::Block {
+                page_id: page_a.clone(),
+                id: text.clone(),
+            },
             key: key("task.status"),
             value: PropertyValue::String("todo".into()),
         },
@@ -121,7 +123,10 @@ fn base_fixture(seed: u64) -> Fixture {
         1,
         21,
         Command::AddRepeatedProperty {
-            entity: EntityId::Block(text.clone()),
+            entity: EntityId::Block {
+                page_id: page_a.clone(),
+                id: text.clone(),
+            },
             key: key("tag"),
             value: PropertyValue::Page(tag_a.clone()),
         },
@@ -130,7 +135,6 @@ fn base_fixture(seed: u64) -> Fixture {
     Fixture {
         graph,
         page_a,
-        page_b,
         tag_a,
         tag_b,
         text,
@@ -166,6 +170,7 @@ fn run_seed(seed: u64) {
         left_peer,
         0,
         Command::SpliceMarkdown {
+            page_id: fixture.page_a.clone(),
             block_id: fixture.text.clone(),
             index: insert_at,
             delete: 1,
@@ -178,6 +183,7 @@ fn run_seed(seed: u64) {
         right_peer,
         0,
         Command::SpliceMarkdown {
+            page_id: fixture.page_a.clone(),
             block_id: fixture.text.clone(),
             index: insert_at,
             delete: 1,
@@ -191,7 +197,7 @@ fn run_seed(seed: u64) {
         1,
         Command::MoveBlock {
             block_id: fixture.moving.clone(),
-            page_id: fixture.page_b.clone(),
+            page_id: fixture.page_a.clone(),
             parent: None,
             index: 0,
         },
@@ -214,6 +220,7 @@ fn run_seed(seed: u64) {
         left_peer,
         2,
         Command::DeleteBlock {
+            page_id: fixture.page_a.clone(),
             block_id: fixture.ancestor.clone(),
         },
     );
@@ -224,7 +231,7 @@ fn run_seed(seed: u64) {
         2,
         Command::MoveBlock {
             block_id: fixture.descendant.clone(),
-            page_id: fixture.page_b.clone(),
+            page_id: fixture.page_a.clone(),
             parent: None,
             index: 1,
         },
@@ -235,7 +242,10 @@ fn run_seed(seed: u64) {
         left_peer,
         3,
         Command::SetProperty {
-            entity: EntityId::Block(fixture.text.clone()),
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
             key: key("task.status"),
             value: PropertyValue::String("doing".into()),
         },
@@ -246,7 +256,10 @@ fn run_seed(seed: u64) {
         right_peer,
         3,
         Command::RemoveProperty {
-            entity: EntityId::Block(fixture.text.clone()),
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
             key: key("task.status"),
         },
     );
@@ -256,7 +269,10 @@ fn run_seed(seed: u64) {
         left_peer,
         4,
         Command::AddRepeatedProperty {
-            entity: EntityId::Block(fixture.text.clone()),
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
             key: key("tag"),
             value: PropertyValue::Page(fixture.tag_b.clone()),
         },
@@ -267,7 +283,10 @@ fn run_seed(seed: u64) {
         right_peer,
         4,
         Command::RemoveRepeatedProperty {
-            entity: EntityId::Block(fixture.text.clone()),
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
             key: key("tag"),
             value: PropertyValue::Page(fixture.tag_a.clone()),
         },
@@ -296,8 +315,9 @@ fn run_seed(seed: u64) {
         left_peer,
         6,
         Command::AddTag {
+            block_page_id: fixture.page_a.clone(),
             block_id: fixture.text.clone(),
-            page_id: fixture.tag_b.clone(),
+            tag_page_id: fixture.tag_b.clone(),
         },
     );
     execute(
@@ -306,7 +326,10 @@ fn run_seed(seed: u64) {
         right_peer,
         6,
         Command::SetProperty {
-            entity: EntityId::Block(fixture.text.clone()),
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
             key: key("task.priority"),
             value: PropertyValue::String("low".into()),
         },

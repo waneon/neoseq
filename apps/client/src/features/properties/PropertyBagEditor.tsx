@@ -31,32 +31,39 @@ import { PageAutocomplete } from "./PageAutocomplete";
 
 export type BagKind = "block" | "page" | "defaults";
 
-export function PropertyBagEditor({
-  kind,
-  targetId,
-  bag,
-  title,
-  description,
-  showHeading = true,
-}: {
-  kind: BagKind;
+type PropertyBagEditorProps = {
   targetId: string;
   bag: PropertyEntry[];
   title: string;
   description?: string;
   /** False when an enclosing disclosure already names this bag. */
   showHeading?: boolean;
-}) {
+} & (
+  | { kind: "block"; pageId: string }
+  | { kind: "page" | "defaults"; pageId?: never }
+);
+
+export function PropertyBagEditor({
+  kind,
+  targetId,
+  pageId,
+  bag,
+  title,
+  description,
+  showHeading = true,
+}: PropertyBagEditorProps) {
   const session = useSession();
   const state = useSessionState();
   const readonly = state.mode === "readonly";
   const [error, setError] = useState<string | null>(null);
 
   const entity: EntityRef =
-    kind === "block" ? { kind: "block", id: targetId } : { kind: "page", id: targetId };
+    kind === "block"
+      ? { kind: "block", page_id: pageId, id: targetId }
+      : { kind: "page", id: targetId };
 
   // System-owned keys are facts about the entity, not data on it: `page.kind`,
-  // `journal.date`, `block.page`, `system.*`. They were rendered as read-only rows
+  // `journal.date` and `system.*`. They were rendered as read-only rows
   // with a dangling empty remove cell, which is exactly the noise this redesign
   // removes. They surface in the page-info dialog instead.
   const visible = bag.filter((entry) => !isSystemKey(entry.key));

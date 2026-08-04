@@ -29,6 +29,19 @@ export interface PageSnapshot {
   blocks: BlockSnapshot[];
 }
 
+export interface PageSummary {
+  id: string;
+  properties: PropertyEntry[];
+  defaults: PropertyEntry[];
+}
+
+export interface GraphSummary {
+  schema_version: number;
+  graph_id: string;
+  pages: PageSummary[];
+  quarantined: string[];
+}
+
 export interface GraphSnapshot {
   schema_version: number;
   graph_id: string;
@@ -37,11 +50,26 @@ export interface GraphSnapshot {
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 1,
+  schema_version: 2,
   graph_id: "",
   pages: [],
   quarantined: [],
 };
+
+export function mergeSummary(summary: GraphSummary, current: GraphSnapshot = EMPTY_SNAPSHOT): GraphSnapshot {
+  const hydrated = new Map(current.pages.map((page) => [page.id, page.blocks]));
+  return {
+    ...summary,
+    pages: summary.pages.map((page) => ({ ...page, blocks: hydrated.get(page.id) ?? [] })),
+  };
+}
+
+export function mergePage(snapshot: GraphSnapshot, page: PageSnapshot): GraphSnapshot {
+  return {
+    ...snapshot,
+    pages: snapshot.pages.map((current) => (current.id === page.id ? page : current)),
+  };
+}
 
 export function singleValue(bag: PropertyEntry[], key: string): PropertyValue | undefined {
   return bag.find((entry) => entry.key === key)?.value;

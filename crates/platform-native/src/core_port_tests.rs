@@ -2,7 +2,7 @@ use crate::{FaultPoint, NativeCorePort, SqliteGraphRepository};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, Command, CommandEnvelope, CommandId, CorePortErrorCode,
     ExecuteRequest, GraphId, GraphLocationDto, GraphLocatorDto, OpenGraphRequest, PageId,
-    ReadRequest, SaveStatusDto, SubscribeRequest,
+    ReadPageRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
 };
 use graph_core::GraphLocator;
 use serde_json::{Value, json};
@@ -56,9 +56,9 @@ fn command(graph: &str, id: &str, page: &str) -> Value {
 }
 
 #[test]
-fn core_port_native_contract_suite_matches_v1_golden() {
+fn core_port_native_contract_suite_matches_v2_golden() {
     let golden: Value =
-        serde_json::from_str(include_str!("../../../fixtures/core-port/v1.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/core-port/v2.json")).unwrap();
     let schema: Value =
         serde_json::from_str(include_str!("../../../contracts/core-port.json")).unwrap();
     assert_eq!(golden["contract_version"], schema["contractVersion"]);
@@ -82,9 +82,9 @@ fn core_port_native_contract_suite_matches_v1_golden() {
     );
 
     let opened = port.open_graph(open_request("port-native", 91)).unwrap();
-    assert_eq!(opened.snapshot["schema_version"], 1);
+    assert_eq!(opened.summary["schema_version"], 2);
     assert!(opened.capabilities.durable);
-    assert_eq!(golden["transcript"]["open"], "snapshot_available");
+    assert_eq!(golden["transcript"]["open"], "summary_available");
     assert_eq!(
         port.open_graph(open_request("port-native", 92))
             .unwrap_err()
@@ -115,9 +115,17 @@ fn core_port_native_contract_suite_matches_v1_golden() {
             graph_handle: opened.graph_handle.clone(),
         })
         .unwrap();
-    assert_eq!(read.snapshot["schema_version"], 1);
-    assert_eq!(read.snapshot["pages"].as_array().unwrap().len(), 1);
-    assert_eq!(golden["transcript"]["read"], "schema_v1_snapshot");
+    assert_eq!(read.summary["schema_version"], 2);
+    assert_eq!(read.summary["pages"].as_array().unwrap().len(), 1);
+    assert_eq!(golden["transcript"]["read"], "schema_v2_summary");
+    let page = port
+        .read_page(ReadPageRequest {
+            graph_handle: opened.graph_handle.clone(),
+            page_id: "home".to_owned(),
+        })
+        .unwrap();
+    assert_eq!(page.page["id"], "home");
+    assert_eq!(golden["transcript"]["read_page"], "page_snapshot");
 
     let subscribed = port
         .subscribe(SubscribeRequest {
@@ -201,7 +209,7 @@ fn core_port_native_contract_suite_matches_v1_golden() {
     );
 
     let reopened = port.open_graph(open_request("port-native", 93)).unwrap();
-    assert_eq!(reopened.snapshot["pages"].as_array().unwrap().len(), 4);
+    assert_eq!(reopened.summary["pages"].as_array().unwrap().len(), 4);
     assert_eq!(reopened.recovery.checkpoint_sequence, 4);
     port.close_graph(CloseGraphRequest {
         graph_handle: reopened.graph_handle,
@@ -252,7 +260,7 @@ fn core_port_native_unsupported_schema_has_stable_code() {
         "2026-08-03T14:00:00Z",
     )
     .unwrap();
-    repository.set_schema_version(2).unwrap();
+    repository.set_schema_version(3).unwrap();
     drop(repository);
     assert_eq!(
         port.open_graph(open_request("unsupported-native-schema", 112))

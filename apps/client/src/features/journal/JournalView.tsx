@@ -36,6 +36,11 @@ export function JournalView() {
     void session.execute({ type: "ensure_journal", date }).catch(() => undefined);
   }, [valid, state.status, state.mode, page, date, session]);
 
+  useEffect(() => {
+    if (!page || state.status !== "ready" || state.hydratedPages.has(page.id)) return;
+    void session.hydratePage(page.id).catch(() => undefined);
+  }, [page, session, state.hydratedPages, state.status]);
+
   if (!valid) {
     return (
       <Tombstone

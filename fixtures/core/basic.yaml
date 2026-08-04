@@ -90,7 +90,7 @@ peers:
         insert: "[left] "
       - op: move_block
         block: second
-        page_id: projects
+        page_id: home
         index: 0
       - op: set_property
         entity: block:first

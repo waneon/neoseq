@@ -73,7 +73,7 @@ export class IndexedDbGraphRepository {
     const metadata = existing ?? {
       graph_id: locator.graph_id,
       locator,
-      schema_version: 1,
+      schema_version: 2,
       next_sequence: 1,
       compacted_through: 0,
       created_at: now,
@@ -164,7 +164,7 @@ export class IndexedDbGraphRepository {
     transaction.objectStore(STORES.checkpoints).put({
       graph_id: graphId,
       local_sequence: sequence,
-      schema_version: 1,
+      schema_version: 2,
       checksum: digest,
       payload,
       created_at: now,
