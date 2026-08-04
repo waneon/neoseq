@@ -432,8 +432,14 @@ impl GraphCore {
             } => {
                 let outline = self.doc.get_tree("outline");
                 let parent_tree = parent.as_ref().map(tree_id).transpose()?;
-                let available = outline.children(parent_tree).map_or(0, |items| items.len());
-                let node = outline.create_at(parent_tree, (*index).min(available))?;
+                let tree_index = match parent_tree {
+                    Some(parent) => {
+                        let available = outline.children(parent).map_or(0, |items| items.len());
+                        (*index).min(available)
+                    }
+                    None => page_root_insert_index(&outline, page_id, *index),
+                };
+                let node = outline.create_at(parent_tree, tree_index)?;
                 let meta = outline.get_meta(node)?;
                 meta.ensure_mergeable_text("markdown")?
                     .insert(0, markdown)?;
@@ -578,8 +584,23 @@ impl GraphCore {
         let outline = self.doc.get_tree("outline");
         let block = tree_id(block_id)?;
         let parent = parent.map(tree_id).transpose()?;
-        let available = outline.children(parent).map_or(0, |items| items.len());
-        outline.mov_to(block, parent, index.min(available))?;
+        if let Some(parent) = parent {
+            let available = outline.children(parent).map_or(0, |items| items.len());
+            outline.mov_to(block, parent, index.min(available))?;
+        } else {
+            let page_roots = page_roots(&outline, page_id)
+                .into_iter()
+                .filter(|candidate| *candidate != block)
+                .collect::<Vec<_>>();
+            let index = index.min(page_roots.len());
+            if let Some(before) = page_roots.get(index) {
+                outline.mov_before(block, *before)?;
+            } else if let Some(after) = page_roots.last() {
+                outline.mov_after(block, *after)?;
+            } else {
+                outline.mov(block, None)?;
+            }
+        }
         let bag = outline
             .get_meta(block)?
             .ensure_mergeable_map("properties")?;
@@ -959,6 +980,36 @@ fn root_page(outline: &LoroTree, node: TreeID) -> Result<PageId, String> {
         .ok_or_else(|| "missing-block.page".to_owned())
 }
 
+fn page_roots(outline: &LoroTree, page_id: &PageId) -> Vec<TreeID> {
+    outline
+        .roots()
+        .into_iter()
+        .filter(|root| root_page(outline, *root).as_ref() == Ok(page_id))
+        .collect()
+}
+
+/// Converts a page-local root index into the shared Loro forest's root index.
+///
+/// Root blocks from every page share one tree. Snapshots project that forest
+/// into a separate ordered `blocks` array per page, so command indices for root
+/// blocks are page-local and cannot be passed to `create_at(None, index)`
+/// directly.
+fn page_root_insert_index(outline: &LoroTree, page_id: &PageId, index: usize) -> usize {
+    let roots = outline.roots();
+    let positions = roots
+        .iter()
+        .enumerate()
+        .filter_map(|(position, root)| {
+            (root_page(outline, *root).as_ref() == Ok(page_id)).then_some(position)
+        })
+        .collect::<Vec<_>>();
+    positions
+        .get(index)
+        .copied()
+        .or_else(|| positions.last().map(|position| position + 1))
+        .unwrap_or(roots.len())
+}
+
 fn value_into_map(value: ValueOrContainer) -> Option<LoroMap> {
     match value {
         ValueOrContainer::Container(Container::Map(map)) => Some(map),
@@ -1000,6 +1051,44 @@ mod tests {
     }
     fn page() -> PageId {
         PageId::new("home").unwrap()
+    }
+    fn insert_root(
+        core: &mut GraphCore,
+        command_id: &str,
+        page_id: &PageId,
+        index: usize,
+        markdown: &str,
+    ) -> BlockId {
+        core.execute(
+            envelope(
+                command_id,
+                Command::InsertBlock {
+                    page_id: page_id.clone(),
+                    parent: None,
+                    index,
+                    markdown: markdown.into(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap()
+        .result
+        .created_block
+        .unwrap()
+    }
+
+    fn ensure_regular_page(core: &mut GraphCore, command_id: &str, page_id: &PageId) {
+        core.execute(
+            envelope(
+                command_id,
+                Command::EnsurePage {
+                    page_id: page_id.clone(),
+                    title: page_id.as_str().into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1183,6 +1272,72 @@ mod tests {
         );
         assert!(duplicate.duplicate);
         assert!(duplicate.update.is_empty());
+    }
+
+    #[test]
+    fn root_indices_are_page_local_when_pages_share_the_outline_tree() {
+        let first_page = page();
+        let second_page = PageId::new("second").unwrap();
+
+        let mut insert_core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut insert_core, "insert-page-1", &first_page);
+        ensure_regular_page(&mut insert_core, "insert-page-2", &second_page);
+        insert_root(&mut insert_core, "second-1", &second_page, 0, "second 1");
+        insert_root(&mut insert_core, "first-1", &first_page, 0, "first 1");
+        insert_root(&mut insert_core, "first-2", &first_page, 1, "first 2");
+        insert_root(&mut insert_core, "second-2", &second_page, 1, "second 2");
+
+        let snapshot = insert_core.snapshot().unwrap();
+        let second = snapshot
+            .pages
+            .iter()
+            .find(|candidate| candidate.id == second_page)
+            .unwrap();
+        assert_eq!(
+            second
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second 1", "second 2"]
+        );
+
+        let mut move_core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut move_core, "move-page-1", &first_page);
+        ensure_regular_page(&mut move_core, "move-page-2", &second_page);
+        let moving = insert_root(&mut move_core, "move-second-1", &second_page, 0, "second 1");
+        insert_root(&mut move_core, "move-second-2", &second_page, 1, "second 2");
+        insert_root(&mut move_core, "move-first-1", &first_page, 0, "first 1");
+        insert_root(&mut move_core, "move-first-2", &first_page, 1, "first 2");
+        move_core
+            .execute(
+                envelope(
+                    "move-second-1-after-second-2",
+                    Command::MoveBlock {
+                        block_id: moving,
+                        page_id: second_page.clone(),
+                        parent: None,
+                        index: 1,
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+
+        let snapshot = move_core.snapshot().unwrap();
+        let second = snapshot
+            .pages
+            .iter()
+            .find(|candidate| candidate.id == second_page)
+            .unwrap();
+        assert_eq!(
+            second
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second 2", "second 1"]
+        );
     }
 
     #[test]
