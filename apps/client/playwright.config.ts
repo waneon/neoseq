@@ -26,6 +26,13 @@ export default defineConfig({
       // scenario; one engine run keeps its gate unchanged.
       testIgnore: /persistence\.spec\.ts/,
     },
+    {
+      // Dark mode ships from the same token declaration, so it needs the same
+      // gate: contrast is a property of the pair, not of the light values.
+      name: "chromium-dark",
+      use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
+      testMatch: /a11y\.spec\.ts/,
+    },
   ],
   webServer: {
     command: "pnpm vite preview --host 127.0.0.1 --port 4173",

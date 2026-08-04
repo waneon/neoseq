@@ -30,6 +30,8 @@ function TooltipTrigger(
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
+// Opacity-only entrance and no exit animation: the zoom/slide variants moved a
+// surface that an audit may read and a pointer may already be travelling toward.
 function TooltipContent({
   className,
   sideOffset = 6,
@@ -42,10 +44,7 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-fit rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-md",
-          "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-          "data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95",
-          "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
+          "z-[var(--z-popover)] w-fit rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade",
           className,
         )}
         {...props}

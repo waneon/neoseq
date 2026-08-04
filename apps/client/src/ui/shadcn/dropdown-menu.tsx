@@ -28,12 +28,12 @@ function DropdownMenuContent({
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-[11rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg",
-          // Opacity-only entrance: the menu stays positionally stable (no
-          // slide/zoom), and there is no exit animation, so Radix unmounts the
-          // content immediately on close. This keeps pointer interaction crisp
-          // and avoids sampling a mid-transition, low-opacity menu.
-          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-100",
+          "z-[var(--z-menu)] min-w-[12rem] overflow-hidden rounded-lg bg-[var(--overlay)] p-1 text-popover-foreground shadow-[var(--e2)]",
+          // Opacity-only entrance and no exit animation, so the menu is
+          // positionally stable while the pointer travels to it and Radix
+          // unmounts it immediately on close rather than leaving a low-opacity
+          // ghost that is neither clickable nor contrast-safe.
+          "enter-fade-fast",
           className,
         )}
         {...props}
@@ -60,11 +60,13 @@ function DropdownMenuItem({
       data-slot="dropdown-menu-item"
       data-variant={variant}
       className={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground outline-none transition-colors",
+        "relative flex min-h-[30px] cursor-pointer select-none items-center gap-2 rounded-md px-2 text-sm text-foreground outline-none transition-colors",
+        // Pointer hover and keyboard focus share one highlight, so "where am I"
+        // never has two answers.
         "focus:bg-accent focus:text-accent-foreground",
-        "data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-[color-mix(in_srgb,var(--destructive)_10%,transparent)]",
+        "data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-[var(--danger-soft)]",
         "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
-        "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
+        "[&_svg]:pointer-events-none [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-[var(--ink-3)]",
         "data-[variant=destructive]:[&_svg]:text-destructive",
         className,
       )}
@@ -80,10 +82,7 @@ function DropdownMenuLabel({
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
-      className={cn(
-        "px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
-        className,
-      )}
+      className={cn("px-2 py-1.5 text-xs font-medium text-[var(--ink-3)]", className)}
       {...props}
     />
   );
@@ -102,6 +101,27 @@ function DropdownMenuSeparator({
   );
 }
 
+/**
+ * The shortcut column. Every menu item that has a keyboard binding shows it
+ * here — one of the five surfaces that teach the command layer, and the reason
+ * a hover-revealed control is discoverable rather than hidden.
+ */
+function DropdownMenuShortcut({
+  className,
+  ...props
+}: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="dropdown-menu-shortcut"
+      className={cn(
+        "ml-auto pl-4 font-mono text-xs font-medium tabular-nums text-[var(--ink-3)]",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 export {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -110,4 +130,5 @@ export {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
 };

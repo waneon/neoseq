@@ -1,5 +1,21 @@
+import { useEffect, useState } from "react";
 import type { SessionState } from "../../core-port/session";
 
+const SAVING_DELAY_MS = 600;
+
+/**
+ * Durability, stated only when it is not the boring answer.
+ *
+ * `saved` renders nothing visible — an interface that permanently announces that
+ * nothing is wrong is noise, and as a polite live region it also announced every
+ * debounced keystroke to a screen reader while the user was typing. `saving`
+ * waits 600ms so ordinary typing never flickers a dot. `unsaved` is loud: a
+ * danger dot, the reason as plain visible text rather than a `title` attribute,
+ * and the retry beside it.
+ *
+ * The element stays mounted with its `data-save` attribute in every state,
+ * because durability is also the thing the rest of the app waits on.
+ */
 export function SaveStatus({
   state,
   onRetry,
@@ -8,29 +24,52 @@ export function SaveStatus({
   onRetry: () => void;
 }) {
   const save = state.save;
-  const label =
-    save.kind === "saved"
-      ? "Saved locally"
-      : save.kind === "saving"
-        ? "Saving…"
-        : save.code === "storage_full"
-          ? "Storage full — not saved"
-          : "Not saved";
+  const [showSaving, setShowSaving] = useState(false);
+
+  useEffect(() => {
+    if (save.kind !== "saving") {
+      setShowSaving(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowSaving(true), SAVING_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [save.kind]);
+
+  const reason =
+    save.kind === "unsaved"
+      ? save.code === "storage_full"
+        ? "Storage full — not saved"
+        : "Not saved"
+      : null;
+
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+    <>
       <output
-        className="status-pill"
+        className="save-slot"
         data-save={save.kind}
+        data-save-code={save.kind === "unsaved" ? save.code : undefined}
         data-testid="save-status"
-        title={save.kind === "unsaved" ? save.message : undefined}
+        aria-live={save.kind === "unsaved" ? "assertive" : "off"}
       >
-        {label}
+        {save.kind === "saved" && <span className="sr-only">Saved locally</span>}
+        {save.kind === "saving" && showSaving && (
+          <>
+            <span className="save-dot" aria-hidden />
+            <span className="sr-only">Saving</span>
+          </>
+        )}
+        {reason && (
+          <>
+            <span className="save-dot" aria-hidden />
+            <span>{reason}</span>
+          </>
+        )}
       </output>
       {save.kind === "unsaved" && save.retryable && (
-        <button className="btn btn-utility" onClick={onRetry} data-testid="retry-save">
+        <button className="btn" onClick={onRetry} data-testid="retry-save">
           Retry
         </button>
       )}
-    </span>
+    </>
   );
 }

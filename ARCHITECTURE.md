@@ -75,8 +75,10 @@ agent.
   mutate CRDT state or call the server.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
-- `app-ui` owns editing interaction, navigation, and responsive presentation. It
-  does not hold canonical graph state.
+- `app-ui` owns editing interaction, navigation, the command layer, and
+  responsive presentation. It does not hold canonical graph state. Its visual
+  contract — tokens, disclosure rules, motion constraints, and the committed
+  contrast table — is [`DESIGN.md`](DESIGN.md).
 - The future `sync-server` owns authentication boundaries, graph authorization, durable
   update relay, and compaction. It does not interpret notes or execute queries.
 
@@ -86,6 +88,7 @@ Detailed contracts are in:
 - [CRDT data model and persistence](architectures/data.md)
 - [Query engine](architectures/query.md)
 - [Client applications](architectures/clients.md)
+- [Design language and UI contract](DESIGN.md)
 - [Remote synchronization server](architectures/server.md)
 - [Build, delivery, and verification](architectures/build.md)
 

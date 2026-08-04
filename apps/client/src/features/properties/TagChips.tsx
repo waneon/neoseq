@@ -1,6 +1,10 @@
-// Repeated `tag` properties rendered as page-reference chips. The data
-// stays an ordinary property: the generic inspector shows and edits the
-// same entries.
+// Repeated `tag` properties rendered as page-reference chips. The data stays an
+// ordinary property: the generic inspector shows and edits the same entries.
+//
+// The chip is borderless now — a soft fill plus a hairline plus a pill radius was
+// three separators for one small label. A deleted target is struck through AND
+// says so in its accessible name; v1 carried that state only in a `title`, so
+// assistive technology heard "#Foo" and never learned the page was gone.
 
 import { useNavigate, useParams } from "react-router";
 import { XIcon } from "lucide-react";
@@ -23,18 +27,16 @@ export function TagChips({ block }: { block: BlockSnapshot }) {
         const missing = !page || isDeleted(page);
         const label = page ? pageTitle(page) : value.value;
         return (
-          <span
-            className="chip animate-in fade-in-0 zoom-in-95 duration-150"
-            data-tombstone={missing}
-            key={value.value}
-            data-testid="tag-chip"
-          >
+          <span className="chip" data-tombstone={missing} key={value.value} data-testid="tag-chip">
             <button
               className="chip-link"
-              title={missing ? "This page was deleted" : `Open ${label}`}
+              aria-label={missing ? `#${label} (deleted page)` : `Open ${label}`}
               onClick={() => navigate(`/g/${graphId}/p/${value.value}`)}
             >
-              #{label}
+              <span className="hash" aria-hidden>
+                #
+              </span>
+              {label}
             </button>
             {state.mode !== "readonly" && (
               <button
@@ -51,7 +53,7 @@ export function TagChips({ block }: { block: BlockSnapshot }) {
                     .catch(() => undefined)
                 }
               >
-                <XIcon className="size-3" />
+                <XIcon className="size-3" aria-hidden />
               </button>
             )}
           </span>

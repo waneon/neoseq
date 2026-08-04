@@ -7,9 +7,11 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type RefObject,
 } from "react";
@@ -33,8 +35,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
+import { MOD } from "../commands/keys";
+import { useCommands } from "../commands/context";
 import type { PageSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, repeatedValues } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
@@ -106,6 +111,7 @@ export function Outliner({
 }) {
   const session = useSession();
   const state = useSessionState();
+  const commands = useCommands();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [inspectedId, setInspectedId] = useState<string | null>(null);
@@ -443,22 +449,44 @@ export function Outliner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId]);
 
+  // ⌘⇧P means "properties of what is in front of me". While a block is focused
+  // that is the block; the shell falls back to the page when this slot is empty.
+  useEffect(() => {
+    if (!focusedId || isPendingId(focusedId)) {
+      commands.setBlockProperties(null);
+      return;
+    }
+    commands.setBlockProperties(() => setInspectedId(focusedId));
+    return () => commands.setBlockProperties(null);
+  }, [commands, focusedId]);
+
+  // Which thread segments to light: the indices of the focused block's ancestors,
+  // outermost first. Each rendered row derives its own count from this, so nothing
+  // walks the whole list. See DESIGN.md § The outline / Thread.
+  const ancestors = ancestorPath(rows, focusedId);
+
   return (
-    <section className="outline" aria-label="Outline">
+    <section className="outline-section" aria-label="Outline">
       {rows.length === 0 ? (
+        // A fake first line rather than a button labelled with a mouse
+        // instruction: a bullet in row 1's exact gutter position, then the
+        // placeholder, over a target big enough to hit anywhere.
         <button
-          className="outline-empty btn-ghost btn"
+          className="outline-placeholder"
           onClick={() => editor.insertRootBlock(0)}
           disabled={readonly}
+          aria-label="Add the first block"
           data-testid="outline-start"
         >
-          Click to start writing…
+          <span className="dot" aria-hidden />
+          <span className="label">Write something…</span>
         </button>
       ) : (
         <div
           className="outline-viewport"
           role="tree"
           aria-label="Blocks"
+          aria-activedescendant={focusedId ? `row-${focusedId}` : undefined}
           style={{ height: virtualizer.getTotalSize() }}
         >
           {virtualizer.getVirtualItems().map((item) => {
@@ -476,23 +504,72 @@ export function Outliner({
                   transform: `translateY(${item.start}px)`,
                 }}
               >
-                <BlockRow row={row} rows={rows} editor={editor} />
+                <BlockRow
+                  row={row}
+                  rows={rows}
+                  editor={editor}
+                  lit={litFor(ancestors, item.index, row.depth)}
+                />
               </div>
             );
           })}
         </div>
       )}
+      {rows.length === 1 && rows[0].block.markdown.length === 0 && (
+        <p className="outline-hint">
+          <kbd className="kbd">{MOD}K</kbd> to search · <kbd className="kbd">{MOD}/</kbd> for
+          shortcuts
+        </p>
+      )}
       {rows.length > 0 && !readonly && (
+        // The region under the last block IS the add-a-block affordance, so no
+        // permanent button is needed and the page's dead bottom padding becomes
+        // a live target.
         <button
-          className="btn btn-ghost outline-add"
+          className="outline-append"
           onClick={() => editor.insertRootBlock(authoritativePage.blocks.length)}
+          aria-label="Add a block"
           data-testid="outline-append"
-        >
-          ＋ Add a block
-        </button>
+        />
       )}
     </section>
   );
+}
+
+interface AncestorPath {
+  /** Row indices of the focused block's ancestors, outermost first. */
+  indices: number[];
+  /** Row index of the focused block; rows after it light nothing. */
+  focused: number;
+}
+
+/** Walks back from the caret collecting each strictly shallower row. O(depth). */
+function ancestorPath(rows: OutlineRow[], focusedId: string | null): AncestorPath {
+  if (!focusedId) return { indices: [], focused: -1 };
+  const focused = rowIndexOf(rows, focusedId);
+  if (focused < 0) return { indices: [], focused: -1 };
+  const indices: number[] = [];
+  let depth = rows[focused].depth;
+  for (let index = focused - 1; index >= 0 && depth > 0; index -= 1) {
+    if (rows[index].depth < depth) {
+      indices.unshift(index);
+      depth = rows[index].depth;
+    }
+  }
+  return { indices, focused };
+}
+
+/**
+ * How many leading thread levels this row shares with the focused block's path.
+ * Every ancestor that begins before this row contributes one, which keeps the line
+ * continuous across siblings that sit between an ancestor and the caret. The row's
+ * own depth caps it, and rows after the caret light nothing.
+ */
+function litFor(path: AncestorPath, index: number, depth: number): number {
+  if (path.focused < 0 || index > path.focused) return 0;
+  let levels = 0;
+  while (levels < path.indices.length && path.indices[levels] < index) levels += 1;
+  return Math.min(levels, depth);
 }
 
 function onKeyDown(
@@ -575,6 +652,48 @@ function onKeyDown(
     return;
   }
 
+  // The standard tree idiom, which the outline never had: collapse/expand from
+  // the text edges, then step to the parent or first child. Without it the
+  // collapse affordance was reachable only by pointer, on a control that is
+  // deliberately not a tab stop.
+  if (event.key === "ArrowLeft" && textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
+    const position = rowIndexOf(rows, id);
+    if (row.hasChildren && !row.collapsed) {
+      event.preventDefault();
+      editor.toggleCollapse(id);
+      return;
+    }
+    if (row.depth > 0) {
+      for (let index = position - 1; index >= 0; index -= 1) {
+        if (rows[index].depth < row.depth) {
+          event.preventDefault();
+          editor.flushNow(id);
+          editor.setFocus(rows[index].block.id);
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  if (event.key === "ArrowRight" && textarea.selectionStart === textarea.value.length) {
+    if (row.hasChildren && row.collapsed) {
+      event.preventDefault();
+      editor.toggleCollapse(id);
+      return;
+    }
+    if (row.hasChildren) {
+      const position = rowIndexOf(rows, id);
+      const child = rows[position + 1];
+      if (child && child.depth > row.depth) {
+        event.preventDefault();
+        editor.flushNow(id);
+        editor.setFocus(child.block.id, 0);
+      }
+    }
+    return;
+  }
+
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
     const value = textarea.value;
     const caret = textarea.selectionStart;
@@ -650,10 +769,12 @@ function BlockRow({
   row,
   rows,
   editor,
+  lit,
 }: {
   row: OutlineRow;
   rows: OutlineRow[];
   editor: EditorContext;
+  lit: number;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isFocused = editor.focusedId === row.block.id;
@@ -685,6 +806,7 @@ function BlockRow({
 
   return (
     <div
+      id={`row-${row.block.id}`}
       className="outline-row"
       role="treeitem"
       aria-level={row.depth + 1}
@@ -695,7 +817,10 @@ function BlockRow({
       data-has-children={row.hasChildren}
       data-block-id={row.block.id}
       data-testid="outline-row"
-      style={{ paddingLeft: row.depth * 24 }}
+      // Depth drives the indent AND the thread gradient; `lit` drives how much
+      // of it is on the active path. Custom properties rather than a paddingLeft
+      // shorthand, which silently overrode the row's own padding.
+      style={{ "--depth": row.depth, "--lit": lit } as CSSProperties}
     >
       <span className="outline-gutter">
         <button
@@ -706,7 +831,13 @@ function BlockRow({
         >
           {row.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
         </button>
-        <span className="outline-bullet" data-testid="block-bullet" aria-hidden />
+        <button
+          className="outline-bullet"
+          data-testid="block-bullet"
+          tabIndex={-1}
+          aria-label="Focus this block"
+          onClick={() => editor.setFocus(row.block.id)}
+        />
       </span>
       <div className="outline-text">
         <textarea
@@ -727,7 +858,7 @@ function BlockRow({
           onKeyDown={(event) => editor.onKeyDown(row, rows, event)}
         />
         {tags.length > 0 && (
-          <div className="outline-badges">
+          <div className="outline-tags">
             <TagChips block={row.block} />
           </div>
         )}
@@ -742,6 +873,8 @@ function BlockRow({
               <MoreHorizontalIcon />
             </button>
           </DropdownMenuTrigger>
+          {/* Every item states its shortcut. Tab, Shift-Tab, Alt-Arrow and
+              Backspace all worked before and were taught nowhere. */}
           <DropdownMenuContent align="end">
             <DropdownMenuItem
               data-testid="menu-properties"
@@ -749,6 +882,7 @@ function BlockRow({
             >
               <Settings2Icon aria-hidden />
               Properties &amp; tags
+              <DropdownMenuShortcut>{MOD}⇧P</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -764,6 +898,7 @@ function BlockRow({
             >
               <IndentIncreaseIcon aria-hidden />
               Indent
+              <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={editor.readonly || row.depth === 0}
@@ -771,6 +906,7 @@ function BlockRow({
             >
               <IndentDecreaseIcon aria-hidden />
               Outdent
+              <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
               data-testid="menu-move-up"
@@ -779,6 +915,7 @@ function BlockRow({
             >
               <ArrowUpIcon aria-hidden />
               Move up
+              <DropdownMenuShortcut>⌥↑</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
               data-testid="menu-move-down"
@@ -787,6 +924,7 @@ function BlockRow({
             >
               <ArrowDownIcon aria-hidden />
               Move down
+              <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -797,6 +935,7 @@ function BlockRow({
             >
               <Trash2Icon aria-hidden />
               Delete block
+              <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

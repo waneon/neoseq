@@ -126,6 +126,29 @@ visible and editable as ordinary properties. A new non-text feature adds
 property definitions and renderers, not a frontend entity store or core storage
 shape.
 
+## Command Layer
+
+Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md)
+§ Disclosure), and the command layer is what makes that safe rather than merely
+sparse. `features/commands/` owns one registry, one window keydown listener, the
+`⌘K` palette, and the `⌘/` sheet generated from the same registry.
+
+Every registry entry carries a `pointerRoute` describing how a user who never
+learns a shortcut reaches that verb; the field is required by the type, so the
+palette can never become the only way to do something.
+
+Key arbitration order is fixed: an IME-composition guard first (a composition
+owns the keyboard outright — losing a keystroke corrupts CJK input), then any
+handler that already called `preventDefault` (the outline's editor bindings, an
+open overlay), then the global layer. **The global layer only matches bindings
+carrying ⌘ or ⌃**, so no bare key can be taken from a text field.
+
+The shell publishes two slots — block properties and page properties — that the
+Outliner and PageView fill while mounted, so `⌘⇧P` reaches a panel that lives
+below the shell. Each of those panels also has a local pointer route that works
+with no shell present, which is what keeps them reachable in the component test
+harness.
+
 ## Navigation and Journals
 
 - The application resolves “today” with the user's configured IANA timezone and
@@ -134,6 +157,11 @@ shape.
   not identity.
 - Page/tag autocomplete searches the core's page index and writes page-reference
   properties.
+- Journal date entry is a palette concern: the palette parses natural-language
+  dates (`tomorrow`, `aug 5`, `2026-08-05`, `next monday`) in the same input used
+  to search. The day view keeps a mounted, focusable native date input as the
+  keyboard route and the `showPicker()` target, without restating the date beside
+  a heading that already spells it out.
 - Deleted or missing references open a tombstone view rather than silently
   creating a replacement page.
 
@@ -189,23 +217,36 @@ or failed schema migration is.
 ```text
 app/             composition, routing, lifecycle
 features/        editor and property-driven journal/query/task/graph views
+features/commands/  the command layer: registry, key arbitration, palette, sheet
 entities/        page/block view models and renderers
 core-port/       session, commands, snapshot DTOs, graph directory, lease
 generated/       CorePort contract types (path fixed by the drift check)
 lib/             framework-agnostic UI helpers (class-name merge)
-ui/              design tokens, Tailwind v4 theme, and shadcn/Radix primitives
+ui/              design tokens, Tailwind v4 theme, appearance, shadcn/Radix primitives
 ```
 
 The presentation layer is Tailwind CSS v4 with shadcn/ui primitives built on
-Radix. NeoSeq's Notion-derived design tokens in `ui/app.css` remain the source
-of truth and are bridged to shadcn's semantic CSS variables in
-`ui/globals.css`, so Radix-backed overlays (dropdown menus, dialogs, tooltips)
-and native form controls (kept native for accessibility and uniform value
-handling) share one visual system. Overlays that must escape the virtualized
-outline's scroll container and stacking context — the block action menu and the
-page autocomplete — render in portals. Motion is deliberately restrained:
-entrance animations are opacity-based so they stay contrast-safe and never move
-a target out from under a pointer.
+Radix, over the token set in `ui/app.css`. That file is the single owner of every
+design token; `ui/globals.css` declares the cascade order
+(`theme, base, neoseq, components, utilities`), imports `app.css` into the
+`neoseq` layer so a utility can still win, and maps the tokens onto shadcn's
+semantic variables — it declares no values of its own. [`DESIGN.md`](../DESIGN.md)
+is the design source of truth, including a committed ink-versus-surface contrast
+table that components are expected to consult rather than re-derive.
+
+Both colour modes ship from one declaration and resolution is **CSS-only**: an
+explicit `[data-theme]` on the root beats the `prefers-color-scheme` query in
+both directions, and a pre-paint inline script in `index.html` applies a stored
+choice. `ui/theme.ts` records the preference and never asks the browser what mode
+it is in, so a runtime without `matchMedia` still renders correctly.
+
+Native form controls stay native (select, checkbox, date) for platform pickers
+and AT support. Overlays that must escape the virtualized outline's scroll
+container and stacking context — the block action menu and the page autocomplete
+— render in portals, on one shared `--z-*` scale. Motion is deliberately
+restrained: **every** entrance animates opacity only and nothing animates a
+transform, so a surface is never contrast-unsafe while an audit reads it and
+never moves while a pointer travels toward it.
 
 The property registry the UI validates against is imported from the versioned
 core fixture (`fixtures/core/property-definitions-v1.json`), so client and
@@ -218,7 +259,12 @@ navigation, not shared mutable stores.
 ## Accessibility and Testing
 
 - The outline exposes tree/treeitem semantics, depth, expansion, and keyboard
-  navigation; query results use appropriate list/table semantics.
+  navigation, including `ArrowLeft`/`ArrowRight` collapse-and-step so no
+  affordance is pointer-only; query results use appropriate list/table semantics.
+- Property editors are progressive: both page bags live in one disclosure between
+  the title and the writing, reached from the property strip, the page menu, or
+  `⌘⇧P`. System-owned keys are page *information* and surface in the page-info
+  dialog, not in the property list. Nothing is mounted below the outline.
 - Focus and selection survive virtualization and remote updates by stable IDs.
 - Component tests use a fake `CorePort`; they do not instantiate Loro.
 - Contract suites run against both native and worker adapters and verify that

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
+import { ListTreeIcon, MoreHorizontalIcon } from "lucide-react";
 import {
   deleteGraph,
   listGraphs,
@@ -10,12 +11,30 @@ import {
 } from "../../core-port/directory";
 import { Callout, Dialog } from "../../ui/components";
 import { Input } from "@/ui/shadcn/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/shadcn/dropdown-menu";
 
 type LoadState =
   | { status: "loading" }
   | { status: "ready"; graphs: GraphSummary[] }
   | { status: "failed"; message: string };
 
+const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
+
+/**
+ * The first screen. It carries no entrance animation on purpose: this container
+ * is audited by axe the instant it mounts, and a surface fading in at partial
+ * alpha composites its text against the background and fails contrast for every
+ * child (DESIGN.md § Motion, rule 3).
+ *
+ * The empty state *is* the action — one sentence above the create form, not a
+ * dashed box holding an instruction that points at a form below it.
+ */
 export function GraphPicker() {
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -49,18 +68,21 @@ export function GraphPicker() {
   return (
     <main className="picker">
       <div className="picker-inner">
-        <p className="eyebrow">NeoSeq</p>
+        <p className="picker-wordmark">
+          <ListTreeIcon aria-hidden />
+          NeoSeq
+        </p>
         <h1>Your graphs</h1>
-        <p className="lede">
-          Notes live in this browser — no account, no server. Create a graph to start writing.
+        <p className="picker-lede">
+          Your notes stay in this browser — no account, no server.
         </p>
         {state.status === "failed" && (
           <Callout tone="danger">Could not list local graphs: {state.message}</Callout>
         )}
         {state.status === "ready" && state.graphs.length === 0 && (
-          <div className="picker-empty" data-testid="picker-empty">
-            No graphs yet. Name one below and press Create.
-          </div>
+          <p className="picker-empty" data-testid="picker-empty">
+            No graphs yet — your first one starts with a name.
+          </p>
         )}
         {state.status === "ready" && state.graphs.length > 0 && (
           <ul className="graph-list" data-testid="graph-list">
@@ -73,16 +95,33 @@ export function GraphPicker() {
                 >
                   <span className="name">{graph.name}</span>
                   <span className="meta">
-                    {" "}
-                    · created {new Date(graph.created_at).toLocaleDateString()}
+                    Created {new Date(graph.created_at).toLocaleDateString(undefined, CREATED)}
                   </span>
                 </button>
-                <button className="btn btn-utility" onClick={() => setRenaming(graph)}>
-                  Rename
-                </button>
-                <button className="btn btn-danger" onClick={() => setDeleting(graph)}>
-                  Delete
-                </button>
+                {/* Both verbs live behind one named menu, so a destructive
+                    action is never a pixel away from the open target. The class
+                    reveals it on hover and on :focus-within. */}
+                <div className="graph-actions">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="icon-btn" aria-label={`Actions for ${graph.name}`}>
+                        <MoreHorizontalIcon aria-hidden />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => setRenaming(graph)}>
+                        Rename graph
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setDeleting(graph)}
+                      >
+                        Delete graph…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </li>
             ))}
           </ul>
@@ -156,7 +195,7 @@ function RenameDialog({
           data-testid="rename-graph-name"
         />
         <div className="dialog-actions">
-          <button type="button" className="btn btn-utility" onClick={onClose}>
+          <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
           <button
@@ -192,7 +231,7 @@ function DeleteDialog({
       </p>
       {error && <p className="field-error">{error}</p>}
       <div className="dialog-actions">
-        <button className="btn btn-utility" onClick={onClose} disabled={busy}>
+        <button className="btn" onClick={onClose} disabled={busy}>
           Cancel
         </button>
         <button

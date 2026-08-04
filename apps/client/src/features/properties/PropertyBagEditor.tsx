@@ -37,12 +37,15 @@ export function PropertyBagEditor({
   bag,
   title,
   description,
+  showHeading = true,
 }: {
   kind: BagKind;
   targetId: string;
   bag: PropertyEntry[];
   title: string;
   description?: string;
+  /** False when an enclosing disclosure already names this bag. */
+  showHeading?: boolean;
 }) {
   const session = useSession();
   const state = useSessionState();
@@ -51,6 +54,12 @@ export function PropertyBagEditor({
 
   const entity: EntityRef =
     kind === "block" ? { kind: "block", id: targetId } : { kind: "page", id: targetId };
+
+  // System-owned keys are facts about the entity, not data on it: `page.kind`,
+  // `journal.date`, `block.page`, `system.*`. They were rendered as read-only rows
+  // with a dangling empty remove cell, which is exactly the noise this redesign
+  // removes. They surface in the page-info dialog instead.
+  const visible = bag.filter((entry) => !isSystemKey(entry.key));
 
   const run = async (command: Command) => {
     setError(null);
@@ -119,18 +128,18 @@ export function PropertyBagEditor({
   };
 
   return (
-    <section className="props-section" aria-label={title} data-testid={`props-${kind}`}>
+    <section className="props-section" data-testid={`props-${kind}`}>
       <header>
-        <span className="eyebrow">{title}</span>
+        {showHeading && <h3>{title}</h3>}
         {description && <p>{description}</p>}
       </header>
       <div className="props-list">
-        {bag.length === 0 && <p className="autocomplete-hint">No properties yet.</p>}
-        {bag.map((entry, index) => (
+        {visible.length === 0 && <p className="ac-hint">No properties yet.</p>}
+        {visible.map((entry, index) => (
           <PropertyRow
             key={`${entry.key}:${index}`}
             entry={entry}
-            readonly={readonly || isSystemKey(entry.key)}
+            readonly={readonly}
             onCommit={(next) => void commitValue(entry, next)}
             onRemove={() => void removeEntry(entry)}
           />
@@ -163,8 +172,8 @@ function PropertyRow({
     <div className="props-row" data-testid={`prop-${entry.key}`}>
       <span className="props-key" title={entry.key}>
         {entry.key}
-        {!known && <span className="unknown">custom</span>}
-        {repeated && <span className="unknown">repeated</span>}
+        {!known && <span className="flag">custom</span>}
+        {repeated && <span className="flag">repeated</span>}
       </span>
       <span className="props-value">
         <ValueEditor entryKey={entry.key} value={entry.value} readonly={readonly} onCommit={onCommit} />
@@ -190,7 +199,7 @@ function Checkbox(props: ComponentProps<"input">) {
   return (
     <input
       type="checkbox"
-      className="size-4 shrink-0 cursor-pointer accent-[var(--primary)]"
+      className="size-4 shrink-0 cursor-pointer accent-[var(--accent)]"
       {...props}
     />
   );
@@ -228,7 +237,6 @@ function ValueEditor({
     return (
       <Input
         type="date"
-        className="h-8"
         value={value.value}
         aria-label={`${entryKey} value`}
         onChange={(event) => {
@@ -272,7 +280,6 @@ function ValueEditor({
   if (known && known.allowed_strings.length > 0) {
     return (
       <NativeSelect
-        className="h-8"
         value={value.value}
         aria-label={`${entryKey} value`}
         onChange={(event) => onCommit({ type: "string", value: event.target.value })}
@@ -326,7 +333,6 @@ function CommitOnBlurInput({
   };
   return (
     <Input
-      className="h-8"
       type={type}
       value={draft}
       aria-label={label}
@@ -453,7 +459,7 @@ function NewValueInput({
 
   if (type === "checkbox") {
     return (
-      <div className="flex h-9 items-center">
+      <div className="flex h-8 items-center">
         <Checkbox
           aria-label="New property value"
           checked={value.type === "checkbox" && value.value}

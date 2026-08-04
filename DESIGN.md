@@ -1,133 +1,115 @@
 ---
-version: alpha
+version: 2
 name: NeoSeq Design System
-description: The design language for NeoSeq, a local-first outliner — a warm, paper-calm writing surface built on an off-white canvas, near-black Inter type, and a single confident blue, with a playful sticker palette reserved for decoration and a deliberately quiet application chrome of monochrome icons, portaled overlays, and opacity-only motion.
+description: The design language for NeoSeq, a local-first outliner. Structure is the ornament — the indent thread that carries an outline's meaning is also the graphic signature of the interface. Luminance separates surfaces instead of borders, the OS supplies the type, one ink-indigo accent carries every action, and both a light and a dark mode ship from a single token declaration. Chrome is deliberately small, named, and permanent; everything else is summoned by ⌘K.
+
+# ─── Tokens ───
+# Every token below is declared once per mode in `apps/client/src/ui/app.css`.
+# Hue and chroma are held constant across modes; only lightness moves.
 
 colors:
-  primary: "#0075de"
-  primary-active: "#005bab"
-  secondary: "#213183"
-  on-primary: "#ffffff"
-  canvas: "#ffffff"
-  canvas-soft: "#f6f5f4"
-  surface: "#ffffff"
-  ink: "#000000"
-  ink-secondary: "#31302e"
-  ink-muted: "#615d59"
-  ink-faint: "#a39e98"
-  ink-faint-accessible: "#6f6862"
-  hairline: "#e6e6e6"
-  surface-hover: "#f1f0ef"
-  field-border: "#dcdbd9"
-  accent-sky: "#62aef0"
-  accent-purple: "#d6b6f6"
-  accent-purple-deep: "#391c57"
-  accent-pink: "#ff64c8"
-  accent-orange: "#dd5b00"
-  accent-orange-deep: "#793400"
-  accent-teal: "#2a9d99"
-  accent-green: "#1aae39"
-  accent-brown: "#523410"
-  danger: "#a03e00"
-  danger-deep: "#793400"
-  ok: "#1aae39"
+  # Neutrals — warm hue 75/78, chroma 0.003–0.009. Never blue-grey slate.
+  light:
+    canvas: "oklch(1 0 0)"                      # #ffffff — the writing surface
+    surface-1: "oklch(0.985 0.003 75)"          # #fbfaf8 — inset panels
+    surface-2: "oklch(0.955 0.004 75)"          # #f2f0ed — hover, chips, badges
+    surface-3: "oklch(0.930 0.005 75)"          # #eae7e4 — active / pressed
+    rail: "oklch(0.968 0.004 75)"               # #f6f4f1 — navigation rail
+    overlay: "oklch(1 0 0)"                     # #ffffff — menus, dialogs, palette
+    ink: "oklch(0.255 0.009 75)"                # #25221e — body and headings
+    ink-2: "oklch(0.450 0.008 75)"              # #585550 — secondary
+    ink-3: "oklch(0.530 0.008 75)"              # #6f6b67 — metadata, placeholders, glyphs
+    accent: "oklch(0.500 0.160 268)"            # #3d5abd — ink indigo
+    accent-hover: "oklch(0.440 0.160 268)"      # #2e47a9
+    on-accent: "oklch(1 0 0)"                   # #ffffff
+    danger: "oklch(0.495 0.140 35)"             # #a23c23
+    ok: "oklch(0.500 0.120 150)"                # #21763c
+    scrim: "oklch(0.255 0.009 75 / 0.28)"
+  dark:
+    canvas: "oklch(0.175 0.004 78)"             # #11100f
+    surface-1: "oklch(0.205 0.005 78)"          # #181715
+    surface-2: "oklch(0.250 0.005 78)"          # #23211f
+    surface-3: "oklch(0.290 0.006 78)"          # #2d2b28
+    rail: "oklch(0.145 0.004 78)"               # #0b0a08
+    overlay: "oklch(0.215 0.005 78)"            # #1b1917
+    ink: "oklch(0.930 0.004 85)"                # #e9e8e5
+    ink-2: "oklch(0.740 0.006 80)"              # #adaaa7
+    ink-3: "oklch(0.625 0.006 80)"              # #898784
+    accent: "oklch(0.760 0.130 268)"            # #8eadff
+    accent-hover: "oklch(0.810 0.110 268)"      # #a2beff
+    on-accent: "oklch(0.155 0.004 78)"
+    danger: "oklch(0.715 0.130 35)"             # #e8836a
+    ok: "oklch(0.760 0.130 150)"                # #6fc884
+    scrim: "oklch(0 0 0 / 0.55)"
+
+  # Derived — one declaration, both modes, because they are ink-relative.
+  derived:
+    line: "10% ink"            # the only three legal 1px lines — see Depth
+    line-strong: "16% ink"     # inset ring on overlays that float over content
+    thread: "8% ink"           # indent guide at rest
+    thread-active: "26% ink"   # indent guide on the focused ancestor path
+    halo: "9% ink"             # ring behind a collapsed bullet
+    accent-soft: "10% accent (light) / 18% accent (dark)"
+    danger-soft: "10% danger (light) / 16% danger (dark)"
 
 typography:
-  display-1:
-    fontFamily: NotionInter
-    fontSize: 64px
-    fontWeight: 700
-    lineHeight: 1.0
-    letterSpacing: -2.125px
-  display-2:
-    fontFamily: NotionInter
-    fontSize: 54px
-    fontWeight: 700
-    lineHeight: 1.04
-    letterSpacing: -1.875px
-  heading-1:
-    fontFamily: NotionInter
-    fontSize: 40px
-    fontWeight: 700
-    lineHeight: 1.1
-    letterSpacing: -1px
-  heading-2:
-    fontFamily: NotionInter
-    fontSize: 26px
-    fontWeight: 700
-    lineHeight: 1.23
-    letterSpacing: -0.625px
-  heading-3:
-    fontFamily: NotionInter
-    fontSize: 22px
-    fontWeight: 700
-    lineHeight: 1.27
-    letterSpacing: -0.25px
-  title:
-    fontFamily: NotionInter
-    fontSize: 20px
-    fontWeight: 600
-    lineHeight: 1.4
-    letterSpacing: -0.125px
-  body-md:
-    fontFamily: NotionInter
-    fontSize: 16px
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: 0
-  body-sm:
-    fontFamily: NotionInter
-    fontSize: 15px
-    fontWeight: 400
-    lineHeight: 1.33
-    letterSpacing: 0
-  button:
-    fontFamily: NotionInter
-    fontSize: 16px
-    fontWeight: 500
-    lineHeight: 1.5
-    letterSpacing: 0
-  caption:
-    fontFamily: NotionInter
-    fontSize: 14px
-    fontWeight: 400
-    lineHeight: 1.43
-    letterSpacing: 0
-  eyebrow:
-    fontFamily: NotionInter
-    fontSize: 12px
-    fontWeight: 600
-    lineHeight: 1.33
-    letterSpacing: 0.125px
-
-rounded:
-  xs: 4px
-  sm: 5px
-  md: 8px
-  lg: 12px
-  xl: 16px
-  full: 9999px
+  family-sans: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+  family-mono: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
+  features: "\"lnum\", \"locl\", \"cv11\""
+  optical-sizing: auto
+  # Five sizes. Nothing else exists. Weight never exceeds 600.
+  xs:  { size: 12px, line: 16px, track: 0em,       weight: 500 }   # metadata, chips, badges, group headers
+  sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 400 }   # UI default — nav, buttons, inputs, menus
+  md:  { size: 16px, line: 26px, track: 0em,       weight: 400 }   # block text and page body
+  lg:  { size: 19px, line: 25px, track: -0.012em,  weight: 600 }   # section headings (real <h2>)
+  xl:  { size: 30px, line: 34px, track: -0.018em,  weight: 600 }   # page and journal titles (<h1>)
+  xl-mobile: { size: "clamp(24px, 6vw, 30px)", track: -0.014em }
+  mono-xs: { size: 12px, line: 16px, weight: 500 }                  # shortcut badges, property keys
+  weights: { normal: 400, medium: 500, strong: 600 }
 
 spacing:
-  xxs: 4px
-  xs: 8px
-  sm: 12px
-  md: 16px
-  lg: 24px
-  xl: 28px
-  xxl: 32px
+  sp-0: 2px
+  sp-1: 4px
+  sp-2: 8px
+  sp-3: 12px
+  sp-4: 16px
+  sp-5: 24px
+  sp-6: 32px
+  sp-7: 48px
+  sp-8: 64px
 
-# ─── Application extensions ───
-# The blocks above describe the brand language. The blocks below capture the
-# application-shell decisions the NeoSeq client implements on top of it.
+metrics:
+  measure: 704px          # content column; ~72 characters at 16px
+  gutter: 24px            # 16px at or below 600px
+  rail: 240px
+  drawer: "min(300px, 84vw)"
+  topbar: 44px
+  title-row: 40px
+  row: 32px               # one-line outline row
+  indent: 24px            # per outline level
+  slot: 20px              # bullet slot
+  target: 24px            # icon-control hit box (32px at or below 600px)
+  append: "min(40vh, 320px)"
+
+radius:
+  r-1: 4px                # chips, badges, shortcut keys
+  r-2: 6px                # inputs, buttons, menu items, rows, search pill
+  r-3: 10px               # panels, popovers, cards
+  r-4: 14px               # dialogs, command palette
+  r-full: 9999px          # the bullet dot, and nothing else
+
+elevation:
+  e1: "inset 0 0 0 1px {line}"                                     # inset ring, no cast
+  e2: "0 0 0 1px {line}, 0 2px 6px -2px ink/8%, 0 8px 24px -8px ink/14%"
+  e3: "0 0 0 1px {line}, 0 4px 12px -4px ink/10%, 0 24px 64px -16px ink/20%"
 
 motion:
-  duration-press: 90ms
-  duration-fast: 120ms
-  duration-base: 150ms
-  duration-enter: 220ms
-  easing: ease
-  entrance-property: opacity
+  dur-press: 90ms
+  dur-overlay: 140ms
+  dur-disclose: 180ms
+  ease-out: "cubic-bezier(0.4, 0, 0.2, 1)"
+  entrance-property: opacity        # transform is never animated. Anywhere.
+  reveal: 0ms                       # hover-revealed chrome is instant
   reduced-motion: honoured
 
 layers:
@@ -135,680 +117,766 @@ layers:
   scrim: 25
   drawer: 30
   dialog: 50
-  menu: 50
+  menu: 55
   popover: 60
+  palette: 65
   toast: 70
 
 iconography:
   library: lucide
-  size: 16px
-  strokeWidth: 2.25
-  color: "{colors.ink-faint-accessible}"
-  color-hover: "{colors.ink-secondary}"
+  size: 14px              # 16px for the rail and the palette
+  strokeWidth: 2
+  color: "{ink-3}"
+  color-hover: "{ink}"
 
 components:
-  nav-bar:
-    backgroundColor: "{colors.canvas}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body-sm}"
-    padding: 16px
-  button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.on-primary}"
-    typography: "{typography.button}"
-    rounded: "{rounded.full}"
-  button-primary-pressed:
-    backgroundColor: "{colors.primary-active}"
-    textColor: "{colors.on-primary}"
-  button-secondary:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.button}"
-    rounded: "{rounded.full}"
-  button-utility:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.button}"
-    rounded: "{rounded.md}"
-    padding: 4px 14px
-  button-icon-circular:
-    backgroundColor: "rgba(0, 0, 0, 0.05)"
-    textColor: "{colors.on-primary}"
-    rounded: "{rounded.full}"
-  badge-pill:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.primary}"
-    typography: "{typography.eyebrow}"
-    rounded: "{rounded.full}"
-    padding: 4px 8px
-  feature-card:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body-md}"
-    rounded: "{rounded.lg}"
-    padding: 24px
-  feature-card-elevated:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.lg}"
-    padding: 24px
-  pricing-plan-card:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body-sm}"
-    rounded: "{rounded.md}"
-    padding: 24px
-  pricing-plan-card-featured:
-    backgroundColor: "{colors.canvas-soft}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.md}"
-    padding: 24px
-  text-input:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.caption}"
-    borderColor: "{colors.field-border}"
-    rounded: 6px
-    padding: 4px 12px
-    height: 36px
-    focusRing: "2px {colors.primary} @ 25%"
-  hero-band:
-    backgroundColor: "{colors.secondary}"
-    textColor: "{colors.on-primary}"
-    typography: "{typography.display-1}"
-    padding: 32px
-  footer:
-    backgroundColor: "{colors.canvas-soft}"
-    textColor: "{colors.ink-secondary}"
-    typography: "{typography.caption}"
-    padding: 32px
-
-  select-native:
-    description: "Native <select> restyled to match text-input, with a chevron affordance. Stays native for AT and platform pickers."
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.caption}"
-    borderColor: "{colors.field-border}"
-    rounded: 6px
-    height: 36px
-    indicator: "{colors.ink-muted}"
-  menu-surface:
-    description: "Portaled dropdown-menu surface. Escapes scroll containers and stacking contexts so it is never clipped."
-    backgroundColor: "{colors.surface}"
-    borderColor: "{colors.hairline}"
-    rounded: "{rounded.md}"
-    padding: "{spacing.xxs}"
-    elevation: 2
-    layer: "{layers.menu}"
-  menu-item:
-    description: "Row inside menu-surface; one highlight state shared by pointer and keyboard focus."
-    textColor: "{colors.ink}"
-    typography: "{typography.caption}"
-    rounded: 6px
-    padding: "6px {spacing.xs}"
-    hoverBackground: "{colors.surface-hover}"
-    destructiveColor: "{colors.danger}"
-  popover-list:
-    description: "Portaled autocomplete/option list anchored to its input in viewport coordinates."
-    backgroundColor: "{colors.surface}"
-    borderColor: "{colors.hairline}"
-    rounded: "{rounded.md}"
-    padding: "{spacing.xxs}"
-    elevation: 2
-    layer: "{layers.popover}"
-  tooltip:
-    description: "Inverted micro-label for icon and shortcut affordances."
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.on-primary}"
-    typography: "{typography.eyebrow}"
-    rounded: 6px
-    padding: "6px 10px"
-  icon-button:
-    description: "Square, quiet control for chrome actions (menus, close, day stepping)."
-    backgroundColor: transparent
-    textColor: "{colors.ink-faint-accessible}"
-    hoverBackground: "rgba(0, 0, 0, 0.05)"
-    rounded: "{rounded.sm}"
-    size: 28px
-    pressTransform: "scale(0.92)"
-  nav-item:
-    description: "Sidebar navigation row; active state marked by an inset primary rule, not a fill."
-    textColor: "{colors.ink-secondary}"
-    typography: "{typography.body-sm}"
-    rounded: "{rounded.sm}"
-    padding: "5px {spacing.sm}"
-    hoverBackground: "rgba(0, 0, 0, 0.05)"
-    activeIndicator: "inset 2px 0 0 {colors.primary}"
-  loading-indicator:
-    description: "Delayed spinner for graph opening; suppressed below the flash threshold."
-    textColor: "{colors.ink-faint-accessible}"
-    delay: 220ms
-    spinDuration: 800ms
-
-  # ─── Examples (illustrative) — auto-derived; resolve any TO_FILL markers below ───
-  ex-pricing-tier:
-    description: "Default Pricing tier card. Re-uses feature-card chrome with brand canvas-soft surface."
-    backgroundColor: "{colors.canvas-soft}"
-    textColor: "{colors.ink}"
-    borderColor: "{colors.hairline}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-  ex-pricing-tier-featured:
-    description: "Featured/highlighted tier — polarity-flipped surface (dark fill + light text in light mode, light fill + dark text in dark mode)."
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.on-primary}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-  ex-product-selector:
-    description: "What's Included summary card — re-purposed for SaaS / B2B verticals (NOT a literal product gallery)."
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-  ex-cart-drawer:
-    description: "Subscription summary — re-purposed for SaaS / B2B (line items per add-on, not literal cart)."
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-    item-divider: "{colors.hairline}"
-  ex-app-shell-row:
-    description: "Sidebar nav row inside the App Shell example. Active state uses brand primary as the indicator."
-    backgroundColor: "{colors.canvas}"
-    activeIndicator: "{colors.primary}"
-    rounded: "{rounded.sm}"
-    padding: "{spacing.sm} {spacing.md}"
-  ex-data-table-cell:
-    description: "Default data-table th + td chrome. Header uses mono-caps eyebrow typography; body uses body-sm."
-    headerBackground: "{colors.canvas-soft}"
-    headerTypography: "{typography.eyebrow}"
-    bodyTypography: "{typography.body-sm}"
-    cellPadding: "{spacing.sm} {spacing.md}"
-    rowBorder: "{colors.hairline}"
-  ex-auth-form-card:
-    description: "Sign-in / sign-up card. Re-uses feature-card chrome with text-input primitives inside."
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-  ex-modal-card:
-    description: "Modal dialog surface — same chrome as feature-card with elevated shadow."
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-  ex-empty-state-card:
-    description: "Empty-state illustration frame."
-    backgroundColor: "{colors.canvas-soft}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.xxl}"
-    captionTypography: "{typography.body-md}"
-  ex-toast:
-    description: "Toast notification surface — feature-card shape + medium shadow."
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.sm} {spacing.md}"
-    typography: "{typography.body-sm}"
+  topbar:      { height: 44px, background: "{canvas}", border: none, edge: "fades in on scroll" }
+  rail:        { width: 240px, background: "{rail}", typography: "{sm}" }
+  nav-row:     { height: 32px, radius: "{r-2}", rest: "{ink-2}", hover: "{surface-2}", active: "{surface-3} + {ink} + 500" }
+  search-pill: { height: 28px, width: 180px, background: "{surface-2}", radius: "{r-2}", badge: "⌘K" }
+  btn:         { height: 32px, radius: "{r-2}", typography: "{sm}", weight: 500 }
+  btn-primary: { background: "{accent}", text: "{on-accent}", hover: "{accent-hover}" }
+  btn-quiet:   { background: transparent, text: "{ink}", hover: "{surface-2}" }
+  btn-danger:  { background: transparent, text: "{danger}", hover: "{danger-soft}" }
+  icon-btn:    { size: 24px, radius: "{r-2}", glyph: "{ink-3}", hover: "{surface-2} + {ink}" }
+  input:       { height: 32px, radius: "{r-2}", background: "{canvas}", ring: "{e1}", focus: "2px {accent} outline, offset 2px" }
+  panel:       { background: "{surface-1}", radius: "{r-3}", border: none, padding: "{sp-4}" }
+  overlay:     { background: "{overlay}", radius: "{r-3}", elevation: "{e2}", layer: "{layers.menu}" }
+  dialog:      { background: "{overlay}", radius: "{r-4}", elevation: "{e3}", layer: "{layers.dialog}" }
+  palette:     { width: 640px, top: 12vh, radius: "{r-4}", elevation: "{e3}", layer: "{layers.palette}" }
+  menu-item:   { height: 30px, radius: "{r-2}", typography: "{sm}", highlight: "{surface-2}", shortcut: "{mono-xs} {ink-3}" }
+  chip:        { height: 20px, padding: "0 6px", radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs}", border: none }
+  kbd:         { min-width: 20px, height: 18px, radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{mono-xs}", border: none }
+  bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring" }
+  thread:      { width: 1px, colour: "{thread}", active: "{thread-active}", offset: "{slot}/2" }
+  save-slot:   { saved: "nothing", saving: "5px {ink-3} dot after 600ms", unsaved: "5px {danger} dot + reason + Retry" }
 
 ---
 
-
 ## Overview
 
-Notion looks like a well-organized desk in good daylight. The dominant surface is not pure white but a warm, paper-soft off-white — `{colors.canvas-soft}` (#f6f5f4) — that takes the clinical edge off the screen and makes long pages feel like a document rather than an app. Type is set in `NotionInter` (a tuned Inter) in near-black `{colors.ink}` at large, tightly-tracked weights, so headlines read as confident statements with very little letter-spacing slack at display sizes (`{typography.display-1}` pulls −2.125px of tracking at 64px). The whole system whispers in greys and blacks, then says exactly one thing in colour: a single, dependable blue, `{colors.primary}` (#0075de), reserved almost entirely for the primary call-to-action and inline links.
+NeoSeq is a local-first outliner. Its subject is not documents — it is **structure**:
+a thought indented under another thought, a day that holds what happened in it, a
+tag that turns a line into a record. The interface is built from that material.
 
-Against that quiet chrome, Notion lets a **playful multi-colour sticker palette** carry all of the brand's personality — purple, pink, orange, teal, green and sky-blue appear as small illustrated blocks, app-icon stickers, and category dots scattered through the marketing pages. These colours never structure the layout or paint a CTA; they decorate. The discipline is deliberate: the interface stays monochrome-plus-blue so the content (and the cheerful illustrations) can breathe. The one exception to the bright daylight is the homepage hero, which inverts into a deep indigo "night" band (`{colors.secondary}`) with white type and glowing sticker constellations — a single dark island in an otherwise light document.
+**The signature is the thread.** In an outline, meaning lives in the vertical line
+that runs from a parent bullet down past its children. NeoSeq draws that line
+explicitly, at 8% ink, and lights the path to whatever you are editing at 20%. The
+same 1px thread language is the only line permitted anywhere else in the product —
+the rail's edge, the palette's divider. Structure is the ornament; nothing else is
+allowed to be decorative.
 
-Surfaces are defined by hairlines and the faintest layered shadows rather than heavy elevation. Cards round at a friendly 12px (`{rounded.lg}`), the marketing CTAs are fully-pill-shaped (`{rounded.full}`), and utility buttons round at a tighter 8px (`{rounded.md}`). Nothing is loud; the brand's character comes from restraint plus one well-placed splash of joy.
+**Everything around the thread is quiet on purpose.** Surfaces separate by a 3–5%
+step in lightness rather than by borders, so a panel reads as a change in depth
+instead of a drawn box. The type comes from the operating system, which means it
+renders in zero milliseconds and looks native on the machine it runs on. One colour
+— an ink indigo — carries every action, link, and focus ring, and it is the only
+chroma in the interface. Both a light and a dark mode ship from a single token
+declaration, because a tool you write in at night is a tool you write in at night.
 
-**Key Characteristics:**
-- Warm paper-soft canvas `{colors.canvas-soft}` over pure white, never clinical
-- Near-black `{colors.ink}` `NotionInter` type with tight negative tracking at display sizes (`{typography.display-1}`)
-- Exactly one structural accent — Notion blue `{colors.primary}` — reserved for CTAs and links
-- A decorative-only multi-colour sticker palette (`{colors.accent-purple}`, `{colors.accent-pink}`, `{colors.accent-orange}`, `{colors.accent-teal}`, `{colors.accent-green}`, `{colors.accent-sky}`) that adds personality without ever painting structure
-- Pill-shaped marketing CTAs (`{rounded.full}`) contrasted with 8px utility buttons (`{rounded.md}`)
-- Elevation by hairline + barely-there layered shadow, not heavy drop-shadows
-- A single dark indigo hero "night" band (`{colors.secondary}`) inverting the otherwise daylight page rhythm
+**Chrome is small, named, and permanent.** The parts of the interface that are always
+visible were chosen one at a time and are listed in [Disclosure](#disclosure). Every
+other verb lives in the command palette, reachable by `⌘K` from a pill that is always
+on screen. That trade is the whole design: the palette is what licenses an interface
+this bare, so the palette ships first and is never allowed to regress.
 
-## Colors
+**Key characteristics**
 
-> Source pages analysed: the Notion home page plus Pricing, Enterprise, Product (AI), Product (Agents), and Startups. Every secondary page resolved to the same core palette — Notion runs one tightly-scoped system across the marketing site.
+- The indent thread as the product's one graphic device, functional before decorative
+- Luminance-only separation; exactly three 1px lines exist in the entire product
+- Two complete modes from one declaration — hue and chroma fixed, only lightness moves
+- OS type at five sizes, weight capped at 600, tracking in `em` and only above 19px
+- One accent, ink indigo, and no second structural colour ever
+- A mono voice reserved for identifiers: property keys, shortcut badges, ids
+- Silence in the steady state; the interface speaks only on deviation
+- Nothing below the last block is chrome
 
-### Brand & Accent
-- **Notion Blue** (`{colors.primary}` — #0075de): the single structural accent. Primary CTA fill ("Get Notion free"), inline link colour, active-tab and focus signal. This is the only colour that ever paints an action.
-- **Pressed Blue** (`{colors.primary-active}` — #005bab): the darker press state of the primary CTA.
-- **Deep Indigo** (`{colors.secondary}` — #213183): the dark hero "night" band background and its sticker-constellation field; a deep brand-blue used for full-bleed inverted sections.
+---
 
-The remaining colours form Notion's **decorative sticker palette** — they appear only as illustrated blocks, app stickers and category dots, never as CTAs or structural fills:
-- **Sticker Sky** (`{colors.accent-sky}` — #62aef0)
-- **Sticker Purple** (`{colors.accent-purple}` — #d6b6f6) / **Deep Purple** (`{colors.accent-purple-deep}` — #391c57)
-- **Sticker Pink** (`{colors.accent-pink}` — #ff64c8)
-- **Sticker Orange** (`{colors.accent-orange}` — #dd5b00) / **Deep Orange** (`{colors.accent-orange-deep}` — #793400)
-- **Sticker Teal** (`{colors.accent-teal}` — #2a9d99)
-- **Sticker Green** (`{colors.accent-green}` — #1aae39)
-- **Sticker Brown** (`{colors.accent-brown}` — #523410)
+## Principles
 
-### Surface
-- **White** (`{colors.canvas}` / `{colors.surface}` — #ffffff): card and panel surfaces, nav bar, form fields.
-- **Warm Paper** (`{colors.canvas-soft}` — #f6f5f4): the signature page canvas and the footer band — a warm off-white that gives the whole site its document-like calm.
-- **Hairline** (`{colors.hairline}` — #e6e6e6): 1px card borders and dividers, a black-at-10%-on-white blend kept solid for token reuse.
-- **Surface Hover** (`{colors.surface-hover}` — #f1f0ef): the hover/highlight wash for menu rows, option rows and list items — one step darker than the page canvas so a highlighted row reads against it.
-- **Field Border** (`{colors.field-border}` — #dcdbd9): the 1px resting border of inputs and selects. Slightly warmer than `{colors.hairline}` so a control reads as interactive next to a static divider.
+1. **Structure is the ornament.** The only decorative-looking element in the product
+   is the indent thread, and it is load-bearing. If a graphic device does not encode
+   something true about the content, it does not ship.
+2. **Luminance separates; lines do not.** Stacked surfaces differ by 3–5% lightness.
+   A 1px line is legal in exactly three places (§ Depth). Every other border is a bug.
+3. **No token without both modes.** A colour declared for one mode only is incomplete.
+   Alpha-on-canvas ink is banned outright — it cannot be inverted.
+4. **One signal per state.** Active is a fill *or* a rule *or* a weight — never all
+   three. Focus is one outline, not an outline plus a ring plus a recoloured border.
+5. **Every capability has one canonical command and one pointer route.** A user who
+   never learns a shortcut loses speed, never capability. This is enforced by a test.
+6. **Nothing is hidden until it can be found.** No control may be hover-gated unless
+   it is also reachable from the palette, pinned on touch, and revealed on focus.
+7. **Silent when steady, plain when not.** `saved`, online, and on-today render
+   nothing at all. `saving`, `unsaved`, read-only, and off-today are always visible as
+   unbordered text. No state is ever carried by a `title` attribute alone.
+8. **Nothing below the outline is chrome.** The region under the last block is a live
+   append target and a reserved slot for linked references. No form may be mounted
+   there, ever.
 
-### Text
-- **Ink** (`{colors.ink}` — #000000): primary headings and body text (rendered at ~95% alpha for a soft true-black).
-- **Warm Charcoal** (`{colors.ink-secondary}` — #31302e): secondary body copy and footer text.
-- **Stone** (`{colors.ink-muted}` — #615d59): supporting / muted copy.
-- **Ash** (`{colors.ink-faint}` — #a39e98): the brand's caption/metadata grey. At 2.4:1 on white it is a *marketing* value and fails WCAG AA for body text.
-- **Ash (accessible)** (`{colors.ink-faint-accessible}` — #6f6862): the substitute the application ships wherever Ash would carry real text — captions, metadata, placeholders, icon glyphs. It holds the same quiet position in the hierarchy at 5.6:1 on white. **Use this token in product UI; reserve `{colors.ink-faint}` for decorative, non-text use.**
-  > Implementation note: the application's `--color-ink-faint` variable already resolves to this accessible value. That is deliberate — do not "restore" it to the marketing hex.
+---
 
-### Semantic
-Notion's marketing surfaces do not expose a dedicated error/success palette in the system chrome — status is carried by the sticker palette (e.g. `{colors.accent-green}` for affirmative ticks) rather than a separate semantic ramp.
+## Color
 
-A product that can fail to save needs one, so the application adds a minimal, deliberately un-loud ramp:
+### The two modes
 
-- **Danger** (`{colors.danger}` — #a03e00): destructive actions and unsaved/error states. A burnt orange drawn from the sticker palette's warm end rather than a siren red — it reads as serious without shouting on a paper canvas, and clears AA on white.
-- **Danger Deep** (`{colors.danger-deep}` — #793400): text on tinted danger surfaces.
-- **OK** (`{colors.ok}` — #1aae39): the durable/saved indicator, used as a small dot rather than a fill.
+Mode resolution is **CSS-only**. `@media (prefers-color-scheme: dark)` applies to
+`:root:not([data-theme="light"])`; an explicit `[data-theme="dark"]` or
+`[data-theme="light"]` on the root element wins in both directions. A pre-paint inline
+script in `index.html` applies the stored choice so there is no flash. JavaScript never
+calls `matchMedia` to decide a colour — a browser without JS, and a test harness whose
+`matchMedia` always reports `false`, must still get the right theme.
 
-Status is signalled by a dot plus a *word* — never by hue alone.
+`color-scheme: light dark` is declared on the root. That is what makes native
+`<select>` menus, the native date picker, form controls, and scrollbars follow the
+theme — the single most common tell of a web app that only pretends to have a dark mode.
+
+### Roles
+
+| Token | Role |
+|---|---|
+| `--canvas` | The writing surface. The page body, the top bar, the content column. |
+| `--surface-1` | A quiet inset panel on the canvas: the property panel, the block inspector, a graph card. |
+| `--surface-2` | Hover wash, chips, shortcut badges, the search pill. The one hover colour. |
+| `--surface-3` | Active/pressed, and the current navigation row. |
+| `--rail` | Navigation. One step away from the canvas in both modes, in opposite directions. |
+| `--overlay` | Anything floating: menus, popovers, dialogs, the palette. |
+| `--ink` | Body text, block text, headings, the value the user typed. |
+| `--ink-2` | Secondary text: nav rows, property values, menu items, hints. |
+| `--ink-3` | Metadata, placeholders, group headers, resting icon glyphs. |
+| `--accent` | Links, the primary action, the focus ring, the active thread. Nothing else. |
+| `--danger` | Destructive verbs and the unsaved state. Never a fill behind body text. |
+| `--ok` | The one affirmative indicator (persistent-storage granted). A dot, not a fill. |
+
+There is no second structural accent, and no decorative palette. If a future feature
+needs to distinguish categories, it distinguishes them by shape, position, or label.
+
+### Contrast — the committed table
+
+Measured WCAG 2.1 ratios. **This table is the source of truth: when a component fails
+contrast, the table is what you consult, not the component.**
+
+**Light**
+
+| | canvas | surface-1 | rail | surface-2 | surface-3 |
+|---|---|---|---|---|---|
+| `--ink` | 15.78 | 15.11 | 14.38 | 13.84 | 12.84 |
+| `--ink-2` | 7.45 | 7.13 | 6.79 | 6.53 | 6.06 |
+| `--ink-3` | 5.28 | 5.06 | 4.81 | 4.63 | **4.30** |
+| `--accent` | 6.22 | 5.95 | 5.67 | 5.45 | 5.06 |
+| `--danger` | 6.55 | 6.27 | 5.97 | 5.74 | 5.33 |
+
+**Dark**
+
+| | rail | canvas | surface-1 | overlay | surface-2 | surface-3 |
+|---|---|---|---|---|---|---|
+| `--ink` | 16.11 | 15.43 | 14.58 | 14.26 | 13.02 | 11.49 |
+| `--ink-2` | 8.58 | 8.22 | 7.77 | 7.59 | 6.94 | 6.12 |
+| `--ink-3` | 5.54 | 5.31 | 5.02 | 4.91 | **4.48** | **3.95** |
+| `--accent` | 9.03 | 8.65 | 8.17 | 7.99 | 7.30 | 6.44 |
+| `--danger` | 7.44 | 7.13 | 6.74 | 6.59 | 6.02 | 5.31 |
+
+`--on-accent` on `--accent`: 6.22 light / 8.92 dark. On `--danger`: 6.55 / 7.35.
+
+> **The one hard rule.** `--ink-3` is legal on `--canvas`, `--surface-1`, `--rail`, and
+> `--overlay` only. On `--surface-2` or `--surface-3` it fails AA, so any 12–14px text
+> sitting on a chip, a shortcut badge, the search pill, or an active nav row uses
+> `--ink-2`. Text at 24px+, or 19px+ at weight 600, may use `--ink-3` anywhere.
+
+---
 
 ## Typography
 
-### Font Family
-The entire system is set in **`NotionInter`** — Notion's tuned cut of Inter — with a fallback stack of `Inter, -apple-system, system-ui, "Segoe UI", Helvetica, Arial`. A single family carries everything from 64px display headlines to 12px eyebrows; there is no serif, no monospace display face. OpenType `lnum` (lining numerals) and `locl` features are enabled on body and heading roles.
+### The family is the operating system's
 
-### Hierarchy
+`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, …`
 
-| Token | Size | Weight | Line Height | Letter Spacing | Use |
-|---|---|---|---|---|---|
-| `{typography.display-1}` | 64px | 700 | 1.0 | −2.125px | Hero headline ("Meet the night shift") |
-| `{typography.display-2}` | 54px | 700 | 1.04 | −1.875px | Large section headlines |
-| `{typography.heading-1}` | 40px | 700 | 1.1 | −1px | Section headlines ("Plans and features") |
-| `{typography.heading-2}` | 26px | 700 | 1.23 | −0.625px | Sub-section headings |
-| `{typography.heading-3}` | 22px | 700 | 1.27 | −0.25px | Card titles |
-| `{typography.title}` | 20px | 600 | 1.4 | −0.125px | Feature titles, callouts |
-| `{typography.body-md}` | 16px | 400 | 1.5 | 0 | Default body copy |
-| `{typography.body-sm}` | 15px | 400 | 1.33 | 0 | Dense body, table rows, nav |
-| `{typography.button}` | 16px | 500 | 1.5 | 0 | Button labels |
-| `{typography.caption}` | 14px | 400 | 1.43 | 0 | Captions, footnotes |
-| `{typography.eyebrow}` | 12px | 600 | 1.33 | +0.125px | Pill badges, small labels |
+This is a decision, not a fallback. A local-first tool that needs no account and no
+server should not need a font download either: system type paints on the first frame,
+carries no FOUT, adds nothing to the offline cache, and looks like it belongs to the
+machine it is running on. SF Pro and Segoe UI Variable are current, optically-sized
+faces built for exactly this job.
 
-### Principles
-Notion's type voice is **tight, heavy, and quiet-confident**. Headlines lean on weight 700 and aggressive negative tracking (more negative the larger the size) so display copy feels set, not stretched. Body copy stays at a comfortable 1.5 line-height for document readability. The contrast between a heavy 700 headline and a calm 400 body is the primary expressive lever — there is no decorative typography, only a clear hierarchy.
+The corollary is a rule: **the tracking ramp is tuned for system faces and must never
+be tuned for a font that is not actually loaded.** Version 1 of this document
+specified `Inter` with an aggressive negative ramp (−2.125px at 64px) while no
+`@font-face` and no `<link>` existed anywhere in the client, so every value was being
+applied to SF Pro and Segoe UI. That is why the old interface read cramped at display
+sizes. All tracking is now expressed in `em`, is zero at and below 16px, and only goes
+negative at 19px and above, where system faces are already optically tightened.
 
-### Note on Font Substitutes
-`NotionInter` is a proprietary tuning of the open-source **Inter** family — substitute Inter directly. To approximate Notion's display tightness, apply the negative letter-spacing values in the table above explicitly (Inter at default tracking will read looser than `NotionInter`).
+> If a self-hosted variable face is wanted later, it is a two-line change here plus a
+> `@font-face`. It is deliberately not the default.
+
+### The five roles
+
+| Role | Size / Line | Tracking | Weight | Use |
+|---|---|---|---|---|
+| `xs` | 12 / 16 | 0 | 500 | Metadata, chips, group headers, shortcut badges, save reason |
+| `sm` | 14 / 20 | −0.005em | 400 | UI default: nav rows, buttons, inputs, menu items, property values |
+| `md` | 16 / 26 | 0 | 400 | **Block text and page body.** The user's own words. |
+| `lg` | 19 / 25 | −0.012em | 600 | Real `<h2>` section headings |
+| `xl` | 30 / 34 | −0.018em | 600 | Page and journal `<h1>`, tombstone, "Your graphs" |
+
+Nothing else exists. The sizes 9, 11, 13, 15, 17, 20, 22, 26, 36 and 40 that
+accumulated in v1 are deleted, along with the 1px collision between a 15px `.btn` and
+a 14px shadcn `Button` on the same screen.
+
+**The user's writing is the largest 400-weight text in the interface and the only text
+at 26px line-height.** Chrome is 14px or smaller. This is the hierarchy — not size
+alone, but the fact that chrome and content are typographically different kinds of thing.
+
+### The mono voice
+
+`ui-monospace, SFMono-Regular, "SF Mono", Menlo, …` at 12px/500 is reserved for things
+that are *identifiers rather than prose*: property keys (`task.status`), shortcut
+badges (`⌘K`), graph ids, and ISO dates in the page-info popover. It is never used for
+body copy, headings, or labels. This is the interface admitting which of its strings
+are addresses and which are language.
+
+---
 
 ## Layout
 
-### Spacing System
-- **Base unit**: 8px.
-- **Tokens (front matter)**: `{spacing.xxs}` 4px · `{spacing.xs}` 8px · `{spacing.sm}` 12px · `{spacing.md}` 16px · `{spacing.lg}` 24px · `{spacing.xl}` 28px · `{spacing.xxl}` 32px.
-- Card interior padding lands around `{spacing.lg}` (24px); utility buttons use a tight 4px/14px; form fields pad at `{spacing.xxs}`-scale 6px. Section gaps stack the larger steps.
+### The shell
 
-### Grid & Container
-Content is centred in a wide max-width column (~1080–1300px on desktop per the extracted breakpoints) with generous outer gutters. Feature sections alternate between full-width text blocks and 2-up / 3-up card grids; the pricing page widens to a 4-column plan table. The dark hero spans full-bleed edge to edge while body sections respect the centred container.
+```
+┌────────────┬──────────────────────────────────────────────────────┐
+│            │  ⌘K pill        · save · ⎌ ⤾ ·        (44px, no rule)│
+│  rail      ├──────────────────────────────────────────────────────┤
+│  240px     │                                                      │
+│            │        ┌──────── 704px measure ────────┐             │
+│  switcher  │        │  Tuesday, August 4, 2026  ‹▦› │  ⋯          │
+│  Journal   │        │                                │             │
+│            │        │  • Kickoff meeting notes       │             │
+│  Pages   ＋│        │  │ • Discussed the Q3 roadmap  │             │
+│  · Reading │        │  │ • Follow up with platform   │             │
+│  · Specs   │        │  • Reading list                │             │
+│            │        │                                │             │
+│  ─────     │        │  (append zone — min(40vh,320)) │             │
+│  Settings  │        └────────────────────────────────┘             │
+│  All graphs│                                                      │
+└────────────┴──────────────────────────────────────────────────────┘
+```
 
-### Whitespace Philosophy
-Whitespace is the primary grouping device. Sections are separated by large vertical gaps rather than rules, and cards sit on the warm canvas with quiet hairlines instead of heavy frames. The effect is document-like: airy, scannable, and never crowded.
+`display: grid; grid-template-columns: 240px 1fr; height: 100dvh`. `100dvh`, not
+`100vh` — on mobile Safari the difference is the bottom of the rail sitting under the
+URL bar.
 
-### Application Shell
+**Exactly one region scrolls.** The shell never scrolls. The rail scrolls internally
+only when its own list overflows. The content scrolls in one container — not two
+nested ones, which prevents the browser from scrolling a focused element into view.
+The top bar is static and never reflows: `flex-wrap: nowrap`, fixed 44px.
 
-The product surface is a two-column shell: a 248px navigation rail and a content
-column, with the marketing container rules applying *inside* the content column
-(the page body stays a centred ~760px measure).
+The rail collapses on `⌘\` above 840px (persisted), and becomes an off-canvas drawer
+at `min(300px, 84vw)` at or below 840px. A closed drawer is `inert`, so it leaves both
+the accessibility tree and the automated audit.
 
-**Only one region scrolls.** The shell itself is viewport-height and never
-scrolls; the sidebar is pinned and scrolls internally only when its own nav
-overflows; the page content scrolls inside its own region beneath a static top
-bar. Navigation must never drift out of reach because the document is long — a
-scroll position in the content is not a change in navigation state.
+### Measure
 
-Below the tablet breakpoint the rail becomes an off-canvas drawer over a scrim
-(`{layers.drawer}` / `{layers.scrim}`), toggled from the top bar.
+The content column is `704px` (~72 characters at 16px) with a 24px gutter, 16px at or
+below 600px. v1's 760px ran to ~85 characters, past the comfortable reading limit.
 
-### Responsive Strategy
+### Breakpoints
 
-#### Breakpoints
-| Name | Width | Key Changes |
-|---|---|---|
-| Wide | 1440px+ | Full multi-column grids, widest container |
-| Desktop | 1080–1300px | Standard centred container, 3-up card grids |
-| Tablet | 768–840px | Grids collapse to 2-up, nav begins condensing |
-| Mobile | ≤600px | Single-column stacks, hamburger nav, full-width CTAs |
+| Width | Change |
+|---|---|
+| ≥ 1100px | Search pill shows its label and `⌘K` badge |
+| 841–1099px | Search pill collapses to a 28px icon button |
+| ≤ 840px | Rail becomes an off-canvas drawer; `.shell-toggle` appears |
+| ≤ 600px | Gutter 16px; `<h1>` clamps; hover-gated targets become permanently visible at 32px |
 
-#### Touch Targets
-Pill CTAs (`button-primary`, `button-secondary`) and utility buttons (`button-utility`) carry comfortable tap padding; aim for a 44×44px minimum hit area on mobile by preserving vertical padding even as labels shrink.
+### Touch
 
-#### Collapsing Strategy
-The top nav condenses to a hamburger below the tablet breakpoint; multi-column card grids collapse to a single stacked column; the pricing plan table reflows from 4 side-by-side columns into stacked plan cards. Section padding tightens but the warm-canvas rhythm is preserved.
+Below 600px, nothing is hover-gated: the date stepper, the calendar trigger and the
+page `⋯` are permanently visible at 32×32. The one exception is the outline row menu,
+which reveals on `[data-focused="true"]` instead — so exactly one `⋯` is visible at a
+time rather than one pinned onto every row of a 412px screen.
 
-#### Image Behavior
-Product screenshots and illustration tiles sit inside rounded `{rounded.lg}` frames and scale fluidly within their grid cell. Sticker illustrations are small fixed-scale decorative assets that re-flow but do not crop.
+---
 
-## Elevation & Depth
+## Depth & Separation
+
+Depth is **lightness**, not shadow and not outline.
 
 | Level | Treatment | Use |
 |---|---|---|
-| 0 — Flat | Hairline border `{colors.hairline}`, no shadow | Default cards on the warm canvas |
-| 1 — Soft | Layered micro-shadow: `rgba(0,0,0,0.01) 0 0.175px 1.041px`, `0.02 0 0.8px 2.925px`, `0.027 0 2.025px 7.847px`, `0.04 0 4px 18px` | Raised feature cards, floating buttons |
-| 2 — Elevated | Deeper 5-stop stack ending in `rgba(0,0,0,0.05) 0 23px 52px` | Modals, popovers, the elevated white pill on the dark hero |
+| 0 — Flat | A 3–5% lightness step from the surface beneath | Rail vs canvas, panel vs canvas, chip vs panel |
+| 1 — Ringed | `--e1` (inset 1px `--line`) | Inputs, the resting edge of a form control |
+| 2 — Floating | `--e2` | Menus, popovers, the page-info popover |
+| 3 — Modal | `--e3` | Dialogs, the command palette |
 
-Notion's elevation philosophy is **barely-there**: shadows are built from many near-transparent layers so surfaces feel gently lifted off the paper rather than dramatically dropped. Most cards rely on a hairline alone.
+In light mode a floating surface is white with a shadow; in dark mode it is *lighter*
+than the canvas. That inversion is the whole reason elevation is expressed as tokens
+rather than as a fixed shadow.
 
-### Layering & Overlays
+### The three legal lines
 
-Anything that floats above the page owns a slot on one shared scale, so two
-overlays can never fight for the front:
+A 1px line may exist in exactly three places, and each is the thread language:
 
-| Token | Value | Use |
-|---|---|---|
-| `{layers.content}` | 0 | Ordinary page content |
-| `{layers.scrim}` | 25 | Dimmer behind the mobile drawer |
-| `{layers.drawer}` | 30 | Off-canvas sidebar |
-| `{layers.dialog}` / `{layers.menu}` | 50 | Modal dialogs, dropdown menus |
-| `{layers.popover}` | 60 | Autocomplete and option lists (may open *from inside* a dialog) |
-| `{layers.toast}` | 70 | Transient status, always frontmost *(slot reserved; no toast component ships yet)* |
+1. The rail's right edge — **in light mode only.** In dark mode the luminance step
+   separates, and a line would read as a drawn box.
+2. The command palette's input/results divider — and only while results exist.
+3. `--line-strong` as an inset ring on an overlay floating over content, where a
+   shadow alone cannot resolve the edge.
 
-**Overlays render in a portal, never inline.** A menu or option list anchored
-inside a scrolling, clipping, or transformed ancestor — the virtualized outline
-is all three — cannot escape that ancestor with `z-index` alone. Portal it to
-the document and position it in viewport coordinates, re-anchoring on scroll and
-resize. A raised `z-index` on an inline overlay is a symptom, not a fix.
+Every other border in the product is deleted: no bordered cards, no bordered chips, no
+bordered status pills, and — emphatically — no dashed empty states.
 
-**Every overlay is dismissible the ways users expect**: click or tap outside,
-`Escape`, and selecting an item. An overlay that only closes by re-clicking its
-own trigger is a defect.
+---
 
-### Decorative Depth
-The brand's real depth cue is **illustration**, not shadow. The dark indigo hero (`{colors.secondary}`) uses glowing sticker stickers and a starfield to create a sense of a lit night scene, and feature sections layer small colourful app-icon stickers over plain surfaces to add playful dimensionality. Colour-blocked illustration tiles (purple, pink, orange, teal headers on otherwise-white cards) provide visual rhythm.
-
-## Shapes
-
-### Border Radius Scale
+## Shape
 
 | Token | Value | Use |
 |---|---|---|
-| `{rounded.xs}` | 4px | Form fields, small tags, inline chips |
-| `{rounded.sm}` | 5px | Menu items, list rows, status pills |
-| `{rounded.md}` | 8px | Utility / nav buttons, smaller cards |
-| `{rounded.lg}` | 12px | Feature cards, illustration frames, content tiles |
-| `{rounded.xl}` | 16px | Large containers, image wells |
-| `{rounded.full}` | 9999px | Marketing pill CTAs, badges, circular icon buttons |
+| `--r-1` | 4px | Chips, shortcut badges |
+| `--r-2` | 6px | Inputs, buttons, menu items, nav rows, selected rows, the search pill |
+| `--r-3` | 10px | Panels, popovers, graph cards |
+| `--r-4` | 14px | Dialogs, the command palette |
+| `--r-full` | 9999px | The bullet dot, and nothing else |
 
-### Photography Geometry
-Product screenshots are framed in rounded `{rounded.lg}` / `{rounded.xl}` wells, typically full-bleed within their container with a hairline edge. Illustration tiles use colour-blocked header bands above white card bodies. Avatars and app-icon stickers are small, sometimes fully circular (`{rounded.full}`). There is no heavy art-direction crop — images scale within their rounded frame.
+Radius grows with the surface, so a control inside a panel is always tighter than the
+panel. A focus ring **never declares a radius** — it inherits the element's own. v1's
+global `:focus-visible { border-radius: 4px }` squared off every rounded control in the
+product the moment it was focused, because `app.css` was imported unlayered and
+therefore outranked every Tailwind utility.
 
-## Components
-
-> **Marketing specs document Default and Active/Pressed only** — no hover states were observable in the source material. The *application* components below do define hover, focus and disabled states; see [Interaction States](#interaction-states). Variants live as separate `components:` front-matter entries and are described in their own sub-blocks.
-
-### Navigation
-
-**`nav-bar`** — Top navigation
-- White surface `{colors.canvas}`, `{colors.ink}` link text at `{typography.body-sm}`, padding `{spacing.md}`. Sits as a slim sticky bar; left wordmark, centre product/solutions menu links, right "Log in" text link plus a `button-utility` "Get Notion free" CTA. Condenses to a hamburger below the tablet breakpoint.
-
-**`nav-item`** — Sidebar navigation row
-- `{colors.ink-secondary}` label at `{typography.body-sm}`, rounded `{rounded.sm}`, padding `5px {spacing.sm}`, leading 16px icon. Hover washes to `rgba(0,0,0,0.05)`; the current page is marked by an inset 2px `{colors.primary}` rule plus a faint fill — an indicator, never a saturated bar. Long page titles truncate with an ellipsis rather than wrapping the row.
-
-### Buttons
-
-**`button-primary`** — Primary CTA ("Get Notion free")
-- Background `{colors.primary}`, text `{colors.on-primary}`, type `{typography.button}`, fully pill-shaped `{rounded.full}`. The single blue action on any page.
-- Pressed state lives in `button-primary-pressed` (background `{colors.primary-active}`); marketing buttons also apply a brief `scale(0.9)` press transform.
-
-**`button-primary-pressed`**
-- Background `{colors.primary-active}`, text `{colors.on-primary}` — the depressed state of the primary CTA.
-
-**`button-secondary`** — Secondary CTA ("Request a demo")
-- White surface `{colors.surface}`, text `{colors.ink}`, type `{typography.button}`, pill `{rounded.full}`, carried by the soft Level-1 shadow. Pairs beside `button-primary` in the hero.
-
-**`button-utility`** — Nav / plan-select button
-- White surface `{colors.surface}`, text `{colors.ink}`, type `{typography.button}`, tighter `{rounded.md}` (8px), padding `4px 14px`, 1px `{colors.hairline}` border. Used for the nav CTA and pricing plan-select buttons where the marketing pill would be too large.
-
-**`button-icon-circular`** — Carousel / media control
-- Circular `{rounded.full}` control with a translucent `rgba(0,0,0,0.05)` fill and `{colors.on-primary}` glyph, used for slide and play/pause controls; applies a `scale(0.9)` press transform.
-
-**`icon-button`** — Chrome icon control
-- 28px square, transparent by default, `{rounded.sm}`, 16px glyph in `{colors.ink-faint-accessible}`. Hover fills `rgba(0,0,0,0.05)` and darkens the glyph to `{colors.ink-secondary}`; press applies `scale(0.92)`. Used for row menus, close, and date stepping — the quiet counterpart to a labelled button.
-- **Row-scoped variants may fade in on hover** (e.g. the block ⋯ trigger), but must remain in the layout and become fully visible on `:focus-within`, so keyboard users can always reach them. Never `display: none` an action that exists.
-
-### Cards & Containers
-
-**`feature-card`** — Content / feature card
-- White surface `{colors.surface}`, `{colors.ink}` text, `{typography.body-md}`, rounded `{rounded.lg}` (12px), padding `{spacing.lg}` (24px). The workhorse marketing card; often topped by a colour-blocked illustration band from the sticker palette. Default elevation is flat (hairline only).
-
-**`feature-card-elevated`** — Raised feature card
-- Same chrome as `feature-card` with the soft Level-1 layered shadow for cards that float above the canvas (testimonials, floating product panels).
-
-**`pricing-plan-card`** — Pricing plan column
-- White surface `{colors.surface}`, `{colors.ink}` text, `{typography.body-sm}`, rounded `{rounded.md}` (8px), padding `{spacing.lg}`. A bordered column listing a plan's price and feature checklist, with a `button-utility` select action.
-
-**`pricing-plan-card-featured`** — Highlighted plan column
-- Warm `{colors.canvas-soft}` fill to lift the recommended tier off the white siblings, same `{rounded.md}` shape and padding. Distinguished by surface tint rather than a coloured border.
-
-### Inputs & Forms
-
-**`text-input`** — Text / number / date field
-- White surface `{colors.surface}`, `{colors.ink}` text at `{typography.caption}`, 1px `{colors.field-border}`, rounded 6px, padding `4px 12px`, 36px tall. Corners stay deliberately tighter than the pill CTAs. Focus moves the border to `{colors.primary}` and adds a 2px primary ring at 25% — a visible, non-shifting focus signal rather than a shadow bloom.
-- Placeholders use `{colors.ink-faint-accessible}`; they are a hint, never the only label. Every field carries a programmatic label even when the visual design shows none.
-
-**`select-native`** — Enumerated choice
-- Matches `text-input` chrome exactly (same height, border, radius, type) with a trailing `{colors.ink-muted}` chevron and no native OS arrow.
-- **This stays a real `<select>`.** Custom listbox widgets are not used for value entry: the native control brings platform pickers, mobile wheels, type-ahead and AT support for free. Restyle it; do not replace it. The same rule holds for checkboxes and date fields — tint and size them, keep them native.
-
-**Field composition.** Where a row composes several controls (a key field, a type select, a value control and a submit button), every control in the row shares one height and the row aligns on a single centre line. A value control that swaps by type — text, number, date, checkbox, page picker — must not change the row's height or rhythm; short controls such as a checkbox are centred in a full-height cell rather than left to float.
-
-### Overlays
-
-**`menu-surface`** / **`menu-item`** — Contextual action menu
-- Portaled surface: `{colors.surface}`, 1px `{colors.hairline}`, `{rounded.md}`, `{spacing.xxs}` padding, Level-2 elevation, `{layers.menu}`.
-- Items are `{typography.caption}` in `{colors.ink}` with a leading 16px glyph, 6px radius, `6px {spacing.xs}` padding. One highlight state (`{colors.surface-hover}`) serves both pointer hover and keyboard focus, so the two never disagree. Destructive items take `{colors.danger}` for both label and glyph. Unavailable items stay visible at reduced opacity — the menu's shape should not change as context changes.
-- Grouped by intent with hairline separators: inspect, then structure, then destroy.
-
-**`popover-list`** — Autocomplete / option list
-- Same chrome as `menu-surface` at `{layers.popover}`, anchored to its input in viewport coordinates and re-anchored on scroll and resize. Scrolls internally past ~264px with contained overscroll.
-- The active option is highlighted with `{colors.surface-hover}` and tracked as the input's active descendant, so arrow keys and the pointer drive one shared selection. An empty result is a status message beside the list, not a fake option.
-
-**`tooltip`** — Micro-label
-- Inverted: `{colors.ink}` surface, `{colors.on-primary}` text at `{typography.eyebrow}`, 6px radius, `6px 10px` padding, ~300ms open delay. Reserved for naming an icon control or surfacing a keyboard shortcut. A tooltip may repeat or extend an accessible name; it must never be the only place that name exists.
-
-### Signature Components
-
-**`hero-band`** — Dark "night" hero
-- Full-bleed deep indigo `{colors.secondary}` band carrying `{typography.display-1}` white headline, sticker-constellation field, and a `button-primary` + `button-secondary` CTA pair. The single inverted dark island in an otherwise daylight page.
-
-**`badge-pill`** — Eyebrow / category pill
-- White surface `{colors.surface}`, `{colors.primary}` text, `{typography.eyebrow}` (12px / 600), fully pill `{rounded.full}`, padding `4px 8px`. Small labels such as the pricing "Essential for staying organized" eyebrow and category tags.
-
-**`footer`** — Site footer
-- Warm `{colors.canvas-soft}` band, `{colors.ink-secondary}` link text at `{typography.caption}`, padding `{spacing.xxl}`. Multi-column link directory closing every page.
-
-### Examples (illustrative)
-
-> Kit-mirror demonstration surfaces. Each `ex-*` entry references brand-native primitives so downstream consumers (`/preview-design`, `/generate-kit`) re-skin the same 10 surfaces consistently.
-
-**`ex-pricing-tier`** — Default Pricing tier card. Re-uses feature-card chrome with brand canvas-soft surface.
-- Properties: `backgroundColor`, `textColor`, `borderColor`, `rounded`, `padding`
-
-**`ex-pricing-tier-featured`** — Featured/highlighted tier — polarity-flipped surface (dark fill + light text in light mode, light fill + dark text in dark mode).
-- Properties: `backgroundColor`, `textColor`, `rounded`, `padding`
-
-**`ex-product-selector`** — What's Included summary card — re-purposed for SaaS / B2B verticals (NOT a literal product gallery).
-- Properties: `backgroundColor`, `rounded`, `padding`
-
-**`ex-cart-drawer`** — Subscription summary — re-purposed for SaaS / B2B (line items per add-on, not literal cart).
-- Properties: `backgroundColor`, `rounded`, `padding`, `item-divider`
-
-**`ex-app-shell-row`** — Sidebar nav row inside the App Shell example. Active state uses brand primary as the indicator.
-- Properties: `backgroundColor`, `activeIndicator`, `rounded`, `padding`
-
-**`ex-data-table-cell`** — Default data-table th + td chrome. Header uses mono-caps eyebrow typography; body uses body-sm.
-- Properties: `headerBackground`, `headerTypography`, `bodyTypography`, `cellPadding`, `rowBorder`
-
-**`ex-auth-form-card`** — Sign-in / sign-up card. Re-uses feature-card chrome with text-input primitives inside.
-- Properties: `backgroundColor`, `rounded`, `padding`
-
-**`ex-modal-card`** — Modal dialog surface — same chrome as feature-card with elevated shadow.
-- Properties: `backgroundColor`, `rounded`, `padding`
-
-**`ex-empty-state-card`** — Empty-state illustration frame.
-- Properties: `backgroundColor`, `rounded`, `padding`, `captionTypography`
-
-**`ex-toast`** — Toast notification surface — feature-card shape + medium shadow.
-- Properties: `backgroundColor`, `rounded`, `padding`, `typography`
-
+---
 
 ## Motion
 
-Motion exists to explain a change, not to decorate it. A state change that lands
-instantly reads as a glitch; one that lingers reads as slow software. The brand's
-restraint applies to time exactly as it applies to colour: **short, quiet, and
-never more than the change requires.**
-
-### Duration Scale
+Motion explains a change. It never decorates one, and it never moves anything.
 
 | Token | Value | Use |
 |---|---|---|
-| `{motion.duration-press}` | 90ms | Press transforms — must feel simultaneous with the finger |
-| `{motion.duration-fast}` | 120ms | Hover washes, colour and icon tint changes |
-| `{motion.duration-base}` | 150ms | Overlay entrances, inline panel reveals |
-| `{motion.duration-enter}` | 220ms | Content arriving after navigation; the loading-flash threshold |
+| `--dur-press` | 90ms | Press feedback (colour only — see below) |
+| `--dur-overlay` | 140ms | Overlay entrances |
+| `--dur-disclose` | 180ms | Inline panel reveals, the drawer |
+| reveal | **0ms** | Hover-revealed chrome |
 
-Everything uses plain `ease` (or `ease-out`). There is no spring, bounce, or
-overshoot — an outliner is a writing tool, and elastic motion in a text surface
-reads as instability.
+### Three rules
 
-### Entrances are opacity-only
+**1. Every entrance is `opacity: 0 → 1`. Nothing animates `transform`, `scale`, or
+`translate`.** This is a correctness rule, not a taste one. A moving target is
+unclickable, and automation reports it as unstable. Press feedback is a
+background-colour change, not a `scale(0.97)`.
 
-**Animate `opacity`. Do not animate position, scale, or size on anything the user
-may be about to click or read.** This is a correctness rule, not a taste one:
+> **The one exception, named on purpose:** the off-canvas drawer at or below 840px
+> translates in from outside the viewport, because "off-canvas" *is* a position and
+> fading a navigation panel in place reads as a glitch. It is safe precisely because
+> it starts outside the viewport — nothing inside it was reachable a moment earlier —
+> and because the closed drawer is `visibility: hidden`, which flips only at the ends
+> of the transition, so it is either fully absent from the accessibility tree and the
+> audit, or fully arrived. No other element in the product may animate a transform.
 
-- A moving target is unclickable. An overlay that slides or scales while the
-  pointer is already travelling toward it causes mis-clicks and, in automation,
-  "element is not stable" failures.
-- Text mid-fade composites against its background at partial alpha, so a
-  container fading in transiently fails contrast for everything inside it. Any
-  surface whose text is measured (or read) on arrival must not be fading.
+**2. Overlays animate in, never out.** A closing menu unmounts immediately. A lingering
+ghost at 40% opacity is a target that no longer works, and an automated contrast audit
+will read it mid-fade and fail it.
 
-Two consequences worth stating plainly:
+**3. Surfaces that are read the instant they appear do not animate at all.** The graph
+picker, Settings, the page body and the shell content are audited the moment they
+mount; a container fading in at partial alpha composites its text against the
+background and fails contrast for every child. The same applies to a dialog, the
+command palette, and every inline disclosure: **the scrim fades, the panel does not.**
+Prefer no animation to one that has to finish before the surface is legible.
+`enter-fade` survives only for scrims, menus, tooltips and option lists — surfaces
+whose arrival is itself the message.
 
-- **Overlays animate in, never out.** A closing menu should leave immediately;
-  a lingering ghost is a target that no longer works.
-- **Surfaces that are evaluated the moment they mount do not animate at all.**
-  Prefer no animation to an animation that has to finish before the surface is
-  legible.
+**4. Hover-revealed chrome is instant.** A 120ms fade on a row `⋯` lags the pointer
+down a virtualized list and reads as lag, not polish.
 
-### Reduced Motion
+### Reduced motion
 
-`prefers-reduced-motion: reduce` collapses every duration to effectively zero
-globally. Nothing in the product may depend on an animation having run to be
-usable or understandable.
+`prefers-reduced-motion: reduce` collapses durations to 1ms **and** neutralises
+`tw-animate-css`'s enter transforms (`--tw-enter-translate-*`, `--tw-enter-scale`), so
+a reduced-motion user gets no motion rather than an instant snap from an offset. It
+must not touch `scroll-behavior` globally.
+
+---
 
 ## Iconography
 
-Icons are **chrome, not content** — they orient, they never carry the message.
+One monochrome family ([lucide](https://lucide.dev)) at **14px** in chrome and 16px in
+the rail and palette, stroke width 2.
 
-- One monochrome family ([lucide](https://lucide.dev)) at **16px**, stroke weight
-  **2.25** — slightly heavier than default so a small grey glyph stays crisp
-  beside 15px text.
-- Resting colour `{colors.ink-faint-accessible}`, rising to
-  `{colors.ink-secondary}` on hover and in the active nav row.
-- **No multi-colour emoji in the chrome.** Emoji drag in another type family and
-  another palette, render differently per platform, and pull attention toward
-  navigation and away from the user's own writing. The sticker palette's job is
-  personality in illustration — not wayfinding.
-- Every icon-only control carries an accessible name; every icon beside a text
-  label is marked decorative so it is not announced twice.
+- Resting `--ink-3`, rising to `--ink` on hover and in the active nav row.
+- **No emoji, and no fullwidth or ASCII glyph standing in for an icon.** v1 shipped a
+  U+FF0B FULLWIDTH PLUS as the "add a block" affordance beside a lucide `PlusIcon` for
+  the same concept in the rail.
+- Every icon-only control carries an accessible name, and `aria-keyshortcuts` when it
+  has a binding. Icons beside a text label are `aria-hidden`.
+
+---
 
 ## Interaction States
 
-Every interactive element defines all five. A control that only styles its
-default state is unfinished.
+Every interactive element defines all five. A control that styles only its default
+state is unfinished.
 
 | State | Treatment |
 |---|---|
-| Default | As specified per component |
-| Hover | `rgba(0,0,0,0.05)` wash (chrome) or `{colors.surface-hover}` (list/menu rows); glyphs darken one step |
-| Focus | 2px `{colors.primary}` ring, offset 1px, on a visible outline — never removed, never replaced by colour alone |
-| Active/Pressed | `scale(0.97)` for buttons, `scale(0.92)` for icon buttons; primary CTAs also darken to `{colors.primary-active}` |
-| Disabled | ~50% opacity, pointer events off, still present in the layout and still announced |
+| Default | Per component |
+| Hover | `--surface-2` — the one hover colour in the product; glyphs rise to `--ink` |
+| Focus | `outline: 2px solid var(--accent); outline-offset: 2px` — and nothing else |
+| Pressed | `--surface-3` (or `--accent-hover` for the primary action). No transform. |
+| Disabled | 50% opacity, pointer events off, still in the layout, still announced, and in the palette still listed **with its reason** |
 
-Hover and keyboard focus share one highlight in menus and option lists, so
-"where am I" never has two answers.
+Hover and keyboard focus share one highlight in menus, option lists and the palette, so
+"where am I" never has two answers. v1 had six hard-coded hover greys
+(`rgba(0,0,0,0.05)`, `0.06`, `0.08`) and an active nav row 1% away from its own hover
+state; there is now one token.
 
-## Loading & Feedback
+---
 
-- **Below the flash threshold, show nothing.** Local work usually completes in
-  well under `{motion.duration-enter}`; a spinner that appears and vanishes
-  inside that window reads as a flicker and makes fast software feel broken.
-  Delay the indicator by 220ms and let quick operations complete silently.
-- Past that threshold, fade in a quiet spinner in `{colors.ink-faint-accessible}`
-  with a short label. It is calm and centred, not a full-bleed takeover — the
-  surrounding chrome stays put so the layout does not jump when content lands.
-- Durability is ambient, not modal: the save state lives as a small
-  `status-pill` in the top bar (`saved` green, `saving` blue, `unsaved` warm
-  danger with a retry). Editing is never blocked by it.
-- Empty states are invitations with an action attached ("Click to start
-  writing…"), never bare apologies.
+## Disclosure
+
+This section is the contract that answers "why does this app feel cluttered". It is
+enumerative on purpose: **if a control is not on this list, it is not allowed to be
+permanently visible.**
+
+### Always visible
+
+| Control | Where | Why it earns permanence |
+|---|---|---|
+| Graph switcher | Rail, top | Names where you are; the only route between graphs |
+| `Journal` | Rail | The primary daily destination |
+| Page list + `＋` | Rail | Navigation, and the only pointer route to a new page |
+| `Settings`, `All graphs` | Rail footer | Workspace-level, deliberately away from daily use |
+| Search pill (`⌘K`) | Top bar | The single affordance that licenses everything below |
+| Undo / Redo | Top bar, icon-only | The most-used verb in any editor needs a pointer route |
+| Save slot | Top bar | **Renders nothing when saved.** Present only on deviation |
+| Page `⋯` | Title row | The named route to properties, info, and delete |
+| `Today` pill | Journal title row | Only when the date is not today |
+| Read-only label | Top bar | Only in read-only mode |
+
+### Revealed on hover, focus, or `[data-focused]`
+
+Date stepper and calendar trigger · outline row `⋯` · collapse chevron · tag remove
+`×` · graph card `⋯`. Every one of these is also
+in the palette, pinned visible at or below 600px, and revealed on `:focus-within` — and
+revealed with `opacity`, never `display` or `visibility`, so keyboard and automation can
+always reach it.
+
+### Summoned only
+
+The command palette · the shortcut sheet · page properties · tagged-block defaults ·
+page info · block properties and tags · diagnostics · every confirm dialog.
+
+### Deleted outright
+
+- The `JOURNAL` eyebrow above the journal title — the rail already says where you are.
+- The `2026-08-04` subtitle under `Tuesday, August 4, 2026` — the same fact, twice.
+- The visible native date field in the journal header — a third statement of the date.
+- Labelled `Undo` / `Redo` text buttons in the top bar.
+- The bordered `Saved locally` pill.
+- The `＋ Add a block` button — the region below the last block *is* the button.
+- All nine uppercase eyebrow pseudo-headings, promoted to real `<h2>`s.
+- The dashed empty-state box on the graph picker.
+- System property rows (`page.kind`, `journal.date`, `system.created-at`) from the
+  property list; they are page *info*, not page *properties*.
+
+### The budget that justifies this
+
+On a journal page at 1440×900, v1 gave the user's single block of writing 30px of
+vertical space and the two always-expanded property CRUD forms below it 401px —
+**13.4× the pixel area of the user's own text**, on every page, unconditionally. The
+rule that follows is Principle 8: nothing below the outline is chrome.
+
+---
+
+## The Command Layer
+
+The palette is not a convenience feature. It is the thing that pays for an interface
+this bare, so it ships before any control becomes hover-gated.
+
+### One registry, one listener
+
+```ts
+type Command = {
+  id: string
+  group: "Pages" | "Journal" | "Graph" | "Edit" | "Block" | "App"
+  label: string
+  keywords?: string[]
+  binding?: string           // display form, e.g. "⌘⇧P"
+  scope: "global" | "editor"
+  when?(ctx): boolean
+  disabledReason?(ctx): string | null
+  run(ctx): void | Promise<void>
+  pointerRoute: string       // REQUIRED — how a mouse user reaches this verb
+}
+```
+
+`pointerRoute` is mandatory and a unit test fails the build if any entry omits it.
+That is Principle 5, mechanised: the palette may never become the *only* way to do
+something.
+
+**Key arbitration, in order.** An IME composition guard (`isComposing || keyCode === 229`)
+is the first statement in the handler — Korean, Japanese and Chinese input must never
+lose a keystroke to a shortcut. Then: an open overlay, then the editor scope, then the
+global scope, arbitrated solely by `event.defaultPrevented`. **The global layer only
+ever matches bindings that carry `⌘` or `⌃`**, so no bare key can be stolen from a text
+field.
+
+### Global bindings — deliberately few
+
+| Binding | Verb |
+|---|---|
+| `⌘K` | Command palette |
+| `⌘⇧P` | Properties of the focused block, or of the page when none is focused |
+| `⌘/` | Shortcut sheet |
+| `⌘\` | Toggle the rail |
+| `⌘,` | Settings |
+| `⌘Z` / `⇧⌘Z` / `⌃Y` | Undo / Redo — a *document* undo |
+
+Undo is scoped deliberately. Outside a text field it is a document undo. Inside a
+text field it is the platform's own text undo, because a user part-way through
+typing a page title or a property value expects to get their characters back, not
+to have the graph rewind under an uncommitted draft. The one exception is the
+outline's block textarea, which maps to a document undo — there the text *is* the
+document, and that mapping already existed.
+
+Editor-scope bindings belong to the outline and are unchanged: `⏎` new block ·
+`⇧⏎` line break · `⇥` / `⇧⇥` indent / outdent · `⌥↑` / `⌥↓` move · `⌫` on an empty block
+deletes · `←` / `→` at the text edge collapse / expand.
+
+### The palette
+
+640px at `top: 12vh`, `max-height: 60vh`, a full-screen sheet below 600px. A 52px input
+row that keeps DOM focus, then results in groups of 36px rows: label, a `--ink-3` hint,
+and a right-aligned shortcut badge.
+
+- **Navigation first.** Fuzzy page-title matches rank above commands, because "go
+  somewhere" is what a palette is opened for.
+- **Never blank.** An empty query shows recents (MRU) followed by high-frequency actions.
+- **Dates parse in the same input.** `today`, `tomorrow`, `yesterday`, `aug 5`,
+  `2026-08-05`, `next monday`, `3 days ago` all resolve to a top row that opens that
+  journal day. This is why the journal header does not need a visible date field.
+- **The last row is always a way forward.** With no match, `Create page "…"`.
+- **Disabled commands are listed with their reason**, never omitted — a read-only tab
+  should explain itself, not appear to be missing features.
+- Closing without navigating restores the caret exactly: `{blockId, selectionStart,
+  selectionEnd}`.
+- `role="combobox"` with `aria-expanded` / `aria-controls` / `aria-activedescendant`;
+  `role="option"` on non-focusable rows; focus trapped; result count announced politely.
+- Entrance: opacity only, 140ms. Exit: immediate unmount.
+
+### Teaching, in order of reach
+
+1. The permanently visible `⌘K` pill.
+2. A shortcut badge on every palette row.
+3. A shortcut column on every dropdown item.
+4. The `⌘/` sheet — generated *from the registry*, so it cannot drift, and listing the
+   verbs that have no binding along with their pointer route.
+5. One derived first-run hint: while a graph holds exactly one block, a 12px line under
+   the outline reads `⌘K to search · ⌘/ for shortcuts`. At two blocks it never returns.
+
+---
+
+## Components
+
+### The outline
+
+**Row.** 32px at one line: 16px/26px text with 3px of vertical padding.
+`padding-left: calc(var(--depth) * var(--indent))` from a CSS custom property, not an
+inline style that silently overrides the row's own padding shorthand. `cursor: text`
+across the whole row. **No hover fill and no focused-row fill** — the caret is the
+signal, and a full-width blue wash behind the line the user is typing is noise.
+
+**Thread.** One `repeating-linear-gradient` on the row background, offset by half the
+bullet slot, sized to `depth × indent`. Zero extra DOM, because the rows are
+virtualized. Ancestors of the focused row carry `data-ancestor="true"` and switch from
+`--thread` to `--thread-active`, lighting the path from the root to the caret.
+
+**Bullet.** A 5px dot centred in a 20px slot with a 24px hit box achieved by negative
+margin, so the target exceeds the mark without moving layout. The dot escalates
+`--ink-3` → `--ink-2` on row hover → `--ink` when focused. Collapsed-with-children adds
+a 4px `--halo` ring — that ring is the *only* collapsed signal, replacing v1's ring
+*plus* rotated chevron. **Every block shows its bullet, always.** Hiding the mark on
+childless rows was considered and rejected: this is an outliner, the bullet is the
+genre's signature, and a mark that appears the moment a child is added is a
+surprising state change rather than a calmer surface.
+
+**Chevron.** 16px box, 12px glyph, absolutely positioned in reserved space to the left
+of the bullet so text never shifts. `visibility: hidden` without children; `opacity: 0`
+until hover, `:focus-within`, or `[data-focused]`. `←` and `→` at the text edges
+collapse and expand and then move to parent / first child. Rows carry `aria-expanded`;
+the tree carries `aria-activedescendant` while the textarea remains the single tab stop.
+
+**Row menu.** 24px, `opacity: 0` at rest — never `display: none`, which would take it
+out of both the layout and every automated actionability check. Revealed by hover,
+`:focus-within`, and `[data-focused="true"]`. Right-click anywhere on the row opens the
+same menu. Every item carries its shortcut: `Indent ⇥`, `Outdent ⇧⇥`, `Move up ⌥↑`,
+`Move down ⌥↓`, `Properties ⌘⇧P`, `Delete ⌫`.
+
+**Tags.** On their own 20px line beneath the text, left-aligned to the text edge, only
+when present. Borderless: 20px tall, `--surface-2`, `--ink-2`, `--r-1`, with the `#` at
+55% opacity but still inside `textContent`. A deleted target is `line-through` **and**
+says so in its accessible name — never colour alone. The remove `×` grows from v1's
+13×13 to a 24px box, revealed on chip hover.
+
+**Empty and append.** An empty page renders a *fake first line*: a bullet at the exact
+gutter position of row 1 followed by `Write something…`, no button chrome,
+`cursor: text`, over a 200px target. A non-empty page ends in a transparent, textless
+`min(40vh, 320px)` append target occupying what was previously dead bottom padding.
+
+### Title row (journal and page, one shape)
+
+40px. `<h1>` at 30px/600. On the right: a hover-revealed cluster of 24px controls
+(`‹`, a calendar trigger that calls `showPicker()`, `›`), a `Today` pill that is always
+visible when the date is not today, and an always-visible page `⋯`.
+
+The journal's `<input type="date">` stays mounted at all times, value-synced and
+focusable, but clipped — it is a real keyboard tab stop and the target of
+`showPicker()`, without stating the date a third time in the platform's own locale
+format beside a heading that already reads `Tuesday, August 4, 2026`.
+
+A page title is an in-place `<input>` that finally has affordances: `--surface-2` on
+hover, a real focus outline, an `--accent` caret, `⏎` to commit, `Esc` to revert.
+
+### Properties
+
+Both bags move out of the region below the outline into **one collapsed disclosure
+between the title row and the outline** — where Notion puts them, and on Logseq's
+on-demand model.
+
+- **At rest, when the bag is empty: nothing renders.**
+- **At rest, when it is not:** a strip of up to four `key: value` chips (key in mono)
+  plus `+N more`. Clicking any chip expands the panel.
+- **Expanded:** the property rows, the add row, and an `Advanced` disclosure holding
+  the tagged-block defaults.
+- **Three routes in:** the strip, `page ⋯ → Page properties`, and `⌘⇧P`.
+- System keys are filtered out entirely and live in the page-info popover instead.
+
+Value controls stay **native** `<select>`, `<input type="checkbox">` and
+`<input type="date">`, restyled. The platform brings pickers, mobile wheels, type-ahead
+and assistive-technology support for free; a custom listbox brings none of it.
+
+### Save slot
+
+| State | Render |
+|---|---|
+| `saved` | Nothing. Zero-size box, `aria-live="off"`. |
+| `saving` | A 5px `--ink-3` dot, after a 600ms delay so debounced keystrokes never flicker. |
+| `unsaved` | A 5px `--danger` dot, the reason as visible 12px text, and a `Retry` button. `aria-live="assertive"`. |
+
+The element stays mounted with its `data-save` attribute in every state. A transient
+toast would be wrong here: durability is ambient, and it is also the thing tests wait on.
+
+### Overlays
+
+All portaled to the document — a menu anchored inside a scrolling, clipping, transformed
+ancestor (the virtualized outline is all three) cannot escape with `z-index` alone. All
+on the one `--z-*` scale, which replaces four disagreeing definitions where dialog, menu
+and toast were tied at 50. All dismissible by outside click, `Escape`, and selection.
+
+---
+
+## Loading, Empty, Error, Read-only
+
+- **Below the flash threshold, show nothing.** Local work usually finishes in well under
+  220ms; a spinner inside that window makes fast software feel broken. Past it, fade in
+  a quiet spinner with a short label, mounted once — v1 mounted its loading state twice
+  on the same open path, each restarting its own timer.
+- **Empty states are the action.** The graph picker's empty state is one sentence plus
+  the create form as the primary action, not a dashed box containing an instruction that
+  points at a form 100px below it.
+- **Failure keeps the shell.** A tombstone renders inside the page body with the rail
+  and top bar intact. v1 replaced the entire shell with a grey card and one link, so a
+  mistyped date cost the user their navigation.
+- **Danger is announced as danger.** A data-recovery warning is `role="alert"` in the
+  content column with its own gutter, filled with `--danger-soft` and no border — not a
+  polite `role="status"` running edge-to-edge under the top bar.
+- **Read-only explains itself.** One unbordered `Read-only` label beside the save slot,
+  and every blocked command listed in the palette with its reason.
+
+---
+
+## Accessibility Contract
+
+Non-negotiable, and partly enforced by CI (axe, wcag2a/wcag2aa, serious + critical, in
+both colour schemes):
+
+1. Contrast follows the committed table. `--ink-3` never touches `--surface-2/3`.
+2. One visible focus ring on every interactive element, radius inherited, never removed.
+3. Real landmarks: a `<main>` in the primary view and a skip link. `aria-hidden` never
+   lands on the only landmark.
+4. Real headings. Every section that looks like a heading is one; no uppercase `<span>`
+   doing the job, and no `aria-label` duplicating a visible heading.
+5. State is never colour-only and never `title`-only.
+6. The tree exposes `aria-expanded` and `aria-activedescendant`; the textarea is the
+   single tab stop; every collapse affordance is reachable by keyboard.
+7. Live regions match urgency: `off` when saved, `assertive` when unsaved, `alert` for
+   corruption.
+8. Hit targets are ≥ 24px, and ≥ 32px at or below 600px.
+9. IME composition is guarded before any key handler runs.
+10. `role="option"` rows are non-focusable `<div>`s, not buttons.
+
+---
 
 ## Implementation
 
-The design language is implemented as Tailwind CSS v4 + shadcn/ui primitives
-built on Radix, layered over this token set rather than replacing it.
+Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 
-- **Tokens stay canonical.** The `--color-*`, `--radius-*` and `--space-*`
-  variables in `ui/app.css` are the source of truth; `ui/globals.css` bridges
-  them onto shadcn's semantic variables (`--background`, `--primary`,
-  `--muted-foreground`, `--radius`, …) via `@theme inline`. A shadcn primitive
-  therefore inherits the Notion palette by construction, and no component
-  hard-codes a hex value.
-- **Radix supplies behaviour, this document supplies appearance.** Portalling,
-  focus trapping, dismissal, roving focus and ARIA wiring come from the
-  primitive; every visual property comes from the tokens above.
-- **Radius mapping.** shadcn's scale derives from `--radius: 8px`, which lands
-  the utilities on this document's scale:
+- **Cascade order is explicit.** `globals.css` declares
+  `@layer theme, base, neoseq, components, utilities` and imports
+  `@import "./app.css" layer(neoseq)`, so a Tailwind utility can override a bespoke
+  class. v1 imported `app.css` unlayered, which meant it silently beat every utility —
+  the reason a component had to fight its own card with an inline style.
+- **One owner per token.** `app.css` owns `--r-1..4`, the colour ramp and the type
+  scale. `globals.css` maps them onto shadcn's semantic variables through
+  `@theme inline` and declares nothing of its own. v1 declared `--radius-sm/md/lg/xl`,
+  `--font-sans` and `--color-primary` in *both* files with conflicting values.
+- **Class names are namespaced by family and never a bare utility name.** A bespoke
+  class must contain a hyphen. v1's `<section className="outline">` collided with
+  Tailwind's `outline` utility and drew a 1px black box around the entire outliner.
+- **Radix supplies behaviour, this document supplies appearance.** Portalling, focus
+  trapping, dismissal, roving focus and ARIA wiring come from the primitive; every
+  visual property comes from a token. shadcn's `focus-visible:ring-2` and
+  `focus-visible:border-ring` are removed so focus is one ring, not three.
+- **Native where native is better.** Selects, checkboxes and date inputs stay real form
+  controls; Radix is used for overlays and chrome, where the platform offers nothing.
 
-| Utility | Computed | Token |
-|---|---|---|
-| `rounded-sm` | 4px | `{rounded.xs}` |
-| `rounded-md` | 6px | form controls, menu rows |
-| `rounded-lg` | 8px | `{rounded.md}` |
-| `rounded-xl` | 12px | `{rounded.lg}` |
-| `rounded-2xl` | 16px | `{rounded.xl}` |
+---
 
-- **Native where native is better.** Selects, checkboxes and date fields remain
-  real form controls; shadcn/Radix is used for overlays and chrome, where the
-  platform offers nothing equivalent.
-
-
-## Do's and Don'ts
+## Do / Don't
 
 ### Do
-- Reserve `{colors.primary}` for the primary action, inline links, and the active/focus signal — nothing decorative.
-- Keep the page on the warm `{colors.canvas-soft}` canvas; use pure white `{colors.surface}` for cards and fields to create gentle figure/ground.
-- Let the sticker palette (`{colors.accent-pink}`, `{colors.accent-teal}`, `{colors.accent-orange}`, …) live only in illustrations, icon tiles and category dots.
-- Set headlines in heavy `{typography.display-1}`/`{typography.heading-1}` with their negative tracking applied explicitly.
-- Use pill `{rounded.full}` for marketing CTAs and tighter `{rounded.md}` for nav/utility buttons — the contrast is intentional.
-- Define surfaces with `{colors.hairline}` and the barely-there Level-1 shadow rather than heavy drop-shadows.
-- Reserve the deep indigo `{colors.secondary}` "night" treatment for a single hero moment, not repeated bands.
-- Render every floating surface in a portal and place it on the shared `{layers.*}` scale.
-- Animate `opacity` only, in 90–220ms, with `ease`.
-- Use `{colors.ink-faint-accessible}` wherever a faint grey carries real text.
-- Give every interactive element all five states — including a visible focus ring.
-- Pin the navigation and let exactly one region scroll.
+
+- Let the indent thread be the one graphic device, and light the path to the caret.
+- Separate surfaces with a 3–5% lightness step; reach for a border only in the three
+  places listed in § Depth.
+- Declare every colour in both modes in the same block, and keep hue and chroma fixed.
+- Consult the contrast table before styling text on a tinted surface.
+- Reserve `--accent` for actions, links, focus and the active thread.
+- Keep chrome at 14px and smaller so the user's 16px writing is the largest 400-weight
+  text on screen.
+- Use mono only for identifiers: property keys, shortcut badges, ids.
+- Render nothing at all for `saved`, on-today, and an empty property bag.
+- Give every verb a palette entry, a shortcut badge, and a pointer route.
+- Reveal chrome with `opacity`, instantly, and pin it visible on touch and on focus.
+- Animate `opacity` only, and never animate a container that is measured on mount.
 - Keep selects, checkboxes and date fields native; restyle rather than rebuild.
-- Delay loading indicators past 220ms so fast work completes silently.
+- Let exactly one region scroll, and let the top bar never reflow.
 
 ### Don't
-- Don't paint a CTA or structural fill in any sticker-palette colour — those are decoration only.
-- Don't introduce a second structural accent alongside `{colors.primary}`.
-- Don't put pill `{rounded.full}` radii on form fields — inputs stay tight (4–6px).
-- Don't reach for a bigger `z-index` to escape a clipping or transformed ancestor; portal the overlay instead.
-- Don't animate transform, size, or position on anything clickable, and don't fade a container whose text is read or measured as it mounts.
-- Don't let an overlay linger on close, or close only by re-clicking its trigger — outside click and `Escape` must both work.
-- Don't use emoji as interface icons, and don't tint chrome glyphs with the sticker palette.
-- Don't replace a native form control with a custom widget for value entry.
-- Don't set body or caption text in `{colors.ink-faint}` — it fails AA on white; that token is for decoration.
-- Don't show a spinner for work that usually finishes in under 220ms.
-- Don't drop heavy shadows; Notion's elevation is many near-transparent layers, never a hard cast.
-- Don't set body copy in a heavy weight — keep 400 for readability and let weight 700 belong to headlines.
-- Don't place type on pure clinical white for full pages; the warm `{colors.canvas-soft}` is core to the brand calm.
+
+- Don't draw a border to separate two surfaces — that is what lightness is for.
+- Don't ship a dashed empty state, a bordered chip, a bordered status pill, or a card
+  inside a card inside a card.
+- Don't introduce a second structural accent, or tint a chrome glyph.
+- Don't put `--ink-3` on `--surface-2` or `--surface-3`.
+- Don't tune a tracking ramp for a font the app does not actually load, and don't set
+  tracking in `px` on a size that clamps.
+- Don't animate `transform`, `scale`, or `translate` — not on entrance, not on press,
+  not on hover.
+- Don't let an overlay linger on close, and don't reach for a bigger `z-index` to escape
+  a clipping ancestor — portal it.
+- Don't state the same fact twice on one screen, and don't render an uppercase `<span>`
+  where a heading belongs.
+- Don't mount a form below the outline. Ever.
+- Don't hover-gate a control that has no palette entry, no touch pin, and no focus reveal.
+- Don't communicate a state with a `title` attribute, a colour, or a spinner that
+  appears for 40ms.
+- Don't hide a system property in the property list — it is page info, not page data.
+- Don't declare a design token in two files.

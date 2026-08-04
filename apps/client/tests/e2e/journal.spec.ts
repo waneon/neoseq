@@ -56,12 +56,15 @@ test("graph lifecycle: rename and explicit delete", async ({ page }) => {
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("button", { name: "All graphs" }).click();
 
-  await page.getByRole("button", { name: "Rename" }).click();
+  // Row maintenance lives behind the row's ⋯ rather than beside the open action.
+  await page.getByRole("button", { name: /^Actions for / }).click();
+  await page.getByRole("menuitem", { name: "Rename graph" }).click();
   await page.getByTestId("rename-graph-name").fill("Lifecycle Renamed");
   await page.getByTestId("rename-graph-submit").click();
   await expect(page.getByTestId("open-graph-Lifecycle Renamed")).toBeVisible();
 
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("button", { name: /^Actions for / }).click();
+  await page.getByRole("menuitem", { name: /^Delete graph/ }).click();
   await page.getByTestId("confirm-delete-graph").click();
   await expect(page.getByTestId("picker-empty")).toBeVisible();
 });

@@ -4,6 +4,8 @@ import {
   createGraph,
   createPage,
   openBlockInspector,
+  openDefaults,
+  openPageProperties,
   openSidebar,
   startOutline,
   typeInFocusedBlock,
@@ -28,6 +30,7 @@ async function addProperty(
 test("edits every value type plus unknown keys in the generic editor", async ({ page }) => {
   await createGraph(page, "Props Graph");
   await createPage(page, "Everything");
+  await openPageProperties(page);
   const section = page.getByTestId("props-page");
 
   await addProperty(page, "page", "custom.text", "string", async () => {
@@ -53,6 +56,7 @@ test("edits every value type plus unknown keys in the generic editor", async ({ 
   await section.getByLabel("custom.text value").press("Enter");
   await awaitSaved(page);
   await page.reload();
+  await openPageProperties(page);
   await expect(page.getByTestId("props-page").getByLabel("custom.text value")).toHaveValue(
     "updated",
   );
@@ -73,6 +77,7 @@ test("edits every value type plus unknown keys in the generic editor", async ({ 
 test("rejects invalid defaults with a visible validation error", async ({ page }) => {
   await createGraph(page, "Validation Graph");
   await createPage(page, "Rules");
+  await openDefaults(page);
   const defaults = page.getByTestId("props-defaults");
   await defaults.getByLabel("New property key").fill("tag");
   await defaults.getByTestId("props-add-submit").click();
@@ -83,6 +88,7 @@ test("tag with page defaults copies missing keys but never overwrites", async ({
   await createGraph(page, "Tag Graph");
 
   await createPage(page, "Project");
+  await openDefaults(page);
   const defaults = page.getByTestId("props-defaults");
   await defaults.getByLabel("New property key").fill("task.status");
   await defaults.getByLabel("New property value").selectOption("todo");
@@ -138,7 +144,11 @@ test("deleted page references resolve to a tombstone, not a new page", async ({ 
   await startOutline(page);
   await typeInFocusedBlock(page, "content to restore");
 
+  // Deleting a page is now a named menu verb behind a confirmation, matching the
+  // weight the graph delete already carried.
+  await page.getByTestId("page-menu").click();
   await page.getByTestId("delete-page").click();
+  await page.getByTestId("confirm-delete-page").click();
   await expect(page.getByTestId("tombstone")).toBeVisible();
 
   // The page is gone from the sidebar but the route stays resolvable.

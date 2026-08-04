@@ -14,6 +14,24 @@ async function mountPage() {
   return harness;
 }
 
+/**
+ * Page properties are behind a disclosure now — the writing surface carries no
+ * database chrome at rest — so the panel is opened the way a user opens it:
+ * through the page ⋯ menu.
+ */
+async function openPageProperties(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId("page-menu"));
+  await user.click(await screen.findByTestId("menu-page-properties"));
+  return screen.findByTestId("props-panel");
+}
+
+/** The tagged-block defaults live one level deeper, behind Advanced. */
+async function openDefaults(user: ReturnType<typeof userEvent.setup>) {
+  const panel = await openPageProperties(user);
+  await user.click(within(panel).getByTestId("props-defaults-toggle"));
+  return screen.findByTestId("props-defaults");
+}
+
 describe("generic property editor", () => {
   it("edits all five value types and keeps unknown keys editable", async () => {
     const { session } = await mountPage();
@@ -25,6 +43,7 @@ describe("generic property editor", () => {
     await session.execute({ type: "set_property", entity, key: "custom.when", value: { type: "date", value: "2026-08-03" } });
     await session.execute({ type: "set_property", entity, key: "custom.link", value: { type: "page", value: "home" } });
 
+    await openPageProperties(user);
     const section = await screen.findByTestId("props-page");
     // Unknown keys are flagged but rendered through the same rows.
     expect(within(section).getByTestId("prop-custom.text")).toHaveTextContent("custom");
@@ -54,6 +73,7 @@ describe("generic property editor", () => {
   it("adds and removes an unknown property through the add row", async () => {
     await mountPage();
     const user = userEvent.setup();
+    await openPageProperties(user);
     const section = await screen.findByTestId("props-page");
     await user.type(within(section).getByLabelText("New property key"), "future.metric");
     await user.selectOptions(within(section).getByLabelText("New property type"), "number");
@@ -71,7 +91,7 @@ describe("generic property editor", () => {
   it("surfaces validation errors for invalid defaults", async () => {
     await mountPage();
     const user = userEvent.setup();
-    const section = await screen.findByTestId("props-defaults");
+    const section = await openDefaults(user);
     await user.type(within(section).getByLabelText("New property key"), "page.title");
     await user.type(within(section).getByLabelText("New property value"), "nope");
     await user.click(within(section).getByTestId("props-add-submit"));

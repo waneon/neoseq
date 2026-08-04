@@ -5,14 +5,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/shadcn/dialog";
+import { cn } from "@/lib/utils";
 
 export function Dialog({
   title,
   onClose,
+  size = "default",
   children,
 }: {
   title: string;
   onClose: () => void;
+  size?: "default" | "wide";
   children: ReactNode;
 }) {
   // Rendered only while open (parents mount it conditionally), so the Radix
@@ -21,6 +24,7 @@ export function Dialog({
   return (
     <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
+        className={cn(size === "wide" && "max-w-[720px]")}
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}
@@ -34,6 +38,11 @@ export function Dialog({
   );
 }
 
+/**
+ * An inline notice. A danger tone is an `alert`, not a polite `status` — a
+ * data-recovery warning that is announced politely may never be announced at
+ * all.
+ */
 export function Callout({
   tone = "neutral",
   children,
@@ -42,7 +51,10 @@ export function Callout({
   children: ReactNode;
 }) {
   return (
-    <div className={tone === "danger" ? "callout callout-danger" : "callout"} role="status">
+    <div
+      className={tone === "danger" ? "callout callout-danger" : "callout"}
+      role={tone === "danger" ? "alert" : "status"}
+    >
       {children}
     </div>
   );

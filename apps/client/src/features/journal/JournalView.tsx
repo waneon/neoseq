@@ -1,13 +1,12 @@
-// Daily journal. "Today" is computed in the configured IANA timezone; the
-// idempotent EnsureJournal command creates the page on first visit. The
-// page is then located by its journal.date property, so identity stays
-// with the core (deterministic PageId), not with the client.
+// Daily journal. "Today" is computed in the configured timezone; the idempotent
+// EnsureJournal command creates the page on first visit. The page is then located
+// by its journal.date property, so identity stays with the core (deterministic
+// PageId), not with the client.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { findJournalPage } from "../../core-port/snapshot";
-import { Input } from "@/ui/shadcn/input";
 import {
   addDays,
   formatJournalTitle,
@@ -25,6 +24,7 @@ export function JournalView() {
   const [today] = useState(todayLocalDate);
   const date = routeDate ?? today;
   const ensured = useRef<string | null>(null);
+  const dateInput = useRef<HTMLInputElement>(null);
 
   const valid = isValidLocalDate(date);
   const page = valid ? findJournalPage(state.snapshot, date) : undefined;
@@ -48,17 +48,52 @@ export function JournalView() {
 
   const go = (target: string) => navigate(`/g/${graphId}/journal/${target}`);
 
-  const header = (
-    <div>
-      <div className="journal-nav">
-        <span className="eyebrow">Journal</span>
-        <span style={{ flex: 1 }} />
-        <button className="icon-btn" aria-label="Previous day" onClick={() => go(addDays(date, -1))}>
-          <ChevronLeftIcon />
-        </button>
-        <Input
+  // One title row. The heading is the date; the stepper is summoned on hover or
+  // focus; `Today` appears only when the answer is not "today". The native date
+  // input stays mounted, focusable and value-synced but clipped — it is a real
+  // keyboard tab stop and the target of showPicker(), without restating the date
+  // a third time in the platform's own locale format.
+  const header = (menu: ReactNode) => (
+    <div className="title-row">
+      <h1 data-testid="journal-title">{formatJournalTitle(date)}</h1>
+      <div className="title-actions">
+        {date !== today && (
+          <button className="today-pill" onClick={() => go(today)}>
+            Today
+          </button>
+        )}
+        <div className="revealed">
+          <button
+            className="icon-btn"
+            aria-label="Previous day"
+            onClick={() => go(addDays(date, -1))}
+          >
+            <ChevronLeftIcon aria-hidden />
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Open the calendar"
+            onClick={() => {
+              const input = dateInput.current;
+              if (!input) return;
+              input.showPicker?.();
+              input.focus();
+            }}
+          >
+            <CalendarIcon aria-hidden />
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Next day"
+            onClick={() => go(addDays(date, 1))}
+          >
+            <ChevronRightIcon aria-hidden />
+          </button>
+        </div>
+        <input
+          ref={dateInput}
+          className="clipped-control"
           type="date"
-          className="h-8 w-auto"
           aria-label="Jump to date"
           value={date}
           data-testid="journal-date"
@@ -66,19 +101,8 @@ export function JournalView() {
             if (event.target.value) go(event.target.value);
           }}
         />
-        <button className="icon-btn" aria-label="Next day" onClick={() => go(addDays(date, 1))}>
-          <ChevronRightIcon />
-        </button>
-        {date !== today && (
-          <button className="btn btn-utility" onClick={() => go(today)}>
-            Today
-          </button>
-        )}
+        {menu}
       </div>
-      <h1 className="page-title" data-testid="journal-title">
-        {formatJournalTitle(date)}
-      </h1>
-      <p className="page-subtitle">{date}</p>
     </div>
   );
 
@@ -86,8 +110,8 @@ export function JournalView() {
     return (
       <div className="page-scroll">
         <article className="page-body">
-          {header}
-          <p className="outline-empty" aria-busy={state.mode !== "readonly"}>
+          {header(null)}
+          <p className="page-note" aria-busy={state.mode !== "readonly"}>
             {state.mode === "readonly"
               ? "This journal day has no entries yet."
               : "Preparing this journal day…"}

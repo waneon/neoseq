@@ -32,8 +32,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-[rgba(15,15,15,0.35)]",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        "fixed inset-0 z-[var(--z-dialog)] bg-[var(--scrim)] enter-fade",
         className,
       )}
       {...props}
@@ -41,6 +40,16 @@ function DialogOverlay({
   );
 }
 
+// Centred by a flex wrapper rather than `-translate-x-1/2 -translate-y-1/2`, so
+// the panel carries no transform at all. That matters twice over: a transform on
+// the content makes tw-animate-css's `animate-in` keyframes interpolate the
+// dialog's *position* (its `from` transform is identity, not the element's own),
+// and any moving panel is a target automation reports as unstable.
+//
+// The panel also does not fade. Only the scrim does. A dialog is read the instant
+// it opens — by the user, by a screenshot, and by the contrast audit — and text
+// mid-fade composites against its background at partial alpha. There is no exit
+// animation either, so Radix unmounts immediately rather than leaving a ghost.
 function DialogContent({
   className,
   children,
@@ -52,26 +61,27 @@ function DialogContent({
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          "fixed left-1/2 top-1/2 z-50 grid w-full max-w-[440px] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-border bg-card p-6 shadow-2xl",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=open]:duration-150",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground opacity-70 transition-opacity hover:opacity-100 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring outline-none"
-            aria-label="Close"
-          >
-            <XIcon className="size-4" />
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
+      <div className="pointer-events-none fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center p-4">
+        <DialogPrimitive.Content
+          data-slot="dialog-content"
+          className={cn(
+            "pointer-events-auto relative grid w-full max-w-[440px] gap-4 rounded-xl bg-[var(--overlay)] p-6 shadow-[var(--e3)]",
+            className,
+          )}
+          {...props}
+        >
+          {children}
+          {showCloseButton && (
+            <DialogPrimitive.Close
+              data-slot="dialog-close"
+              className="absolute right-3 top-3 inline-flex size-6 items-center justify-center rounded-md text-[var(--ink-3)] transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Close"
+            >
+              <XIcon className="size-3.5" />
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </div>
     </DialogPortal>
   );
 }
@@ -80,7 +90,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-1.5", className)}
+      className={cn("flex flex-col gap-1.5 pr-8", className)}
       {...props}
     />
   );
@@ -107,7 +117,7 @@ function DialogTitle({
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "text-xl font-semibold leading-tight tracking-[-0.0125em]",
+        "text-[19px] font-semibold leading-[25px] tracking-[-0.012em]",
         className,
       )}
       {...props}
