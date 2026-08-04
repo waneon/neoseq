@@ -1,8 +1,12 @@
 // Outline keyboard mapping and IME safety on the virtualized tree.
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { findPage } from "../../src/core-port/snapshot";
+import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
+import { Outliner } from "../../src/features/outline/Outliner";
+import { SessionContext } from "../../src/features/shell/session-context";
 import { GRAPH_ID, mountAt } from "./harness";
 
 async function mountOutline(markdowns: string[] = ["alpha"]) {
@@ -58,6 +62,88 @@ describe("outliner keyboard commands", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("aria-level", "1"),
     );
+  });
+
+  it("keeps rapid input focused while a pending row adopts its real block id", async () => {
+    const { session, port } = await openFakeSession("pending-handoff");
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "alpha",
+    });
+    const frozenPage = findPage(session.getState().snapshot, "home");
+    if (!frozenPage) throw new Error("test page was not created");
+    let releaseInsert = () => undefined;
+    const insertGate = new Promise<void>((resolve) => {
+      releaseInsert = resolve;
+    });
+    let signalInsertStarted = () => undefined;
+    const insertStarted = new Promise<void>((resolve) => {
+      signalInsertStarted = resolve;
+    });
+    let releaseIndent = () => undefined;
+    const indentGate = new Promise<void>((resolve) => {
+      releaseIndent = resolve;
+    });
+    let signalIndentStarted = () => undefined;
+    const indentStarted = new Promise<void>((resolve) => {
+      signalIndentStarted = resolve;
+    });
+    let pauseNextInsert = true;
+    let pauseNextIndent = true;
+    const commandTypes: string[] = [];
+    port.beforeExecute = async (command) => {
+      commandTypes.push(command.type);
+      if (command.type === "insert_block" && pauseNextInsert) {
+        pauseNextInsert = false;
+        signalInsertStarted();
+        await insertGate;
+      } else if (command.type === "indent_block" && pauseNextIndent) {
+        pauseNextIndent = false;
+        signalIndentStarted();
+        await indentGate;
+      }
+    };
+
+    // Model the real handoff race: GraphSession has reconciled the insert,
+    // while the parent still holds the page object from the previous render.
+    render(
+      <SessionContext.Provider value={session}>
+        <Outliner page={frozenPage} scrollElement={null} />
+      </SessionContext.Provider>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText("Block text"));
+    // Chain a second pending row while the first insert is still in flight.
+    await user.keyboard("{Enter}{Tab}child{Enter}");
+    await insertStarted;
+    await act(async () => {
+      releaseInsert();
+      await indentStarted;
+    });
+    // Queue a third row while the first pending row is replaying its indent.
+    // The second insert must wait, then compute its parent from the new tree.
+    await user.keyboard("{Tab}grandchild{Enter}");
+    await act(async () => {
+      releaseIndent();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(4));
+    expect(document.activeElement).toBe(screen.getAllByLabelText("Block text")[3]);
+    await waitFor(() => {
+      expect(commandTypes.filter((type) => type === "indent_block")).toHaveLength(2);
+      const page = findPage(session.getState().snapshot, "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["alpha"]);
+      expect(page?.blocks[0].children.map((block) => block.markdown)).toEqual(["child"]);
+      expect(page?.blocks[0].children[0].children.map((block) => block.markdown)).toEqual([
+        "grandchild",
+        "",
+      ]);
+    });
   });
 
   it("splits the block when Enter is pressed mid-text", async () => {

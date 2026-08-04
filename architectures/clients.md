@@ -97,11 +97,16 @@ restores the authoritative subtree and retains focus where possible.
 
 The one optimistic structure is block insertion: Enter mounts a focused
 pending row immediately so fast typing lands in the new block, and the row
-swaps to its real `BlockId` when the core acknowledges the insert. Pending
-rows may chain; queued inserts, indent/outdent intents, and raced keystrokes
-replay in order against real ids, and the known inverse (drop the row) applies
-if the insert is rejected. Text drafts are dropped only once the authoritative
-snapshot matches them, so debounced splices are never lost.
+swaps to its real `BlockId` from the reconciled session snapshot when the core
+acknowledges the insert. The handoff restores focus during the same layout
+commit, so a parent render lag cannot expose an unfocused or missing editor to
+the next input event. Pending rows may chain; queued inserts, indent/outdent
+intents, and raced keystrokes replay in order against real ids. Only one
+pending handoff dispatches at a time, and the next insert derives its parent
+and index after the preceding structural intents reconcile. The known inverse
+(drop the row) applies if an insert is rejected. Text drafts are dropped only
+once the authoritative snapshot matches them, so debounced splices are never
+lost.
 
 ## Property-Driven Features
 

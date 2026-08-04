@@ -13,6 +13,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDownIcon,
@@ -35,7 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findBlock, repeatedValues } from "../../core-port/snapshot";
+import { findBlock, findPage, repeatedValues } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { BlockInspector } from "../properties/BlockInspector";
@@ -116,12 +117,17 @@ export function Outliner({
   const pendingCaret = useRef<number | null>(null);
   const pendingSeq = useRef(0);
   const pendingRows = useRef<PendingRow[]>([]);
+  const pendingDispatching = useRef(false);
   const pageRef = useRef(page);
   const collapsedRef = useRef(collapsed);
-  pageRef.current = page;
+  // GraphSession resolves commands only after reconciling its snapshot. Read
+  // that snapshot directly during the temp-id handoff so a parent render that
+  // still carries the previous page object cannot briefly remove the editor.
+  const authoritativePage = findPage(state.snapshot, page.id) ?? page;
+  pageRef.current = authoritativePage;
   collapsedRef.current = collapsed;
 
-  const rows = withPendingRows(flattenOutline(page, collapsed), pendingRows.current);
+  const rows = withPendingRows(flattenOutline(authoritativePage, collapsed), pendingRows.current);
   const readonly = state.mode === "readonly";
 
   // Drop a block's draft only once the authoritative snapshot matches it;
@@ -195,9 +201,16 @@ export function Outliner({
 
   /** Dispatches the oldest pending insert whose predecessor id is real. */
   const dispatchPending = useCallback(() => {
+    if (pendingDispatching.current) return;
     const head = pendingRows.current[0];
     if (!head || head.dispatched || isPendingId(head.afterId)) return;
-    const source = flattenOutline(pageRef.current, collapsedRef.current).find(
+    // A preceding queued structural command may have reconciled after the
+    // component's last render. Compute the next insert from GraphSession's
+    // current snapshot, not the render-time page ref, so parent/index cannot
+    // lag behind an indent or outdent that just completed.
+    const currentPage =
+      findPage(session.getState().snapshot, pageRef.current.id) ?? pageRef.current;
+    const source = flattenOutline(currentPage, collapsedRef.current).find(
       (row) => row.block.id === head.afterId,
     );
     if (!source) {
@@ -206,26 +219,46 @@ export function Outliner({
       return;
     }
     head.dispatched = true;
+    pendingDispatching.current = true;
     session
       .execute({
         type: "insert_block",
-        page_id: pageRef.current.id,
+        page_id: currentPage.id,
         parent: head.mode === "child" ? head.afterId : source.parentId,
         index: head.mode === "child" ? 0 : source.index + 1,
         markdown: head.baseline,
       })
       .then(async (result) => {
         const realId = result.created_block;
-        pendingRows.current.shift();
         const typed = drafts.current.get(head.tempId) ?? head.baseline;
+        const wasFocused = focusedRef.current === head.tempId;
         const active = document.activeElement;
         const caret =
           active instanceof HTMLTextAreaElement ? active.selectionStart : typed.length;
-        drafts.current.delete(head.tempId);
-        baselines.current.delete(head.tempId);
         if (realId) {
           for (const entry of pendingRows.current) {
             if (entry.afterId === head.tempId) entry.afterId = realId;
+          }
+          if (typed !== head.baseline) {
+            // Keystrokes that raced the acknowledgement move to the block
+            // and persist immediately (unless an IME composition is open).
+            drafts.current.set(realId, typed);
+            baselines.current.set(realId, head.baseline);
+          }
+          // Commit removal of the temp row, the real-id focus state, and the
+          // reconciled snapshot in one browser task. The layout focus effect
+          // runs before flushSync returns, so no key can land between the two
+          // textarea identities or hit a handler that still names tempId.
+          flushSync(() => {
+            pendingRows.current.shift();
+            drafts.current.delete(head.tempId);
+            baselines.current.delete(head.tempId);
+            if (wasFocused) setFocus(realId, caret);
+            force();
+          });
+          if (typed !== head.baseline) {
+            if (composing.current) scheduleFlush(realId);
+            else flushNow(realId);
           }
           // Structural keys typed before acknowledgement replay in order and
           // must reconcile before the next pending insert computes its
@@ -238,22 +271,20 @@ export function Outliner({
               })
               .catch(() => undefined);
           }
-          if (typed !== head.baseline) {
-            // Keystrokes that raced the acknowledgement move to the block
-            // and persist immediately (unless an IME composition is open).
-            drafts.current.set(realId, typed);
-            baselines.current.set(realId, head.baseline);
-            if (composing.current) scheduleFlush(realId);
-            else flushNow(realId);
-          }
-          if (focusedRef.current === head.tempId) setFocus(realId, caret);
         } else {
+          pendingRows.current.shift();
+          drafts.current.delete(head.tempId);
+          baselines.current.delete(head.tempId);
           abandonPending();
         }
+        pendingDispatching.current = false;
         force();
         dispatchPending();
       })
-      .catch(() => abandonPending());
+      .catch(() => {
+        pendingDispatching.current = false;
+        abandonPending();
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, scheduleFlush, setFocus]);
 
@@ -277,7 +308,7 @@ export function Outliner({
 
   const editor: EditorContext = {
     session,
-    pageId: page.id,
+    pageId: authoritativePage.id,
     readonly,
     focusedId,
     pendingCaret,
@@ -318,24 +349,35 @@ export function Outliner({
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
       drafts.current.set(tempId, tail);
-      pendingRows.current.push({
-        tempId,
-        afterId: row.block.id,
-        mode: asChild ? "child" : "sibling",
-        baseline: tail,
-        dispatched: false,
-        structural: [],
+      // Enter must return with the new textarea already mounted and focused;
+      // the following key may arrive in the next browser task with no delay.
+      flushSync(() => {
+        pendingRows.current.push({
+          tempId,
+          afterId: row.block.id,
+          mode: asChild ? "child" : "sibling",
+          baseline: tail,
+          dispatched: false,
+          structural: [],
+        });
+        setFocus(tempId, 0);
+        force();
       });
-      setFocus(tempId, 0);
-      force();
       dispatchPending();
     },
     queuePendingStructural: (tempId, kind) => {
-      pendingRows.current.find((entry) => entry.tempId === tempId)?.structural.push(kind);
+      const pending = pendingRows.current.find((entry) => entry.tempId === tempId);
+      pending?.structural.push(kind);
     },
     insertRootBlock: (index) => {
       void session
-        .execute({ type: "insert_block", page_id: page.id, parent: null, index, markdown: "" })
+        .execute({
+          type: "insert_block",
+          page_id: authoritativePage.id,
+          parent: null,
+          index,
+          markdown: "",
+        })
         .then((result) => {
           if (result.created_block) setFocus(result.created_block, 0);
         })
@@ -366,7 +408,7 @@ export function Outliner({
         void run({
           type: "move_block",
           block_id: row.block.id,
-          page_id: page.id,
+          page_id: authoritativePage.id,
           parent: row.parentId,
           index: target,
         });
@@ -443,7 +485,7 @@ export function Outliner({
       {rows.length > 0 && !readonly && (
         <button
           className="btn btn-ghost outline-add"
-          onClick={() => editor.insertRootBlock(page.blocks.length)}
+          onClick={() => editor.insertRootBlock(authoritativePage.blocks.length)}
           data-testid="outline-append"
         >
           ＋ Add a block
@@ -626,7 +668,7 @@ function BlockRow({
     textarea.style.height = `${Math.max(textarea.scrollHeight, 28)}px`;
   }, [value]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isFocused) return;
     const textarea = textareaRef.current;
     if (!textarea || document.activeElement === textarea) return;

@@ -54,6 +54,8 @@ export class FakeCorePort implements SessionPort {
 
   /** Set to make the next execute report a non-durable write. */
   failNextSave: CorePortError | null = null;
+  /** Optional barrier for deterministic command-ordering component tests. */
+  beforeExecute: ((command: Command) => Promise<void>) | null = null;
   private pendingSave = false;
 
   async openGraph(request: OpenGraphRequest): Promise<OpenGraphResponse> {
@@ -71,6 +73,7 @@ export class FakeCorePort implements SessionPort {
     if (!this.open) fail("graph_not_open", "graph is not open");
     const envelope = request.command as CommandEnvelope;
     const command = envelope.command;
+    await this.beforeExecute?.(command);
     const before = clone(this.pages);
     const result = {
       command_id: envelope.command_id,
