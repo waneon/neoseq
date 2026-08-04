@@ -1,5 +1,5 @@
 // The generic property experience: five value types, unknown-key fallback,
-// removal, validation errors, and defaults constraints — all through the
+// removal and validation errors — all through the
 // same uniform editor.
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -23,13 +23,6 @@ async function openPageProperties(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId("page-menu"));
   await user.click(await screen.findByTestId("menu-page-properties"));
   return screen.findByTestId("props-panel");
-}
-
-/** The tagged-block defaults live one level deeper, behind Advanced. */
-async function openDefaults(user: ReturnType<typeof userEvent.setup>) {
-  const panel = await openPageProperties(user);
-  await user.click(within(panel).getByTestId("props-defaults-toggle"));
-  return screen.findByTestId("props-defaults");
 }
 
 describe("generic property editor", () => {
@@ -88,15 +81,16 @@ describe("generic property editor", () => {
     );
   });
 
-  it("surfaces validation errors for invalid defaults", async () => {
+  it("surfaces validation errors for structural property keys", async () => {
     await mountPage();
     const user = userEvent.setup();
-    const section = await openDefaults(user);
+    await openPageProperties(user);
+    const section = await screen.findByTestId("props-page");
     await user.type(within(section).getByLabelText("New property key"), "page.title");
     await user.type(within(section).getByLabelText("New property value"), "nope");
     await user.click(within(section).getByTestId("props-add-submit"));
     expect(await within(section).findByTestId("props-error")).toHaveTextContent(
-      "cannot be a page default",
+      "structural and cannot be a property",
     );
   });
 

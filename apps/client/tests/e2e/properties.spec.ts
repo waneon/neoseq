@@ -4,7 +4,6 @@ import {
   createGraph,
   createPage,
   openBlockInspector,
-  openDefaults,
   openPageProperties,
   openSidebar,
   startOutline,
@@ -13,7 +12,7 @@ import {
 
 async function addProperty(
   page: Page,
-  section: "page" | "defaults" | "block",
+  section: "page" | "block",
   key: string,
   type: string | null,
   fill: (page: Page) => Promise<void>,
@@ -74,29 +73,20 @@ test("edits every value type plus unknown keys in the generic editor", async ({ 
   await expect(page.getByTestId("props-page").getByTestId("prop-custom.count")).toHaveCount(0);
 });
 
-test("rejects invalid defaults with a visible validation error", async ({ page }) => {
+test("rejects structural property keys with a visible validation error", async ({ page }) => {
   await createGraph(page, "Validation Graph");
   await createPage(page, "Rules");
-  await openDefaults(page);
-  const defaults = page.getByTestId("props-defaults");
-  await defaults.getByLabel("New property key").fill("tag");
-  await defaults.getByTestId("props-add-submit").click();
-  await expect(defaults.getByTestId("props-error")).toContainText("cannot be a page default");
+  await openPageProperties(page);
+  const properties = page.getByTestId("props-page");
+  await properties.getByLabel("New property key").fill("tag");
+  await properties.getByTestId("props-add-submit").click();
+  await expect(properties.getByTestId("props-error")).toContainText("structural and cannot be a property");
 });
 
-test("tag with page defaults copies missing keys but never overwrites", async ({ page }) => {
+test("first-class tags can be created, reused, and removed", async ({ page }) => {
   await createGraph(page, "Tag Graph");
 
-  await createPage(page, "Project");
-  await openDefaults(page);
-  const defaults = page.getByTestId("props-defaults");
-  await defaults.getByLabel("New property key").fill("task.status");
-  await defaults.getByLabel("New property value").selectOption("todo");
-  await defaults.getByTestId("props-add-submit").click();
-  await expect(defaults.getByTestId("prop-task.status")).toBeVisible();
-  await awaitSaved(page);
-
-  // Journal block that already tracks its own status.
+  // A tag is created independently of pages and does not overwrite properties.
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
   await startOutline(page);
@@ -108,34 +98,28 @@ test("tag with page defaults copies missing keys but never overwrites", async ({
   await inspector.getByTestId("props-add-submit").click();
   await expect(inspector.getByLabel("task.status value")).toHaveValue("doing");
 
-  // Repeated tag via autocomplete: the default must not overwrite "doing".
-  await inspector.getByTestId("page-autocomplete").fill("Proj");
-  await page.getByRole("option", { name: "Project" }).click();
+  await inspector.getByTestId("tag-autocomplete").fill("Project");
+  await page.getByRole("option", { name: "Create tag “Project”" }).click();
   await expect(inspector.getByTestId("tag-chip")).toContainText("#Project");
   await expect(inspector.getByLabel("task.status value")).toHaveValue("doing");
 
-  // A second block without task.status receives the default copy.
+  // A second block reuses the same TagId from the graph tag registry.
   await inspector.getByLabel("Close block properties").click();
   await page.locator('[data-testid="outline-row"] textarea').first().click();
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await typeInFocusedBlock(page, "fresh block");
   await openBlockInspector(page, 1);
-  await page.getByTestId("block-inspector").getByTestId("page-autocomplete").fill("Proj");
+  await page.getByTestId("block-inspector").getByTestId("tag-autocomplete").fill("Proj");
   await page.getByRole("option", { name: "Project" }).click();
-  await expect(
-    page.getByTestId("block-inspector").getByLabel("task.status value"),
-  ).toHaveValue("todo");
+  await expect(page.getByTestId("block-inspector").getByTestId("tag-chip")).toContainText("#Project");
 
-  // Removing the repeated tag keeps the copied ordinary property.
+  // Removing membership does not delete the graph-scoped tag definition.
   await page
     .getByTestId("block-inspector")
     .getByRole("button", { name: "Remove tag Project" })
     .click();
   await expect(page.getByTestId("block-inspector").getByTestId("tag-chip")).toHaveCount(0);
-  await expect(
-    page.getByTestId("block-inspector").getByLabel("task.status value"),
-  ).toHaveValue("todo");
 });
 
 test("deleted page references resolve to a tombstone, not a new page", async ({ page }) => {

@@ -2,9 +2,9 @@
 
 ## Goals and Boundary
 
-Users can program reusable searches over Markdown, properties, hierarchy, and
-dates. Tags and task fields are queried through the same property operators as
-all other non-text features. Queries are client-side derived views: they never
+Users can program reusable searches over Markdown, properties, tags, hierarchy,
+and dates. Tags have a typed structural predicate while task fields use ordinary
+property operators. Queries are client-side derived views: they never
 mutate the graph, synchronize result sets, or execute on the remote service.
 
 V1 uses a purpose-built declarative query language rather than JavaScript, Rust,
@@ -19,7 +19,7 @@ The textual syntax is a small pipeline compiled to a typed AST. For example:
 
 ```text
 from blocks
-| where property("tag") contains page("project")
+| where has_tag(tag("project"))
     and property("task.status") == string("todo")
     and property("task.deadline") <= date($today)
 | sort property("task.priority") asc
@@ -30,15 +30,15 @@ from blocks
 Core constructs include:
 
 - sources: `blocks`, `pages`;
-- predicates: boolean logic, typed property comparison/membership, case-folded
-  Markdown match, and ancestor/descendant relations;
+- predicates: boolean logic, typed property comparison/membership, stable tag
+  membership, case-folded Markdown match, and ancestor/descendant relations;
 - parameters such as `$today` supplied as typed values by the caller;
 - projection, stable multi-key sorting, distinct, and limit;
 - explicit stable page-ID references with human-readable title hints.
 
-Autocomplete inserts stable `PageId` references with display-title hints so
-renames do not break queries. A hand-written title-only reference is resolved at
-compile time; ambiguity is a diagnostic, never a silent arbitrary choice. For
+Autocomplete inserts stable `PageId` or `TagId` references with display-name
+hints so renames do not break queries. A hand-written name-only reference is
+resolved at compile time; ambiguity is a diagnostic, never a silent arbitrary choice. For
 page rows, `property(key)` addresses the page property bag; `default(key)`
 explicitly addresses its default bag.
 
@@ -63,8 +63,8 @@ Indexes are per open graph and reconstructable from CRDT state:
 
 - entity tables for pages and blocks;
 - block-to-page and parent/child relationships;
-- property presence and typed value indexes by key, including repeated values
-  such as `tag`;
+- property presence and typed value indexes by key;
+- tag membership by stable `TagId`;
 - normalized text token/trigram index;
 - journal date and page title indexes.
 
@@ -121,8 +121,8 @@ over the generic property API, not a separate persisted model.
 - Parser/typechecker golden tests cover diagnostics and language versions.
 - Property comparison tests cover all value types, missing values, and dangling
   page references.
-- Uniformity tests verify tags and task fields through generic property
-  operators, without feature-specific query paths.
+- Tag tests verify the structural membership predicate; property tests verify
+  task fields through generic operators.
 - Differential tests compare indexed plans with a slow full-scan interpreter.
 - Native/Wasm conformance tests run the same graph and query corpus.
 - Fuzzing targets the parser, planner, and cancellation/resource boundaries.

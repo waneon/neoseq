@@ -8,14 +8,13 @@
 // - closed, empty bag  → nothing renders at all; the page ⋯ menu is the route in
 // - closed, non-empty  → a strip of `key: value` chips, so the data stays visible
 //                        and the panel is discoverable without being open
-// - open               → the same editors as before, with the tagged-block
-//                        defaults behind an Advanced disclosure
+// - open               → the same page property editor as before
 //
 // Three routes in: the strip, the page ⋯ menu, and ⌘⇧P. System keys are filtered
 // out — they are facts about the page (page ⋯ → Page info), not data on it.
 
 import { useEffect, useMemo } from "react";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import type { PageSnapshot, PropertyEntry, PropertyValue } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import { isSystemKey } from "../../entities/properties";
@@ -92,20 +91,6 @@ export function PageProperties({
         title="Page properties"
         showHeading={false}
       />
-      <details className="props-advanced">
-        <summary data-testid="props-defaults-toggle">
-          <ChevronRightIcon aria-hidden />
-          Defaults for tagged blocks
-        </summary>
-        <PropertyBagEditor
-          kind="defaults"
-          targetId={page.id}
-          bag={page.defaults}
-          title="Defaults for tagged blocks"
-          description="Copied to a block when it is tagged with this page, unless the block already has the key."
-          showHeading={false}
-        />
-      </details>
     </div>
   );
 }

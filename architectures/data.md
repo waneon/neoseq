@@ -7,7 +7,7 @@ control, synchronization, and deletion independent. A peer/session ID is
 generated for every simultaneously active graph runtime and is never shared
 between tabs, processes, or devices.
 
-The document has two stable root containers:
+The document has three stable root containers:
 
 ```text
 meta: Map
@@ -15,6 +15,7 @@ meta: Map
   schema_version: integer
   applied_migrations: Map<migration_id, true>
 pages: Map<PageId, PageMap>
+tags: Map<TagId, TagRecord>
 ```
 
 Root names and container types are permanent protocol. New root fields may be
@@ -25,39 +26,42 @@ added, but an existing name cannot change type.
 `pages` is keyed by stable `PageId`. A page map contains:
 
 ```text
-properties: PropertyBag
-defaults: PropertyBag
-outline: MovableTree<BlockData>
+root: NodeData
+outline: MovableTree<NodeData>
 ```
 
-Regular pages have `page.kind: "regular"` and an atomic `page.title: String`
-property; title uniqueness is not required. Journals have `page.kind: "journal"`
+The root node's collaborative `content` is the regular page title; title
+uniqueness is not required. Regular pages have `page.kind: "regular"` in the
+root property bag. Journals have `page.kind: "journal"`
 and `journal.date: Date`; their display title is derived from the date. Journal
 IDs are deterministically derived from `GraphId` and the date, so all replicas
 address the same page when creating that day's journal.
 
-Page creation/deletion metadata that affects presentation also uses well-known
+Page creation/deletion metadata in the root node also uses well-known
 string properties such as `system.created-at` and `system.deleted-at` with
-canonical timestamp encodings. Concurrent initialization of the two property
-bags uses Loro's mergeable/get-or-create operation rather than replacing a child
-container under the same map key.
+canonical timestamp encodings. Concurrent initialization uses Loro's
+mergeable/get-or-create operation rather than replacing a child container under
+the same map key.
 
 Timestamps are user-facing metadata, not conflict-order authorities. CRDT
 ordering determines merge results.
 
-## Blocks and Ordering
+## Nodes and Ordering
+
+Page roots and outline blocks share exactly one persisted payload:
+
+```text
+NodeData
+  content: Text
+  properties: PropertyBag
+  tag_refs: Map<TagId, true>
+```
 
 Every page owns one nested `outline` movable tree. Every tree node is a block
 and its Loro tree ID is wrapped as the stable external `BlockId`. Node data
-contains:
-
-```text
-markdown: Text
-properties: PropertyBag
-```
-
-`markdown` is the only user semantic stored outside the property bag. Page
-membership is structural and immutable: the containing `PageMap.outline` owns
+uses `content` as block Markdown; the page root uses the same field as its
+title. Page membership is structural and immutable: the containing
+`PageMap.outline` owns
 the block. Indent, outdent, reorder, and subtree moves operate only inside that
 tree. Moving content to another page is an explicit copy with new block IDs,
 not a cross-tree move.
@@ -66,13 +70,30 @@ The runtime enforces and repairs these projection invariants:
 
 - every visible block is reachable from exactly one live page outline;
 - no visible cycle exists;
-- repeated `tag` entries have page values, though deleted/missing targets remain
+- tag references contain valid `TagId`s, though deleted/missing targets remain
   as dangling refs;
 - invalid property encodings are quarantined instead of coerced.
 
 Loro provides conflict-free hierarchy moves and sibling ordering. A block
 command carries its owning `PageId` as a locality hint, and the core rejects a
 page/block mismatch without searching other page trees.
+
+## Tags
+
+`tags` is keyed by stable `TagId`. A tag record contains an atomic `name`, a
+property bag for lifecycle metadata, and a default property bag. Node
+membership is a CRDT set encoded as `tag_refs: Map<TagId, true>`; it is not a
+property and never points to a page. Renaming a tag therefore does not rewrite
+members. Reverse membership is a derived local query index, not a second
+authoritative CRDT relation.
+
+Adding a tag and materializing its missing defaults is one transaction.
+Removing it leaves materialized properties intact. Deleting a tag is logical;
+node references remain as inspectable dangling references until explicit
+cleanup.
+
+Tag defaults are copied when a tag is attached. They are materialized ordinary
+properties, not inherited or retroactive values.
 
 ## Uniform Property Bag and Encoding
 
@@ -84,10 +105,9 @@ PropertyEntry = { key: PropertyKey, value: EncodedPropertyValue }
 ```
 
 `PropertySlot` is internal identity. A single-valued key uses one deterministic
-slot. A repeated key uses a deterministic logical member identity; for example,
-each `tag: PageId` entry uses the referenced page ID, making tag addition
-idempotent while allowing multiple tags. The public model remains a collection
-of string key/typed value pairs and does not expose slot encoding.
+slot. A repeated key uses a deterministic logical member identity. The public
+model remains a collection of string key/typed value pairs and does not expose
+slot encoding.
 
 Each entry value is one canonical JSON UTF-8 string in the Loro map, so a
 concurrent write cannot combine a type from one write with a payload from
@@ -101,15 +121,15 @@ another. Its decoded form is:
 { type: "date",     value: YYYY-MM-DD }
 ```
 
-The JSON representation is canonical and versioned with document schema 2. It
+The JSON representation is canonical and versioned with document schema 3. It
 is decoded into `PropertyEntry` and `PropertyValue` immediately; raw JSON does
 not escape the projection. A single slot is `s:<key>`. A repeated slot is
 `r:<key>:<sha256(canonical-value)>`, which makes equal member addition
 idempotent. Map semantics merge slots independently, and concurrent writes to
 one slot resolve as one complete value.
 
-Well-known entries include `tag`, `query.source`, `query.language`, task fields,
-`page.title`, `page.kind`, and `journal.date`. They use exactly
+Well-known entries include `query.source`, `query.language`, task fields,
+`page.kind`, and `journal.date`. They use exactly
 the same encoding and synchronization path as user-defined properties. The
 registry adds type/cardinality validation and feature projection but no extra
 storage.
@@ -120,6 +140,7 @@ Deletion is initially logical:
 
 - block deletion uses the tree CRDT's deletion semantics;
 - page deletion writes `system.deleted-at` and hides its nested outline;
+- tag deletion writes `system.deleted-at` without rewriting node references;
 - references to deleted entities remain inspectable;
 - restoring a page removes that property and reveals its surviving outline.
 
@@ -210,13 +231,14 @@ when no valid checkpoint exists.
 
 ## Schema Evolution
 
-The current core opens document schema 2 only. Schema 1 used one graph-global
-outline and encoded page membership as a block property; moving those nodes
-into nested page trees cannot preserve their Loro tree IDs. The core therefore
-rejects schema 1 explicitly instead of silently rewriting block identity. Its
-fixtures remain as historical compatibility inputs, while schema-2 fixtures are
-loaded by native and Wasm tests. Future identity-preserving migrations are
-monotonic, idempotent functions recorded in `applied_migrations`. A remote graph
+The current core opens document schema 3 only. Schema 1 used one graph-global
+outline, while schema 2 used page-backed tags and lacked root `NodeData`.
+Converting a page that may simultaneously be note content and a tag definition
+requires an explicit user-facing identity policy, so older schemas are rejected
+rather than silently splitting or merging identities. Historical fixtures remain
+compatibility inputs, while schema-3 fixtures are loaded by native and Wasm
+tests. Future identity-preserving migrations are monotonic, idempotent functions
+recorded in `applied_migrations`. A remote graph
 migration also requires a server-advertised minimum client version so an older
 client cannot write an incompatible shape.
 

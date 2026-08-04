@@ -2,7 +2,7 @@ use crate::{LocalDate, PageId, PropertyKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 2;
+pub const REGISTRY_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -76,13 +76,6 @@ const QUERY_LANGUAGES: &[&str] = &["neoseq"];
 
 pub const REGISTRY: &[PropertyDefinition] = &[
     PropertyDefinition {
-        key: "tag",
-        value_type: PropertyType::Page,
-        cardinality: Cardinality::Repeated,
-        defaultable: false,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
         key: "query.source",
         value_type: PropertyType::String,
         cardinality: Cardinality::Single,
@@ -123,13 +116,6 @@ pub const REGISTRY: &[PropertyDefinition] = &[
         cardinality: Cardinality::Single,
         defaultable: true,
         allowed_strings: TASK_PRIORITIES,
-    },
-    PropertyDefinition {
-        key: "page.title",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        defaultable: false,
-        allowed_strings: NONE,
     },
     PropertyDefinition {
         key: "page.kind",
@@ -185,12 +171,14 @@ pub enum PropertyError {
     },
     #[error("property {key} does not allow string value {value:?}")]
     InvalidString { key: String, value: String },
-    #[error("property {0} cannot be a page default")]
+    #[error("property {0} cannot be a tag default")]
     NotDefaultable(String),
     #[error("property number must be finite")]
     NonFiniteNumber,
     #[error("property string exceeds 65536 bytes")]
     StringTooLong,
+    #[error("{0} is structural and cannot be stored as a property")]
+    StructuralKey(String),
 }
 
 pub fn validate_property(
@@ -199,6 +187,9 @@ pub fn validate_property(
     cardinality: Cardinality,
 ) -> Result<(), PropertyError> {
     value.validate_shape()?;
+    if matches!(key.as_str(), "tag" | "page.title" | "block.page") {
+        return Err(PropertyError::StructuralKey(key.to_string()));
+    }
     let Some(item) = definition(key) else {
         return Ok(());
     };
@@ -232,7 +223,10 @@ pub fn validate_property(
 
 pub fn validate_default(key: &PropertyKey, value: &PropertyValue) -> Result<(), PropertyError> {
     value.validate_shape()?;
-    if key.as_str().starts_with("page.") || key.as_str().starts_with("system.") {
+    if key.as_str().starts_with("page.")
+        || key.as_str().starts_with("system.")
+        || matches!(key.as_str(), "tag" | "block.page")
+    {
         return Err(PropertyError::NotDefaultable(key.to_string()));
     }
     if let Some(item) = definition(key) {
@@ -292,7 +286,7 @@ mod tests {
                 &PropertyValue::Page(PageId::new("p").unwrap()),
                 Cardinality::Repeated
             )
-            .is_ok()
+            .is_err()
         );
         assert!(
             validate_property(
@@ -319,7 +313,7 @@ mod tests {
     #[test]
     fn registry_matches_the_versioned_fixture() {
         let expected: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../fixtures/core/property-definitions-v2.json"
+            "../../../fixtures/core/property-definitions-v3.json"
         ))
         .unwrap();
         assert_eq!(registry_fixture(), expected);

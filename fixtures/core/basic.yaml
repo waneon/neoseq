@@ -7,15 +7,18 @@ commands:
   - op: ensure_page
     page_id: projects
     title: Projects
+  - op: ensure_tag
+    tag_id: project
+    name: Project
   - op: ensure_journal
     date: 2026-08-03
     as_id: journal
-  - op: set_page_default
-    page_id: projects
+  - op: set_tag_default
+    tag_id: project
     key: task.status
     value: { type: string, value: todo }
-  - op: set_page_default
-    page_id: projects
+  - op: set_tag_default
+    tag_id: project
     key: custom.reviewed
     value: { type: checkbox, value: false }
   - op: insert_block
@@ -75,7 +78,7 @@ commands:
     value: { type: page, value: home }
   - op: add_tag
     block: first
-    page_id: projects
+    tag_id: project
   - op: remove_property
     entity: block:first
     key: custom.estimate

@@ -41,7 +41,7 @@ import {
 import { MOD } from "../commands/keys";
 import { useCommands } from "../commands/context";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findBlock, findPage, repeatedValues } from "../../core-port/snapshot";
+import { findBlock, findPage } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { BlockInspector } from "../properties/BlockInspector";
@@ -771,7 +771,7 @@ function withPendingRows(rows: OutlineRow[], pending: PendingRow[]): OutlineRow[
       while (insertAt < result.length && result[insertAt].depth > source.depth) insertAt += 1;
     }
     const pendingRow: OutlineRow = {
-      block: { id: entry.tempId, markdown: "", properties: [], children: [] },
+      block: { id: entry.tempId, markdown: "", properties: [], tags: [], children: [] },
       depth: entry.mode === "child" ? source.depth + 1 : source.depth,
       parentId: entry.mode === "child" ? source.block.id : source.parentId,
       index: entry.mode === "child" ? 0 : source.index + 1,
@@ -799,7 +799,7 @@ function BlockRow({
   const isFocused = editor.focusedId === row.block.id;
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
-  const tags = repeatedValues(row.block.properties, "tag");
+  const tags = row.block.tags;
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;

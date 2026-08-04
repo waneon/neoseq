@@ -1,6 +1,5 @@
-// Inline block panel: tag chips with page autocomplete plus the generic property
-// editor over the same bag. Adding a tag routes through AddTag so the target
-// page's defaults materialize onto the block in one transaction.
+// Inline block panel: first-class tag chips plus the generic property editor.
+// Adding a tag materializes that tag's defaults onto the block transactionally.
 //
 // One panel, not three nested frames. v1 was a bordered card containing a
 // hairline-ruled section containing a bordered add box, headed by two 12px
@@ -56,15 +55,15 @@ export function BlockInspector({
         {!readonly && (
           <div className="inspector-tag-input">
             <PageAutocomplete
+              kind="tag"
               placeholder="Add tag…"
               allowCreate
-              onPick={(tagPageId) =>
+              onPick={(tagId) =>
                 void session
                   .execute({
                     type: "add_tag",
-                    block_page_id: pageId,
-                    block_id: block.id,
-                    tag_page_id: tagPageId,
+                    entity: { kind: "block", page_id: pageId, id: block.id },
+                    tag_id: tagId,
                   })
                   .catch(() => undefined)
               }

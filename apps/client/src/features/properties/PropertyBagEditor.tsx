@@ -1,5 +1,4 @@
-// One generic editor for every property bag: block properties, page
-// properties, and page default bags. Well-known keys get richer inputs
+// One generic editor for node property bags. Well-known keys get richer inputs
 // (allowed-string selects, date fields, page autocomplete) without hiding
 // their uniform representation; unknown keys use the same path.
 
@@ -15,7 +14,6 @@ import {
   isSystemKey,
   REGISTRY,
   sameValue,
-  validateDefault,
   validateKey,
   validateValue,
   VALUE_TYPES,
@@ -29,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 
-export type BagKind = "block" | "page" | "defaults";
+export type BagKind = "block" | "page";
 
 type PropertyBagEditorProps = {
   targetId: string;
@@ -40,7 +38,7 @@ type PropertyBagEditorProps = {
   showHeading?: boolean;
 } & (
   | { kind: "block"; pageId: string }
-  | { kind: "page" | "defaults"; pageId?: never }
+  | { kind: "page"; pageId?: never }
 );
 
 export function PropertyBagEditor({
@@ -80,7 +78,7 @@ export function PropertyBagEditor({
   };
 
   const validate = (key: string, value: PropertyValue): ValidationIssue | null =>
-    kind === "defaults" ? validateDefault(key, value) : validateValue(key, value, cardinalityOf(key));
+    validateValue(key, value, cardinalityOf(key));
 
   const commitValue = async (entry: PropertyEntry, next: PropertyValue) => {
     if (sameValue(entry.value, next)) return;
@@ -89,9 +87,7 @@ export function PropertyBagEditor({
       setError(issue.message);
       return;
     }
-    if (kind === "defaults") {
-      await run({ type: "set_page_default", page_id: targetId, key: entry.key, value: next });
-    } else if (cardinalityOf(entry.key) === "repeated") {
+    if (cardinalityOf(entry.key) === "repeated") {
       const added = await run({ type: "add_repeated_property", entity, key: entry.key, value: next });
       if (added) {
         await run({ type: "remove_repeated_property", entity, key: entry.key, value: entry.value });
@@ -102,9 +98,7 @@ export function PropertyBagEditor({
   };
 
   const removeEntry = async (entry: PropertyEntry) => {
-    if (kind === "defaults") {
-      await run({ type: "remove_page_default", page_id: targetId, key: entry.key });
-    } else if (cardinalityOf(entry.key) === "repeated") {
+    if (cardinalityOf(entry.key) === "repeated") {
       await run({ type: "remove_repeated_property", entity, key: entry.key, value: entry.value });
     } else {
       await run({ type: "remove_property", entity, key: entry.key });
@@ -117,16 +111,10 @@ export function PropertyBagEditor({
       setError(keyIssue.message);
       return false;
     }
-    const issue =
-      kind === "defaults"
-        ? validateDefault(key, value)
-        : validateValue(key, value, repeated ? "repeated" : "single");
+    const issue = validateValue(key, value, repeated ? "repeated" : "single");
     if (issue) {
       setError(issue.message);
       return false;
-    }
-    if (kind === "defaults") {
-      return run({ type: "set_page_default", page_id: targetId, key, value });
     }
     if (repeated) {
       return run({ type: "add_repeated_property", entity, key, value });
@@ -367,13 +355,13 @@ function AddPropertyRow({
   const [draft, setDraft] = useState<PropertyValue>({ type: "string", value: "" });
   const known = definition(key);
   const effectiveType = known?.type ?? type;
-  const repeated = kind !== "defaults" && cardinalityOf(key) === "repeated";
+  const repeated = cardinalityOf(key) === "repeated";
   const datalistId = `prop-keys-${kind}`;
 
   const knownKeys = useMemo(
     () =>
       REGISTRY.filter(
-        (item) => !isSystemKey(item.key) && (kind !== "defaults" || item.defaultable),
+        (item) => !isSystemKey(item.key),
       ).map((item) => item.key),
     [kind],
   );

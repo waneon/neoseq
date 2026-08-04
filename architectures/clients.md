@@ -28,7 +28,7 @@ Request, response, event, and error types are generated from a shared schema.
 Contract version negotiation happens on startup. No component calls Tauri APIs,
 WebAssembly exports, IndexedDB, or WebSocket directly.
 
-CorePort version 2 fixes `open_graph`, `execute`, graph-summary `read`,
+CorePort version 3 fixes `open_graph`, `execute`, graph-summary `read`,
 `read_page`, `subscribe`, and `close_graph`. Generated Rust/TypeScript DTOs cover locators, recovery and
 storage capabilities, saved/dirty state, bounded cursors, and stable timeout,
 schema, storage, and handle errors. Native and Worker suites consume one golden
@@ -62,7 +62,7 @@ and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
 buffers transfer rather than clone. Opening a local locator creates no network
 transport.
 
-Beyond the six CorePort v2 operations, the worker protocol carries three
+Beyond the six CorePort v3 operations, the worker protocol carries three
 adapter-level operations the local Web app needs: `retry_pending` (persist the
 exact pending update bytes after a storage failure), `list_graphs` (stored
 graph metadata), and `delete_graph` (explicit local deletion of a closed
@@ -111,11 +111,11 @@ lost.
 
 ## Property-Driven Features
 
-All non-Markdown controls use the same property read/write contract. A versioned
+Extensible metadata controls use the property read/write contract. A versioned
 renderer registry maps well-known keys to richer UI without hiding their uniform
-representation:
+representation. Tag membership is the explicit structural exception:
 
-- `tag` renders page autocomplete and repeatable chips;
+- `tag_refs` renders tag-registry autocomplete and repeatable chips;
 - `query.source` renders the query editor and result view;
 - `task.status` renders workflow controls;
 - `task.scheduled` and `task.deadline` render date controls;
@@ -156,8 +156,8 @@ harness.
   calls `EnsureJournal(LocalDate)`; the core guarantees idempotence.
 - Routes use stable page IDs. Human-readable titles are optional route hints,
   not identity.
-- Page/tag autocomplete searches the core's page index and writes page-reference
-  properties.
+- Page-reference autocomplete searches the page summary, while tag autocomplete
+  searches the independent tag registry and writes `TagId` membership.
 - Journal date entry is a palette concern: the palette parses natural-language
   dates (`tomorrow`, `aug 5`, `2026-08-05`, `next monday`) in the same input used
   to search. The day view keeps a mounted, focusable native date input as the
@@ -250,7 +250,7 @@ transform, so a surface is never contrast-unsafe while an audit reads it and
 never moves while a pointer travels toward it.
 
 The property registry the UI validates against is imported from the versioned
-core fixture (`fixtures/core/property-definitions-v2.json`), so client and
+core fixture (`fixtures/core/property-definitions-v3.json`), so client and
 core share one definition source.
 
 Feature modules may depend on `entities`, `core-port`, and `ui`; reverse imports

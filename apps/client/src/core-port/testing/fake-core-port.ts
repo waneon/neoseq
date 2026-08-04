@@ -26,6 +26,7 @@ import type {
   PageSnapshot,
   PropertyEntry,
   PropertyValue,
+  TagSnapshot,
 } from "../snapshot";
 import { sameValue, validateDefault, validateValue } from "../../entities/properties";
 import type { SessionPort } from "../session";
@@ -46,8 +47,9 @@ function clone<T>(value: T): T {
 
 export class FakeCorePort implements SessionPort {
   private pages: PageSnapshot[] = [];
-  private history: PageSnapshot[][] = [];
-  private future: PageSnapshot[][] = [];
+  private tags: TagSnapshot[] = [];
+  private history: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[] }> = [];
+  private future: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[] }> = [];
   private events: GraphEventRecord[] = [];
   private nextCursor = 1;
   private sequence = 0;
@@ -77,11 +79,12 @@ export class FakeCorePort implements SessionPort {
     const envelope = request.command as CommandEnvelope;
     const command = envelope.command;
     await this.beforeExecute?.(command);
-    const before = clone(this.pages);
+    const before = this.capture();
     const result = {
       command_id: envelope.command_id,
       created_page: null as string | null,
       created_block: null as string | null,
+      created_tag: null as string | null,
       changed: true,
     };
     this.apply(command, result);
@@ -140,9 +143,10 @@ export class FakeCorePort implements SessionPort {
 
   private snapshot(): GraphSnapshot {
     return clone({
-      schema_version: 2,
+      schema_version: 3,
       graph_id: this.graphId,
       pages: this.pages.filter((page) => !hasKey(page.properties, "system.deleted-at")),
+      tags: this.tags.filter((tag) => !hasKey(tag.properties, "system.deleted-at")),
       quarantined: [],
     });
   }
@@ -160,7 +164,7 @@ export class FakeCorePort implements SessionPort {
     this.nextCursor += 1;
   }
 
-  private apply(command: Command, result: { created_page: string | null; created_block: string | null; changed: boolean }): void {
+  private apply(command: Command, result: { created_page: string | null; created_block: string | null; created_tag: string | null; changed: boolean }): void {
     switch (command.type) {
       case "ensure_page": {
         if (!this.rawPage(command.page_id)) {
@@ -182,10 +186,7 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "rename_page":
-        setSingle(this.requirePage(command.page_id).properties, "page.title", {
-          type: "string",
-          value: command.title,
-        });
+        this.requirePage(command.page_id).title = command.title;
         break;
       case "delete_page":
         setSingle(this.requirePage(command.page_id).properties, "system.deleted-at", {
@@ -199,6 +200,30 @@ export class FakeCorePort implements SessionPort {
         page.properties = page.properties.filter((entry) => entry.key !== "system.deleted-at");
         break;
       }
+      case "ensure_tag": {
+        if (!this.rawTag(command.tag_id)) {
+          this.tags.push({ id: command.tag_id, name: command.name, properties: [], defaults: [] });
+          result.created_tag = command.tag_id;
+        } else {
+          result.changed = false;
+        }
+        break;
+      }
+      case "rename_tag":
+        this.requireTag(command.tag_id).name = command.name;
+        break;
+      case "delete_tag":
+        setSingle(this.requireTag(command.tag_id).properties, "system.deleted-at", {
+          type: "string",
+          value: "now",
+        });
+        break;
+      case "restore_tag": {
+        const tag = this.rawTag(command.tag_id);
+        if (!tag) fail("internal", `tag does not exist: ${command.tag_id}`);
+        tag.properties = tag.properties.filter((entry) => entry.key !== "system.deleted-at");
+        break;
+      }
       case "insert_block": {
         const page = this.requirePage(command.page_id);
         const id = `b-${(this.blockCounter += 1)}`;
@@ -206,6 +231,7 @@ export class FakeCorePort implements SessionPort {
           id,
           markdown: command.markdown,
           properties: [],
+          tags: [],
           children: [],
         };
         const siblings = command.parent
@@ -290,34 +316,38 @@ export class FakeCorePort implements SessionPort {
         if (index >= 0) bag.splice(index, 1);
         break;
       }
-      case "set_page_default": {
+      case "set_tag_default": {
         const issue = validateDefault(command.key, command.value);
         if (issue) fail("internal", issue.message);
-        setSingle(this.requirePage(command.page_id).defaults, command.key, command.value);
+        setSingle(this.requireTag(command.tag_id).defaults, command.key, command.value);
         break;
       }
-      case "remove_page_default":
-        removeAll(this.requirePage(command.page_id).defaults, command.key);
+      case "remove_tag_default":
+        removeAll(this.requireTag(command.tag_id).defaults, command.key);
         break;
       case "add_tag": {
-        const block = this.requireBlock(command.block_page_id, command.block_id).block;
-        const page = this.requirePage(command.tag_page_id);
-        const tag: PropertyValue = { type: "page", value: command.tag_page_id };
-        if (!block.properties.some((e) => e.key === "tag" && sameValue(e.value, tag))) {
-          block.properties.push({ key: "tag", value: tag });
-        }
-        for (const entry of page.defaults) {
-          if (!hasKey(block.properties, entry.key)) {
-            block.properties.push(clone(entry));
+        const tags = this.entityTags(command.entity);
+        const tag = this.requireTag(command.tag_id);
+        if (!tags.includes(command.tag_id)) tags.push(command.tag_id);
+        const bag = this.entityBag(command.entity);
+        for (const entry of tag.defaults) {
+          if (!hasKey(bag, entry.key)) {
+            bag.push(clone(entry));
           }
         }
+        break;
+      }
+      case "remove_tag": {
+        const tags = this.entityTags(command.entity);
+        const index = tags.indexOf(command.tag_id);
+        if (index >= 0) tags.splice(index, 1);
         break;
       }
       case "undo": {
         const previous = this.history.pop();
         if (previous) {
-          this.future.push(clone(this.pages));
-          this.pages = previous;
+          this.future.push(this.capture());
+          this.restore(previous);
         } else {
           result.changed = false;
         }
@@ -326,8 +356,8 @@ export class FakeCorePort implements SessionPort {
       case "redo": {
         const next = this.future.pop();
         if (next) {
-          this.history.push(clone(this.pages));
-          this.pages = next;
+          this.history.push(this.capture());
+          this.restore(next);
         } else {
           result.changed = false;
         }
@@ -338,6 +368,18 @@ export class FakeCorePort implements SessionPort {
 
   private rawPage(id: string): PageSnapshot | undefined {
     return this.pages.find((page) => page.id === id);
+  }
+
+  private rawTag(id: string): TagSnapshot | undefined {
+    return this.tags.find((tag) => tag.id === id);
+  }
+
+  private requireTag(id: string): TagSnapshot {
+    const tag = this.rawTag(id);
+    if (!tag || hasKey(tag.properties, "system.deleted-at")) {
+      fail("internal", `tag does not exist or is deleted: ${id}`);
+    }
+    return tag;
   }
 
   private requirePage(id: string): PageSnapshot {
@@ -371,6 +413,21 @@ export class FakeCorePort implements SessionPort {
       ? this.requirePage(entity.id).properties
       : this.requireBlock(entity.page_id, entity.id).block.properties;
   }
+
+  private entityTags(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): string[] {
+    return entity.kind === "page"
+      ? this.requirePage(entity.id).tags
+      : this.requireBlock(entity.page_id, entity.id).block.tags;
+  }
+
+  private capture(): { pages: PageSnapshot[]; tags: TagSnapshot[] } {
+    return clone({ pages: this.pages, tags: this.tags });
+  }
+
+  private restore(state: { pages: PageSnapshot[]; tags: TagSnapshot[] }): void {
+    this.pages = clone(state.pages);
+    this.tags = clone(state.tags);
+  }
 }
 
 function findIn(
@@ -397,10 +454,9 @@ function newPage(
     { key: "page.kind", value: { type: "string", value: kind } },
     { key: "system.created-at", value: { type: "string", value: "t0" } },
   ];
-  if (title !== null) properties.push({ key: "page.title", value: { type: "string", value: title } });
   if (date !== null) properties.push({ key: "journal.date", value: { type: "date", value: date } });
   properties.sort((a, b) => a.key.localeCompare(b.key));
-  return { id, properties, defaults: [], blocks: [] };
+  return { id, title: title ?? "", properties, tags: [], blocks: [] };
 }
 
 function hasKey(bag: PropertyEntry[], key: string): boolean {

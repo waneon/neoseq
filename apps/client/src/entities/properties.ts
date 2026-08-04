@@ -3,7 +3,7 @@
 // against one definition source. Unknown keys are first-class: they render
 // and edit through the same generic path.
 
-import registryFixture from "../../../../fixtures/core/property-definitions-v2.json";
+import registryFixture from "../../../../fixtures/core/property-definitions-v3.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
 
 export interface PropertyDefinition {
@@ -19,7 +19,7 @@ export const REGISTRY: PropertyDefinition[] = registryFixture.properties as Prop
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 
 /** Keys the app writes through dedicated commands or system paths. */
-const RESERVED_KEYS = new Set(["page.title", "page.kind", "journal.date"]);
+const RESERVED_KEYS = new Set(["tag", "page.title", "block.page", "page.kind", "journal.date"]);
 
 export function definition(key: string): PropertyDefinition | undefined {
   return REGISTRY.find((item) => item.key === key);
@@ -42,6 +42,7 @@ export function validateKey(key: string): ValidationIssue | null {
   if (trimmed.length === 0) return { message: "Property key cannot be empty." };
   if (trimmed !== key) return { message: "Property key cannot have surrounding whitespace." };
   if (key.length > 128) return { message: "Property key exceeds 128 bytes." };
+  if (RESERVED_KEYS.has(key)) return { message: `“${key}” is structural and cannot be a property.` };
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(key)) return { message: "Property key contains a control character." };
   return null;
@@ -80,11 +81,11 @@ export function validateValue(
 
 export function validateDefault(key: string, value: PropertyValue): ValidationIssue | null {
   if (key.startsWith("page.") || key.startsWith("system.")) {
-    return { message: `“${key}” cannot be a page default.` };
+    return { message: `“${key}” cannot be a tag default.` };
   }
   const item = definition(key);
   if (item && !item.defaultable) {
-    return { message: `“${key}” cannot be a page default.` };
+    return { message: `“${key}” cannot be a tag default.` };
   }
   return validateValue(key, value, "single");
 }

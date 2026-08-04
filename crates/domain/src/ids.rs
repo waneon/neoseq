@@ -74,6 +74,7 @@ macro_rules! opaque_string {
 opaque_string!(GraphId, "graph id");
 opaque_string!(PageId, "page id");
 opaque_string!(BlockId, "block id");
+opaque_string!(TagId, "tag id");
 opaque_string!(CommandId, "command id");
 
 impl PageId {

@@ -1,7 +1,7 @@
 use crate::GraphCore;
 use domain::{
     BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, PageId,
-    PropertyKey, PropertyValue,
+    PropertyKey, PropertyValue, TagId,
 };
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
@@ -15,8 +15,8 @@ const REPRODUCIBLE_SEEDS: &[u64] = &[
 struct Fixture {
     graph: GraphId,
     page_a: PageId,
-    tag_a: PageId,
-    tag_b: PageId,
+    tag_a: TagId,
+    tag_b: TagId,
     text: BlockId,
     ancestor: BlockId,
     descendant: BlockId,
@@ -45,18 +45,10 @@ fn base_fixture(seed: u64) -> Fixture {
     let graph = GraphId::new(format!("convergence-{seed:x}")).unwrap();
     let page_a = PageId::new("page-a").unwrap();
     let page_b = PageId::new("page-b").unwrap();
-    let tag_a = PageId::new("tag-a").unwrap();
-    let tag_b = PageId::new("tag-b").unwrap();
+    let tag_a = TagId::new("tag-a").unwrap();
+    let tag_b = TagId::new("tag-b").unwrap();
     let mut core = GraphCore::new(graph.clone(), 1, "base").unwrap();
-    for (sequence, (page, title)) in [
-        (&page_a, "A"),
-        (&page_b, "B"),
-        (&tag_a, "Tag A"),
-        (&tag_b, "Tag B"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for (sequence, (page, title)) in [(&page_a, "A"), (&page_b, "B")].into_iter().enumerate() {
         execute(
             &mut core,
             &graph,
@@ -68,13 +60,28 @@ fn base_fixture(seed: u64) -> Fixture {
             },
         );
     }
+    for (sequence, (tag_id, name)) in [(&tag_a, "Tag A"), (&tag_b, "Tag B")]
+        .into_iter()
+        .enumerate()
+    {
+        execute(
+            &mut core,
+            &graph,
+            1,
+            sequence + 2,
+            Command::EnsureTag {
+                tag_id: tag_id.clone(),
+                name: name.into(),
+            },
+        );
+    }
     execute(
         &mut core,
         &graph,
         1,
         10,
-        Command::SetPageDefault {
-            page_id: tag_b.clone(),
+        Command::SetTagDefault {
+            tag_id: tag_b.clone(),
             key: key("task.priority"),
             value: PropertyValue::String("high".into()),
         },
@@ -122,13 +129,12 @@ fn base_fixture(seed: u64) -> Fixture {
         &graph,
         1,
         21,
-        Command::AddRepeatedProperty {
+        Command::AddTag {
             entity: EntityId::Block {
                 page_id: page_a.clone(),
                 id: text.clone(),
             },
-            key: key("tag"),
-            value: PropertyValue::Page(tag_a.clone()),
+            tag_id: tag_a.clone(),
         },
     );
     let snapshot = core.export_snapshot().unwrap();
@@ -268,13 +274,12 @@ fn run_seed(seed: u64) {
         &fixture.graph,
         left_peer,
         4,
-        Command::AddRepeatedProperty {
+        Command::AddTag {
             entity: EntityId::Block {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
-            key: key("tag"),
-            value: PropertyValue::Page(fixture.tag_b.clone()),
+            tag_id: fixture.tag_b.clone(),
         },
     );
     execute(
@@ -282,13 +287,12 @@ fn run_seed(seed: u64) {
         &fixture.graph,
         right_peer,
         4,
-        Command::RemoveRepeatedProperty {
+        Command::RemoveTag {
             entity: EntityId::Block {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
-            key: key("tag"),
-            value: PropertyValue::Page(fixture.tag_a.clone()),
+            tag_id: fixture.tag_a.clone(),
         },
     );
     execute(
@@ -315,9 +319,11 @@ fn run_seed(seed: u64) {
         left_peer,
         6,
         Command::AddTag {
-            block_page_id: fixture.page_a.clone(),
-            block_id: fixture.text.clone(),
-            tag_page_id: fixture.tag_b.clone(),
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
+            tag_id: fixture.tag_b.clone(),
         },
     );
     execute(

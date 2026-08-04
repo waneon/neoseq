@@ -86,7 +86,7 @@ async function openGraph(request: OpenGraphRequest) {
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = new IndexedDbGraphRepository();
   const metadata = await repository.openGraph(request.locator, now());
-  if (metadata.schema_version !== 2) {
+  if (metadata.schema_version !== 3) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
   const recovery = await recover(repository, request.locator.graph_id, request.peer_id);
@@ -113,7 +113,7 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (checkpoint.schema_version !== 2) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
+    if (checkpoint.schema_version !== 3) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {

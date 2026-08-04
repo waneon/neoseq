@@ -19,18 +19,28 @@ export interface BlockSnapshot {
   id: string;
   markdown: string;
   properties: PropertyEntry[];
+  tags: string[];
   children: BlockSnapshot[];
 }
 
 export interface PageSnapshot {
   id: string;
+  title: string;
   properties: PropertyEntry[];
-  defaults: PropertyEntry[];
+  tags: string[];
   blocks: BlockSnapshot[];
 }
 
 export interface PageSummary {
   id: string;
+  title: string;
+  properties: PropertyEntry[];
+  tags: string[];
+}
+
+export interface TagSnapshot {
+  id: string;
+  name: string;
   properties: PropertyEntry[];
   defaults: PropertyEntry[];
 }
@@ -39,6 +49,7 @@ export interface GraphSummary {
   schema_version: number;
   graph_id: string;
   pages: PageSummary[];
+  tags: TagSnapshot[];
   quarantined: string[];
 }
 
@@ -46,13 +57,15 @@ export interface GraphSnapshot {
   schema_version: number;
   graph_id: string;
   pages: PageSnapshot[];
+  tags: TagSnapshot[];
   quarantined: string[];
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 2,
+  schema_version: 3,
   graph_id: "",
   pages: [],
+  tags: [],
   quarantined: [],
 };
 
@@ -90,7 +103,7 @@ export function repeatedValues(bag: PropertyEntry[], key: string): PropertyValue
 }
 
 export function pageTitle(page: PageSnapshot): string {
-  return stringValue(page.properties, "page.title") ?? page.id;
+  return page.title || page.id;
 }
 
 export function pageKind(page: PageSnapshot): "regular" | "journal" {
@@ -123,4 +136,8 @@ export function findBlock(page: PageSnapshot, blockId: string): BlockSnapshot | 
     stack.push(...block.children);
   }
   return undefined;
+}
+
+export function findTag(snapshot: GraphSnapshot, tagId: string): TagSnapshot | undefined {
+  return snapshot.tags.find((tag) => tag.id === tagId);
 }

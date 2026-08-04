@@ -1,6 +1,6 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
-import golden from "../../../fixtures/core-port/v2.json";
+import golden from "../../../fixtures/core-port/v3.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
 
@@ -89,7 +89,7 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 2, "worker read did not return schema v2");
+  assert((read.summary as Snapshot).schema_version === 3, "worker read did not return schema v3");
   const page = await worker.readPage({ graph_handle: opened.graph_handle, page_id: "home" });
   assert((page.page as { id: string }).id === "home", "worker page read returned the wrong page");
   const subscription = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
@@ -208,7 +208,7 @@ export async function runIndexedDbFaultCorpus() {
   const schemaWriter = new TestCoreWorker();
   const schemaOpen = await schemaWriter.openGraph(openRequest(schemaGraph, 261));
   await schemaWriter.closeGraph({ graph_handle: schemaOpen.graph_handle });
-  await schemaWriter.setSchemaVersion(schemaGraph, 3);
+  await schemaWriter.setSchemaVersion(schemaGraph, 4);
   await expectCode(schemaWriter.openGraph(openRequest(schemaGraph, 262)), "unsupported_schema");
   await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();

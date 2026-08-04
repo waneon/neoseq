@@ -55,7 +55,7 @@ export function StorageVerificationPage() {
       <div className="picker-inner">
         <p className="eyebrow">NeoSeq · Local Persistence</p>
         <h1>Durable locally, identical everywhere.</h1>
-        <p className="lede">SQLite and IndexedDB implement one recovery and CorePort v2 contract.</p>
+        <p className="lede">SQLite and IndexedDB implement one recovery and CorePort v3 contract.</p>
         <section
           aria-live="polite"
           data-testid="result"

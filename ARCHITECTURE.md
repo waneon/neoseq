@@ -5,9 +5,9 @@
 NeoSeq is a local-first, outliner-based note-taking application. A graph
 contains pages; a page contains ordered root blocks; and every block may contain
 ordered child blocks. Daily journal pages are the primary capture surface. Each
-block has collaborative Markdown text. Every other user-visible semantic,
-including page-backed tags, queries, and task fields, is represented as a typed
-property. Users can query blocks and pages with a safe declarative language.
+block has collaborative Markdown text. Tags are graph-scoped entities; queries,
+task fields, and extensible metadata use typed properties. Users can query
+blocks and pages with a safe declarative language.
 
 This document is the architectural source of truth. Component-level detail lives
 under [`architectures/`](architectures/).
@@ -32,8 +32,8 @@ are target architecture for later steps and are not current build artifacts.
   by machine-local store history or host-platform assumptions.
 - User-authored queries must be expressive without gaining filesystem, network,
   or process capabilities.
-- All non-Markdown features must use one property model instead of adding
-  feature-specific fields or CRDT containers.
+- Extensible metadata must use one property model; identity and relationships
+  such as containment and tag membership remain explicit structural data.
 
 ## System Context
 
@@ -122,12 +122,11 @@ TypeScript, native, and WebAssembly adapters compatible.
   unit.
 - Pages are stored by stable `PageId`; each page owns one ordered, movable Loro
   tree containing only that page's blocks.
-- Block Markdown is the only user content outside the uniform property model.
-  Page titles/kinds, journal dates, tags, query programs, and task state,
-  schedule, deadline, and priority are all properties.
-- Tags are repeated `tag` properties whose typed value is a page reference.
-  Query and task features are projections over well-known property keys, not
-  separate persisted entity shapes.
+- Page roots and blocks share one node payload: collaborative content, a
+  property bag, and a set of `TagId` references. A page remains the aggregate
+  and read boundary around its root node and page-local outline.
+- Tags are first-class graph entities in a `TagId`-keyed registry. Query and
+  task features remain projections over well-known property keys.
 - Block ownership is structural: a block belongs to the page whose nested tree
   contains it. Moves are page-local, and block commands carry both `PageId` and
   `BlockId` so reads and writes never scan other pages.
@@ -135,9 +134,9 @@ TypeScript, native, and WebAssembly adapters compatible.
   number, string, page reference, checkbox, or local date.
 - Journal identity is deterministic from `(GraphId, local date)`, making journal
   creation idempotent across offline devices.
-- Adding a `tag` property copies that page's default properties into missing
-  block keys in the same transaction. Existing block values win; later default
-  changes are not retroactive.
+- Adding a tag reference copies that tag's defaults into missing node properties
+  in the same transaction. Existing values win; later default changes are not
+  retroactive.
 - Deleted pages are soft-deleted in shared state. References remain resolvable
   as tombstones until explicit, policy-driven cleanup.
 - Query indexes, UI selection, connection status, and presence are derived or
@@ -145,7 +144,7 @@ TypeScript, native, and WebAssembly adapters compatible.
 
 CRDT/document mechanics such as entity IDs, schema version, tree parent/order,
 and tombstones are not user-visible semantics and remain structural metadata.
-They are the only non-Markdown data outside property bags.
+Tag identity/membership and node containment are also explicit structural data.
 
 ## Local-First Write and Sync Flow
 
@@ -222,8 +221,8 @@ transport types only and will not expose server persistence models.
 - `CorePort` and sync-protocol changes are explicitly versioned and tolerate one
   supported rolling-upgrade window.
 - New platforms implement existing ports; they do not fork domain behavior.
-- New non-Markdown features define well-known properties and projections; they
-  do not introduce feature-specific persisted fields. Definition changes require
-  compatibility fixtures.
+- New metadata features define well-known properties and projections. New
+  identity or relationship semantics require an explicit structural design;
+  either kind of schema change requires compatibility fixtures.
 - Architecture-affecting code changes update this document and the relevant
   component document in the same change.

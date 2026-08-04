@@ -283,11 +283,10 @@ function commandPageId(command: Command, result?: CommandResult): string | undef
     case "indent_block":
     case "outdent_block":
     case "delete_block":
-    case "set_page_default":
-    case "remove_page_default":
       return command.page_id;
     case "add_tag":
-      return command.block_page_id;
+    case "remove_tag":
+      return command.entity.kind === "block" ? command.entity.page_id : command.entity.id;
     case "set_property":
     case "remove_property":
     case "add_repeated_property":
@@ -295,6 +294,12 @@ function commandPageId(command: Command, result?: CommandResult): string | undef
       return command.entity.kind === "block" ? command.entity.page_id : command.entity.id;
     case "ensure_journal":
       return result?.created_page ?? undefined;
+    case "ensure_tag":
+    case "rename_tag":
+    case "delete_tag":
+    case "restore_tag":
+    case "set_tag_default":
+    case "remove_tag_default":
     case "undo":
     case "redo":
       return undefined;

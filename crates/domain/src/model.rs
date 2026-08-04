@@ -1,5 +1,5 @@
 use crate::{
-    BlockId, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey, PropertyValue,
+    BlockId, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey, PropertyValue, TagId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +29,20 @@ pub enum Command {
     },
     RestorePage {
         page_id: PageId,
+    },
+    EnsureTag {
+        tag_id: TagId,
+        name: String,
+    },
+    RenameTag {
+        tag_id: TagId,
+        name: String,
+    },
+    DeleteTag {
+        tag_id: TagId,
+    },
+    RestoreTag {
+        tag_id: TagId,
     },
     InsertBlock {
         page_id: PageId,
@@ -85,19 +99,22 @@ pub enum Command {
         key: PropertyKey,
         value: PropertyValue,
     },
-    SetPageDefault {
-        page_id: PageId,
+    SetTagDefault {
+        tag_id: TagId,
         key: PropertyKey,
         value: PropertyValue,
     },
-    RemovePageDefault {
-        page_id: PageId,
+    RemoveTagDefault {
+        tag_id: TagId,
         key: PropertyKey,
     },
     AddTag {
-        block_page_id: PageId,
-        block_id: BlockId,
-        tag_page_id: PageId,
+        entity: EntityId,
+        tag_id: TagId,
+    },
+    RemoveTag {
+        entity: EntityId,
+        tag_id: TagId,
     },
     Undo,
     Redo,
@@ -115,6 +132,7 @@ pub struct CommandResult {
     pub command_id: CommandId,
     pub created_page: Option<PageId>,
     pub created_block: Option<BlockId>,
+    pub created_tag: Option<TagId>,
     pub changed: bool,
 }
 
@@ -124,6 +142,7 @@ impl CommandResult {
             command_id,
             created_page: None,
             created_block: None,
+            created_tag: None,
             changed: false,
         }
     }
@@ -134,14 +153,16 @@ pub struct BlockSnapshot {
     pub id: BlockId,
     pub markdown: String,
     pub properties: PropertyBag,
+    pub tags: Vec<TagId>,
     pub children: Vec<BlockSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageSnapshot {
     pub id: PageId,
+    pub title: String,
     pub properties: PropertyBag,
-    pub defaults: PropertyBag,
+    pub tags: Vec<TagId>,
     pub blocks: Vec<BlockSnapshot>,
 }
 
@@ -150,6 +171,7 @@ pub struct GraphSnapshot {
     pub schema_version: u32,
     pub graph_id: GraphId,
     pub pages: Vec<PageSnapshot>,
+    pub tags: Vec<TagSnapshot>,
     pub quarantined: Vec<String>,
 }
 
@@ -158,12 +180,22 @@ pub struct GraphSummary {
     pub schema_version: u32,
     pub graph_id: GraphId,
     pub pages: Vec<PageSummary>,
+    pub tags: Vec<TagSnapshot>,
     pub quarantined: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageSummary {
     pub id: PageId,
+    pub title: String,
+    pub properties: PropertyBag,
+    pub tags: Vec<TagId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagSnapshot {
+    pub id: TagId,
+    pub name: String,
     pub properties: PropertyBag,
     pub defaults: PropertyBag,
 }

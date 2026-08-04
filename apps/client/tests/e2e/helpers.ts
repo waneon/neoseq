@@ -70,12 +70,6 @@ export async function openPageProperties(page: Page): Promise<void> {
 }
 
 /** The tagged-block defaults live one level deeper, behind Advanced. */
-export async function openDefaults(page: Page): Promise<void> {
-  await openPageProperties(page);
-  await page.getByTestId("props-defaults-toggle").click();
-  await expect(page.getByTestId("props-defaults")).toBeVisible();
-}
-
 export async function openBlockInspector(page: Page, index = 0): Promise<void> {
   await page.getByTestId("block-menu").nth(index).click();
   await page.getByTestId("menu-properties").click();

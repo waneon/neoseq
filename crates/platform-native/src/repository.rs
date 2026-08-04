@@ -1,6 +1,7 @@
 use graph_core::{
     AppendReceipt, CheckpointRecord, GraphLocation, GraphLocator, GraphMetadata, GraphRepository,
-    LocalGraphRepository, QuarantineRecord, StorageCapabilities, UpdateRecord, checksum,
+    LocalGraphRepository, QuarantineRecord, SCHEMA_VERSION, StorageCapabilities, UpdateRecord,
+    checksum,
 };
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use std::path::{Path, PathBuf};
@@ -92,9 +93,9 @@ impl SqliteGraphRepository {
                 "INSERT INTO graph_metadata(
                     graph_id, location, schema_version, next_sequence,
                     compacted_through, created_at, updated_at
-                 ) VALUES (?1, ?2, 2, 1, 0, ?3, ?3)
+                 ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?4)
                  ON CONFLICT(graph_id) DO NOTHING",
-                params![locator.graph_id.as_str(), location, now],
+                params![locator.graph_id.as_str(), location, SCHEMA_VERSION, now],
             )
             .map_err(SqliteRepositoryError::from)?;
         Ok(Self {
@@ -351,7 +352,7 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .execute(
                 "INSERT INTO graph_checkpoint(
                     graph_id, local_sequence, schema_version, checksum, payload, created_at
-                 ) VALUES (?1, ?2, 2, ?3, ?4, ?5)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(graph_id, local_sequence) DO UPDATE SET
                     schema_version = excluded.schema_version,
                     checksum = excluded.checksum,
@@ -360,6 +361,7 @@ impl LocalGraphRepository for SqliteGraphRepository {
                 params![
                     self.locator.graph_id.as_str(),
                     as_i64(local_sequence)?,
+                    SCHEMA_VERSION,
                     digest,
                     checkpoint,
                     created_at

@@ -1,7 +1,7 @@
 use crate::{CoreError, GraphCore};
 use domain::{
     BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, PageId,
-    PropertyKey, PropertyValue,
+    PropertyKey, PropertyValue, TagId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -65,6 +65,10 @@ pub enum ScenarioCommand {
     RestorePage {
         page_id: PageId,
     },
+    EnsureTag {
+        tag_id: TagId,
+        name: String,
+    },
     InsertBlock {
         as_id: String,
         page_id: PageId,
@@ -123,18 +127,14 @@ pub enum ScenarioCommand {
         key: PropertyKey,
         value: PropertyValue,
     },
-    SetPageDefault {
-        page_id: PageId,
+    SetTagDefault {
+        tag_id: TagId,
         key: PropertyKey,
         value: PropertyValue,
     },
-    RemovePageDefault {
-        page_id: PageId,
-        key: PropertyKey,
-    },
     AddTag {
         block: String,
-        page_id: PageId,
+        tag_id: TagId,
     },
     Undo,
     Redo,
@@ -148,6 +148,7 @@ struct ScenarioEvent {
     changed: bool,
     created_page: Option<PageId>,
     created_block: Option<BlockId>,
+    created_tag: Option<TagId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -186,7 +187,7 @@ pub fn run_scenario_str(source: &str) -> Result<String, ScenarioError> {
     if scenario.peers.is_empty() {
         let fingerprint = base.fingerprint()?;
         let output = ScenarioOutput {
-            schema: 2,
+            schema: 3,
             graph: base.snapshot()?,
             fingerprint: fingerprint.clone(),
             converged: true,
@@ -231,6 +232,7 @@ pub fn run_scenario_str(source: &str) -> Result<String, ScenarioError> {
             changed: true,
             created_page: None,
             created_block: None,
+            created_tag: None,
         });
     }
 
@@ -251,7 +253,7 @@ pub fn run_scenario_str(source: &str) -> Result<String, ScenarioError> {
         (peer.fingerprint()?, peer.snapshot()?)
     };
     let output = ScenarioOutput {
-        schema: 2,
+        schema: 3,
         graph,
         fingerprint,
         converged,
@@ -301,6 +303,7 @@ fn run_commands(
             changed: execution.result.changed,
             created_page: execution.result.created_page,
             created_block: execution.result.created_block,
+            created_tag: execution.result.created_tag,
         });
     }
     Ok(())
@@ -362,6 +365,14 @@ fn translate(
         ScenarioCommand::RestorePage { page_id } => (
             Command::RestorePage {
                 page_id: page_id.clone(),
+            },
+            None,
+            None,
+        ),
+        ScenarioCommand::EnsureTag { tag_id, name } => (
+            Command::EnsureTag {
+                tag_id: tag_id.clone(),
+                name: name.clone(),
             },
             None,
             None,
@@ -502,34 +513,24 @@ fn translate(
             None,
             None,
         ),
-        ScenarioCommand::SetPageDefault {
-            page_id,
-            key,
-            value,
-        } => (
-            Command::SetPageDefault {
-                page_id: page_id.clone(),
+        ScenarioCommand::SetTagDefault { tag_id, key, value } => (
+            Command::SetTagDefault {
+                tag_id: tag_id.clone(),
                 key: key.clone(),
                 value: value.clone(),
             },
             None,
             None,
         ),
-        ScenarioCommand::RemovePageDefault { page_id, key } => (
-            Command::RemovePageDefault {
-                page_id: page_id.clone(),
-                key: key.clone(),
-            },
-            None,
-            None,
-        ),
-        ScenarioCommand::AddTag { block: id, page_id } => (
+        ScenarioCommand::AddTag { block: id, tag_id } => (
             {
-                let (block_page_id, block_id) = block(id)?;
+                let (page_id, block_id) = block(id)?;
                 Command::AddTag {
-                    block_page_id,
-                    block_id,
-                    tag_page_id: page_id.clone(),
+                    entity: EntityId::Block {
+                        page_id,
+                        id: block_id,
+                    },
+                    tag_id: tag_id.clone(),
                 }
             },
             None,

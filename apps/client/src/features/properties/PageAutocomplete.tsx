@@ -1,6 +1,6 @@
-// Page reference autocomplete backed by the core snapshot's page index.
-// Selecting an entry writes a stable PageId; an optional create action
-// makes a new page and then resolves to its id.
+// Entity autocomplete backed by the graph summary's page or tag index.
+// Selecting an entry writes a stable ID; an optional create action creates
+// the requested entity first.
 //
 // The option list renders in a portal so it escapes the outline's scroll
 // container and virtualized stacking context (which otherwise clipped it).
@@ -31,13 +31,15 @@ export function PageAutocomplete({
   allowCreate = false,
   autoFocus = false,
   inputId,
+  kind = "page",
   onPick,
 }: {
   placeholder: string;
   allowCreate?: boolean;
   autoFocus?: boolean;
   inputId?: string;
-  onPick: (pageId: string) => void | Promise<void>;
+  kind?: "page" | "tag";
+  onPick: (entityId: string) => void | Promise<void>;
 }) {
   const session = useSession();
   const state = useSessionState();
@@ -51,19 +53,22 @@ export function PageAutocomplete({
 
   const options = useMemo<Option[]>(() => {
     const lower = query.trim().toLowerCase();
-    const pages = state.snapshot.pages
-      .filter((page) => !isDeleted(page))
-      .map((page) => ({ id: page.id, label: pageTitle(page), kind: pageKind(page) }))
-      .filter((page) => lower.length === 0 || page.label.toLowerCase().includes(lower))
+    const entities = kind === "tag"
+      ? state.snapshot.tags.map((tag) => ({ id: tag.id, label: tag.name }))
+      : state.snapshot.pages
+        .filter((page) => !isDeleted(page))
+        .map((page) => ({ id: page.id, label: pageTitle(page), kind: pageKind(page) }));
+    const matches = entities
+      .filter((entity) => lower.length === 0 || entity.label.toLowerCase().includes(lower))
       .sort((left, right) => left.label.localeCompare(right.label))
       .slice(0, 8);
-    const exact = pages.some((page) => page.label.toLowerCase() === lower);
-    const result: Option[] = pages.map(({ id, label }) => ({ id, label }));
+    const exact = matches.some((entity) => entity.label.toLowerCase() === lower);
+    const result: Option[] = matches.map(({ id, label }) => ({ id, label }));
     if (allowCreate && lower.length > 0 && !exact) {
       result.push({ id: "", label: query.trim(), create: true });
     }
     return result;
-  }, [state.snapshot, query, allowCreate]);
+  }, [state.snapshot, query, allowCreate, kind]);
 
   const reposition = useCallback(() => {
     const el = inputRef.current;
@@ -88,11 +93,12 @@ export function PageAutocomplete({
     setOpen(false);
     setQuery("");
     if (option.create) {
-      const pageId = `p-${crypto.randomUUID()}`;
-      await session
-        .execute({ type: "ensure_page", page_id: pageId, title: option.label })
-        .catch(() => undefined);
-      await onPick(pageId);
+      const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
+      const command = kind === "tag"
+        ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
+        : { type: "ensure_page" as const, page_id: id, title: option.label };
+      await session.execute(command).catch(() => undefined);
+      await onPick(id);
     } else {
       await onPick(option.id);
     }
@@ -132,7 +138,7 @@ export function PageAutocomplete({
         placeholder={placeholder}
         value={query}
         autoFocus={autoFocus}
-        data-testid="page-autocomplete"
+        data-testid={`${kind}-autocomplete`}
         onChange={(event) => {
           setQuery(event.target.value);
           setOpen(true);
@@ -158,7 +164,7 @@ export function PageAutocomplete({
           >
             {options.length === 0 ? (
               <div role="status" className="autocomplete-hint">
-                No matching pages
+                No matching {kind === "tag" ? "tags" : "pages"}
               </div>
             ) : (
               <ul id={listId} role="listbox" className="m-0 list-none p-0">
@@ -180,7 +186,7 @@ export function PageAutocomplete({
                         void pick(option);
                       }}
                     >
-                      {option.create ? `Create page “${option.label}”` : option.label}
+                      {option.create ? `Create ${kind} “${option.label}”` : option.label}
                     </button>
                   </li>
                 ))}
