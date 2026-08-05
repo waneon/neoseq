@@ -11,7 +11,7 @@ import {
   resolveBindings,
 } from "../../src/features/commands/shortcuts";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
-import { GRAPH_ID, mountAt } from "./harness";
+import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
 function mountSettings(section: "journal" | "keyboard") {
   return mountAt(
@@ -38,10 +38,11 @@ describe("journal date format", () => {
   it("offers each format with a live example of the choice", async () => {
     const user = userEvent.setup();
     await mountSettings("journal");
-    const select = screen.getByTestId("settings-date-format");
-    // The label alone ("Numeric") does not tell you what you will get.
-    expect(select).toHaveTextContent(/Weekday and full date — .*20\d\d/);
-    await user.selectOptions(select, "iso");
+    const chooser = screen.getByTestId("settings-date-format");
+    // The label alone ("Numeric") does not tell you what you will get: the
+    // trigger states the current choice, example and all.
+    expect(chooser).toHaveTextContent(/Weekday and full date — .*20\d\d/);
+    await chooseFromMenu(user, chooser, /ISO/);
     expect(journalDateFormat()).toBe("iso");
   });
 

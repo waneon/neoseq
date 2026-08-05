@@ -259,6 +259,7 @@ export interface MessageArgumentMap {
   "properties.newKey": undefined;
   "properties.newType": undefined;
   "properties.newValue": undefined;
+  "properties.noKeys": undefined;
   "properties.noPages": undefined;
   "properties.noTags": undefined;
   "properties.pickPage": undefined;
@@ -266,6 +267,7 @@ export interface MessageArgumentMap {
   "properties.remove": { readonly "key": string | number };
   "properties.removeTag": { readonly "name": string | number };
   "properties.replacePage": undefined;
+  "properties.suggestedKeys": undefined;
   "properties.title": undefined;
   "properties.type.checkbox": undefined;
   "properties.type.date": undefined;
@@ -287,7 +289,6 @@ export interface MessageArgumentMap {
   "save.saved": undefined;
   "save.saving": undefined;
   "save.storageFull": undefined;
-  "settings.appNote": undefined;
   "settings.appearance": undefined;
   "settings.appearanceDescription": undefined;
   "settings.backend": undefined;
@@ -305,7 +306,6 @@ export interface MessageArgumentMap {
   "settings.diagnostics": undefined;
   "settings.graph": undefined;
   "settings.graphId": undefined;
-  "settings.graphNote": { readonly "name": string | number };
   "settings.journal": undefined;
   "settings.keyboard": undefined;
   "settings.persistDeclinedDetail": undefined;
@@ -346,6 +346,7 @@ export interface MessageArgumentMap {
   "shell.closeMenu": undefined;
   "shell.graphNavigation": undefined;
   "shell.journal": undefined;
+  "shell.moreActions": undefined;
   "shell.newPage": undefined;
   "shell.noPages": undefined;
   "shell.openMenu": undefined;

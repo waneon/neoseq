@@ -4,6 +4,7 @@ import {
   buildDiagnosticArtifact,
   downloadDiagnosticArtifact,
 } from "../../diagnostics/artifact";
+import { AutoHeight } from "../../ui/auto-height";
 import { Callout, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { Checkbox } from "@/ui/shadcn/checkbox";
@@ -73,55 +74,65 @@ export function DiagnosticsDialog() {
           <ToggleGroupItem value="standard">{message("diagnostics.standard")}</ToggleGroupItem>
           <ToggleGroupItem value="enhanced">{message("diagnostics.enhanced")}</ToggleGroupItem>
         </ToggleGroup>
-        {captureLevel === "standard" && (
-          <section className="diagnostic-disclosure">
-            <h3>{message("diagnostics.capturesTitle")}</h3>
-            <p>{message("diagnostics.capturesDescription")}</p>
-            <h3>{message("diagnostics.excludesTitle")}</h3>
-            <p>{message("diagnostics.excludesDescription")}</p>
-          </section>
-        )}
-        {captureLevel === "enhanced" && (
-          <section className="diagnostic-enhanced-options">
-            <div className="diagnostic-sensitive-heading">
-              <ShieldAlertIcon aria-hidden />
-              <div>
-                <h3>{message("diagnostics.enhancedTitle")}</h3>
-                <p>{message("diagnostics.enhancedDescription")}</p>
-              </div>
-            </div>
-            <fieldset>
-              <legend>{message("diagnostics.scope")}</legend>
-              <ToggleGroup
-                className="diagnostic-scope-picker"
-                type="single"
-                variant="outline"
-                value={scope}
-                onValueChange={(value) => {
-                  if (isEnhancedScope(value)) setScope(value);
-                }}
-              >
-                <ToggleGroupItem value="active_page">{message("diagnostics.scopeActivePage")}</ToggleGroupItem>
-                <ToggleGroupItem value="touched_entities">{message("diagnostics.scopeTouched")}</ToggleGroupItem>
-                <ToggleGroupItem value="full_graph">{message("diagnostics.scopeFullGraph")}</ToggleGroupItem>
-              </ToggleGroup>
-            </fieldset>
-            <fieldset className="diagnostic-category-list">
-              <legend>{message("diagnostics.categories")}</legend>
-              <DiagnosticCheckbox
-                checked={categories.has("graph_data")}
-                onCheckedChange={(checked) => setCategory(categories, setCategories, "graph_data", checked)}
-                label={message("diagnostics.categoryGraphData")}
-              />
-              <DiagnosticCheckbox
-                checked={categories.has("query_text")}
-                onCheckedChange={(checked) => setCategory(categories, setCategories, "query_text", checked)}
-                label={message("diagnostics.categoryQueryText")}
-              />
-            </fieldset>
-            <p className="diagnostic-never-captured">{message("diagnostics.neverCaptured")}</p>
-          </section>
-        )}
+        {/* Standard and Enhanced disclose very different amounts, so switching
+            between them used to resize the dialog by ~200px in a single frame —
+            which re-centred the panel in the viewport and moved `Start recording`
+            out from under a pointer already travelling toward it. The box now grows
+            to meet whichever ledger is showing, and the ledger itself says it
+            replaced the other one. Both are the honest reading of the gesture: the
+            question did not change, only the answer's length. */}
+        <AutoHeight>
+          <div className="enter-fade-view" key={captureLevel}>
+            {captureLevel === "standard" ? (
+              <section className="diagnostic-disclosure">
+                <h3>{message("diagnostics.capturesTitle")}</h3>
+                <p>{message("diagnostics.capturesDescription")}</p>
+                <h3>{message("diagnostics.excludesTitle")}</h3>
+                <p>{message("diagnostics.excludesDescription")}</p>
+              </section>
+            ) : (
+              <section className="diagnostic-enhanced-options">
+                <div className="diagnostic-sensitive-heading">
+                  <ShieldAlertIcon aria-hidden />
+                  <div>
+                    <h3>{message("diagnostics.enhancedTitle")}</h3>
+                    <p>{message("diagnostics.enhancedDescription")}</p>
+                  </div>
+                </div>
+                <fieldset>
+                  <legend>{message("diagnostics.scope")}</legend>
+                  <ToggleGroup
+                    className="diagnostic-scope-picker"
+                    type="single"
+                    variant="outline"
+                    value={scope}
+                    onValueChange={(value) => {
+                      if (isEnhancedScope(value)) setScope(value);
+                    }}
+                  >
+                    <ToggleGroupItem value="active_page">{message("diagnostics.scopeActivePage")}</ToggleGroupItem>
+                    <ToggleGroupItem value="touched_entities">{message("diagnostics.scopeTouched")}</ToggleGroupItem>
+                    <ToggleGroupItem value="full_graph">{message("diagnostics.scopeFullGraph")}</ToggleGroupItem>
+                  </ToggleGroup>
+                </fieldset>
+                <fieldset className="diagnostic-category-list">
+                  <legend>{message("diagnostics.categories")}</legend>
+                  <DiagnosticCheckbox
+                    checked={categories.has("graph_data")}
+                    onCheckedChange={(checked) => setCategory(categories, setCategories, "graph_data", checked)}
+                    label={message("diagnostics.categoryGraphData")}
+                  />
+                  <DiagnosticCheckbox
+                    checked={categories.has("query_text")}
+                    onCheckedChange={(checked) => setCategory(categories, setCategories, "query_text", checked)}
+                    label={message("diagnostics.categoryQueryText")}
+                  />
+                </fieldset>
+                <p className="diagnostic-never-captured">{message("diagnostics.neverCaptured")}</p>
+              </section>
+            )}
+          </div>
+        </AutoHeight>
         <div className="dialog-actions diagnostic-consent-actions">
           <Button variant="secondary" onClick={() => coordinator.cancelStart()}>
             {message("common.cancel")}
@@ -250,24 +261,30 @@ export function DiagnosticsDialog() {
         />
         <small>{message("diagnostics.annotationDescription")}</small>
       </label>
-      {saveError && (
-        <p className="field-error" role="alert">{message("diagnostics.saveError")}</p>
-      )}
-      {confirmSensitive && (
-        <Callout tone="danger">
-          <div className="diagnostic-sensitive-confirm">
-            <p>{message("diagnostics.sensitiveConfirm")}</p>
-            <div className="actions">
-              <Button variant="secondary" onClick={() => setConfirmSensitive(false)}>
-                {message("common.cancel")}
-              </Button>
-              <Button disabled={saving} onClick={() => void save(true)}>
-                {message("diagnostics.confirmSensitiveDownload")}
-              </Button>
+      {/* Both of these arrive in a dialog that is already open and already read.
+          Animating the region they arrive in means the panel grows to make room
+          for them instead of jumping — and the panel is what the Save and Discard
+          buttons are attached to. */}
+      <AutoHeight>
+        {saveError && (
+          <p className="field-error" role="alert">{message("diagnostics.saveError")}</p>
+        )}
+        {confirmSensitive && (
+          <Callout tone="danger">
+            <div className="diagnostic-sensitive-confirm">
+              <p>{message("diagnostics.sensitiveConfirm")}</p>
+              <div className="actions">
+                <Button variant="secondary" onClick={() => setConfirmSensitive(false)}>
+                  {message("common.cancel")}
+                </Button>
+                <Button disabled={saving} onClick={() => void save(true)}>
+                  {message("diagnostics.confirmSensitiveDownload")}
+                </Button>
+              </div>
             </div>
-          </div>
-        </Callout>
-      )}
+          </Callout>
+        )}
+      </AutoHeight>
       <div className="dialog-actions diagnostic-review-actions">
         <Button
           variant="destructive"

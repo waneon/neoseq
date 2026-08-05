@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchIcon } from "lucide-react";
 import { GROUP_ORDER, matchCommand, type Command, type CommandGroup } from "./registry";
+import { Kbd } from "../../ui/kbd";
 import { useNotify } from "../notify/context";
 import { useI18n, type MessageKey } from "../../i18n";
 
@@ -110,6 +111,23 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
       saved.element.setSelectionRange(saved.start, saved.end ?? saved.start);
     }
   };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  // A backstop for the one case the panel's own handler cannot see. The panel
+  // holds a single focusable element, so a `⇥` off the input parks focus outside
+  // it — and from there the keydown never reaches the panel and `⎋` would do
+  // nothing at all, which for a modal surface means it is stuck. The panel's own
+  // handler stops propagation, so this never fires twice for one press.
+  useEffect(() => {
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      closeRef.current(true);
+    };
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, []);
 
   const groups = useMemo(() => {
     const trimmed = query.trim();
@@ -174,6 +192,22 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
+    // Escape is decided BEFORE the IME guard, and it is the one key that is.
+    //
+    // The guard exists because a composition owns the keyboard outright, and for
+    // every other key that is right. But `Escape` is not a character — it is the
+    // way out of the surface — and while an IME is composing, the browser reports
+    // `isComposing: true` on that keydown too. So a user typing 검색 into the
+    // palette and then pressing Escape got nothing at all: the guard returned
+    // first, the key never reached the close path, and the only exit left was the
+    // pointer. The composition is abandoned along with the panel, which is what
+    // dismissing a surface has always meant.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close(true);
+      return;
+    }
     if (event.nativeEvent.isComposing) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -184,10 +218,6 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     } else if (event.key === "Enter") {
       event.preventDefault();
       runRow(flat[active]);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
     } else if (event.key === "Home") {
       event.preventDefault();
       setActive(0);
@@ -285,7 +315,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
                         <span className="hint">
                           {command.disabledReason ?? command.hint ?? ""}
                         </span>
-                        {command.binding && <kbd className="kbd">{command.binding}</kbd>}
+                        {command.binding && <Kbd parts={command.binding} />}
                       </div>
                     </li>
                   );

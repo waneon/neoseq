@@ -4,8 +4,15 @@
 // browser — appearance, language, how a date is written, which keys do what —
 // and applies to every graph the user opens. The other half belongs to *this*
 // graph and travels with it. Presenting them in one flat column made "Delete
-// this graph" look like a sibling of "Language", so each scope is now a named
-// group with its own note saying how far it reaches.
+// this graph" look like a sibling of "Language", so each scope is a named group.
+//
+// The group headings used to carry a sentence each explaining how far the scope
+// reached ("These apply to Neoseq in this browser, on every graph."). They are
+// gone: two paragraphs of explanation inside a 168px navigation column, restating
+// what `Application` and `This graph` already say, in a column whose job is to be
+// scanned rather than read. The distinction now rests on the two headings and on
+// the typography that separates a heading from a row (app.css § The group label),
+// which is where it belonged.
 //
 // It is a dialog rather than a route because settings are an aside: you open
 // them from wherever you are, change one thing, and come back to the same block
@@ -26,7 +33,7 @@ import { JOURNAL_DATE_FORMATS, type JournalDateFormat } from "../../entities/set
 import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
-import { NativeSelect } from "@/ui/shadcn/native-select";
+import { MenuSelect } from "@/ui/menu-select";
 import { Button } from "@/ui/shadcn/button";
 import { useDiagnostics, useDiagnosticsState } from "../diagnostics/context";
 import { useNotify } from "../notify/context";
@@ -89,7 +96,6 @@ export function SettingsDialog({
   onClose: () => void;
 }) {
   const { message } = useI18n();
-  const name = graphName(graphId);
 
   return (
     <Dialog title={message("settings.title")} onClose={onClose} size="settings">
@@ -105,7 +111,6 @@ export function SettingsDialog({
                 onSelect={onSection}
               />
             ))}
-            <p>{message("settings.appNote")}</p>
           </div>
           <div className="settings-group">
             <h3>{message("settings.scopeGraph")}</h3>
@@ -117,10 +122,16 @@ export function SettingsDialog({
                 onSelect={onSection}
               />
             ))}
-            <p>{message("settings.graphNote", { name })}</p>
           </div>
         </nav>
-        <div className="settings-pane">
+        {/* Keyed by section, so switching sections is a mount rather than a
+            re-render and the pane can say that one thing replaced another. A
+            settings section is a small amount of content arriving in a box that
+            is already on screen and already the right size; with nothing to
+            mark the swap, changing sections read as the dialog's contents
+            glitching. `--dur-view` is short enough that the text is fully
+            opaque before it can be read — or audited. */}
+        <div className="settings-pane enter-fade-view" key={section}>
           {section === "appearance" && <AppearanceSection />}
           {section === "language" && <LanguageSection />}
           {section === "journal" && <JournalSection />}
@@ -197,19 +208,19 @@ function LanguageSection() {
       <h2>{message("language.label")}</h2>
       <p>{message("language.description")}</p>
       <div className="field">
-        <NativeSelect
-          aria-label={message("language.label")}
+        <MenuSelect
+          label={message("language.label")}
+          testId="settings-language"
           value={preference}
-          data-testid="settings-language"
-          onChange={(event) => setPreference(event.target.value as LocalePreference)}
-        >
-          <option value="system">{message("language.system")}</option>
-          {LOCALE_DEFINITIONS.map((locale) => (
-            <option key={locale.tag} value={locale.tag}>
-              {message(locale.labelKey)}
-            </option>
-          ))}
-        </NativeSelect>
+          options={[
+            { value: "system", label: message("language.system") },
+            ...LOCALE_DEFINITIONS.map((locale) => ({
+              value: locale.tag,
+              label: message(locale.labelKey),
+            })),
+          ]}
+          onValueChange={(value) => setPreference(value as LocalePreference)}
+        />
       </div>
     </section>
   );
@@ -237,44 +248,37 @@ function JournalSection() {
         <h2>{message("settings.dateFormat")}</h2>
         <p>{message("settings.dateFormatDescription")}</p>
         <div className="field">
-          <NativeSelect
-            aria-label={message("settings.dateFormat")}
+          <MenuSelect
+            label={message("settings.dateFormat")}
+            testId="settings-date-format"
             value={journalDateFormat}
-            data-testid="settings-date-format"
-            onChange={(event) =>
-              setJournalDateFormat(event.target.value as JournalDateFormat)
-            }
-          >
-            {JOURNAL_DATE_FORMATS.map((format) => (
-              <option key={format} value={format}>
-                {message("settings.dateFormatOption", {
-                  label: message(DATE_FORMAT_MESSAGE[format]),
-                  example: example(format),
-                })}
-              </option>
-            ))}
-          </NativeSelect>
+            options={JOURNAL_DATE_FORMATS.map((format) => ({
+              value: format,
+              label: message("settings.dateFormatOption", {
+                label: message(DATE_FORMAT_MESSAGE[format]),
+                example: example(format),
+              }),
+            }))}
+            onValueChange={(value) => setJournalDateFormat(value as JournalDateFormat)}
+          />
         </div>
       </section>
       <section className="settings-section">
         <h2>{message("settings.timezone")}</h2>
         <p>{message("settings.timezoneDescription")}</p>
         <div className="field">
-          <NativeSelect
-            aria-label={message("settings.timezone")}
+          <MenuSelect
+            label={message("settings.timezone")}
+            testId="settings-timezone"
             value={timezone}
-            data-testid="settings-timezone"
-            onChange={(event) => {
-              setTimezone(event.target.value);
-              setConfiguredTimezone(event.target.value);
+            options={[...availableTimezones()]
+              .sort(compare)
+              .map((zone) => ({ value: zone, label: zone }))}
+            onValueChange={(value) => {
+              setTimezone(value);
+              setConfiguredTimezone(value);
             }}
-          >
-            {[...availableTimezones()].sort(compare).map((zone) => (
-              <option key={zone} value={zone}>
-                {zone}
-              </option>
-            ))}
-          </NativeSelect>
+          />
         </div>
       </section>
     </>

@@ -28,8 +28,12 @@ export interface Command {
   label: string;
   /** Extra terms the fuzzy matcher should accept for this entry. */
   keywords?: string[];
-  /** Display form of the binding, e.g. "⌘⇧P". Presentational only. */
-  binding?: string;
+  /**
+   * Display parts of the binding, e.g. `["⌘", "⇧", "P"]`. Presentational only —
+   * the parts rather than the joined string because a badge lays a modifier and
+   * its key out as separate columns; see `formatBindingParts`.
+   */
+  binding?: readonly string[];
   /** Secondary text shown to the right of the label in the palette. */
   hint?: string;
   icon?: ReactNode;

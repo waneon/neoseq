@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   awaitSaved,
+  chooseFromMenu,
   createGraph,
   openBlockInspector,
   startOutline,
@@ -15,17 +16,17 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await openBlockInspector(page);
   let inspector = page.getByTestId("block-inspector");
   await inspector.getByLabel("New property key").fill("task.status");
-  await inspector.getByLabel("New property value").selectOption("todo");
+  await chooseFromMenu(page, inspector.getByLabel("New property value"), "todo");
   await inspector.getByTestId("props-add-submit").click();
   await inspector.getByLabel("Close block properties").click();
 
   const status = page.getByLabel("Task status");
-  await expect(status).toHaveValue("todo");
-  await status.selectOption("done");
+  await expect(status).toContainText("todo");
+  await chooseFromMenu(page, status, "done");
   await awaitSaved(page);
   await openBlockInspector(page);
   inspector = page.getByTestId("block-inspector");
-  await expect(inspector.getByLabel("task.status value")).toHaveValue("done");
+  await expect(inspector.getByLabel("task.status value")).toContainText("done");
   await inspector.getByLabel("Close block properties").click();
 
   const taskText = page.locator(".outline-input").first();

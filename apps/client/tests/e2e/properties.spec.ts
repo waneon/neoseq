@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   awaitSaved,
+  chooseFromMenu,
   createGraph,
   createPage,
   openBlockInspector,
@@ -20,7 +21,7 @@ async function addProperty(
 ): Promise<void> {
   const root = page.getByTestId(`props-${section}`);
   await root.getByLabel("New property key").fill(key);
-  if (type) await root.getByLabel("New property type").selectOption(type);
+  if (type) await chooseFromMenu(page, root.getByLabel("New property type"), type);
   await fill(page);
   await root.getByTestId("props-add-submit").click();
   await expect(root.getByTestId(`prop-${key}`)).toBeVisible();
@@ -95,14 +96,14 @@ test("first-class tags can be created, reused, and removed", async ({ page }) =>
   await openBlockInspector(page);
   const inspector = page.getByTestId("block-inspector");
   await inspector.getByLabel("New property key").fill("task.status");
-  await inspector.getByLabel("New property value").selectOption("doing");
+  await chooseFromMenu(page, inspector.getByLabel("New property value"), "doing");
   await inspector.getByTestId("props-add-submit").click();
-  await expect(inspector.getByLabel("task.status value")).toHaveValue("doing");
+  await expect(inspector.getByLabel("task.status value")).toContainText("doing");
 
   await inspector.getByTestId("tag-autocomplete").fill("Project");
   await page.getByRole("option", { name: "Create tag “Project”" }).click();
   await expect(inspector.getByTestId("tag-chip")).toContainText("#Project");
-  await expect(inspector.getByLabel("task.status value")).toHaveValue("doing");
+  await expect(inspector.getByLabel("task.status value")).toContainText("doing");
 
   // A second block reuses the same TagId from the graph tag registry.
   await inspector.getByLabel("Close block properties").click();

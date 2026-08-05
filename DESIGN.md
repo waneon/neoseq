@@ -58,13 +58,15 @@ typography:
   features: "\"lnum\", \"locl\", \"cv11\""
   optical-sizing: auto
   # Five sizes. Nothing else exists. Weight never exceeds 600.
-  xs:  { size: 12px, line: 16px, track: 0em,       weight: 500 }   # metadata, chips, badges, group headers
+  xs:  { size: 12px, line: 16px, track: 0em,       weight: 500 }   # metadata, chips, badges
   sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 400 }   # UI default — nav, buttons, inputs, menus
   md:  { size: 16px, line: 26px, track: 0em,       weight: 400 }   # block text and page body
   lg:  { size: 19px, line: 25px, track: -0.012em,  weight: 600 }   # section headings (real <h2>)
   xl:  { size: 33px, line: 40px, track: -0.019em,  weight: 600 }   # page and journal titles (<h1>)
   xl-mobile: { size: "clamp(26px, 6vw, 33px)", track: -0.015em }
-  mono-xs: { size: 12px, line: 16px, weight: 500 }                  # shortcut badges, property keys
+  mono-xs: { size: 12px, line: 16px, weight: 500 }                  # property keys, ids
+  # A group divider, and the one place tracking goes positive — see § The group label.
+  group-label: { size: 12px, line: 16px, track: 0.06em, weight: 600, color: "{ink-3}" }
   weights: { normal: 400, medium: 500, strong: 600 }
 
 spacing:
@@ -79,7 +81,7 @@ spacing:
   sp-8: 64px
 
 metrics:
-  measure: 704px          # content column; ~72 characters at 16px
+  measure: 848px          # content column; ~87 characters at 16px, minus one indent per level
   gutter: 24px            # 16px at or below 600px
   rail: 240px
   drawer: "min(300px, 84vw)"
@@ -105,10 +107,17 @@ elevation:
 
 motion:
   dur-press: 90ms
+  dur-view: 120ms                   # one view replacing another
   dur-overlay: 140ms
   dur-disclose: 180ms
+  dur-size: 220ms                   # a box growing to meet its content
   ease-out: "cubic-bezier(0.4, 0, 0.2, 1)"
+  ease-size: "cubic-bezier(0.2, 0, 0, 1)"
   entrance-property: opacity        # transform is never animated. Anywhere.
+  # The two properties that may animate besides opacity, both argued in § Motion:
+  # a box's own size, and the rotation of a disclosure chevron.
+  size-properties: [height, grid-template-columns]
+  rotation: "the collapse chevron only"
   reveal: 0ms                       # hover-revealed chrome is instant
   reduced-motion: honoured
 
@@ -138,21 +147,26 @@ components:
   btn-quiet:   { background: transparent, text: "{ink}", hover: "{surface-2}" }
   btn-danger:  { background: transparent, text: "{danger}", hover: "{danger-soft}" }
   icon-btn:    { size: 24px, radius: "{r-2}", glyph: "{ink-3}", hover: "{surface-2} + {ink}" }
-  input:       { height: 32px, radius: "{r-2}", background: "{canvas}", ring: "{e1}", focus: "2px {accent} outline, offset 2px" }
+  input:       { height: 32px, radius: "{r-2}", background: "{canvas}", ring: "{e1}", focus: "2px {accent} INSET ring — see § Interaction States" }
+  menu-select: { height: 32px, radius: "{r-2}", trigger: "{input}", menu: "{overlay} — the same menu a bullet opens", open: "2px {accent} inset ring", max-height: 320px }
   panel:       { background: "{surface-1}", radius: "{r-3}", border: none, padding: "{sp-4}" }
   overlay:     { background: "{overlay}", radius: "{r-3}", elevation: "{e2}", layer: "{layers.menu}" }
   dialog:      { background: "{overlay}", radius: "{r-4}", elevation: "{e3}", layer: "{layers.dialog}" }
   palette:     { width: 640px, top: 12vh, radius: "{r-4}", elevation: "{e3}", layer: "{layers.palette}" }
-  menu-item:   { height: 30px, radius: "{r-2}", typography: "{sm}", highlight: "{surface-2}", shortcut: "{mono-xs} {ink-3}" }
+  menu-item:   { height: 30px, radius: "{r-2}", typography: "{sm}", highlight: "{surface-2}", shortcut: "{kbd} plain" }
   chip:        { height: 20px, padding: "0 6px", radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs}", border: none }
-  kbd:         { min-width: 20px, height: 18px, radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{mono-xs}", border: none }
-  bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring", empty: "40% opacity", role: "handle — click, drag, right-click" }
+  # Sans, not mono, and one element per key: a mono face draws ⌘ ⇧ ⌥ at a different
+  # cap height than a letter, and with no separator `⌘K` reads as one glyph.
+  kbd:         { min-width: 20px, height: 18px, radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs} sans", gap: 3px, part-min-width: 1ch, plain: "no fill — menus and tables", border: none }
+  bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring", empty: "40% opacity", cursor: pointer, role: "handle — click, drag, right-click" }
+  chevron:     { box: 16px, glyph: 12px, centre: "the middle of the indent column left of the bullet", fill: none, collapsed: "rotate(-90deg) over {dur-disclose}" }
   selection:   { fill: "{accent-soft}", gutter: "{gutter} left of every bullet", drop: "2px {accent} rule at the target depth" }
   settings:    { width: 820px, scopes: 2, nav: 168px, url: "?settings=<section>" }
   shortcut-key: { height: 24px, radius: "{r-1}", typography: "{mono-xs}", recording: "{accent} fill", touch: 32px }
   thread:      { width: 1px, colour: "{thread}", active: "{thread-active}", offset: "{slot}/2" }
   save-slot:   { saved: "nothing", saving: "5px {ink-3} dot after 600ms", unsaved: "5px {danger} dot + reason + Retry" }
-  toast:       { width: 360px, radius: "{r-3}", background: "{overlay}", elevation: "{e2}", layer: "{layers.toast}", anchor: "top-right, below the top bar", dot: "5px — {ink-3} / {ok} / {danger}", entrance: none, countdown: "2px bar, 4s / 6s / 10s by tone", dismiss: "always visible" }
+  toast:       { width: 360px, radius: "{r-3}", background: "{overlay}", elevation: "{e2}", layer: "{layers.toast}", anchor: "top-right, below the top bar", icon: "16px — info ⓘ {ink-2} / success ✓ {ok} / danger ⚠ {danger}", entrance: none, countdown: "2px bar, 4s / 6s / 10s by tone", dismiss: "always visible" }
+  overflow:    { trigger: "{icon-btn} ⋯, top bar, last", menu: "generated from the command registry" }
 
 ---
 
@@ -182,8 +196,9 @@ visible were chosen one at a time and are listed in [Disclosure](#disclosure). E
 other verb lives in the command palette, reachable by `⌘K` and from a `Search` row that
 is always in the rail. That trade is the whole design: the palette is what licenses an
 interface this bare, so the palette ships first and is never allowed to regress. The
-writing surface's own top bar holds no verbs at all — only durability and the read-only
-lease, both of which render nothing when there is nothing to say.
+writing surface's own top bar holds no named verbs — only durability, the read-only
+lease, both of which render nothing when there is nothing to say, and one `⋯` that
+opens the palette's own contents for a user who has not met `⌘K` yet.
 
 **Key characteristics**
 
@@ -192,7 +207,7 @@ lease, both of which render nothing when there is nothing to say.
 - Two complete modes from one declaration — hue and chroma fixed, only lightness moves
 - OS type at five sizes, weight capped at 600, tracking in `em` and only above 19px
 - One accent, ink indigo, and no second structural colour ever
-- A mono voice reserved for identifiers: property keys, shortcut badges, ids
+- A mono voice reserved for identifiers: property keys, graph ids
 - Silence in the steady state; the interface speaks only on deviation
 - Nothing below the last block is chrome
 
@@ -344,10 +359,38 @@ alone, but the fact that chrome and content are typographically different kinds 
 ### The mono voice
 
 `ui-monospace, SFMono-Regular, "SF Mono", Menlo, …` at 12px/500 is reserved for things
-that are *identifiers rather than prose*: property keys (`task.status`), shortcut
-badges (`⌘K`), graph ids, and ISO dates in the page-info popover. It is never used for
-body copy, headings, or labels. This is the interface admitting which of its strings
-are addresses and which are language.
+that are *identifiers rather than prose*: property keys (`task.status`), graph ids, and
+ISO dates in the page-info popover. It is never used for body copy, headings, or labels.
+This is the interface admitting which of its strings are addresses and which are language.
+
+> **A shortcut badge left the mono voice**, and it is the one thing that has. `⌘`, `⇧`
+> and `⌥` are drawn in a mono face at a different cap height and weight than a capital
+> letter, so `⌘⇧P` set as one string was three mismatched pieces sharing no baseline —
+> and with no separator between them, `⌘K` read as a single four-stroke character. A
+> badge is now one element per key, in the UI face, at a 3px gap, each part at least
+> `1ch` wide so a glyph and a letter occupy the same column. SF Pro and Segoe UI draw
+> the modifier glyphs at exactly the optical size of the letter beside them, which is
+> the whole reason this works. A shortcut is a *key* — a physical object — not an
+> address; the mono voice was never the right claim about it.
+
+### The group label
+
+Every list in this product that divides into groups had the same defect, and it is worth
+stating as a rule because it recurred in seven places. `Application` above
+`Appearance · Language · Journal`, `Pages` above the page list, `Anywhere` above the
+shortcut rows: in each case the divider and the things it divided were **one type size
+and one ink step apart**, and one step of anything is not a hierarchy. The heading read
+as the first item of its own list.
+
+A group label is now different from a row in four ways at once — 12px against 14px, 600
+against 400, `+0.06em` tracking against none, and `--ink-3` against `--ink`. Four weak
+signals in agreement is what reads as "different kind of thing" when no single one of
+them can. **This is the only place in the type system where tracking goes positive,**
+and that is deliberate: it is what makes a label unmistakable for body copy.
+
+Every group divider in the product uses this one rule — rail groups, settings scopes,
+palette groups, shortcut sections, property sections, the diagnostic ledger. None of
+them is allowed to invent its own.
 
 ---
 
@@ -390,8 +433,18 @@ the accessibility tree and the automated audit.
 
 ### Measure
 
-The content column is `704px` (~72 characters at 16px) with a 24px gutter, 16px at or
-below 600px. v1's 760px ran to ~85 characters, past the comfortable reading limit.
+The content column is `848px` (~87 characters at 16px) with a 24px gutter, 16px at or
+below 600px.
+
+That is past the 72-character ideal for running prose, and an outline is not running
+prose. Two things make the wider column the right one here. **Every level of indent
+spends `--indent` before the text starts**, so the measure a block actually gets is
+`848 − depth × 24`; at 704px a block three levels down was writing into 632px, and the
+nesting an outliner exists for was being paid for out of the line length. And **the
+lines are short by nature** — a bullet is a thought, not a paragraph — so the failure
+mode the 72-character limit protects against, losing your place returning to the next
+line, mostly does not arise. v1's 760px was rejected for being ~85 characters of
+*paragraph*; this is ~87 characters of list.
 
 ### Breakpoints
 
@@ -470,8 +523,10 @@ Motion explains a change. It never decorates one, and it never moves anything.
 | Token | Value | Use |
 |---|---|---|
 | `--dur-press` | 90ms | Press feedback (colour only — see below) |
+| `--dur-view` | 120ms | One view replacing another: a page, a settings section, a dialog body |
 | `--dur-overlay` | 140ms | Overlay entrances |
-| `--dur-disclose` | 180ms | Inline panel reveals, the drawer |
+| `--dur-disclose` | 180ms | Inline panel reveals, the drawer, the collapse chevron |
+| `--dur-size` | 220ms | A box growing to meet its content |
 | reveal | **0ms** | Hover-revealed chrome |
 
 ### Three rules
@@ -489,6 +544,25 @@ background-colour change, not a `scale(0.97)`.
 > of the transition, so it is either fully absent from the accessibility tree and the
 > audit, or fully arrived. No other element in the product may animate a transform.
 
+> **Two properties besides `opacity` may animate, and they are both named here.**
+>
+> **A box's own size** — `height`, and the rail's `grid-template-columns` — because
+> animating it is what *prevents* a moving target rather than what creates one. When the
+> diagnostic recorder switched from Standard to Enhanced it resized the dialog by ~200px
+> in a single frame: the panel re-centred in the viewport and `Start recording` left from
+> under a pointer already travelling toward it. When `⌘\` collapsed the rail, the entire
+> writing surface jumped a quarter of the window sideways. In both cases the content does
+> not move *relative to its box* — the box grows or shrinks to meet it, and everything
+> inside stays exactly where it was in the box's own coordinates. A `transform` would have
+> scaled the text; a `height` does not. Size transitions use `--dur-size` and
+> `--ease-size`, and the wrapper clips only while it is between two heights.
+>
+> **The collapse chevron's rotation**, and only that one glyph. A disclosure chevron *is*
+> a direction; swapping `ChevronRight` for `ChevronDown` changed the mark with no
+> indication of which way it went, on the one control in the outline whose entire job is
+> to say "there is more underneath". It is a 16px square that nothing travels toward while
+> it turns. No other element rotates.
+
 **2. Overlays animate in, never out.** A closing menu unmounts immediately. A lingering
 ghost at 40% opacity is a target that no longer works, and an automated contrast audit
 will read it mid-fade and fail it.
@@ -501,6 +575,16 @@ command palette, and every inline disclosure: **the scrim fades, the panel does 
 Prefer no animation to one that has to finish before the surface is legible.
 `enter-fade` survives only for scrims, menus, tooltips and option lists — surfaces
 whose arrival is itself the message.
+
+> **What `--dur-view` is for, and why it is safe.** A page replacing another page, a
+> settings section replacing another section, a dialog body replacing another body: these
+> are containers that were *already* on screen, already the right size, already read. The
+> content inside them changes with nothing to attribute the change to, which reads less
+> like arriving somewhere than like the surface glitching. 120ms of opacity is enough to
+> say "this is different content" and is over long before anything — a user, a live
+> region, or the contrast audit, which needs longer than that just to inject itself — can
+> read it. Rule 3's concern is a surface that has to *finish* animating before it is
+> legible; at 120ms nothing does.
 
 > A toast looks like it belongs on that list and does not. Its arrival *is* the message,
 > but it is also read the instant it lands — by the user, by a live region, and by the
@@ -535,6 +619,10 @@ One monochrome family ([lucide](https://lucide.dev)) at **14px** in chrome and 1
 the rail and palette, stroke width 2.
 
 - Resting `--ink-3`, rising to `--ink` on hover and in the active nav row.
+- **An icon may carry meaning where a colour alone could not.** The three toast tones are
+  the case: `ⓘ` / `✓` / `⚠` at 16px in the tone's own colour, because a 5px coloured disc
+  distinguishes "failed" from "done" only for a reader who has learned which colour is
+  which, and not at all for one who cannot tell the two apart. See § Toasts.
 - **No emoji, and no fullwidth or ASCII glyph standing in for an icon.** v1 shipped a
   U+FF0B FULLWIDTH PLUS as the "add a block" affordance beside a lucide `PlusIcon` for
   the same concept in the rail.
@@ -552,9 +640,28 @@ state is unfinished.
 |---|---|
 | Default | Per component |
 | Hover | `--surface-2` — the one hover colour in the product; glyphs rise to `--ink` |
-| Focus | `outline: 2px solid var(--accent); outline-offset: 2px` — and nothing else |
+| Focus (controls) | `outline: 2px solid var(--accent); outline-offset: 2px` — and nothing else |
+| Focus (fields) | `box-shadow: inset 0 0 0 2px var(--accent)` — the same accent, drawn as the field's own edge |
 | Pressed | `--surface-3` (or `--accent-hover` for the primary action). No transform. |
 | Disabled | 50% opacity, pointer events off, still in the layout, still announced, and in the palette still listed **with its reason** |
+
+> **Why focus has two forms, and why that is still "one signal per state".** A browser
+> matches `:focus-visible` on a *text field* for an ordinary mouse click — it has to, or a
+> typist would lose track of the caret. So the offset ring fired every single time anyone
+> clicked into any input, search box or property value in the product: a blue halo
+> following the pointer around a box that was only being typed in. Fields therefore take
+> the accent as their resting `--e1` inset ring going 2px `--accent`, in place of a halo
+> outside it. Same colour, same 2px, radius still inherited, nothing outside the control
+> moves — one signal, expressed on the edge the control already had.
+>
+> Two kinds of surface are excluded and each says so instead. A **borderless typing
+> surface** that looks like text rather than like a field — a 33px page title, a block's
+> line, the palette's query — already carries the `--accent` caret, and takes a
+> `--surface-2` wash where the field would otherwise be invisible; a ring drawn around
+> running text at display size is precisely the drawn box § Depth forbids. A **focus
+> container** — a dialog, a menu, a toast, the outline viewport — is not a control at all:
+> it takes focus so its contents have somewhere to send keys, and what has focus is the
+> thing inside, which says so itself.
 
 Hover and keyboard focus share one highlight in menus, option lists and the palette, so
 "where am I" never has two answers. v1 had six hard-coded hover greys
@@ -585,10 +692,26 @@ permanently visible.**
 | Bullet | Every outline row | The block's own handle: caret, drag, and its menu |
 | `Today` pill | Journal title row | Only when the date is not today |
 | Toast dismiss `×` | On the toast | The user did not ask for the surface; closing it must not be a discovery |
+| `⋯` overflow | Top bar, last | The conventional place to look for "what else can this do" — see below |
 
-The top bar holds **no verbs**. Everything it used to carry either moved into the rail
-(`Search`) or gave up its button for a keyboard binding and a palette row (`Undo`,
+The top bar holds **no named verbs**. Everything it used to carry either moved into the
+rail (`Search`) or gave up its button for a keyboard binding and a palette row (`Undo`,
 `Redo`) — see Principle 5 for why that is allowed and what pays for it.
+
+> **The one `⋯`, and what it is for.** Principle 5 says the palette counts as a pointer
+> route *because the palette has a permanent pointer affordance*. `Search` in the rail is
+> that affordance, and it is honest as far as it goes: it licensed the emptiness for
+> everyone who already knew a command palette was a thing to look for. For everyone else,
+> an interface with no menu anywhere has no answer to the first question a new user asks,
+> which is not "how do I search" but "what can this do".
+>
+> So there is one `⋯`, at the end of the top bar, where every application this one
+> resembles puts it. It is a **summoned** surface, so § Summoned only still holds and the
+> bar still carries no named verb; what it adds is a conventional entry point. It is
+> **generated from the command registry**, not hand-listed, so every row's label, icon,
+> keyboard badge and disabled reason is the one the palette shows for the same verb, and a
+> verb that stops existing stops appearing in it. It cannot drift, and it cannot become
+> the only route to anything.
 
 ### Revealed on hover, focus, or `[data-focused]`
 
@@ -798,24 +921,56 @@ first character. That is the whole of what an empty line says now, and it is eno
 sentence of instructions in the user's own document was saying more, in their voice, in
 a place they were already looking at.
 
-**The bullet is the block's handle**, which is why it carries three gestures and a
-`grab` cursor: click puts the caret in the line, drag moves the subtree, right-click
-opens the block's menu. It is a real `<button>` and the menu's actual trigger, so the
+**The bullet is the block's handle**, which is why it carries three gestures: click puts
+the caret in the line, drag moves the subtree, right-click opens the block's menu. Its
+cursor is `pointer`, not `grab`. `grab` named the second of the three and it was the wrong
+one to name: an open hand promises that pressing will pick something up, so every user who
+only wanted to put the caret in a line was told they were about to move their block.
+`pointer` names what a press actually does; `grabbing`, set on the whole section once a
+drag is genuinely in flight, names the other. It is a real `<button>` and the menu's actual trigger, so the
 menu is reachable from the keyboard (`⇧F10` or the Menu key, from the row's text) without
 the bullet ever becoming a tab stop.
 
-**Chevron.** 16px box, 12px glyph, absolutely positioned in reserved space to the left
-of the bullet so text never shifts. `visibility: hidden` without children; `opacity: 0`
-until hover, `:focus-within`, or `[data-focused]`. `←` and `→` at the text edges
-collapse and expand and then move to parent / first child. Rows carry `aria-expanded`;
-the tree carries `aria-activedescendant` while the textarea remains the single tab stop.
+**Chevron.** 16px box, 12px glyph, absolutely positioned in reserved space to the left of
+the bullet so text never shifts. `visibility: hidden` without children; `opacity: 0` until
+hover, `:focus-within`, or `[data-focused]`. `←` and `→` at the text edges collapse and
+expand and then move to parent / first child. Rows carry `aria-expanded`; the tree carries
+`aria-activedescendant` while the textarea remains the single tab stop.
+
+Three things about it are load-bearing and were wrong:
+
+- **It sits in the middle of the indent column immediately left of the bullet**, which is
+  the same grid the thread is drawn on: the parent's thread line runs one whole
+  `--indent` left of the bullet's centre, so the midpoint between them is `--indent / 2`.
+  At its old `-16px` the glyph landed three quarters of an indent out — almost exactly on
+  top of the ancestor's thread line, aligned to nothing. It takes a `z-index` because the
+  bullet's 24px hit box reaches back over that square, and between the two the chevron is
+  the one the pointer came for.
+- **It has no fill, in any state.** A 16px grey square behind a 12px glyph is a button
+  drawn around an icon that was already legible, and it read as a smudge beside the one
+  mark on the row that is meant to carry weight. The glyph rising to `--ink` is the whole
+  hover signal.
+- **It rotates rather than swapping.** One glyph, `rotate(-90deg)` when collapsed, over
+  `--dur-disclose` — § Motion's named rotation exception. The halo grows and shrinks on
+  the same clock, so the persistent signal and the summoned one agree.
+
+**Expanding is animated; nothing else in the list is.** It is the one structural change in
+the outline with no other trace — rows the user has never seen simply exist on the next
+frame, in the middle of a list, with nothing for the eye to follow. The rows *one expand
+uncovered* fade up over `--dur-disclose` while the chevron turns, so the two halves of one
+gesture read as one thing. Driven by an explicit attribute the editor sets and clears, not
+by an animation on mount: a row the virtualizer happened to recycle into view during a
+scroll must not fade, or the whole list shimmers while you scroll it.
 
 **Block menu.** No button. Right-click the bullet or the gutter beside it; `⇧F10` from
 the row's text does the same. It anchors to the bullet rather than to the pointer,
 because it is *about* the bullet. Every item carries its shortcut: `Indent ⇥`,
 `Outdent ⇧⇥`, `Move up ⌥↑`, `Move down ⌥↓`, `Properties ⌘⇧P`, `Delete ⌫`. Closing it puts
 the caret back in the row's text — Radix would otherwise park focus on the bullet, which
-is not a tab stop and cannot be typed into.
+is not a tab stop and cannot be typed into — **unless the verb that closed it has already
+moved the caret**. `Add child block` mounts a focused pending row synchronously and
+`Delete` hands the caret to a neighbour; restoring it afterwards races them and wins,
+which sends the next thing typed into the row the menu was opened on.
 
 With more than one block selected the menu changes subject: `Indent`, `Outdent`, and
 `Delete N blocks`. It is the same menu on the same object, answering for the selection
@@ -834,6 +989,14 @@ occupying what was previously dead bottom padding — and approaching it raises 
 bullet of the line it would create, at the exact gutter position and baseline that line
 will occupy. The affordance is the same mark in both places, which is what makes "a line
 starts here" legible without a sentence.
+
+**Both are also the nearest place with nothing on it, and that reading wins.** The empty
+region under the writing is the obvious thing to click to get out of a menu, a popover or
+a selection — and because it is a real button, doing that used to close the menu *and*
+append an empty row nobody asked for, every single time. A press that began while
+something was floating over the page only dismisses. Whether something was floating is
+sampled on `pointerdown` at the `window` in the capture phase, which is the only listener
+that runs before Radix's own dismisser has already removed the layer being asked about.
 
 ### Selection
 
@@ -931,9 +1094,14 @@ on-demand model.
 - **Three routes in:** the strip, the title row's context menu, and `⌘⇧P`.
 - System keys are filtered out entirely and live in the page-info popover instead.
 
-Value controls stay **native** `<select>`, `<input type="checkbox">` and
-`<input type="date">`, restyled. The platform brings pickers, mobile wheels, type-ahead
-and assistive-technology support for free; a custom listbox brings none of it.
+Value controls stay **native** where the platform brings something a menu cannot:
+`<input type="checkbox">` and `<input type="date">`, restyled, so the date picker and the
+mobile wheel come for free. **A list of choices does not** — see § Choice for why every
+`<select>` in the product became the same menu, and what that cost.
+
+**Opening the disclosure animates.** It pushes the entire outline down, so the push is a
+`--dur-size` height transition rather than a reflow: the writing slides out of the way,
+which is the difference between "a panel opened above this" and "the page jumped".
 
 ### Save slot
 
@@ -979,9 +1147,16 @@ component.
   still has to be seen. Inset 8px from both edges at or below 600px.
 - **The region is `pointer-events: none`; each toast is `auto`.** Almost always it is
   empty, and an empty fixed region that eats clicks is worse than no region at all.
-- **Tone is a 5px dot**, the save slot's own language: `--ink-3` notice, `--ok`
-  affirmative, `--danger` failure. Tone is never the only signal — the title says what
-  happened — and there is no fourth tone and no warning colour.
+- **Tone is a 16px glyph** in the tone's own colour: `ⓘ` `--ink-2` notice, `✓` `--ok`
+  affirmative, `⚠` `--danger` failure. There is no fourth tone and no warning colour, and
+  the title still says what happened, so tone is still never the only signal.
+  > It was a 5px dot, the save slot's language borrowed wholesale. That works for
+  > durability, which has two states the user already knows; it does not work here. A
+  > report can be a failure, a plain notice or a confirmation, and a coloured disc
+  > distinguishes those only for a reader who has learned which colour is which — and not
+  > at all for one who cannot tell the two apart. A glyph is legible before the sentence
+  > beside it is read, which on the one surface the user never asked for is the whole job.
+  > § Iconography names this as the case where an icon carries meaning.
 - **Every report expires, and every report shows how much of its window is left.** A
   2px bar along the bottom edge runs down in the tone's own colour: 4s success, 6s notice,
   10s failure. A failure gets the longest window rather than none at all, because the two
@@ -1016,9 +1191,16 @@ column, `Delete this graph…` read as a sibling of `Language`.
 - **A dialog, not a route.** Settings are an aside: you open them from wherever you are,
   change one thing, and come back to the same block with the same caret. 820px, a 168px
   scope nav on the left, the pane scrolling on the right.
-- **Two named groups, each with a real `<h3>` and a note saying how far it reaches.**
-  `Application` — Appearance, Language, Journal, Keyboard, Storage. `This graph` — Graph,
-  Danger zone.
+- **Two named groups, each with a real `<h3>`.** `Application` — Appearance, Language,
+  Journal, Keyboard, Storage. `This graph` — Graph, Danger zone. Each heading used to
+  carry a sentence under its rows explaining how far the scope reached ("These apply to
+  Neoseq in this browser, on every graph."); both are gone. Two paragraphs of prose inside
+  a 168px navigation column, restating what `Application` and `This graph` already say, in
+  a column whose job is to be scanned rather than read. The distinction now rests on the
+  two headings and on § The group label's typography, which is where it belonged.
+- **Switching sections fades** at `--dur-view`. The pane is a box that is already on
+  screen and already the right size; without it, changing sections read as the dialog's
+  contents glitching rather than as one section replacing another.
 - **The open section is in the URL** (`?settings=keyboard`). The browser's own Back closes
   the dialog, a link can point at one section, and a reload comes back to it. The old
   `/settings` path still resolves, to the journal with the dialog open.
@@ -1034,12 +1216,64 @@ column, `Delete this graph…` read as a sibling of `Language`.
   customised.
 - **`Danger zone` is its own section**, not a red button at the bottom of a scroll.
 
+### Choice
+
+**Every list of choices in the product opens the same surface: the menu a right-click on a
+bullet opens.** One `MenuSelect`, one popup, one highlight, one radius, one set of metrics.
+
+This replaced three. On the property add row — the one screen most likely to be somebody's
+first encounter with the app — there were three popups side by side:
+
+1. a native `<select>`, whose menu the **operating system** draws, in the operating
+   system's palette, metrics and corner radius, which no rule in this document can reach;
+2. a `<datalist>` on a text input, whose menu the **browser** draws, in a third style
+   again, and which Chrome, Safari and Firefox each interpret differently;
+3. the Radix menu, which is the one this design system actually specifies.
+
+Two adjacent controls that look identical at rest and then open two unrelated objects is
+the most disorienting thing a form can do.
+
+- **The trigger keeps the shape of a field**, because it is standing in for one: 32px,
+  `--r-2`, `--canvas`, the `--e1` inset ring, a 14px chevron at the trailing edge. Open is
+  the same 2px `--accent` inset ring focus is — the popup is already the loud part.
+- **The menu is the block menu**, `--overlay` on `--e2`, matched to the trigger's width so
+  a long list does not open as a panel narrower than the control that summoned it. It caps
+  at 320px and scrolls; the timezone list is four hundred rows and is why the cap exists.
+- **Rows are `menuitemradio`** with the indicator's column reserved whether or not the row
+  is the selected one, so the text does not shift sideways as the selection moves down.
+- **A value the core holds that is not one of the offered options stays listed**, so
+  opening the menu can never silently rewrite it.
+- **A field that accepts anything and also offers a list** — the property key — keeps its
+  text input and puts the list behind an explicit chevron. These are suggestions, not the
+  set of legal answers, and a menu that appears unbidden under the caret says the opposite.
+
+> **The cost, named.** A native `<select>` brings the platform's own picker, the mobile
+> wheel, and type-ahead for free. Radix returns type-ahead, roving focus, portalling,
+> dismissal and `menuitemradio` semantics; the mobile wheel it does not. One consistent
+> surface for every choice in the product was judged worth one platform affordance on one
+> form factor. This is the one place § Implementation's "native where native is better"
+> was overruled, and checkboxes and date inputs — where the platform genuinely brings
+> something a menu cannot — were not touched.
+
 ### Overlays
 
 All portaled to the document — a menu anchored inside a scrolling, clipping, transformed
 ancestor (the virtualized outline is all three) cannot escape with `z-index` alone. All
 on the one `--z-*` scale, which replaces four disagreeing definitions where dialog, menu
 and toast were tied at 50. All dismissible by outside click, `Escape`, and selection.
+
+**"Outside click" includes the empty space in the editor**, and that needs stating because
+the largest patch of empty space on the page is also a button (§ The outline, Empty and
+append). A press that begins while something is floating only dismisses; it does not also
+do what that region does.
+
+**`Escape` is decided before the IME guard**, and it is the one key that is. A composition
+owns the keyboard outright and for every other key that is correct — losing a keystroke
+mid-composition corrupts CJK input. But `Escape` is not a character, it is the way out, and
+the browser reports `isComposing` on that keydown too: a user who typed 검색 into the
+palette and pressed `⎋` got nothing at all, and the only remaining exit was the pointer. A
+modal surface with one focusable element also needs a window-level backstop, because `⇥`
+parks focus outside the panel and the panel's own handler never runs again.
 
 ---
 
@@ -1126,8 +1360,11 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   trapping, dismissal, roving focus and ARIA wiring come from the primitive; every
   visual property comes from a token. shadcn's `focus-visible:ring-2` and
   `focus-visible:border-ring` are removed so focus is one ring, not three.
-- **Native where native is better.** Selects, checkboxes and date inputs stay real form
-  controls; Radix is used for overlays and chrome, where the platform offers nothing.
+- **Native where native is better — and a `<select>` is not.** Checkboxes and date inputs
+  stay real form controls, because the platform brings a picker and a mobile wheel that
+  nothing here can reproduce. A list of choices brings an unstylable popup instead, drawn
+  by the OS in the OS's own language, so it became the one Radix menu every other choice
+  in the product uses; § Choice argues it and names the cost.
 
 ---
 
@@ -1150,6 +1387,13 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   different kinds of "no" and they belong in two different places.
 - Give every verb a palette entry, a shortcut badge, and a pointer route.
 - Reveal chrome with `opacity`, instantly, and pin it visible on touch and on focus.
+- Give every group of rows a label that differs from them in four ways, not one
+  (§ The group label), and let the rows themselves go to full-strength ink.
+- Open the same menu for every list of choices, and keep the trigger shaped like the field
+  it stands in for.
+- Animate a box's *size* when its content is swapped, so the panel grows to meet the
+  content instead of jumping the buttons out from under the pointer.
+- Let a shortcut badge lay out one element per key, in the UI face, with a real gap.
 - Hang a menu on the object it acts on — a bullet, a title — rather than on a button
   parked beside it, and give the same verbs a key and a palette row.
 - Let a selection be visible in exactly one way: a fill on the rows it holds.
@@ -1167,7 +1411,15 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Don't tune a tracking ramp for a font the app does not actually load, and don't set
   tracking in `px` on a size that clamps.
 - Don't animate `transform`, `scale`, or `translate` — not on entrance, not on press,
-  not on hover.
+  not on hover. The two exceptions are named in § Motion and are a box's own size and the
+  collapse chevron's rotation; a third has to be argued there before it ships.
+- Don't put a 2px offset ring on a text field — the browser fires `:focus-visible` on a
+  plain mouse click there, so it becomes a blue halo that follows the pointer around.
+- Don't ship two controls that look identical at rest and open different popups.
+- Don't set a modifier and its key as one run of mono text, and don't leave them touching.
+- Don't separate a group heading from its rows by one type size and nothing else.
+- Don't let a click that dismisses an overlay also fire the button underneath it.
+- Don't swallow `Escape` behind the IME guard; it is the way out, not a character.
 - Don't let an overlay linger on close, and don't reach for a bigger `z-index` to escape
   a clipping ancestor — portal it.
 - Don't state the same fact twice on one screen, and don't render an uppercase `<span>`

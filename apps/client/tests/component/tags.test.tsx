@@ -49,7 +49,7 @@ describe("first-class tags and tag defaults", () => {
     await waitFor(() => expect(within(inspector).getByTestId("tag-chip")).toHaveTextContent("#Project"));
     // Existing value wins over the tag default.
     await waitFor(() =>
-      expect(within(inspector).getByLabelText("task.status value")).toHaveValue("doing"),
+      expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("doing"),
     );
   });
 
@@ -67,7 +67,7 @@ describe("first-class tags and tag defaults", () => {
     const inspector = await screen.findByTestId("block-inspector");
     // The default was copied because the block had no task.status.
     await waitFor(() =>
-      expect(within(inspector).getByLabelText("task.status value")).toHaveValue("todo"),
+      expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("todo"),
     );
 
     await user.click(within(inspector).getByRole("button", { name: "Remove tag Project" }));
@@ -75,7 +75,7 @@ describe("first-class tags and tag defaults", () => {
       expect(within(inspector).queryByTestId("tag-chip")).not.toBeInTheDocument(),
     );
     // Copied properties are plain properties: removing the tag keeps them.
-    expect(within(inspector).getByLabelText("task.status value")).toHaveValue("todo");
+    expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("todo");
   });
 
   it("does not offer a duplicate tag create action", async () => {

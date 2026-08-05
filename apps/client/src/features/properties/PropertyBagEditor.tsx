@@ -3,7 +3,7 @@
 // their uniform representation; unknown keys use the same path.
 
 import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { XIcon } from "lucide-react";
+import { ChevronDownIcon, XIcon } from "lucide-react";
 import type { Command, EntityRef } from "../../core-port/commands";
 import type { PropertyEntry, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
@@ -21,8 +21,15 @@ import {
 } from "../../entities/properties";
 import { todayLocalDate } from "../../entities/journal";
 import { Input } from "@/ui/shadcn/input";
-import { NativeSelect } from "@/ui/shadcn/native-select";
+import { MenuSelect } from "@/ui/menu-select";
 import { Button } from "@/ui/shadcn/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/ui/shadcn/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -300,17 +307,15 @@ function ValueEditor({
 
   if (known && known.allowed_strings.length > 0) {
     return (
-      <NativeSelect
-        value={value.value}
-        aria-label={message("properties.value", { key: entryKey })}
-        onChange={(event) => onCommit({ type: "string", value: event.target.value })}
-      >
-        {known.allowed_strings.map((allowed) => (
-          <option key={allowed} value={allowed}>
-            {localizedAllowedValue(entryKey, allowed, message)}
-          </option>
-        ))}
-      </NativeSelect>
+      <MenuSelect
+        label={message("properties.value", { key: entryKey })}
+        value={typeof value.value === "string" ? value.value : ""}
+        options={known.allowed_strings.map((allowed) => ({
+          value: allowed,
+          label: localizedAllowedValue(entryKey, allowed, message),
+        }))}
+        onValueChange={(next) => onCommit({ type: "string", value: next })}
+      />
     );
   }
 
@@ -384,14 +389,10 @@ function AddPropertyRow({
   const known = definition(key);
   const effectiveType = known?.type ?? type;
   const repeated = cardinalityOf(key) === "repeated";
-  const datalistId = `prop-keys-${kind}`;
 
   const knownKeys = useMemo(
-    () =>
-      REGISTRY.filter(
-        (item) => !isSystemKey(item.key),
-      ).map((item) => item.key),
-    [kind],
+    () => REGISTRY.filter((item) => !isSystemKey(item.key)).map((item) => item.key),
+    [],
   );
 
   const syncType = (nextKey: string) => {
@@ -415,41 +416,29 @@ function AddPropertyRow({
 
   return (
     <div className="props-add" data-testid={`props-add-${kind}`}>
-      <div>
-        <Input
-          list={datalistId}
-          placeholder={message("properties.propertyKey")}
-          aria-label={message("properties.newKey")}
-          value={key}
-          onChange={(event) => syncType(event.target.value)}
-        />
-        <datalist id={datalistId}>
-          {knownKeys.map((item) => (
-            <option key={item} value={item} />
-          ))}
-        </datalist>
-      </div>
-      <NativeSelect
-        aria-label={message("properties.newType")}
+      <KeyField value={key} knownKeys={knownKeys} onChange={syncType} />
+      <MenuSelect
+        label={message("properties.newType")}
+        testId="props-add-type"
         value={effectiveType}
+        // A known key owns its own type; the control stays visible and states it
+        // rather than disappearing, so the row does not change shape as you type.
         disabled={known !== undefined}
-        onChange={(event) => {
-          const nextType = event.target.value as PropertyValueType;
+        options={VALUE_TYPES.map((item) => ({
+          value: item,
+          label: message(`properties.type.${item}` as
+            | "properties.type.string"
+            | "properties.type.number"
+            | "properties.type.checkbox"
+            | "properties.type.date"
+            | "properties.type.page"),
+        }))}
+        onValueChange={(value) => {
+          const nextType = value as PropertyValueType;
           setType(nextType);
           setDraft(defaultValueFor(nextType, todayLocalDate()));
         }}
-      >
-        {VALUE_TYPES.map((item) => (
-          <option key={item} value={item}>
-            {message(`properties.type.${item}` as
-              | "properties.type.string"
-              | "properties.type.number"
-              | "properties.type.checkbox"
-              | "properties.type.date"
-              | "properties.type.page")}
-          </option>
-        ))}
-      </NativeSelect>
+      />
       <NewValueInput
         type={effectiveType}
         entryKey={key}
@@ -460,6 +449,68 @@ function AddPropertyRow({
       <Button variant="secondary" onClick={() => void submit()} data-testid="props-add-submit">
         {message("common.add")}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * The property key: free text, with the registry's own keys offered beside it.
+ *
+ * It was an `<input list=…>` over a `<datalist>`, which meant the add row carried
+ * two controls that looked identical and opened two unrelated popups — the
+ * browser's datalist menu, which no rule in this design system can reach and which
+ * every engine styles differently, next to a native `<select>` drawn by the
+ * operating system. Now the suggestion list is the same menu a right-click on a
+ * bullet opens, and it is behind an explicit chevron rather than appearing
+ * unbidden under the caret: a property key may be anything, so the list is a
+ * shortcut, not the set of legal answers. Typing still filters it.
+ */
+function KeyField({
+  value,
+  knownKeys,
+  onChange,
+}: {
+  value: string;
+  knownKeys: readonly string[];
+  onChange: (key: string) => void;
+}) {
+  const { message } = useI18n();
+  const needle = value.trim().toLowerCase();
+  const matches = needle
+    ? knownKeys.filter((entry) => entry.toLowerCase().includes(needle))
+    : knownKeys;
+
+  return (
+    <div className="field-menu">
+      <Input
+        placeholder={message("properties.propertyKey")}
+        aria-label={message("properties.newKey")}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="field-menu-trigger"
+            aria-label={message("properties.suggestedKeys")}
+            data-testid="props-add-key-menu"
+          >
+            <ChevronDownIcon aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="menu-select-menu">
+          {matches.length === 0 ? (
+            <DropdownMenuLabel>{message("properties.noKeys")}</DropdownMenuLabel>
+          ) : (
+            matches.map((entry) => (
+              <DropdownMenuItem key={entry} onSelect={() => onChange(entry)}>
+                <span className="mono">{entry}</span>
+              </DropdownMenuItem>
+            ))
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -531,18 +582,16 @@ function NewValueInput({
   }
   if (known && known.allowed_strings.length > 0) {
     return (
-      <NativeSelect
-        aria-label={message("properties.newValue")}
-        value={value.type === "string" ? value.value : known.allowed_strings[0]}
-        onChange={(event) => onChange({ type: "string", value: event.target.value })}
-      >
-        <option value="">{message("properties.choose")}</option>
-        {known.allowed_strings.map((allowed) => (
-          <option key={allowed} value={allowed}>
-            {localizedAllowedValue(entryKey, allowed, message)}
-          </option>
-        ))}
-      </NativeSelect>
+      <MenuSelect
+        label={message("properties.newValue")}
+        placeholder={message("properties.choose")}
+        value={value.type === "string" ? value.value : ""}
+        options={known.allowed_strings.map((allowed) => ({
+          value: allowed,
+          label: localizedAllowedValue(entryKey, allowed, message),
+        }))}
+        onValueChange={(next) => onChange({ type: "string", value: next })}
+      />
     );
   }
   return (

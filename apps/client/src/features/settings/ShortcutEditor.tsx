@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { MOD } from "../commands/keys";
+import { Shortcut } from "../commands/Shortcut";
 import {
   SHORTCUT_IDS,
   SHORTCUT_MESSAGE,
@@ -129,7 +130,11 @@ export function ShortcutEditor() {
                   capture(id, event);
                 }}
               >
-                {recording === id ? message("settings.shortcutRecording") : formatBinding(binding)}
+                {recording === id ? (
+                  message("settings.shortcutRecording")
+                ) : (
+                  <Shortcut binding={binding} plain />
+                )}
               </button>
               <button
                 type="button"

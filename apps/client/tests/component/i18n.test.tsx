@@ -7,7 +7,7 @@ import {
   resolveLocale,
   storedLocalePreference,
 } from "../../src/i18n";
-import { mountAt } from "./harness";
+import { chooseFromMenu, mountAt } from "./harness";
 
 describe("locale runtime", () => {
   it("resolves supported platform languages and falls back to English", () => {
@@ -44,7 +44,7 @@ describe("language preference", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
-    await user.selectOptions(screen.getByTestId("settings-language"), "ko");
+    await chooseFromMenu(user, screen.getByTestId("settings-language"), "한국어");
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "설정" })).toBeVisible();

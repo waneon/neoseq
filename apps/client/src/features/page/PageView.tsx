@@ -5,6 +5,7 @@ import type { PageSnapshot } from "../../core-port/snapshot";
 import { findPage, journalDate, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
+import { AutoHeight } from "../../ui/auto-height";
 import { Dialog } from "../../ui/components";
 import {
   DropdownMenu,
@@ -15,7 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { useCommands } from "../commands/context";
-import { formatBinding, useShortcutBindings } from "../commands/shortcuts";
+import { Shortcut } from "../commands/Shortcut";
+import { useShortcutBindings } from "../commands/shortcuts";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { configuredTimezone } from "../../entities/journal";
@@ -131,7 +133,12 @@ export function PageBody({
 
   return (
     <div className="page-scroll" ref={setScrollElement}>
-      <article className="page-body" key={page.id}>
+      {/* Keyed by page, and faded, so navigating between pages says that one
+          document replaced another. Without it the title and the whole outline
+          swap in one frame with nothing to attribute the change to, which reads
+          less like arriving somewhere than like the page glitching. `--dur-view`
+          is 120ms: enough to be seen, over before anything is read. */}
+      <article className="page-body enter-fade-view" key={page.id}>
         {header ? (
           header(menu, openMenu)
         ) : (
@@ -143,8 +150,13 @@ export function PageBody({
           </div>
         )}
         {/* Properties sit between the title and the writing, collapsed, so the
-            region below the outline stays free of chrome. */}
-        <PageProperties page={page} open={propsOpen} onOpenChange={setPropsOpen} />
+            region below the outline stays free of chrome. Opening the disclosure
+            pushes the whole outline down, so the push is animated: the writing
+            slides out of the way rather than teleporting, which is the difference
+            between "a panel opened above this" and "the page reflowed". */}
+        <AutoHeight>
+          <PageProperties page={page} open={propsOpen} onOpenChange={setPropsOpen} />
+        </AutoHeight>
         <Outliner page={page} scrollElement={scrollElement} />
       </article>
     </div>
@@ -173,20 +185,41 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
     return <h1 data-testid="journal-title">{day ? formatJournalDate(day) : authoritative}</h1>;
   }
 
+  // The draft is held until the *core* has the new title, not until the command
+  // has been sent.
+  //
+  // Dropping it on submit is what made a rename flicker: `setDraft(null)` fell
+  // back to `authoritative`, which is still the old title for as long as the
+  // command is in flight, so the field showed `Reading list` → `Reading` → (a
+  // frame or three of the old title) → `Reading`. The user watched their own edit
+  // be undone and then redone. `GraphSession` resolves a command only after it has
+  // reconciled the snapshot it produced, so releasing the draft on resolution
+  // hands over to a snapshot that already agrees with it: one value, one commit,
+  // no intermediate frame. A rejection is the one case that does snap back, and it
+  // is reported — the snap alone reads as a keystroke that never registered.
   const commit = () => {
-    const next = pending.current?.trim();
+    const raw = pending.current;
+    // `⏎` commits and then blurs, and the blur would commit the same draft again.
+    // Nothing pending means this draft has already been dealt with.
+    if (raw === null) return;
     pending.current = null;
-    setDraft(null);
-    if (next && next !== authoritative) {
-      void session
-        .execute({ type: "rename_page", page_id: page.id, title: next })
-        // A rejected rename snaps the field back to the authoritative title. The
-        // snap is the only thing the user sees, and on its own it looks like the
-        // keystroke never registered, so the reason is reported.
-        .catch((error: unknown) => {
-          notify.failure(message("failure.renamePage"), error);
-        });
+    const next = raw.trim();
+    if (!next || next === authoritative) {
+      setDraft(null);
+      return;
     }
+    setDraft(next);
+    // Release only the draft this rename was for. A user who kept typing while it
+    // was in flight has a newer one, and handing that back to the authoritative
+    // title would throw away the characters they just entered.
+    const release = () => setDraft((current) => (current === next ? null : current));
+    void session
+      .execute({ type: "rename_page", page_id: page.id, title: next })
+      .then(release)
+      .catch((error: unknown) => {
+        release();
+        notify.failure(message("failure.renamePage"), error);
+      });
   };
 
   return (
@@ -298,7 +331,9 @@ function PageMenu({
           <DropdownMenuItem data-testid="menu-page-properties" onSelect={onOpenProperties}>
             <Settings2Icon aria-hidden />
             {message("page.properties")}
-            <DropdownMenuShortcut>{formatBinding(bindings.properties)}</DropdownMenuShortcut>
+            <DropdownMenuShortcut>
+              <Shortcut binding={bindings.properties} plain />
+            </DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setInfo(true)}>
             <InfoIcon aria-hidden />

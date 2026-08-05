@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { stringValue } from "../../src/core-port/snapshot";
-import { GRAPH_ID, mountAt } from "./harness";
+import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
 async function mountProjection() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -62,8 +62,8 @@ describe("query and task projections", () => {
     });
 
     const status = await screen.findByLabelText("Task status");
-    expect(status).toHaveValue("blocked");
-    await userEvent.setup().selectOptions(status, "done");
+    expect(status).toHaveTextContent("blocked");
+    await chooseFromMenu(userEvent.setup(), status, "done");
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && stringValue(block.properties, "task.status")).toBe("done");

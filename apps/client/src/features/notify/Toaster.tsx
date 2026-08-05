@@ -8,9 +8,29 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { XIcon } from "lucide-react";
-import type { Toast, ToastStore } from "./store";
+import { CircleAlertIcon, CircleCheckIcon, InfoIcon, XIcon } from "lucide-react";
+import type { Toast, ToastStore, ToastTone } from "./store";
 import { useI18n } from "../../i18n";
+
+/**
+ * Tone, as a glyph.
+ *
+ * It was a 5px dot in the tone's colour — the save slot's own language, borrowed.
+ * That works for durability, which has two states the user already knows, and it
+ * does not work here: a report can be a failure, a plain notice or a confirmation,
+ * and a coloured disc distinguishes those only for someone who has learned which
+ * colour is which, and not at all for someone who cannot tell the two apart. A
+ * glyph is legible before the sentence beside it is read, which on the one surface
+ * the user never asked for is the whole job.
+ *
+ * The title still says what happened. Tone is still never the only signal — it is
+ * now a second one that stands on its own.
+ */
+const TONE_ICON: Record<ToastTone, typeof InfoIcon> = {
+  info: InfoIcon,
+  success: CircleCheckIcon,
+  danger: CircleAlertIcon,
+};
 
 export function Toaster({ store }: { store: ToastStore }) {
   const { message } = useI18n();
@@ -78,6 +98,7 @@ function ToastRow({
   dismissLabel: string;
 }) {
   const { id, duration, nonce } = toast;
+  const ToneIcon = TONE_ICON[toast.tone];
   // How much of the window is left. A pause has to *hold* the remaining time,
   // not restart it: the bar and the timer would otherwise disagree the moment
   // the pointer left, and the bar is the honest one — the browser keeps a paused
@@ -121,7 +142,7 @@ function ToastRow({
         onDismiss(id);
       }}
     >
-      <span className="toast-dot" aria-hidden />
+      <ToneIcon className="toast-icon" aria-hidden />
       <p className="toast-title">
         {toast.title}
         {toast.count > 1 && (

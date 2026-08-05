@@ -253,20 +253,36 @@ const GLYPHS: Record<string, string> = {
 };
 
 /**
- * The display form. Apple keyboards print modifiers as glyphs with no separator;
- * everywhere else they are words joined by `+`. Matching the platform matters
- * because this string is compared against a physical keyboard.
+ * The display form, split into the parts a badge lays out as separate columns.
+ *
+ * A modifier and the key it modifies never line up when they are set as one run
+ * of text — they come from different parts of a system face, and with no
+ * separator `⌘K` reads as a single four-stroke glyph. So the display form is a
+ * sequence, and `<Kbd>` gives each part its own column and a real gap.
+ *
+ * Joining the parts reproduces `formatBinding` character for character, which is
+ * what keeps a rendered badge and an `aria-keyshortcuts` value from disagreeing.
+ * Apple keyboards print modifiers as glyphs with no separator; everywhere else
+ * they are words joined by `+`, and there the `+` is one of the parts (as
+ * punctuation, which `<Kbd>` styles accordingly) rather than a join.
  */
-export function formatBinding(binding: Binding): string {
+export function formatBindingParts(binding: Binding): string[] {
   const key = GLYPHS[binding.key] ?? (binding.key.length === 1
     ? binding.key.toUpperCase()
     : binding.key.replace(/^f(\d+)$/, "F$1"));
-  if (APPLE) {
-    return `${MOD}${binding.alt ? "⌥" : ""}${binding.shift ? "⇧" : ""}${key}`;
-  }
-  return [MOD, ...(binding.alt ? ["Alt"] : []), ...(binding.shift ? ["Shift"] : []), key].join(
-    "+",
-  );
+  const keys = [
+    MOD,
+    ...(binding.alt ? [APPLE ? "⌥" : "Alt"] : []),
+    ...(binding.shift ? [APPLE ? "⇧" : "Shift"] : []),
+    key,
+  ];
+  if (APPLE) return keys;
+  return keys.flatMap((part, index) => (index === 0 ? [part] : ["+", part]));
+}
+
+/** The display form as one string: an accessible name, a tooltip, a message. */
+export function formatBinding(binding: Binding): string {
+  return formatBindingParts(binding).join("");
 }
 
 export interface ShortcutHandler {

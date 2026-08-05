@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { SettingsSection } from "../../src/features/settings/SettingsDialog";
 
 /** Creates a fresh local graph and lands on today's journal. */
@@ -57,6 +57,24 @@ export async function createPage(page: Page, title: string): Promise<void> {
   await titleInput.press("Enter");
   await expect(page.getByTestId("page-title")).toHaveValue(title);
   await awaitSaved(page);
+}
+
+/**
+ * Picks a value from one of the product's dropdowns.
+ *
+ * Every list of choices — a language, a journal date format, a property type, a
+ * task status — is the same Radix menu the bullet's context menu is
+ * (DESIGN.md § Components / Choice), so the route is a user's route: press the
+ * trigger, then press the option. This replaces `selectOption`, which only ever
+ * worked against a native `<select>`.
+ */
+export async function chooseFromMenu(
+  page: Page,
+  trigger: Locator,
+  option: string,
+): Promise<void> {
+  await trigger.click();
+  await page.getByRole("menuitemradio", { name: option, exact: true }).click();
 }
 
 /** The page's verbs have no button: right-clicking its title row is the route. */

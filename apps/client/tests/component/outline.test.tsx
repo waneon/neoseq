@@ -7,7 +7,7 @@ import { findPage } from "../../src/core-port/snapshot";
 import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
 import { Outliner } from "../../src/features/outline/Outliner";
 import { SessionContext } from "../../src/features/shell/session-context";
-import { GRAPH_ID, mountAt } from "./harness";
+import { GRAPH_ID, mountAt, openBlockMenu } from "./harness";
 
 async function mountOutline(markdowns: string[] = ["alpha"]) {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -233,5 +233,27 @@ describe("outliner keyboard commands", () => {
       const page = session.getState().snapshot.pages.find((p) => p.id === "home");
       expect(page?.blocks[0].markdown).toBe("alphabeta");
     });
+  });
+
+  it("dismisses an open menu when the empty region below the writing is clicked", async () => {
+    await mountOutline(["alpha"]);
+    const menu = await openBlockMenu();
+    expect(menu).toBeInTheDocument();
+
+    // The region under the last block is both "make a block" and "the nearest
+    // place with nothing on it", and the second reading has to win: this click
+    // used to close the menu AND append an empty row nobody asked for, every
+    // time anyone dismissed a block menu by clicking past it.
+    const append = screen.getByTestId("outline-append");
+    fireEvent.pointerDown(append);
+    fireEvent.click(append);
+
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
+
+    // With nothing floating, the same target is a new block again.
+    fireEvent.pointerDown(append);
+    fireEvent.click(append);
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
   });
 });

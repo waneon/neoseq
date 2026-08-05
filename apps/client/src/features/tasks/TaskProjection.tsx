@@ -1,7 +1,7 @@
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
 import { dateValue, stringValue } from "../../core-port/snapshot";
 import { Input } from "@/ui/shadcn/input";
-import { NativeSelect } from "@/ui/shadcn/native-select";
+import { MenuSelect } from "@/ui/menu-select";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
@@ -44,44 +44,51 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
     >
       <label>
         <span>{message("task.status")}</span>
-        <NativeSelect
-          aria-label={message("task.statusLabel")}
+        <MenuSelect
+          label={message("task.statusLabel")}
           value={status ?? ""}
           disabled={readonly}
-          onChange={(event) => void set("task.status", { type: "string", value: event.target.value })}
-        >
-          {status === undefined && <option value="">{message("task.unset")}</option>}
-          {status && !STATUSES.includes(status) && <option value={status}>{status}</option>}
-          {STATUSES.map((item) => (
-            <option key={item} value={item}>
-              {message(`task.status.${item}` as
+          placeholder={message("task.unset")}
+          options={[
+            // A value the core holds that is not one of the three is still a
+            // value: it stays listed, so opening the menu cannot silently
+            // rewrite it.
+            ...(status && !STATUSES.includes(status)
+              ? [{ value: status, label: status }]
+              : []),
+            ...STATUSES.map((item) => ({
+              value: item,
+              label: message(`task.status.${item}` as
                 | "task.status.todo"
                 | "task.status.doing"
-                | "task.status.done")}
-            </option>
-          ))}
-        </NativeSelect>
+                | "task.status.done"),
+            })),
+          ]}
+          onValueChange={(value) => void set("task.status", { type: "string", value })}
+        />
       </label>
       {(priority !== undefined || status !== undefined) && (
         <label>
           <span>{message("task.priority")}</span>
-          <NativeSelect
-            aria-label={message("task.priorityLabel")}
+          <MenuSelect
+            label={message("task.priorityLabel")}
             value={priority ?? ""}
             disabled={readonly}
-            onChange={(event) => void set("task.priority", { type: "string", value: event.target.value })}
-          >
-            {priority === undefined && <option value="">{message("task.unset")}</option>}
-            {priority && !PRIORITIES.includes(priority) && <option value={priority}>{priority}</option>}
-            {PRIORITIES.map((item) => (
-              <option key={item} value={item}>
-                {message(`task.priority.${item}` as
+            placeholder={message("task.unset")}
+            options={[
+              ...(priority && !PRIORITIES.includes(priority)
+                ? [{ value: priority, label: priority }]
+                : []),
+              ...PRIORITIES.map((item) => ({
+                value: item,
+                label: message(`task.priority.${item}` as
                   | "task.priority.low"
                   | "task.priority.medium"
-                  | "task.priority.high")}
-              </option>
-            ))}
-          </NativeSelect>
+                  | "task.priority.high"),
+              })),
+            ]}
+            onValueChange={(value) => void set("task.priority", { type: "string", value })}
+          />
         </label>
       )}
       {scheduled !== undefined && (

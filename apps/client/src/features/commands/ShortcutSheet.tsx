@@ -7,12 +7,14 @@
 // makes it safe for a control to be summoned rather than permanent.
 
 import { Dialog } from "../../ui/components";
+import { Kbd } from "../../ui/kbd";
 import { useI18n } from "../../i18n";
-import { formatBinding, useShortcutBindings, type ShortcutId } from "./shortcuts";
+import { formatBindingParts, useShortcutBindings, type ShortcutId } from "./shortcuts";
 
 interface Entry {
   label: string;
-  keys?: string[];
+  /** One entry per key or combination; each is the parts `<Kbd>` lays out. */
+  keys?: string[][];
   route?: string;
 }
 
@@ -24,7 +26,8 @@ interface Section {
 export function ShortcutSheet({ onClose }: { onClose: () => void }) {
   const { message } = useI18n();
   const bindings = useShortcutBindings();
-  const key = (id: ShortcutId) => formatBinding(bindings[id]);
+  const key = (id: ShortcutId) => formatBindingParts(bindings[id]);
+  const keyText = (id: ShortcutId) => key(id).join("");
 
   const sections: Section[] = [
     {
@@ -46,16 +49,16 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
     {
       title: message("shortcuts.writing"),
       entries: [
-        { label: message("shortcuts.newBlock"), keys: ["⏎"] },
-        { label: message("shortcuts.lineBreak"), keys: ["⇧⏎"] },
-        { label: message("shortcuts.indent"), keys: ["⇥"] },
-        { label: message("shortcuts.outdent"), keys: ["⇧⇥"] },
-        { label: message("shortcuts.moveUp"), keys: ["⌥↑"] },
-        { label: message("shortcuts.moveDown"), keys: ["⌥↓"] },
-        { label: message("shortcuts.nextPrevBlock"), keys: ["↑", "↓"] },
-        { label: message("shortcuts.collapseParent"), keys: ["←"] },
-        { label: message("shortcuts.expandChild"), keys: ["→"] },
-        { label: message("shortcuts.deleteBlock"), keys: ["⌫"] },
+        { label: message("shortcuts.newBlock"), keys: [["⏎"]] },
+        { label: message("shortcuts.lineBreak"), keys: [["⇧", "⏎"]] },
+        { label: message("shortcuts.indent"), keys: [["⇥"]] },
+        { label: message("shortcuts.outdent"), keys: [["⇧", "⇥"]] },
+        { label: message("shortcuts.moveUp"), keys: [["⌥", "↑"]] },
+        { label: message("shortcuts.moveDown"), keys: [["⌥", "↓"]] },
+        { label: message("shortcuts.nextPrevBlock"), keys: [["↑"], ["↓"]] },
+        { label: message("shortcuts.collapseParent"), keys: [["←"]] },
+        { label: message("shortcuts.expandChild"), keys: [["→"]] },
+        { label: message("shortcuts.deleteBlock"), keys: [["⌫"]] },
         {
           label: message("shortcuts.blockActions"),
           route: message("shortcuts.blockActionsRoute"),
@@ -74,10 +77,10 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
           label: message("shortcuts.moveSelection"),
           route: message("shortcuts.moveSelectionRoute"),
         },
-        { label: message("shortcuts.deleteSelection"), keys: ["⌫"] },
-        { label: message("shortcuts.indent"), keys: ["⇥"] },
-        { label: message("shortcuts.outdent"), keys: ["⇧⇥"] },
-        { label: message("outline.clearSelection"), keys: ["⎋"] },
+        { label: message("shortcuts.deleteSelection"), keys: [["⌫"]] },
+        { label: message("shortcuts.indent"), keys: [["⇥"]] },
+        { label: message("shortcuts.outdent"), keys: [["⇧", "⇥"]] },
+        { label: message("outline.clearSelection"), keys: [["⎋"]] },
       ],
     },
     {
@@ -85,7 +88,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
       entries: [
         {
           label: message("shortcuts.jumpDate"),
-          route: message("shortcuts.dateExamples", { key: key("palette") }),
+          route: message("shortcuts.dateExamples", { key: keyText("palette") }),
         },
         {
           label: message("shortcuts.nextPrevDay"),
@@ -115,7 +118,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
         },
         {
           label: message("shortcuts.graphSettings"),
-          route: message("shortcuts.graphSettingsRoute", { key: key("settings") }),
+          route: message("shortcuts.graphSettingsRoute", { key: keyText("settings") }),
         },
       ],
     },
@@ -133,10 +136,8 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
                   <dt>{entry.label}</dt>
                   <dd>
                     {entry.keys
-                      ? entry.keys.map((glyph) => (
-                          <kbd className="kbd" key={glyph}>
-                            {glyph}
-                          </kbd>
+                      ? entry.keys.map((parts) => (
+                          <Kbd key={parts.join("")} parts={parts} />
                         ))
                       : entry.route}
                   </dd>

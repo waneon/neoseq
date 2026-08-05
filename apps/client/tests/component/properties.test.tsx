@@ -5,7 +5,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { GRAPH_ID, mountAt, openBlockMenu, openPageMenu } from "./harness";
+import { chooseFromMenu, GRAPH_ID, mountAt, openBlockMenu, openPageMenu } from "./harness";
 
 async function mountPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -80,7 +80,7 @@ describe("generic property editor", () => {
     await openPageProperties(user);
     const section = await screen.findByTestId("props-page");
     await user.type(within(section).getByLabelText("New property key"), "future.metric");
-    await user.selectOptions(within(section).getByLabelText("New property type"), "number");
+    await chooseFromMenu(user, within(section).getByLabelText("New property type"), "number");
     await user.clear(within(section).getByLabelText("New property value"));
     await user.type(within(section).getByLabelText("New property value"), "42");
     await user.click(within(section).getByTestId("props-add-submit"));
@@ -125,10 +125,10 @@ describe("generic property editor", () => {
     await openBlockMenu();
     await user.click(await screen.findByTestId("menu-properties"));
     const inspector = await screen.findByTestId("block-inspector");
-    const select = within(inspector).getByLabelText("task.status value");
-    await user.selectOptions(select, "doing");
+    const chooser = within(inspector).getByLabelText("task.status value");
+    await chooseFromMenu(user, chooser, "doing");
     await waitFor(() =>
-      expect(within(inspector).getByLabelText("task.status value")).toHaveValue("doing"),
+      expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("doing"),
     );
   });
 });

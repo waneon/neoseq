@@ -29,7 +29,6 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   CornerDownRightIcon,
   IndentDecreaseIcon,
   IndentIncreaseIcon,
@@ -45,8 +44,10 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
+import { Kbd } from "@/ui/kbd";
 import { useCommands } from "../commands/context";
-import { formatBinding, useShortcutBindings, bindingMatches } from "../commands/shortcuts";
+import { Shortcut } from "../commands/Shortcut";
+import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot } from "../../core-port/snapshot";
@@ -74,6 +75,21 @@ import { lengthBucket } from "../../diagnostics/redaction";
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
 const DRAG_THRESHOLD_PX = 4;
+/**
+ * How long a row the user just uncovered carries `data-revealed`. Matches
+ * `--dur-disclose` plus a frame, so the attribute outlives the animation it
+ * starts rather than cutting it off part-way.
+ */
+const REVEAL_MS = 220;
+const NOTHING_REVEALED: ReadonlySet<string> = new Set();
+/**
+ * Anything that floats over the outline and can be dismissed by clicking past
+ * it. Read from the document rather than from React state because these come
+ * from four different owners — a block's menu, the page's menu, an entity
+ * autocomplete, a settings dialog — and the outline is not one of them.
+ */
+const FLOATING_OVERLAY_SELECTOR =
+  '[data-slot="dropdown-menu-content"],[data-slot="dialog-content"],.ac-popover,.cmdk';
 /** Edge band that pulls the scroll container along during a drag. */
 const AUTOSCROLL_BAND_PX = 56;
 const AUTOSCROLL_MAX_PX = 18;
@@ -113,6 +129,8 @@ interface EditorContext {
   inspectedId: string | null;
   menuFor: string | null;
   selected: ReadonlySet<string>;
+  /** Rows the last expand uncovered. They fade up; nothing else in the list does. */
+  revealed: ReadonlySet<string>;
   /** Rows the selection covers, passengers included — what a bulk verb will take. */
   selectionCount: number;
   setFocus(id: string | null, caret?: number): void;
@@ -134,6 +152,10 @@ interface EditorContext {
   onGripPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
   onBulletPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
   onRowContextMenu(row: OutlineRow, event: React.MouseEvent): void;
+  /** True when the press that is being handled began with something floating. */
+  pressStartedOverOverlay(): boolean;
+  /** Closes what is floating over the outline and drops a selection. */
+  dismissTransient(): void;
   menu: {
     addChild(row: OutlineRow): void;
     indent(row: OutlineRow): void;
@@ -164,6 +186,7 @@ export function Outliner({
   const [inspectedId, setInspectedId] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [dragging, setDragging] = useState(false);
   const [marqueeing, setMarqueeing] = useState(false);
@@ -186,6 +209,8 @@ export function Outliner({
   const sectionRef = useRef<HTMLElement | null>(null);
   const releasePointer = useRef<(() => void) | null>(null);
   const autoScroll = useRef<{ speed: number; frame: number } | null>(null);
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overlayAtPressStart = useRef(false);
   // GraphSession resolves commands only after reconciling its snapshot. Read
   // that snapshot directly during the temp-id handoff so a parent render that
   // still carries the previous page object cannot briefly remove the editor.
@@ -251,6 +276,28 @@ export function Outliner({
     );
     if (live.size !== selectedRef.current.size) setSelected(live);
   }, [state.revision]);
+
+  // Whether the press now in flight began while something was floating over the
+  // page. It has to be sampled here, on `window` in the capture phase, because
+  // that is the only listener that runs *before* Radix's own document-level
+  // dismisser: by the time a click reaches the append region, the menu it was
+  // aimed past has already been unmounted, and asking "is a menu open?" then
+  // always answers no. See `dismissTransient`.
+  useEffect(() => {
+    const sample = () => {
+      overlayAtPressStart.current =
+        document.querySelector(FLOATING_OVERLAY_SELECTOR) !== null;
+    };
+    window.addEventListener("pointerdown", sample, true);
+    return () => window.removeEventListener("pointerdown", sample, true);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (revealTimer.current) clearTimeout(revealTimer.current);
+    },
+    [],
+  );
 
   const flush = useCallback(
     (id: string) => {
@@ -747,27 +794,40 @@ export function Outliner({
     inspectedId,
     menuFor,
     selected,
+    revealed,
     selectionCount,
     setFocus,
     takeTreeFocus,
     openMenu: setMenuFor,
     toggleInspect: (id) => setInspectedId((current) => (current === id ? null : id)),
     toggleCollapse: (id) => {
-      setCollapsed((current) => {
-        const next = new Set(current);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
+      const expanding = collapsedRef.current.has(id);
+      const next = nextCollapsed(collapsedRef.current, id);
+      const after = flattenOutline(pageRef.current, next);
+      setCollapsed(next);
+
+      // Expanding is the one structural change in the outline that leaves no
+      // other trace: rows the user has never seen simply exist on the next frame,
+      // in the middle of a list, and the eye has nothing to follow. The rows this
+      // gesture uncovered — and only those, never a row the virtualizer happened
+      // to mount while scrolling — fade up while the chevron turns.
+      if (expanding) {
+        const before = new Set(rowsRef.current.map((row) => row.block.id));
+        const uncovered = after
+          .map((row) => row.block.id)
+          .filter((entry) => !before.has(entry));
+        if (uncovered.length > 0) {
+          setRevealed(new Set(uncovered));
+          if (revealTimer.current) clearTimeout(revealTimer.current);
+          revealTimer.current = setTimeout(() => setRevealed(NOTHING_REVEALED), REVEAL_MS);
+        }
+      }
+
       // A row that just went out of sight cannot stay selected: ⌫ and ⇥ resolve
       // the selection against the *visible* outline, so a hidden member would
       // make them quietly do nothing.
       if (selectedRef.current.size > 0) {
-        const visible = new Set(
-          flattenOutline(pageRef.current, nextCollapsed(collapsedRef.current, id)).map(
-            (row) => row.block.id,
-          ),
-        );
+        const visible = new Set(after.map((row) => row.block.id));
         const kept = new Set([...selectedRef.current].filter((entry) => visible.has(entry)));
         if (kept.size !== selectedRef.current.size) setSelected(kept);
       }
@@ -800,6 +860,17 @@ export function Outliner({
     onGripPointerDown,
     onBulletPointerDown,
     onRowContextMenu,
+    pressStartedOverOverlay: () => overlayAtPressStart.current,
+    // Clicking past a menu, a popover or a selection is first a way *out* of it.
+    // The empty region under the last block is a real button — it makes a block —
+    // which meant dismissing a block menu by clicking below the writing also
+    // appended an empty row the user never asked for, every time. Radix has
+    // already closed its own layer by now; what is left to undo is the outline's
+    // share of the same gesture.
+    dismissTransient: () => {
+      setMenuFor(null);
+      if (selectedRef.current.size > 0) clearSelection();
+    },
     enqueuePendingInsert: (row, tail, asChild) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
@@ -1040,7 +1111,13 @@ export function Outliner({
         // document belongs to the user, including when it is empty.
         <button
           className="outline-placeholder"
-          onClick={() => editor.insertRootBlock(0)}
+          onClick={() => {
+            if (editor.pressStartedOverOverlay()) {
+              editor.dismissTransient();
+              return;
+            }
+            editor.insertRootBlock(0);
+          }}
           disabled={readonly}
           aria-label={message("outline.addFirstBlock")}
           data-testid="outline-start"
@@ -1102,7 +1179,17 @@ export function Outliner({
         // would make.
         <button
           className="outline-append"
-          onClick={() => editor.insertRootBlock(authoritativePage.blocks.length)}
+          onClick={() => {
+            // The empty space under the writing is the one target in the product
+            // that is both "make a block" and "the nearest place with nothing on
+            // it", and the second reading has to win: dismissing a menu by
+            // clicking past it must not also append a row nobody asked for.
+            if (editor.pressStartedOverOverlay()) {
+              editor.dismissTransient();
+              return;
+            }
+            editor.insertRootBlock(authoritativePage.blocks.length);
+          }}
           aria-label={message("outline.addBlock")}
           data-testid="outline-append"
         />
@@ -1528,6 +1615,7 @@ function BlockRow({
       data-selected={selected}
       data-empty={value.length === 0}
       data-collapsed={row.collapsed}
+      data-revealed={editor.revealed.has(row.block.id) || undefined}
       data-has-children={row.hasChildren}
       data-block-id={row.block.id}
       data-testid="outline-row"
@@ -1554,7 +1642,11 @@ function BlockRow({
           tabIndex={-1}
           onClick={() => editor.toggleCollapse(row.block.id)}
         >
-          {row.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
+          {/* One glyph, rotated by the row's `data-collapsed` state rather than
+              two glyphs swapped on it. A swap changes the mark with no indication
+              of which way it went; a turn IS the direction, which is the whole
+              content of this control. app.css § .outline-toggle svg. */}
+          <ChevronDownIcon />
         </button>
         {/* The bullet carries the block's whole pointer vocabulary: click to put
             the caret in the line, drag to move the subtree, right-click for the
@@ -1584,8 +1676,19 @@ function BlockRow({
                 // not while a selection is up, because focusing a textarea is what
                 // drops one, and the user did not ask to lose it by pressing Escape.
                 event.preventDefault();
-                if (selected && selectionCount > 1) editor.takeTreeFocus();
-                else textareaRef.current?.focus();
+                if (selected && selectionCount > 1) {
+                  editor.takeTreeFocus();
+                  return;
+                }
+                // …and not if the verb that closed the menu has already moved the
+                // caret somewhere else. `Add child block` mounts a focused pending
+                // row synchronously and `Delete` hands the caret to a neighbour;
+                // restoring it here afterwards races them and wins, which sent the
+                // next thing typed into the row the menu was opened on rather than
+                // into the block the user just asked for.
+                if (editor.focusedId === null || editor.focusedId === row.block.id) {
+                  textareaRef.current?.focus();
+                }
               }}
             >
               {selected && selectionCount > 1 ? (
@@ -1596,7 +1699,9 @@ function BlockRow({
                   >
                     <IndentIncreaseIcon aria-hidden />
                     {message("outline.indent")}
-                    <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⇥"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={editor.readonly}
@@ -1604,7 +1709,9 @@ function BlockRow({
                   >
                     <IndentDecreaseIcon aria-hidden />
                     {message("outline.outdent")}
-                    <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⇧", "⇥"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -1615,7 +1722,9 @@ function BlockRow({
                   >
                     <Trash2Icon aria-hidden />
                     {message("outline.deleteSelection", { count: selectionCount })}
-                    <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⌫"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -1627,7 +1736,7 @@ function BlockRow({
                     <Settings2Icon aria-hidden />
                     {message("outline.propertiesTags")}
                     <DropdownMenuShortcut>
-                      {formatBinding(bindings.properties)}
+                      <Shortcut binding={bindings.properties} plain />
                     </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -1644,7 +1753,9 @@ function BlockRow({
                   >
                     <IndentIncreaseIcon aria-hidden />
                     {message("outline.indent")}
-                    <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⇥"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={editor.readonly || row.depth === 0}
@@ -1652,7 +1763,9 @@ function BlockRow({
                   >
                     <IndentDecreaseIcon aria-hidden />
                     {message("outline.outdent")}
-                    <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⇧", "⇥"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     data-testid="menu-move-up"
@@ -1661,7 +1774,9 @@ function BlockRow({
                   >
                     <ArrowUpIcon aria-hidden />
                     {message("outline.moveUp")}
-                    <DropdownMenuShortcut>⌥↑</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⌥", "↑"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     data-testid="menu-move-down"
@@ -1670,7 +1785,9 @@ function BlockRow({
                   >
                     <ArrowDownIcon aria-hidden />
                     {message("outline.moveDown")}
-                    <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⌥", "↓"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -1681,7 +1798,9 @@ function BlockRow({
                   >
                     <Trash2Icon aria-hidden />
                     {message("outline.deleteBlock")}
-                    <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⌫"]} plain />
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                 </>
               )}

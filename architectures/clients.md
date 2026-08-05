@@ -87,7 +87,9 @@ runs, and the movers that have not gone yet are still among them.
 Text input follows one sequence: preserve native IME composition locally; submit an edit
 with block ID and text-range intent at a composition boundary or short debounce; reconcile
 with the authoritative semantic event from the core; transform the local selection when
-remote text arrives.
+remote text arrives. A press that begins while something floats over the page only dismisses
+it — the empty region below the writing is also the append target — sampled at the `window`
+in the capture phase, before Radix removes the layer being asked about.
 
 Structural commands go directly to the core and render optimistically only when the
 inverse is known. A rejected one restores the authoritative subtree, keeps focus where
@@ -123,18 +125,21 @@ that operation rather than add graph-scan APIs.
 
 ## Command Layer
 
-Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md)
-§ Disclosure), and the command layer is what makes that safe rather than merely
-sparse. `features/commands/` owns one registry, one window keydown listener, the
-`⌘K` palette, and the `⌘/` sheet generated from the same binding table. Each entry
-carries a localized pointer route; the palette's own is the rail's permanent
-`Search` row, which is what lets undo and redo give up their top-bar buttons.
+Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md) § Disclosure),
+and the command layer is what makes that safe rather than merely sparse.
+`features/commands/` owns one registry, one window keydown listener, the `⌘K` palette, and
+the `⌘/` sheet generated from the same binding table. Each entry carries a localized
+pointer route; the palette's own is the rail's permanent `Search` row, which is what lets
+undo and redo give up their top-bar buttons.
 
 `commands/shortcuts.ts` owns the binding table — defaults, stored overrides, validation,
 display form. A `Binding` cannot express a modifier-less shortcut, so the "⌘ or ⌃ only"
 invariant is a type rather than a check; one hook resolves the table, so listener, sheet,
 settings editor, menu rows and palette badges agree by construction. Bindings persist as
-`event.key`. The outline's writing keys are not in the table and not rebindable.
+`event.key`; the display form is a *sequence* of parts (`formatBindingParts`) that `ui/kbd`
+lays out one column per key and `formatBinding` joins for a name. The outline's writing keys
+are not in the table and not rebindable, and the top bar's `⋯` is generated from the registry
+so every row carries the palette's own label, icon, badge and reason for that verb.
 
 Key arbitration order is fixed: an IME-composition guard first (a composition owns the
 keyboard outright — losing a keystroke corrupts CJK input), then any handler that already
@@ -143,10 +148,9 @@ layer. A modal surface stands the global layer down while it is up, so the palet
 never be summoned over a focus-trapping dialog that would take its input's focus back.
 
 The shell publishes slots the routed views fill while mounted — block properties, page
-properties, and the page's own info/delete verbs — so `⌘⇧P` and the palette reach
-panels and menus that live below the shell. Each also has a local pointer route that
-works with no shell present, which is what keeps them reachable in the component test
-harness.
+properties, and the page's own info/delete verbs — so `⌘⇧P` and the palette reach panels
+and menus that live below the shell. Each also has a local pointer route that works with
+no shell present, which is what keeps them reachable in the component test harness.
 
 ## Failure Reporting
 
@@ -232,7 +236,8 @@ core-port/       session, commands, snapshot DTOs, graph directory, lease
 generated/       CorePort contract types (path fixed by the drift check)
 i18n/            locale resolution, typed catalogs, provider, Intl formatters
 lib/             framework-agnostic UI helpers (class-name merge)
-ui/              design tokens, Tailwind v4 theme, appearance, brand mark, shadcn/Radix
+ui/              tokens, theme, appearance, brand, shadcn/Radix, and the shared
+                 `kbd` / `menu-select` / `auto-height` primitives
 ```
 
 `entities/settings.ts` is the single owner of the browser-local preference blob
@@ -258,16 +263,19 @@ pre-paint script in `index.html` applies the stored choice. `ui/theme.ts` record
 the preference and never asks the browser, so a runtime without `matchMedia` still
 renders correctly.
 
-Native form controls stay native (select, checkbox, date) for platform pickers and AT
-support. Anything that must escape the virtualized outline's scroll container and
-stacking context — the block menu, the page autocomplete, the notification viewport —
-renders in a portal on one shared `--z-*` scale, and both context menus hang off the
-object they act on (a bullet is a real trigger; the title row positions against a
-zero-size anchor at the pointer) so neither needs a button of its own. Motion is
-restrained: nothing animates a transform, and a surface read the moment it appears
-animates nothing, so an audit never reads one mid-fade. The single exception —
-a toast's countdown, information rather than decoration — is argued in
-[`DESIGN.md`](../DESIGN.md) § Motion.
+Checkbox and date inputs stay native for the platform picker; a *list of choices* does not,
+because a `<select>`'s popup is drawn by the operating system and no token can reach it, so
+`ui/menu-select` renders every one as the same Radix menu the block menu is. Anything that
+must escape the virtualized outline's scroll container and stacking context — the block menu,
+the page autocomplete, the notification viewport — renders in a portal on one shared `--z-*`
+scale, and both context menus hang off the object they act on (a bullet is a real trigger;
+the title row positions against a zero-size anchor at the pointer). Motion's vocabulary is
+closed: `opacity` for entrances and view swaps, a box's own **size** (`height`, and the
+rail's grid track) when its content is swapped, and one rotation — the collapse chevron.
+Nothing animates a transform, and a surface read the moment it appears carries no entrance,
+so an audit never reads one mid-fade; `ui/auto-height` measures through a `ResizeObserver`
+and transitions to what it found. Both trades are argued in
+[`DESIGN.md`](../DESIGN.md) §§ Choice, Motion.
 
 The property registry the UI validates against is imported from the versioned
 core fixture (`fixtures/core/property-definitions-v3.json`), so client and core

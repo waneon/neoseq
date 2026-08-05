@@ -2,6 +2,7 @@
 // mounted inside the app's route shape so router hooks resolve.
 
 import { fireEvent, render, screen, type RenderResult } from "@testing-library/react";
+import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import type { ReactElement } from "react";
 import { GraphSession } from "../../src/core-port/session";
@@ -79,6 +80,24 @@ export async function openPageMenu(): Promise<HTMLElement> {
   const title = await screen.findByTestId("page-title");
   fireEvent.contextMenu(title);
   return screen.findByRole("menu");
+}
+
+/**
+ * Picks a value from one of the product's dropdowns.
+ *
+ * Every list of choices — a language, a journal date format, a property type, a
+ * task status — is the same Radix menu the bullet's context menu is
+ * (DESIGN.md § Components / Choice), so the route is the same as a user's: press
+ * the trigger, then press the option. This replaces `userEvent.selectOptions`,
+ * which only ever worked against a native `<select>`.
+ */
+export async function chooseFromMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  trigger: HTMLElement,
+  option: string | RegExp,
+): Promise<void> {
+  await user.click(trigger);
+  await user.click(await screen.findByRole("menuitemradio", { name: option }));
 }
 
 /** Waits until the session queue settles and React flushed the state. */

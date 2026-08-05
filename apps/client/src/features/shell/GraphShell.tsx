@@ -25,6 +25,7 @@ import {
   LayoutGridIcon,
   Loader2Icon,
   MoonIcon,
+  MoreHorizontalIcon,
   PanelLeftIcon,
   PlusIcon,
   Redo2Icon,
@@ -49,6 +50,7 @@ import {
   type PageSnapshot,
 } from "../../core-port/snapshot";
 import { Wordmark } from "../../ui/brand";
+import { Kbd } from "@/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
   DropdownMenu,
@@ -68,11 +70,13 @@ import {
   type PageActions,
 } from "../commands/context";
 import { CommandPalette } from "../commands/CommandPalette";
+import { Shortcut } from "../commands/Shortcut";
 import { ShortcutSheet } from "../commands/ShortcutSheet";
 import { parseDateQuery } from "../commands/dates";
 import { isTextEntry } from "../commands/keys";
 import {
   formatBinding,
+  formatBindingParts,
   matchShortcut,
   useShortcutBindings,
   type Binding,
@@ -619,7 +623,7 @@ SELECT ?entity ?content ?page WHERE {
             >
               <SearchIcon aria-hidden />
               <span className="nav-label">{message("shell.search")}</span>
-              <kbd className="kbd nav-kbd">{formatBinding(bindings.palette)}</kbd>
+              <Shortcut binding={bindings.palette} className="nav-kbd" />
             </button>
             <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
               <CalendarDaysIcon aria-hidden />
@@ -694,9 +698,11 @@ SELECT ?entity ?content ?page WHERE {
             <span className="topbar-title" aria-hidden>
               {contextTitle}
             </span>
-            {/* What is left here is state, not verbs: durability, the read-only
-                lease, and active diagnostic recording. Each renders nothing
-                when there is nothing to say. */}
+            {/* State, then the one verb. Durability, the read-only lease and
+                active diagnostic recording each render nothing when there is
+                nothing to say; the overflow menu is always the last thing on the
+                bar, which is where every application this one resembles puts
+                "everything else". */}
             <div className="topbar-right">
               <RecordingStatus />
               <SaveStatus state={state} onRetry={() => void session.retry()} />
@@ -705,6 +711,11 @@ SELECT ?entity ?content ?page WHERE {
                   {message("shell.readonly")}
                 </span>
               )}
+              <OverflowMenu
+                commands={commands}
+                onOpenPalette={() => setPaletteOpen(true)}
+                bindings={bindings}
+              />
             </div>
           </header>
           <div className="shell-content" id="page-content">
@@ -735,6 +746,97 @@ SELECT ?entity ?content ?page WHERE {
 
 function literalText(term: RdfTerm | undefined): string {
   return term?.kind === "literal" ? term.value : "";
+}
+
+/**
+ * The top bar's `⋯`, and what it lists.
+ *
+ * DESIGN.md § Disclosure says the top bar holds no verbs, and it still does not:
+ * a menu is summoned, and everything inside this one is also a palette row and,
+ * where it has one, a key. What it adds is the affordance the bare interface was
+ * missing — a single, conventional, always-there place a user who has learned no
+ * shortcut and does not know a palette exists can look for "what else can this do".
+ * `⌘K` licensed the emptiness for people who already knew about `⌘K`.
+ *
+ * It is generated from the command registry rather than hand-listed, so it cannot
+ * drift from what the application actually does: every row's label, icon, keyboard
+ * badge and disabled reason is the one the palette shows for the same verb, and a
+ * verb that stops existing stops appearing here. `null` is a separator.
+ */
+const OVERFLOW_ROWS: readonly (string | null)[] = [
+  "properties",
+  "shortcuts",
+  null,
+  "undo",
+  "redo",
+  null,
+  "theme",
+  "toggle-rail",
+  "diagnostics",
+  null,
+  "settings",
+  "all-graphs",
+];
+
+function OverflowMenu({
+  commands,
+  bindings,
+  onOpenPalette,
+}: {
+  commands: Command[];
+  bindings: Record<ShortcutId, Binding>;
+  onOpenPalette: () => void;
+}) {
+  const { message } = useI18n();
+  const byId = new Map(commands.map((command) => [command.id, command]));
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="icon-btn"
+          aria-label={message("shell.moreActions")}
+          data-testid="overflow-menu"
+        >
+          <MoreHorizontalIcon aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {/* Search leads, because it is what the rest of the menu is an overflow
+            of, and it is the only row whose verb the shell owns directly. */}
+        <DropdownMenuItem onSelect={onOpenPalette} data-testid="overflow-search">
+          <SearchIcon aria-hidden />
+          {message("shell.search")}
+          <DropdownMenuShortcut>
+            <Shortcut binding={bindings.palette} plain />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+        {OVERFLOW_ROWS.map((id, index) => {
+          if (id === null) return <DropdownMenuSeparator key={`separator-${index}`} />;
+          const command = byId.get(id);
+          if (!command) return null;
+          return (
+            <DropdownMenuItem
+              key={id}
+              // Listed with its reason rather than hidden, exactly as in the
+              // palette: a read-only graph should say why Undo is unavailable.
+              disabled={Boolean(command.disabledReason)}
+              onSelect={() => void command.run()}
+              data-testid={`overflow-${id}`}
+            >
+              {command.icon}
+              {command.label}
+              {command.binding && (
+                <DropdownMenuShortcut>
+                  <Kbd parts={command.binding} plain />
+                </DropdownMenuShortcut>
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 function GraphSwitcher({
@@ -802,7 +904,9 @@ function GraphSwitcher({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => bridge.openSettings("graph")}>
           {message("graph.settings")}
-          <DropdownMenuShortcut>{formatBinding(bindings.settings)}</DropdownMenuShortcut>
+          <DropdownMenuShortcut>
+            <Shortcut binding={bindings.settings} plain />
+          </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onExit}>{message("graph.allGraphs")}</DropdownMenuItem>
@@ -981,7 +1085,7 @@ function buildCommands(input: CommandInputs): Command[] {
     group: "Block",
     label: message("commands.label.properties"),
     keywords: ["property", "tag", "metadata"],
-    binding: formatBinding(bindings.properties),
+    binding: formatBindingParts(bindings.properties),
     hint: message("commands.pagePropertiesHint"),
     icon: <Settings2Icon aria-hidden />,
     pointerRoute: message("shortcuts.blockActionsRoute"),
@@ -993,7 +1097,7 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "undo",
       group: "Edit",
       label: message("commands.label.undo"),
-      binding: formatBinding(bindings.undo),
+      binding: formatBindingParts(bindings.undo),
       icon: <Undo2Icon aria-hidden />,
       disabledReason: blocked,
       pointerRoute: message("commands.paletteRoute"),
@@ -1003,7 +1107,7 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "redo",
       group: "Edit",
       label: message("commands.label.redo"),
-      binding: formatBinding(bindings.redo),
+      binding: formatBindingParts(bindings.redo),
       icon: <Redo2Icon aria-hidden />,
       disabledReason: blocked,
       pointerRoute: message("commands.paletteRoute"),
@@ -1016,7 +1120,7 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "settings",
       group: "Graph",
       label: message("commands.label.settings"),
-      binding: formatBinding(bindings.settings),
+      binding: formatBindingParts(bindings.settings),
       icon: <SettingsIcon aria-hidden />,
       pointerRoute: message("shell.settings"),
       run: () => bridge.openSettings(),
@@ -1051,7 +1155,7 @@ function buildCommands(input: CommandInputs): Command[] {
       label: railCollapsed
         ? message("commands.label.showSidebar")
         : message("commands.label.hideSidebar"),
-      binding: formatBinding(bindings.sidebar),
+      binding: formatBindingParts(bindings.sidebar),
       icon: <PanelLeftIcon aria-hidden />,
       pointerRoute: message("shell.showSidebar"),
       run: toggleRail,
@@ -1060,7 +1164,7 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "shortcuts",
       group: "App",
       label: message("commands.label.keyboardShortcuts"),
-      binding: formatBinding(bindings.shortcuts),
+      binding: formatBindingParts(bindings.shortcuts),
       icon: <KeyboardIcon aria-hidden />,
       pointerRoute: message("shortcuts.customiseRoute"),
       run: () => bridge.openShortcuts(),
