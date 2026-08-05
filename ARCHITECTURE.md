@@ -12,10 +12,11 @@ blocks and pages through a safe, read-only SPARQL profile.
 This document is the architectural source of truth. Component-level detail lives
 under [`architectures/`](architectures/).
 
-The implemented Step 4 boundary is the local Web client, shared domain/core,
-Wasm adapter, IndexedDB repository, and a headless SQLite parity adapter. Native
-application shells, remote synchronization, and release provenance shown below
-are target architecture for later steps and are not current build artifacts.
+The implemented Step 5 boundary is the local Web client, shared domain/core,
+reproducible RDF index and SPARQL query engine, Wasm adapter, IndexedDB
+repository, and a headless SQLite parity adapter. Native application shells,
+remote synchronization, and release provenance shown below are target
+architecture for later steps and are not current build artifacts.
 
 ## Architectural Drivers
 
@@ -195,7 +196,8 @@ step 3 succeeds. Network failure never blocks local editing.
   accepting untrusted CRDT bytes.
 - User queries run only in the client core against the current graph's derived
   RDF index. The accepted SPARQL profile excludes update, dataset selection,
-  federation, and other I/O, and enforces time, row, scan, and memory budgets.
+  federation, and other I/O. V1 bounds source, algebra, bindings, and rows; the
+  browser runs evaluation in the graph Worker rather than the UI thread.
 - The initial remote design is not end-to-end encrypted: the service
   reconstructs Loro documents for differential sync and compaction. E2EE would
   require a new opaque-log and key-management design and is intentionally

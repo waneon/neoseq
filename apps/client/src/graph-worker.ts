@@ -5,6 +5,7 @@ import type {
   CorePortError,
   ExecuteRequest,
   OpenGraphRequest,
+  QueryRequest,
   ReadPageRequest,
   ReadRequest,
   SubscribeRequest,
@@ -57,6 +58,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest); break;
         case "read": await ensureWasm(); value = read(payload as ReadRequest); break;
         case "read_page": await ensureWasm(); value = readPage(payload as ReadPageRequest); break;
+        case "query": await ensureWasm(); value = query(payload as QueryRequest); break;
         case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
         case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
         case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
@@ -219,6 +221,20 @@ function readPage(request: ReadPageRequest) {
   return {
     page: JSON.parse(requireState(request.graph_handle).core.pageSnapshotJson(request.page_id)),
   };
+}
+
+function query(request: QueryRequest) {
+  const state = requireState(request.graph_handle);
+  if (state.pending) {
+    throw failure("dirty_unsaved", "retry pending update before querying", true);
+  }
+  try {
+    return { result: JSON.parse(state.core.queryJson(JSON.stringify(request.query))) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const budget = message.toLowerCase().includes("budget");
+    throw failure(budget ? "query_budget_exceeded" : "invalid_query", message, false);
+  }
 }
 
 function subscribe(request: SubscribeRequest) {

@@ -1,9 +1,11 @@
 # NeoSeq
 
-NeoSeq is a local-first outliner. The repository is at Step 4: a local Web
-application with journals, a virtualized outline, Markdown blocks, uniform
-typed properties, a Rust/Wasm graph core, and IndexedDB persistence. Query,
-sync, native packaging, and release provenance belong to later steps.
+NeoSeq is a local-first outliner. The repository is at Step 5 (Local MVP): a
+local Web application with journals, a virtualized outline, Markdown blocks,
+uniform typed properties, task controls, a reproducible RDF index, read-only
+SPARQL queries and graph search, a Rust/Wasm graph core, and IndexedDB
+persistence. Sync, native packaging, and release provenance belong to later
+steps.
 
 ## Development and verification
 
@@ -18,6 +20,11 @@ nix flake check
 nix run .#test-domain
 nix run .#test-core-model
 nix run .#test-core-convergence
+nix run .#test-query-projection
+nix run .#test-query-rebuild
+nix run .#test-query-conformance
+nix run .#test-query-differential
+nix run .#test-query-budget
 nix run .#core-scenario -- fixtures/core/basic.yaml
 nix run .#test-indexeddb
 nix run .#test-client-components
@@ -39,4 +46,4 @@ clock, fault-injection surface, spike relay, or native packaging artifact. The
 browser contract harness is compiled separately with Vite's `test` mode.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and
-[steps/04-local-web-app.md](steps/04-local-web-app.md).
+[steps/05-query-and-property-features.md](steps/05-query-and-property-features.md).

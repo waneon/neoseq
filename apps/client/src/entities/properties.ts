@@ -73,7 +73,12 @@ export function validateValue(
   if (item.cardinality !== cardinality) {
     return { message: `“${key}” is a ${item.cardinality} property.` };
   }
-  if (item.allowed_strings.length > 0 && value.type === "string" && !item.allowed_strings.includes(value.value)) {
+  if (
+    item.allowed_strings.length > 0 &&
+    value.type === "string" &&
+    !["task.status", "task.priority"].includes(key) &&
+    !item.allowed_strings.includes(value.value)
+  ) {
     return { message: `“${key}” allows: ${item.allowed_strings.join(", ")}.` };
   }
   return null;

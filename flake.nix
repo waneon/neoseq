@@ -34,6 +34,7 @@
             ./contracts/core-port.json
             ./fixtures/core
             ./fixtures/core-port/v3.json
+            ./fixtures/core-port/v4.json
           ];
         };
         testClientFiles = lib.fileset.unions [
@@ -71,6 +72,7 @@
             ./apps/client/vitest.config.ts
             ./apps/client/tests
             ./fixtures/core-port/v3.json
+            ./fixtures/core-port/v4.json
           ];
         };
         generatedSource = lib.fileset.toSource {
@@ -82,6 +84,7 @@
             ./crates/domain/src/generated/core_port.rs
             ./apps/client/src/generated/core-port.ts
             ./fixtures/core-port/v3.json
+            ./fixtures/core-port/v4.json
           ];
         };
         pnpmDependencyFiles = [
@@ -281,8 +284,10 @@
           }
           check_gzip js 262144 "$root"/assets/*.js
           check_gzip css 32768 "$root"/assets/*.css
-          check_raw wasm 2621440 "$root"/assets/*.wasm
-          check_gzip wasm 1048576 "$root"/assets/*.wasm
+          # Step 5 embeds the SPARQL parser, optimizer, evaluator, and RDF
+          # indexes in the offline Wasm core. Keep the increase explicit.
+          check_raw wasm 4194304 "$root"/assets/*.wasm
+          check_gzip wasm 1468006 "$root"/assets/*.wasm
           touch $out
         '';
 
@@ -396,6 +401,11 @@
         testDomain = rustTestApp "neoseq-test-domain" "cargo test -p domain";
         testCoreModel = rustTestApp "neoseq-test-core-model" "cargo test -p graph-core model_";
         testCoreConvergence = rustTestApp "neoseq-test-core-convergence" "cargo test -p graph-core convergence_ -- --nocapture";
+        testQueryProjection = rustTestApp "neoseq-test-query-projection" "cargo test -p query projects_";
+        testQueryRebuild = rustTestApp "neoseq-test-query-rebuild" "cargo test -p query rebuild_";
+        testQueryConformance = rustTestApp "neoseq-test-query-conformance" "cargo test -p query sparql_";
+        testQueryDifferential = rustTestApp "neoseq-test-query-differential" "cargo test -p query differential_";
+        testQueryBudget = rustTestApp "neoseq-test-query-budget" "cargo test -p query budget_";
         browserTestApp = name: command: pkgs.writeShellApplication {
           inherit name;
           runtimeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.playwright-driver ];
@@ -436,6 +446,11 @@
           test-domain = app "${testDomain}/bin/neoseq-test-domain" "Run domain tests";
           test-core-model = app "${testCoreModel}/bin/neoseq-test-core-model" "Run core model tests";
           test-core-convergence = app "${testCoreConvergence}/bin/neoseq-test-core-convergence" "Run convergence tests";
+          test-query-projection = app "${testQueryProjection}/bin/neoseq-test-query-projection" "Run RDF projection tests";
+          test-query-rebuild = app "${testQueryRebuild}/bin/neoseq-test-query-rebuild" "Run derived-index rebuild tests";
+          test-query-conformance = app "${testQueryConformance}/bin/neoseq-test-query-conformance" "Run SPARQL profile tests";
+          test-query-differential = app "${testQueryDifferential}/bin/neoseq-test-query-differential" "Run query differential tests";
+          test-query-budget = app "${testQueryBudget}/bin/neoseq-test-query-budget" "Run query budget tests";
           test-indexeddb = app "${testIndexedDb}/bin/neoseq-test-indexeddb" "Run IndexedDB/CorePort browser contracts";
           test-client-components = app "${testClientComponents}/bin/neoseq-test-client-components" "Run component tests";
           test-e2e-web = app "${testE2eWeb}/bin/neoseq-test-e2e-web" "Run Web end-to-end tests";

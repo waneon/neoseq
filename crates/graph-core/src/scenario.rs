@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
+type TranslatedCommand = (Command, Option<(String, PageId)>, Option<String>);
+
 #[derive(Debug, Error)]
 pub enum ScenarioError {
     #[error("scenario YAML is invalid: {0}")]
@@ -312,7 +314,7 @@ fn run_commands(
 fn translate(
     input: &ScenarioCommand,
     aliases: &BTreeMap<String, (PageId, BlockId)>,
-) -> Result<(Command, Option<(String, PageId)>, Option<String>), ScenarioError> {
+) -> Result<TranslatedCommand, ScenarioError> {
     let block = |alias: &str| {
         aliases
             .get(alias)

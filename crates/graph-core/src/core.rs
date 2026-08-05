@@ -307,6 +307,17 @@ impl GraphCore {
         Ok(hex::encode(digest))
     }
 
+    pub fn frontier(&self) -> String {
+        let mut ids = self
+            .doc
+            .state_frontiers()
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.join(",")
+    }
+
     fn remember(&mut self, id: &str, result: CommandResult) {
         if self.command_results.contains_key(id) {
             return;

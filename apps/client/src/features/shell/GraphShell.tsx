@@ -48,6 +48,7 @@ import { CommandPalette } from "../commands/CommandPalette";
 import { ShortcutSheet } from "../commands/ShortcutSheet";
 import { parseDateQuery } from "../commands/dates";
 import { MOD, isTextEntry, matchGlobal, type KeyBinding } from "../commands/keys";
+import type { RdfTerm } from "../../generated/core-port";
 import type { Command } from "../commands/registry";
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
@@ -300,6 +301,49 @@ function ShellBody({
     [graphId, navigate, pages, readonly, session, today],
   );
 
+  const searchGraph = useCallback(
+    async (needle: string): Promise<Command[]> => {
+      const result = await session.query({
+        language: "sparql-1.1/neoseq-v1",
+        source: `PREFIX neo: <urn:neoseq:vocab:v1:>
+SELECT ?entity ?content ?page WHERE {
+  { ?entity a neo:Page; neo:content ?content. BIND(?entity AS ?page) }
+  UNION
+  { ?entity a neo:Block; neo:content ?content; neo:page ?page. }
+  FILTER(neo:matchesText(?content, ?needle))
+} ORDER BY ?content LIMIT 20`,
+        bindings: {
+          needle: {
+            kind: "literal",
+            value: needle,
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+        },
+      });
+      if (result.kind !== "select") return [];
+      return result.rows.flatMap((row, index) => {
+        const entity = row.entity;
+        const page = row.page;
+        const content = literalText(row.content);
+        const pageId = page?.kind === "iri" && page.entity?.kind === "page"
+          ? page.entity.id
+          : null;
+        if (!pageId || entity?.kind !== "iri" || !entity.entity) return [];
+        const isBlock = entity.entity.kind === "block";
+        return [{
+          id: `search-${index}-${entity.value}`,
+          group: "Search" as const,
+          label: content || (isBlock ? entity.entity.id : pageId),
+          hint: isBlock ? "Block" : "Page",
+          icon: <SearchIcon aria-hidden />,
+          pointerRoute: "the Search field in the top bar",
+          run: () => navigate(`/g/${graphId}/p/${pageId}`),
+        }];
+      });
+    },
+    [graphId, navigate, session],
+  );
+
   // A calm, delayed loader (rather than a full-bleed card) prevents the
   // sub-frame "Opening graph…" flash on fast local opens.
   if (state.status === "opening") return <ShellLoading />;
@@ -506,12 +550,17 @@ function ShellBody({
         <CommandPalette
           commands={commands}
           dynamic={dynamic}
+          search={searchGraph}
           onClose={() => setPaletteOpen(false)}
         />
       )}
       {shortcutsOpen && <ShortcutSheet onClose={() => setShortcutsOpen(false)} />}
     </CommandContext.Provider>
   );
+}
+
+function literalText(term: RdfTerm | undefined): string {
+  return term?.kind === "literal" ? term.value : "";
 }
 
 function GraphSwitcher({

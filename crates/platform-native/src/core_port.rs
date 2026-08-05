@@ -2,9 +2,9 @@ use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CommandEnvelope, CorePortError,
     CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, GraphLocationDto,
-    OpenGraphRequest, OpenGraphResponse, PageId, ReadPageRequest, ReadPageResponse, ReadRequest,
-    ReadResponse, RecoveryDto, SaveStatusDto, StorageCapabilitiesDto, SubscribeRequest,
-    SubscribeResponse,
+    OpenGraphRequest, OpenGraphResponse, PageId, QueryRequestDto, QueryResponseDto,
+    ReadPageRequest, ReadPageResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
+    StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
 };
 use graph_core::{
     EventBatch, GraphLocation, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository,
@@ -179,6 +179,17 @@ impl NativeCorePort {
         })
     }
 
+    pub fn query(&mut self, request: QueryRequestDto) -> Result<QueryResponseDto, CorePortError> {
+        let query = serde_json::from_value(request.query).map_err(map_json_error)?;
+        let result = self
+            .runtime_mut(&request.graph_handle)?
+            .query(query)
+            .map_err(map_runtime_error)?;
+        Ok(QueryResponseDto {
+            result: serde_json::to_value(result).map_err(map_json_error)?,
+        })
+    }
+
     pub fn subscribe(
         &mut self,
         request: SubscribeRequest,
@@ -295,6 +306,7 @@ fn map_runtime_error(error: RuntimeError) -> CorePortError {
             port_error(code, &message, true)
         }
         RuntimeError::Core(error) => map_core_error(error),
+        RuntimeError::Query(error) => map_query_error(error),
         RuntimeError::Repository(message) => {
             port_error(CorePortErrorCode::Internal, &message, true)
         }
@@ -304,6 +316,18 @@ fn map_runtime_error(error: RuntimeError) -> CorePortError {
             false,
         ),
     }
+}
+
+fn map_query_error(error: query::QueryError) -> CorePortError {
+    let code = match error {
+        query::QueryError::SourceBudget
+        | query::QueryError::BindingBudget
+        | query::QueryError::AlgebraBudget
+        | query::QueryError::RowBudget => CorePortErrorCode::QueryBudgetExceeded,
+        query::QueryError::Index(_) => CorePortErrorCode::Internal,
+        _ => CorePortErrorCode::InvalidQuery,
+    };
+    port_error(code, &error.to_string(), false)
 }
 
 fn map_core_error(error: graph_core::CoreError) -> CorePortError {

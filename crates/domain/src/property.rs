@@ -72,7 +72,7 @@ const NONE: &[&str] = &[];
 const PAGE_KINDS: &[&str] = &["regular", "journal"];
 const TASK_STATUSES: &[&str] = &["todo", "doing", "done", "cancelled"];
 const TASK_PRIORITIES: &[&str] = &["low", "medium", "high"];
-const QUERY_LANGUAGES: &[&str] = &["neoseq"];
+const QUERY_LANGUAGES: &[&str] = &["sparql-1.1/neoseq-v1"];
 
 pub const REGISTRY: &[PropertyDefinition] = &[
     PropertyDefinition {
@@ -214,7 +214,8 @@ pub fn validate_property(
             actual: cardinality,
         });
     }
-    if !item.allowed_strings.is_empty() {
+    if !item.allowed_strings.is_empty() && !matches!(key.as_str(), "task.status" | "task.priority")
+    {
         let PropertyValue::String(value) = value else {
             unreachable!("registry type was checked")
         };
@@ -285,7 +286,7 @@ mod tests {
                 &PropertyValue::String("later".into()),
                 Cardinality::Single
             )
-            .is_err()
+            .is_ok()
         );
         assert!(
             validate_property(

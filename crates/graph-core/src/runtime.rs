@@ -2,6 +2,7 @@ use crate::{AppendReceipt, CoreError, GraphCore, checksum};
 use domain::{
     CommandEnvelope, CommandResult, GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot,
 };
+use query::{GraphIndex, QueryError, QueryRequest, QueryResult};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use thiserror::Error;
@@ -131,6 +132,8 @@ impl Clock for InMemoryClock {
 pub enum RuntimeError {
     #[error(transparent)]
     Core(#[from] CoreError),
+    #[error(transparent)]
+    Query(#[from] QueryError),
     #[error("repository append failed: {0}")]
     Repository(String),
     #[error("graph has an update that is not saved locally: {0}")]
@@ -144,6 +147,7 @@ pub enum RuntimeError {
 /// native and Wasm targets.
 pub struct GraphRuntime<R: GraphRepository, C: Clock> {
     core: GraphCore,
+    index: GraphIndex,
     repository: R,
     clock: C,
     events: VecDeque<GraphEvent>,
@@ -170,8 +174,10 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         if event_capacity == 0 {
             return Err(RuntimeError::ZeroEventCapacity);
         }
+        let index = GraphIndex::new_at(&core.snapshot()?, core.frontier())?;
         Ok(Self {
             core,
+            index,
             repository,
             clock,
             events: VecDeque::new(),
@@ -192,11 +198,13 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             return Err(RuntimeError::ZeroEventCapacity);
         }
         let core = GraphCore::new(graph_id, peer_id, &clock.now())?;
+        let index = GraphIndex::new_at(&core.snapshot()?, core.frontier())?;
         // Initialization is represented by a checkpoint in later persistence
         // stages, so no product update is appended here.
         let _ = &mut repository;
         Ok(Self {
             core,
+            index,
             repository,
             clock,
             events: VecDeque::new(),
@@ -230,6 +238,8 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         let now = self.clock.now();
         let command_id = command.command_id.to_string();
         let execution = self.core.execute(command, &now)?;
+        self.index
+            .refresh_at(&self.core.snapshot()?, self.core.frontier())?;
         if !execution.duplicate && !execution.update.is_empty() {
             self.pending = Some(PendingWrite {
                 update: execution.update,
@@ -246,6 +256,8 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), RuntimeError> {
         self.require_clean()?;
         self.core.import_remote(update)?;
+        self.index
+            .refresh_at(&self.core.snapshot()?, self.core.frontier())?;
         self.pending = Some(PendingWrite {
             update: update.to_vec(),
             created_at: self.clock.now(),
@@ -266,6 +278,11 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
 
     pub fn read_page(&self, page_id: &PageId) -> Result<PageSnapshot, RuntimeError> {
         Ok(self.core.page_snapshot(page_id)?)
+    }
+
+    pub fn query(&self, request: QueryRequest) -> Result<QueryResult, RuntimeError> {
+        self.require_clean()?;
+        Ok(self.index.execute(request)?)
     }
 
     pub fn subscribe(&self, after_cursor: u64) -> EventBatch {

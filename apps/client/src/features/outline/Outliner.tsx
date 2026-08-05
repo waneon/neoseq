@@ -41,11 +41,13 @@ import {
 import { MOD } from "../commands/keys";
 import { useCommands } from "../commands/context";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findBlock, findPage } from "../../core-port/snapshot";
+import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { BlockInspector } from "../properties/BlockInspector";
 import { TagChips } from "../properties/TagChips";
+import { QueryBlock } from "../query/QueryBlock";
+import { TaskProjection } from "../tasks/TaskProjection";
 import { codePointIndex, codePointLength, diffSplice } from "./text-diff";
 
 const FLUSH_DEBOUNCE_MS = 400;
@@ -880,6 +882,10 @@ function BlockRow({
           <div className="outline-tags">
             <TagChips pageId={editor.pageId} block={row.block} />
           </div>
+        )}
+        {!pending && <TaskProjection pageId={editor.pageId} block={row.block} />}
+        {!pending && stringValue(row.block.properties, "query.source") !== undefined && (
+          <QueryBlock pageId={editor.pageId} block={row.block} />
         )}
         {editor.inspectedId === row.block.id && (
           <BlockInspector

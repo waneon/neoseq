@@ -1,6 +1,7 @@
 //! Browser Wasm adapter for the graph core.
 
 use graph_core::GraphCore;
+use query::{GraphIndex, QueryRequest};
 use wasm_bindgen::prelude::*;
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
@@ -10,6 +11,7 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
 #[wasm_bindgen]
 pub struct WasmGraphCore {
     inner: GraphCore,
+    index: GraphIndex,
     pending_update: Option<Vec<u8>>,
 }
 
@@ -18,8 +20,12 @@ impl WasmGraphCore {
     #[wasm_bindgen(constructor)]
     pub fn new(graph_id: &str, peer_id: u64, now: &str) -> Result<WasmGraphCore, JsValue> {
         let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
+        let inner = GraphCore::new(graph_id, peer_id, now).map_err(js_error)?;
+        let index = GraphIndex::new_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
+            .map_err(js_error)?;
         Ok(Self {
-            inner: GraphCore::new(graph_id, peer_id, now).map_err(js_error)?,
+            inner,
+            index,
             pending_update: None,
         })
     }
@@ -31,8 +37,12 @@ impl WasmGraphCore {
         snapshot: &[u8],
     ) -> Result<WasmGraphCore, JsValue> {
         let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
+        let inner = GraphCore::from_snapshot(graph_id, peer_id, snapshot).map_err(js_error)?;
+        let index = GraphIndex::new_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
+            .map_err(js_error)?;
         Ok(Self {
-            inner: GraphCore::from_snapshot(graph_id, peer_id, snapshot).map_err(js_error)?,
+            inner,
+            index,
             pending_update: None,
         })
     }
@@ -44,6 +54,12 @@ impl WasmGraphCore {
         }
         let envelope = serde_json::from_str(command).map_err(js_error)?;
         let execution = self.inner.execute(envelope, now).map_err(js_error)?;
+        self.index
+            .refresh_at(
+                &self.inner.snapshot().map_err(js_error)?,
+                self.inner.frontier(),
+            )
+            .map_err(js_error)?;
         self.pending_update = Some(execution.update);
         serde_json::to_string(&serde_json::json!({
             "result": execution.result,
@@ -60,7 +76,23 @@ impl WasmGraphCore {
 
     #[wasm_bindgen(js_name = importUpdate)]
     pub fn import_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
-        self.inner.import_remote(update).map_err(js_error)
+        self.inner.import_remote(update).map_err(js_error)?;
+        self.index
+            .refresh_at(
+                &self.inner.snapshot().map_err(js_error)?,
+                self.inner.frontier(),
+            )
+            .map_err(js_error)?;
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = queryJson)]
+    pub fn query_json(&self, request: &str) -> Result<String, JsValue> {
+        if self.pending_update.is_some() {
+            return Err(js_error("take the pending update before querying"));
+        }
+        let request: QueryRequest = serde_json::from_str(request).map_err(js_error)?;
+        serde_json::to_string(&self.index.execute(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = snapshotJson)]

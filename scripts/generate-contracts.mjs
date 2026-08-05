@@ -106,6 +106,17 @@ pub struct ReadPageResponse {
     pub page: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct QueryRequestDto {
+    pub graph_handle: String,
+    pub query: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct QueryResponseDto {
+    pub result: Value,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SubscribeRequest {
     pub graph_handle: String,
@@ -159,6 +170,20 @@ export interface ReadRequest { graph_handle: string; }
 export interface ReadResponse { summary: unknown; }
 export interface ReadPageRequest { graph_handle: string; page_id: string; }
 export interface ReadPageResponse { page: unknown; }
+export type QueryEntityRef =
+  | { kind: "page"; id: string }
+  | { kind: "block"; page_id: string; id: string }
+  | { kind: "tag"; id: string };
+export type RdfTerm =
+  | { kind: "iri"; value: string; entity?: QueryEntityRef | null }
+  | { kind: "literal"; value: string; datatype: string; language?: string | null };
+export interface QueryBudget { max_source_bytes: number; max_algebra_operators: number; max_bindings: number; max_rows: number; }
+export interface SparqlQueryRequest { language: "sparql-1.1/neoseq-v1"; source: string; bindings?: Record<string, RdfTerm>; budget?: Partial<QueryBudget>; }
+export type SparqlQueryResult =
+  | { kind: "select"; variables: string[]; rows: Array<Record<string, RdfTerm>>; revision: number; frontier: string }
+  | { kind: "ask"; value: boolean; revision: number; frontier: string };
+export interface QueryRequest { graph_handle: string; query: SparqlQueryRequest; }
+export interface QueryResponse { result: SparqlQueryResult; }
 export interface SubscribeRequest { graph_handle: string; after_cursor: number; }
 export interface SubscribeResponse { events: unknown[]; next_cursor: number; resync_required: boolean; }
 export interface CloseGraphRequest { graph_handle: string; }
@@ -171,6 +196,7 @@ export interface CorePort {
   execute(request: ExecuteRequest): Promise<ExecuteResponse>;
   read(request: ReadRequest): Promise<ReadResponse>;
   readPage(request: ReadPageRequest): Promise<ReadPageResponse>;
+  query(request: QueryRequest): Promise<QueryResponse>;
   subscribe(request: SubscribeRequest): Promise<SubscribeResponse>;
   closeGraph(request: CloseGraphRequest): Promise<CloseGraphResponse>;
 }

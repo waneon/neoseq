@@ -18,6 +18,7 @@ interface Props {
    * and the "Create page …" row that guarantees the list is never a dead end.
    */
   dynamic?(query: string): Command[];
+  search?(query: string): Promise<Command[]>;
   onClose(): void;
 }
 
@@ -26,8 +27,9 @@ interface Row {
   score: number;
 }
 
-export function CommandPalette({ commands, dynamic, onClose }: Props) {
+export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const [query, setQuery] = useState("");
+  const [searchRows, setSearchRows] = useState<Command[]>([]);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -52,6 +54,28 @@ export function CommandPalette({ commands, dynamic, onClose }: Props) {
     }
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    let current = true;
+    const trimmed = query.trim();
+    if (!search || trimmed.length === 0) {
+      setSearchRows([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void search(trimmed)
+        .then((rows) => {
+          if (current) setSearchRows(rows);
+        })
+        .catch(() => {
+          if (current) setSearchRows([]);
+        });
+    }, 160);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, search]);
 
   const close = (restoreFocus: boolean) => {
     const saved = restore.current;
@@ -83,6 +107,12 @@ export function CommandPalette({ commands, dynamic, onClose }: Props) {
       else byGroup.set(row.command.group, [row]);
     }
     const ordered: { group: CommandGroup; rows: Row[] }[] = [];
+    if (searchRows.length > 0) {
+      ordered.push({
+        group: "Search",
+        rows: searchRows.map((command) => ({ command, score: Number.MAX_SAFE_INTEGER })),
+      });
+    }
     // Query-dependent rows always lead: a typed date or a page to create is the
     // most specific thing the query can mean.
     if (extras.length > 0) {
@@ -100,7 +130,7 @@ export function CommandPalette({ commands, dynamic, onClose }: Props) {
       ordered.push({ group, rows });
     }
     return ordered;
-  }, [commands, dynamic, query]);
+  }, [commands, dynamic, query, searchRows]);
 
   const flat = useMemo(() => groups.flatMap((group) => group.rows), [groups]);
 

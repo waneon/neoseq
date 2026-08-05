@@ -7,6 +7,8 @@ import type {
   ExecuteResponse,
   OpenGraphRequest,
   OpenGraphResponse,
+  QueryRequest,
+  QueryResponse,
   ReadRequest,
   ReadResponse,
   ReadPageRequest,
@@ -60,6 +62,10 @@ export class CoreWorker implements CorePort {
 
   readPage(request: ReadPageRequest): Promise<ReadPageResponse> {
     return this.request("read_page", request);
+  }
+
+  query(request: QueryRequest): Promise<QueryResponse> {
+    return this.request("query", request);
   }
 
   subscribe(request: SubscribeRequest): Promise<SubscribeResponse> {

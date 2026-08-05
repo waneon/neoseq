@@ -3,7 +3,7 @@
 ## Shared Application
 
 The client is a React and TypeScript single-page application bundled by Vite.
-The current Step 4 application runs in the browser. Later Tauri shells reuse the
+The current Step 5 application runs in the browser. Later Tauri shells reuse the
 same components and interaction model on macOS and Android; responsive layout
 and capability detection replace platform forks.
 
@@ -28,13 +28,13 @@ Request, response, event, and error types are generated from a shared schema.
 Contract version negotiation happens on startup. No component calls Tauri APIs,
 WebAssembly exports, IndexedDB, or WebSocket directly.
 
-CorePort version 3 fixes `open_graph`, `execute`, graph-summary `read`,
-`read_page`, `subscribe`, and `close_graph`. Generated Rust/TypeScript DTOs cover locators, recovery and
-storage capabilities, saved/dirty state, bounded cursors, and stable timeout,
-schema, storage, and handle errors. Native and Worker suites consume one golden
-transcript.
+CorePort version 4 adds `query` to `open_graph`, `execute`, graph-summary
+`read`, `read_page`, `subscribe`, and `close_graph`. Generated Rust/TypeScript
+DTOs cover typed RDF terms/results, locators, recovery and storage capabilities,
+saved/dirty state, bounded cursors, and stable query, timeout, schema, storage,
+and handle errors. Native and Worker suites consume the v4 contract fixture.
 
-### Native Adapter (headless parity only at Step 4)
+### Native Adapter (headless parity only at Step 5)
 
 In the later native clients, `CorePort` invokes Tauri commands implemented by
 `platform-native`. The graph runtime, SQLite repository, and sync transport run
@@ -62,7 +62,7 @@ and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
 buffers transfer rather than clone. Opening a local locator creates no network
 transport.
 
-Beyond the six CorePort v3 operations, the worker protocol carries three
+Beyond the seven CorePort v4 operations, the worker protocol carries three
 adapter-level operations the local Web app needs: `retry_pending` (persist the
 exact pending update bytes after a storage failure), `list_graphs` (stored
 graph metadata), and `delete_graph` (explicit local deletion of a closed
@@ -128,11 +128,11 @@ visible and editable as ordinary properties. A new non-text feature adds
 property definitions and renderers, not a frontend entity store or core storage
 shape.
 
-The query editor supplies vocabulary/property completion and stable page/tag
-IRIs. Runtime values such as today's date are sent as typed initial bindings,
-never interpolated into source text. Global search, task lists, agendas, and
-backlinks use generated SPARQL requests through the same CorePort operation;
-they do not add independent graph-scan APIs.
+The query editor executes stored SPARQL and reports typed rows, booleans, and
+diagnostics. Runtime values are sent as typed initial bindings, never
+interpolated into source text. Global search already uses generated SPARQL
+through the same CorePort operation; task lists, agendas, backlinks, and editor
+completion extend that operation rather than add graph-scan APIs.
 
 ## Command Layer
 

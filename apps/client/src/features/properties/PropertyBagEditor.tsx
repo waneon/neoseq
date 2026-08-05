@@ -119,7 +119,20 @@ export function PropertyBagEditor({
     if (repeated) {
       return run({ type: "add_repeated_property", entity, key, value });
     }
-    return run({ type: "set_property", entity, key, value });
+    const added = await run({ type: "set_property", entity, key, value });
+    if (
+      added &&
+      key === "query.source" &&
+      !bag.some((entry) => entry.key === "query.language")
+    ) {
+      return run({
+        type: "set_property",
+        entity,
+        key: "query.language",
+        value: { type: "string", value: "sparql-1.1/neoseq-v1" },
+      });
+    }
+    return added;
   };
 
   return (

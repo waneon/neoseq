@@ -60,33 +60,33 @@ mapping increments the query-profile or projection version.
 
 ## Physical Index
 
-Each graph index is an immutable published revision backed by:
+Each open graph owns an Oxigraph in-memory store backed by:
 
-- an RDF-term dictionary with separate IRI and typed-literal identities;
-- `SPO`, `POS`, and `OSP` sorted triple permutations for bound-pattern lookup
-  and merge joins;
-- predicate/cardinality statistics for deterministic join planning;
+- an RDF-term dictionary and the store's triple permutations;
+- Oxigraph's SPARQL parser, optimizer, and evaluator;
 - an entity-to-emitted-triples ledger for precise retraction and replacement;
-- normalized Markdown token/trigram postings for text search;
-- an optional hierarchy reachability cache for property-path acceleration.
+- a normalized-text cache used by the versioned `neo:matchesText` function.
 
-The first three permutations are the semantic index. Text and hierarchy data
-are accelerators whose results are always verified against the same RDF
-revision. They do not introduce separate query semantics.
+The RDF store is the semantic index. V1 evaluates text matching over candidate
+`neo:content` literals selected by the RDF plan; token/trigram postings and a
+hierarchy reachability cache are compatible future accelerators, not a second
+query contract.
 
-Every revision records the graph ID, Loro frontier fingerprint, document schema,
-projection version, query-profile version, and analyzer version. A persisted
-cache is optional. Startup restores it only on an exact fingerprint match;
-otherwise the runtime deterministically projects the current Loro snapshot.
-Cache corruption or deletion causes a rebuild, never graph repair or rollback.
+Every runtime revision records the graph ID and sorted Loro state frontier and
+exposes projection/profile/analyzer version constants. Standalone projection
+tests use the validated snapshot fingerprint as a deterministic frontier.
+Step 5 does not persist the index: every open deterministically rebuilds it. A
+future persisted cache must key all those versions and the Loro frontier and
+fall back to this same rebuild path on any mismatch.
 
 ## Index Maintenance and Consistency
 
-`GraphRuntime` translates each validated local or remote Loro change into a
-domain entity/field change set. The projector recalculates only affected
-entities, retracts their prior triples/postings through the ledger, inserts the
-replacement projection, and atomically publishes one new revision. A structural
-move also recalculates affected parent/page/order relations.
+After each validated local or remote Loro change, `GraphRuntime` obtains one
+immutable domain snapshot and reprojects it. The entity ledger computes the
+semantic triple difference, and one store transaction retracts and inserts that
+difference before the revision is published. This deliberately simple Step 5
+path fixes correctness first; field-level change sets can later avoid
+reprojecting unchanged entities without changing query results.
 
 A query sees exactly one published revision. It may continue on the prior
 revision while the next one is built, but never observes a partial delta. The
@@ -149,46 +149,41 @@ ORDER BY ?deadline ?block
 LIMIT 100
 ```
 
-Autocomplete inserts vocabulary/property IRIs and stable entity IRIs; labels
-remain comments or editor metadata, never identity. A block is executable when
-it has `query.source: String`. New query blocks also write
+A block is executable when it has `query.source: String`. New query blocks also write
 `query.language: "sparql-1.1/neoseq-v1"`; a missing language uses that value for
 v1 compatibility. Source and language synchronize as ordinary properties.
 Plans, results, parameters, and editor state do not.
 
 ## Planning, Reactivity, and Budgets
 
-Parsing produces source-spanned diagnostics and SPARQL algebra. The planner uses
-bound terms and statistics to choose triple permutations and join order, then
-lowers eligible text and path expressions to accelerators. Execution never
-falls back to scanning Loro containers.
+Parsing produces diagnostics and SPARQL algebra. Oxigraph plans that algebra
+over the RDF store. Typed bindings are injected as an algebraic `VALUES` row,
+not source text. Execution never falls back to scanning Loro containers.
 
-A subscribed plan declares the predicates, fixed entities, text postings, and
-structural relations it depends on. A variable predicate or otherwise dynamic
-pattern depends on all triple changes. After an atomic index publication, only
-intersecting subscriptions debounce and re-execute; large rebuilds publish
-`QueryRefreshing` and replace results atomically.
+The Step 5 client debounces query blocks and graph search. A canonical session
+revision invalidates every visible query block; generation tokens discard stale
+responses. Predicate-level dependency tracking is a future optimization and
+must preserve this conservative invalidation behavior.
 
-Each parse and execution has limits for source size, syntax/algebra depth,
-property-path complexity, operators, elapsed time, scanned index entries,
-intermediate solutions, output rows, and estimated memory. Cancellation is
-checked between operators and posting batches. A limit returns a typed error,
-never rows that appear complete.
+V1 limits source bytes, algebra operators, initial bindings, and output rows.
+Request budgets may tighten but cannot raise the runtime ceilings. Budget failures
+use a typed CorePort error and never return partial rows. Browser
+evaluation runs in the graph Worker so it cannot occupy the UI thread. Elapsed
+time, scan/intermediate-solution, path-depth, memory, and cooperative
+cancellation budgets belong to production hardening before untrusted large
+graphs are enabled.
 
 ## Verification
 
-- Projection fixtures map every entity, relation, property type, repeated
-  value, dangling reference, deletion, and tree move to canonical RDF terms.
-- Rebuild tests discard every cache and compare the semantic triple set with
-  incrementally maintained revisions after randomized command/import sequences.
-- SPARQL conformance tests cover the supported W3C syntax and algebra profile;
-  rejection tests cover every excluded query/update capability.
-- Differential tests compare indexed execution with a test-only interpreter
-  over the projected triple set, never a production Loro scan.
-- Native/Wasm suites run identical projection, query, ordering, diagnostic,
-  cancellation, and budget fixtures.
-- Fault tests corrupt or interrupt index persistence and prove automatic rebuild
-  without canonical data changes.
+- Projection fixtures cover entity relations, all property types, repeated
+  values, default predicates, dangling references, deletions, and tree moves.
+- Rebuild tests compare semantic triples and frontier fingerprints after an
+  incremental refresh and a clean construction.
+- SPARQL tests cover typed bindings, custom text matching, stable ordering, and
+  rejection of graph-producing, dataset, named-graph, and federated forms.
+- Differential tests compare query rows from refreshed and clean indexes;
+  native CorePort and browser E2E suites exercise the same public query shape.
+- Budget tests prove typed failure before partial rows are returned.
 
 ## Upstream Basis
 

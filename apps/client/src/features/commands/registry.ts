@@ -9,10 +9,11 @@
 
 import type { ReactNode } from "react";
 
-export type CommandGroup = "Pages" | "Journal" | "Graph" | "Edit" | "Block" | "App";
+export type CommandGroup = "Search" | "Pages" | "Journal" | "Graph" | "Edit" | "Block" | "App";
 
 /** Groups in the order the palette renders them: navigation before action. */
 export const GROUP_ORDER: CommandGroup[] = [
+  "Search",
   "Pages",
   "Journal",
   "Block",

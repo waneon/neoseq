@@ -2,7 +2,7 @@ use crate::{FaultPoint, NativeCorePort, SqliteGraphRepository};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, Command, CommandEnvelope, CommandId, CorePortErrorCode,
     ExecuteRequest, GraphId, GraphLocationDto, GraphLocatorDto, OpenGraphRequest, PageId,
-    ReadPageRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
+    QueryRequestDto, ReadPageRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
 };
 use graph_core::GraphLocator;
 use serde_json::{Value, json};
@@ -56,9 +56,9 @@ fn command(graph: &str, id: &str, page: &str) -> Value {
 }
 
 #[test]
-fn core_port_native_contract_suite_matches_v3_golden() {
+fn core_port_native_contract_suite_matches_v4_golden() {
     let golden: Value =
-        serde_json::from_str(include_str!("../../../fixtures/core-port/v3.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/core-port/v4.json")).unwrap();
     let schema: Value =
         serde_json::from_str(include_str!("../../../contracts/core-port.json")).unwrap();
     assert_eq!(golden["contract_version"], schema["contractVersion"]);
@@ -126,6 +126,26 @@ fn core_port_native_contract_suite_matches_v3_golden() {
         .unwrap();
     assert_eq!(page.page["id"], "home");
     assert_eq!(golden["transcript"]["read_page"], "page_snapshot");
+
+    let queried = port
+        .query(QueryRequestDto {
+            graph_handle: opened.graph_handle.clone(),
+            query: json!({
+                "language": "sparql-1.1/neoseq-v1",
+                "source": "PREFIX neo: <urn:neoseq:vocab:v1:> SELECT ?page WHERE { ?page a neo:Page }",
+                "bindings": {},
+                "budget": {
+                    "max_source_bytes": 65536,
+                    "max_algebra_operators": 512,
+                    "max_bindings": 64,
+                    "max_rows": 1000
+                }
+            }),
+        })
+        .unwrap();
+    assert_eq!(queried.result["kind"], "select");
+    assert_eq!(queried.result["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(golden["transcript"]["query"], "select_result");
 
     let subscribed = port
         .subscribe(SubscribeRequest {

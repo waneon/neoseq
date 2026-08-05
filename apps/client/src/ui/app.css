@@ -1232,6 +1232,148 @@ h2 {
   padding: 0 var(--sp-1) var(--sp-1);
 }
 
+/* Property-driven projections stay inside the block's text column. They are
+   lenses over the graph, not detached cards or a second document surface. */
+.task-projection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-2);
+  margin: var(--sp-1) var(--sp-1) var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+}
+
+.task-projection label {
+  display: grid;
+  gap: var(--sp-0);
+  min-width: 112px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.task-projection label > div,
+.task-projection input {
+  min-width: 132px;
+}
+
+.query-block {
+  margin: var(--sp-1) var(--sp-1) var(--sp-3);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.query-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: var(--row-h);
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.query-language {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.query-revision {
+  margin-left: auto;
+}
+
+.query-toolbar button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: var(--sp-1);
+}
+
+.query-toolbar svg {
+  width: 14px;
+  height: 14px;
+}
+
+.query-source {
+  display: block;
+  width: 100%;
+  min-height: 112px;
+  padding: var(--sp-2);
+  border: none;
+  border-radius: 0;
+  background: var(--surface-2);
+  resize: vertical;
+  color: var(--ink);
+  caret-color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--lh-sm);
+  tab-size: 2;
+}
+
+.query-source:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.query-output {
+  min-height: 34px;
+  padding: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.query-diagnostic,
+.query-empty,
+.query-ask {
+  margin: 0;
+}
+
+.query-diagnostic {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+.query-ask {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.query-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.query-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-align: left;
+}
+
+.query-table th,
+.query-table td {
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.query-table th {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.query-table td {
+  color: var(--ink-2);
+}
+
+
 /* Empty page: a fake first line, not a button. */
 .outline-placeholder {
   display: flex;

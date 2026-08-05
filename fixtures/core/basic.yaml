@@ -55,7 +55,7 @@ commands:
   - op: set_property
     entity: block:first
     key: query.language
-    value: { type: string, value: neoseq }
+    value: { type: string, value: sparql-1.1/neoseq-v1 }
   - op: set_property
     entity: block:first
     key: task.priority

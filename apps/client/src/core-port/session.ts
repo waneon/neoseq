@@ -9,6 +9,8 @@
 import type {
   CorePort,
   CorePortError,
+  SparqlQueryRequest,
+  SparqlQueryResult,
   RecoveryDto,
   StorageCapabilitiesDto,
 } from "../generated/core-port";
@@ -133,6 +135,21 @@ export class GraphSession {
     const run = this.queue.then(() => this.retryNow());
     this.queue = run.catch(() => undefined);
     return run;
+  }
+
+  /** Executes against the published derived index after prior mutations settle. */
+  query(query: SparqlQueryRequest): Promise<SparqlQueryResult> {
+    return this.queue.then(async () => {
+      if (this.state.status !== "ready") {
+        throw new CorePortFailure({
+          code: "graph_not_open",
+          message: "graph is not open",
+          retryable: false,
+        });
+      }
+      const response = await this.port.query({ graph_handle: this.handle, query });
+      return response.result;
+    });
   }
 
   async close(): Promise<void> {

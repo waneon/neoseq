@@ -3,7 +3,7 @@
 ## Current Boundary
 
 Nix is the supported entry point for development, checks, and CI. `flake.lock`,
-`Cargo.lock`, and `pnpm-lock.yaml` pin tool and dependency resolution. Step 4
+`Cargo.lock`, and `pnpm-lock.yaml` pin tool and dependency resolution. Step 5
 ships only the static Web application and its Rust/Wasm core. Native shells,
 sync services, mobile SDKs, signing, and release provenance are introduced by
 the steps that actually use them.
@@ -32,7 +32,7 @@ derivations. Nix still evaluates the changed flake and may recreate a tiny app
 wrapper when its value changes; it does not rebuild unrelated product inputs.
 
 Source revision and toolchain manifests are release provenance, not runtime
-inputs. They are deliberately absent at Step 4 so a metadata-only change cannot
+inputs. They are deliberately absent at Step 5 so a metadata-only change cannot
 rebuild Wasm and every downstream Web artifact.
 
 ## Flake Outputs
@@ -58,10 +58,9 @@ and release-only tools are not part of the normal development closure.
 ## Build Graph
 
 ```text
-domain ──> graph-core ──> platform-web ──> size Wasm bindings ──> production Web
-   │             │                 └──────> development bindings ──> Web dev/tests
-   └─────────────┴──> platform-native (headless SQLite tests)
-query (independent Step 5 foundation)
+domain ──> query ──> graph-core ──> platform-web ──> Wasm bindings ──> Web
+   │                      │                 └──────> development Web/tests
+   └──────────────────────┴──> platform-native (headless SQLite tests)
 pnpm manifests ──> dependency closure ──> Web/component/browser consumers
 ```
 
@@ -90,7 +89,7 @@ contract, and recovery cases do not rerun the full matrix in every test.
 
 ## Checks and CI
 
-`nix flake check` is the single Step 4 CI command. It covers:
+`nix flake check` is the single Step 5 CI command. It covers:
 
 - Rust formatting, strict Clippy, workspace tests, and dependency policy;
 - product Wasm and Web builds;
@@ -116,6 +115,11 @@ nix flake check
 nix run .#test-indexeddb
 nix run .#test-client-components
 nix run .#test-e2e-web
+nix run .#test-query-projection
+nix run .#test-query-rebuild
+nix run .#test-query-conformance
+nix run .#test-query-differential
+nix run .#test-query-budget
 ```
 
 No build script downloads unpinned tools during a sandboxed build. Production

@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CORE_PORT_VERSION: u32 = 3;
+pub const CORE_PORT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -92,6 +92,17 @@ pub struct ReadPageResponse {
     pub page: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct QueryRequestDto {
+    pub graph_handle: String,
+    pub query: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct QueryResponseDto {
+    pub result: Value,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SubscribeRequest {
     pub graph_handle: String,
@@ -124,6 +135,8 @@ pub enum CorePortErrorCode {
     GraphAlreadyOpen,
     WrongGraph,
     CommandTimeout,
+    InvalidQuery,
+    QueryBudgetExceeded,
     DirtyUnsaved,
     ResyncRequired,
     UnsupportedSchema,

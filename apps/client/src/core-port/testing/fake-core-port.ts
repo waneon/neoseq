@@ -10,6 +10,9 @@ import type {
   ExecuteResponse,
   OpenGraphRequest,
   OpenGraphResponse,
+  QueryRequest,
+  QueryResponse,
+  SparqlQueryResult,
   ReadPageRequest,
   ReadPageResponse,
   ReadRequest,
@@ -56,6 +59,8 @@ export class FakeCorePort implements SessionPort {
   private blockCounter = 0;
   private open = false;
   private graphId = "";
+
+  queryResult: SparqlQueryResult | null = null;
 
   /** Set to make the next execute report a non-durable write. */
   failNextSave: CorePortError | null = null;
@@ -118,6 +123,24 @@ export class FakeCorePort implements SessionPort {
   async readPage(request: ReadPageRequest): Promise<ReadPageResponse> {
     if (!this.open) fail("graph_not_open", "graph is not open");
     return { page: clone(this.requirePage(request.page_id)) };
+  }
+
+  async query(request: QueryRequest): Promise<QueryResponse> {
+    if (!this.open) fail("graph_not_open", "graph is not open");
+    if (this.pendingSave) fail("dirty_unsaved", "retry pending update before querying", true);
+    if (this.queryResult) return { result: clone(this.queryResult) };
+    const ask = /^\s*(?:PREFIX\s+[^\n]+\s*)*ASK\b/i.test(request.query.source);
+    return {
+      result: ask
+        ? { kind: "ask", value: false, revision: this.sequence, frontier: `fake-${this.sequence}` }
+        : {
+            kind: "select",
+            variables: [],
+            rows: [],
+            revision: this.sequence,
+            frontier: `fake-${this.sequence}`,
+          },
+    };
   }
 
   async subscribe(request: SubscribeRequest): Promise<SubscribeResponse> {
