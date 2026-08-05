@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
-import { ListTreeIcon, MoreHorizontalIcon } from "lucide-react";
+import { MoreHorizontalIcon } from "lucide-react";
 import {
   deleteGraph,
   listGraphs,
@@ -10,6 +10,8 @@ import {
   type GraphSummary,
 } from "../../core-port/directory";
 import { Callout, Dialog } from "../../ui/components";
+import { Wordmark } from "../../ui/brand";
+import { useNotify } from "../notify/context";
 import { Input } from "@/ui/shadcn/input";
 import {
   DropdownMenu,
@@ -72,8 +74,7 @@ export function GraphPicker() {
     <main className="picker">
       <div className="picker-inner">
         <p className="picker-wordmark">
-          <ListTreeIcon aria-hidden />
-          NeoSeq
+          <Wordmark name={message("app.title")} />
         </p>
         <h1>{message("graph.yourGraphs")}</h1>
         <p className="picker-lede">
@@ -233,14 +234,13 @@ function DeleteDialog({
   onDeleted: () => void;
 }) {
   const { message } = useI18n();
+  const notify = useNotify();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   return (
     <Dialog title={message("graph.deleteTitle")} onClose={onClose}>
       <p>
         {message("graph.deleteConfirm", { name: graph.name })}
       </p>
-      {error && <p className="field-error">{error}</p>}
       <div className="dialog-actions">
         <button className="btn" onClick={onClose} disabled={busy}>
           {message("common.cancel")}
@@ -253,9 +253,11 @@ function DeleteDialog({
             setBusy(true);
             deleteGraph(graph.id)
               .then(onDeleted)
-              .catch((cause) => {
+              .catch((cause: unknown) => {
+                // The dialog stays open with the graph still listed behind it,
+                // which says nothing about why.
                 setBusy(false);
-                setError(message("error.internal"));
+                notify.failure(message("failure.deleteGraph", { name: graph.name }), cause);
               });
           }}
         >

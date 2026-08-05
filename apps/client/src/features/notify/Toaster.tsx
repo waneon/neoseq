@@ -6,7 +6,7 @@
 // itself is `pointer-events: none` so an empty viewport can never swallow a
 // click meant for the top bar underneath it.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { XIcon } from "lucide-react";
 import type { Toast, ToastStore } from "./store";
@@ -78,13 +78,25 @@ function ToastRow({
   dismissLabel: string;
 }) {
   const { id, duration, nonce } = toast;
+  // How much of the window is left. A pause has to *hold* the remaining time,
+  // not restart it: the bar and the timer would otherwise disagree the moment
+  // the pointer left, and the bar is the honest one — the browser keeps a paused
+  // animation exactly where it stopped.
+  const remaining = useRef(duration);
 
   useEffect(() => {
-    if (paused || duration === null) return;
-    const timer = setTimeout(() => onDismiss(id), duration);
-    return () => clearTimeout(timer);
-    // `nonce` restarts the countdown when a repeat lands on this toast.
-  }, [duration, id, nonce, onDismiss, paused]);
+    remaining.current = duration;
+  }, [duration, nonce]);
+
+  useEffect(() => {
+    if (paused) return;
+    const startedAt = Date.now();
+    const timer = setTimeout(() => onDismiss(id), remaining.current);
+    return () => {
+      clearTimeout(timer);
+      remaining.current = Math.max(0, remaining.current - (Date.now() - startedAt));
+    };
+  }, [id, nonce, onDismiss, paused]);
 
   return (
     <div
@@ -96,7 +108,9 @@ function ToastRow({
       // no animation to one that has to finish before the surface is legible.
       className="toast"
       data-tone={toast.tone}
+      data-paused={paused}
       data-testid="toast"
+      style={{ "--toast-duration": `${duration}ms` } as React.CSSProperties}
       // Urgency matches the message: a failure interrupts, a notice waits for a
       // gap. `aria-atomic` keeps the reason attached to the thing that failed.
       role={toast.tone === "danger" ? "alert" : "status"}
@@ -142,6 +156,9 @@ function ToastRow({
           </button>
         </div>
       )}
+      {/* Keyed by `nonce` so a repeat lands as a fresh element and the countdown
+          starts over rather than finishing on the previous occurrence's clock. */}
+      <span key={nonce} className="toast-timer" data-testid="toast-timer" aria-hidden />
     </div>
   );
 }

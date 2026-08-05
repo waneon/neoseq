@@ -1,4 +1,4 @@
-/* NeoSeq design system — see DESIGN.md (the source of truth).
+/* Neoseq design system — see DESIGN.md (the source of truth).
    Structure is the ornament: the indent thread carries the outline's meaning and
    is the product's one graphic device. Surfaces separate by lightness, not by
    borders. Type comes from the OS. One ink-indigo accent. Two complete modes
@@ -85,9 +85,9 @@
   --text-lg: 19px;
   --lh-lg: 25px;
   --track-lg: -0.012em;
-  --text-xl: 30px;
-  --lh-xl: 34px;
-  --track-xl: -0.018em;
+  --text-xl: 33px;
+  --lh-xl: 40px;
+  --track-xl: -0.019em;
 
   --sp-0: 2px;
   --sp-1: 4px;
@@ -104,7 +104,7 @@
   --rail-w: 240px;
   --drawer-w: min(300px, 84vw);
   --topbar-h: 44px;
-  --title-row-h: 40px;
+  --title-row-h: 44px;
   --row-h: 32px;
   --indent: 24px;
   --slot: 20px;
@@ -548,6 +548,37 @@ h2 {
   overscroll-behavior: contain;
 }
 
+/* The product's name and mark, once, at the top of the rail. It is the only
+   thing in the interface that is neither navigation nor state, which is why it
+   sits above the graph switcher rather than competing with it. */
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--sp-6);
+  padding: 0 var(--sp-2);
+  margin: 0 0 var(--sp-1);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: 600;
+}
+
+.rail-brand svg {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--accent);
+}
+
+.wordmark-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rail-switcher {
   display: flex;
   align-items: center;
@@ -748,42 +779,25 @@ h2 {
   margin-left: auto;
 }
 
-.search-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  width: 180px;
-  height: 28px;
-  padding: 0 var(--sp-1) 0 var(--sp-2);
-  border: none;
-  border-radius: var(--r-2);
-  background: var(--surface-2);
-  color: var(--ink-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  cursor: pointer;
-  transition: background-color var(--dur-press) var(--ease-out);
-}
-
-.search-pill:hover {
-  background: var(--surface-3);
-}
-
-.search-pill svg {
+/* A nav row's own shortcut badge. Search lives in the rail now, so the badge is
+   what still teaches ⌘K after the top bar lost its pill. */
+.shell-nav-item .nav-kbd {
   flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity var(--dur-press) var(--ease-out);
 }
 
-.search-pill .label {
-  flex: 1;
-  text-align: left;
+.shell-sidebar:hover .shell-nav-item .nav-kbd,
+.shell-nav-item:focus-visible .nav-kbd {
+  opacity: 1;
 }
 
-.search-pill .kbd {
-  background: var(--surface-3);
+/* A shortcut badge on a device with no modifier key teaches nothing, so it is
+   deleted there rather than pinned like the controls around it. */
+@media (hover: none) {
+  .shell-nav-item .nav-kbd {
+    display: none;
+  }
 }
 
 .save-slot {
@@ -898,19 +912,6 @@ h2 {
     padding: 0;
     background: var(--scrim);
     animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
-  }
-}
-
-@media (max-width: 1099px) {
-  .search-pill {
-    width: 28px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .search-pill .label,
-  .search-pill .kbd {
-    display: none;
   }
 }
 
@@ -1069,12 +1070,34 @@ h2 {
 /* ────────────────────────── 6. outline ────────────────────────── */
 
 .outline-section {
+  position: relative;
   margin-top: var(--sp-4);
 }
 
 .outline-viewport {
   position: relative;
   width: 100%;
+}
+
+/* The tree takes focus so the bare keys a selection answers to have somewhere to
+   land, but it is a focus *container*, not a control — it is not a tab stop, and
+   what has focus is the selection, which says so with its own fill. A ring around
+   the entire outline would be exactly the drawn box this design does not allow.
+   Focus is never left here without a selection: clearing one returns the caret. */
+.outline-viewport:focus,
+.outline-viewport:focus-visible {
+  outline: none;
+}
+
+/* While a drag is in flight the whole outline stops offering a caret: the
+   pointer is carrying blocks, not looking for a place to type. */
+.outline-section[data-dragging="true"] .outline-row,
+.outline-section[data-dragging="true"] .outline-append {
+  cursor: grabbing;
+}
+
+.outline-section[data-selecting="true"] {
+  user-select: none;
 }
 
 /* The thread. Two stacked gradients, zero extra DOM (the rows are virtualized):
@@ -1088,9 +1111,14 @@ h2 {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-0);
-  padding-top: 3px;
-  padding-bottom: 3px;
-  padding-left: calc(var(--depth) * var(--indent));
+  /* The row reaches one gutter further left than the text column, so there is a
+     strip beside every bullet — a root's included — that belongs to the row but
+     not to its text. That strip is where a selection drag starts, and it is why
+     the thread's offset carries the same term. */
+  margin-left: calc(var(--gutter) * -1);
+  padding-top: 2px;
+  padding-bottom: 2px;
+  padding-left: calc(var(--gutter) + var(--depth) * var(--indent));
   border-radius: var(--r-2);
   cursor: text;
   background-image:
@@ -1105,12 +1133,32 @@ h2 {
       transparent 1px var(--indent)
     );
   background-position:
-    calc(var(--slot) / 2) 0,
-    calc(var(--slot) / 2) 0;
+    calc(var(--gutter) + var(--slot) / 2) 0,
+    calc(var(--gutter) + var(--slot) / 2) 0;
   background-size:
     calc(var(--lit) * var(--indent)) 100%,
     calc(var(--depth) * var(--indent)) 100%;
   background-repeat: no-repeat, no-repeat;
+}
+
+/* The one row fill in the product. A hover or focus wash was rejected because
+   the caret already says where you are; a *selection* has nothing else to say it,
+   and Delete or a drag needs to be unambiguous about what it will take. It is the
+   same wash the platform paints behind selected text, one level up. */
+.outline-row[data-selected="true"] {
+  background-color: var(--accent-soft);
+}
+
+/* Everything left of the bullet, at every depth. No background of its own — the
+   thread shows straight through it — and no caret, because it is not text. */
+.outline-grip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--gutter) + var(--depth) * var(--indent));
+  cursor: default;
+  touch-action: pan-y;
 }
 
 .outline-gutter {
@@ -1174,7 +1222,15 @@ h2 {
   border: none;
   border-radius: var(--r-full);
   background: none;
-  cursor: pointer;
+  /* The bullet is the block's handle: drag it to move, right-click it for the
+     block's own menu, click it to put the caret in the line. `grab` is the one
+     of those three that a cursor can actually say. */
+  cursor: grab;
+  touch-action: none;
+}
+
+.outline-section[data-dragging="true"] .outline-bullet {
+  cursor: grabbing;
 }
 
 .outline-bullet::after {
@@ -1200,6 +1256,45 @@ h2 {
   box-shadow: 0 0 0 4px var(--halo);
 }
 
+/* An empty line states its emptiness with a fainter mark instead of a sentence
+   of instructions. The bullet is still there — it is the outliner's signature and
+   the row's handle — just quieter, and it comes back to full strength the moment
+   the row is hovered, focused, or has something in it. */
+.outline-row[data-empty="true"] .outline-bullet::after {
+  opacity: 0.4;
+}
+
+.outline-row[data-empty="true"]:hover .outline-bullet::after,
+.outline-row[data-empty="true"]:focus-within .outline-bullet::after,
+.outline-row[data-empty="true"][data-focused="true"] .outline-bullet::after,
+.outline-row[data-empty="true"][data-selected="true"] .outline-bullet::after {
+  opacity: 1;
+}
+
+/* Where a dragged selection would land: one accent rule at the depth the drop
+   would take, with a dot at its head so the level is legible at a glance. */
+.outline-drop {
+  --drop-depth: 0;
+  position: absolute;
+  left: calc(var(--drop-depth) * var(--indent));
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.outline-drop::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
 
 .outline-text {
   flex: 1;
@@ -1225,10 +1320,6 @@ h2 {
 
 .outline-input:focus {
   outline: none;
-}
-
-.outline-input::placeholder {
-  color: var(--ink-3);
 }
 
 .outline-tags {
@@ -1380,17 +1471,18 @@ h2 {
 }
 
 
-/* Empty page: a fake first line, not a button. */
+/* Empty page: a fake first line, not a button — and not a sentence either. One
+   faint bullet in row 1's exact gutter position over a big target says "a line
+   starts here" without putting words in the user's document. */
 .outline-placeholder {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-0);
   width: 100%;
   min-height: 200px;
-  padding: 3px 0 0;
+  padding: 2px 0 0;
   border: none;
   background: none;
-  color: var(--ink-3);
   font: inherit;
   font-size: var(--text-md);
   line-height: var(--lh-md);
@@ -1413,14 +1505,20 @@ h2 {
   height: 5px;
   border-radius: var(--r-full);
   background: var(--ink-3);
+  opacity: 0.4;
+  transition: opacity var(--dur-press) var(--ease-out);
 }
 
-.outline-placeholder .label {
-  padding: 0 var(--sp-1);
+.outline-placeholder:hover .dot::after,
+.outline-placeholder:focus-visible .dot::after {
+  opacity: 1;
 }
 
-/* The region below the last block IS the add-a-block affordance. */
+/* The region below the last block IS the add-a-block affordance. Approaching it
+   with the pointer raises the faint bullet of the line it would create, at the
+   exact gutter position and baseline that line will occupy. */
 .outline-append {
+  position: relative;
   display: block;
   width: 100%;
   min-height: var(--append-h);
@@ -1430,29 +1528,38 @@ h2 {
   cursor: text;
 }
 
-.outline-hint {
-  margin: var(--sp-3) 0 0;
-  padding-left: var(--slot);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-}
-
-.outline-hint .kbd {
-  margin: 0 2px;
-}
-
-.row-menu {
-  flex: none;
+.outline-append::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: calc(var(--slot) / 2 - 2.5px);
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--ink-3);
   opacity: 0;
-  transition: opacity 0ms;
+  transition: opacity var(--dur-press) var(--ease-out);
 }
 
-.outline-row:hover .row-menu,
-.outline-row:focus-within .row-menu,
-.outline-row[data-focused="true"] .row-menu,
-.row-menu:has([data-state="open"]) {
-  opacity: 1;
+.outline-append:hover::before,
+.outline-append:focus-visible::before {
+  opacity: 0.4;
+}
+
+/* Nothing to hover with: the affordance has to be there already, or the region
+   below the last block is an invisible target. */
+@media (hover: none) {
+  .outline-append::before {
+    opacity: 0.4;
+  }
+}
+
+/* The block menu has no button of its own: the bullet is its trigger. This is
+   the zero-size anchor the page menu positions against instead. */
+.menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
 }
 
 /* ─────────────────────── 7. properties ─────────────────────── */
@@ -1489,9 +1596,12 @@ h2 {
   color: var(--ink);
 }
 
+/* --ink-3 fails AA on --surface-2 (DESIGN.md § Contrast, the one hard rule), and a
+   chip is surface-2. The mono voice is what separates the key from its value here,
+   not a step down in ink. */
 .prop-strip-chip .key {
   font-family: var(--font-mono);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .prop-strip-chip:hover .key {
@@ -1724,6 +1834,18 @@ h2 {
   }
 }
 
+/* The two rules the design contract has always stated for narrow widths, and
+   which the larger page title makes load-bearing rather than nominal: the display
+   size clamps, and the gutter closes to 16px. The outline's selection strip and
+   the thread both derive from `--gutter`, so they follow it. */
+@media (max-width: 600px) {
+  :root {
+    --text-xl: clamp(26px, 6vw, 33px);
+    --track-xl: -0.015em;
+    --gutter: var(--sp-4);
+  }
+}
+
 /* ─────────────── 8. command palette + shortcut sheet ─────────────── */
 
 /* Backdrop and panel are siblings: opacity on an ancestor would fade the panel's
@@ -1880,12 +2002,6 @@ h2 {
   font-size: var(--text-sm);
 }
 
-/* A failed graph search says so where the user is looking, rather than raising
-   a toast over the palette's own results. */
-.cmdk-empty[data-failed] {
-  color: var(--danger);
-}
-
 @media (max-width: 600px) {
   .cmdk-scrim {
     padding: 0;
@@ -2040,9 +2156,10 @@ h2 {
   font-weight: 500;
 }
 
+/* Hovering a card raises it to --surface-2, where --ink-3 fails AA. */
 .graph-card-open .meta {
   display: block;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
@@ -2079,14 +2196,132 @@ h2 {
 
 /* ────────────────────────── 10. settings ────────────────────────── */
 
-.settings-body {
-  width: 100%;
-  max-width: calc(var(--measure) + var(--gutter) * 2);
-  margin: 0 auto;
-  padding: var(--sp-6) var(--gutter) var(--sp-8);
+/* Settings is a dialog, and a dialog with two scopes in it has to say which
+   scope you are in before it says anything else. The left column is that
+   statement: one group per scope, headed by a real heading. */
+.settings-shell {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: var(--sp-5);
+  min-height: min(58vh, 440px);
+  max-height: min(72vh, 560px);
+}
+
+.settings-nav {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-7);
+  gap: var(--sp-4);
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings-group h3 {
+  margin: 0 0 var(--sp-1);
+  padding: 0 var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.settings-group p {
+  margin: var(--sp-1) 0 0;
+  padding: 0 var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  border: none;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.settings-tab:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.settings-tab[aria-current="true"] {
+  background: var(--surface-3);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.settings-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  min-width: 0;
+  padding-right: var(--sp-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 700px) {
+  .settings-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-4);
+    min-height: 0;
+    max-height: none;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    overflow: visible;
+  }
+
+  .settings-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-1);
+  }
+
+  .settings-group h3 {
+    width: 100%;
+    margin: 0;
+  }
+
+  .settings-group p {
+    display: none;
+  }
+
+  .settings-tab {
+    width: auto;
+    min-height: 32px;
+    background: var(--surface-2);
+  }
+
+  .settings-pane {
+    max-height: 46vh;
+  }
 }
 
 .settings-section {
@@ -2206,6 +2441,138 @@ h2 {
   box-shadow: var(--e1);
 }
 
+/* A field in the dialog fills its pane. The 360px reading width was tuned for a
+   full-page form; here it clipped the journal date format's own example, which is
+   the whole reason that option carries one. */
+.settings-pane .settings-section > .field {
+  max-width: none;
+}
+
+/* Inside the dialog the 19px title is already the largest thing on the surface,
+   so a section heading steps down rather than tying with it. */
+.settings-pane h2 {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: 600;
+}
+
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 32px;
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-2);
+}
+
+.shortcut-row:hover {
+  background: var(--surface-2);
+}
+
+.shortcut-row .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* The binding is a button shaped like the badge it replaces, so what you press
+   to change it is the thing that shows what it currently is. */
+.shortcut-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  height: 24px;
+  padding: 0 var(--sp-2);
+  border: none;
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.shortcut-row:hover .shortcut-key {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.shortcut-key[data-recording="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-sans);
+}
+
+.shortcut-reset {
+  opacity: 0;
+}
+
+.shortcut-row:hover .shortcut-reset,
+.shortcut-row:focus-within .shortcut-reset {
+  opacity: 1;
+}
+
+/* Already the default: nothing to restore. It keeps its place in the grid so the
+   rows stay aligned, and goes with opacity rather than visibility, which is the
+   rule everywhere else a control is withheld. */
+.shortcut-reset[data-default="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shortcut-note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.shortcut-note[data-tone="danger"] {
+  color: var(--danger);
+}
+
+@media (max-width: 600px), (hover: none) {
+  .shortcut-reset {
+    opacity: 1;
+  }
+
+  .shortcut-key {
+    height: var(--sp-6);
+  }
+
+  /* Wrapping wins over ellipsis for anything the user has to read to choose —
+     DESIGN.md § Localization. The longest of these labels does not fit a phone. */
+  .shortcut-row .label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .shortcut-row {
+    padding: var(--sp-1) var(--sp-1);
+  }
+}
+
 /* ──────────────────────── 11. autocomplete ──────────────────────── */
 
 .autocomplete {
@@ -2306,13 +2673,6 @@ h2 {
   color: var(--ink);
 }
 
-.callout-slot {
-  width: 100%;
-  max-width: calc(var(--measure) + var(--gutter) * 2);
-  margin: 0 auto;
-  padding: 0 var(--gutter);
-}
-
 /* ─────────────────────────── 13. toasts ─────────────────────────── */
 
 /* Top-right, below the top bar rather than over it: the bar's own controls stay
@@ -2334,14 +2694,44 @@ h2 {
 }
 
 .toast {
+  --toast-duration: 6000ms;
+  position: relative;
   pointer-events: auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--sp-1) var(--sp-2);
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 2px) var(--sp-3);
   border-radius: var(--r-3);
   background: var(--overlay);
   box-shadow: var(--e2);
+  /* so the countdown's ends follow the corner radius */
+  overflow: hidden;
+}
+
+/* How long is left. It animates a width rather than a transform because it is
+   not an entrance — it is a reading of elapsed time, and the one thing it must
+   never do is finish early or lie about where it is. It pauses whenever the
+   timer does. */
+.toast-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--ink-3);
+  animation: ns-toast-timer var(--toast-duration) linear both;
+}
+
+.toast[data-tone="success"] .toast-timer {
+  background: var(--ok);
+}
+
+.toast[data-tone="danger"] .toast-timer {
+  background: var(--danger);
+}
+
+.toast[data-paused="true"] .toast-timer {
+  animation-play-state: paused;
 }
 
 /* The same 5px dot the save slot uses, carrying the same meanings. Tone is
@@ -2399,24 +2789,12 @@ h2 {
   margin-top: var(--sp-1);
 }
 
-/* Summoned like every other row control: revealed by hover and by focus, never
-   removed from the layout, and pinned where there is no pointer to hover with. */
+/* The one control on a surface the user did not ask for, so it is not summoned:
+   dismissing a report has to be possible without first working out that hovering
+   reveals a button. */
 .toast-close {
   grid-column: 3;
   grid-row: 1;
-  opacity: 0;
-  transition: opacity 0ms;
-}
-
-.toast:hover .toast-close,
-.toast:focus-within .toast-close {
-  opacity: 1;
-}
-
-@media (max-width: 600px), (hover: none) {
-  .toast-close {
-    opacity: 1;
-  }
 }
 
 @media (max-width: 600px) {
@@ -2449,6 +2827,15 @@ h2 {
   }
 }
 
+@keyframes ns-toast-timer {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
 /* Opacity only, and only for surfaces that appear after a deliberate action.
    Containers that are measured on mount carry no entrance animation at all —
    and neither do inline disclosures, which are read the instant they open. */
@@ -2476,5 +2863,14 @@ h2 {
     --tw-enter-translate-y: 0 !important;
     --tw-enter-scale: 1 !important;
     --tw-enter-rotate: 0 !important;
+  }
+
+  /* The one animation that survives, and it is named on purpose: the toast
+     countdown is not decoration, it is a reading of how much time is left.
+     Collapsing it to 1ms would empty the bar instantly while the toast stayed
+     up for six more seconds — a reduced-motion user would be shown a lie
+     rather than spared a movement. */
+  .toast-timer {
+    animation-duration: var(--toast-duration) !important;
   }
 }

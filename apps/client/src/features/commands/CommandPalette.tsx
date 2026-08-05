@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchIcon } from "lucide-react";
 import { GROUP_ORDER, matchCommand, type Command, type CommandGroup } from "./registry";
+import { useNotify } from "../notify/context";
 import { useI18n, type MessageKey } from "../../i18n";
 
 const GROUP_MESSAGE = {
@@ -40,9 +41,9 @@ interface Row {
 
 export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const { message } = useI18n();
+  const notify = useNotify();
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<Command[]>([]);
-  const [searchFailed, setSearchFailed] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -71,7 +72,6 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   useEffect(() => {
     let current = true;
     const trimmed = query.trim();
-    setSearchFailed(false);
     if (!search || trimmed.length === 0) {
       setSearchRows([]);
       return;
@@ -81,21 +81,21 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
         .then((rows) => {
           if (current) setSearchRows(rows);
         })
-        .catch(() => {
-          // The palette is where the user is looking, so it says so itself
-          // rather than raising a toast over its own results. Reporting
-          // matters here: silence is indistinguishable from "no matches",
-          // and the difference is whether the graph was searched at all.
+        .catch((error: unknown) => {
+          // Reporting matters here: silence is indistinguishable from "no
+          // matches", and the difference is whether the graph was searched at
+          // all. It goes to the one place every failure in this application
+          // goes, keyed so a typist who keeps typing gets one report, not ten.
           if (!current) return;
           setSearchRows([]);
-          setSearchFailed(true);
+          notify.failure(message("failure.searchGraph"), error);
         });
     }, 160);
     return () => {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [query, search]);
+  }, [message, notify, query, search]);
 
   const close = (restoreFocus: boolean) => {
     const saved = restore.current;
@@ -246,15 +246,8 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
           aria-label={message("commands.results")}
         >
           {flat.length === 0 && (
-            <li className="cmdk-empty" role="status" data-failed={searchFailed || undefined}>
-              {searchFailed
-                ? message("commands.searchFailed")
-                : message("commands.searchResultsEmpty", { query: query.trim() })}
-            </li>
-          )}
-          {flat.length > 0 && searchFailed && (
-            <li className="cmdk-empty" role="status" data-failed>
-              {message("commands.searchFailedPartial")}
+            <li className="cmdk-empty" role="status">
+              {message("commands.searchResultsEmpty", { query: query.trim() })}
             </li>
           )}
           {groups.map(({ group, rows }, groupIndex) => (

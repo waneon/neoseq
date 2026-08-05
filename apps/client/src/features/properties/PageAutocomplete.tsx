@@ -21,7 +21,7 @@ import { Input } from "@/ui/shadcn/input";
 import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
-import { failureReason } from "../notify/errors";
+import { useNotify } from "../notify/context";
 
 interface Option {
   id: string;
@@ -49,12 +49,11 @@ export function PageAutocomplete({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
   const listId = useId();
-  const errorId = useId();
+  const notify = useNotify();
   const { message, compare } = useI18n();
 
   const options = useMemo<Option[]>(() => {
@@ -100,7 +99,6 @@ export function PageAutocomplete({
   }, [open, reposition, options.length]);
 
   const pick = async (option: Option) => {
-    setError(null);
     try {
       if (option.create) {
         const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
@@ -115,9 +113,17 @@ export function PageAutocomplete({
       setOpen(false);
       setQuery("");
     } catch (cause) {
+      // The list closes and the value never lands, which on its own reads as an
+      // autocomplete that lost the pick. What was typed stays in the field so
+      // the choice can be made again.
       setOpen(false);
       setQuery(option.label);
-      setError(failureReason(cause, message));
+      notify.failure(
+        option.create
+          ? message("failure.createEntity", { name: option.label })
+          : message("failure.selectEntity", { name: option.label }),
+        cause,
+      );
     }
   };
 
@@ -152,15 +158,12 @@ export function PageAutocomplete({
         aria-autocomplete="list"
         aria-label={placeholder}
         aria-activedescendant={open && options[active] ? optionId(active) : undefined}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
         placeholder={placeholder}
         value={query}
         autoFocus={autoFocus}
         data-testid={`${kind}-autocomplete`}
         onChange={(event) => {
           setQuery(event.target.value);
-          setError(null);
           setOpen(true);
           setActive(0);
         }}
@@ -170,11 +173,6 @@ export function PageAutocomplete({
         }}
         onKeyDown={onKeyDown}
       />
-      {error && (
-        <p id={errorId} className="field-error" role="alert">
-          {error}
-        </p>
-      )}
       {open &&
         anchor &&
         createPortal(
@@ -188,7 +186,7 @@ export function PageAutocomplete({
             }}
           >
             {options.length === 0 ? (
-              <div role="status" className="autocomplete-hint">
+              <div role="status" className="ac-hint">
                 {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
               </div>
             ) : (

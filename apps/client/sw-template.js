@@ -1,4 +1,4 @@
-// NeoSeq application-shell Service Worker (generated at build time).
+// Neoseq application-shell Service Worker (generated at build time).
 //
 // Scope: shell assets only (HTML, JS, CSS, Wasm). Canonical graph data is
 // owned by the Worker-side IndexedDB repository and is never cached here.

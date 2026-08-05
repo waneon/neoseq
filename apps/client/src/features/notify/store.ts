@@ -2,8 +2,8 @@
 // `useSyncExternalStore`, and nothing here knows how a toast is drawn.
 //
 // A toast reports something the user cannot see from where they are standing.
-// Anything with a home on screen — a field error, a query diagnostic, the save
-// slot, a tombstone — keeps that home. See DESIGN.md § Toasts.
+// Anything with a home on screen — the save slot, a query diagnostic — keeps that
+// home. See DESIGN.md § Toasts.
 
 export type ToastTone = "info" | "success" | "danger";
 
@@ -25,8 +25,8 @@ export interface ToastInput {
   action?: ToastAction;
   /** Repeats of this key collapse onto one toast and raise its counter. */
   key?: string;
-  /** Milliseconds, or `null` to stay until dismissed. Defaults by tone. */
-  duration?: number | null;
+  /** Milliseconds on screen. Defaults by tone. */
+  duration?: number;
 }
 
 export interface Toast {
@@ -38,19 +38,24 @@ export interface Toast {
   readonly key?: string;
   /** How many times this key has fired. Rendered only above 1. */
   readonly count: number;
-  readonly duration: number | null;
-  /** Bumped by a repeat so the visible dismissal timer restarts. */
+  readonly duration: number;
+  /** Bumped by a repeat so the visible countdown restarts. */
   readonly nonce: number;
 }
 
 /**
- * An error waits for the user; a notice states a condition and leaves. Nothing
- * that a user must act on is ever taken off the screen by a timer.
+ * Every report expires, and every report shows how long it has left.
+ *
+ * A failure gets the longest window rather than none at all: the two conditions
+ * that genuinely outlive a countdown — unsaved work and a read-only lease — have
+ * permanent homes in the top bar, so nothing that must persist depends on a toast
+ * staying up. Timers pause while the user is looking (hover, focus inside the
+ * region, a backgrounded tab), which is what keeps a ten-second window honest.
  */
-const DEFAULT_DURATION: Record<ToastTone, number | null> = {
+const DEFAULT_DURATION: Record<ToastTone, number> = {
   info: 6000,
   success: 4000,
-  danger: null,
+  danger: 10000,
 };
 
 /** Four is already more than anyone reads at once; beyond it, older goes. */
@@ -72,7 +77,7 @@ export class ToastStore {
 
   show = (input: ToastInput): string => {
     const tone = input.tone ?? "info";
-    const duration = input.duration === undefined ? DEFAULT_DURATION[tone] : input.duration;
+    const duration = input.duration ?? DEFAULT_DURATION[tone];
     const existing = input.key
       ? this.toasts.find((toast) => toast.key === input.key)
       : undefined;

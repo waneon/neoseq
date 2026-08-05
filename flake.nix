@@ -1,5 +1,5 @@
 {
-  description = "NeoSeq local Web application";
+  description = "Neoseq local Web application";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -52,6 +52,7 @@
             ./apps/client/package.json
             ./apps/client/components.json
             ./apps/client/index.html
+            ./apps/client/public
             productionClientFiles
             ./apps/client/sw-template.js
             ./apps/client/tsconfig.app.json
@@ -343,7 +344,7 @@
           text = ''
             project_root="$PWD"
             while [ ! -f "$project_root/apps/client/package.json" ]; do
-              test "$project_root" != / || { echo "run web-dev inside the NeoSeq checkout" >&2; exit 2; }
+              test "$project_root" != / || { echo "run web-dev inside the Neoseq checkout" >&2; exit 2; }
               project_root="$(dirname "$project_root")"
             done
             root_created=false

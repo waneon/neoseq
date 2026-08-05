@@ -5,7 +5,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { GRAPH_ID, mountAt } from "./harness";
+import { GRAPH_ID, mountAt, openBlockMenu, openPageMenu } from "./harness";
 
 async function mountPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -17,13 +17,24 @@ async function mountPage() {
 /**
  * Page properties are behind a disclosure now — the writing surface carries no
  * database chrome at rest — so the panel is opened the way a user opens it:
- * through the page ⋯ menu.
+ * by right-clicking the page title.
  */
 async function openPageProperties(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByTestId("page-menu"));
+  await openPageMenu();
   await user.click(await screen.findByTestId("menu-page-properties"));
   return screen.findByTestId("props-panel");
 }
+
+describe("the page's own menu", () => {
+  it("is named, even though its trigger is a coordinate rather than a control", async () => {
+    const { session } = await mountPage();
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    const menu = await openPageMenu();
+    // Radix names the menu from its trigger, so the anchor has to carry the name:
+    // an aria-label on the menu itself would lose to that reference.
+    expect(menu).toHaveAccessibleName("Page actions");
+  });
+});
 
 describe("generic property editor", () => {
   it("edits all five value types and keeps unknown keys editable", async () => {
@@ -111,8 +122,7 @@ describe("generic property editor", () => {
       key: "task.status",
       value: { type: "string", value: "todo" },
     });
-    const menu = await screen.findByTestId("block-menu");
-    await user.click(menu);
+    await openBlockMenu();
     await user.click(await screen.findByTestId("menu-properties"));
     const inspector = await screen.findByTestId("block-inspector");
     const select = within(inspector).getByLabelText("task.status value");

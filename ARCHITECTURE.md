@@ -1,8 +1,8 @@
-# NeoSeq Architecture
+# Neoseq Architecture
 
 ## Purpose
 
-NeoSeq is a local-first, outliner-based note-taking application. A graph
+Neoseq is a local-first, outliner-based note-taking application. A graph
 contains pages; a page contains ordered root blocks; and every block may contain
 ordered child blocks. Daily journal pages are the primary capture surface. Each
 block has collaborative Markdown text. Tags are graph-scoped entities; queries,
@@ -27,8 +27,9 @@ architecture for later steps and are not current build artifacts.
   semantics on web, macOS, and Android.
 - The UI should be shared across platforms without making the domain depend on a
   webview or JavaScript runtime.
-- Product localization must remain a presentation concern: changing UI language
-  cannot mutate graph data or alter domain, query, and synchronization semantics.
+- Product localization and user preference must remain presentation concerns:
+  changing UI language, how a date is written, or what a key is bound to cannot
+  mutate graph data or alter domain, query, and synchronization semantics.
 - Development and builds must be reproducible through Nix, subject to Apple
   signing and SDK constraints.
 - Nix dependency caches must be invalidated by dependency-manifest content, not
@@ -84,10 +85,14 @@ agent.
   as a normal query path, select another graph, or call the server.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
-- `app-ui` owns editing interaction, navigation, the command layer, failure
-  reporting, localization, and responsive presentation. It does not hold
-  canonical graph state. Its visual contract — tokens, disclosure rules, motion
-  constraints, and the committed contrast table — is [`DESIGN.md`](DESIGN.md).
+- `app-ui` owns editing interaction, block selection, navigation, the command
+  layer, failure reporting, browser-local preferences, localization, and
+  responsive presentation. It does not hold canonical graph state, and the
+  preferences it owns — appearance, UI language, journal timezone and date
+  format, keyboard bindings — are presentation only: none of them can change
+  domain, query or synchronization semantics. Its visual contract — tokens,
+  disclosure rules, motion constraints, and the committed contrast table — is
+  [`DESIGN.md`](DESIGN.md).
 - The future `sync-server` owns authentication boundaries, graph authorization, durable
   update relay, and compaction. It does not interpret notes or execute queries.
 

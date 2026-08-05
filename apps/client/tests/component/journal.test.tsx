@@ -39,7 +39,9 @@ describe("journal and navigation", () => {
     const user = userEvent.setup();
     expect(await screen.findByTestId("tombstone")).toHaveTextContent("isn't available");
     await user.click(screen.getByTestId("restore-page"));
-    expect(await screen.findByTestId("restore-error")).toHaveTextContent("never existed");
+    // The tombstone looks identical either way, so the refusal is reported
+    // rather than tucked under the button.
+    expect(await screen.findByTestId("toast")).toHaveTextContent("Couldn’t restore this page");
     expect(session.getState().snapshot.pages).toHaveLength(0);
   });
 

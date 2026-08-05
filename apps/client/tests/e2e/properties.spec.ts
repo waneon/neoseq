@@ -4,6 +4,7 @@ import {
   createGraph,
   createPage,
   openBlockInspector,
+  openPageMenu,
   openPageProperties,
   openSidebar,
   startOutline,
@@ -128,9 +129,9 @@ test("deleted page references resolve to a tombstone, not a new page", async ({ 
   await startOutline(page);
   await typeInFocusedBlock(page, "content to restore");
 
-  // Deleting a page is now a named menu verb behind a confirmation, matching the
-  // weight the graph delete already carried.
-  await page.getByTestId("page-menu").click();
+  // Deleting a page is a named verb in the title row's context menu, behind a
+  // confirmation that matches the weight the graph delete already carried.
+  await openPageMenu(page);
   await page.getByTestId("delete-page").click();
   await page.getByTestId("confirm-delete-page").click();
   await expect(page.getByTestId("tombstone")).toBeVisible();

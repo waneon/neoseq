@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import type { SettingsSection } from "../../src/features/settings/SettingsDialog";
 
 /** Creates a fresh local graph and lands on today's journal. */
 export async function createGraph(page: Page, name: string): Promise<void> {
@@ -58,20 +59,47 @@ export async function createPage(page: Page, title: string): Promise<void> {
   await awaitSaved(page);
 }
 
+/** The page's verbs have no button: right-clicking its title row is the route. */
+export async function openPageMenu(page: Page): Promise<void> {
+  await page.getByTestId("page-title").click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+}
+
 /**
  * Opens the page-properties panel the way a user does. Properties are behind a
- * disclosure now — the writing surface carries no database chrome at rest — and
- * the page ⋯ menu is their always-visible route in.
+ * disclosure — the writing surface carries no database chrome at rest — and the
+ * title row's context menu is their route in.
  */
 export async function openPageProperties(page: Page): Promise<void> {
-  await page.getByTestId("page-menu").click();
+  await openPageMenu(page);
   await page.getByTestId("menu-page-properties").click();
   await expect(page.getByTestId("props-panel")).toBeVisible();
 }
 
+/** A block's verbs live on its bullet, which is also its drag handle. */
+export async function openBlockMenu(page: Page, index = 0): Promise<void> {
+  await page.getByTestId("block-bullet").nth(index).click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+}
+
 /** The tagged-block defaults live one level deeper, behind Advanced. */
 export async function openBlockInspector(page: Page, index = 0): Promise<void> {
-  await page.getByTestId("block-menu").nth(index).click();
+  await openBlockMenu(page, index);
   await page.getByTestId("menu-properties").click();
   await expect(page.getByTestId("block-inspector")).toBeVisible();
+}
+
+/**
+ * Opens the settings dialog from its one permanent route, the rail footer, and
+ * lands on a section. The section is part of the URL, so a reload comes back to
+ * the same place.
+ */
+export async function openSettings(
+  page: Page,
+  section: SettingsSection = "appearance",
+): Promise<void> {
+  await openSidebar(page);
+  await page.getByTestId("open-settings").click();
+  await expect(page.getByTestId("settings-dialog")).toBeVisible();
+  if (section !== "appearance") await page.getByTestId(`settings-tab-${section}`).click();
 }

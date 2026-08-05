@@ -6,9 +6,17 @@ import {
   useLayoutEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import IntlMessageFormat from "intl-messageformat";
+import {
+  appSettings,
+  isJournalDateFormat,
+  subscribeAppSettings,
+  updateAppSettings,
+  type JournalDateFormat,
+} from "../entities/settings";
 import {
   LOCALE_DEFINITIONS,
   SUPPORTED_LOCALES,
@@ -22,7 +30,6 @@ export { LOCALE_DEFINITIONS, SUPPORTED_LOCALES };
 export type { SupportedLocale, TextDirection };
 export type LocalePreference = "system" | SupportedLocale;
 
-const SETTINGS_KEY = "neoseq.settings.v1";
 const catalogModules = import.meta.glob("./locales/*.json", {
   eager: true,
   import: "default",
@@ -30,11 +37,6 @@ const catalogModules = import.meta.glob("./locales/*.json", {
 const catalogs = Object.fromEntries(
   SUPPORTED_LOCALES.map((locale) => [locale, catalogModules[`./locales/${locale}.json`]]),
 ) as Record<SupportedLocale, Record<MessageKey, string>>;
-
-interface StoredSettings {
-  locale?: LocalePreference;
-  [key: string]: unknown;
-}
 
 export interface LocaleRuntime {
   readonly locale: SupportedLocale;
@@ -54,15 +56,10 @@ export interface LocaleRuntime {
 interface LocaleContextValue extends LocaleRuntime {
   readonly preference: LocalePreference;
   setPreference(preference: LocalePreference): void;
-}
-
-function readSettings(): StoredSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? (JSON.parse(raw) as StoredSettings) : {};
-  } catch {
-    return {};
-  }
+  /** How a journal day is written. An app-wide choice, not a per-graph one. */
+  readonly journalDateFormat: JournalDateFormat;
+  /** A journal day in the chosen format; `iso` returns the stored value verbatim. */
+  formatJournalDate(date: string): string;
 }
 
 function isLocalePreference(value: unknown): value is LocalePreference {
@@ -70,18 +67,8 @@ function isLocalePreference(value: unknown): value is LocalePreference {
 }
 
 export function storedLocalePreference(): LocalePreference {
-  const value = readSettings().locale;
+  const value = appSettings().locale;
   return isLocalePreference(value) ? value : "system";
-}
-
-function persistLocalePreference(preference: LocalePreference): void {
-  try {
-    const settings = readSettings();
-    settings.locale = preference;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // A blocked preference write affects the next launch, not this render.
-  }
 }
 
 function canonicalLanguage(tag: string): string | null {
@@ -106,6 +93,27 @@ export function resolveLocale(
     }
   }
   return "en";
+}
+
+/**
+ * `Intl` options per journal date format, or `null` for ISO — the one choice that
+ * is not a locale rendering at all but the stored value shown unchanged.
+ */
+export function journalDateOptions(
+  format: JournalDateFormat,
+): Intl.DateTimeFormatOptions | null {
+  switch (format) {
+    case "full":
+      return { weekday: "long", year: "numeric", month: "long", day: "numeric" };
+    case "long":
+      return { year: "numeric", month: "long", day: "numeric" };
+    case "medium":
+      return { year: "numeric", month: "short", day: "numeric" };
+    case "short":
+      return { year: "numeric", month: "numeric", day: "numeric" };
+    case "iso":
+      return null;
+  }
 }
 
 function formatterKey(kind: string, options: object | undefined): string {
@@ -201,6 +209,8 @@ const LocaleContext = createContext<LocaleContextValue>({
   ...defaultRuntime,
   preference: "system",
   setPreference: () => {},
+  journalDateFormat: "full",
+  formatJournalDate: (date) => defaultRuntime.formatLocalDate(date),
 });
 
 export function applyDocumentLocale(runtime: LocaleRuntime): void {
@@ -219,32 +229,63 @@ export function LocaleProvider({
   initialPreference,
 }: {
   children: ReactNode;
+  /**
+   * Pins the provider to one language regardless of what is stored — a test
+   * seam. Without it the stored preference is the source of truth, so a second
+   * tab changing the language is honoured here too.
+   */
   initialPreference?: LocalePreference;
 }) {
-  const [preference, setPreferenceState] = useState<LocalePreference>(
-    initialPreference ?? storedLocalePreference,
+  const settings = useSyncExternalStore(subscribeAppSettings, appSettings, appSettings);
+  const [pinned, setPinned] = useState<LocalePreference | null>(initialPreference ?? null);
+  const preference = pinned ?? (isLocalePreference(settings.locale) ? settings.locale : "system");
+  const journalDateFormat = isJournalDateFormat(settings.journalDateFormat)
+    ? settings.journalDateFormat
+    : "full";
+
+  // `languagechange` is the only signal that the platform's own language list
+  // moved under a "system" preference, so that list is state rather than a read
+  // taken once per render.
+  const [platformLocales, setPlatformLocales] = useState<readonly string[]>(() =>
+    typeof navigator === "undefined" ? [] : [...navigator.languages],
   );
-  const [locale, setLocale] = useState(() => resolveLocale(preference));
+  useEffect(() => {
+    const read = () =>
+      setPlatformLocales(typeof navigator === "undefined" ? [] : [...navigator.languages]);
+    window.addEventListener("languagechange", read);
+    return () => window.removeEventListener("languagechange", read);
+  }, []);
+
+  const locale = useMemo(
+    () => resolveLocale(preference, platformLocales),
+    [platformLocales, preference],
+  );
   const runtime = useMemo(() => createLocaleRuntime(locale), [locale]);
 
   const setPreference = useCallback((next: LocalePreference) => {
-    persistLocalePreference(next);
-    setPreferenceState(next);
-    setLocale(resolveLocale(next));
+    updateAppSettings({ locale: next });
+    setPinned((current) => (current === null ? null : next));
   }, []);
-
-  useEffect(() => {
-    if (preference !== "system") return;
-    const onLanguageChange = () => setLocale(resolveLocale("system"));
-    window.addEventListener("languagechange", onLanguageChange);
-    return () => window.removeEventListener("languagechange", onLanguageChange);
-  }, [preference]);
 
   useLayoutEffect(() => applyDocumentLocale(runtime), [runtime]);
 
+  const formatJournalDate = useCallback(
+    (date: string) => {
+      const options = journalDateOptions(journalDateFormat);
+      return options ? runtime.formatLocalDate(date, options) : date;
+    },
+    [journalDateFormat, runtime],
+  );
+
   const value = useMemo<LocaleContextValue>(
-    () => ({ ...runtime, preference, setPreference }),
-    [preference, runtime, setPreference],
+    () => ({
+      ...runtime,
+      preference,
+      setPreference,
+      journalDateFormat,
+      formatJournalDate,
+    }),
+    [formatJournalDate, journalDateFormat, preference, runtime, setPreference],
   );
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;

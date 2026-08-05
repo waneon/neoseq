@@ -1,7 +1,7 @@
 ---
 version: 2
-name: NeoSeq Design System
-description: The design language for NeoSeq, a local-first outliner. Structure is the ornament — the indent thread that carries an outline's meaning is also the graphic signature of the interface. Luminance separates surfaces instead of borders, the OS supplies the type, one ink-indigo accent carries every action, and both a light and a dark mode ship from a single token declaration. Chrome is deliberately small, named, and permanent; everything else is summoned by ⌘K.
+name: Neoseq Design System
+description: The design language for Neoseq, a local-first outliner. Structure is the ornament — the indent thread that carries an outline's meaning is also the graphic signature of the interface. Luminance separates surfaces instead of borders, the OS supplies the type, one ink-indigo accent carries every action, and both a light and a dark mode ship from a single token declaration. Chrome is deliberately small, named, and permanent; everything else is summoned by ⌘K.
 
 # ─── Tokens ───
 # Every token below is declared once per mode in `apps/client/src/ui/app.css`.
@@ -62,8 +62,8 @@ typography:
   sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 400 }   # UI default — nav, buttons, inputs, menus
   md:  { size: 16px, line: 26px, track: 0em,       weight: 400 }   # block text and page body
   lg:  { size: 19px, line: 25px, track: -0.012em,  weight: 600 }   # section headings (real <h2>)
-  xl:  { size: 30px, line: 34px, track: -0.018em,  weight: 600 }   # page and journal titles (<h1>)
-  xl-mobile: { size: "clamp(24px, 6vw, 30px)", track: -0.014em }
+  xl:  { size: 33px, line: 40px, track: -0.019em,  weight: 600 }   # page and journal titles (<h1>)
+  xl-mobile: { size: "clamp(26px, 6vw, 33px)", track: -0.015em }
   mono-xs: { size: 12px, line: 16px, weight: 500 }                  # shortcut badges, property keys
   weights: { normal: 400, medium: 500, strong: 600 }
 
@@ -84,8 +84,8 @@ metrics:
   rail: 240px
   drawer: "min(300px, 84vw)"
   topbar: 44px
-  title-row: 40px
-  row: 32px               # one-line outline row
+  title-row: 44px
+  row: 30px               # one-line outline row (16/26 text, 2px padding)
   indent: 24px            # per outline level
   slot: 20px              # bullet slot
   target: 24px            # icon-control hit box (32px at or below 600px)
@@ -93,7 +93,7 @@ metrics:
 
 radius:
   r-1: 4px                # chips, badges, shortcut keys
-  r-2: 6px                # inputs, buttons, menu items, rows, search pill
+  r-2: 6px                # inputs, buttons, menu items, nav rows, shortcut badges
   r-3: 10px               # panels, popovers, cards
   r-4: 14px               # dialogs, command palette
   r-full: 9999px          # the bullet dot, and nothing else
@@ -133,7 +133,6 @@ components:
   topbar:      { height: 44px, background: "{canvas}", border: none, edge: "fades in on scroll" }
   rail:        { width: 240px, background: "{rail}", typography: "{sm}" }
   nav-row:     { height: 32px, radius: "{r-2}", rest: "{ink-2}", hover: "{surface-2}", active: "{surface-3} + {ink} + 500" }
-  search-pill: { height: 28px, width: 180px, background: "{surface-2}", radius: "{r-2}", badge: "⌘K" }
   btn:         { height: 32px, radius: "{r-2}", typography: "{sm}", weight: 500 }
   btn-primary: { background: "{accent}", text: "{on-accent}", hover: "{accent-hover}" }
   btn-quiet:   { background: transparent, text: "{ink}", hover: "{surface-2}" }
@@ -147,21 +146,24 @@ components:
   menu-item:   { height: 30px, radius: "{r-2}", typography: "{sm}", highlight: "{surface-2}", shortcut: "{mono-xs} {ink-3}" }
   chip:        { height: 20px, padding: "0 6px", radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs}", border: none }
   kbd:         { min-width: 20px, height: 18px, radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{mono-xs}", border: none }
-  bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring" }
+  bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring", empty: "40% opacity", role: "handle — click, drag, right-click" }
+  selection:   { fill: "{accent-soft}", gutter: "{gutter} left of every bullet", drop: "2px {accent} rule at the target depth" }
+  settings:    { width: 820px, scopes: 2, nav: 168px, url: "?settings=<section>" }
+  shortcut-key: { height: 24px, radius: "{r-1}", typography: "{mono-xs}", recording: "{accent} fill", touch: 32px }
   thread:      { width: 1px, colour: "{thread}", active: "{thread-active}", offset: "{slot}/2" }
   save-slot:   { saved: "nothing", saving: "5px {ink-3} dot after 600ms", unsaved: "5px {danger} dot + reason + Retry" }
-  toast:       { width: 360px, radius: "{r-3}", background: "{overlay}", elevation: "{e2}", layer: "{layers.toast}", anchor: "top-right, below the top bar", dot: "5px — {ink-3} / {ok} / {danger}", entrance: none }
+  toast:       { width: 360px, radius: "{r-3}", background: "{overlay}", elevation: "{e2}", layer: "{layers.toast}", anchor: "top-right, below the top bar", dot: "5px — {ink-3} / {ok} / {danger}", entrance: none, countdown: "2px bar, 4s / 6s / 10s by tone", dismiss: "always visible" }
 
 ---
 
 ## Overview
 
-NeoSeq is a local-first outliner. Its subject is not documents — it is **structure**:
+Neoseq is a local-first outliner. Its subject is not documents — it is **structure**:
 a thought indented under another thought, a day that holds what happened in it, a
 tag that turns a line into a record. The interface is built from that material.
 
 **The signature is the thread.** In an outline, meaning lives in the vertical line
-that runs from a parent bullet down past its children. NeoSeq draws that line
+that runs from a parent bullet down past its children. Neoseq draws that line
 explicitly, at 8% ink, and lights the path to whatever you are editing at 20%. The
 same 1px thread language is the only line permitted anywhere else in the product —
 the rail's edge, the palette's divider. Structure is the ornament; nothing else is
@@ -177,9 +179,11 @@ declaration, because a tool you write in at night is a tool you write in at nigh
 
 **Chrome is small, named, and permanent.** The parts of the interface that are always
 visible were chosen one at a time and are listed in [Disclosure](#disclosure). Every
-other verb lives in the command palette, reachable by `⌘K` from a pill that is always
-on screen. That trade is the whole design: the palette is what licenses an interface
-this bare, so the palette ships first and is never allowed to regress.
+other verb lives in the command palette, reachable by `⌘K` and from a `Search` row that
+is always in the rail. That trade is the whole design: the palette is what licenses an
+interface this bare, so the palette ships first and is never allowed to regress. The
+writing surface's own top bar holds no verbs at all — only durability and the read-only
+lease, both of which render nothing when there is nothing to say.
 
 **Key characteristics**
 
@@ -207,6 +211,9 @@ this bare, so the palette ships first and is never allowed to regress.
    three. Focus is one outline, not an outline plus a ring plus a recoloured border.
 5. **Every capability has one canonical command and one pointer route.** A user who
    never learns a shortcut loses speed, never capability. This is enforced by a test.
+   A palette row counts as that route only because the palette itself has a permanent
+   pointer affordance (`Search`, in the rail); `Undo` and `Redo` are the two verbs that
+   rely on it, having given up their top-bar buttons.
 6. **Nothing is hidden until it can be found.** No control may be hover-gated unless
    it is also reachable from the palette, pinned on touch, and revealed on focus.
 7. **Silent when steady, plain when not.** `saved`, online, and on-today render
@@ -239,7 +246,7 @@ theme — the single most common tell of a web app that only pretends to have a 
 |---|---|
 | `--canvas` | The writing surface. The page body, the top bar, the content column. |
 | `--surface-1` | A quiet inset panel on the canvas: the property panel, the block inspector, a graph card. |
-| `--surface-2` | Hover wash, chips, shortcut badges, the search pill. The one hover colour. |
+| `--surface-2` | Hover wash, chips, shortcut badges, a shortcut's own key. The one hover colour. |
 | `--surface-3` | Active/pressed, and the current navigation row. |
 | `--rail` | Navigation. One step away from the canvas in both modes, in opposite directions. |
 | `--overlay` | Anything floating: menus, popovers, dialogs, the palette. |
@@ -282,7 +289,7 @@ contrast, the table is what you consult, not the component.**
 
 > **The one hard rule.** `--ink-3` is legal on `--canvas`, `--surface-1`, `--rail`, and
 > `--overlay` only. On `--surface-2` or `--surface-3` it fails AA, so any 12–14px text
-> sitting on a chip, a shortcut badge, the search pill, or an active nav row uses
+> sitting on a chip, a shortcut badge, a shortcut key, or an active nav row uses
 > `--ink-2`. Text at 24px+, or 19px+ at weight 600, may use `--ink-3` anywhere.
 
 ---
@@ -324,7 +331,7 @@ grow or wrap for translation and are never sized to an English string.
 | `sm` | 14 / 20 | −0.005em | 400 | UI default: nav rows, buttons, inputs, menu items, property values |
 | `md` | 16 / 26 | 0 | 400 | **Block text and page body.** The user's own words. |
 | `lg` | 19 / 25 | −0.012em | 600 | Real `<h2>` section headings |
-| `xl` | 30 / 34 | −0.018em | 600 | Page and journal `<h1>`, tombstone, "Your graphs" |
+| `xl` | 33 / 40 | −0.019em | 600 | Page and journal `<h1>`, tombstone, "Your graphs" |
 
 Nothing else exists. The sizes 9, 11, 13, 15, 17, 20, 22, 26, 36 and 40 that
 accumulated in v1 are deleted, along with the 1px collision between a 15px `.btn` and
@@ -350,21 +357,22 @@ are addresses and which are language.
 
 ```
 ┌────────────┬──────────────────────────────────────────────────────┐
-│            │  ⌘K pill        · save · ⎌ ⤾ ·        (44px, no rule)│
-│  rail      ├──────────────────────────────────────────────────────┤
-│  240px     │                                                      │
-│            │        ┌──────── 704px measure ────────┐             │
-│  switcher  │        │  Tuesday, August 4, 2026  ‹▦› │  ⋯          │
-│  Journal   │        │                                │             │
-│            │        │  • Kickoff meeting notes       │             │
-│  Pages   ＋│        │  │ • Discussed the Q3 roadmap  │             │
-│  · Reading │        │  │ • Follow up with platform   │             │
-│  · Specs   │        │  • Reading list                │             │
+│  ◣ Neoseq  │                          · save · read-only (44px)   │
+│  switcher  ├──────────────────────────────────────────────────────┤
+│            │                                                      │
+│  Search ⌘K │        ┌──────── 704px measure ────────┐             │
+│  Journal   │        │  Wednesday, August 5, 2026 ‹▦›│             │
 │            │        │                                │             │
-│  ─────     │        │  (append zone — min(40vh,320)) │             │
-│  Settings  │        └────────────────────────────────┘             │
-│  All graphs│                                                      │
+│  Pages   ＋│      ↕ │  • Kickoff meeting notes       │             │
+│  · Reading │      ↕ │  │ • Discussed the Q3 roadmap  │             │
+│  · Specs   │      ↕ │  │ • Follow up with platform   │             │
+│            │      ↕ │  • Reading list                │             │
+│  ─────     │        │                                │             │
+│  Settings  │        │  (append zone — min(40vh,320)) │             │
+│            │        └────────────────────────────────┘             │
 └────────────┴──────────────────────────────────────────────────────┘
+     ↕ = the selection gutter: one gutter width left of every bullet,
+         at every depth, where a drag selects rows.
 ```
 
 `display: grid; grid-template-columns: 240px 1fr; height: 100dvh`. `100dvh`, not
@@ -389,17 +397,21 @@ below 600px. v1's 760px ran to ~85 characters, past the comfortable reading limi
 
 | Width | Change |
 |---|---|
-| ≥ 1100px | Search pill shows its label and `⌘K` badge |
-| 841–1099px | Search pill collapses to a 28px icon button |
 | ≤ 840px | Rail becomes an off-canvas drawer; `.shell-toggle` appears |
+| ≤ 700px | The settings dialog stacks: its scope nav becomes two wrapped rows of pills |
 | ≤ 600px | Gutter 16px; `<h1>` clamps; hover-gated targets become permanently visible at 32px |
 
 ### Touch
 
-Below 600px, nothing is hover-gated: the date stepper, the calendar trigger and the
-page `⋯` are permanently visible at 32×32. The one exception is the outline row menu,
-which reveals on `[data-focused="true"]` instead — so exactly one `⋯` is visible at a
-time rather than one pinned onto every row of a 412px screen.
+Below 600px, nothing is hover-gated: the date stepper and the calendar trigger are
+permanently visible at 32×32, and so is a toast's dismiss `×`.
+
+The two context menus need no touch equivalent of a right-click, because their trigger
+is an object that is already on screen: a long-press on a bullet or on the page title
+raises the platform's own context-menu event, which is the same one the pointer sends.
+Bullet drag and the selection gutter set `touch-action` explicitly — `none` on the
+bullet, so a drag moves blocks instead of scrolling the page; `pan-y` on the gutter, so
+a vertical swipe there still scrolls.
 
 ---
 
@@ -438,7 +450,7 @@ bordered status pills, and — emphatically — no dashed empty states.
 | Token | Value | Use |
 |---|---|---|
 | `--r-1` | 4px | Chips, shortcut badges |
-| `--r-2` | 6px | Inputs, buttons, menu items, nav rows, selected rows, the search pill |
+| `--r-2` | 6px | Inputs, buttons, menu items, nav rows, selected rows, settings tabs |
 | `--r-3` | 10px | Panels, popovers, graph cards |
 | `--r-4` | 14px | Dialogs, the command palette |
 | `--r-full` | 9999px | The bullet dot, and nothing else |
@@ -495,15 +507,25 @@ whose arrival is itself the message.
 > audit, which caught a 140ms `enter-fade` mid-flight and failed the toast's own text
 > against the page behind it. Toasts do not animate.
 
-**4. Hover-revealed chrome is instant.** A 120ms fade on a row `⋯` lags the pointer
-down a virtualized list and reads as lag, not polish.
+**4. Hover-revealed chrome is instant.** A 120ms fade on a summoned control lags the
+pointer down a virtualized list and reads as lag, not polish.
+
+> **The one animation that is information.** A toast's countdown bar is not an entrance
+> and not decoration: it is a reading of how much of the report's window is left. It
+> animates a `width` rather than a transform — so rule 1 still holds — it pauses exactly
+> when the timer pauses, and it is the single element exempted from the reduced-motion
+> collapse below. Forcing it to 1ms would empty the bar instantly while the toast stayed
+> up for another six seconds, which spares a reduced-motion user no movement and shows
+> them something false instead.
 
 ### Reduced motion
 
 `prefers-reduced-motion: reduce` collapses durations to 1ms **and** neutralises
 `tw-animate-css`'s enter transforms (`--tw-enter-translate-*`, `--tw-enter-scale`), so
 a reduced-motion user gets no motion rather than an instant snap from an offset. It
-must not touch `scroll-behavior` globally.
+must not touch `scroll-behavior` globally, and it restores `.toast-timer`'s real
+duration for the reason given above — the only exemption in the product, and one that
+has to be re-argued before a second is added.
 
 ---
 
@@ -551,29 +573,41 @@ permanently visible.**
 
 | Control | Where | Why it earns permanence |
 |---|---|---|
-| Graph switcher | Rail, top | Names where you are; the only route between graphs |
+| Wordmark + mark | Rail, top | Names the product once, where a product name belongs |
+| Graph switcher | Rail | Names where you are; the only route between graphs |
+| `Search` (`⌘K`) | Rail | The single affordance that licenses everything below |
 | `Journal` | Rail | The primary daily destination |
 | Page list + `＋` | Rail | Navigation, and the only pointer route to a new page |
-| `Settings`, `All graphs` | Rail footer | Workspace-level, deliberately away from daily use |
-| Search pill (`⌘K`) | Top bar | The single affordance that licenses everything below |
-| Undo / Redo | Top bar, icon-only | The most-used verb in any editor needs a pointer route |
+| `Settings` | Rail footer | Workspace-level, deliberately away from daily use |
 | Save slot | Top bar | **Renders nothing when saved.** Present only on deviation |
-| Page `⋯` | Title row | The named route to properties, info, and delete |
-| `Today` pill | Journal title row | Only when the date is not today |
 | Read-only label | Top bar | Only in read-only mode |
+| Bullet | Every outline row | The block's own handle: caret, drag, and its menu |
+| `Today` pill | Journal title row | Only when the date is not today |
+| Toast dismiss `×` | On the toast | The user did not ask for the surface; closing it must not be a discovery |
+
+The top bar holds **no verbs**. Everything it used to carry either moved into the rail
+(`Search`) or gave up its button for a keyboard binding and a palette row (`Undo`,
+`Redo`) — see Principle 5 for why that is allowed and what pays for it.
 
 ### Revealed on hover, focus, or `[data-focused]`
 
-Date stepper and calendar trigger · outline row `⋯` · collapse chevron · tag remove
-`×` · graph card `⋯`. Every one of these is also
-in the palette, pinned visible at or below 600px, and revealed on `:focus-within` — and
-revealed with `opacity`, never `display` or `visibility`, so keyboard and automation can
-always reach it.
+Date stepper and calendar trigger · collapse chevron · tag remove `×` · graph card `⋯` ·
+the rail's `⌘K` badge · the append zone's faint bullet · a shortcut row's reset. Every
+one of these is also in the palette or in Settings, pinned visible at or below 600px, and
+revealed on `:focus-within` — and revealed with `opacity`, never `display` or
+`visibility`, so keyboard and automation can always reach it.
 
 ### Summoned only
 
-The command palette · the shortcut sheet · page properties · tagged-block defaults ·
-page info · block properties and tags · diagnostics · every confirm dialog.
+The command palette · the shortcut sheet · Settings · a block's menu (right-click its
+bullet, or `⇧F10` from its text) · the page's menu (right-click its title row) · page
+properties · tagged-block defaults · page info · block properties and tags ·
+diagnostics · every confirm dialog.
+
+A context menu is summoned *from an object*, which is what makes it different from a
+hidden button: the bullet and the title are permanently visible and permanently the
+subject, so nothing has to be discovered except the gesture — and every verb inside is
+also a palette row or a documented key.
 
 ### Raised, not summoned
 
@@ -594,6 +628,17 @@ are not there. See § Toasts for what is allowed to raise one.
 - The dashed empty-state box on the graph picker.
 - System property rows (`page.kind`, `journal.date`, `system.created-at`) from the
   property list; they are page *info*, not page *properties*.
+- The outline row's `⋯` and the title row's `⋯`. Both menus survive; their trigger is now
+  the object they act on. Two permanent buttons for two menus that were always *about*
+  something already on screen was one indirection too many.
+- The top bar's search pill, `Undo` and `Redo`. Search moved to the rail beside the other
+  destinations; the two history verbs kept their keys and their palette rows.
+- `All graphs` in the rail footer — the graph switcher's own last item already says it.
+- The derived first-run hint under a one-block outline (`⌘K to search · ⌘/ for
+  shortcuts`). It appeared over the empty first line of every new page, which is exactly
+  where the user was about to type.
+- The `Write something…` placeholder on an empty line. An empty line now says it with a
+  fainter bullet; the document belongs to the user, including when it is empty.
 
 ### The budget that justifies this
 
@@ -637,16 +682,42 @@ global scope, arbitrated solely by `event.defaultPrevented`. **The global layer 
 ever matches bindings that carry `⌘` or `⌃`**, so no bare key can be stolen from a text
 field.
 
-### Global bindings — deliberately few
+### Global bindings — deliberately few, and the user's to change
 
-| Binding | Verb |
+| Default | Verb |
 |---|---|
 | `⌘K` | Command palette |
 | `⌘⇧P` | Properties of the focused block, or of the page when none is focused |
 | `⌘/` | Shortcut sheet |
 | `⌘\` | Toggle the rail |
 | `⌘,` | Settings |
-| `⌘Z` / `⇧⌘Z` / `⌃Y` | Undo / Redo — a *document* undo |
+| `⌘Z` / `⇧⌘Z` | Undo / Redo — a *document* undo |
+
+Every row of that table is editable in **Settings → Keyboard**, and the stored override
+is what the listener matches, what the `⌘/` sheet prints, and what every menu row and
+palette badge shows — one resolved table, read in six places, so a rebound key cannot
+leave a stale hint behind it.
+
+Three rules keep the table honest, and each rejection says which one it hit:
+
+1. **A binding must carry `⌘` or `⌃`.** This is the arbitration invariant from above,
+   expressed in the type: the stored shape has no field for "no modifier", so a bare key
+   is not representable rather than merely discouraged.
+2. **No two actions may share a binding**, and the conflict names the other action.
+3. **Two sets of combinations are refused outright.** The ones the browser takes first
+   (`⌘W`, `⌘T`, `⌘N`, `⌘R`, `⌘L`, `⌘F`, `⌘P`, …), because storing one would record a
+   shortcut that can never fire — and the ones every *text field* owns (`⌘A`, `⌘C`,
+   `⌘V`, `⌘X`), because those do reach the page and the global layer would happily
+   `preventDefault` them. One bad rebinding must not be able to take copy and paste
+   away from every input in the product.
+
+Bindings are stored as `event.key`, not `event.code`. `code` is layout-stable; `key` is
+what is printed on the key the user actually pressed, and therefore the only thing that
+can be shown back to them truthfully.
+
+**The outline's writing keys are not in the table and cannot be.** `⏎`, `⇧⏎`, `⇥`, `⇧⇥`,
+`⌥↑`, `⌥↓`, `←`, `→` and `⌫` are not shortcuts to commands — they are what typing in an
+outline *is*. The sheet lists them as fixed, and says so.
 
 Undo is scoped deliberately. Outside a text field it is a document undo. Inside a
 text field it is the platform's own text undo, because a user part-way through
@@ -687,8 +758,10 @@ and a right-aligned shortcut badge.
 3. A shortcut column on every dropdown item.
 4. The `⌘/` sheet — generated *from the registry*, so it cannot drift, and listing the
    verbs that have no binding along with their pointer route.
-5. One derived first-run hint: while a graph holds exactly one block, a 12px line under
-   the outline reads `⌘K to search · ⌘/ for shortcuts`. At two blocks it never returns.
+5. **No first-run hint.** v2 put a 12px `⌘K to search · ⌘/ for shortcuts` line under a
+   one-block outline — directly under the empty first line of every new page, which is
+   the one place the user's attention is already committed. The rail's permanent
+   `Search` row and its `⌘K` badge teach the same thing without standing in the writing.
 
 ---
 
@@ -696,11 +769,15 @@ and a right-aligned shortcut badge.
 
 ### The outline
 
-**Row.** 32px at one line: 16px/26px text with 3px of vertical padding.
-`padding-left: calc(var(--depth) * var(--indent))` from a CSS custom property, not an
-inline style that silently overrides the row's own padding shorthand. `cursor: text`
-across the whole row. **No hover fill and no focused-row fill** — the caret is the
-signal, and a full-width blue wash behind the line the user is typing is noise.
+**Row.** 30px at one line: 16px/26px text with 2px of vertical padding — one notch
+tighter than v2, which is what makes a screen of short lines read as a list rather than a
+column of paragraphs. `padding-left: calc(var(--gutter) + var(--depth) * var(--indent))`
+from CSS custom properties, not an inline style that silently overrides the row's own
+padding shorthand, and a matching negative `margin-left` so the row reaches one gutter
+further left than its text: that strip is the selection gutter. `cursor: text` across the
+text, `default` over the gutter. **No hover fill and no focused-row fill** — the caret is
+the signal, and a full-width wash behind the line the user is typing is noise. A
+*selected* row is the one exception, and § Selection says why.
 
 **Thread.** One `repeating-linear-gradient` on the row background, offset by half the
 bullet slot, sized to `depth × indent`. Zero extra DOM, because the rows are
@@ -710,11 +787,21 @@ virtualized. Ancestors of the focused row carry `data-ancestor="true"` and switc
 **Bullet.** A 5px dot centred in a 20px slot with a 24px hit box achieved by negative
 margin, so the target exceeds the mark without moving layout. The dot escalates
 `--ink-3` → `--ink-2` on row hover → `--ink` when focused. Collapsed-with-children adds
-a 4px `--halo` ring — that ring is the *only* collapsed signal, replacing v1's ring
-*plus* rotated chevron. **Every block shows its bullet, always.** Hiding the mark on
-childless rows was considered and rejected: this is an outliner, the bullet is the
-genre's signature, and a mark that appears the moment a child is added is a
-surprising state change rather than a calmer surface.
+a 4px `--halo` ring — that ring is the *only* collapsed signal. **Every block shows its
+bullet, always.** Hiding the mark on childless rows was considered and rejected: this is
+an outliner, the bullet is the genre's signature, and a mark that appears the moment a
+child is added is a surprising state change rather than a calmer surface.
+
+**An empty line's bullet drops to 40% and comes straight back** on hover, focus, or the
+first character. That is the whole of what an empty line says now, and it is enough: a
+sentence of instructions in the user's own document was saying more, in their voice, in
+a place they were already looking at.
+
+**The bullet is the block's handle**, which is why it carries three gestures and a
+`grab` cursor: click puts the caret in the line, drag moves the subtree, right-click
+opens the block's menu. It is a real `<button>` and the menu's actual trigger, so the
+menu is reachable from the keyboard (`⇧F10` or the Menu key, from the row's text) without
+the bullet ever becoming a tab stop.
 
 **Chevron.** 16px box, 12px glyph, absolutely positioned in reserved space to the left
 of the bullet so text never shifts. `visibility: hidden` without children; `opacity: 0`
@@ -722,11 +809,16 @@ until hover, `:focus-within`, or `[data-focused]`. `←` and `→` at the text e
 collapse and expand and then move to parent / first child. Rows carry `aria-expanded`;
 the tree carries `aria-activedescendant` while the textarea remains the single tab stop.
 
-**Row menu.** 24px, `opacity: 0` at rest — never `display: none`, which would take it
-out of both the layout and every automated actionability check. Revealed by hover,
-`:focus-within`, and `[data-focused="true"]`. Right-click anywhere on the row opens the
-same menu. Every item carries its shortcut: `Indent ⇥`, `Outdent ⇧⇥`, `Move up ⌥↑`,
-`Move down ⌥↓`, `Properties ⌘⇧P`, `Delete ⌫`.
+**Block menu.** No button. Right-click the bullet or the gutter beside it; `⇧F10` from
+the row's text does the same. It anchors to the bullet rather than to the pointer,
+because it is *about* the bullet. Every item carries its shortcut: `Indent ⇥`,
+`Outdent ⇧⇥`, `Move up ⌥↑`, `Move down ⌥↓`, `Properties ⌘⇧P`, `Delete ⌫`. Closing it puts
+the caret back in the row's text — Radix would otherwise park focus on the bullet, which
+is not a tab stop and cannot be typed into.
+
+With more than one block selected the menu changes subject: `Indent`, `Outdent`, and
+`Delete N blocks`. It is the same menu on the same object, answering for the selection
+that object belongs to.
 
 **Tags.** On their own 20px line beneath the text, left-aligned to the text edge, only
 when present. Borderless: 20px tall, `--surface-2`, `--ink-2`, `--r-1`, with the `#` at
@@ -734,16 +826,80 @@ when present. Borderless: 20px tall, `--surface-2`, `--ink-2`, `--r-1`, with the
 says so in its accessible name — never colour alone. The remove `×` grows from v1's
 13×13 to a 24px box, revealed on chip hover.
 
-**Empty and append.** An empty page renders a *fake first line*: a bullet at the exact
-gutter position of row 1 followed by `Write something…`, no button chrome,
-`cursor: text`, over a 200px target. A non-empty page ends in a transparent, textless
-`min(40vh, 320px)` append target occupying what was previously dead bottom padding.
+**Empty and append.** An empty page renders a *fake first line*: one 40% bullet at the
+exact gutter position of row 1, no words, no button chrome, `cursor: text`, over a 200px
+target. A non-empty page ends in a transparent, textless `min(40vh, 320px)` append target
+occupying what was previously dead bottom padding — and approaching it raises the 40%
+bullet of the line it would create, at the exact gutter position and baseline that line
+will occupy. The affordance is the same mark in both places, which is what makes "a line
+starts here" legible without a sentence.
+
+### Selection
+
+The outline has two kinds of "current", and they are deliberately different things. The
+**caret** is where text goes and lives in one textarea. The **selection** is a set of
+blocks a structural command acts on. *They never coexist:* taking one drops the other, so
+`⌫` can only ever mean one thing.
+
+- **The gutter is the handle for range selection.** Every row reaches one gutter width
+  further left than its text, at every depth, and that strip is not text — it has no
+  caret and no fill of its own, the indent thread simply shows through it. Dragging down
+  it selects the rows it passes.
+- **It selects by row *range*, not by rectangle.** The rows are virtualized, so a
+  rect-intersection marquee would only ever see the handful currently mounted. A range
+  between the row the drag started on and the row it is over now covers everything
+  between them whether it is mounted or not — and it is also the honest model, because
+  an outline row is a line, not an area.
+- **No rubber band is drawn.** The selected rows highlight themselves in `--accent-soft`,
+  the same wash the platform paints behind selected text, one level up. That is the one
+  row fill in the product, and it exists because a selection has nothing else to say it
+  while `⌫` and a drag are both waiting on it.
+- **`⇧`-click a bullet extends** from the last bullet touched; **`⌘`/`⌃`-click toggles**
+  one row. Both are what a list has meant everywhere for thirty years.
+- **Dragging any selected bullet moves the whole selection.** A 2px `--accent` rule shows
+  where it will land, indented to the depth the drop would take, with a dot at its head so
+  the level is legible at a glance. The legal depth range is the outliner rule: at most
+  one level deeper than the row above, never shallower than the row below, and never
+  inside a collapsed row or inside the moving subtree itself.
+- **A selected row nested inside another selected row is a passenger, not a root.** Moving
+  or deleting the ancestor already carries it; issuing a second command for the child
+  would tear it out of the subtree it just travelled with.
+- **The bare keys reach the tree, not a text field.** Every gesture that makes a
+  selection also *takes the caret's focus with it* — it blurs the textarea and focuses
+  the viewport — so `⌫` can never mean two things at once. Then: `⌫` deletes, `⇥` /
+  `⇧⇥` indent and outdent the group, `↑` / `↓` collapse back to a caret at the edge the
+  selection was left from, and `⎋` clears the selection **and returns the caret** to the
+  row it started on, because Escape means "back to writing".
+- **The tree's own focus ring is suppressed, and that is the one deliberate exception to
+  "one visible focus ring on every interactive element".** The viewport is a focus
+  *container*, not a control: it is not a tab stop, what has focus is the selection, and
+  the selection says so with its own fill. A 2px ring around the entire outline would be
+  precisely the drawn box § Depth forbids. Focus is never left there with nothing
+  selected — clearing a selection hands the caret back.
+- **Collapsing a row drops any selected descendant it just hid.** Every bulk verb resolves
+  the selection against the *visible* outline, so a hidden member would make `⌫` and `⇥`
+  quietly do nothing.
+- `role="tree"` gains `aria-multiselectable`, rows carry `aria-selected`, and the count is
+  announced politely — the highlight is the visible count, so a live region is how it
+  reaches a screen reader. It counts the rows a verb will *take*, passengers included, and
+  the bulk menu's own `Delete N blocks` counts the same way.
+- **Auto-scroll follows the pointer** within 56px of either edge of the scroll container,
+  on a frame loop rather than per-move, so a drag past the end keeps extending while the
+  container catches up.
 
 ### Title row (journal and page, one shape)
 
-40px. `<h1>` at 30px/600. On the right: a hover-revealed cluster of 24px controls
-(`‹`, a calendar trigger that calls `showPicker()`, `›`), a `Today` pill that is always
-visible when the date is not today, and an always-visible page `⋯`.
+44px. `<h1>` at 33px/600 — one step up from v2, so the page's name reads as the largest
+thing on the surface rather than merely the boldest. On the right: a hover-revealed
+cluster of 24px controls (`‹`, a calendar trigger that calls `showPicker()`, `›`) and a
+`Today` pill that is always visible when the date is not today.
+
+**The row is the page's handle.** Right-clicking it — the title included — opens the
+page's menu: properties, info, and delete. There is no `⋯`. The keyboard routes are `⌘⇧P`
+for properties and the palette's own `Page info` / `Delete page…` rows, which reach the
+same handlers, so nothing here is pointer-only. Radix needs something to position
+against, so the trigger is a zero-size anchor at the pointer, `aria-hidden` and
+unfocusable: it is not a control, it is a coordinate.
 
 The journal's `<input type="date">` stays mounted at all times, value-synced and
 focusable, but clipped — it is a real keyboard tab stop and the target of
@@ -751,7 +907,14 @@ focusable, but clipped — it is a real keyboard tab stop and the target of
 format beside a heading that already reads `Tuesday, August 4, 2026`.
 
 A page title is an in-place `<input>` that finally has affordances: `--surface-2` on
-hover, a real focus outline, an `--accent` caret, `⏎` to commit, `Esc` to revert.
+hover, a real focus outline, an `--accent` caret, `⏎` to commit, `Esc` to revert. `⏎` also
+blurs, and a blur commits, so the commit is guarded against running twice on one draft —
+otherwise a refused rename reported itself twice for one keystroke.
+
+A **journal** page has no title of its own: the core stores its day as a property. Reached
+through `/journal` the view supplies the heading; reached by id, as a page reference
+resolves it, the title row formats that property with the user's chosen date format rather
+than falling back to the page id.
 
 ### Properties
 
@@ -764,7 +927,7 @@ on-demand model.
   plus `+N more`. Clicking any chip expands the panel.
 - **Expanded:** the property rows, the add row, and an `Advanced` disclosure holding
   the tagged-block defaults.
-- **Three routes in:** the strip, `page ⋯ → Page properties`, and `⌘⇧P`.
+- **Three routes in:** the strip, the title row's context menu, and `⌘⇧P`.
 - System keys are filtered out entirely and live in the page-info popover instead.
 
 Value controls stay **native** `<select>`, `<input type="checkbox">` and
@@ -795,7 +958,8 @@ component.
 > tombstone, a confirm dialog that is still open — the report belongs *there*. What
 > reaches the toast layer is what would otherwise be silent: a rejected undo, a
 > structural command that simply did not happen, an edit that reverted under the caret,
-> a page that failed to load, a `⋯ → Delete` whose dialog has already closed.
+> a page that failed to load, a `Delete` whose dialog has already closed, a rename the
+> core refused, a graph search that could not run.
 
 - **Top-right, below the top bar** (`--topbar-h` + 8px), 360px, `--overlay` on `--e2`,
   above every overlay on the `--z-*` scale — a failure raised while a dialog is open
@@ -805,12 +969,20 @@ component.
 - **Tone is a 5px dot**, the save slot's own language: `--ink-3` notice, `--ok`
   affirmative, `--danger` failure. Tone is never the only signal — the title says what
   happened — and there is no fourth tone and no warning colour.
-- **A failure has no timer.** Notices expire (6s); errors stay until dismissed. Timers
-  pause on hover, on focus inside the region, and while the tab is in the background.
+- **Every report expires, and every report shows how much of its window is left.** A
+  2px bar along the bottom edge runs down in the tone's own colour: 4s success, 6s notice,
+  10s failure. A failure gets the longest window rather than none at all, because the two
+  conditions that genuinely outlive a countdown — unsaved work and a read-only lease —
+  have permanent homes in the top bar, so nothing that must persist depends on a toast
+  staying up. **The countdown pauses on hover, on focus inside the region, and while the
+  tab is in the background**, and a pause *holds* the remaining time rather than
+  restarting it: the bar and the timer are the same clock.
 - **Repeats collapse** onto one toast with a `×N` counter rather than stacking. The
   stack caps at four, and an unacknowledged error is the last thing evicted.
 - **`role="alert"` for a failure, `role="status"` for a notice**, `aria-atomic`, and a
-  dismiss `×` revealed on hover and `:focus-within`, pinned at or below 600px.
+  dismiss `×` that is **always visible**. It is the one control in the product that is not
+  summoned: the user did not ask for this surface, so getting rid of it must not depend on
+  first working out that hovering reveals a button.
 - **An action on a toast is always a second route**, never the only one, and clicking it
   closes the toast — whatever it starts reports its own outcome.
 - **No entrance animation.** This was a close call: a toast reads like a surface whose
@@ -819,6 +991,35 @@ component.
   against the page behind it. § Motion rule 3 decides it.
 - **Success is a tone the product almost never spends.** An outcome the user can already
   see gets no toast: a removed chip, a vanished row and a `saved` state all stay silent.
+
+### Settings
+
+Two scopes, and saying which is which is the section's whole job. Half of what used to be
+one flat page belongs to the **browser** — appearance, language, how a date is written,
+which keys do what, whether storage is persistent — and holds for every graph the user
+opens. The other half belongs to **this graph** and travels with it. Presented as one
+column, `Delete this graph…` read as a sibling of `Language`.
+
+- **A dialog, not a route.** Settings are an aside: you open them from wherever you are,
+  change one thing, and come back to the same block with the same caret. 820px, a 168px
+  scope nav on the left, the pane scrolling on the right.
+- **Two named groups, each with a real `<h3>` and a note saying how far it reaches.**
+  `Application` — Appearance, Language, Journal, Keyboard, Storage. `This graph` — Graph,
+  Danger zone.
+- **The open section is in the URL** (`?settings=keyboard`). The browser's own Back closes
+  the dialog, a link can point at one section, and a reload comes back to it. The old
+  `/settings` path still resolves, to the journal with the dialog open.
+- **The dialog title is the largest thing on the surface**, so a section heading steps
+  down to 14px/600 rather than tying with it at 19px.
+- **Journal date format carries a live example per option** (`Abbreviated month — Aug 5,
+  2026`). A user choosing how their days are written should be reading the result, not
+  decoding a label.
+- **A shortcut's badge is the control that changes it.** Press it, then press the keys.
+  Recording is an `--accent` fill on the badge itself; `⎋` or moving focus away cancels;
+  a rejection says which of the three rules it hit. A row whose binding is not the default
+  offers a reset, and the section offers `Restore all defaults` only while something is
+  customised.
+- **`Danger zone` is its own section**, not a red button at the bottom of a scroll.
 
 ### Overlays
 
@@ -931,10 +1132,14 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   text on screen.
 - Use mono only for identifiers: property keys, shortcut badges, ids.
 - Render nothing at all for `saved`, on-today, and an empty property bag.
-- Report a rejected command where the user is looking, and reach for a toast only when
-  the failure would otherwise leave no trace at all.
+- Report a rejected command through the notification layer, and keep *validation* — what
+  the user typed being an illegal value — beside the field that holds it. Those are two
+  different kinds of "no" and they belong in two different places.
 - Give every verb a palette entry, a shortcut badge, and a pointer route.
 - Reveal chrome with `opacity`, instantly, and pin it visible on touch and on focus.
+- Hang a menu on the object it acts on — a bullet, a title — rather than on a button
+  parked beside it, and give the same verbs a key and a palette row.
+- Let a selection be visible in exactly one way: a fill on the rows it holds.
 - Animate `opacity` only, and never animate a container that is measured on mount.
 - Keep selects, checkboxes and date fields native; restyle rather than rebuild.
 - Let exactly one region scroll, and let the top bar never reflow.
@@ -959,7 +1164,10 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Don't communicate a state with a `title` attribute, a colour, or a spinner that
   appears for 40ms.
 - Don't swallow a rejected command, and don't report one twice — a failure the save slot
-  or a field error already owns does not also get a toast.
+  already owns does not also get a toast.
+- Don't leave a control's only route to be a right-click, and don't leave a right-click
+  hanging on empty space instead of on the thing it acts on.
+- Don't animate anything on a timer except a countdown that *is* the time remaining.
 - Don't toast an outcome the user can see, don't put a verb's only route on a toast, and
   don't let a fixed notification region take a click while it is empty.
 - Don't hide a system property in the property list — it is page info, not page data.

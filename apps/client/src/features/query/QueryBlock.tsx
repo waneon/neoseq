@@ -4,6 +4,7 @@ import type { RdfTerm, SparqlQueryResult } from "../../generated/core-port";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { stringValue } from "../../core-port/snapshot";
 import { Button } from "@/ui/shadcn/button";
+import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
@@ -14,6 +15,7 @@ const RUN_DEBOUNCE_MS = 300;
 export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const source = stringValue(block.properties, "query.source");
   const storedLanguage = stringValue(block.properties, "query.language");
   const [draft, setDraft] = useState(source ?? "");
@@ -54,14 +56,17 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   if (source === undefined) return null;
 
+  // The editor keeps the draft, so a refused write is invisible until the next
+  // reload silently shows the old source again.
   const commit = async () => {
+    const report = (error: unknown) => notify.failure(message("failure.setProperty"), error);
     if (draft !== source) {
       await session.execute({
         type: "set_property",
         entity: { kind: "block", page_id: pageId, id: block.id },
         key: "query.source",
         value: { type: "string", value: draft },
-      });
+      }).catch(report);
     }
     if (storedLanguage !== LANGUAGE) {
       await session.execute({
@@ -69,7 +74,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         entity: { kind: "block", page_id: pageId, id: block.id },
         key: "query.language",
         value: { type: "string", value: LANGUAGE },
-      });
+      }).catch(report);
     }
   };
 

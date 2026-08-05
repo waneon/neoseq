@@ -1,4 +1,4 @@
-import { createHashRouter, Navigate, RouterProvider } from "react-router";
+import { createHashRouter, Navigate, RouterProvider, useParams } from "react-router";
 import { testRoutes } from "virtual:neoseq-test-routes";
 import { NotifyProvider } from "../features/notify/context";
 import { LocaleProvider } from "../i18n";
@@ -6,7 +6,16 @@ import { GraphPicker } from "../features/graphs/GraphPicker";
 import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
 import { PageView } from "../features/page/PageView";
-import { SettingsView } from "../features/settings/SettingsView";
+
+/**
+ * Settings is a dialog over whatever you were reading, not a place you navigate
+ * to and lose your caret in. The old path still resolves, because links to it
+ * exist: it lands on the journal with the dialog open.
+ */
+function SettingsRedirect() {
+  const { graphId = "" } = useParams();
+  return <Navigate to={`/g/${graphId}/journal?settings=appearance`} replace />;
+}
 
 // Hash routing keeps the production bundle deployable on any static file
 // server without rewrite rules; page identity is the stable PageId.
@@ -21,7 +30,7 @@ const router = createHashRouter([
       { path: "journal", element: <JournalView /> },
       { path: "journal/:date", element: <JournalView /> },
       { path: "p/:pageId", element: <PageView /> },
-      { path: "settings", element: <SettingsView /> },
+      { path: "settings", element: <SettingsRedirect /> },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },

@@ -3,7 +3,7 @@
 // chrome it is reporting on.
 
 import { expect, test, type Page } from "@playwright/test";
-import { createGraph, startOutline, typeInFocusedBlock } from "./helpers";
+import { createGraph, openSidebar, startOutline, typeInFocusedBlock } from "./helpers";
 
 /** Tab on the first root block: the core rejects it, so a toast must appear. */
 async function provokeRejection(page: Page): Promise<void> {
@@ -20,12 +20,18 @@ test("a rejected command is reported instead of doing nothing", async ({ page })
   const toast = page.getByTestId("toast");
   await expect(toast).toHaveAttribute("data-tone", "danger");
   await expect(toast).toHaveText(/Couldn’t indent that block/);
-  await expect(toast).toHaveText(/first sibling cannot be indented\./);
-  // A failure waits for the user; nothing takes it off the screen on a timer.
+  await expect(toast).toHaveText(/First sibling cannot be indented\./);
+  // Every report expires, and shows how long it has left while it does.
+  await expect(page.getByTestId("toast-timer")).toBeVisible();
+  await expect(toast).toHaveAttribute("data-paused", "false");
+
+  // Hovering holds the countdown, so reading one can never cost you it.
+  await toast.hover();
+  await expect(toast).toHaveAttribute("data-paused", "true");
   await page.waitForTimeout(1500);
   await expect(toast).toBeVisible();
 
-  await toast.hover();
+  // The dismiss button is not summoned: it is there from the moment the toast is.
   await page.getByTestId("toast-dismiss").click();
   await expect(page.getByTestId("toast")).toHaveCount(0);
 });
@@ -53,6 +59,12 @@ test("the region never stands between the pointer and the interface", async ({ p
   // The toast is up; the top bar it sits below is still reachable, and the
   // toast itself takes the pointer where it actually is.
   await expect(page.getByTestId("toast")).toHaveCSS("pointer-events", "auto");
-  await page.getByTestId("undo").click();
+  // …and the interface underneath is still operable while it is up. At drawer
+  // widths the rail is off-canvas, so reaching Search means opening it first —
+  // which is itself a click the region must not have swallowed.
+  await openSidebar(page);
+  await page.getByTestId("open-palette").click();
+  await expect(page.getByTestId("command-palette")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.getByTestId("journal-title")).toBeVisible();
 });

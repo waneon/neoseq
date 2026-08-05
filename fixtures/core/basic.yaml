@@ -24,7 +24,7 @@ commands:
   - op: insert_block
     as_id: root
     page_id: home
-    markdown: "# NeoSeq"
+    markdown: "# Neoseq"
   - op: insert_block
     as_id: first
     page_id: home

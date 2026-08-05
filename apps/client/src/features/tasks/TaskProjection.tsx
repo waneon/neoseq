@@ -2,6 +2,7 @@ import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
 import { dateValue, stringValue } from "../../core-port/snapshot";
 import { Input } from "@/ui/shadcn/input";
 import { NativeSelect } from "@/ui/shadcn/native-select";
+import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 
@@ -12,6 +13,7 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
   const { message } = useI18n();
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const status = stringValue(block.properties, "task.status");
   const priority = stringValue(block.properties, "task.priority");
   const scheduled = dateValue(block.properties, "task.scheduled");
@@ -19,13 +21,19 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
   const isTask = block.properties.some((entry) => entry.key.startsWith("task."));
   if (!isTask) return null;
 
+  // A rejected write leaves the control showing the authoritative value again,
+  // which on its own reads as a control that did not register the change.
   const set = (key: string, value: PropertyValue) =>
-    session.execute({
-      type: "set_property",
-      entity: { kind: "block", page_id: pageId, id: block.id },
-      key,
-      value,
-    });
+    session
+      .execute({
+        type: "set_property",
+        entity: { kind: "block", page_id: pageId, id: block.id },
+        key,
+        value,
+      })
+      .catch((error: unknown) => {
+        notify.failure(message("failure.setProperty"), error);
+      });
   const readonly = state.mode === "readonly";
 
   return (

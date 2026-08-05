@@ -4,6 +4,7 @@ export {
   SUPPORTED_LOCALES,
   applyInitialDocumentLocale,
   createLocaleRuntime,
+  journalDateOptions,
   resolveLocale,
   storedLocalePreference,
   useI18n,

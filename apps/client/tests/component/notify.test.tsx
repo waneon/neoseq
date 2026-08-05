@@ -1,7 +1,7 @@
 // The notification layer: what earns a toast, what must never get one, and how
 // the surface behaves once it is up.
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotifyProvider, useNotify, type Notifier } from "../../src/features/notify/context";
@@ -87,20 +87,58 @@ describe("toast surface", () => {
     expect(toasts[0]).toHaveTextContent("×3");
   });
 
-  it("keeps a failure on screen and lets a notice expire", async () => {
+  it("expires every report, and gives a failure the longest window", () => {
     vi.useFakeTimers();
     const notify = mountNotifier();
     act(() => {
-      notify.show({ tone: "danger", title: "Stays" });
-      notify.show({ tone: "info", title: "Leaves", duration: 1000 });
+      notify.show({ tone: "danger", title: "Stays longer" });
+      notify.show({ tone: "info", title: "Leaves first" });
     });
     expect(screen.getAllByTestId("toast")).toHaveLength(2);
+
     act(() => {
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(6500);
     });
     const remaining = screen.getAllByTestId("toast");
     expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toHaveTextContent("Stays");
+    expect(remaining[0]).toHaveTextContent("Stays longer");
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
+  });
+
+  it("shows how long is left, and holds the countdown while the pointer is on it", () => {
+    vi.useFakeTimers();
+    const notify = mountNotifier();
+    act(() => {
+      notify.show({ tone: "info", title: "Noted", duration: 4000 });
+    });
+    const toast = screen.getByTestId("toast");
+    expect(toast).toHaveStyle({ "--toast-duration": "4000ms" });
+    expect(screen.getByTestId("toast-timer")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+      fireEvent.mouseEnter(screen.getByTestId("toasts"));
+    });
+    expect(toast).toHaveAttribute("data-paused", "true");
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    // Paused means paused: the report is still there long past its own window.
+    expect(screen.getByTestId("toast")).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.mouseLeave(screen.getByTestId("toasts"));
+    });
+    expect(screen.getByTestId("toast")).toHaveAttribute("data-paused", "false");
+    act(() => {
+      // Only the three seconds it had left, not another four.
+      vi.advanceTimersByTime(3100);
+    });
+    expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
   });
 
   it("dismisses from the close button", async () => {

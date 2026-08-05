@@ -24,10 +24,10 @@ import { Input } from "@/ui/shadcn/input";
 import { NativeSelect } from "@/ui/shadcn/native-select";
 import { Button } from "@/ui/shadcn/button";
 import { cn } from "@/lib/utils";
+import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { failureReason } from "../notify/errors";
 
 export type BagKind = "block" | "page";
 
@@ -54,6 +54,7 @@ export function PropertyBagEditor({
 }: PropertyBagEditorProps) {
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const readonly = state.mode === "readonly";
   const [error, setError] = useState<string | null>(null);
   const { message } = useI18n();
@@ -69,13 +70,18 @@ export function PropertyBagEditor({
   // removes. They surface in the page-info dialog instead.
   const visible = bag.filter((entry) => !isSystemKey(entry.key));
 
+  // Two different kinds of "no", kept in two different places on purpose. What
+  // the user typed being an illegal value is a fact about this field, and stays
+  // beside it (`setError` below). The core refusing an otherwise-valid change is
+  // a failure with no home on screen — the row simply snaps back — so it is
+  // reported like every other one.
   const run = async (command: Command) => {
     setError(null);
     try {
       await session.execute(command);
       return true;
     } catch (cause) {
-      setError(failureReason(cause, message));
+      notify.failure(message("failure.setProperty"), cause);
       return false;
     }
   };

@@ -6,11 +6,20 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import {
   CalendarDaysIcon,
   ChevronsUpDownIcon,
   FileTextIcon,
+  InfoIcon,
   KeyboardIcon,
   LayoutGridIcon,
   Loader2Icon,
@@ -21,6 +30,7 @@ import {
   SearchIcon,
   Settings2Icon,
   SettingsIcon,
+  Trash2Icon,
   Undo2Icon,
 } from "lucide-react";
 import {
@@ -29,9 +39,9 @@ import {
   injectStorageFault,
 } from "virtual:neoseq-worker-factory";
 import { GraphSession } from "../../core-port/session";
-import { graphName, renameGraph } from "../../core-port/directory";
+import { graphName, renameGraph, subscribeGraphDirectory } from "../../core-port/directory";
 import { isDeleted, pageKind, pageTitle, type PageSnapshot } from "../../core-port/snapshot";
-import { Callout } from "../../ui/components";
+import { Wordmark } from "../../ui/brand";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
   DropdownMenu,
@@ -44,14 +54,32 @@ import {
 import { nextTheme, setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { addDays, todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
-import { CommandContext, type CommandBridge } from "../commands/context";
+import {
+  CommandContext,
+  useCommands,
+  type CommandBridge,
+  type PageActions,
+} from "../commands/context";
 import { CommandPalette } from "../commands/CommandPalette";
 import { ShortcutSheet } from "../commands/ShortcutSheet";
 import { parseDateQuery } from "../commands/dates";
-import { MOD, isTextEntry, matchGlobal, type KeyBinding } from "../commands/keys";
+import { isTextEntry } from "../commands/keys";
+import {
+  formatBinding,
+  matchShortcut,
+  useShortcutBindings,
+  type Binding,
+  type ShortcutHandler,
+  type ShortcutId,
+} from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import type { RdfTerm } from "../../generated/core-port";
 import type { Command } from "../commands/registry";
+import {
+  SettingsDialog,
+  isSettingsSection,
+  type SettingsSection,
+} from "../settings/SettingsDialog";
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
 import { useI18n, type MessageFunction } from "../../i18n";
@@ -65,6 +93,7 @@ declare global {
 }
 
 const RAIL_KEY = "neoseq.rail";
+const SETTINGS_PARAM = "settings";
 
 export function GraphShell() {
   const { graphId = "" } = useParams();
@@ -136,9 +165,17 @@ function ShellBody({
   const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const notify = useNotify();
-  const { message, locale, formatLocalDate, compare } = useI18n();
-  const name = useMemo(() => graphName(graphId), [graphId]);
+  const { message, locale, formatJournalDate, compare } = useI18n();
+  const bindings = useShortcutBindings();
+  // Renaming happens in the settings dialog, which sits over this rail; both have
+  // to say the same thing while they are on screen together.
+  const name = useSyncExternalStore(
+    subscribeGraphDirectory,
+    () => graphName(graphId),
+    () => graphName(graphId),
+  );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [theme, setThemeState] = useState<Theme>(storedTheme);
@@ -152,9 +189,35 @@ function ShellBody({
   const [scrolled, setScrolled] = useState(false);
   const blockProperties = useRef<(() => void) | null>(null);
   const pageProperties = useRef<(() => void) | null>(null);
+  const pageActions = useRef<PageActions | null>(null);
   const readonlyAnnounced = useRef(false);
+  const recoveryAnnounced = useRef(false);
 
   const readonly = state.mode === "readonly";
+
+  // The open settings section lives in the URL, so the browser's own Back closes
+  // the dialog and a link can point straight at one section.
+  const settingsParam = searchParams.get(SETTINGS_PARAM);
+  const settingsSection = isSettingsSection(settingsParam) ? settingsParam : null;
+
+  const openSettings = useCallback(
+    (section: SettingsSection = "appearance") => {
+      const next = new URLSearchParams(searchParams);
+      const wasOpen = next.has(SETTINGS_PARAM);
+      next.set(SETTINGS_PARAM, section);
+      // Opening pushes, so Back closes the dialog. Moving between its sections
+      // replaces, so Back does not have to walk back out through every section
+      // the user glanced at on the way.
+      setSearchParams(next, wasOpen ? { replace: true } : undefined);
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const closeSettings = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete(SETTINGS_PARAM);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const pages = useMemo(
     () =>
@@ -195,16 +258,21 @@ function ShellBody({
     () => ({
       openPalette: () => setPaletteOpen(true),
       openShortcuts: () => setShortcutsOpen(true),
+      openSettings,
       setBlockProperties: (handler) => {
         blockProperties.current = handler;
       },
       setPageProperties: (handler) => {
         pageProperties.current = handler;
       },
+      setPageActions: (actions) => {
+        pageActions.current = actions;
+      },
       requestProperties: () => (blockProperties.current ?? pageProperties.current)?.(),
-      requestPageProperties: () => pageProperties.current?.(),
+      requestPageInfo: () => pageActions.current?.info(),
+      requestPageDelete: () => pageActions.current?.remove(),
     }),
-    [],
+    [openSettings],
   );
 
   const applyTheme = useCallback((next: Theme) => {
@@ -212,58 +280,105 @@ function ShellBody({
     setThemeState(next);
   }, []);
 
-  // One listener, one arbitration order. Undo/redo stay outside text fields:
-  // inside one, ⌘Z is the platform's text undo, which is what a user editing a
-  // page title or a property value expects. The outline's textarea is the
-  // exception and handles the document undo itself, because there its text edits
-  // *are* the document.
+  // One listener, one arbitration order — and one more rule than before: a modal
+  // surface owns the keyboard while it is up. Opening the palette over a
+  // focus-trapping dialog would leave the palette's own input unable to keep
+  // focus, so the global layer stands down instead of racing it.
+  const overlayOpen = settingsSection !== null || shortcutsOpen;
   useEffect(() => {
     const undo = (redo: boolean) => void runHistory(session, notify, message, redo);
-    const bindings: KeyBinding[] = [
-      { key: "k", run: () => setPaletteOpen(true) },
-      { key: "p", shift: true, run: () => bridge.requestProperties() },
-      { key: "/", run: () => setShortcutsOpen(true) },
-      { key: "\\", run: toggleRail },
-      { key: ",", run: () => navigate(`/g/${graphId}/settings`) },
+    const handlers: ShortcutHandler[] = [
+      { binding: bindings.palette, run: () => setPaletteOpen(true) },
+      { binding: bindings.properties, run: () => bridge.requestProperties() },
+      { binding: bindings.shortcuts, run: () => setShortcutsOpen(true) },
+      { binding: bindings.sidebar, run: toggleRail },
+      { binding: bindings.settings, run: () => openSettings() },
     ];
     const onKeyDown = (event: KeyboardEvent) => {
-      const binding = matchGlobal(event, bindings);
-      if (binding) {
-        event.preventDefault();
-        binding.run(event);
+      if (overlayOpen) {
+        // The one binding that still answers while Settings is up: pressing it
+        // again shuts the thing it opened, which is what a toggle owes the user.
+        if (settingsSection) {
+          const closing = matchShortcut(event, [
+            { binding: bindings.settings, run: closeSettings },
+          ]);
+          if (closing) {
+            event.preventDefault();
+            closing.run(event);
+          }
+        }
         return;
       }
-      if (isTextEntry(event.target)) return;
-      const zed = matchGlobal(event, [
-        { key: "z", run: () => undo(false) },
-        { key: "z", shift: true, run: () => undo(true) },
-        { key: "y", run: () => undo(true) },
-      ]);
-      if (zed) {
+      const handler = matchShortcut(event, handlers);
+      if (handler) {
         event.preventDefault();
-        zed.run(event);
+        handler.run(event);
+        return;
+      }
+      // Undo/redo stay outside text fields: inside one, the platform's own text
+      // undo is what a user editing a page title or a property value expects.
+      // The outline's textarea is the exception and handles the document undo
+      // itself, because there its text edits *are* the document.
+      if (isTextEntry(event.target)) return;
+      const history = matchShortcut(event, [
+        { binding: bindings.undo, run: () => undo(false) },
+        { binding: bindings.redo, run: () => undo(true) },
+      ]);
+      if (history) {
+        event.preventDefault();
+        history.run(event);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, graphId, message, navigate, notify, session, toggleRail]);
+  }, [
+    bindings,
+    bridge,
+    closeSettings,
+    message,
+    notify,
+    openSettings,
+    overlayOpen,
+    session,
+    settingsSection,
+    toggleRail,
+  ]);
 
   // Read-only is a state a second tab lands in without asking for it, and the
   // 12px label beside the save slot is easy to miss when the first thing you do
-  // is start typing. Say it once, plainly, and leave it up until dismissed —
-  // the condition it describes does not expire on a timer either. Once really
-  // means once: a remount must not reopen a notice the user already closed.
+  // is start typing. Say it once, plainly — the permanent label in the top bar is
+  // what carries the condition after the report has expired. Once really means
+  // once: a remount must not reopen a notice the user already closed.
   useEffect(() => {
     if (!readonly || readonlyAnnounced.current) return;
     readonlyAnnounced.current = true;
     notify.show({
       tone: "info",
       key: "readonly-lease",
-      duration: null,
+      duration: 12000,
       title: message("shell.readonlyTitle"),
       detail: message("shell.readonlyDetail"),
     });
   }, [message, notify, readonly]);
+
+  // Quarantined records are a fact about data the user cannot see from here, so
+  // they are reported once rather than pinned above the writing surface. The
+  // durable copy lives in Settings → This graph, which the report names.
+  useEffect(() => {
+    const quarantined = state.recovery?.quarantined_records.length ?? 0;
+    if (quarantined === 0 || recoveryAnnounced.current) return;
+    recoveryAnnounced.current = true;
+    notify.show({
+      tone: "danger",
+      key: "quarantined-records",
+      title: message("shell.recoveryTitle"),
+      detail: message("shell.recovery", { count: quarantined }),
+      action: {
+        label: message("settings.title"),
+        run: () => openSettings("graph"),
+      },
+    });
+  }, [message, notify, openSettings, state.recovery]);
 
   // The top bar earns its bottom edge and its condensed title only once the
   // content beneath has actually moved. `scroll` does not bubble, but it still
@@ -298,7 +413,7 @@ function ShellBody({
         rows.push({
           id: `journal-${date}`,
           group: "Journal",
-          label: formatLocalDate(date),
+          label: formatJournalDate(date),
           hint: date === today ? message("commands.hintToday") : message("commands.hintJournal"),
           icon: <CalendarDaysIcon aria-hidden />,
           pointerRoute: message("shortcuts.nextPrevDayRoute"),
@@ -320,7 +435,7 @@ function ShellBody({
       }
       return rows;
     },
-    [createPage, formatLocalDate, graphId, locale, message, navigate, pages, readonly, today],
+    [createPage, formatJournalDate, graphId, locale, message, navigate, pages, readonly, today],
   );
 
   const searchGraph = useCallback(
@@ -392,14 +507,12 @@ SELECT ?entity ?content ?page WHERE {
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
   const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
   const contextTitle = currentDate
-    ? formatLocalDate(currentDate)
+    ? formatJournalDate(currentDate)
     : currentPage
       ? (pages.find((page) => page.id === currentPage)
           ? pageTitle(pages.find((page) => page.id === currentPage)!)
           : message("common.page"))
-      : location.pathname.endsWith("/settings")
-        ? message("settings.title")
-        : name;
+      : name;
 
   const commands = buildCommands({
     pages,
@@ -418,7 +531,8 @@ SELECT ?entity ?content ?page WHERE {
     railCollapsed,
     applyTheme,
     message,
-    formatLocalDate,
+    formatJournalDate,
+    bindings,
   });
 
   return (
@@ -440,8 +554,26 @@ SELECT ?entity ?content ?page WHERE {
           aria-label={message("shell.graphNavigation")}
           data-testid="sidebar"
         >
+          <p className="rail-brand" data-testid="brand">
+            <Wordmark name={message("app.title")} />
+          </p>
           <GraphSwitcher graphId={graphId} name={name} onExit={onExit} />
           <div className="shell-nav">
+            {/* Search is the affordance that licenses how bare the rest of the
+                interface is, so it stays permanent — it just belongs beside the
+                other places you can go rather than in the writing surface's
+                own top bar. */}
+            <button
+              className="shell-nav-item"
+              onClick={() => setPaletteOpen(true)}
+              aria-label={message("commands.searchLabel")}
+              aria-keyshortcuts={formatBinding(bindings.palette)}
+              data-testid="open-palette"
+            >
+              <SearchIcon aria-hidden />
+              <span className="nav-label">{message("shell.search")}</span>
+              <kbd className="kbd nav-kbd">{formatBinding(bindings.palette)}</kbd>
+            </button>
             <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
               <CalendarDaysIcon aria-hidden />
               <span className="nav-label">{message("shell.journal")}</span>
@@ -474,13 +606,16 @@ SELECT ?entity ?content ?page WHERE {
           </div>
           <div className="rail-spacer" />
           <div className="rail-footer">
-            <NavLink className="shell-nav-item" to={`/g/${graphId}/settings`}>
+            {/* One footer row. "All graphs" used to sit here as well, saying the
+                same thing as the graph switcher's own last item. */}
+            <button
+              className="shell-nav-item"
+              onClick={() => openSettings()}
+              aria-keyshortcuts={formatBinding(bindings.settings)}
+              data-testid="open-settings"
+            >
               <SettingsIcon aria-hidden />
               <span className="nav-label">{message("shell.settings")}</span>
-            </NavLink>
-            <button className="shell-nav-item" onClick={onExit}>
-              <LayoutGridIcon aria-hidden />
-              <span className="nav-label">{message("shell.allGraphs")}</span>
             </button>
           </div>
         </nav>
@@ -499,77 +634,32 @@ SELECT ?entity ?content ?page WHERE {
                 <button
                   className="icon-btn rail-toggle"
                   aria-label={message("shell.showSidebar")}
-                  aria-keyshortcuts="Meta+Backslash"
+                  aria-keyshortcuts={formatBinding(bindings.sidebar)}
                   onClick={toggleRail}
                 >
                   <PanelLeftIcon />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{message("shell.showSidebar")} · {MOD}\</TooltipContent>
+              <TooltipContent>
+                {message("shell.showSidebar")} · {formatBinding(bindings.sidebar)}
+              </TooltipContent>
             </Tooltip>
             <span className="topbar-title" aria-hidden>
               {contextTitle}
             </span>
+            {/* What is left here is state, not verbs: durability and the
+                read-only lease. Both render nothing when there is nothing to
+                say, so the bar above the writing is usually empty. */}
             <div className="topbar-right">
-              <button
-                className="search-pill"
-                onClick={() => setPaletteOpen(true)}
-                aria-label={message("commands.searchLabel")}
-                aria-keyshortcuts="Meta+K"
-                data-testid="open-palette"
-              >
-                <SearchIcon aria-hidden />
-                <span className="label">{message("shell.search")}</span>
-                <kbd className="kbd">{MOD}K</kbd>
-              </button>
               <SaveStatus state={state} onRetry={() => void session.retry()} />
               {readonly && (
                 <span className="readonly-label" data-testid="readonly-pill">
                   {message("shell.readonly")}
                 </span>
               )}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="icon-btn"
-                    aria-label={message("shell.undo")}
-                    aria-keyshortcuts="Meta+Z"
-                    disabled={readonly}
-                    onClick={() => void runHistory(session, notify, message, false)}
-                    data-testid="undo"
-                  >
-                    <Undo2Icon aria-hidden />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{message("shell.undo")} · {MOD}Z</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="icon-btn"
-                    aria-label={message("shell.redo")}
-                    aria-keyshortcuts="Meta+Shift+Z"
-                    disabled={readonly}
-                    onClick={() => void runHistory(session, notify, message, true)}
-                    data-testid="redo"
-                  >
-                    <Redo2Icon aria-hidden />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{message("shell.redo")} · {MOD}⇧Z</TooltipContent>
-              </Tooltip>
             </div>
           </header>
           <div className="shell-content" id="page-content">
-            {state.recovery && state.recovery.quarantined_records.length > 0 && (
-              <div className="callout-slot">
-                <Callout tone="danger">
-                  {message("shell.recovery", {
-                    count: state.recovery.quarantined_records.length,
-                  })}
-                </Callout>
-              </div>
-            )}
             <Outlet />
           </div>
         </main>
@@ -583,6 +673,14 @@ SELECT ?entity ?content ?page WHERE {
         />
       )}
       {shortcutsOpen && <ShortcutSheet onClose={() => setShortcutsOpen(false)} />}
+      {settingsSection && (
+        <SettingsDialog
+          graphId={graphId}
+          section={settingsSection}
+          onSection={openSettings}
+          onClose={closeSettings}
+        />
+      )}
     </CommandContext.Provider>
   );
 }
@@ -600,8 +698,9 @@ function GraphSwitcher({
   name: string;
   onExit: () => void;
 }) {
-  const navigate = useNavigate();
   const { message } = useI18n();
+  const bridge = useCommands();
+  const bindings = useShortcutBindings();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(name);
 
@@ -653,9 +752,9 @@ function GraphSwitcher({
         >
           {message("graph.rename")}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigate(`/g/${graphId}/settings`)}>
+        <DropdownMenuItem onSelect={() => bridge.openSettings("graph")}>
           {message("graph.settings")}
-          <DropdownMenuShortcut>{MOD},</DropdownMenuShortcut>
+          <DropdownMenuShortcut>{formatBinding(bindings.settings)}</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onExit}>{message("graph.allGraphs")}</DropdownMenuItem>
@@ -681,7 +780,8 @@ interface CommandInputs {
   toggleRail: () => void;
   applyTheme: (next: Theme) => void;
   message: MessageFunction;
-  formatLocalDate: (date: string) => string;
+  formatJournalDate: (date: string) => string;
+  bindings: Record<ShortcutId, Binding>;
 }
 
 /**
@@ -733,7 +833,8 @@ function buildCommands(input: CommandInputs): Command[] {
     railCollapsed,
     applyTheme,
     message,
-    formatLocalDate,
+    formatJournalDate,
+    bindings,
   } = input;
   const blocked = readonly ? message("commands.readonlyReason") : null;
   const commands: Command[] = [];
@@ -763,12 +864,36 @@ function buildCommands(input: CommandInputs): Command[] {
     run: () => void createPage(),
   });
 
+  // The page's own verbs. Their pointer route is a right-click on the title;
+  // these rows are what keeps them reachable from the keyboard as well.
+  commands.push(
+    {
+      id: "page-info",
+      group: "Pages",
+      label: message("commands.label.pageInfo"),
+      keywords: ["details", "created", "updated"],
+      icon: <InfoIcon aria-hidden />,
+      pointerRoute: message("shortcuts.pageDetailsRoute"),
+      run: () => bridge.requestPageInfo(),
+    },
+    {
+      id: "delete-page",
+      group: "Pages",
+      label: message("commands.label.deletePage"),
+      keywords: ["remove page", "trash"],
+      icon: <Trash2Icon aria-hidden />,
+      disabledReason: blocked,
+      pointerRoute: message("shortcuts.deletePageRoute"),
+      run: () => bridge.requestPageDelete(),
+    },
+  );
+
   commands.push({
     id: "journal-today",
     group: "Journal",
     label: message("commands.label.todayJournal"),
     keywords: ["today", "journal", "daily"],
-    hint: formatLocalDate(today),
+    hint: formatJournalDate(today),
     icon: <CalendarDaysIcon aria-hidden />,
     pointerRoute: message("shell.journal"),
     run: () => navigate(`/g/${graphId}/journal`),
@@ -800,7 +925,7 @@ function buildCommands(input: CommandInputs): Command[] {
     group: "Block",
     label: message("commands.label.properties"),
     keywords: ["property", "tag", "metadata"],
-    binding: `${MOD}⇧P`,
+    binding: formatBinding(bindings.properties),
     hint: message("commands.pagePropertiesHint"),
     icon: <Settings2Icon aria-hidden />,
     pointerRoute: message("shortcuts.blockActionsRoute"),
@@ -812,20 +937,20 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "undo",
       group: "Edit",
       label: message("commands.label.undo"),
-      binding: `${MOD}Z`,
+      binding: formatBinding(bindings.undo),
       icon: <Undo2Icon aria-hidden />,
       disabledReason: blocked,
-      pointerRoute: message("shell.undo"),
+      pointerRoute: message("commands.paletteRoute"),
       run: () => void runHistory(session, notify, message, false),
     },
     {
       id: "redo",
       group: "Edit",
       label: message("commands.label.redo"),
-      binding: `${MOD}⇧Z`,
+      binding: formatBinding(bindings.redo),
       icon: <Redo2Icon aria-hidden />,
       disabledReason: blocked,
-      pointerRoute: message("shell.redo"),
+      pointerRoute: message("commands.paletteRoute"),
       run: () => void runHistory(session, notify, message, true),
     },
   );
@@ -835,10 +960,10 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "settings",
       group: "Graph",
       label: message("commands.label.settings"),
-      binding: `${MOD},`,
+      binding: formatBinding(bindings.settings),
       icon: <SettingsIcon aria-hidden />,
       pointerRoute: message("shell.settings"),
-      run: () => navigate(`/g/${graphId}/settings`),
+      run: () => bridge.openSettings(),
     },
     {
       id: "all-graphs",
@@ -846,7 +971,7 @@ function buildCommands(input: CommandInputs): Command[] {
       label: message("commands.label.allGraphs"),
       keywords: ["switch graph", "close graph"],
       icon: <LayoutGridIcon aria-hidden />,
-      pointerRoute: message("shell.allGraphs"),
+      pointerRoute: message("shortcuts.switchGraphRoute"),
       run: onExit,
     },
   );
@@ -870,7 +995,7 @@ function buildCommands(input: CommandInputs): Command[] {
       label: railCollapsed
         ? message("commands.label.showSidebar")
         : message("commands.label.hideSidebar"),
-      binding: `${MOD}\\`,
+      binding: formatBinding(bindings.sidebar),
       icon: <PanelLeftIcon aria-hidden />,
       pointerRoute: message("shell.showSidebar"),
       run: toggleRail,
@@ -879,9 +1004,9 @@ function buildCommands(input: CommandInputs): Command[] {
       id: "shortcuts",
       group: "App",
       label: message("commands.label.keyboardShortcuts"),
-      binding: `${MOD}/`,
+      binding: formatBinding(bindings.shortcuts),
       icon: <KeyboardIcon aria-hidden />,
-      pointerRoute: message("commands.label.keyboardShortcuts"),
+      pointerRoute: message("shortcuts.customiseRoute"),
       run: () => bridge.openShortcuts(),
     },
   );

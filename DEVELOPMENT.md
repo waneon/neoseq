@@ -86,6 +86,11 @@ pnpm --filter @neoseq/client exec vitest run tests/component/i18n.test.tsx
 nix run .#test-e2e-web -- --grep "switches to Korean"
 ```
 
+Interaction that depends on real layout (the outline's selection marquee, the
+drag-to-move drop indicator) has no jsdom equivalent: keep its assertions in
+`tests/e2e/outline.spec.ts` and keep the pure arithmetic behind it in
+`tests/component/selection.test.ts`.
+
 Use `--grep` to narrow browser tests by test title. Include mobile or dark-mode
 projects only when the behavior applies to them.
 

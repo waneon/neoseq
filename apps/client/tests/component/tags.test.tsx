@@ -3,7 +3,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { GRAPH_ID, mountAt } from "./harness";
+import { GRAPH_ID, mountAt, openBlockMenu } from "./harness";
 
 async function mountTagged() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -39,7 +39,7 @@ describe("first-class tags and tag defaults", () => {
       value: { type: "string", value: "doing" },
     });
 
-    await user.click(await screen.findByTestId("block-menu"));
+    await openBlockMenu();
     await user.click(await screen.findByTestId("menu-properties"));
     const inspector = await screen.findByTestId("block-inspector");
     const autocomplete = within(inspector).getByTestId("tag-autocomplete");
@@ -62,7 +62,7 @@ describe("first-class tags and tag defaults", () => {
       tag_id: "project",
     });
 
-    await user.click(await screen.findByTestId("block-menu"));
+    await openBlockMenu();
     await user.click(await screen.findByTestId("menu-properties"));
     const inspector = await screen.findByTestId("block-inspector");
     // The default was copied because the block had no task.status.
@@ -81,7 +81,7 @@ describe("first-class tags and tag defaults", () => {
   it("does not offer a duplicate tag create action", async () => {
     await mountTagged();
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId("block-menu"));
+    await openBlockMenu();
     await user.click(await screen.findByTestId("menu-properties"));
     const inspector = await screen.findByTestId("block-inspector");
     await user.type(within(inspector).getByTestId("tag-autocomplete"), "  project  ");

@@ -28,6 +28,21 @@ function readEntries(): Record<string, DirectoryEntry> {
 
 function writeEntries(entries: Record<string, DirectoryEntry>): void {
   localStorage.setItem(DIRECTORY_KEY, JSON.stringify(entries));
+  for (const listener of listeners) listener();
+}
+
+/**
+ * The directory is read in two places at once — the rail and the settings dialog
+ * that renames from — so a rename has to publish. Without this the rail kept the
+ * old name until the next remount, with the new one visible beside it.
+ */
+const listeners = new Set<() => void>();
+
+export function subscribeGraphDirectory(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function registerGraph(name: string): GraphSummary {

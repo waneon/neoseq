@@ -53,7 +53,7 @@ export function StorageVerificationPage() {
   return (
     <main className="picker">
       <div className="picker-inner">
-        <p className="eyebrow">NeoSeq · Local Persistence</p>
+        <p className="eyebrow">Neoseq · Local Persistence</p>
         <h1>Durable locally, identical everywhere.</h1>
         <p className="lede">SQLite and IndexedDB implement one recovery and CorePort v3 contract.</p>
         <section

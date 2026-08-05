@@ -1,7 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SettingsView } from "../../src/features/settings/SettingsView";
+import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
 import {
   createLocaleRuntime,
   resolveLocale,
@@ -33,7 +33,15 @@ describe("language preference", () => {
 
   it("switches immediately, updates the document, and persists the choice", async () => {
     const user = userEvent.setup();
-    await mountAt("/g/test-graph/custom", <SettingsView />);
+    await mountAt(
+      "/g/test-graph/custom",
+      <SettingsDialog
+        graphId="test-graph"
+        section="language"
+        onSection={() => {}}
+        onClose={() => {}}
+      />,
+    );
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
     await user.selectOptions(screen.getByTestId("settings-language"), "ko");

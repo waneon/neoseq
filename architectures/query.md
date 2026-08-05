@@ -8,7 +8,7 @@ RDF index; they never walk `LoroDoc` as their normal read path. The complete
 index is reproducible from a validated Loro snapshot, so losing or deleting it
 cannot lose user data.
 
-NeoSeq uses a read-only SPARQL 1.1 profile instead of a product-specific query
+Neoseq uses a read-only SPARQL 1.1 profile instead of a product-specific query
 DSL. Queries run only in the client Rust core. They cannot mutate CRDT state,
 select another graph, contact a SPARQL endpoint, or access platform I/O.
 

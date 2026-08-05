@@ -23,7 +23,7 @@ export function JournalView() {
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
-  const { message, formatLocalDate } = useI18n();
+  const { message, formatJournalDate } = useI18n();
   const [today] = useState(todayLocalDate);
   const date = routeDate ?? today;
   const ensured = useRef<string | null>(null);
@@ -74,10 +74,11 @@ export function JournalView() {
   // focus; `Today` appears only when the answer is not "today". The native date
   // input stays mounted, focusable and value-synced but clipped — it is a real
   // keyboard tab stop and the target of showPicker(), without restating the date
-  // a third time in the platform's own locale format.
-  const header = (menu: ReactNode) => (
-    <div className="title-row">
-      <h1 data-testid="journal-title">{formatLocalDate(date)}</h1>
+  // a third time in the platform's own locale format. Right-clicking the row
+  // reaches the page's own verbs, exactly as it does on a regular page.
+  const header = (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => (
+    <div className="title-row" onContextMenu={onContextMenu}>
+      <h1 data-testid="journal-title">{formatJournalDate(date)}</h1>
       <div className="title-actions">
         {date !== today && (
           <button className="today-pill" onClick={() => go(today)}>
@@ -132,7 +133,7 @@ export function JournalView() {
     return (
       <div className="page-scroll">
         <article className="page-body">
-          {header(null)}
+          {header(null, (event) => event.preventDefault())}
           <p className="page-note" aria-busy={state.mode !== "readonly"}>
             {state.mode === "readonly"
               ? message("journal.emptyReadonly")

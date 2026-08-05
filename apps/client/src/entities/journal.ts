@@ -1,30 +1,22 @@
 // Journal date helpers. "Today" is resolved in the user's configured IANA
-// timezone; the core owns journal identity and idempotent creation.
+// timezone; the core owns journal identity and idempotent creation. How a day is
+// *written* is a presentation preference and lives beside the other app
+// settings, because the same choice has to hold on the journal title, the top
+// bar, and the palette's date rows.
 
-const SETTINGS_KEY = "neoseq.settings.v1";
-
-interface AppSettings {
-  timezone?: string;
-}
-
-function readSettings(): AppSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? (JSON.parse(raw) as AppSettings) : {};
-  } catch {
-    return {};
-  }
-}
+import {
+  appSettings,
+  journalDateFormat,
+  updateAppSettings,
+  type JournalDateFormat,
+} from "./settings";
 
 export function configuredTimezone(): string {
-  return readSettings().timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return appSettings().timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 export function setConfiguredTimezone(timezone: string | null): void {
-  const settings = readSettings();
-  if (timezone) settings.timezone = timezone;
-  else delete settings.timezone;
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  updateAppSettings({ timezone: timezone ?? undefined });
 }
 
 export function availableTimezones(): string[] {
@@ -33,6 +25,12 @@ export function availableTimezones(): string[] {
   } catch {
     return [configuredTimezone()];
   }
+}
+
+export { journalDateFormat };
+
+export function setJournalDateFormat(format: JournalDateFormat): void {
+  updateAppSettings({ journalDateFormat: format });
 }
 
 /** The local calendar date (YYYY-MM-DD) for `instant` in `timezone`. */

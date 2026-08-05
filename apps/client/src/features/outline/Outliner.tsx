@@ -2,6 +2,13 @@
 // edits become SpliceMarkdown commands at IME-safe boundaries; structural
 // keys map to core commands and the authoritative snapshot re-render is the
 // only state path (no optimistic tree mutations).
+//
+// There are two kinds of "current" here and they are deliberately different
+// things. The *caret* is where text goes, and it lives in one textarea. The
+// *selection* is a set of blocks a structural command will act on — dragged out
+// along the strip beside the bullets, moved by dragging any of its bullets, and
+// deleted, indented or outdented as one. A caret and a selection never coexist:
+// taking one drops the other, so Delete can only ever mean one thing.
 
 import {
   useCallback,
@@ -13,6 +20,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 import { flushSync } from "react-dom";
@@ -25,7 +33,6 @@ import {
   CornerDownRightIcon,
   IndentDecreaseIcon,
   IndentIncreaseIcon,
-  MoreHorizontalIcon,
   Settings2Icon,
   Trash2Icon,
 } from "lucide-react";
@@ -38,8 +45,8 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
-import { MOD } from "../commands/keys";
 import { useCommands } from "../commands/context";
+import { formatBinding, useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot } from "../../core-port/snapshot";
@@ -51,9 +58,23 @@ import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
 import { TaskProjection } from "../tasks/TaskProjection";
 import { codePointIndex, codePointLength, diffSplice } from "./text-diff";
+import {
+  dropTarget,
+  idsInRange,
+  movePlan,
+  outdentOrder,
+  selectionRoots,
+  selectionSize,
+  type DropTarget,
+} from "./selection";
 import { useI18n, type MessageFunction } from "../../i18n";
 
 const FLUSH_DEBOUNCE_MS = 400;
+/** How far a bullet must travel before a click becomes a drag. */
+const DRAG_THRESHOLD_PX = 4;
+/** Edge band that pulls the scroll container along during a drag. */
+const AUTOSCROLL_BAND_PX = 56;
+const AUTOSCROLL_MAX_PX = 18;
 
 // Pending rows bridge the async gap between Enter and the core's
 // InsertBlock acknowledgement: each is focused synchronously so fast typing
@@ -88,7 +109,13 @@ interface EditorContext {
   focusedId: string | null;
   pendingCaret: RefObject<number | null>;
   inspectedId: string | null;
+  menuFor: string | null;
+  selected: ReadonlySet<string>;
+  /** Rows the selection covers, passengers included — what a bulk verb will take. */
+  selectionCount: number;
   setFocus(id: string | null, caret?: number): void;
+  takeTreeFocus(): void;
+  openMenu(id: string | null): void;
   toggleInspect(id: string): void;
   toggleCollapse(id: string): void;
   draftOf(row: OutlineRow): string;
@@ -100,12 +127,19 @@ interface EditorContext {
   insertRootBlock(index: number): void;
   enqueuePendingInsert(row: OutlineRow, tail: string, asChild: boolean): void;
   queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
+  /** Pointer entry points for the selection strip and the bullet handle. */
+  onGripPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
+  onBulletPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
+  onRowContextMenu(row: OutlineRow, event: React.MouseEvent): void;
   menu: {
     addChild(row: OutlineRow): void;
     indent(row: OutlineRow): void;
     outdent(row: OutlineRow): void;
     move(row: OutlineRow, delta: number): void;
     remove(row: OutlineRow, rows: OutlineRow[]): void;
+    indentSelection(): void;
+    outdentSelection(): void;
+    removeSelection(): void;
   };
 }
 
@@ -120,11 +154,17 @@ export function Outliner({
   const state = useSessionState();
   const commands = useCommands();
   const notify = useNotify();
+  const bindings = useShortcutBindings();
   const { message } = useI18n();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [inspectedId, setInspectedId] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [dragging, setDragging] = useState(false);
+  const [marqueeing, setMarqueeing] = useState(false);
+  const [drop, setDrop] = useState<(DropTarget & { top: number }) | null>(null);
   const drafts = useRef(new Map<string, string>());
   const baselines = useRef(new Map<string, string>());
   const composing = useRef(false);
@@ -135,15 +175,28 @@ export function Outliner({
   const pendingDispatching = useRef(false);
   const pageRef = useRef(page);
   const collapsedRef = useRef(collapsed);
+  const rowsRef = useRef<OutlineRow[]>([]);
+  const selectedRef = useRef<ReadonlySet<string>>(selected);
+  const anchorId = useRef<string | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const releasePointer = useRef<(() => void) | null>(null);
+  const autoScroll = useRef<{ speed: number; frame: number } | null>(null);
   // GraphSession resolves commands only after reconciling its snapshot. Read
   // that snapshot directly during the temp-id handoff so a parent render that
   // still carries the previous page object cannot briefly remove the editor.
   const authoritativePage = findPage(state.snapshot, page.id) ?? page;
   pageRef.current = authoritativePage;
   collapsedRef.current = collapsed;
+  selectedRef.current = selected;
 
   const rows = withPendingRows(flattenOutline(authoritativePage, collapsed), pendingRows.current);
+  rowsRef.current = rows;
   const readonly = state.mode === "readonly";
+  const selectionCount = useMemo(
+    () => (selected.size === 0 ? 0 : selectionSize(rows, selected)),
+    [rows, selected],
+  );
 
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
@@ -158,6 +211,16 @@ export function Outliner({
       }
     }
   }, [state.revision, focusedId]);
+
+  // A block that left the page cannot stay selected — a stale id would send the
+  // next bulk command at something that is no longer there.
+  useEffect(() => {
+    if (selectedRef.current.size === 0) return;
+    const live = new Set(
+      [...selectedRef.current].filter((id) => findBlock(pageRef.current, id) !== undefined),
+    );
+    if (live.size !== selectedRef.current.size) setSelected(live);
+  }, [state.revision]);
 
   const flush = useCallback(
     (id: string) => {
@@ -215,12 +278,39 @@ export function Outliner({
     [flush],
   );
 
+  const focusedRef = useRef<string | null>(null);
   const setFocus = useCallback((id: string | null, caret?: number) => {
     pendingCaret.current = caret ?? null;
     focusedRef.current = id;
     setFocusedId(id);
+    // The caret and the block selection are two answers to "what does the next
+    // command act on", so only one of them may exist at a time.
+    if (id !== null) setSelected((current) => (current.size === 0 ? current : new Set()));
   }, []);
-  const focusedRef = useRef<string | null>(null);
+
+  const clearSelection = useCallback(() => {
+    anchorId.current = null;
+    setSelected((current) => (current.size === 0 ? current : new Set()));
+  }, []);
+
+  /**
+   * Hands the keyboard to the tree. A selection and a caret are the two answers
+   * to "what does the next key act on", so taking one has to take the other's
+   * focus with it — otherwise ⌫ reaches a textarea while rows sit highlighted.
+   */
+  const takeTreeFocus = useCallback(() => {
+    focusedRef.current = null;
+    setFocusedId(null);
+    const active = document.activeElement;
+    if (active instanceof HTMLTextAreaElement) active.blur();
+    viewportRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  /** The ⇧-click anchor, resolved against the outline as it is now. */
+  const anchorRowIndex = useCallback(
+    (rows: OutlineRow[]) => (anchorId.current ? rowIndexOf(rows, anchorId.current) : -1),
+    [],
+  );
 
   /** Dispatches the oldest pending insert whose predecessor id is real. */
   const dispatchPending = useCallback(() => {
@@ -358,6 +448,241 @@ export function Outliner({
     [notify, session],
   );
 
+  // ── pointer plumbing ────────────────────────────────────────────────────
+  //
+  // Both gestures listen on the window rather than on the element they started
+  // from: a virtualized row can be recycled out of the DOM mid-drag, and pointer
+  // capture on a removed element takes the rest of the gesture with it.
+
+  const stopAutoScroll = useCallback(() => {
+    if (!autoScroll.current) return;
+    cancelAnimationFrame(autoScroll.current.frame);
+    autoScroll.current = null;
+  }, []);
+
+  const updateAutoScroll = useCallback(
+    (clientY: number) => {
+      const container = scrollElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const above = rect.top + AUTOSCROLL_BAND_PX - clientY;
+      const below = clientY - (rect.bottom - AUTOSCROLL_BAND_PX);
+      const speed =
+        above > 0
+          ? -Math.min(AUTOSCROLL_MAX_PX, (above / AUTOSCROLL_BAND_PX) * AUTOSCROLL_MAX_PX)
+          : below > 0
+            ? Math.min(AUTOSCROLL_MAX_PX, (below / AUTOSCROLL_BAND_PX) * AUTOSCROLL_MAX_PX)
+            : 0;
+      if (speed === 0) {
+        stopAutoScroll();
+        return;
+      }
+      if (autoScroll.current) {
+        autoScroll.current.speed = speed;
+        return;
+      }
+      const step = () => {
+        const active = autoScroll.current;
+        if (!active || !container) return;
+        container.scrollTop += active.speed;
+        active.frame = requestAnimationFrame(step);
+      };
+      autoScroll.current = { speed, frame: requestAnimationFrame(step) };
+    },
+    [scrollElement, stopAutoScroll],
+  );
+
+  const endGesture = useCallback(() => {
+    releasePointer.current?.();
+    releasePointer.current = null;
+    stopAutoScroll();
+  }, [stopAutoScroll]);
+
+  useEffect(() => endGesture, [endGesture]);
+
+  const listen = useCallback(
+    (
+      onMove: (event: PointerEvent) => void,
+      onFinish: (event: PointerEvent, cancelled: boolean) => void,
+    ) => {
+      // A second press while a gesture is live retires the first one. Without
+      // this its window listeners would outlive it, and a later bare move would
+      // still be driving a drag nobody is holding.
+      endGesture();
+      const move = (event: PointerEvent) => onMove(event);
+      const finish = (cancelled: boolean) => (event: PointerEvent) => {
+        endGesture();
+        onFinish(event, cancelled);
+      };
+      const release = finish(false);
+      const cancel = finish(true);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", release);
+      window.addEventListener("pointercancel", cancel);
+      releasePointer.current = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", release);
+        window.removeEventListener("pointercancel", cancel);
+      };
+    },
+    [endGesture],
+  );
+
+  /** Selection by range, not by rectangle — see `selection.ts`. */
+  const onGripPointerDown = useCallback(
+    (row: OutlineRow, event: ReactPointerEvent) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const start = rowIndexOf(rowsRef.current, row.block.id);
+      if (start < 0) return;
+      const extend = event.shiftKey ? anchorRowIndex(rowsRef.current) : -1;
+      const anchor = extend >= 0 ? extend : start;
+      anchorId.current = rowsRef.current[anchor]?.block.id ?? null;
+      takeTreeFocus();
+      setMarqueeing(true);
+      setSelected(selectableIds(rowsRef.current, anchor, start));
+      listen(
+        (move) => {
+          updateAutoScroll(move.clientY);
+          const index = rowIndexAtPoint(viewportRef.current, move.clientY, rowsRef.current);
+          if (index === null) return;
+          const next = selectableIds(rowsRef.current, anchor, index);
+          setSelected((current) => (sameIds(current, next) ? current : next));
+        },
+        () => {
+          setMarqueeing(false);
+          takeTreeFocus();
+        },
+      );
+    },
+    [listen, updateAutoScroll],
+  );
+
+  const applyMove = useCallback(
+    (target: DropTarget, moving: ReadonlySet<string>) => {
+      const roots = selectionRoots(rowsRef.current, moving);
+      if (roots.length === 0) return;
+      void runSequence(
+        movePlan(rowsRef.current, roots, target).map((step) => ({
+          type: "move_block" as const,
+          block_id: step.blockId,
+          page_id: pageRef.current.id,
+          parent: step.parent,
+          index: step.index,
+        })),
+        session,
+        (error) => notify.failure(message("failure.moveBlocks", { count: roots.length }), error),
+      );
+    },
+    [message, notify, session],
+  );
+
+  /** The bullet is the block's handle: press, move, and the subtree travels. */
+  const onBulletPointerDown = useCallback(
+    (row: OutlineRow, event: ReactPointerEvent) => {
+      if (event.button !== 0) return;
+      if (isPendingId(row.block.id)) {
+        // Nothing to drag or act on yet, and the press must not reach Radix's
+        // own trigger handling and open a menu with no content.
+        event.preventDefault();
+        return;
+      }
+      const index = rowIndexOf(rowsRef.current, row.block.id);
+      if (index < 0) return;
+
+      // Shift extends the selection, ⌘/⌃ toggles one row: the two gestures a
+      // list has meant everywhere for thirty years. Both hand the keyboard to the
+      // tree, because leaving the caret in a textarea while rows are highlighted
+      // is exactly the ambiguity the two states are meant not to have.
+      const anchor = anchorRowIndex(rowsRef.current);
+      if (event.shiftKey && anchor >= 0) {
+        event.preventDefault();
+        takeTreeFocus();
+        setSelected(selectableIds(rowsRef.current, anchor, index));
+        return;
+      }
+      if (event.metaKey || event.ctrlKey) {
+        event.preventDefault();
+        takeTreeFocus();
+        anchorId.current = row.block.id;
+        setSelected((current) => {
+          const next = new Set(current);
+          if (next.has(row.block.id)) next.delete(row.block.id);
+          else next.add(row.block.id);
+          return next;
+        });
+        return;
+      }
+
+      event.preventDefault();
+      // The anchor moves on every plain press, so a following ⇧-click extends
+      // from the row the user actually last touched. It is stored by id: a row
+      // index stops meaning anything the moment a block is inserted or deleted.
+      anchorId.current = row.block.id;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const moving = selectedRef.current.has(row.block.id)
+        ? new Set(selectedRef.current)
+        : new Set([row.block.id]);
+      let started = false;
+      let target: DropTarget | null = null;
+      const metrics = readMetrics(sectionRef.current);
+
+      listen(
+        (move) => {
+          if (!started) {
+            if (Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX) {
+              return;
+            }
+            if (readonly) return;
+            started = true;
+            takeTreeFocus();
+            setSelected(moving);
+            setDragging(true);
+          }
+          updateAutoScroll(move.clientY);
+          const resolved = resolveDrop(
+            viewportRef.current,
+            rowsRef.current,
+            moving,
+            move.clientX,
+            move.clientY,
+            metrics,
+          );
+          target = resolved;
+          setDrop(resolved);
+        },
+        (_event, cancelled) => {
+          setDrop(null);
+          setDragging(false);
+          if (cancelled) return;
+          if (!started) {
+            // A press that never travelled is a click: put the caret in the line.
+            setFocus(row.block.id);
+            return;
+          }
+          if (target) applyMove(target, moving);
+        },
+      );
+    },
+    [applyMove, listen, readonly, setFocus, updateAutoScroll],
+  );
+
+  const onRowContextMenu = useCallback(
+    (row: OutlineRow, event: React.MouseEvent) => {
+      event.preventDefault();
+      if (isPendingId(row.block.id)) return;
+      // Right-clicking outside the selection collapses it onto the row under the
+      // pointer; inside it, the selection is what the menu is about.
+      if (!selectedRef.current.has(row.block.id)) {
+        anchorId.current = row.block.id;
+        setSelected(new Set());
+      }
+      setMenuFor(row.block.id);
+    },
+    [],
+  );
+
   const editor: EditorContext = {
     session,
     notify,
@@ -367,15 +692,33 @@ export function Outliner({
     focusedId,
     pendingCaret,
     inspectedId,
+    menuFor,
+    selected,
+    selectionCount,
     setFocus,
+    takeTreeFocus,
+    openMenu: setMenuFor,
     toggleInspect: (id) => setInspectedId((current) => (current === id ? null : id)),
-    toggleCollapse: (id) =>
+    toggleCollapse: (id) => {
       setCollapsed((current) => {
         const next = new Set(current);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         return next;
-      }),
+      });
+      // A row that just went out of sight cannot stay selected: ⌫ and ⇥ resolve
+      // the selection against the *visible* outline, so a hidden member would
+      // make them quietly do nothing.
+      if (selectedRef.current.size > 0) {
+        const visible = new Set(
+          flattenOutline(pageRef.current, nextCollapsed(collapsedRef.current, id)).map(
+            (row) => row.block.id,
+          ),
+        );
+        const kept = new Set([...selectedRef.current].filter((entry) => visible.has(entry)));
+        if (kept.size !== selectedRef.current.size) setSelected(kept);
+      }
+    },
     draftOf: (row) => drafts.current.get(row.block.id) ?? row.block.markdown,
     onInput: (row, value) => {
       if (!baselines.current.has(row.block.id)) {
@@ -397,8 +740,11 @@ export function Outliner({
       composing.current = false;
       scheduleFlush(row.block.id);
     },
-    onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event),
+    onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event, bindings),
     flushNow,
+    onGripPointerDown,
+    onBulletPointerDown,
+    onRowContextMenu,
     enqueuePendingInsert: (row, tail, asChild) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
@@ -500,6 +846,52 @@ export function Outliner({
           setFocus(previous);
         });
       },
+      // Group structure runs one core command per selected root. Indent replays
+      // in document order because each call re-reads the previous sibling;
+      // outdent replays in reverse, because it drops each block immediately
+      // after its former parent and would otherwise stack them backwards.
+      indentSelection: () => {
+        // Document order; see `outdentOrder` for why the other direction is not.
+        const roots = selectionRoots(rowsRef.current, selectedRef.current);
+        void runSequence(
+          roots.map((root) => ({
+            type: "indent_block" as const,
+            page_id: authoritativePage.id,
+            block_id: root.block.id,
+          })),
+          session,
+          (error) => notify.failure(message("failure.indentBlock"), error),
+        );
+      },
+      outdentSelection: () => {
+        const roots = outdentOrder(selectionRoots(rowsRef.current, selectedRef.current));
+        void runSequence(
+          roots.map((root) => ({
+            type: "outdent_block" as const,
+            page_id: authoritativePage.id,
+            block_id: root.block.id,
+          })),
+          session,
+          (error) => notify.failure(message("failure.outdentBlock"), error),
+        );
+      },
+      removeSelection: () => {
+        const roots = selectionRoots(rowsRef.current, selectedRef.current);
+        if (roots.length === 0) return;
+        const first = rowIndexOf(rowsRef.current, roots[0].block.id);
+        const fallback = rowsRef.current[first - 1]?.block.id ?? null;
+        clearSelection();
+        void runSequence(
+          roots.map((root) => ({
+            type: "delete_block" as const,
+            page_id: authoritativePage.id,
+            block_id: root.block.id,
+          })),
+          session,
+          (error) =>
+            notify.failure(message("failure.deleteBlocks", { count: roots.length }), error),
+        ).then(() => setFocus(fallback));
+      },
     },
   };
 
@@ -539,12 +931,58 @@ export function Outliner({
   // walks the whole list. See DESIGN.md § The outline / Thread.
   const ancestors = ancestorPath(rows, focusedId);
 
+  /** The bare keys a selection answers to. They only reach here while the tree
+   * itself holds focus, which is exactly when no text field can lose them. */
+  const onSelectionKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (selected.size === 0 || event.nativeEvent.isComposing) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      // Put the caret back where the selection started rather than leaving focus
+      // on a container with nothing selected — Escape means "back to writing".
+      const roots = selectionRoots(rows, selected);
+      clearSelection();
+      if (roots[0]) setFocus(roots[0].block.id);
+      return;
+    }
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      if (!readonly) editor.menu.removeSelection();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (readonly) return;
+      if (event.shiftKey) editor.menu.outdentSelection();
+      else editor.menu.indentSelection();
+      return;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      // Stepping out of a selection lands the caret at the edge it left from.
+      event.preventDefault();
+      const roots = selectionRoots(rows, selected);
+      const edge = event.key === "ArrowUp" ? roots[0] : roots[roots.length - 1];
+      if (edge) setFocus(edge.block.id);
+    }
+  };
+
   return (
-    <section className="outline-section" aria-label={message("outline.outline")}>
+    <section
+      className="outline-section"
+      aria-label={message("outline.outline")}
+      ref={sectionRef}
+      data-dragging={dragging || undefined}
+      data-selecting={marqueeing || undefined}
+    >
+      {/* The selection has no visible counter — the highlighted rows are the
+          count — so this is how it reaches a screen reader. */}
+      <span className="sr-only" aria-live="polite">
+        {selectionCount > 0 ? message("outline.selection", { count: selectionCount }) : ""}
+      </span>
       {rows.length === 0 ? (
         // A fake first line rather than a button labelled with a mouse
-        // instruction: a bullet in row 1's exact gutter position, then the
-        // placeholder, over a target big enough to hit anywhere.
+        // instruction: a faint bullet in row 1's exact gutter position over a
+        // target big enough to hit anywhere. No placeholder sentence — the
+        // document belongs to the user, including when it is empty.
         <button
           className="outline-placeholder"
           onClick={() => editor.insertRootBlock(0)}
@@ -553,15 +991,18 @@ export function Outliner({
           data-testid="outline-start"
         >
           <span className="dot" aria-hidden />
-          <span className="label">{message("outline.writeSomething")}</span>
         </button>
       ) : (
         <div
           className="outline-viewport"
           role="tree"
           aria-label={message("outline.blocks")}
+          aria-multiselectable="true"
           aria-activedescendant={focusedId ? `row-${focusedId}` : undefined}
           style={{ height: virtualizer.getTotalSize() }}
+          ref={viewportRef}
+          tabIndex={-1}
+          onKeyDown={onSelectionKeyDown}
         >
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];
@@ -583,22 +1024,27 @@ export function Outliner({
                   rows={rows}
                   editor={editor}
                   lit={litFor(ancestors, item.index, row.depth)}
+                  bindings={bindings}
                 />
               </div>
             );
           })}
+          {drop && (
+            <div
+              className="outline-drop"
+              data-testid="outline-drop"
+              style={
+                { top: drop.top, "--drop-depth": drop.depth } as CSSProperties
+              }
+            />
+          )}
         </div>
-      )}
-      {rows.length === 1 && rows[0].block.markdown.length === 0 && (
-        <p className="outline-hint">
-          <kbd className="kbd">{MOD}K</kbd> {message("outline.toSearch")} ·{" "}
-          <kbd className="kbd">{MOD}/</kbd> {message("outline.forShortcuts")}
-        </p>
       )}
       {rows.length > 0 && !readonly && (
         // The region under the last block IS the add-a-block affordance, so no
         // permanent button is needed and the page's dead bottom padding becomes
-        // a live target.
+        // a live target. Hovering it raises the faint bullet of the line it
+        // would make.
         <button
           className="outline-append"
           onClick={() => editor.insertRootBlock(authoritativePage.blocks.length)}
@@ -608,6 +1054,123 @@ export function Outliner({
       )}
     </section>
   );
+}
+
+/** Runs core commands in order, stopping at the first rejection. */
+async function runSequence(
+  commands: Parameters<GraphSession["execute"]>[0][],
+  session: GraphSession,
+  onFailure: (error: unknown) => void,
+): Promise<void> {
+  for (const command of commands) {
+    const rejection = await session
+      .execute(command)
+      .then(() => null)
+      .catch((error: unknown) => ({ error }));
+    if (rejection) {
+      onFailure(rejection.error);
+      return;
+    }
+  }
+}
+
+/** The collapsed set as it will be after toggling `id`. */
+function nextCollapsed(current: ReadonlySet<string>, id: string): Set<string> {
+  const next = new Set(current);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
+function sameIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const id of left) if (!right.has(id)) return false;
+  return true;
+}
+
+/** Real (non-pending) block ids in the inclusive row range. */
+function selectableIds(rows: OutlineRow[], from: number, to: number): Set<string> {
+  const ids = idsInRange(rows, from, to);
+  for (const id of [...ids]) {
+    if (isPendingId(id)) ids.delete(id);
+  }
+  return ids;
+}
+
+interface Metrics {
+  indent: number;
+  slot: number;
+}
+
+/** The two layout tokens the drag arithmetic needs, read from CSS, never copied. */
+function readMetrics(section: HTMLElement | null): Metrics {
+  const fallback = { indent: 24, slot: 20 };
+  if (!section) return fallback;
+  const styles = getComputedStyle(section);
+  const indent = Number.parseFloat(styles.getPropertyValue("--indent"));
+  const slot = Number.parseFloat(styles.getPropertyValue("--slot"));
+  return {
+    indent: Number.isFinite(indent) && indent > 0 ? indent : fallback.indent,
+    slot: Number.isFinite(slot) && slot > 0 ? slot : fallback.slot,
+  };
+}
+
+/**
+ * The row index at a viewport Y, or the nearest one when the pointer is past
+ * either end of what is rendered. Nearest rather than null is what lets a fast
+ * drag past the edge keep extending while auto-scroll catches up.
+ */
+function rowIndexAtPoint(
+  viewport: HTMLElement | null,
+  clientY: number,
+  rows: OutlineRow[],
+): number | null {
+  if (!viewport) return null;
+  let nearest: { index: number; distance: number } | null = null;
+  for (const node of viewport.querySelectorAll<HTMLElement>("[data-block-id]")) {
+    const id = node.dataset.blockId;
+    if (!id) continue;
+    const index = rowIndexOf(rows, id);
+    if (index < 0) continue;
+    const rect = node.getBoundingClientRect();
+    if (clientY >= rect.top && clientY <= rect.bottom) return index;
+    const distance = clientY < rect.top ? rect.top - clientY : clientY - rect.bottom;
+    if (!nearest || distance < nearest.distance) nearest = { index, distance };
+  }
+  return nearest?.index ?? null;
+}
+
+/** Which gap the pointer is in, at which depth, and where to draw the line. */
+function resolveDrop(
+  viewport: HTMLElement | null,
+  rows: OutlineRow[],
+  moving: ReadonlySet<string>,
+  clientX: number,
+  clientY: number,
+  metrics: Metrics,
+): (DropTarget & { top: number }) | null {
+  if (!viewport) return null;
+  const index = rowIndexAtPoint(viewport, clientY, rows);
+  if (index === null) return null;
+  const node = viewport.querySelector<HTMLElement>(
+    `[data-block-id="${cssEscape(rows[index].block.id)}"]`,
+  );
+  if (!node) return null;
+  const rect = node.getBoundingClientRect();
+  const viewportRect = viewport.getBoundingClientRect();
+  const after = clientY > rect.top + rect.height / 2;
+  const gap = after ? index + 1 : index;
+  const desired = Math.round(
+    (clientX - viewportRect.left - metrics.slot / 2) / metrics.indent,
+  );
+  const target = dropTarget(rows, moving, gap, Math.max(0, desired));
+  if (!target) return null;
+  const top = (after ? rect.bottom : rect.top) - viewportRect.top;
+  return { ...target, top };
+}
+
+function cssEscape(value: string): string {
+  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value;
 }
 
 interface AncestorPath {
@@ -651,6 +1214,7 @@ function onKeyDown(
   row: OutlineRow,
   rows: OutlineRow[],
   event: KeyboardEvent<HTMLTextAreaElement>,
+  bindings: ReturnType<typeof useShortcutBindings>,
 ) {
   // Never let structural commands interrupt an active IME composition.
   if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -672,10 +1236,19 @@ function onKeyDown(
   const textarea = event.currentTarget;
   const id = row.block.id;
 
-  const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z";
-  const isRedo =
-    ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "z") ||
-    (event.ctrlKey && event.key.toLowerCase() === "y");
+  // The platform convention for "menu for the thing I am on". Without it the
+  // block's verbs would be pointer-only now that the row has no ⋯ button.
+  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+    event.preventDefault();
+    editor.openMenu(id);
+    return;
+  }
+
+  // Undo and redo read from the same editable binding table as the rest of the
+  // application; inside this textarea they mean the *document*, because here the
+  // text the user is typing is the document.
+  const isUndo = bindingMatches(event, bindings.undo);
+  const isRedo = bindingMatches(event, bindings.redo);
   if (isRedo || isUndo) {
     event.preventDefault();
     editor.flushNow(id);
@@ -848,11 +1421,13 @@ function BlockRow({
   rows,
   editor,
   lit,
+  bindings,
 }: {
   row: OutlineRow;
   rows: OutlineRow[];
   editor: EditorContext;
   lit: number;
+  bindings: ReturnType<typeof useShortcutBindings>;
 }) {
   const { message } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -860,6 +1435,9 @@ function BlockRow({
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
   const tags = row.block.tags;
+  const selected = editor.selected.has(row.block.id);
+  const selectionCount = editor.selectionCount;
+  const menuOpen = editor.menuFor === row.block.id;
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -890,8 +1468,10 @@ function BlockRow({
       role="treeitem"
       aria-level={row.depth + 1}
       aria-expanded={row.hasChildren ? !row.collapsed : undefined}
-      aria-selected={isFocused}
+      aria-selected={selected ? true : isFocused}
       data-focused={isFocused}
+      data-selected={selected}
+      data-empty={value.length === 0}
       data-collapsed={row.collapsed}
       data-has-children={row.hasChildren}
       data-block-id={row.block.id}
@@ -901,6 +1481,15 @@ function BlockRow({
       // shorthand, which silently overrode the row's own padding.
       style={{ "--depth": row.depth, "--lit": lit } as CSSProperties}
     >
+      {/* Everything left of the bullet. Dragging here selects rows; right-click
+          opens the same menu the bullet does. */}
+      <span
+        className="outline-grip"
+        data-testid="row-grip"
+        aria-hidden
+        onPointerDown={(event) => editor.onGripPointerDown(row, event)}
+        onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+      />
       <span className="outline-gutter">
         <button
           className="outline-toggle"
@@ -912,13 +1501,138 @@ function BlockRow({
         >
           {row.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
         </button>
-        <button
-          className="outline-bullet"
-          data-testid="block-bullet"
-          tabIndex={-1}
-          aria-label={message("outline.focusBlock")}
-          onClick={() => editor.setFocus(row.block.id)}
-        />
+        {/* The bullet carries the block's whole pointer vocabulary: click to put
+            the caret in the line, drag to move the subtree, right-click for the
+            menu. It is the Radix trigger, so the menu is also reachable from the
+            keyboard through the row's own ContextMenu / ⇧F10 handling. */}
+        <DropdownMenu
+          modal={false}
+          open={menuOpen}
+          onOpenChange={(open) => editor.openMenu(open ? row.block.id : null)}
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              className="outline-bullet"
+              data-testid="block-bullet"
+              tabIndex={-1}
+              aria-label={message("outline.blockActions")}
+              onPointerDown={(event) => editor.onBulletPointerDown(row, event)}
+              onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+            />
+          </DropdownMenuTrigger>
+          {!pending && (
+            <DropdownMenuContent
+              align="start"
+              onCloseAutoFocus={(event) => {
+                // Radix would park focus on the bullet, which is not a tab stop
+                // and cannot be typed into. Put the caret back in the line — but
+                // not while a selection is up, because focusing a textarea is what
+                // drops one, and the user did not ask to lose it by pressing Escape.
+                event.preventDefault();
+                if (selected && selectionCount > 1) editor.takeTreeFocus();
+                else textareaRef.current?.focus();
+              }}
+            >
+              {selected && selectionCount > 1 ? (
+                <>
+                  <DropdownMenuItem
+                    disabled={editor.readonly}
+                    onSelect={() => editor.menu.indentSelection()}
+                  >
+                    <IndentIncreaseIcon aria-hidden />
+                    {message("outline.indent")}
+                    <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={editor.readonly}
+                    onSelect={() => editor.menu.outdentSelection()}
+                  >
+                    <IndentDecreaseIcon aria-hidden />
+                    {message("outline.outdent")}
+                    <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    data-testid="menu-delete-selection"
+                    variant="destructive"
+                    disabled={editor.readonly}
+                    onSelect={() => editor.menu.removeSelection()}
+                  >
+                    <Trash2Icon aria-hidden />
+                    {message("outline.deleteSelection", { count: selectionCount })}
+                    <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <>
+                  <DropdownMenuItem
+                    data-testid="menu-properties"
+                    onSelect={() => editor.toggleInspect(row.block.id)}
+                  >
+                    <Settings2Icon aria-hidden />
+                    {message("outline.propertiesTags")}
+                    <DropdownMenuShortcut>
+                      {formatBinding(bindings.properties)}
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={editor.readonly}
+                    onSelect={() => editor.menu.addChild(row)}
+                  >
+                    <CornerDownRightIcon aria-hidden />
+                    {message("outline.addChild")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={editor.readonly || row.index === 0}
+                    onSelect={() => editor.menu.indent(row)}
+                  >
+                    <IndentIncreaseIcon aria-hidden />
+                    {message("outline.indent")}
+                    <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={editor.readonly || row.depth === 0}
+                    onSelect={() => editor.menu.outdent(row)}
+                  >
+                    <IndentDecreaseIcon aria-hidden />
+                    {message("outline.outdent")}
+                    <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-testid="menu-move-up"
+                    disabled={editor.readonly || row.index === 0}
+                    onSelect={() => editor.menu.move(row, -1)}
+                  >
+                    <ArrowUpIcon aria-hidden />
+                    {message("outline.moveUp")}
+                    <DropdownMenuShortcut>⌥↑</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-testid="menu-move-down"
+                    disabled={editor.readonly || row.index >= row.siblingCount - 1}
+                    onSelect={() => editor.menu.move(row, 1)}
+                  >
+                    <ArrowDownIcon aria-hidden />
+                    {message("outline.moveDown")}
+                    <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    data-testid="menu-delete"
+                    variant="destructive"
+                    disabled={editor.readonly}
+                    onSelect={() => editor.menu.remove(row, rows)}
+                  >
+                    <Trash2Icon aria-hidden />
+                    {message("outline.deleteBlock")}
+                    <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          )}
+        </DropdownMenu>
       </span>
       <div className="outline-text">
         <textarea
@@ -926,7 +1640,6 @@ function BlockRow({
           className="outline-input"
           rows={1}
           value={value}
-          placeholder={row.depth === 0 ? message("outline.writeSomething") : ""}
           readOnly={editor.readonly}
           aria-label={message("outline.blockText")}
           dir="auto"
@@ -955,84 +1668,6 @@ function BlockRow({
             onClose={() => editor.toggleInspect(row.block.id)}
           />
         )}
-      </div>
-      <div className="row-menu" style={pending ? { visibility: "hidden" } : undefined}>
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="icon-btn"
-              aria-label={message("outline.blockActions")}
-              data-testid="block-menu"
-            >
-              <MoreHorizontalIcon />
-            </button>
-          </DropdownMenuTrigger>
-          {/* Every item states its shortcut. Tab, Shift-Tab, Alt-Arrow and
-              Backspace all worked before and were taught nowhere. */}
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              data-testid="menu-properties"
-              onSelect={() => editor.toggleInspect(row.block.id)}
-            >
-              <Settings2Icon aria-hidden />
-              {message("outline.propertiesTags")}
-              <DropdownMenuShortcut>{MOD}⇧P</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.addChild(row)}
-            >
-              <CornerDownRightIcon aria-hidden />
-              {message("outline.addChild")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={editor.readonly || row.index === 0}
-              onSelect={() => editor.menu.indent(row)}
-            >
-              <IndentIncreaseIcon aria-hidden />
-              {message("outline.indent")}
-              <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={editor.readonly || row.depth === 0}
-              onSelect={() => editor.menu.outdent(row)}
-            >
-              <IndentDecreaseIcon aria-hidden />
-              {message("outline.outdent")}
-              <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="menu-move-up"
-              disabled={editor.readonly || row.index === 0}
-              onSelect={() => editor.menu.move(row, -1)}
-            >
-              <ArrowUpIcon aria-hidden />
-              {message("outline.moveUp")}
-              <DropdownMenuShortcut>⌥↑</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="menu-move-down"
-              disabled={editor.readonly || row.index >= row.siblingCount - 1}
-              onSelect={() => editor.menu.move(row, 1)}
-            >
-              <ArrowDownIcon aria-hidden />
-              {message("outline.moveDown")}
-              <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-testid="menu-delete"
-              variant="destructive"
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.remove(row, rows)}
-            >
-              <Trash2Icon aria-hidden />
-              {message("outline.deleteBlock")}
-              <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </div>
   );

@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { blockLevels, blockTexts, createGraph, startOutline } from "./helpers";
+import {
+  awaitSaved,
+  blockLevels,
+  blockTexts,
+  createGraph,
+  openBlockMenu,
+  startOutline,
+} from "./helpers";
 
 test("builds a deep outline with the keyboard and reorders a subtree", async ({ page }) => {
   await createGraph(page, "Outline Graph");
@@ -54,15 +61,17 @@ test("builds a deep outline with the keyboard and reorders a subtree", async ({ 
     "grandchild",
   ]);
 
-  // Undo/redo through the shell controls.
-  await page.getByTestId("undo").click();
+  // Undo and redo are keyboard-and-palette verbs now; the top bar carries state,
+  // not commands. The outline's textarea maps them to the *document* undo.
+  await page.locator('[data-testid="outline-row"] textarea').first().click();
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => blockTexts(page)).toEqual([
     "parent",
     "child",
     "grandchild",
     "second root",
   ]);
-  await page.getByTestId("redo").click();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect.poll(() => blockTexts(page)).toEqual([
     "second root",
     "parent",
@@ -91,26 +100,69 @@ test("splits a block at the caret and deletes empty blocks", async ({ page }) =>
   await expect(page.locator('[data-testid="outline-row"] textarea').first()).toBeFocused();
 });
 
-test("touch-style block menu supports structural commands", async ({ page }) => {
+test("the bullet carries the block's menu, and every structural verb in it", async ({
+  page,
+}) => {
   await createGraph(page, "Menu Graph");
   await startOutline(page);
   await page.keyboard.type("first");
   await page.locator('[data-testid="outline-row"] textarea').first().blur();
 
-  await page.getByTestId("block-menu").click();
+  await openBlockMenu(page, 0);
   await page.getByRole("menuitem", { name: "Add child block" }).click();
   await page.keyboard.type("child via menu");
   await expect.poll(() => blockLevels(page)).toEqual(["1", "2"]);
 
-  await page.getByTestId("block-menu").nth(1).click();
+  await openBlockMenu(page, 1);
   await page.getByRole("menuitem", { name: "Outdent" }).click();
   await expect.poll(() => blockLevels(page)).toEqual(["1", "1"]);
 
-  await page.getByTestId("block-menu").nth(1).click();
+  await openBlockMenu(page, 1);
   await page.getByTestId("menu-move-up").click();
   await expect.poll(() => blockTexts(page)).toEqual(["child via menu", "first"]);
 
-  await page.getByTestId("block-menu").nth(0).click();
+  await openBlockMenu(page, 0);
   await page.getByTestId("menu-delete").click();
   await expect.poll(() => blockTexts(page)).toEqual(["first"]);
+});
+
+test("drags a range of blocks out and moves them as one", async ({ page }) => {
+  await createGraph(page, "Selection Graph");
+  await startOutline(page);
+  await page.keyboard.type("one");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("two");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("three");
+  await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three"]);
+  await awaitSaved(page);
+
+  // The strip left of the bullets is the selection gutter: drag down it and the
+  // rows it passes are selected.
+  const rows = page.locator('[data-testid="outline-row"]');
+  const first = await rows.nth(0).boundingBox();
+  const second = await rows.nth(1).boundingBox();
+  if (!first || !second) throw new Error("outline rows have no layout");
+  await page.mouse.move(first.x + 4, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(second.x + 4, second.y + second.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(2)).toHaveAttribute("data-selected", "false");
+
+  // Dragging any selected bullet past the last row moves the whole selection.
+  const handle = await page.getByTestId("block-bullet").nth(0).boundingBox();
+  const last = await rows.nth(2).boundingBox();
+  if (!handle || !last) throw new Error("drag targets have no layout");
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2, last.y + last.height - 2, { steps: 8 });
+  await expect(page.getByTestId("outline-drop")).toBeVisible();
+  await page.mouse.up();
+  await expect.poll(() => blockTexts(page)).toEqual(["three", "one", "two"]);
+
+  // And Backspace on the still-selected pair takes both.
+  await page.keyboard.press("Backspace");
+  await expect.poll(() => blockTexts(page)).toEqual(["three"]);
 });

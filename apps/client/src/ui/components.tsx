@@ -16,7 +16,8 @@ export function Dialog({
 }: {
   title: string;
   onClose: () => void;
-  size?: "default" | "wide";
+  /** `settings` is the two-pane dialog: wider, and it owns its own scrolling. */
+  size?: "default" | "wide" | "settings";
   children: ReactNode;
 }) {
   const { message } = useI18n();
@@ -27,7 +28,10 @@ export function Dialog({
     <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
         closeLabel={message("common.close")}
-        className={cn(size === "wide" && "max-w-[720px]")}
+        className={cn(
+          size === "wide" && "max-w-[720px]",
+          size === "settings" && "max-w-[820px]",
+        )}
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}

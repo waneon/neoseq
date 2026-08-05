@@ -1,9 +1,14 @@
-// The ⌘/ sheet. Generated from one table so it cannot drift from what the
-// application actually binds, including pointer-only routes.
+// The ⌘/ sheet. Generated from the binding table so it cannot drift from what
+// the application actually binds — and now that bindings are editable, "cannot
+// drift" includes the user's own choices: every key shown here is read from the
+// same resolved table the global listener matches against.
+//
+// Pointer-only routes are listed beside the verbs that have no key, which is what
+// makes it safe for a control to be summoned rather than permanent.
 
 import { Dialog } from "../../ui/components";
 import { useI18n } from "../../i18n";
-import { MOD } from "./keys";
+import { formatBinding, useShortcutBindings, type ShortcutId } from "./shortcuts";
 
 interface Entry {
   label: string;
@@ -18,17 +23,24 @@ interface Section {
 
 export function ShortcutSheet({ onClose }: { onClose: () => void }) {
   const { message } = useI18n();
+  const bindings = useShortcutBindings();
+  const key = (id: ShortcutId) => formatBinding(bindings[id]);
+
   const sections: Section[] = [
     {
       title: message("shortcuts.anywhere"),
       entries: [
-        { label: message("shortcuts.search"), keys: [`${MOD}K`] },
-        { label: message("shortcuts.properties"), keys: [`${MOD}⇧P`] },
-        { label: message("shortcuts.keyboard"), keys: [`${MOD}/`] },
-        { label: message("shortcuts.sidebar"), keys: [`${MOD}\\`] },
-        { label: message("shortcuts.settings"), keys: [`${MOD},`] },
-        { label: message("shortcuts.undo"), keys: [`${MOD}Z`] },
-        { label: message("shortcuts.redo"), keys: [`${MOD}⇧Z`] },
+        { label: message("shortcuts.search"), keys: [key("palette")] },
+        { label: message("shortcuts.properties"), keys: [key("properties")] },
+        { label: message("shortcuts.keyboard"), keys: [key("shortcuts")] },
+        { label: message("shortcuts.sidebar"), keys: [key("sidebar")] },
+        { label: message("shortcuts.settings"), keys: [key("settings")] },
+        { label: message("shortcuts.undo"), keys: [key("undo")] },
+        { label: message("shortcuts.redo"), keys: [key("redo")] },
+        {
+          label: message("shortcuts.customise"),
+          route: message("shortcuts.customiseRoute"),
+        },
       ],
     },
     {
@@ -52,11 +64,28 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
       ],
     },
     {
+      title: message("shortcuts.selection"),
+      entries: [
+        {
+          label: message("shortcuts.selectBlocks"),
+          route: message("shortcuts.selectBlocksRoute"),
+        },
+        {
+          label: message("shortcuts.moveSelection"),
+          route: message("shortcuts.moveSelectionRoute"),
+        },
+        { label: message("shortcuts.deleteSelection"), keys: ["⌫"] },
+        { label: message("shortcuts.indent"), keys: ["⇥"] },
+        { label: message("shortcuts.outdent"), keys: ["⇧⇥"] },
+        { label: message("outline.clearSelection"), keys: ["⎋"] },
+      ],
+    },
+    {
       title: message("shortcuts.journalPages"),
       entries: [
         {
           label: message("shortcuts.jumpDate"),
-          route: message("shortcuts.dateExamples", { key: `${MOD}K` }),
+          route: message("shortcuts.dateExamples", { key: key("palette") }),
         },
         {
           label: message("shortcuts.nextPrevDay"),
@@ -86,7 +115,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
         },
         {
           label: message("shortcuts.graphSettings"),
-          route: message("shortcuts.graphSettingsRoute", { key: `${MOD},` }),
+          route: message("shortcuts.graphSettingsRoute", { key: key("settings") }),
         },
       ],
     },
@@ -104,9 +133,9 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
                   <dt>{entry.label}</dt>
                   <dd>
                     {entry.keys
-                      ? entry.keys.map((key) => (
-                          <kbd className="kbd" key={key}>
-                            {key}
+                      ? entry.keys.map((glyph) => (
+                          <kbd className="kbd" key={glyph}>
+                            {glyph}
                           </kbd>
                         ))
                       : entry.route}

@@ -2,15 +2,13 @@
 
 ## Shared Application
 
-The client is a React and TypeScript single-page application bundled by Vite.
-The current Step 5 application runs in the browser. Later Tauri shells reuse the
-same components and interaction model on macOS and Android; responsive layout
-and capability detection replace platform forks.
-
-React owns transient presentation state only: focus, selection, open panels,
-optimistic text composition, and viewport caches. Canonical block Markdown and
-page/block property bags live in the Rust graph runtime. UI localization follows
-the device-local [`LocaleRuntime`](i18n.md) and never translates graph data.
+The client is a React and TypeScript single-page application bundled by Vite. Step 5
+runs in the browser; later Tauri shells reuse the same components and interaction
+model on macOS and Android, with responsive layout and capability detection replacing
+platform forks. React owns transient presentation state only — focus, block selection,
+open panels, optimistic text composition, viewport caches — while canonical block
+Markdown and property bags live in the Rust graph runtime, and UI localization follows
+the device-local [`LocaleRuntime`](i18n.md) without ever translating graph data.
 
 ## CorePort
 
@@ -25,251 +23,254 @@ subscribe graph/save/sync status
 import/export graph
 ```
 
-Request, response, event, and error types are generated from a shared schema.
-Contract version negotiation happens on startup. No component calls Tauri APIs,
-WebAssembly exports, IndexedDB, or WebSocket directly.
+Request, response, event and error types are generated from a shared schema, and
+version negotiation happens on startup. No component calls Tauri APIs, WebAssembly
+exports, IndexedDB or WebSocket directly.
 
-CorePort version 4 adds `query` to `open_graph`, `execute`, graph-summary
-`read`, `read_page`, `subscribe`, and `close_graph`. Generated Rust/TypeScript
-DTOs cover typed RDF terms/results, locators, recovery and storage capabilities,
-saved/dirty state, bounded cursors, and stable query, timeout, schema, storage,
-and handle errors. Native and Worker suites consume the v4 contract fixture.
+Version 4 adds `query` alongside the six existing operations; the generated DTOs and
+the stable error set are defined in [`contracts/core-port.json`](../contracts/core-port.json),
+which both the Native and Worker suites consume as a fixture.
 
 ### Native Adapter (headless parity only at Step 5)
 
 In the later native clients, `CorePort` invokes Tauri commands implemented by
-`platform-native`. The graph runtime, SQLite repository, and sync transport run
-in the native Rust process. A bounded event channel forwards semantic events to
-the webview. Tauri capabilities allow only the explicit commands needed by the
-app.
-
-The current headless `NativeCorePort` owns a graph-handle map and one SQLite profile
-database. Opening replays verified records; clean close writes a checkpoint and
-compaction marker. This adapter is exercised headlessly before editor UI work.
+`platform-native`: the graph runtime, SQLite repository and sync transport run in the
+native Rust process, a bounded event channel forwards semantic events to the webview,
+and Tauri capabilities allow only the commands the app needs. The current headless
+`NativeCorePort` owns a graph-handle map and one SQLite profile database; opening
+replays verified records, and a clean close writes a checkpoint and compaction
+marker.
 
 ### Browser Adapter
 
-The browser adapter starts the Rust/Wasm graph runtime in a dedicated Web
-Worker. `CorePort` messages cross a typed worker protocol; transferable
-`ArrayBuffer`s carry large CRDT/archive payloads. IndexedDB and browser
-WebSocket implementations satisfy core ports through thin Wasm-facing adapters.
-Keeping the runtime off the main thread protects typing, scrolling, and
-rendering latency.
+The browser adapter starts the Rust/Wasm graph runtime in a dedicated Web Worker,
+keeping typing, scrolling and rendering latency off the runtime's path. `CorePort`
+messages cross a typed worker protocol, transferable `ArrayBuffer`s carry large
+CRDT/archive payloads, and IndexedDB and browser WebSocket implementations satisfy
+core ports through thin Wasm-facing adapters.
 
-The product Worker lazily initializes Wasm only for graph operations; graph
-listing and deletion use IndexedDB without paying Wasm startup cost. It owns
-the Wasm core, IndexedDB transactions, pending unsaved bytes,
-and event cursor. Main-thread callers see immutable DTOs, and large diagnostic
-buffers transfer rather than clone. Opening a local locator creates no network
-transport.
+The Worker owns the Wasm core, IndexedDB transactions, pending unsaved bytes and the
+event cursor, and initializes Wasm lazily — graph listing and deletion pay no startup
+cost. Main-thread callers see immutable DTOs; large diagnostic buffers transfer rather
+than clone, and opening a local locator creates no network transport.
 
-Beyond the seven CorePort v4 operations, the worker protocol carries three
-adapter-level operations the local Web app needs: `retry_pending` (persist the
-exact pending update bytes after a storage failure), `list_graphs` (stored
-graph metadata), and `delete_graph` (explicit local deletion of a closed
-graph). They are adapter concerns, not CorePort contract surface. Graph
-display names are app-level bookkeeping in a small localStorage directory;
-canonical note data never lives there. A `GraphSession` on the main thread
-serializes commands, and after every command drains the event stream, refreshes
-the graph summary, and rehydrates only the affected page. The UI never copies
-unrelated page outlines through the Worker boundary.
+Beyond the seven CorePort v4 operations the protocol carries three adapter-level
+ones — `retry_pending` (persist the exact pending update bytes after a storage
+failure), `list_graphs`, `delete_graph` — which are adapter concerns, not contract
+surface. Graph display names are app-level bookkeeping in a small localStorage
+directory; canonical note data never lives there. A `GraphSession` on the main thread
+serializes commands and, after each one, drains the event stream, refreshes the graph
+summary and rehydrates only the affected page, never copying unrelated outlines
+across the Worker boundary.
 
-Production uses the wall clock and exposes no verification route or storage
-fault controls. A separate Vite `test` mode adds a lazily loaded verification
-page, deterministic time, and a `TestCoreWorker`; those symbols and the golden
-transcript are test-harness inputs rather than public assets.
+Production uses the wall clock and exposes no verification route or storage fault
+controls. A separate Vite `test` mode adds a lazily loaded verification page,
+deterministic time and a `TestCoreWorker` — test-harness inputs, not public assets.
 
 ## Editor State and Input
 
-Each rendered block has a stable `BlockId`. The editor maintains a viewport
-window and requests nearby ancestors/children rather than materializing the
-whole graph.
+Each rendered block has a stable `BlockId`. The editor keeps a viewport window and
+requests nearby ancestors/children rather than materializing the whole graph.
 
-Text input follows this sequence:
+The outline holds two mutually exclusive notions of "current": a caret (a focused
+textarea) and a structural selection (a set of `BlockId`s a bulk command acts on).
+Taking either drops the other — a gesture that selects also blurs the textarea — so
+a bare `⌫` is never ambiguous. Selection arithmetic (which rows a drag covers, which
+are the roots of the moved subtrees, where a drop legally lands) is pure, lives in
+`features/outline/selection.ts`, and is addressed by row *index* rather than by
+rectangle, because virtualized rows a marquee never mounted must still be
+selectable. Bulk move, indent, outdent and delete expand into one core command per
+selected root; the move plan walks an *anchor* rather than an absolute index,
+because the core counts a move's index against the siblings that exist when it
+runs, and the movers that have not gone yet are still among them.
 
-1. preserve native IME composition locally;
-2. submit an edit with block ID and text-range intent at a composition boundary
-   or short debounce;
-3. reconcile with the authoritative semantic event from the core;
-4. transform the local selection when remote text changes arrive.
+Text input follows one sequence: preserve native IME composition locally; submit an edit
+with block ID and text-range intent at a composition boundary or short debounce; reconcile
+with the authoritative semantic event from the core; transform the local selection when
+remote text arrives.
 
-Structural commands such as indent, outdent, and move go directly to the core
-and render optimistically only when the inverse is known. A rejected command
-restores the authoritative subtree, retains focus where possible, and is
-reported (§ Failure Reporting) rather than looking like a key that did nothing.
+Structural commands go directly to the core and render optimistically only when the
+inverse is known. A rejected one restores the authoritative subtree, keeps focus where
+it can, and is reported (§ Failure Reporting) rather than looking like a dead key.
 
-The one optimistic structure is block insertion: Enter mounts a focused
-pending row immediately so fast typing lands in the new block, and the row
-swaps to its real `BlockId` from the reconciled session snapshot when the core
-acknowledges the insert. The handoff restores focus during the same layout
-commit, so a parent render lag cannot expose an unfocused or missing editor to
-the next input event. Pending rows may chain; queued inserts, indent/outdent
-intents, and raced keystrokes replay in order against real ids. Only one
-pending handoff dispatches at a time, and the next insert derives its parent
-and index after the preceding structural intents reconcile. The known inverse
-(drop the row) applies if an insert is rejected. Text drafts are dropped only
-once the authoritative snapshot matches them, so debounced splices are never
-lost.
+The one optimistic structure is block insertion: Enter mounts a focused pending row
+so fast typing lands in the new block, and it swaps to its real `BlockId` in the
+same layout commit that the core's acknowledgement reconciles, so a render lag
+cannot expose an unfocused editor to the next keystroke. Pending rows chain —
+queued inserts, indent/outdent intents and raced keystrokes replay in order against
+real ids, one handoff at a time. A rejected insert applies the known inverse; text
+drafts are dropped only once the authoritative snapshot matches them.
 
 ## Property-Driven Features
 
-Extensible metadata controls use the property read/write contract. A versioned
-renderer registry maps well-known keys to richer UI without hiding their uniform
-representation. Tag membership is the explicit structural exception:
+Extensible metadata controls use the property read/write contract; a versioned renderer
+registry maps well-known keys to richer UI without hiding their uniform representation.
+`tag_refs` renders tag-registry autocomplete and repeatable chips (tag membership being
+the explicit structural exception); `query.source` renders the SPARQL editor and result
+view; `task.*` keys render workflow, priority and date controls;
+`system.created-at`/`system.updated-at` render as read-only page info; unknown keys fall
+back to the generic typed editor.
 
-- `tag_refs` renders tag-registry autocomplete and repeatable chips;
-- `query.source` renders the SPARQL editor and `SELECT`/`ASK` result view;
-- `task.status` renders workflow controls;
-- `task.scheduled` and `task.deadline` render date controls;
-- `task.priority` renders priority controls;
-- `system.created-at` and `system.updated-at` render as read-only page info;
-- unknown keys fall back to the generic typed property editor.
+Removing a renderer never makes data unreadable — its values stay visible and
+editable as ordinary properties — and a new non-text feature adds property
+definitions and renderers, not a frontend entity store or a core storage shape.
 
-Removing a feature renderer never makes data unreadable: its values remain
-visible and editable as ordinary properties. A new non-text feature adds
-property definitions and renderers, not a frontend entity store or core storage
-shape.
-
-The query editor executes stored SPARQL and reports typed rows, booleans, and
-diagnostics. Runtime values are sent as typed initial bindings, never
-interpolated into source text. Global search already uses generated SPARQL
-through the same CorePort operation; task lists, agendas, backlinks, and editor
-completion extend that operation rather than add graph-scan APIs.
+The query editor executes stored SPARQL and reports typed rows, booleans and
+diagnostics; runtime values are sent as typed initial bindings, never interpolated
+into source text. Global search already uses generated SPARQL through the same
+CorePort operation, and task lists, agendas, backlinks and editor completion extend
+that operation rather than add graph-scan APIs.
 
 ## Command Layer
 
 Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md)
 § Disclosure), and the command layer is what makes that safe rather than merely
 sparse. `features/commands/` owns one registry, one window keydown listener, the
-`⌘K` palette, and the `⌘/` sheet generated from the same registry. Each entry has
-a localized pointer route, so the palette is never the only route.
+`⌘K` palette, and the `⌘/` sheet generated from the same binding table. Each entry
+carries a localized pointer route; the palette's own is the rail's permanent
+`Search` row, which is what lets undo and redo give up their top-bar buttons.
 
-Key arbitration order is fixed: an IME-composition guard first (a composition
-owns the keyboard outright — losing a keystroke corrupts CJK input), then any
-handler that already called `preventDefault` (the outline's editor bindings, an
-open overlay), then the global layer. **The global layer only matches bindings
-carrying ⌘ or ⌃**, so no bare key can be taken from a text field.
+`commands/shortcuts.ts` owns the binding table — defaults, stored overrides, validation,
+display form. A `Binding` cannot express a modifier-less shortcut, so the "⌘ or ⌃ only"
+invariant is a type rather than a check; one hook resolves the table, so listener, sheet,
+settings editor, menu rows and palette badges agree by construction. Bindings persist as
+`event.key`. The outline's writing keys are not in the table and not rebindable.
 
-The shell publishes two slots — block properties and page properties — that the
-Outliner and PageView fill while mounted, so `⌘⇧P` reaches a panel that lives
-below the shell. Each of those panels also has a local pointer route that works
-with no shell present, which is what keeps them reachable in the component test
+Key arbitration order is fixed: an IME-composition guard first (a composition owns the
+keyboard outright — losing a keystroke corrupts CJK input), then any handler that already
+called `preventDefault` (the outline's editor bindings, an open overlay), then the global
+layer. A modal surface stands the global layer down while it is up, so the palette can
+never be summoned over a focus-trapping dialog that would take its input's focus back.
+
+The shell publishes slots the routed views fill while mounted — block properties, page
+properties, and the page's own info/delete verbs — so `⌘⇧P` and the palette reach
+panels and menus that live below the shell. Each also has a local pointer route that
+works with no shell present, which is what keeps them reachable in the component test
 harness.
 
 ## Failure Reporting
 
-`features/notify/` owns one toast queue, provided above the router so reports
-survive navigation and reach the shell-less graph picker; consumers take a
-`Notifier` from context whose default is a no-op, so a feature still mounts bare
-in a test. **A failure is reported where the user is already looking, and reaches
-the toast layer only when it would otherwise leave no trace** —
-[`DESIGN.md`](../DESIGN.md) § Toasts says which side each one falls on. Durability
-is the exclusion the code enforces: `dirty_unsaved` and `storage_full` belong to
-the save slot, so the notifier returns `null` for them. `errors.ts` maps stable
-`CorePortError` codes and known safe validation diagnostics to localized
-title/detail message IDs; raw codes and unknown diagnostics remain off screen.
+`features/notify/` owns one toast queue, provided above the router so reports survive
+navigation and reach the shell-less graph picker; consumers take a `Notifier` from context
+whose default is a no-op, so a feature still mounts bare in a test.
+**Every rejected command is reported through this one layer** — structural
+key, rename, autocomplete pick, page restore, task field, query source, graph search
+alike: one surface, one copy contract, one place to look. The exclusions are narrow:
+durability is enforced in code (`dirty_unsaved` and `storage_full` belong to the save
+slot, so the notifier returns `null`), *validation* stays beside its field because "what
+you typed cannot be a value" is a fact about that input, and query diagnostics stay in the
+query block because they are its output.
+
+Every report expires and shows how much of its window is left, and the countdown pauses
+while the user is looking at it. `errors.ts` maps stable `CorePortError` codes and known
+safe diagnostics to localized title/detail message IDs; raw codes and unknown diagnostics
+stay off screen.
 
 ## Navigation and Journals
 
-- The application resolves “today” with the user's configured IANA timezone and
-  calls `EnsureJournal(LocalDate)`; the core guarantees idempotence.
-- Routes use stable page IDs. Human-readable titles are optional route hints,
-  not identity.
-- Page and tag creation uses the core's case/whitespace name identity. The
-  autocomplete reuses an exact normalized match, default page creation chooses
-  the next available `Untitled N`, and a rejected rename remains on the
-  authoritative title with an accessible inline error.
-- Page-reference autocomplete searches the page summary, while tag autocomplete
-  searches the independent tag registry and writes `TagId` membership.
+- The application resolves “today” with the user's configured IANA timezone and calls
+  `EnsureJournal(LocalDate)`; the core guarantees idempotence. How a day is *written* is a
+  separate app-wide preference read from `entities/settings`, so the journal title, the top
+  bar and the palette can never disagree.
+- Routes use stable page IDs; human-readable titles are hints, not identity.
+  Settings is a dialog whose open section lives in a search parameter, so it is
+  linkable and the browser's Back closes it.
+- Page and tag creation uses the core's case/whitespace name identity: the
+  autocomplete reuses an exact normalized match, default creation chooses the next
+  available `Untitled N`, and a rejected rename stays on the authoritative title and
+  is reported. Page-reference autocomplete searches the page summary; tag
+  autocomplete searches the independent tag registry and writes `TagId` membership.
 - Journal date entry is a palette concern: an injected locale adapter parses
-  locale-specific words and month/weekday names, while ISO `2026-08-05` works in
-  every locale. The day view keeps a mounted, focusable native date input as the
-  keyboard route and the `showPicker()` target, without restating the date beside
-  a heading that already spells it out.
-- Deleted or missing references open a tombstone view rather than silently
-  creating a replacement page.
+  locale-specific words and month/weekday names, while ISO `2026-08-05` works in every
+  locale. The day view keeps a mounted, focusable native date input as the keyboard
+  route and `showPicker()` target, without restating the date beside a heading that
+  already spells it out.
+- Deleted or missing references open a tombstone rather than silently creating a
+  replacement.
 
 ## Offline and Sync UX
 
-The UI distinguishes three independent states:
-
-- **saved locally:** the latest local update is durable;
-- **synced remotely:** the service acknowledged all current outbox updates;
-- **live:** a real-time connection currently exists.
-
-Loss of connectivity changes only the latter two. Editing remains available, and
-the outbox retries with bounded exponential backoff and jitter. Authentication
-expiry pauses remote exchange without invalidating the local replica.
-Conflict-free merge is normal and is not presented as an error; quarantined data
-or failed schema migration is.
+Three independent states: **saved locally** (the latest update is durable), **synced
+remotely** (the outbox is acknowledged), **live** (a connection exists). Losing
+connectivity changes only the latter two; editing continues, the outbox retries with
+bounded backoff and jitter, and authentication expiry pauses remote exchange without
+invalidating the local replica. Conflict-free merge is not an error; quarantined data
+or a failed schema migration is.
 
 ## Platform Lifecycle
 
 ### Web
 
-- The app is deployable as static assets (hash routing, no rewrite rules) with
-  a build-generated Service Worker that precaches the shell — HTML, JS, CSS,
-  and the Wasm core — so an offline reload boots. It never caches graph data.
-- IndexedDB persistence permission/quota is checked and visible to the user in
-  settings, together with quarantined-record recovery reports.
-- Multi-tab graph editing uses a per-tab random Loro peer ID and a Web Locks
-  lease per graph; without the lease, a second tab opens the graph read-only.
-  A tab-local coordinator serializes transient session replacement onto the
-  same lease, so development remounts cannot impersonate a competing tab.
-  Session shutdown is cancellation-safe, and peer IDs are never reused
-  concurrently.
+- Deployable as static assets (hash routing, no rewrite rules) with a build-generated
+  Service Worker precaching the shell — HTML, JS, CSS, Wasm core — so an offline reload
+  boots. It never caches graph data.
+- IndexedDB persistence permission and quota are visible in Settings → Storage, and
+  quarantined-record recovery is reported once and kept in Settings → Graph.
+- Multi-tab editing uses a per-tab random Loro peer ID and a Web Locks lease per
+  graph; without the lease a second tab opens read-only. A tab-local coordinator
+  serializes transient session replacement onto the same lease, so development
+  remounts cannot impersonate a competing tab; shutdown is cancellation-safe and
+  peer IDs are never reused concurrently.
 
-### macOS (planned)
+### macOS and Android (planned)
 
-- Window/menu/shortcut integration lives in Tauri-specific modules.
-- App suspension/quit requests a bounded core flush and shows unsaved failures.
-- Packaging, signing, notarization, and updater configuration are delivery
-  concerns, not domain code.
-
-### Android (planned)
-
-- Back navigation, soft keyboard, safe areas, sharing intents, and lifecycle
-  events are adapter concerns.
-- Background execution is opportunistic. The core flushes locally on pause and
-  sync resumes on foreground; correctness never depends on a permanent
-  background socket.
-- Touch targets and outline gestures provide keyboard-command equivalents
-  without changing command semantics.
+Window/menu/shortcut integration, back navigation, soft keyboard, safe areas, sharing
+intents and lifecycle events are Tauri-specific adapter concerns, as are packaging,
+signing, notarization and the updater. Suspension or quit requests a bounded core
+flush and shows unsaved failures; background execution is opportunistic, so the core
+flushes locally on pause and sync resumes on foreground and correctness never depends
+on a background socket. Touch targets and outline gestures provide keyboard-command
+equivalents without changing command semantics.
 
 ## Frontend Module Boundaries
 
 ```text
 app/             composition, routing, lifecycle
 features/        editor and property-driven journal/query/task/graph views
-features/commands/  the command layer: registry, key arbitration, palette, sheet
+features/commands/  the command layer: registry, bindings, arbitration, palette, sheet
 features/notify/    the notification layer: toast queue, failure copy, viewport
-entities/        page/block view models and renderers
+features/settings/  the two-scope settings dialog and the shortcut editor
+entities/        page/block view models, and the browser-local settings store
 core-port/       session, commands, snapshot DTOs, graph directory, lease
 generated/       CorePort contract types (path fixed by the drift check)
 i18n/            locale resolution, typed catalogs, provider, Intl formatters
 lib/             framework-agnostic UI helpers (class-name merge)
-ui/              design tokens, Tailwind v4 theme, appearance, shadcn/Radix primitives
+ui/              design tokens, Tailwind v4 theme, appearance, brand mark, shadcn/Radix
 ```
 
-The presentation layer is Tailwind CSS v4 with shadcn/ui primitives built on
-Radix, over the token set in `ui/app.css` — the single owner of every design
-token. `ui/globals.css` declares the cascade order and maps those tokens onto
-shadcn's semantic variables, declaring no values of its own.
-[`DESIGN.md`](../DESIGN.md) is the design source of truth, including a committed
-contrast table that components consult rather than re-derive.
+`entities/settings.ts` is the single owner of the browser-local preference blob
+(`neoseq.settings.v1`): journal timezone, UI locale, journal date format, shortcut
+overrides. It keeps one parsed snapshot and publishes changes, which is what lets a
+date-format or shortcut edit take effect live and agree across tabs;
+`entities/journal.ts`, `i18n/runtime.tsx` and `features/commands/shortcuts.ts` read it
+through this store rather than each keeping their own read-modify-write pair. Settings
+belonging to a *graph* stay where they were — the graph directory for its display name
+(which now publishes too, so a rename cannot leave two names on screen), the core for
+everything else.
+
+The presentation layer is Tailwind CSS v4 with shadcn/ui primitives on Radix, over
+the token set in `ui/app.css` — the single owner of every design token.
+`ui/globals.css` declares the cascade order and maps those tokens onto shadcn's semantic
+variables, declaring no values of its own. [`DESIGN.md`](../DESIGN.md) is the design
+source of truth, including a committed contrast table components consult rather than
+re-derive.
 
 Both colour modes ship from one declaration and resolution is **CSS-only**: an
 explicit `[data-theme]` beats `prefers-color-scheme` in both directions, and a
 pre-paint script in `index.html` applies the stored choice. `ui/theme.ts` records
-the preference and never asks the browser, so a runtime without `matchMedia`
-still renders correctly.
+the preference and never asks the browser, so a runtime without `matchMedia` still
+renders correctly.
 
-Native form controls stay native (select, checkbox, date) for platform pickers
-and AT support. Anything that must escape the virtualized outline's scroll
-container and stacking context — the block action menu, the page autocomplete,
-the notification viewport — renders in a portal, on one shared `--z-*` scale.
-Motion is restrained: nothing animates a transform, and a surface read the moment
-it appears animates nothing, so an audit never reads one mid-fade.
+Native form controls stay native (select, checkbox, date) for platform pickers and AT
+support. Anything that must escape the virtualized outline's scroll container and
+stacking context — the block menu, the page autocomplete, the notification viewport —
+renders in a portal on one shared `--z-*` scale, and both context menus hang off the
+object they act on (a bullet is a real trigger; the title row positions against a
+zero-size anchor at the pointer) so neither needs a button of its own. Motion is
+restrained: nothing animates a transform, and a surface read the moment it appears
+animates nothing, so an audit never reads one mid-fade. The single exception —
+a toast's countdown, information rather than decoration — is argued in
+[`DESIGN.md`](../DESIGN.md) § Motion.
 
 The property registry the UI validates against is imported from the versioned
 core fixture (`fixtures/core/property-definitions-v3.json`), so client and core
@@ -280,20 +281,22 @@ never a shared mutable store.
 
 ## Accessibility and Testing
 
-- The outline exposes accessible tree semantics and keyboard collapse-and-step;
-  query results use appropriate list/table semantics.
-- Property editors are progressive: both page bags live in one disclosure between
-  the title and the writing, reached from the property strip, the page menu, or
-  `⌘⇧P`. System-owned keys are page *information* and surface in the page-info
-  dialog. Nothing is mounted below the outline.
-- Focus and selection survive virtualization, remote updates, and reports by ID.
-- Component tests use a fake `CorePort`; they do not instantiate Loro.
-- Contract suites run against both native and worker adapters and verify that
-  well-known, repeated, and unknown properties round-trip without loss.
-- End-to-end suites cover the local Web product, offline restart, and a real core
-  rejection reported live — audited while the toast is up, in both colour schemes.
-  Later suites add reconnect/merge, Android lifecycle, and macOS navigation.
+- The outline exposes accessible multi-selectable tree semantics and keyboard
+  collapse-and-step; query results use list/table semantics. Every verb on a
+  context menu is also a documented key or a palette row, so no capability depends
+  on a right-click.
+- Property editors are progressive: both page bags live in one disclosure between the
+  title and the writing, reached from the strip, the title row's menu, or `⌘⇧P`.
+  System-owned keys are page *information* and live in the page-info dialog, and nothing
+  is mounted below the outline.
+- Focus and selection survive virtualization, remote updates and reports, by ID.
+- Component tests use a fake `CorePort` and never instantiate Loro; selection arithmetic
+  and the binding table are pure and tested directly, while the marquee needs real layout
+  and belongs to the browser suite.
+- Contract suites run against both adapters and verify that well-known, repeated and
+  unknown properties round-trip without loss. End-to-end suites cover the local Web
+  product, offline restart, and a real core rejection reported live — audited while the
+  toast is up, in both colour schemes.
 
-Tauri 2 is selected because its maintained architecture supports web frontends
-with Rust commands and packaging for both
-[macOS and Android](https://v2.tauri.app/distribute/).
+Tauri 2 is selected because its maintained architecture supports web frontends with Rust
+commands and packaging for both [macOS and Android](https://v2.tauri.app/distribute/).

@@ -1,13 +1,8 @@
-import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import {
-  InfoIcon,
-  MoreHorizontalIcon,
-  Settings2Icon,
-  Trash2Icon,
-} from "lucide-react";
+import { InfoIcon, Settings2Icon, Trash2Icon } from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findPage, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
+import { findPage, journalDate, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { Dialog } from "../../ui/components";
@@ -19,12 +14,18 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
-import { MOD } from "../commands/keys";
+import { useCommands } from "../commands/context";
+import { formatBinding, useShortcutBindings } from "../commands/shortcuts";
 import { useNotify } from "../notify/context";
-import { failureReason } from "../notify/errors";
 import { useSession, useSessionState } from "../shell/session-context";
 import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
+
+/** Where a context menu was summoned, in viewport coordinates. */
+interface MenuPoint {
+  x: number;
+  y: number;
+}
 
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
@@ -65,7 +66,7 @@ export function PageView() {
 function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string }) {
   const session = useSession();
   const state = useSessionState();
-  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const notify = useNotify();
   const { message } = useI18n();
   return (
     <Tombstone
@@ -74,31 +75,24 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
       graphId={graphId}
       actions={
         state.mode !== "readonly" ? (
-          <>
-            <button
-              className="btn btn-primary"
-              data-testid="restore-page"
-              onClick={() =>
-                void session
-                  .execute({ type: "restore_page", page_id: pageId })
-                  .then(() => setRestoreError(null))
-                  .catch((cause) =>
-                    setRestoreError(
-                      cause instanceof Error && cause.message.includes("page does not exist")
-                        ? message("page.nothingToRestore")
-                        : failureReason(cause, message),
-                    )
-                  )
-              }
-            >
-              {message("page.restore")}
-            </button>
-            {restoreError && (
-              <span className="field-error" data-testid="restore-error">
-                {restoreError}
-              </span>
-            )}
-          </>
+          <button
+            className="btn btn-primary"
+            data-testid="restore-page"
+            onClick={() =>
+              void session.execute({ type: "restore_page", page_id: pageId }).catch(
+                (error: unknown) => {
+                  // The button leaves the tombstone exactly as it was, so the
+                  // reason has nowhere else to be said.
+                  notify.failure(
+                    message("failure.restorePage"),
+                    error,
+                  );
+                },
+              )
+            }
+          >
+            {message("page.restore")}
+          </button>
         ) : undefined
       }
     />
@@ -112,23 +106,40 @@ export function PageBody({
   page: PageSnapshot;
   /**
    * The journal supplies its own title row. It receives the already-wired page
-   * menu so the properties panel has a pointer route on both surfaces without
-   * either view reaching for shell state.
+   * menu and the handler that summons it, so the page's verbs have the same
+   * pointer route on both surfaces without either view reaching for shell state.
    */
-  header?: (menu: ReactNode) => ReactNode;
+  header?: (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => ReactNode;
 }) {
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   const [propsOpen, setPropsOpen] = useState(false);
-  const menu = <PageMenu page={page} onOpenProperties={() => setPropsOpen(true)} />;
+  const [menuAt, setMenuAt] = useState<MenuPoint | null>(null);
+
+  const openMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setMenuAt({ x: event.clientX, y: event.clientY });
+  };
+
+  const menu = (
+    <PageMenu
+      page={page}
+      at={menuAt}
+      onClose={() => setMenuAt(null)}
+      onOpenProperties={() => setPropsOpen(true)}
+    />
+  );
+
   return (
     <div className="page-scroll" ref={setScrollElement}>
       <article className="page-body" key={page.id}>
         {header ? (
-          header(menu)
+          header(menu, openMenu)
         ) : (
-          <div className="title-row">
+          // The title row is the page's own handle: right-clicking it is where
+          // its verbs live now that the row carries no ⋯ button.
+          <div className="title-row" onContextMenu={openMenu}>
             <EditableTitle page={page} />
-            <div className="title-actions">{menu}</div>
+            {menu}
           </div>
         )}
         {/* Properties sit between the title and the writing, collapsed, so the
@@ -143,28 +154,37 @@ export function PageBody({
 function EditableTitle({ page }: { page: PageSnapshot }) {
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const authoritative = pageTitle(page);
   const [draft, setDraft] = useState<string | null>(null);
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const errorId = useId();
+  // `⏎` commits and then blurs, and the blur commits again — with the same draft,
+  // because the state update has not landed yet. One rename, reported once.
+  const pending = useRef<string | null>(null);
   const isJournal = pageKind(page) === "journal";
-  const { message } = useI18n();
+  const { message, formatJournalDate } = useI18n();
 
   if (isJournal) {
-    return <h1>{authoritative}</h1>;
+    // A journal page carries no title — the core stores its day as a property —
+    // so `pageTitle` would fall back to the page id. Reached through /journal the
+    // view supplies the heading itself; reached by id, as a reference resolves it,
+    // this is the only thing that would render, and it must be the same date in
+    // the same format the user chose.
+    const day = journalDate(page);
+    return <h1 data-testid="journal-title">{day ? formatJournalDate(day) : authoritative}</h1>;
   }
 
   const commit = () => {
-    const next = draft?.trim();
+    const next = pending.current?.trim();
+    pending.current = null;
     setDraft(null);
-    setRenameError(null);
     if (next && next !== authoritative) {
       void session
         .execute({ type: "rename_page", page_id: page.id, title: next })
-        .catch((cause) => {
-          setRenameError(
-            failureReason(cause, message),
-          );
+        // A rejected rename snaps the field back to the authoritative title. The
+        // snap is the only thing the user sees, and on its own it looks like the
+        // keystroke never registered, so the reason is reported.
+        .catch((error: unknown) => {
+          notify.failure(message("failure.renamePage"), error);
         });
     }
   };
@@ -175,13 +195,11 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
         className="page-title"
         value={draft ?? authoritative}
         aria-label={message("page.title")}
-        aria-invalid={renameError ? true : undefined}
-        aria-describedby={renameError ? errorId : undefined}
         data-testid="page-title"
         readOnly={state.mode === "readonly"}
         onChange={(event) => {
+          pending.current = event.target.value;
           setDraft(event.target.value);
-          setRenameError(null);
         }}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -194,35 +212,41 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
             // Escape abandons the draft rather than committing it — the field had
             // no way out before except reverting the text by hand.
             event.preventDefault();
+            pending.current = null;
             setDraft(null);
-            setRenameError(null);
             event.currentTarget.blur();
           }
         }}
       />
-      {renameError && (
-        <p id={errorId} className="field-error" role="alert">
-          {renameError}
-        </p>
-      )}
     </div>
   );
 }
 
 /**
- * The one permanent page-scoped control. It is the named route to properties,
- * to the page's own metadata, and to deletion — which is why the writing surface
- * needs no other chrome of its own.
+ * The page's verbs. It has no button of its own: the pointer route is a
+ * right-click on the title row, and the keyboard route is `⌘⇧P` for properties
+ * plus the palette's own `Page info` and `Delete page…` rows, which reach these
+ * same handlers through the command bridge.
+ *
+ * Radix needs something to position against, so the trigger is a zero-size
+ * anchor placed at the pointer. It is `aria-hidden` and unfocusable: it is not a
+ * control, it is a coordinate.
  */
-export function PageMenu({
+function PageMenu({
   page,
+  at,
+  onClose,
   onOpenProperties,
 }: {
   page: PageSnapshot;
+  at: MenuPoint | null;
+  onClose: () => void;
   onOpenProperties: () => void;
 }) {
   const session = useSession();
   const state = useSessionState();
+  const bridge = useCommands();
+  const bindings = useShortcutBindings();
   const notify = useNotify();
   const { message } = useI18n();
   const readonly = state.mode === "readonly";
@@ -230,26 +254,51 @@ export function PageMenu({
   const [info, setInfo] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // The palette reaches the same two verbs. Registering them here keeps the
+  // menu the single owner of what they do.
+  useEffect(() => {
+    bridge.setPageActions({
+      info: () => setInfo(true),
+      remove: () => {
+        if (!isJournal && !readonly) setConfirmDelete(true);
+      },
+    });
+    return () => bridge.setPageActions(null);
+  }, [bridge, isJournal, readonly]);
+
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu
+        modal={false}
+        open={at !== null}
+        onOpenChange={(open) => (open ? undefined : onClose())}
+      >
         <DropdownMenuTrigger asChild>
-          <button
-            className="icon-btn"
+          <span
+            className="menu-anchor"
+            // Radix points the menu's `aria-labelledby` at its trigger, and
+            // `aria-labelledby` wins over the menu's own `aria-label` — so the name
+            // has to live here, on the anchor, even though the anchor itself is
+            // hidden. A name is still read through a labelledby reference.
             aria-label={message("page.actions")}
-            data-testid="page-menu"
-          >
-            <MoreHorizontalIcon aria-hidden />
-          </button>
+            aria-hidden
+            style={{ left: at?.x ?? 0, top: at?.y ?? 0 }}
+          />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            data-testid="menu-page-properties"
-            onSelect={onOpenProperties}
-          >
+        <DropdownMenuContent
+          align="start"
+          onCloseAutoFocus={(event) => {
+            // Focus must not land on the anchor — it is hidden from assistive
+            // technology and cannot be typed into — so it goes back to the title,
+            // which is the thing the menu was summoned from.
+            event.preventDefault();
+            document.querySelector<HTMLElement>('[data-testid="page-title"]')?.focus();
+          }}
+        >
+          <DropdownMenuItem data-testid="menu-page-properties" onSelect={onOpenProperties}>
             <Settings2Icon aria-hidden />
             {message("page.properties")}
-            <DropdownMenuShortcut>{MOD}⇧P</DropdownMenuShortcut>
+            <DropdownMenuShortcut>{formatBinding(bindings.properties)}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setInfo(true)}>
             <InfoIcon aria-hidden />

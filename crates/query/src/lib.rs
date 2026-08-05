@@ -327,7 +327,7 @@ impl GraphIndex {
                 language: literal.language().map(str::to_owned),
             }),
             Term::BlankNode(_) => Err(QueryError::InvalidTerm(
-                "blank nodes are not part of the NeoSeq projection".into(),
+                "blank nodes are not part of the Neoseq projection".into(),
             )),
         }
     }

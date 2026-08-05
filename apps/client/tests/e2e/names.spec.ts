@@ -12,7 +12,11 @@ test("live page names are unique and default names remain usable", async ({ page
   await title.fill("  alpha   page  ");
   await title.press("Enter");
 
-  await expect(page.getByRole("alert")).toContainText("page name already exists");
+  // The refusal is a report now: the field snapping back is the only other thing
+  // the user would see, and on its own it reads as a keystroke that did nothing.
+  const report = page.getByRole("alert");
+  await expect(report).toContainText("Couldn’t rename this page");
+  await expect(report).toContainText("A page with that name already exists.");
   await expect(title).toHaveValue("Untitled");
 
   await openSidebar(page);
