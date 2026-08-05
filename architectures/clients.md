@@ -19,7 +19,7 @@ The frontend depends on one asynchronous TypeScript interface, `CorePort`:
 open/close graph
 execute domain command
 read page/block view
-compile/execute/subscribe query
+compile/execute/subscribe read-only SPARQL query
 subscribe graph/save/sync status
 import/export graph
 ```
@@ -116,7 +116,7 @@ renderer registry maps well-known keys to richer UI without hiding their uniform
 representation. Tag membership is the explicit structural exception:
 
 - `tag_refs` renders tag-registry autocomplete and repeatable chips;
-- `query.source` renders the query editor and result view;
+- `query.source` renders the SPARQL editor and `SELECT`/`ASK` result view;
 - `task.status` renders workflow controls;
 - `task.scheduled` and `task.deadline` render date controls;
 - `task.priority` renders priority controls;
@@ -127,6 +127,12 @@ Removing a feature renderer never makes data unreadable: its values remain
 visible and editable as ordinary properties. A new non-text feature adds
 property definitions and renderers, not a frontend entity store or core storage
 shape.
+
+The query editor supplies vocabulary/property completion and stable page/tag
+IRIs. Runtime values such as today's date are sent as typed initial bindings,
+never interpolated into source text. Global search, task lists, agendas, and
+backlinks use generated SPARQL requests through the same CorePort operation;
+they do not add independent graph-scan APIs.
 
 ## Command Layer
 

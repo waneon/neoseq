@@ -7,7 +7,7 @@ contains pages; a page contains ordered root blocks; and every block may contain
 ordered child blocks. Daily journal pages are the primary capture surface. Each
 block has collaborative Markdown text. Tags are graph-scoped entities; queries,
 task fields, and extensible metadata use typed properties. Users can query
-blocks and pages with a safe declarative language.
+blocks and pages through a safe, read-only SPARQL profile.
 
 This document is the architectural source of truth. Component-level detail lives
 under [`architectures/`](architectures/).
@@ -32,6 +32,9 @@ are target architecture for later steps and are not current build artifacts.
   by machine-local store history or host-platform assumptions.
 - User-authored queries must be expressive without gaining filesystem, network,
   or process capabilities.
+- Graph-wide query, search, and projection reads must use a reproducible RDF
+  index rather than traverse the canonical Loro document; deleting the index
+  must never delete user data.
 - Extensible metadata must use one property model; identity and relationships
   such as containment and tag membership remain explicit structural data.
 
@@ -45,6 +48,7 @@ flowchart LR
     Web[WebAssembly adapter<br/>browser]
     Core[Rust graph core]
     Local[(Local replica<br/>SQLite or IndexedDB)]
+    Index[(Derived RDF index<br/>SPARQL + search)]
     Sync[Sync agent]
     Server[Remote sync server<br/>Rust]
     DB[(PostgreSQL)]
@@ -53,6 +57,7 @@ flowchart LR
     Port --> Native --> Core
     Port --> Web --> Core
     Core --> Local
+    Core --> Index
     Core --> Sync
     Sync <-->|TLS WebSocket| Server
     Server --> DB
@@ -71,8 +76,9 @@ agent.
   transport, or UI.
 - `graph-core` owns the graph runtime, Loro projection, transactions, undo, and
   events. It does not know platform APIs or authentication.
-- `query` owns parsing, planning, indexes, and budgeted execution. It cannot
-  mutate CRDT state or call the server.
+- `query` owns the Loro-to-RDF projection, triple/text indexes, SPARQL parsing
+  and planning, and budgeted execution. It cannot mutate CRDT state, scan Loro
+  as a normal query path, select another graph, or call the server.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
 - `app-ui` owns editing interaction, navigation, the command layer, and
@@ -95,10 +101,10 @@ Detailed contracts are in:
 ## Core Runtime Contract
 
 One `GraphRuntime` owns each open graph. It serializes commands so a user action
-is one Loro transaction, persists the resulting update, updates derived indexes,
-and then emits a typed event. Remote imports enter through the same runtime and
-update the same projections. Reads use immutable DTOs; callers never receive
-Loro containers.
+is one Loro transaction, persists the resulting update, atomically publishes a
+derived RDF index revision, and then emits a typed event. Remote imports enter
+through the same runtime and update the same projection. Reads use immutable
+DTOs; callers never receive Loro containers.
 
 The boundary is asynchronous and versioned:
 
@@ -107,7 +113,7 @@ open_graph(locator) -> graph_handle + graph_summary
 execute(graph_handle, command) -> command_result
 read(graph_handle) -> graph_summary
 read_page(graph_handle, page_id) -> page_view
-query(graph_handle, source, parameters) -> result_set
+query(graph_handle, sparql_request) -> select_result | ask_result
 subscribe(graph_handle, cursor) -> graph_events
 close_graph(graph_handle)
 ```
@@ -141,8 +147,11 @@ TypeScript, native, and WebAssembly adapters compatible.
   retroactive.
 - Deleted pages are soft-deleted in shared state. References remain resolvable
   as tombstones until explicit, policy-driven cleanup.
-- Query indexes, UI selection, connection status, and presence are derived or
-  ephemeral and never become canonical CRDT state.
+- The per-graph RDF triple index, text/hierarchy accelerators, compiled SPARQL
+  plans, UI selection, connection status, and presence are derived or ephemeral
+  and never become canonical CRDT state. Each index revision identifies the
+  exact Loro frontier from which it was projected and is discarded/rebuilt when
+  its fingerprint is stale.
 
 CRDT/document mechanics such as entity IDs, schema version, tree parent/order,
 and tombstones are not user-visible semantics and remain structural metadata.
@@ -154,7 +163,8 @@ Tag identity/membership and node containment are also explicit structural data.
 2. `GraphRuntime` validates it and applies one Loro transaction.
 3. The local repository durably appends the exported update before the runtime
    reports a saved state.
-4. Derived indexes update and subscribers receive a semantic graph event.
+4. The RDF/text index publishes one complete revision and subscribers receive a
+   semantic graph event.
 5. For a remote graph, the sync agent sends the same update until acknowledged.
 6. The server authorizes and durably stores the update before broadcasting it.
 7. Peers import updates in any order; Loro convergence, not server sequence,
@@ -183,8 +193,9 @@ step 3 succeeds. Network failure never blocks local editing.
   access by editing a graph.
 - The server applies frame-size, update-rate, and document-size limits before
   accepting untrusted CRDT bytes.
-- User queries run only in the client core with time, row, and memory budgets
-  and have no I/O capabilities.
+- User queries run only in the client core against the current graph's derived
+  RDF index. The accepted SPARQL profile excludes update, dataset selection,
+  federation, and other I/O, and enforces time, row, scan, and memory budgets.
 - The initial remote design is not end-to-end encrypted: the service
   reconstructs Loro documents for differential sync and compaction. E2EE would
   require a new opaque-log and key-management design and is intentionally
@@ -196,7 +207,7 @@ step 3 succeeds. Network failure never blocks local editing.
 crates/
   domain/             # Pure domain model and commands
   graph-core/         # Loro-backed runtime and application services
-  query/              # Parser, planner, indexes, executor
+  query/              # RDF projector/index, SPARQL planner and executor
   platform-native/    # Headless SQLite and native CorePort parity adapter
   platform-web/       # Product wasm-bindgen graph-core adapter
 apps/
@@ -226,5 +237,8 @@ transport types only and will not expose server persistence models.
 - New metadata features define well-known properties and projections. New
   identity or relationship semantics require an explicit structural design;
   either kind of schema change requires compatibility fixtures.
+- RDF vocabulary/projection, query-profile, and text-analyzer changes are
+  versioned independently from the CRDT schema. Cached indexes from any
+  mismatched version are rebuilt from Loro rather than migrated as user data.
 - Architecture-affecting code changes update this document and the relevant
   component document in the same change.

@@ -24,8 +24,8 @@ artifact provenance를 한 release manifest로 연결한다.
 ### Version과 artifact
 
 - application/source revision, target, Rust/Node/Loro version, CRDT schema
-  range, CorePort, sync protocol, query language, property registry version을
-  embed한다.
+  range, CorePort, sync protocol, RDF projection, SPARQL profile, text analyzer,
+  property registry version을 embed한다.
 - Nix derivation output과 platform signing 결과를 checksum으로 연결한다.
 - SBOM, dependency license, provenance attestation을 생성한다.
 - release artifact는 다시 build하지 않고 검증된 CI output을 승격한다.

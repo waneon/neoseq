@@ -134,7 +134,8 @@ Its lifecycle is:
 
 1. load the latest valid checkpoint and update tail;
 2. validate/migrate the document schema;
-3. build or restore derived indexes and emit the initial view;
+3. restore a fingerprint-matching RDF index or rebuild it from the validated
+   Loro snapshot, then emit the initial view;
 4. accept local commands and remote imports;
 5. periodically checkpoint and compact local update storage;
 6. flush pending persistence work on suspension/close.
@@ -163,7 +164,8 @@ Callers receive immutable DTOs:
 
 - tag registries, page summaries, and page/block trees for viewport hydration;
 - block detail and typed property values;
-- query rows with stable entity IDs;
+- SPARQL `SELECT` rows or `ASK` booleans with RDF terms, typed entity references,
+  and the projected Loro frontier;
 - save, sync, migration, and recoverable error status.
 
 Events identify semantic impact (`BlockTextChanged`, `SubtreeMoved`,
@@ -195,7 +197,8 @@ types remain private to `graph-core`.
   composition boundaries.
 - Tree/page hydration is paged or viewport-based; the complete graph is not
   copied through the JS boundary after each edit.
-- Index updates consume changed entity IDs from Loro events, not full snapshots.
+- RDF index updates consume changed entity IDs/fields from Loro events, replace
+  their emitted triples atomically, and use full snapshots only for rebuild.
 - Expensive load, checkpoint, and query work runs away from the UI thread; the
   web runtime lives in a Web Worker.
 

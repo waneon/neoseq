@@ -119,8 +119,8 @@ credential, runner image를 출력 manifest에 기록해야 한다.
 - **수렴 검증:** update 순서 변경, 중복, 누락 후 재전송을 거쳐 peer state 비교.
 - **내구성 검증:** process kill, 부분 write, corrupt tail, quota/DB 장애 후
   복구.
-- **계약 검증:** CorePort, CRDT schema, property definition, query language,
-  sync wire version fixture.
+- **계약 검증:** CorePort, CRDT schema, property definition, RDF projection,
+  SPARQL profile, sync wire version fixture.
 - **제품 검증:** 실제 browser/macOS/Android에서 사용자 시나리오 실행.
 - **운영 검증:** 부하, backpressure, backup/restore, 권한 취소,
   rollout/rollback.
@@ -134,7 +134,7 @@ credential, runner image를 출력 manifest에 기록해야 한다.
 | Markdown block text                    | 02        | 04, 08         |
 | Uniform property                       | 02        | 05, 09         |
 | Page-backed tag/default 복사           | 02        | 04, 07         |
-| Query property/DSL                     | 05        | 10             |
+| Query property/SPARQL                  | 05        | 10             |
 | Task status/schedule/deadline/priority | 05        | 08, 10         |
 | Local graph                            | 03        | 04, 09         |
 | Remote graph/Loro realtime sync        | 06        | 07, 10         |

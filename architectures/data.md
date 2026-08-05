@@ -21,6 +21,13 @@ tags: Map<TagId, TagRecord>
 Root names and container types are permanent protocol. New root fields may be
 added, but an existing name cannot change type.
 
+The Loro document and its durable update/checkpoint history are the only
+canonical graph representation. RDF triples, term dictionaries, full-text
+postings, hierarchy accelerators, query plans, and query results are derived
+state outside these roots. The query projector must be able to reproduce their
+complete semantic contents from any validated document snapshot; import/export
+never treats an index as graph data.
+
 ## Pages
 
 `pages` is keyed by stable `PageId`. A page map contains:
@@ -188,10 +195,13 @@ port. OS-provided app storage and backup policies are used; no graph is placed
 in a user-visible directory without an explicit export.
 
 SQLite migration version 1 creates metadata, update, checkpoint, outbox-ready,
-index-cache, and quarantine tables. Update append atomically inserts the update
-and outbox row and advances `next_sequence`. Checkpoint insertion precedes the
-compaction marker; neither operation deletes recovery evidence. Busy, locked,
-full, and corrupt SQLite results map to stable storage errors.
+index-cache, and quarantine tables. The index-cache table is an optional
+performance cache keyed by the full Loro-frontier/projection/query-profile/text-
+analyzer fingerprint; no recovery path depends on it. Update append atomically
+inserts the update and outbox row and advances `next_sequence`. Checkpoint
+insertion precedes the compaction marker; neither operation deletes recovery
+evidence. Busy, locked, full, and corrupt SQLite results map to stable storage
+errors.
 
 ### Browser Storage
 
@@ -210,6 +220,10 @@ both Wasm core and repository, so update/checkpoint buffers normally never
 cross the main-thread boundary. Binary diagnostic exports use transferable
 `ArrayBuffer`s. Browser persistence and quota estimates populate the storage
 capability DTO.
+
+The current browser runtime rebuilds the RDF index in Worker memory after open;
+native adapters may restore the optional SQLite cache. This platform difference
+changes startup cost only, never SPARQL results or consistency.
 
 ## Checkpointing and Recovery
 

@@ -23,8 +23,8 @@ content가 일치한다. 손상 fixture는 마지막 valid state로 복구되고
 - supported schema range, migration ID, `applied_migrations`, minimum client
   write gate를 구현한다.
 - migration은 idempotent/monotonic normal CRDT operation으로 실행한다.
-- well-known property definition과 query language version의 compatibility
-  fixture를 유지한다.
+- well-known property definition, RDF projection/vocabulary, SPARQL profile,
+  text analyzer version의 compatibility fixture를 유지한다.
 - future schema는 가능한 경우 read-only/export mode로 열고 silent downgrade하지
   않는다.
 
@@ -34,7 +34,8 @@ content가 일치한다. 손상 fixture는 마지막 valid state로 복구되고
 - newest checkpoint 기록이 durable해진 뒤에만 포함된 update를 compactable로
   표시한다.
 - crash 시 prior checkpoint 또는 valid tail로 돌아갈 수 있게 한다.
-- derived query index cache는 version mismatch 시 삭제 가능한 data로 취급한다.
+- derived RDF/query index cache는 Loro frontier 또는 projection/profile/analyzer
+  version mismatch 시 삭제하고 canonical snapshot에서 rebuild한다.
 
 ### Server checkpoint/retention
 
