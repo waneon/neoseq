@@ -56,9 +56,9 @@ fn command(graph: &str, id: &str, page: &str) -> Value {
 }
 
 #[test]
-fn core_port_native_contract_suite_matches_v4_golden() {
+fn core_port_native_contract_suite_matches_v5_golden() {
     let golden: Value =
-        serde_json::from_str(include_str!("../../../fixtures/core-port/v4.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/core-port/v5.json")).unwrap();
     let schema: Value =
         serde_json::from_str(include_str!("../../../contracts/core-port.json")).unwrap();
     assert_eq!(golden["contract_version"], schema["contractVersion"]);

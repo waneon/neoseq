@@ -27,7 +27,8 @@ Request, response, event and error types are generated from a shared schema, and
 version negotiation happens on startup. No component calls Tauri APIs, WebAssembly
 exports, IndexedDB or WebSocket directly.
 
-Version 4 adds `query` alongside the six existing operations; the generated DTOs and
+Version 5 makes plural structural commands the single path for both one-block and
+multi-block edits; version 4 added `query` alongside the six existing operations. The generated DTOs and
 the stable error set are defined in [`contracts/core-port.json`](../contracts/core-port.json),
 which both the Native and Worker suites consume as a fixture.
 
@@ -54,7 +55,7 @@ event cursor, and initializes Wasm lazily — graph listing and deletion pay no 
 cost. Main-thread callers see immutable DTOs; large diagnostic buffers transfer rather
 than clone, and opening a local locator creates no network transport.
 
-Beyond the seven CorePort v4 operations the protocol carries three adapter-level
+Beyond the seven CorePort v5 operations the protocol carries three adapter-level
 ones — `retry_pending` (persist the exact pending update bytes after a storage
 failure), `list_graphs`, `delete_graph` — which are adapter concerns, not contract
 surface. Graph display names are app-level bookkeeping in a small localStorage
@@ -79,10 +80,11 @@ a bare `⌫` is never ambiguous. Selection arithmetic (which rows a drag covers,
 are the roots of the moved subtrees, where a drop legally lands) is pure, lives in
 `features/outline/selection.ts`, and is addressed by row *index* rather than by
 rectangle, because virtualized rows a marquee never mounted must still be
-selectable. Bulk move, indent, outdent and delete expand into one core command per
-selected root; the move plan walks an *anchor* rather than an absolute index,
-because the core counts a move's index against the siblings that exist when it
-runs, and the movers that have not gone yet are still among them.
+selectable. Bulk move, indent, outdent and delete cross the boundary as one command
+per selected gesture. Single-block actions use the same plural command with one ID.
+The client resolves visible selection roots and a geometric drop destination;
+the core normalizes ancestors/descendants, derives authoritative operation order,
+preflights the complete hierarchy change, and owns its transaction and undo group.
 
 Text input follows one sequence: preserve native IME composition locally; submit an edit
 with block ID and text-range intent at a composition boundary or short debounce; reconcile

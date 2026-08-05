@@ -180,4 +180,11 @@ test("drags a range of blocks out and moves them as one", async ({ page }) => {
   // And Backspace on the still-selected pair takes both.
   await page.keyboard.press("Backspace");
   await expect.poll(() => blockTexts(page)).toEqual(["three"]);
+
+  // The selected deletion is one document-history item, irrespective of how
+  // many independent subtree roots it contains.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => blockTexts(page)).toEqual(["three", "one", "two"]);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(() => blockTexts(page)).toEqual(["three"]);
 });

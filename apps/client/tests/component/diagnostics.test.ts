@@ -64,13 +64,22 @@ describe("diagnostic redaction", () => {
         secret: { kind: "literal", value: canary, datatype: "urn:test" },
       },
     });
-    expect(JSON.stringify({ command, query })).not.toContain(canary);
+    const structural = commandAttributes({
+      type: "delete_blocks",
+      page_id: `page-${canary}`,
+      block_ids: [`first-${canary}`, `second-${canary}`],
+    });
+    expect(JSON.stringify({ command, query, structural })).not.toContain(canary);
     expect(command).toMatchObject({
       command_type: "insert_block",
       entity_kind: "block",
       text_length: "17-64",
     });
     expect(query).toMatchObject({ source_length: "17-64", binding_count: 1 });
+    expect(structural).toEqual({
+      command_type: "delete_blocks",
+      entity_kind: "block",
+    });
   });
 
   it("never preserves a custom property key or value", () => {

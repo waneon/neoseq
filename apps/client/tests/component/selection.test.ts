@@ -8,8 +8,6 @@ import type { BlockSnapshot, PageSnapshot } from "../../src/core-port/snapshot";
 import {
   dropTarget,
   idsInRange,
-  movePlan,
-  outdentOrder,
   selectionRoots,
   selectionSize,
 } from "../../src/features/outline/selection";
@@ -97,45 +95,5 @@ describe("drop targets", () => {
   it("does not offer a level inside a collapsed row, which would hide the drop", () => {
     const collapsed = flattenOutline(PAGE, new Set(["b"]));
     expect(dropTarget(collapsed, moving, 2, 9)).toMatchObject({ parentId: null, depth: 0 });
-  });
-});
-
-describe("move plans", () => {
-  it("walks an anchor, so each root lands after the one before it", () => {
-    const roots = selectionRoots(rows, new Set(["a", "c"]));
-    expect(
-      movePlan(rows, roots, { parentId: "b", afterId: "b2", depth: 1, gap: 4 }),
-    ).toEqual([
-      { blockId: "a", parent: "b", index: 2 },
-      { blockId: "c", parent: "b", index: 3 },
-    ]);
-  });
-
-  it("counts against the siblings that still exist, not the ones that will", () => {
-    // `a` and `b` both move to the end of the roots, past `c`. Naively that is
-    // index 1 then 2, which lands them as c, a … then a, c, b — the order the
-    // user did not ask for. Anchored, `a` goes after `c` and `b` after `a`.
-    const roots = selectionRoots(rows, new Set(["a", "b"]));
-    const target = dropTarget(rows, new Set(["a", "b"]), 5, 0);
-    expect(target).toMatchObject({ parentId: null, afterId: "c" });
-    expect(movePlan(rows, roots, target!)).toEqual([
-      { blockId: "a", parent: null, index: 2 },
-      { blockId: "b", parent: null, index: 2 },
-    ]);
-  });
-
-  it("puts a group at the head of a list when there is nothing above it", () => {
-    const roots = selectionRoots(rows, new Set(["b", "c"]));
-    expect(
-      movePlan(rows, roots, { parentId: null, afterId: null, depth: 0, gap: 0 }),
-    ).toEqual([
-      { blockId: "b", parent: null, index: 0 },
-      { blockId: "c", parent: null, index: 1 },
-    ]);
-  });
-
-  it("outdents from the bottom up, so the group keeps its order", () => {
-    const roots = selectionRoots(rows, new Set(["b1", "b2"]));
-    expect(outdentOrder(roots).map((row) => row.block.id)).toEqual(["b2", "b1"]);
   });
 });

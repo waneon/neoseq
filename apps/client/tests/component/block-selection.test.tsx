@@ -69,9 +69,13 @@ describe("block selection", () => {
     );
   });
 
-  it("deletes every selected block from the menu on the bullet", async () => {
+  it("deletes every selected block as one undoable command", async () => {
     const user = userEvent.setup();
-    const { session } = await mountRows(["one", "two", "three"]);
+    const { session, port } = await mountRows(["one", "two", "three"]);
+    const commands: string[] = [];
+    port.beforeExecute = async (command) => {
+      commands.push(command.type);
+    };
     pressBullet(0);
     pressBullet(1, { shiftKey: true });
 
@@ -84,6 +88,19 @@ describe("block selection", () => {
       const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
       expect(page?.blocks.map((block) => block.markdown)).toEqual(["three"]);
     });
+    expect(commands).toEqual(["delete_blocks"]);
+
+    await session.execute({ type: "undo" });
+    expect(
+      session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks
+        .map((block) => block.markdown),
+    ).toEqual(["one", "two", "three"]);
+
+    await session.execute({ type: "redo" });
+    expect(
+      session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks
+        .map((block) => block.markdown),
+    ).toEqual(["three"]);
   });
 
   it("indents the whole selection under one new parent", async () => {

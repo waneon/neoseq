@@ -57,7 +57,8 @@ commands are:
 
 - ensure, rename a regular page, and soft-delete a page;
 - ensure a journal page for a local date;
-- insert, edit, indent, outdent, move, and delete a block/subtree;
+- insert and edit a block, and indent, outdent, move, or delete one or more
+  block subtrees;
 - set/remove typed properties, including repeated entries;
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities;
@@ -67,6 +68,14 @@ Each command carries a client-generated idempotency key and expected graph
 handle. The runtime rejects malformed IDs, invalid values, cycles, references to
 a different graph, and resource-limit violations before mutation. It does not
 reject valid commands merely because the network is unavailable.
+
+A command is one user intent and one local history item. Structural commands
+accept a non-empty list of block IDs for both single-block and multi-block
+actions. Before mutation, the core removes duplicates and descendants already
+carried by a selected ancestor, orders the remaining roots from authoritative
+outline state, and simulates the whole move, indent, or outdent plan. A rejected
+plan leaves no document change or undo item. The UI supplies targets and a move
+destination, but never operation order or undo-group controls.
 
 Live regular page names and live tag names are unique in separate graph-scoped
 namespaces. Comparison trims and collapses whitespace and applies Unicode
@@ -148,10 +157,12 @@ Its lifecycle is:
 5. periodically checkpoint and compact local update storage;
 6. flush pending persistence work on suspension/close.
 
-A successfully validated command is applied as one Loro transaction. The runtime
-groups its operations for local undo and emits an exported binary update. Undo
-only tracks local command groups; imported remote changes are never undone by
-another user's local undo action.
+A successfully planned command is applied as one Loro transaction. The runtime
+groups all of its operations into one local undo item, exports one binary update,
+and emits one semantic event. Undo only tracks local command groups; imported
+remote changes are never undone by another user's local undo action. Loro does
+not provide transactional rollback, so every user-rejectable structural
+condition is checked by the read-only plan before the first CRDT mutation.
 
 The implementation expresses the actor boundary as the single-owner
 `GraphRuntime<R, C>` message loop. Its mutable receiver serializes execute,
@@ -217,6 +228,8 @@ types remain private to `graph-core`.
   tag-default edge cases.
 - Model-based tests compare command sequences against an in-memory reference
   model.
+- Structural-command tests cover root normalization, all-or-nothing preflight,
+  ordering, and one-step undo/redo for plural move, indent, outdent, and delete.
 - CRDT convergence tests apply the same randomized operations in different
   orders across peers, including moves, deletes, and journal creation.
 - Golden boundary tests ensure native and Wasm adapters serialize identical

@@ -62,23 +62,23 @@ pub enum Command {
         delete: usize,
         insert: String,
     },
-    MoveBlock {
-        block_id: BlockId,
+    MoveBlocks {
+        block_ids: Vec<BlockId>,
         page_id: PageId,
         parent: Option<BlockId>,
         index: usize,
     },
-    IndentBlock {
+    IndentBlocks {
         page_id: PageId,
-        block_id: BlockId,
+        block_ids: Vec<BlockId>,
     },
-    OutdentBlock {
+    OutdentBlocks {
         page_id: PageId,
-        block_id: BlockId,
+        block_ids: Vec<BlockId>,
     },
-    DeleteBlock {
+    DeleteBlocks {
         page_id: PageId,
-        block_id: BlockId,
+        block_ids: Vec<BlockId>,
     },
     SetProperty {
         entity: EntityId,

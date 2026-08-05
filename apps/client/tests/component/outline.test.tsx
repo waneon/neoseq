@@ -101,7 +101,7 @@ describe("outliner keyboard commands", () => {
         pauseNextInsert = false;
         signalInsertStarted();
         await insertGate;
-      } else if (command.type === "indent_block" && pauseNextIndent) {
+      } else if (command.type === "indent_blocks" && pauseNextIndent) {
         pauseNextIndent = false;
         signalIndentStarted();
         await indentGate;
@@ -135,7 +135,7 @@ describe("outliner keyboard commands", () => {
     await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(4));
     expect(document.activeElement).toBe(screen.getAllByLabelText("Block text")[3]);
     await waitFor(() => {
-      expect(commandTypes.filter((type) => type === "indent_block")).toHaveLength(2);
+      expect(commandTypes.filter((type) => type === "indent_blocks")).toHaveLength(2);
       const page = findPage(session.getState().snapshot, "home");
       expect(page?.blocks.map((block) => block.markdown)).toEqual(["alpha"]);
       expect(page?.blocks[0].children.map((block) => block.markdown)).toEqual(["child"]);

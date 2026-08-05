@@ -123,6 +123,11 @@ derived RDF index revision, and then emits a typed event. Remote imports enter
 through the same runtime and update the same projection. Reads use immutable
 DTOs; callers never receive Loro containers.
 
+The command boundary is also the local history boundary: one user intent is one
+domain command, one undo item, one persisted CRDT update, and one semantic event.
+Multi-block structural edits therefore cross the boundary as plural commands;
+the UI never holds an undo group open across asynchronous calls.
+
 The boundary is asynchronous and versioned:
 
 ```text

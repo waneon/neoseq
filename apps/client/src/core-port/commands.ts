@@ -20,10 +20,10 @@ export type Command =
   | { type: "insert_block"; page_id: string; parent: string | null; index: number; markdown: string }
   | { type: "edit_markdown"; page_id: string; block_id: string; markdown: string }
   | { type: "splice_markdown"; page_id: string; block_id: string; index: number; delete: number; insert: string }
-  | { type: "move_block"; block_id: string; page_id: string; parent: string | null; index: number }
-  | { type: "indent_block"; page_id: string; block_id: string }
-  | { type: "outdent_block"; page_id: string; block_id: string }
-  | { type: "delete_block"; page_id: string; block_id: string }
+  | { type: "move_blocks"; block_ids: string[]; page_id: string; parent: string | null; index: number }
+  | { type: "indent_blocks"; page_id: string; block_ids: string[] }
+  | { type: "outdent_blocks"; page_id: string; block_ids: string[] }
+  | { type: "delete_blocks"; page_id: string; block_ids: string[] }
   | { type: "set_property"; entity: EntityRef; key: string; value: PropertyValue }
   | { type: "remove_property"; entity: EntityRef; key: string }
   | { type: "add_repeated_property"; entity: EntityRef; key: string; value: PropertyValue }

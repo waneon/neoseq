@@ -62,8 +62,6 @@ import { codePointIndex, codePointLength, diffSplice } from "./text-diff";
 import {
   dropTarget,
   idsInRange,
-  movePlan,
-  outdentOrder,
   selectionRoots,
   selectionSize,
   type DropTarget,
@@ -479,9 +477,9 @@ export function Outliner({
           for (const kind of head.structural) {
             await session
               .execute({
-                type: kind === "indent" ? "indent_block" : "outdent_block",
+                type: kind === "indent" ? "indent_blocks" : "outdent_blocks",
                 page_id: pageRef.current.id,
-                block_id: realId,
+                block_ids: [realId],
               })
               .catch((error: unknown) => {
                 notify.failure(
@@ -662,19 +660,26 @@ export function Outliner({
     (target: DropTarget, moving: ReadonlySet<string>) => {
       const roots = selectionRoots(rowsRef.current, moving);
       if (roots.length === 0) return;
-      void runSequence(
-        movePlan(rowsRef.current, roots, target).map((step) => ({
-          type: "move_block" as const,
-          block_id: step.blockId,
+      const rootIds = new Set(roots.map((root) => root.block.id));
+      const stationary = rowsRef.current.filter(
+        (row) => row.parentId === target.parentId && !rootIds.has(row.block.id),
+      );
+      const anchor = target.afterId === null
+        ? -1
+        : stationary.findIndex((row) => row.block.id === target.afterId);
+      if (target.afterId !== null && anchor < 0) return;
+      void run(
+        {
+          type: "move_blocks",
+          block_ids: roots.map((root) => root.block.id),
           page_id: pageRef.current.id,
-          parent: step.parent,
-          index: step.index,
-        })),
-        session,
-        (error) => notify.failure(message("failure.moveBlocks", { count: roots.length }), error),
+          parent: target.parentId,
+          index: anchor + 1,
+        },
+        message("failure.moveBlocks", { count: roots.length }),
       );
     },
-    [message, notify, session],
+    [message, run],
   );
 
   /** The bullet is the block's handle: press, move, and the subtree travels. */
@@ -925,9 +930,9 @@ export function Outliner({
         flushNow(row.block.id);
         void run(
           {
-            type: "indent_block",
+            type: "indent_blocks",
             page_id: authoritativePage.id,
-            block_id: row.block.id,
+            block_ids: [row.block.id],
           },
           message("failure.indentBlock"),
         );
@@ -936,9 +941,9 @@ export function Outliner({
         flushNow(row.block.id);
         void run(
           {
-            type: "outdent_block",
+            type: "outdent_blocks",
             page_id: authoritativePage.id,
-            block_id: row.block.id,
+            block_ids: [row.block.id],
           },
           message("failure.outdentBlock"),
         );
@@ -949,8 +954,8 @@ export function Outliner({
         if (target < 0 || target >= row.siblingCount) return;
         void run(
           {
-            type: "move_block",
-            block_id: row.block.id,
+            type: "move_blocks",
+            block_ids: [row.block.id],
             page_id: authoritativePage.id,
             parent: row.parentId,
             index: target,
@@ -963,42 +968,39 @@ export function Outliner({
         const previous = allRows[position - 1]?.block.id ?? null;
         void run(
           {
-            type: "delete_block",
+            type: "delete_blocks",
             page_id: authoritativePage.id,
-            block_id: row.block.id,
+            block_ids: [row.block.id],
           },
           message("failure.deleteBlock"),
         ).then(() => {
           setFocus(previous);
         });
       },
-      // Group structure runs one core command per selected root. Indent replays
-      // in document order because each call re-reads the previous sibling;
-      // outdent replays in reverse, because it drops each block immediately
-      // after its former parent and would otherwise stack them backwards.
+      // One user gesture crosses the core boundary as one command. The core
+      // owns root normalization, ordering, validation, and the undo group.
       indentSelection: () => {
-        // Document order; see `outdentOrder` for why the other direction is not.
         const roots = selectionRoots(rowsRef.current, selectedRef.current);
-        void runSequence(
-          roots.map((root) => ({
-            type: "indent_block" as const,
+        if (roots.length === 0) return;
+        void run(
+          {
+            type: "indent_blocks",
             page_id: authoritativePage.id,
-            block_id: root.block.id,
-          })),
-          session,
-          (error) => notify.failure(message("failure.indentBlock"), error),
+            block_ids: roots.map((root) => root.block.id),
+          },
+          message("failure.indentBlock"),
         );
       },
       outdentSelection: () => {
-        const roots = outdentOrder(selectionRoots(rowsRef.current, selectedRef.current));
-        void runSequence(
-          roots.map((root) => ({
-            type: "outdent_block" as const,
+        const roots = selectionRoots(rowsRef.current, selectedRef.current);
+        if (roots.length === 0) return;
+        void run(
+          {
+            type: "outdent_blocks",
             page_id: authoritativePage.id,
-            block_id: root.block.id,
-          })),
-          session,
-          (error) => notify.failure(message("failure.outdentBlock"), error),
+            block_ids: roots.map((root) => root.block.id),
+          },
+          message("failure.outdentBlock"),
         );
       },
       removeSelection: () => {
@@ -1007,15 +1009,13 @@ export function Outliner({
         const first = rowIndexOf(rowsRef.current, roots[0].block.id);
         const fallback = rowsRef.current[first - 1]?.block.id ?? null;
         clearSelection();
-        void runSequence(
-          roots.map((root) => ({
-            type: "delete_block" as const,
+        void run(
+          {
+            type: "delete_blocks",
             page_id: authoritativePage.id,
-            block_id: root.block.id,
-          })),
-          session,
-          (error) =>
-            notify.failure(message("failure.deleteBlocks", { count: roots.length }), error),
+            block_ids: roots.map((root) => root.block.id),
+          },
+          message("failure.deleteBlocks", { count: roots.length }),
         ).then(() => setFocus(fallback));
       },
     },
@@ -1204,24 +1204,6 @@ function valueRelation(
 ): "equal" | "different" | "missing" {
   if (left === undefined || right === undefined) return "missing";
   return left === right ? "equal" : "different";
-}
-
-/** Runs core commands in order, stopping at the first rejection. */
-async function runSequence(
-  commands: Parameters<GraphSession["execute"]>[0][],
-  session: GraphSession,
-  onFailure: (error: unknown) => void,
-): Promise<void> {
-  for (const command of commands) {
-    const rejection = await session
-      .execute(command)
-      .then(() => null)
-      .catch((error: unknown) => ({ error }));
-    if (rejection) {
-      onFailure(rejection.error);
-      return;
-    }
-  }
 }
 
 /** The collapsed set as it will be after toggling `id`. */

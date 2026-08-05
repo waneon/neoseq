@@ -35,6 +35,7 @@
             ./fixtures/core
             ./fixtures/core-port/v3.json
             ./fixtures/core-port/v4.json
+            ./fixtures/core-port/v5.json
           ];
         };
         testClientFiles = lib.fileset.unions [
@@ -75,6 +76,7 @@
             ./apps/client/tests
             ./fixtures/core-port/v3.json
             ./fixtures/core-port/v4.json
+            ./fixtures/core-port/v5.json
           ];
         };
         generatedSource = lib.fileset.toSource {
@@ -87,6 +89,7 @@
             ./apps/client/src/generated/core-port.ts
             ./fixtures/core-port/v3.json
             ./fixtures/core-port/v4.json
+            ./fixtures/core-port/v5.json
           ];
         };
         pnpmDependencyFiles = [

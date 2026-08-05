@@ -1043,6 +1043,9 @@ blocks a structural command acts on. *They never coexist:* taking one drops the 
 - **Collapsing a row drops any selected descendant it just hid.** Every bulk verb resolves
   the selection against the *visible* outline, so a hidden member would make `⌫` and `⇥`
   quietly do nothing.
+- **A bulk verb is one document-history step.** Delete, indent, outdent, and move cross
+  the graph boundary as one command, so one `⌘Z` restores the entire selected action and
+  redo reapplies it as a unit.
 - `role="tree"` gains `aria-multiselectable`, rows carry `aria-selected`, and the count is
   announced politely — the highlight is the visible count, so a live region is how it
   reaches a screen reader. It counts the rows a verb will *take*, passengers included, and

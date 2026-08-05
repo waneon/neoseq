@@ -51,10 +51,10 @@ export function commandAttributes(command: Command): DiagnosticAttributes {
         insert_length: lengthBucket(command.insert.length),
         delete_length: lengthBucket(command.delete),
       };
-    case "move_block":
-    case "indent_block":
-    case "outdent_block":
-    case "delete_block":
+    case "move_blocks":
+    case "indent_blocks":
+    case "outdent_blocks":
+    case "delete_blocks":
       return { ...base, entity_kind: "block" };
     case "set_property":
     case "remove_property":

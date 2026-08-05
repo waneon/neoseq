@@ -201,8 +201,8 @@ fn run_seed(seed: u64) {
         &fixture.graph,
         left_peer,
         1,
-        Command::MoveBlock {
-            block_id: fixture.moving.clone(),
+        Command::MoveBlocks {
+            block_ids: vec![fixture.moving.clone()],
             page_id: fixture.page_a.clone(),
             parent: None,
             index: 0,
@@ -213,8 +213,8 @@ fn run_seed(seed: u64) {
         &fixture.graph,
         right_peer,
         1,
-        Command::MoveBlock {
-            block_id: fixture.moving.clone(),
+        Command::MoveBlocks {
+            block_ids: vec![fixture.moving.clone()],
             page_id: fixture.page_a.clone(),
             parent: Some(fixture.alternate_parent.clone()),
             index: 0,
@@ -225,9 +225,9 @@ fn run_seed(seed: u64) {
         &fixture.graph,
         left_peer,
         2,
-        Command::DeleteBlock {
+        Command::DeleteBlocks {
             page_id: fixture.page_a.clone(),
-            block_id: fixture.ancestor.clone(),
+            block_ids: vec![fixture.ancestor.clone()],
         },
     );
     execute(
@@ -235,8 +235,8 @@ fn run_seed(seed: u64) {
         &fixture.graph,
         right_peer,
         2,
-        Command::MoveBlock {
-            block_id: fixture.descendant.clone(),
+        Command::MoveBlocks {
+            block_ids: vec![fixture.descendant.clone()],
             page_id: fixture.page_a.clone(),
             parent: None,
             index: 1,

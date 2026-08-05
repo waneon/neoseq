@@ -9,11 +9,24 @@ use loro::{
     LoroValue, TreeID, TreeParentId, UndoManager, ValueOrContainer,
 };
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
 pub const SCHEMA_VERSION: u32 = 3;
 const IDEMPOTENCY_CAPACITY: usize = 1024;
+const MAX_STRUCTURAL_TARGETS: usize = 10_000;
+
+#[derive(Debug, Clone)]
+struct OutlinePlan {
+    roots: Vec<BlockId>,
+}
+
+#[derive(Debug, Clone)]
+struct OutlineState {
+    parents: BTreeMap<BlockId, Option<BlockId>>,
+    children: BTreeMap<Option<BlockId>, Vec<BlockId>>,
+    document_order: Vec<BlockId>,
+}
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -69,6 +82,199 @@ pub struct GraphCore {
     undo: UndoManager,
     command_results: BTreeMap<String, CommandResult>,
     command_order: VecDeque<String>,
+}
+
+impl OutlineState {
+    fn from_page(page: &PageSnapshot) -> Self {
+        let mut state = Self {
+            parents: BTreeMap::new(),
+            children: BTreeMap::new(),
+            document_order: Vec::new(),
+        };
+        state.add_blocks(&page.blocks, None);
+        state
+    }
+
+    fn add_blocks(&mut self, blocks: &[BlockSnapshot], parent: Option<BlockId>) {
+        let ids = blocks
+            .iter()
+            .map(|block| block.id.clone())
+            .collect::<Vec<_>>();
+        self.children.insert(parent.clone(), ids);
+        for block in blocks {
+            self.parents.insert(block.id.clone(), parent.clone());
+            self.document_order.push(block.id.clone());
+            self.add_blocks(&block.children, Some(block.id.clone()));
+        }
+    }
+
+    fn roots(&self, requested: &[BlockId]) -> Result<Vec<BlockId>, CoreError> {
+        if requested.is_empty() {
+            return Err(CoreError::InvalidHierarchy(
+                "structural command requires at least one block".into(),
+            ));
+        }
+        if requested.len() > MAX_STRUCTURAL_TARGETS {
+            return Err(CoreError::InvalidHierarchy(
+                "structural command exceeds the block target limit".into(),
+            ));
+        }
+        let requested = requested.iter().cloned().collect::<BTreeSet<_>>();
+        for block_id in &requested {
+            if !self.parents.contains_key(block_id) {
+                return Err(CoreError::BlockNotFound(block_id.clone()));
+            }
+        }
+
+        Ok(self
+            .document_order
+            .iter()
+            .filter(|block_id| {
+                requested.contains(*block_id) && !self.has_requested_ancestor(block_id, &requested)
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn has_requested_ancestor(&self, block_id: &BlockId, requested: &BTreeSet<BlockId>) -> bool {
+        let mut parent = self.parents.get(block_id).cloned().flatten();
+        while let Some(current) = parent {
+            if requested.contains(&current) {
+                return true;
+            }
+            parent = self.parents.get(&current).cloned().flatten();
+        }
+        false
+    }
+
+    fn move_group(
+        &mut self,
+        roots: &[BlockId],
+        parent: Option<BlockId>,
+        index: usize,
+    ) -> Result<(), CoreError> {
+        if let Some(parent_id) = &parent
+            && !self.parents.contains_key(parent_id)
+        {
+            return Err(CoreError::BlockNotFound(parent_id.clone()));
+        }
+        let root_set = roots.iter().cloned().collect::<BTreeSet<_>>();
+        let stationary = self
+            .children
+            .get(&parent)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|id| !root_set.contains(id))
+            .collect::<Vec<_>>();
+        let mut anchor = index
+            .min(stationary.len())
+            .checked_sub(1)
+            .map(|position| stationary[position].clone());
+
+        for root in roots {
+            let destination = match &anchor {
+                Some(anchor_id) => self
+                    .children
+                    .get(&parent)
+                    .and_then(|siblings| siblings.iter().position(|id| id == anchor_id))
+                    .map(|position| position + 1)
+                    .ok_or_else(|| {
+                        CoreError::InvalidHierarchy("move anchor is not a target sibling".into())
+                    })?,
+                None => 0,
+            };
+            self.move_one(root, parent.clone(), destination)?;
+            anchor = Some(root.clone());
+        }
+        Ok(())
+    }
+
+    fn indent(&mut self, block_id: &BlockId) -> Result<(), CoreError> {
+        let parent = self
+            .parents
+            .get(block_id)
+            .cloned()
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        let siblings = self.children.get(&parent).cloned().unwrap_or_default();
+        let position = siblings
+            .iter()
+            .position(|id| id == block_id)
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        if position == 0 {
+            return Err(CoreError::InvalidHierarchy(
+                "first sibling cannot be indented".into(),
+            ));
+        }
+        self.move_one(block_id, Some(siblings[position - 1].clone()), usize::MAX)
+    }
+
+    fn outdent(&mut self, block_id: &BlockId) -> Result<(), CoreError> {
+        let parent = self
+            .parents
+            .get(block_id)
+            .cloned()
+            .flatten()
+            .ok_or_else(|| CoreError::InvalidHierarchy("root block cannot be outdented".into()))?;
+        let grandparent = self
+            .parents
+            .get(&parent)
+            .cloned()
+            .ok_or_else(|| CoreError::InvalidHierarchy("missing grandparent".into()))?;
+        let position = self
+            .children
+            .get(&grandparent)
+            .and_then(|siblings| siblings.iter().position(|id| id == &parent))
+            .ok_or_else(|| CoreError::InvalidHierarchy("missing parent sibling".into()))?;
+        self.move_one(block_id, grandparent, position + 1)
+    }
+
+    fn move_one(
+        &mut self,
+        block_id: &BlockId,
+        parent: Option<BlockId>,
+        index: usize,
+    ) -> Result<(), CoreError> {
+        if parent.as_ref() == Some(block_id)
+            || parent
+                .as_ref()
+                .is_some_and(|candidate| self.is_descendant(candidate, block_id))
+        {
+            return Err(CoreError::InvalidHierarchy(
+                "move would create a cycle".into(),
+            ));
+        }
+        let old_parent = self
+            .parents
+            .get(block_id)
+            .cloned()
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        let old_siblings = self
+            .children
+            .get_mut(&old_parent)
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        let old_position = old_siblings
+            .iter()
+            .position(|id| id == block_id)
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        old_siblings.remove(old_position);
+
+        let destination = self.children.entry(parent.clone()).or_default();
+        destination.insert(index.min(destination.len()), block_id.clone());
+        self.parents.insert(block_id.clone(), parent);
+        Ok(())
+    }
+
+    fn is_descendant(&self, candidate: &BlockId, ancestor: &BlockId) -> bool {
+        let mut current = Some(candidate.clone());
+        while let Some(block_id) = current {
+            if &block_id == ancestor {
+                return true;
+            }
+            current = self.parents.get(&block_id).cloned().flatten();
+        }
+        false
+    }
 }
 
 impl GraphCore {
@@ -415,27 +621,22 @@ impl GraphCore {
                 self.require_block(page_id, block_id)?;
                 validate_text(insert, 1_048_576)?;
             }
-            Command::MoveBlock {
-                block_id,
+            Command::MoveBlocks {
+                block_ids,
                 page_id,
                 parent,
-                ..
+                index,
             } => {
-                self.require_live_page(page_id)?;
-                let block = self.require_block(page_id, block_id)?;
-                if let Some(parent) = parent {
-                    let parent = self.require_block(page_id, parent)?;
-                    if parent == block || self.is_descendant(page_id, parent, block)? {
-                        return Err(CoreError::InvalidHierarchy(
-                            "move would create a cycle".into(),
-                        ));
-                    }
-                }
+                self.plan_move_blocks(page_id, block_ids, parent.as_ref(), *index)?;
             }
-            Command::IndentBlock { page_id, block_id }
-            | Command::OutdentBlock { page_id, block_id }
-            | Command::DeleteBlock { page_id, block_id } => {
-                self.require_block(page_id, block_id)?;
+            Command::IndentBlocks { page_id, block_ids } => {
+                self.plan_indent_blocks(page_id, block_ids)?;
+            }
+            Command::OutdentBlocks { page_id, block_ids } => {
+                self.plan_outdent_blocks(page_id, block_ids)?;
+            }
+            Command::DeleteBlocks { page_id, block_ids } => {
+                self.plan_delete_blocks(page_id, block_ids)?;
             }
             Command::DeletePage { page_id } => {
                 self.require_page(page_id)?;
@@ -598,19 +799,34 @@ impl GraphCore {
                     text.insert(*index, insert)?;
                 }
             }
-            Command::MoveBlock {
-                block_id,
+            Command::MoveBlocks {
+                block_ids,
                 page_id,
                 parent,
                 index,
             } => {
-                self.move_block(block_id, page_id, parent.as_ref(), *index)?;
+                let plan = self.plan_move_blocks(page_id, block_ids, parent.as_ref(), *index)?;
+                self.move_blocks(&plan.roots, page_id, parent.as_ref(), *index)?;
             }
-            Command::IndentBlock { page_id, block_id } => self.indent(page_id, block_id)?,
-            Command::OutdentBlock { page_id, block_id } => self.outdent(page_id, block_id)?,
-            Command::DeleteBlock { page_id, block_id } => {
-                self.touch_block(page_id, block_id, now)?;
-                self.page_outline(page_id)?.delete(tree_id(block_id)?)?
+            Command::IndentBlocks { page_id, block_ids } => {
+                let plan = self.plan_indent_blocks(page_id, block_ids)?;
+                for block_id in &plan.roots {
+                    self.indent(page_id, block_id)?;
+                }
+            }
+            Command::OutdentBlocks { page_id, block_ids } => {
+                let plan = self.plan_outdent_blocks(page_id, block_ids)?;
+                for block_id in &plan.roots {
+                    self.outdent(page_id, block_id)?;
+                }
+            }
+            Command::DeleteBlocks { page_id, block_ids } => {
+                let plan = self.plan_delete_blocks(page_id, block_ids)?;
+                let outline = self.page_outline(page_id)?;
+                for block_id in &plan.roots {
+                    self.touch_block(page_id, block_id, now)?;
+                    outline.delete(tree_id(block_id)?)?;
+                }
             }
             Command::SetProperty { entity, key, value } => {
                 set_single(&self.entity_bag(entity)?, key, value)?;
@@ -678,16 +894,21 @@ impl GraphCore {
             }
             | Command::SpliceMarkdown {
                 page_id, block_id, ..
-            }
-            | Command::MoveBlock {
-                page_id, block_id, ..
-            }
-            | Command::IndentBlock { page_id, block_id }
-            | Command::OutdentBlock { page_id, block_id } => {
+            } => {
                 self.touch_block(page_id, block_id, now)?;
                 self.touch_page(page_id, now)?;
             }
-            Command::DeleteBlock { page_id, .. } => self.touch_page(page_id, now)?,
+            Command::MoveBlocks {
+                page_id, block_ids, ..
+            }
+            | Command::IndentBlocks { page_id, block_ids }
+            | Command::OutdentBlocks { page_id, block_ids } => {
+                for block_id in block_ids {
+                    self.touch_block(page_id, block_id, now)?;
+                }
+                self.touch_page(page_id, now)?;
+            }
+            Command::DeleteBlocks { page_id, .. } => self.touch_page(page_id, now)?,
             Command::SetProperty { entity, .. }
             | Command::RemoveProperty { entity, .. }
             | Command::AddRepeatedProperty { entity, .. }
@@ -802,6 +1023,111 @@ impl GraphCore {
             &PropertyValue::String(now.to_owned()),
         )?;
         Ok(Some(tag_id.clone()))
+    }
+
+    fn outline_state(&self, page_id: &PageId) -> Result<OutlineState, CoreError> {
+        Ok(OutlineState::from_page(&self.page_snapshot(page_id)?))
+    }
+
+    fn plan_move_blocks(
+        &self,
+        page_id: &PageId,
+        block_ids: &[BlockId],
+        parent: Option<&BlockId>,
+        index: usize,
+    ) -> Result<OutlinePlan, CoreError> {
+        let mut state = self.outline_state(page_id)?;
+        let roots = state.roots(block_ids)?;
+        state.move_group(&roots, parent.cloned(), index)?;
+        Ok(OutlinePlan { roots })
+    }
+
+    fn plan_indent_blocks(
+        &self,
+        page_id: &PageId,
+        block_ids: &[BlockId],
+    ) -> Result<OutlinePlan, CoreError> {
+        let mut state = self.outline_state(page_id)?;
+        let roots = state.roots(block_ids)?;
+        for block_id in &roots {
+            state.indent(block_id)?;
+        }
+        Ok(OutlinePlan { roots })
+    }
+
+    fn plan_outdent_blocks(
+        &self,
+        page_id: &PageId,
+        block_ids: &[BlockId],
+    ) -> Result<OutlinePlan, CoreError> {
+        let mut state = self.outline_state(page_id)?;
+        let mut roots = state.roots(block_ids)?;
+        roots.reverse();
+        for block_id in &roots {
+            state.outdent(block_id)?;
+        }
+        Ok(OutlinePlan { roots })
+    }
+
+    fn plan_delete_blocks(
+        &self,
+        page_id: &PageId,
+        block_ids: &[BlockId],
+    ) -> Result<OutlinePlan, CoreError> {
+        let state = self.outline_state(page_id)?;
+        Ok(OutlinePlan {
+            roots: state.roots(block_ids)?,
+        })
+    }
+
+    fn move_blocks(
+        &self,
+        block_ids: &[BlockId],
+        page_id: &PageId,
+        parent: Option<&BlockId>,
+        index: usize,
+    ) -> Result<(), CoreError> {
+        let outline = self.page_outline(page_id)?;
+        let root_ids = block_ids.iter().cloned().collect::<BTreeSet<_>>();
+        let parent_tree = parent.map(tree_id).transpose()?;
+        let stationary = parent_tree.map_or_else(
+            || outline.roots(),
+            |parent| outline.children(parent).unwrap_or_default(),
+        );
+        let stationary = stationary
+            .into_iter()
+            .map(block_id)
+            .filter(|id| !root_ids.contains(id))
+            .collect::<Vec<_>>();
+        let mut anchor = index
+            .min(stationary.len())
+            .checked_sub(1)
+            .map(|position| stationary[position].clone());
+
+        for block_id in block_ids {
+            let siblings = parent_tree.map_or_else(
+                || outline.roots(),
+                |parent| outline.children(parent).unwrap_or_default(),
+            );
+            let destination = match &anchor {
+                Some(anchor_id) => {
+                    let anchor_tree = tree_id(anchor_id)?;
+                    siblings
+                        .iter()
+                        .position(|id| *id == anchor_tree)
+                        .map(|position| position + 1)
+                        .ok_or_else(|| {
+                            CoreError::InvalidHierarchy(
+                                "move anchor is not a target sibling".into(),
+                            )
+                        })?
+                }
+                None => 0,
+            };
+            self.move_block(block_id, page_id, parent, destination)?;
+            anchor = Some(block_id.clone());
+        }
+        Ok(())
     }
 
     fn move_block(
@@ -987,22 +1313,6 @@ impl GraphCore {
         }
         Ok(())
     }
-
-    fn is_descendant(
-        &self,
-        page_id: &PageId,
-        mut candidate: TreeID,
-        ancestor: TreeID,
-    ) -> Result<bool, CoreError> {
-        let outline = self.page_outline(page_id)?;
-        loop {
-            match outline.parent(candidate) {
-                Some(TreeParentId::Node(parent)) if parent == ancestor => return Ok(true),
-                Some(TreeParentId::Node(parent)) => candidate = parent,
-                _ => return Ok(false),
-            }
-        }
-    }
 }
 
 fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
@@ -1178,10 +1488,10 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::RestoreTag { .. } => "TagRestored",
         Command::InsertBlock { .. } => "BlockInserted",
         Command::EditMarkdown { .. } | Command::SpliceMarkdown { .. } => "BlockTextChanged",
-        Command::MoveBlock { .. } | Command::IndentBlock { .. } | Command::OutdentBlock { .. } => {
-            "SubtreeMoved"
-        }
-        Command::DeleteBlock { .. } => "SubtreeDeleted",
+        Command::MoveBlocks { .. }
+        | Command::IndentBlocks { .. }
+        | Command::OutdentBlocks { .. } => "SubtreeMoved",
+        Command::DeleteBlocks { .. } => "SubtreesDeleted",
         Command::SetTagDefault { .. } | Command::RemoveTagDefault { .. } => "TagDefaultsChanged",
         Command::AddTag { .. } => "TagAddedAndDefaultsMaterialized",
         Command::RemoveTag { .. } => "TagRemoved",
@@ -1808,8 +2118,8 @@ mod tests {
             .execute(
                 envelope(
                     "move-second-1-after-second-2",
-                    Command::MoveBlock {
-                        block_id: moving,
+                    Command::MoveBlocks {
+                        block_ids: vec![moving],
                         page_id: second_page.clone(),
                         parent: None,
                         index: 1,
@@ -1832,6 +2142,186 @@ mod tests {
                 .map(|block| block.markdown.as_str())
                 .collect::<Vec<_>>(),
             vec!["second 2", "second 1"]
+        );
+    }
+
+    #[test]
+    fn plural_delete_is_one_undo_group_and_normalizes_descendants() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let subtree = insert_root(&mut core, "subtree", &page(), 0, "subtree");
+        let child = core
+            .execute(
+                envelope(
+                    "child",
+                    Command::InsertBlock {
+                        page_id: page(),
+                        parent: Some(subtree.clone()),
+                        index: 0,
+                        markdown: "child".into(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap()
+            .result
+            .created_block
+            .unwrap();
+        let sibling = insert_root(&mut core, "sibling", &page(), 1, "sibling");
+
+        core.execute(
+            envelope(
+                "delete-many",
+                Command::DeleteBlocks {
+                    page_id: page(),
+                    block_ids: vec![child, sibling, subtree],
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        assert!(core.page_snapshot(&page()).unwrap().blocks.is_empty());
+
+        core.execute(envelope("undo-many", Command::Undo), "t5")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            restored
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["subtree", "sibling"]
+        );
+        assert_eq!(restored.blocks[0].children[0].markdown, "child");
+
+        core.execute(envelope("redo-many", Command::Redo), "t6")
+            .unwrap();
+        assert!(core.page_snapshot(&page()).unwrap().blocks.is_empty());
+    }
+
+    #[test]
+    fn plural_move_preserves_document_order_and_undoes_once() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let first = insert_root(&mut core, "first", &page(), 0, "first");
+        let second = insert_root(&mut core, "second", &page(), 1, "second");
+        insert_root(&mut core, "third", &page(), 2, "third");
+
+        core.execute(
+            envelope(
+                "move-many",
+                Command::MoveBlocks {
+                    page_id: page(),
+                    block_ids: vec![first, second],
+                    parent: None,
+                    index: 1,
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        assert_eq!(
+            core.page_snapshot(&page())
+                .unwrap()
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["third", "first", "second"]
+        );
+
+        core.execute(envelope("undo-move-many", Command::Undo), "t4")
+            .unwrap();
+        assert_eq!(
+            core.page_snapshot(&page())
+                .unwrap()
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second", "third"]
+        );
+    }
+
+    #[test]
+    fn plural_indent_and_outdent_are_preflighted_undo_groups() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let parent = insert_root(&mut core, "parent", &page(), 0, "parent");
+        let first = insert_root(&mut core, "first", &page(), 1, "first");
+        let second = insert_root(&mut core, "second", &page(), 2, "second");
+
+        let before_rejection = core.page_snapshot(&page()).unwrap();
+        let rejected = core.execute(
+            envelope(
+                "invalid-indent-many",
+                Command::IndentBlocks {
+                    page_id: page(),
+                    block_ids: vec![parent.clone(), first.clone()],
+                },
+            ),
+            "t3",
+        );
+        assert!(matches!(rejected, Err(CoreError::InvalidHierarchy(_))));
+        assert_eq!(core.page_snapshot(&page()).unwrap(), before_rejection);
+
+        core.execute(
+            envelope(
+                "indent-many",
+                Command::IndentBlocks {
+                    page_id: page(),
+                    block_ids: vec![first.clone(), second.clone()],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let nested = core.page_snapshot(&page()).unwrap();
+        assert_eq!(nested.blocks.len(), 1);
+        assert_eq!(nested.blocks[0].id, parent);
+        assert_eq!(
+            nested.blocks[0]
+                .children
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+
+        core.execute(envelope("undo-indent-many", Command::Undo), "t4")
+            .unwrap();
+        assert_eq!(core.page_snapshot(&page()).unwrap().blocks.len(), 3);
+        core.execute(envelope("redo-indent-many", Command::Redo), "t5")
+            .unwrap();
+
+        core.execute(
+            envelope(
+                "outdent-many",
+                Command::OutdentBlocks {
+                    page_id: page(),
+                    block_ids: vec![first, second],
+                },
+            ),
+            "t6",
+        )
+        .unwrap();
+        assert_eq!(
+            core.page_snapshot(&page())
+                .unwrap()
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["parent", "first", "second"]
+        );
+        core.execute(envelope("undo-outdent-many", Command::Undo), "t7")
+            .unwrap();
+        assert_eq!(
+            core.page_snapshot(&page()).unwrap().blocks[0]
+                .children
+                .len(),
+            2
         );
     }
 

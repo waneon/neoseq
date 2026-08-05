@@ -435,8 +435,8 @@ fn translate(
             parent,
             index,
         } => (
-            Command::MoveBlock {
-                block_id: block(id)?.1,
+            Command::MoveBlocks {
+                block_ids: vec![block(id)?.1],
                 page_id: page_id.clone(),
                 parent: parent.as_deref().map(block).transpose()?.map(|(_, id)| id),
                 index: *index,
@@ -447,7 +447,10 @@ fn translate(
         ScenarioCommand::IndentBlock { block: id } => (
             {
                 let (page_id, block_id) = block(id)?;
-                Command::IndentBlock { page_id, block_id }
+                Command::IndentBlocks {
+                    page_id,
+                    block_ids: vec![block_id],
+                }
             },
             None,
             None,
@@ -455,7 +458,10 @@ fn translate(
         ScenarioCommand::OutdentBlock { block: id } => (
             {
                 let (page_id, block_id) = block(id)?;
-                Command::OutdentBlock { page_id, block_id }
+                Command::OutdentBlocks {
+                    page_id,
+                    block_ids: vec![block_id],
+                }
             },
             None,
             None,
@@ -463,7 +469,10 @@ fn translate(
         ScenarioCommand::DeleteBlock { block: id } => (
             {
                 let (page_id, block_id) = block(id)?;
-                Command::DeleteBlock { page_id, block_id }
+                Command::DeleteBlocks {
+                    page_id,
+                    block_ids: vec![block_id],
+                }
             },
             None,
             None,

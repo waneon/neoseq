@@ -380,10 +380,10 @@ function commandPageId(command: Command, result?: CommandResult): string | undef
     case "insert_block":
     case "edit_markdown":
     case "splice_markdown":
-    case "move_block":
-    case "indent_block":
-    case "outdent_block":
-    case "delete_block":
+    case "move_blocks":
+    case "indent_blocks":
+    case "outdent_blocks":
+    case "delete_blocks":
       return command.page_id;
     case "add_tag":
     case "remove_tag":

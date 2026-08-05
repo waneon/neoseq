@@ -93,9 +93,14 @@ export class FakeCorePort implements SessionPort {
       created_tag: null as string | null,
       changed: true,
     };
-    this.apply(command, result);
-    if (command.type !== "undo" && command.type !== "redo" && result.changed) {
-      this.touchCommand(command, result, `t${this.sequence + 1}`);
+    try {
+      this.apply(command, result);
+      if (command.type !== "undo" && command.type !== "redo" && result.changed) {
+        this.touchCommand(command, result, `t${this.sequence + 1}`);
+      }
+    } catch (error) {
+      this.restore(before);
+      throw error;
     }
     if (command.type !== "undo" && command.type !== "redo" && result.changed) {
       this.history.push(before);
@@ -287,39 +292,56 @@ export class FakeCorePort implements SessionPort {
         block.markdown = points.join("");
         break;
       }
-      case "move_block": {
-        const { block } = this.requireBlock(command.page_id, command.block_id);
-        this.detach(command.page_id, command.block_id);
-        const page = this.requirePage(command.page_id);
-        if (command.parent) {
-          const siblings = this.requireBlock(command.page_id, command.parent).block.children;
-          siblings.splice(Math.min(command.index, siblings.length), 0, block);
-        } else {
-          page.blocks.splice(Math.min(command.index, page.blocks.length), 0, block);
+      case "move_blocks": {
+        const roots = this.structuralRoots(command.page_id, command.block_ids);
+        const rootSet = new Set(roots);
+        const target = command.parent
+          ? this.requireBlock(command.page_id, command.parent).block.children
+          : this.requirePage(command.page_id).blocks;
+        const stationary = target.filter((block) => !rootSet.has(block.id));
+        let anchor = stationary[Math.min(command.index, stationary.length) - 1] ?? null;
+        for (const blockId of roots) {
+          const { block } = this.requireBlock(command.page_id, blockId);
+          this.detach(command.page_id, blockId);
+          const siblings = command.parent
+            ? this.requireBlock(command.page_id, command.parent).block.children
+            : this.requirePage(command.page_id).blocks;
+          const anchorIndex = anchor ? siblings.indexOf(anchor) : -1;
+          if (anchor && anchorIndex < 0) fail("internal", "move anchor is not a target sibling");
+          const index = anchorIndex + 1;
+          siblings.splice(index, 0, block);
+          anchor = block;
         }
         break;
       }
-      case "indent_block": {
-        const found = this.requireBlock(command.page_id, command.block_id);
-        const siblings = found.siblings;
-        const position = siblings.indexOf(found.block);
-        if (position === 0) fail("internal", "first sibling cannot be indented");
-        const target = siblings[position - 1];
-        siblings.splice(position, 1);
-        target.children.push(found.block);
+      case "indent_blocks": {
+        for (const blockId of this.structuralRoots(command.page_id, command.block_ids)) {
+          const found = this.requireBlock(command.page_id, blockId);
+          const siblings = found.siblings;
+          const position = siblings.indexOf(found.block);
+          if (position === 0) fail("internal", "first sibling cannot be indented");
+          const target = siblings[position - 1];
+          siblings.splice(position, 1);
+          target.children.push(found.block);
+        }
         break;
       }
-      case "outdent_block": {
-        const found = this.requireBlock(command.page_id, command.block_id);
-        if (!found.parent) fail("internal", "root block cannot be outdented");
-        const parentFound = this.requireBlock(command.page_id, found.parent.id);
-        found.siblings.splice(found.siblings.indexOf(found.block), 1);
-        const grandSiblings = parentFound.siblings;
-        grandSiblings.splice(grandSiblings.indexOf(parentFound.block) + 1, 0, found.block);
+      case "outdent_blocks": {
+        const roots = this.structuralRoots(command.page_id, command.block_ids).reverse();
+        for (const blockId of roots) {
+          const found = this.requireBlock(command.page_id, blockId);
+          if (!found.parent) fail("internal", "root block cannot be outdented");
+          const parentFound = this.requireBlock(command.page_id, found.parent.id);
+          found.siblings.splice(found.siblings.indexOf(found.block), 1);
+          const grandSiblings = parentFound.siblings;
+          grandSiblings.splice(grandSiblings.indexOf(parentFound.block) + 1, 0, found.block);
+        }
         break;
       }
-      case "delete_block":
-        this.detach(command.page_id, command.block_id);
+      case "delete_blocks":
+        for (const blockId of this.structuralRoots(command.page_id, command.block_ids)) {
+          this.detach(command.page_id, blockId);
+        }
         break;
       case "set_property": {
         const issue = validateValue(command.key, command.value, "single");
@@ -450,13 +472,16 @@ export class FakeCorePort implements SessionPort {
         break;
       case "edit_markdown":
       case "splice_markdown":
-      case "move_block":
-      case "indent_block":
-      case "outdent_block":
         this.touchBlock(command.page_id, command.block_id, timestamp);
         this.touchPage(command.page_id, timestamp);
         break;
-      case "delete_block":
+      case "move_blocks":
+      case "indent_blocks":
+      case "outdent_blocks":
+        for (const blockId of command.block_ids) this.touchBlock(command.page_id, blockId, timestamp);
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "delete_blocks":
         this.touchPage(command.page_id, timestamp);
         break;
       case "set_property":
@@ -538,6 +563,24 @@ export class FakeCorePort implements SessionPort {
     const found = findIn(page.blocks, null, id, page);
     if (found) return found;
     fail("internal", `block does not exist or is deleted: ${id}`);
+  }
+
+  private structuralRoots(pageId: string, ids: string[]): string[] {
+    if (ids.length === 0) fail("internal", "structural command requires at least one block");
+    const requested = new Set(ids);
+    const found = new Set<string>();
+    const roots: string[] = [];
+    const visit = (blocks: BlockSnapshot[], covered: boolean) => {
+      for (const block of blocks) {
+        const selected = requested.has(block.id);
+        if (selected) found.add(block.id);
+        if (selected && !covered) roots.push(block.id);
+        visit(block.children, covered || selected);
+      }
+    };
+    visit(this.requirePage(pageId).blocks, false);
+    if (found.size !== requested.size) fail("internal", "structural command targets a missing block");
+    return roots;
   }
 
   private detach(pageId: string, id: string): void {
