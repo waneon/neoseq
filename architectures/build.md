@@ -101,7 +101,8 @@ contract, and recovery cases do not rerun the full matrix in every test.
 - product Wasm and Web builds;
 - generated CorePort drift;
 - typed locale-catalog compilation and generated locale/message-type drift;
-- frontend component tests and raw plus gzip bundle budgets;
+- frontend component tests and raw plus gzip bundle budgets, including a separate
+  raw budget for the self-hosted font asset;
 - on Linux, the focused IndexedDB contract and Web E2E suites.
 
 Darwin browser processes require host services unavailable in the Nix build

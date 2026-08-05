@@ -1,8 +1,9 @@
 /* Neoseq design system — see DESIGN.md (the source of truth).
    Structure is the ornament: the indent thread carries the outline's meaning and
    is the product's one graphic device. Surfaces separate by lightness, not by
-   borders. Type comes from the OS. One ink-indigo accent. Two complete modes
-   from one declaration — hue and chroma fixed, only lightness moves.
+   borders. Pretendard carries the UI and writing. One ink-indigo accent. Two
+   complete modes from one declaration — hue and chroma fixed, only lightness
+   moves.
 
    Contents
      1. tokens (light / dark / derived)
@@ -67,10 +68,12 @@
   --halo: color-mix(in oklab, var(--ink) 9%, transparent);
   --e1: inset 0 0 0 1px var(--line);
 
-  /* type — the OS supplies the family; see DESIGN.md § Typography */
+  /* type — self-hosted Pretendard first, system faces as resilient fallbacks */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
-    system-ui, Roboto, "Helvetica Neue", sans-serif;
+    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo",
+    "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;

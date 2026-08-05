@@ -171,7 +171,7 @@
           src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-0Zg2uvyJ10UAaWn2C8Zmq3wwloc8DHHEEATMAGUhxfQ=";
+          hash = "sha256-s85hFoWCpvdai6uGjwKbnhc1+XTPmxruO+topmijptw=";
         };
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {
@@ -291,6 +291,9 @@
           }
           check_gzip js 262144 "$root"/assets/*.js
           check_gzip css 32768 "$root"/assets/*.css
+          # Pretendard is a single, self-hosted variable face. Keep the offline
+          # shell cost explicit instead of letting font assets bypass the budget.
+          check_raw fonts 2097152 "$root"/assets/*.woff2
           # Step 5 embeds the SPARQL parser, optimizer, evaluator, and RDF
           # indexes in the offline Wasm core. Keep the increase explicit.
           check_raw wasm 4194304 "$root"/assets/*.wasm

@@ -263,9 +263,10 @@ everything else.
 The presentation layer is Tailwind CSS v4 with shadcn/ui primitives on Radix, over
 the token set in `ui/app.css` — the single owner of every design token.
 `ui/globals.css` declares the cascade order and maps those tokens onto shadcn's semantic
-variables, declaring no values of its own. [`DESIGN.md`](../DESIGN.md) is the design
-source of truth, including a committed contrast table components consult rather than
-re-derive.
+variables, declaring no values of its own. It also imports the pinned, self-hosted
+Pretendard Variable face; `ui/app.css` places it before system fallbacks in the shared
+sans token. [`DESIGN.md`](../DESIGN.md) is the design source of truth, including a
+committed contrast table components consult rather than re-derive.
 
 Both colour modes ship from one declaration and resolution is **CSS-only**: an
 explicit `[data-theme]` beats `prefers-color-scheme` in both directions, and a

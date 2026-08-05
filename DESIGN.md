@@ -1,7 +1,7 @@
 ---
 version: 2
 name: Neoseq Design System
-description: The design language for Neoseq, a local-first outliner. Structure is the ornament — the indent thread that carries an outline's meaning is also the graphic signature of the interface. Luminance separates surfaces instead of borders, the OS supplies the type, one ink-indigo accent carries every action, and both a light and a dark mode ship from a single token declaration. Chrome is deliberately small, named, and permanent; everything else is summoned by ⌘K.
+description: The design language for Neoseq, a local-first outliner. Structure is the ornament — the indent thread that carries an outline's meaning is also the graphic signature of the interface. Luminance separates surfaces instead of borders, Pretendard carries the type, one ink-indigo accent carries every action, and both a light and a dark mode ship from a single token declaration. Chrome is deliberately small, named, and permanent; everything else is summoned by ⌘K.
 
 # ─── Tokens ───
 # Every token below is declared once per mode in `apps/client/src/ui/app.css`.
@@ -53,7 +53,7 @@ colors:
     danger-soft: "10% danger (light) / 16% danger (dark)"
 
 typography:
-  family-sans: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+  family-sans: "\"Pretendard Variable\", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, \"Helvetica Neue\", \"Segoe UI\", \"Apple SD Gothic Neo\", \"Noto Sans KR\", \"Malgun Gothic\", sans-serif"
   family-mono: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
   features: "\"lnum\", \"locl\", \"cv11\""
   optical-sizing: auto
@@ -185,9 +185,9 @@ allowed to be decorative.
 
 **Everything around the thread is quiet on purpose.** Surfaces separate by a 3–5%
 step in lightness rather than by borders, so a panel reads as a change in depth
-instead of a drawn box. The type comes from the operating system, which means it
-renders in zero milliseconds and looks native on the machine it runs on. One colour
-— an ink indigo — carries every action, link, caret, and structural drop, and it is the only
+instead of a drawn box. Self-hosted Pretendard gives Korean and Latin writing one
+consistent voice across platforms. One colour — an ink indigo — carries every action,
+link, caret, and structural drop, and it is the only
 chroma in the interface. Both a light and a dark mode ship from a single token
 declaration, because a tool you write in at night is a tool you write in at night.
 
@@ -205,7 +205,7 @@ opens the palette's own contents for a user who has not met `⌘K` yet.
 - The indent thread as the product's one graphic device, functional before decorative
 - Luminance-only separation; exactly three 1px lines exist in the entire product
 - Two complete modes from one declaration — hue and chroma fixed, only lightness moves
-- OS type at five sizes, weight capped at 600, tracking in `em` and only above 19px
+- Pretendard Variable at five sizes, weight capped at 600, tracking in `em` and only above 19px
 - One accent, ink indigo, and no second structural colour ever
 - A mono voice reserved for identifiers: property keys, graph ids
 - Silence in the steady state; the interface speaks only on deviation
@@ -311,32 +311,26 @@ contrast, the table is what you consult, not the component.**
 
 ## Typography
 
-### The family is the operating system's
+### The family is Pretendard
 
-`-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, …`
+`"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, …`
 
-This is a decision, not a fallback. A local-first tool that needs no account and no
-server should not need a font download either: system type paints on the first frame,
-carries no FOUT, adds nothing to the offline cache, and looks like it belongs to the
-machine it is running on. SF Pro and Segoe UI Variable are current, optically-sized
-faces built for exactly this job.
+The pinned Pretendard package supplies one self-hosted variable WOFF2 with `swap`
+display. It sits first in the stack so Korean and Latin text keep the same metrics and
+voice across platforms; system faces remain resilient fallbacks while the asset loads.
+The production Service Worker precaches the font with the rest of the application shell,
+so it remains available after the first offline installation without a third-party CDN.
 
-The corollary is a rule: **the tracking ramp is tuned for system faces and must never
-be tuned for a font that is not actually loaded.** Version 1 of this document
-specified `Inter` with an aggressive negative ramp (−2.125px at 64px) while no
-`@font-face` and no `<link>` existed anywhere in the client, so every value was being
-applied to SF Pro and Segoe UI. That is why the old interface read cramped at display
-sizes. All tracking is now expressed in `em`, is zero at and below 16px, and only goes
-negative at 19px and above, where system faces are already optically tightened.
+The tracking ramp is tuned for Pretendard and remains deliberately restrained. All
+tracking is expressed in `em`, stays at zero for body text, and only goes negative in
+UI labels and at 19px and above. That keeps compact chrome crisp without crowding the
+user's writing.
 
-> If a self-hosted variable face is wanted later, it is a two-line change here plus a
-> `@font-face`. It is deliberately not the default.
-
-The active UI locale sets the document's `lang`, so the system stack can select the
-right script-specific glyphs through `locl`. Tracking values are defaults for Latin
-UI copy, not a mandate for every script; locale/script overrides may reduce them to
-zero, but may not introduce a downloaded font or a sixth type size. Text containers
-grow or wrap for translation and are never sized to an English string.
+The active UI locale sets the document's `lang`, so Pretendard and its fallbacks can
+select the right script-specific glyphs through `locl`. Tracking values are defaults
+for Latin UI copy, not a mandate for every script; locale/script overrides may reduce
+them to zero, but may not introduce a sixth type size. Text containers grow or wrap
+for translation and are never sized to an English string.
 
 ### The five roles
 
