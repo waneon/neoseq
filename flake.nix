@@ -48,6 +48,7 @@
             ./package.json
             ./pnpm-lock.yaml
             ./pnpm-workspace.yaml
+            ./scripts/generate-i18n.mjs
             ./apps/client/package.json
             ./apps/client/components.json
             ./apps/client/index.html
@@ -165,7 +166,7 @@
           src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-XllRNAvK/bJL8MNT2lsWMZcyNbMncw2BmOodz1Csdxg=";
+          hash = "sha256-mGBQU9GzG8oM/MaiStMv7i2w1gaGw18+a2+tPY4NRrI=";
         };
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {

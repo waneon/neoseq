@@ -195,9 +195,9 @@ types remain private to `graph-core`.
   remains usable.
 - A future unsupported schema opens read-only to permit export, never silent
   downgrade.
-- Panics do not cross FFI/Wasm boundaries; errors expose stable typed codes,
-  interpolation-safe structured context, and a safe diagnostic fallback. The UI
-  owns localized presentation.
+- Panics do not cross FFI/Wasm boundaries; errors expose stable typed codes and a
+  safe diagnostic fallback. The UI owns localized presentation; new errors that
+  need user-visible values add structured context through the versioned contract.
 
 ## Concurrency and Performance
 

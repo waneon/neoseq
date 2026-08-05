@@ -114,10 +114,21 @@ describe("natural-language dates", () => {
     expect(parseDateQuery("2026-08-05", today)).toBe("2026-08-05");
   });
 
+  it("resolves Korean relative, weekday, and calendar forms", () => {
+    expect(parseDateQuery("오늘", today, "ko")).toBe("2026-08-04");
+    expect(parseDateQuery("3일 전", today, "ko")).toBe("2026-08-01");
+    expect(parseDateQuery("2주 후", today, "ko")).toBe("2026-08-18");
+    expect(parseDateQuery("다음 금요일", today, "ko")).toBe("2026-08-07");
+    expect(parseDateQuery("지난 금요일", today, "ko")).toBe("2026-07-31");
+    expect(parseDateQuery("8월 5일", today, "ko")).toBe("2026-08-05");
+    expect(parseDateQuery("2027년 8월 5일", today, "ko")).toBe("2027-08-05");
+  });
+
   it("rejects prose and impossible dates rather than guessing", () => {
     expect(parseDateQuery("reading list", today)).toBeNull();
     expect(parseDateQuery("2026-02-30", today)).toBeNull();
     expect(parseDateQuery("feb 30", today)).toBeNull();
     expect(parseDateQuery("", today)).toBeNull();
+    expect(parseDateQuery("2월 30일", today, "ko")).toBeNull();
   });
 });

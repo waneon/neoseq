@@ -11,11 +11,13 @@ import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findTag } from "../../core-port/snapshot";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
+import { useI18n } from "../../i18n";
 
 export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
+  const { message } = useI18n();
   return (
     <>
       {block.tags.map((tagId) => {
@@ -24,7 +26,10 @@ export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapsh
         const label = tag?.name ?? tagId;
         return (
           <span className="chip" data-tombstone={missing} key={tagId} data-testid="tag-chip">
-            <span className="chip-link" aria-label={missing ? `#${label} (missing tag)` : undefined}>
+            <span
+              className="chip-link"
+              aria-label={missing ? message("properties.deleted", { name: `#${label}` }) : undefined}
+            >
               <span className="hash" aria-hidden>
                 #
               </span>
@@ -33,7 +38,7 @@ export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapsh
             {state.mode !== "readonly" && (
               <button
                 className="chip-remove"
-                aria-label={`Remove tag ${label}`}
+                aria-label={message("properties.removeTag", { name: label })}
                 onClick={() =>
                   void session
                     .execute({
@@ -44,7 +49,7 @@ export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapsh
                     .catch((error: unknown) => {
                       // The chip stays put on failure, which on its own reads
                       // as a click that did not register.
-                      notify.failure(`Couldn’t remove #${label}`, error);
+                      notify.failure(message("failure.removeTag", { name: label }), error);
                     })
                 }
               >

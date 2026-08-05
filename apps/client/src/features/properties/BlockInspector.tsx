@@ -15,6 +15,7 @@ import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 import { PropertyBagEditor } from "./PropertyBagEditor";
 import { TagChips } from "./TagChips";
+import { useI18n } from "../../i18n";
 
 export function BlockInspector({
   pageId,
@@ -30,6 +31,7 @@ export function BlockInspector({
   const notify = useNotify();
   const readonly = state.mode === "readonly";
   const panel = useRef<HTMLDivElement>(null);
+  const { message } = useI18n();
 
   // Escape closes the panel. v1 offered only the close button.
   useEffect(() => {
@@ -47,8 +49,12 @@ export function BlockInspector({
   return (
     <div className="inspector" ref={panel} data-testid="block-inspector">
       <header>
-        <h2>Block</h2>
-        <button className="icon-btn" aria-label="Close block properties" onClick={onClose}>
+        <h2>{message("properties.block")}</h2>
+        <button
+          className="icon-btn"
+          aria-label={message("properties.closeBlock")}
+          onClick={onClose}
+        >
           <XIcon aria-hidden />
         </button>
       </header>
@@ -58,7 +64,7 @@ export function BlockInspector({
           <div className="inspector-tag-input">
             <PageAutocomplete
               kind="tag"
-              placeholder="Add tag…"
+              placeholder={message("properties.addTag")}
               allowCreate
               onPick={(tagId) =>
                 void session
@@ -70,7 +76,7 @@ export function BlockInspector({
                   // The chip simply never appears otherwise, which reads as an
                   // autocomplete that lost the pick.
                   .catch((error: unknown) => {
-                    notify.failure("Couldn’t add that tag", error);
+                    notify.failure(message("failure.addTag"), error);
                   })
               }
             />
@@ -82,7 +88,7 @@ export function BlockInspector({
         pageId={pageId}
         targetId={block.id}
         bag={block.properties}
-        title="Properties"
+        title={message("properties.title")}
       />
     </div>
   );

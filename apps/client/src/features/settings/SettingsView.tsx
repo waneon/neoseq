@@ -12,18 +12,27 @@ import { Input } from "@/ui/shadcn/input";
 import { NativeSelect } from "@/ui/shadcn/native-select";
 import { useNotify } from "../notify/context";
 import { useSessionState } from "../shell/session-context";
+import { LOCALE_DEFINITIONS, useI18n, type LocalePreference } from "../../i18n";
 
-const THEMES: { value: Theme; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
+const THEMES: Theme[] = ["system", "light", "dark"];
+const THEME_MESSAGE = {
+  system: "settings.themeSystem",
+  light: "settings.themeLight",
+  dark: "settings.themeDark",
+} as const;
 
 export function SettingsView() {
   const { graphId = "" } = useParams();
   const navigate = useNavigate();
   const state = useSessionState();
   const notify = useNotify();
+  const {
+    message,
+    preference,
+    setPreference,
+    compare,
+    formatBytes,
+  } = useI18n();
   const [theme, setThemeState] = useState<Theme>(storedTheme);
   const [timezone, setTimezone] = useState(configuredTimezone);
   const [name, setName] = useState(() => graphName(graphId));
@@ -51,8 +60,8 @@ export function SettingsView() {
   }, [copied]);
 
   const capabilities = state.capabilities;
-  const formatBytes = (bytes: number | null | undefined) =>
-    typeof bytes === "number" ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : "unknown";
+  const bytes = (value: number | null | undefined) =>
+    typeof value === "number" ? formatBytes(value) : message("common.unknown");
 
   // A blocked clipboard costs the shortcut, not the value: the id stays on
   // screen and selectable. The button going nowhere still needs explaining.
@@ -62,10 +71,10 @@ export function SettingsView() {
         ?.writeText(graphId)
         .then(() => setCopied(true))
         .catch((error: unknown) => {
-          notify.failure("Couldn’t copy the graph id", error);
+          notify.failure(message("failure.copyGraphId"), error);
         });
     } catch (error) {
-      notify.failure("Couldn’t copy the graph id", error);
+      notify.failure(message("failure.copyGraphId"), error);
     }
   };
 
@@ -80,51 +89,70 @@ export function SettingsView() {
         notify.show({
           tone: "danger",
           key: "persist-declined",
-          title: "The browser declined persistent storage",
-          detail:
-            "This graph can still be evicted under storage pressure. Adding NeoSeq to your home screen or bookmarks usually earns the permission.",
+          title: message("settings.persistDeclinedTitle"),
+          detail: message("settings.persistDeclinedDetail"),
         });
       })
       .catch((error: unknown) => {
-        notify.failure("Couldn’t request persistent storage", error);
+        notify.failure(message("failure.requestPersistence"), error);
       });
   };
 
   return (
     <div className="page-scroll">
       <main className="settings-body">
-        <h1>Settings</h1>
+        <h1>{message("settings.title")}</h1>
 
         <section className="settings-section">
-          <h2>Appearance</h2>
-          <p>Light or dark. System follows whichever mode your operating system is in.</p>
+          <h2>{message("settings.appearance")}</h2>
+          <p>{message("settings.appearanceDescription")}</p>
           <div
             className="segmented"
             role="group"
-            aria-label="Appearance"
+            aria-label={message("settings.appearance")}
             data-testid="settings-appearance"
           >
             {THEMES.map((option) => (
               <button
-                key={option.value}
+                key={option}
                 type="button"
-                aria-pressed={theme === option.value}
+                aria-pressed={theme === option}
                 onClick={() => {
-                  setTheme(option.value);
-                  setThemeState(option.value);
+                  setTheme(option);
+                  setThemeState(option);
                 }}
               >
-                {option.label}
+                {message(THEME_MESSAGE[option])}
               </button>
             ))}
           </div>
         </section>
 
         <section className="settings-section">
-          <h2>Graph</h2>
+          <h2>{message("language.label")}</h2>
+          <p>{message("language.description")}</p>
+          <div className="field">
+            <NativeSelect
+              aria-label={message("language.label")}
+              value={preference}
+              data-testid="settings-language"
+              onChange={(event) => setPreference(event.target.value as LocalePreference)}
+            >
+              <option value="system">{message("language.system")}</option>
+              {LOCALE_DEFINITIONS.map((locale) => (
+                <option key={locale.tag} value={locale.tag}>
+                  {message(locale.labelKey)}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h2>{message("settings.graph")}</h2>
           <div className="field">
             <Input
-              aria-label="Graph name"
+              aria-label={message("graph.graphName")}
               value={name}
               data-testid="settings-graph-name"
               onChange={(event) => setName(event.target.value)}
@@ -136,11 +164,11 @@ export function SettingsView() {
         </section>
 
         <section className="settings-section">
-          <h2>Journal timezone</h2>
-          <p>“Today” for journals is resolved in this IANA timezone.</p>
+          <h2>{message("settings.timezone")}</h2>
+          <p>{message("settings.timezoneDescription")}</p>
           <div className="field">
             <NativeSelect
-              aria-label="Timezone"
+              aria-label={message("settings.timezoneLabel")}
               value={timezone}
               data-testid="settings-timezone"
               onChange={(event) => {
@@ -148,7 +176,7 @@ export function SettingsView() {
                 setConfiguredTimezone(event.target.value);
               }}
             >
-              {availableTimezones().map((zone) => (
+              {[...availableTimezones()].sort(compare).map((zone) => (
                 <option key={zone} value={zone}>
                   {zone}
                 </option>
@@ -158,46 +186,59 @@ export function SettingsView() {
         </section>
 
         <section className="settings-section">
-          <h2>Storage</h2>
+          <h2>{message("settings.storage")}</h2>
           {/* Only the two facts a user can act on. Everything that is merely
               informative moved into the Diagnostics disclosure below. */}
           <dl className="settings-grid">
-            <dt>Saved locally</dt>
+            <dt>{message("settings.saveState")}</dt>
             <dd data-testid="settings-save-state">
-              {state.save.kind === "saved" ? "up to date" : state.save.kind}
+              {state.save.kind === "saved"
+                ? message("settings.saveStateSaved")
+                : state.save.kind === "saving"
+                  ? message("settings.saveStateSaving")
+                  : message("settings.saveStateUnsaved")}
             </dd>
-            <dt>Persistent storage</dt>
+            <dt>{message("settings.persistentStorage")}</dt>
             <dd data-testid="settings-persisted">
-              {persisted === null ? "unknown" : persisted ? "granted" : "not granted"}
+              {persisted === null
+                ? message("settings.persistUnknown")
+                : persisted
+                  ? message("settings.persistGranted")
+                  : message("settings.persistNotGranted")}
             </dd>
           </dl>
           {persisted === false && (
             <Callout>
-              The browser may evict this graph under storage pressure.
+              {message("settings.storageEviction")}
               <button type="button" className="btn" onClick={requestPersistence}>
-                Request persistent storage
+                {message("settings.requestPersistence")}
               </button>
             </Callout>
           )}
           {state.recovery && state.recovery.quarantined_records.length > 0 && (
             <Callout tone="danger">
-              Quarantined records: {state.recovery.quarantined_records.join(", ")} — damaged bytes
-              are kept for export and never silently dropped.
+              {message("settings.quarantined", {
+                records: state.recovery.quarantined_records.join(", "),
+              })}
             </Callout>
           )}
           <details className="settings-details">
-            <summary>Diagnostics</summary>
+            <summary>{message("settings.diagnostics")}</summary>
             <dl className="settings-grid">
-              <dt>Durable backend</dt>
-              <dd>{capabilities?.durable ? "IndexedDB" : "unavailable"}</dd>
-              <dt>Usage</dt>
-              <dd>{formatBytes(capabilities?.usage_bytes)}</dd>
-              <dt>Quota</dt>
-              <dd>{formatBytes(capabilities?.quota_bytes)}</dd>
-              <dt>Graph id</dt>
+              <dt>{message("settings.backend")}</dt>
+              <dd>{capabilities?.durable ? "IndexedDB" : message("common.unavailable")}</dd>
+              <dt>{message("settings.usage")}</dt>
+              <dd>{bytes(capabilities?.usage_bytes)}</dd>
+              <dt>{message("settings.quota")}</dt>
+              <dd>{bytes(capabilities?.quota_bytes)}</dd>
+              <dt>{message("settings.graphId")}</dt>
               <dd>
-                <button type="button" aria-label="Copy graph id" onClick={copyGraphId}>
-                  {copied ? "Copied" : graphId}
+                <button
+                  type="button"
+                  aria-label={message("settings.graphId")}
+                  onClick={copyGraphId}
+                >
+                  {copied ? message("common.copied") : graphId}
                 </button>
               </dd>
             </dl>
@@ -205,8 +246,8 @@ export function SettingsView() {
         </section>
 
         <section className="settings-section settings-danger">
-          <h2>Danger zone</h2>
-          <p>Deleting removes this graph’s data from this browser permanently.</p>
+          <h2>{message("settings.danger")}</h2>
+          <p>{message("settings.deleteDescription")}</p>
           {deleteError && <p className="field-error">{deleteError}</p>}
           <button
             type="button"
@@ -214,19 +255,18 @@ export function SettingsView() {
             data-testid="settings-delete-graph"
             onClick={() => setConfirmDelete(true)}
           >
-            Delete this graph…
+            {message("settings.deleteGraph")}
           </button>
         </section>
 
         {confirmDelete && (
-          <Dialog title="Delete graph" onClose={() => setConfirmDelete(false)}>
+          <Dialog title={message("graph.deleteTitle")} onClose={() => setConfirmDelete(false)}>
             <p>
-              Permanently delete <strong>{graphName(graphId)}</strong> and all of its notes from
-              this browser? This cannot be undone.
+              {message("graph.deleteConfirm", { name: graphName(graphId) })}
             </p>
             <div className="dialog-actions">
               <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>
-                Cancel
+                {message("common.cancel")}
               </button>
               <button
                 type="button"
@@ -239,7 +279,7 @@ export function SettingsView() {
                   navigate("/");
                 }}
               >
-                Delete forever
+                {message("common.deleteForever")}
               </button>
             </div>
           </Dialog>

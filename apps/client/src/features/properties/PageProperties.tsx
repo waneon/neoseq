@@ -21,6 +21,7 @@ import { isSystemKey } from "../../entities/properties";
 import { useCommands } from "../commands/context";
 import { useSessionState } from "../shell/session-context";
 import { PropertyBagEditor } from "./PropertyBagEditor";
+import { useI18n } from "../../i18n";
 
 const STRIP_LIMIT = 4;
 
@@ -34,6 +35,7 @@ export function PageProperties({
   onOpenChange: (open: boolean) => void;
 }) {
   const commands = useCommands();
+  const { message } = useI18n();
 
   // ⌘⇧P is a shell-level binding, so the shell holds a slot it can fill to reach
   // this panel. The pointer route (the page ⋯ menu) is wired locally in PageView
@@ -66,7 +68,7 @@ export function PageProperties({
             onClick={() => onOpenChange(true)}
             data-testid="props-strip-more"
           >
-            +{visible.length - STRIP_LIMIT} more
+            {message("properties.more", { count: visible.length - STRIP_LIMIT })}
           </button>
         )}
       </div>
@@ -82,13 +84,13 @@ export function PageProperties({
         data-testid="props-page-toggle"
       >
         <ChevronDownIcon aria-hidden />
-        Properties
+        {message("properties.title")}
       </button>
       <PropertyBagEditor
         kind="page"
         targetId={page.id}
         bag={visible}
-        title="Page properties"
+        title={message("page.properties")}
         showHeading={false}
       />
     </div>
@@ -98,7 +100,8 @@ export function PageProperties({
 /** One `key: value` chip. The key carries the mono voice: it is an identifier. */
 function StripChip({ entry, onOpen }: { entry: PropertyEntry; onOpen: () => void }) {
   const state = useSessionState();
-  const value = describe(entry.value, state);
+  const { message } = useI18n();
+  const value = describe(entry.value, state, message);
   return (
     <button className="prop-strip-chip" onClick={onOpen} title={`${entry.key}: ${value}`}>
       <span className="key">{entry.key}</span>
@@ -110,12 +113,17 @@ function StripChip({ entry, onOpen }: { entry: PropertyEntry; onOpen: () => void
 function describe(
   value: PropertyValue,
   state: ReturnType<typeof useSessionState>,
+  message: ReturnType<typeof useI18n>["message"],
 ): string {
-  if (value.type === "checkbox") return value.value ? "yes" : "no";
+  if (value.type === "checkbox") {
+    return value.value ? message("common.yes") : message("common.no");
+  }
   if (value.type === "page") {
     const target = findPage(state.snapshot, value.value);
     if (!target) return value.value;
-    return isDeleted(target) ? `${pageTitle(target)} (deleted)` : pageTitle(target);
+    return isDeleted(target)
+      ? message("properties.deleted", { name: pageTitle(target) })
+      : pageTitle(target);
   }
   return String(value.value);
 }

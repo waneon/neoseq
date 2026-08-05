@@ -10,6 +10,17 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchIcon } from "lucide-react";
 import { GROUP_ORDER, matchCommand, type Command, type CommandGroup } from "./registry";
+import { useI18n, type MessageKey } from "../../i18n";
+
+const GROUP_MESSAGE = {
+  Search: "commands.group.search",
+  Pages: "commands.group.pages",
+  Journal: "commands.group.journal",
+  Block: "commands.group.block",
+  Edit: "commands.group.edit",
+  Graph: "commands.group.graph",
+  App: "commands.group.app",
+} as const satisfies Record<CommandGroup, MessageKey>;
 
 interface Props {
   commands: Command[];
@@ -28,6 +39,7 @@ interface Row {
 }
 
 export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
+  const { message } = useI18n();
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<Command[]>([]);
   const [searchFailed, setSearchFailed] = useState(false);
@@ -205,7 +217,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
         className="cmdk"
         role="dialog"
         aria-modal="true"
-        aria-label="Command palette"
+        aria-label={message("commands.palette")}
         onKeyDown={onKeyDown}
       >
         <div className="cmdk-input-row">
@@ -219,8 +231,8 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
             aria-controls="cmdk-results"
             aria-activedescendant={activeId}
             aria-autocomplete="list"
-            aria-label="Search pages and commands"
-            placeholder="Search pages, jump to a date, run a command…"
+            aria-label={message("commands.searchLabel")}
+            placeholder={message("commands.searchPlaceholder")}
             data-testid="command-input"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -231,26 +243,30 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
           id="cmdk-results"
           className="cmdk-results"
           role="listbox"
-          aria-label="Results"
+          aria-label={message("commands.results")}
         >
           {flat.length === 0 && (
             <li className="cmdk-empty" role="status" data-failed={searchFailed || undefined}>
               {searchFailed
-                ? "The graph couldn’t be searched. Commands and pages below still match by name."
-                : `Nothing matches “${query.trim()}”.`}
+                ? message("commands.searchFailed")
+                : message("commands.searchResultsEmpty", { query: query.trim() })}
             </li>
           )}
           {flat.length > 0 && searchFailed && (
             <li className="cmdk-empty" role="status" data-failed>
-              The graph couldn’t be searched — these match by name only.
+              {message("commands.searchFailedPartial")}
             </li>
           )}
           {groups.map(({ group, rows }, groupIndex) => (
             <li key={`${group}-${groupIndex}`} role="presentation">
               <div className="cmdk-group-title" role="presentation">
-                {group}
+                {message(GROUP_MESSAGE[group])}
               </div>
-              <ul role="group" aria-label={group} className="m-0 list-none p-0">
+              <ul
+                role="group"
+                aria-label={message(GROUP_MESSAGE[group])}
+                className="m-0 list-none p-0"
+              >
                 {rows.map(({ command }) => {
                   index += 1;
                   const position = index;

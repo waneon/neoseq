@@ -20,6 +20,8 @@ import { canonicalEntityName } from "../../entities/names";
 import { Input } from "@/ui/shadcn/input";
 import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
+import { useI18n } from "../../i18n";
+import { failureReason } from "../notify/errors";
 
 interface Option {
   id: string;
@@ -53,6 +55,7 @@ export function PageAutocomplete({
   const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
   const listId = useId();
   const errorId = useId();
+  const { message, compare } = useI18n();
 
   const options = useMemo<Option[]>(() => {
     const canonical = canonicalEntityName(query);
@@ -65,7 +68,7 @@ export function PageAutocomplete({
       .filter((entity) =>
         canonical.length === 0 || canonicalEntityName(entity.label).includes(canonical)
       )
-      .sort((left, right) => left.label.localeCompare(right.label))
+      .sort((left, right) => compare(left.label, right.label))
       .slice(0, 8);
     const exact = entities.some(
       (entity) => canonicalEntityName(entity.label) === canonical,
@@ -75,7 +78,7 @@ export function PageAutocomplete({
       result.push({ id: "", label: query.trim(), create: true });
     }
     return result;
-  }, [state.snapshot, query, allowCreate, kind]);
+  }, [state.snapshot, query, allowCreate, kind, compare]);
 
   const reposition = useCallback(() => {
     const el = inputRef.current;
@@ -114,7 +117,7 @@ export function PageAutocomplete({
     } catch (cause) {
       setOpen(false);
       setQuery(option.label);
-      setError(cause instanceof Error ? cause.message : `Could not create ${kind}`);
+      setError(failureReason(cause, message));
     }
   };
 
@@ -186,7 +189,7 @@ export function PageAutocomplete({
           >
             {options.length === 0 ? (
               <div role="status" className="autocomplete-hint">
-                No matching {kind === "tag" ? "tags" : "pages"}
+                {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
               </div>
             ) : (
               <ul id={listId} role="listbox" className="m-0 list-none p-0">
@@ -208,7 +211,12 @@ export function PageAutocomplete({
                         void pick(option);
                       }}
                     >
-                      {option.create ? `Create ${kind} “${option.label}”` : option.label}
+                      {option.create
+                        ? message("properties.createEntity", {
+                            kind: message(kind === "tag" ? "common.tag" : "common.page"),
+                            name: option.label,
+                          })
+                        : option.label}
                     </button>
                   </li>
                 ))}

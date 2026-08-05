@@ -51,6 +51,7 @@ import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
 import { TaskProjection } from "../tasks/TaskProjection";
 import { codePointIndex, codePointLength, diffSplice } from "./text-diff";
+import { useI18n, type MessageFunction } from "../../i18n";
 
 const FLUSH_DEBOUNCE_MS = 400;
 
@@ -81,6 +82,7 @@ interface PendingRow {
 interface EditorContext {
   session: GraphSession;
   notify: Notifier;
+  message: MessageFunction;
   pageId: string;
   readonly: boolean;
   focusedId: string | null;
@@ -118,6 +120,7 @@ export function Outliner({
   const state = useSessionState();
   const commands = useCommands();
   const notify = useNotify();
+  const { message } = useI18n();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [inspectedId, setInspectedId] = useState<string | null>(null);
@@ -179,10 +182,10 @@ export function Outliner({
           drafts.current.delete(id);
           baselines.current.delete(id);
           force();
-          notify.failure("Your last edit couldn’t be applied", error);
+          notify.failure(message("failure.lastEdit"), error);
         });
     },
-    [notify, session],
+    [message, notify, session],
   );
 
   const flushNow = useCallback(
@@ -292,7 +295,9 @@ export function Outliner({
               })
               .catch((error: unknown) => {
                 notify.failure(
-                  kind === "indent" ? "Couldn’t indent that block" : "Couldn’t outdent that block",
+                  kind === "indent"
+                    ? message("failure.indentBlock")
+                    : message("failure.outdentBlock"),
                   error,
                 );
               });
@@ -301,7 +306,7 @@ export function Outliner({
           pendingRows.current.shift();
           drafts.current.delete(head.tempId);
           baselines.current.delete(head.tempId);
-          abandonPending("The graph engine did not return a block id.");
+          abandonPending(message("outline.engineMissingId"));
         }
         pendingDispatching.current = false;
         force();
@@ -309,10 +314,10 @@ export function Outliner({
       })
       .catch((error: unknown) => {
         pendingDispatching.current = false;
-        abandonPending(failureReason(error));
+        abandonPending(failureReason(error, message));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notify, session, scheduleFlush, setFocus]);
+  }, [message, notify, session, scheduleFlush, setFocus]);
 
   /**
    * Drops the optimistic rows an insert never claimed. Whatever the user typed
@@ -337,11 +342,11 @@ export function Outliner({
       notify.show({
         tone: "danger",
         key: "pending-insert-abandoned",
-        title: lost === 1 ? "That new block wasn’t created" : `${lost} new blocks weren’t created`,
-        detail: typed ? `${reason} Anything typed into them was not kept.` : reason,
+        title: message("outline.newBlocksFailed", { count: lost }),
+        detail: typed ? message("outline.pendingTypedLost", { reason }) : reason,
       });
     },
-    [notify, setFocus],
+    [message, notify, setFocus],
   );
 
   const run = useCallback(
@@ -356,6 +361,7 @@ export function Outliner({
   const editor: EditorContext = {
     session,
     notify,
+    message,
     pageId: authoritativePage.id,
     readonly,
     focusedId,
@@ -430,7 +436,7 @@ export function Outliner({
           if (result.created_block) setFocus(result.created_block, 0);
         })
         .catch((error: unknown) => {
-          notify.failure("Couldn’t add a block", error);
+          notify.failure(message("failure.addBlock"), error);
         });
     },
     menu: {
@@ -451,7 +457,7 @@ export function Outliner({
             page_id: authoritativePage.id,
             block_id: row.block.id,
           },
-          "Couldn’t indent that block",
+          message("failure.indentBlock"),
         );
       },
       outdent: (row) => {
@@ -462,7 +468,7 @@ export function Outliner({
             page_id: authoritativePage.id,
             block_id: row.block.id,
           },
-          "Couldn’t outdent that block",
+          message("failure.outdentBlock"),
         );
       },
       move: (row, delta) => {
@@ -477,7 +483,7 @@ export function Outliner({
             parent: row.parentId,
             index: target,
           },
-          delta < 0 ? "Couldn’t move that block up" : "Couldn’t move that block down",
+          delta < 0 ? message("failure.moveBlockUp") : message("failure.moveBlockDown"),
         );
       },
       remove: (row, allRows) => {
@@ -489,7 +495,7 @@ export function Outliner({
             page_id: authoritativePage.id,
             block_id: row.block.id,
           },
-          "Couldn’t delete that block",
+          message("failure.deleteBlock"),
         ).then(() => {
           setFocus(previous);
         });
@@ -534,7 +540,7 @@ export function Outliner({
   const ancestors = ancestorPath(rows, focusedId);
 
   return (
-    <section className="outline-section" aria-label="Outline">
+    <section className="outline-section" aria-label={message("outline.outline")}>
       {rows.length === 0 ? (
         // A fake first line rather than a button labelled with a mouse
         // instruction: a bullet in row 1's exact gutter position, then the
@@ -543,17 +549,17 @@ export function Outliner({
           className="outline-placeholder"
           onClick={() => editor.insertRootBlock(0)}
           disabled={readonly}
-          aria-label="Add the first block"
+          aria-label={message("outline.addFirstBlock")}
           data-testid="outline-start"
         >
           <span className="dot" aria-hidden />
-          <span className="label">Write something…</span>
+          <span className="label">{message("outline.writeSomething")}</span>
         </button>
       ) : (
         <div
           className="outline-viewport"
           role="tree"
-          aria-label="Blocks"
+          aria-label={message("outline.blocks")}
           aria-activedescendant={focusedId ? `row-${focusedId}` : undefined}
           style={{ height: virtualizer.getTotalSize() }}
         >
@@ -585,8 +591,8 @@ export function Outliner({
       )}
       {rows.length === 1 && rows[0].block.markdown.length === 0 && (
         <p className="outline-hint">
-          <kbd className="kbd">{MOD}K</kbd> to search · <kbd className="kbd">{MOD}/</kbd> for
-          shortcuts
+          <kbd className="kbd">{MOD}K</kbd> {message("outline.toSearch")} ·{" "}
+          <kbd className="kbd">{MOD}/</kbd> {message("outline.forShortcuts")}
         </p>
       )}
       {rows.length > 0 && !readonly && (
@@ -596,7 +602,7 @@ export function Outliner({
         <button
           className="outline-append"
           onClick={() => editor.insertRootBlock(authoritativePage.blocks.length)}
-          aria-label="Add a block"
+          aria-label={message("outline.addBlock")}
           data-testid="outline-append"
         />
       )}
@@ -676,7 +682,10 @@ function onKeyDown(
     void editor.session
       .execute({ type: isRedo ? "redo" : "undo" })
       .catch((error: unknown) => {
-        editor.notify.failure(isRedo ? "Couldn’t redo" : "Couldn’t undo", error);
+        editor.notify.failure(
+          isRedo ? editor.message("failure.redo") : editor.message("failure.undo"),
+          error,
+        );
       });
     return;
   }
@@ -802,7 +811,7 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
           insert: "",
         })
         .catch((error: unknown) => {
-          editor.notify.failure("Couldn’t split that block", error);
+          editor.notify.failure(editor.message("failure.splitBlock"), error);
         });
     }
   }
@@ -845,6 +854,7 @@ function BlockRow({
   editor: EditorContext;
   lit: number;
 }) {
+  const { message } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isFocused = editor.focusedId === row.block.id;
   const pending = isPendingId(row.block.id);
@@ -894,7 +904,9 @@ function BlockRow({
       <span className="outline-gutter">
         <button
           className="outline-toggle"
-          aria-label={row.collapsed ? "Expand" : "Collapse"}
+          aria-label={
+            row.collapsed ? message("outline.expand") : message("outline.collapse")
+          }
           tabIndex={-1}
           onClick={() => editor.toggleCollapse(row.block.id)}
         >
@@ -904,7 +916,7 @@ function BlockRow({
           className="outline-bullet"
           data-testid="block-bullet"
           tabIndex={-1}
-          aria-label="Focus this block"
+          aria-label={message("outline.focusBlock")}
           onClick={() => editor.setFocus(row.block.id)}
         />
       </span>
@@ -914,9 +926,10 @@ function BlockRow({
           className="outline-input"
           rows={1}
           value={value}
-          placeholder={row.depth === 0 ? "Write something…" : ""}
+          placeholder={row.depth === 0 ? message("outline.writeSomething") : ""}
           readOnly={editor.readonly}
-          aria-label="Block text"
+          aria-label={message("outline.blockText")}
+          dir="auto"
           onFocus={() => {
             if (!isFocused) editor.setFocus(row.block.id, -1);
           }}
@@ -946,7 +959,11 @@ function BlockRow({
       <div className="row-menu" style={pending ? { visibility: "hidden" } : undefined}>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <button className="icon-btn" aria-label="More block actions" data-testid="block-menu">
+            <button
+              className="icon-btn"
+              aria-label={message("outline.blockActions")}
+              data-testid="block-menu"
+            >
               <MoreHorizontalIcon />
             </button>
           </DropdownMenuTrigger>
@@ -958,7 +975,7 @@ function BlockRow({
               onSelect={() => editor.toggleInspect(row.block.id)}
             >
               <Settings2Icon aria-hidden />
-              Properties &amp; tags
+              {message("outline.propertiesTags")}
               <DropdownMenuShortcut>{MOD}⇧P</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -967,14 +984,14 @@ function BlockRow({
               onSelect={() => editor.menu.addChild(row)}
             >
               <CornerDownRightIcon aria-hidden />
-              Add child block
+              {message("outline.addChild")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={editor.readonly || row.index === 0}
               onSelect={() => editor.menu.indent(row)}
             >
               <IndentIncreaseIcon aria-hidden />
-              Indent
+              {message("outline.indent")}
               <DropdownMenuShortcut>⇥</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -982,7 +999,7 @@ function BlockRow({
               onSelect={() => editor.menu.outdent(row)}
             >
               <IndentDecreaseIcon aria-hidden />
-              Outdent
+              {message("outline.outdent")}
               <DropdownMenuShortcut>⇧⇥</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -991,7 +1008,7 @@ function BlockRow({
               onSelect={() => editor.menu.move(row, -1)}
             >
               <ArrowUpIcon aria-hidden />
-              Move up
+              {message("outline.moveUp")}
               <DropdownMenuShortcut>⌥↑</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -1000,7 +1017,7 @@ function BlockRow({
               onSelect={() => editor.menu.move(row, 1)}
             >
               <ArrowDownIcon aria-hidden />
-              Move down
+              {message("outline.moveDown")}
               <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -1011,7 +1028,7 @@ function BlockRow({
               onSelect={() => editor.menu.remove(row, rows)}
             >
               <Trash2Icon aria-hidden />
-              Delete block
+              {message("outline.deleteBlock")}
               <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
             </DropdownMenuItem>
           </DropdownMenuContent>

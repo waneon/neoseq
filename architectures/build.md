@@ -13,8 +13,8 @@ the steps that actually use them.
 Derivations consume explicit source sets instead of the repository root:
 
 - Cargo builds receive workspace manifests, crates, and core fixtures;
-- production Web builds receive frontend sources, manifests, and runtime
-  property definitions, including locale catalogs and their generated manifest;
+- production Web builds receive frontend sources, manifests, generators, and
+  runtime property definitions, including locale catalogs and generated types;
 - browser harnesses additionally receive Playwright/Vitest tests and golden
   CorePort fixtures;
 - generated-contract drift receives only its schema, generator, and outputs;
@@ -94,7 +94,7 @@ contract, and recovery cases do not rerun the full matrix in every test.
 - Rust formatting, strict Clippy, workspace tests, and dependency policy;
 - product Wasm and Web builds;
 - generated CorePort drift;
-- typed locale-catalog compilation and generated catalog/manifest drift;
+- typed locale-catalog compilation and generated locale/message-type drift;
 - frontend component tests and raw plus gzip bundle budgets;
 - on Linux, the focused IndexedDB contract and Web E2E suites.
 

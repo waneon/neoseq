@@ -9,9 +9,9 @@ import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { findJournalPage } from "../../core-port/snapshot";
 import {
   addDays,
-  formatJournalTitle,
   todayLocalDate,
 } from "../../entities/journal";
+import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/properties";
 import { useNotify } from "../notify/context";
 import { PageBody, Tombstone } from "../page/PageView";
@@ -23,6 +23,7 @@ export function JournalView() {
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
+  const { message, formatLocalDate } = useI18n();
   const [today] = useState(todayLocalDate);
   const date = routeDate ?? today;
   const ensured = useRef<string | null>(null);
@@ -37,12 +38,12 @@ export function JournalView() {
     ensured.current = date;
     void session.execute({ type: "ensure_journal", date }).catch((error: unknown) => {
       ensured.current = null;
-      notify.failure("Couldn’t open this journal day", error, {
-        label: "Try again",
+      notify.failure(message("failure.openJournal"), error, {
+        label: message("common.retry"),
         run: ensure,
       });
     });
-  }, [date, notify, session]);
+  }, [date, message, notify, session]);
 
   useEffect(() => {
     if (!valid || state.status !== "ready" || state.mode === "readonly") return;
@@ -53,15 +54,15 @@ export function JournalView() {
   useEffect(() => {
     if (!page || state.status !== "ready" || state.hydratedPages.has(page.id)) return;
     void session.hydratePage(page.id).catch((error: unknown) => {
-      notify.failure("Couldn’t load this journal day", error);
+      notify.failure(message("failure.loadJournal"), error);
     });
-  }, [notify, page, session, state.hydratedPages, state.status]);
+  }, [message, notify, page, session, state.hydratedPages, state.status]);
 
   if (!valid) {
     return (
       <Tombstone
-        title="Not a calendar date"
-        detail={`“${date}” is not a valid YYYY-MM-DD date.`}
+        title={message("journal.invalidDate")}
+        detail={message("journal.invalidDateDetail", { date })}
         graphId={graphId}
       />
     );
@@ -76,24 +77,24 @@ export function JournalView() {
   // a third time in the platform's own locale format.
   const header = (menu: ReactNode) => (
     <div className="title-row">
-      <h1 data-testid="journal-title">{formatJournalTitle(date)}</h1>
+      <h1 data-testid="journal-title">{formatLocalDate(date)}</h1>
       <div className="title-actions">
         {date !== today && (
           <button className="today-pill" onClick={() => go(today)}>
-            Today
+            {message("journal.today")}
           </button>
         )}
         <div className="revealed">
           <button
             className="icon-btn"
-            aria-label="Previous day"
+            aria-label={message("journal.previousDay")}
             onClick={() => go(addDays(date, -1))}
           >
             <ChevronLeftIcon aria-hidden />
           </button>
           <button
             className="icon-btn"
-            aria-label="Open the calendar"
+            aria-label={message("journal.calendarOpen")}
             onClick={() => {
               const input = dateInput.current;
               if (!input) return;
@@ -105,7 +106,7 @@ export function JournalView() {
           </button>
           <button
             className="icon-btn"
-            aria-label="Next day"
+            aria-label={message("journal.nextDay")}
             onClick={() => go(addDays(date, 1))}
           >
             <ChevronRightIcon aria-hidden />
@@ -115,7 +116,7 @@ export function JournalView() {
           ref={dateInput}
           className="clipped-control"
           type="date"
-          aria-label="Jump to date"
+          aria-label={message("journal.jumpToDate")}
           value={date}
           data-testid="journal-date"
           onChange={(event) => {
@@ -134,8 +135,8 @@ export function JournalView() {
           {header(null)}
           <p className="page-note" aria-busy={state.mode !== "readonly"}>
             {state.mode === "readonly"
-              ? "This journal day has no entries yet."
-              : "Preparing this journal day…"}
+              ? message("journal.emptyReadonly")
+              : message("journal.preparing")}
           </p>
         </article>
       </div>

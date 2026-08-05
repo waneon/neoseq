@@ -5,6 +5,8 @@ import type { BlockSnapshot } from "../../core-port/snapshot";
 import { stringValue } from "../../core-port/snapshot";
 import { Button } from "@/ui/shadcn/button";
 import { useSession, useSessionState } from "../shell/session-context";
+import { useI18n } from "../../i18n";
+import { failureReason } from "../notify/errors";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 const RUN_DEBOUNCE_MS = 300;
@@ -19,6 +21,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const generation = useRef(0);
+  const { message } = useI18n();
 
   useEffect(() => setDraft(source ?? ""), [source]);
 
@@ -34,7 +37,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       .catch((cause) => {
         if (current === generation.current) {
           setResult(null);
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(failureReason(cause, message));
         }
       })
       .finally(() => {
@@ -71,18 +74,26 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   };
 
   return (
-    <section className="query-block" aria-label="SPARQL query" data-testid="query-block">
+    <section
+      className="query-block"
+      aria-label={message("query.section")}
+      data-testid="query-block"
+    >
       <div className="query-toolbar">
         <span className="query-language">SPARQL</span>
         <span className="query-revision">
-          {result ? `revision ${result.revision}` : loading ? "running" : "not run"}
+          {result
+            ? message("query.revision", { revision: result.revision })
+            : loading
+              ? message("query.running")
+              : message("query.notRun")}
         </span>
         <Button
           type="button"
           variant="ghost"
           size="icon"
           onClick={run}
-          aria-label="Run query"
+          aria-label={message("query.run")}
           disabled={loading}
         >
           {loading ? <LoaderCircleIcon className="query-spinner" /> : <PlayIcon />}
@@ -93,7 +104,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         value={draft}
         readOnly={state.mode === "readonly"}
         spellCheck={false}
-        aria-label="SPARQL source"
+        aria-label={message("query.source")}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => void commit()}
         onKeyDown={(event) => {
@@ -116,15 +127,16 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 }
 
 function QueryResultView({ result }: { result: SparqlQueryResult }) {
+  const { message } = useI18n();
   if (result.kind === "ask") {
     return (
       <p className="query-ask" data-value={result.value}>
-        {result.value ? "true" : "false"}
+        {result.value ? message("query.askTrue") : message("query.askFalse")}
       </p>
     );
   }
   if (result.rows.length === 0) {
-    return <p className="query-empty">No results</p>;
+    return <p className="query-empty">{message("query.noResults")}</p>;
   }
   return (
     <div className="query-table-wrap">

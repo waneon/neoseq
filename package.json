@@ -6,5 +6,8 @@
     "build": "pnpm --filter @neoseq/client build",
     "check": "pnpm --filter @neoseq/client check",
     "test:indexeddb": "pnpm --filter @neoseq/client test:indexeddb"
+  },
+  "devDependencies": {
+    "@formatjs/icu-messageformat-parser": "^3.5.16"
   }
 }

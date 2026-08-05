@@ -10,8 +10,10 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { XIcon } from "lucide-react";
 import type { Toast, ToastStore } from "./store";
+import { useI18n } from "../../i18n";
 
 export function Toaster({ store }: { store: ToastStore }) {
+  const { message } = useI18n();
   const toasts = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -34,7 +36,7 @@ export function Toaster({ store }: { store: ToastStore }) {
     <div
       className="toast-viewport"
       role="region"
-      aria-label="Notifications"
+      aria-label={message("notify.notifications")}
       data-testid="toasts"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -48,7 +50,14 @@ export function Toaster({ store }: { store: ToastStore }) {
       }}
     >
       {toasts.map((toast) => (
-        <ToastRow key={toast.id} toast={toast} paused={paused} onDismiss={dismiss} />
+        <ToastRow
+          key={toast.id}
+          toast={toast}
+          paused={paused}
+          onDismiss={dismiss}
+          occurrenceLabel={message("notify.occurrences", { count: toast.count })}
+          dismissLabel={message("notify.dismiss", { title: toast.title })}
+        />
       ))}
     </div>,
     document.body,
@@ -59,10 +68,14 @@ function ToastRow({
   toast,
   paused,
   onDismiss,
+  occurrenceLabel,
+  dismissLabel,
 }: {
   toast: Toast;
   paused: boolean;
   onDismiss: (id: string) => void;
+  occurrenceLabel: string;
+  dismissLabel: string;
 }) {
   const { id, duration, nonce } = toast;
 
@@ -100,13 +113,13 @@ function ToastRow({
         {toast.count > 1 && (
           <span className="toast-count">
             ×{toast.count}
-            <span className="sr-only"> occurrences</span>
+            <span className="sr-only"> {occurrenceLabel}</span>
           </span>
         )}
       </p>
       <button
         className="icon-btn toast-close"
-        aria-label={`Dismiss: ${toast.title}`}
+        aria-label={dismissLabel}
         data-testid="toast-dismiss"
         onClick={() => onDismiss(id)}
       >

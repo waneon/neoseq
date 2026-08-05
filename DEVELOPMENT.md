@@ -24,6 +24,10 @@ not require a checkout-local installation.
 - Keep generated CorePort files in sync by changing
   [`contracts/core-port.json`](contracts/core-port.json) and running
   `node scripts/generate-contracts.mjs`; do not edit generated outputs by hand.
+- Keep locale catalogs in sync by editing the manifest and JSON files under
+  `apps/client/src/i18n/locales`, then running
+  `pnpm --filter @neoseq/client i18n:generate`; do not edit generated message
+  types by hand.
 
 ## Testing workflow
 
@@ -74,6 +78,14 @@ pnpm --filter @neoseq/client exec vitest run tests/component/outline.test.tsx
 nix run .#test-client-components
 ```
 
+For localization changes, run the focused runtime test before the full component
+suite and browser journey:
+
+```sh
+pnpm --filter @neoseq/client exec vitest run tests/component/i18n.test.tsx
+nix run .#test-e2e-web -- --grep "switches to Korean"
+```
+
 Use `--grep` to narrow browser tests by test title. Include mobile or dark-mode
 projects only when the behavior applies to them.
 
@@ -116,7 +128,8 @@ check.
 - `crates/graph-core`: CRDT runtime, transactions, events, and projections.
 - `crates/query`: RDF index and constrained SPARQL execution.
 - `crates/platform-*`: native/SQLite and WebAssembly adapters.
-- `apps/client`: React UI, Web Worker, IndexedDB adapter, and browser tests.
+- `apps/client`: React UI, i18n catalogs/runtime, Web Worker, IndexedDB adapter,
+  and browser tests.
 - `contracts` and `fixtures`: versioned boundaries and compatibility data.
 
 Keep changes within these boundaries and prefer the smallest architecture that

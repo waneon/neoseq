@@ -1,6 +1,7 @@
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
 import { testRoutes } from "virtual:neoseq-test-routes";
 import { NotifyProvider } from "../features/notify/context";
+import { LocaleProvider } from "../i18n";
 import { GraphPicker } from "../features/graphs/GraphPicker";
 import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
@@ -31,8 +32,10 @@ const router = createHashRouter([
 // reports through the same surface as everything else.
 export default function App() {
   return (
-    <NotifyProvider>
-      <RouterProvider router={router} />
-    </NotifyProvider>
+    <LocaleProvider>
+      <NotifyProvider>
+        <RouterProvider router={router} />
+      </NotifyProvider>
+    </LocaleProvider>
   );
 }

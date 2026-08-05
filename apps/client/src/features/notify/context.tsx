@@ -8,6 +8,7 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { failureToast } from "./errors";
 import { Toaster } from "./Toaster";
 import { ToastStore, type ToastAction, type ToastInput } from "./store";
+import { useI18n } from "../../i18n";
 
 export interface Notifier {
   show(input: ToastInput): string;
@@ -36,18 +37,19 @@ export function useNotify(): Notifier {
 }
 
 export function NotifyProvider({ children }: { children: ReactNode }) {
+  const { message } = useI18n();
   const store = useMemo(() => new ToastStore(), []);
   const notifier = useMemo<Notifier>(
     () => ({
       show: store.show,
       dismiss: store.dismiss,
       failure: (summary, error, retry) => {
-        const input = failureToast(summary, error);
+        const input = failureToast(summary, error, message);
         if (!input) return null;
         return store.show(retry ? { ...input, action: retry } : input);
       },
     }),
-    [store],
+    [message, store],
   );
 
   return (

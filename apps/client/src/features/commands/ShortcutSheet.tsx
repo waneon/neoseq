@@ -1,9 +1,8 @@
 // The ⌘/ sheet. Generated from one table so it cannot drift from what the
-// application actually binds, and it deliberately lists the verbs that have NO
-// binding together with their pointer route — a shortcut reference that only
-// mentions shortcuts teaches half the interface.
+// application actually binds, including pointer-only routes.
 
 import { Dialog } from "../../ui/components";
+import { useI18n } from "../../i18n";
 import { MOD } from "./keys";
 
 interface Entry {
@@ -12,64 +11,91 @@ interface Entry {
   route?: string;
 }
 
-const SECTIONS: { title: string; entries: Entry[] }[] = [
-  {
-    title: "Anywhere",
-    entries: [
-      { label: "Search pages, dates and commands", keys: [`${MOD}K`] },
-      { label: "Properties of this block or page", keys: [`${MOD}⇧P`] },
-      { label: "Keyboard shortcuts", keys: [`${MOD}/`] },
-      { label: "Show or hide the sidebar", keys: [`${MOD}\\`] },
-      { label: "Settings", keys: [`${MOD},`] },
-      { label: "Undo", keys: [`${MOD}Z`] },
-      { label: "Redo", keys: [`${MOD}⇧Z`] },
-    ],
-  },
-  {
-    title: "Writing",
-    entries: [
-      { label: "New block", keys: ["⏎"] },
-      { label: "Line break inside a block", keys: ["⇧⏎"] },
-      { label: "Indent", keys: ["⇥"] },
-      { label: "Outdent", keys: ["⇧⇥"] },
-      { label: "Move block up", keys: ["⌥↑"] },
-      { label: "Move block down", keys: ["⌥↓"] },
-      { label: "Previous or next block", keys: ["↑", "↓"] },
-      { label: "Collapse, then jump to the parent", keys: ["←"] },
-      { label: "Expand, then jump to the first child", keys: ["→"] },
-      { label: "Delete an empty block", keys: ["⌫"] },
-      { label: "Block actions", route: "the ⋯ on the row, or right-click it" },
-      { label: "Add or remove a tag", route: "row ⋯ → Properties & tags" },
-    ],
-  },
-  {
-    title: "Journal and pages",
-    entries: [
-      {
-        label: "Jump to a date",
-        route: `${MOD}K, then type “tomorrow”, “aug 5” or “2026-08-05”`,
-      },
-      { label: "Previous or next day", route: "the ‹ › beside the journal title" },
-      { label: "New page", route: "the ＋ beside Pages in the sidebar" },
-      { label: "Rename a page", route: "click its title" },
-      { label: "Delete a page", route: "page ⋯ → Delete page" },
-      { label: "Page details", route: "page ⋯ → Page info" },
-    ],
-  },
-  {
-    title: "Graph",
-    entries: [
-      { label: "Switch or rename a graph", route: "the graph name at the top of the sidebar" },
-      { label: "Appearance, timezone, storage", route: `Settings (${MOD},)` },
-    ],
-  },
-];
+interface Section {
+  title: string;
+  entries: Entry[];
+}
 
 export function ShortcutSheet({ onClose }: { onClose: () => void }) {
+  const { message } = useI18n();
+  const sections: Section[] = [
+    {
+      title: message("shortcuts.anywhere"),
+      entries: [
+        { label: message("shortcuts.search"), keys: [`${MOD}K`] },
+        { label: message("shortcuts.properties"), keys: [`${MOD}⇧P`] },
+        { label: message("shortcuts.keyboard"), keys: [`${MOD}/`] },
+        { label: message("shortcuts.sidebar"), keys: [`${MOD}\\`] },
+        { label: message("shortcuts.settings"), keys: [`${MOD},`] },
+        { label: message("shortcuts.undo"), keys: [`${MOD}Z`] },
+        { label: message("shortcuts.redo"), keys: [`${MOD}⇧Z`] },
+      ],
+    },
+    {
+      title: message("shortcuts.writing"),
+      entries: [
+        { label: message("shortcuts.newBlock"), keys: ["⏎"] },
+        { label: message("shortcuts.lineBreak"), keys: ["⇧⏎"] },
+        { label: message("shortcuts.indent"), keys: ["⇥"] },
+        { label: message("shortcuts.outdent"), keys: ["⇧⇥"] },
+        { label: message("shortcuts.moveUp"), keys: ["⌥↑"] },
+        { label: message("shortcuts.moveDown"), keys: ["⌥↓"] },
+        { label: message("shortcuts.nextPrevBlock"), keys: ["↑", "↓"] },
+        { label: message("shortcuts.collapseParent"), keys: ["←"] },
+        { label: message("shortcuts.expandChild"), keys: ["→"] },
+        { label: message("shortcuts.deleteBlock"), keys: ["⌫"] },
+        {
+          label: message("shortcuts.blockActions"),
+          route: message("shortcuts.blockActionsRoute"),
+        },
+        { label: message("shortcuts.tags"), route: message("shortcuts.tagsRoute") },
+      ],
+    },
+    {
+      title: message("shortcuts.journalPages"),
+      entries: [
+        {
+          label: message("shortcuts.jumpDate"),
+          route: message("shortcuts.dateExamples", { key: `${MOD}K` }),
+        },
+        {
+          label: message("shortcuts.nextPrevDay"),
+          route: message("shortcuts.nextPrevDayRoute"),
+        },
+        { label: message("shortcuts.newPage"), route: message("shortcuts.newPageRoute") },
+        {
+          label: message("shortcuts.renamePage"),
+          route: message("shortcuts.renamePageRoute"),
+        },
+        {
+          label: message("shortcuts.deletePage"),
+          route: message("shortcuts.deletePageRoute"),
+        },
+        {
+          label: message("shortcuts.pageDetails"),
+          route: message("shortcuts.pageDetailsRoute"),
+        },
+      ],
+    },
+    {
+      title: message("shortcuts.graph"),
+      entries: [
+        {
+          label: message("shortcuts.switchGraph"),
+          route: message("shortcuts.switchGraphRoute"),
+        },
+        {
+          label: message("shortcuts.graphSettings"),
+          route: message("shortcuts.graphSettingsRoute", { key: `${MOD},` }),
+        },
+      ],
+    },
+  ];
+
   return (
-    <Dialog title="Keyboard shortcuts" onClose={onClose} size="wide">
+    <Dialog title={message("shortcuts.title")} onClose={onClose} size="wide">
       <div className="shortcuts" data-testid="shortcut-sheet">
-        {SECTIONS.map((section) => (
+        {sections.map((section) => (
           <section key={section.title}>
             <h3>{section.title}</h3>
             <dl>

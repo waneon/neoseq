@@ -6,6 +6,7 @@ import {
   DialogTitle,
 } from "@/ui/shadcn/dialog";
 import { cn } from "@/lib/utils";
+import { useI18n } from "../i18n";
 
 export function Dialog({
   title,
@@ -18,12 +19,14 @@ export function Dialog({
   size?: "default" | "wide";
   children: ReactNode;
 }) {
+  const { message } = useI18n();
   // Rendered only while open (parents mount it conditionally), so the Radix
   // root is always open; closing via Escape, the backdrop, or the X reports
   // back through onOpenChange. Radix owns focus trapping and restoration.
   return (
     <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
+        closeLabel={message("common.close")}
         className={cn(size === "wide" && "max-w-[720px]")}
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();

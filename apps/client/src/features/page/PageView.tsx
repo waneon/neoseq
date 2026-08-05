@@ -21,13 +21,17 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { MOD } from "../commands/keys";
 import { useNotify } from "../notify/context";
+import { failureReason } from "../notify/errors";
 import { useSession, useSessionState } from "../shell/session-context";
+import { configuredTimezone } from "../../entities/journal";
+import { useI18n } from "../../i18n";
 
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
+  const { message } = useI18n();
   const page = findPage(state.snapshot, pageId);
 
   // A failed hydrate leaves a real page rendering as an empty one, which reads
@@ -37,9 +41,12 @@ export function PageView() {
   // action referring back to this callback.
   const load = useCallback<() => void>(() => {
     void session.hydratePage(pageId).catch((error: unknown) => {
-      notify.failure("Couldn’t load this page", error, { label: "Try again", run: load });
+      notify.failure(message("failure.loadPage"), error, {
+        label: message("common.retry"),
+        run: load,
+      });
     });
-  }, [notify, pageId, session]);
+  }, [message, notify, pageId, session]);
 
   useEffect(() => {
     if (!page || state.status !== "ready" || state.hydratedPages.has(pageId)) return;
@@ -59,10 +66,11 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
   const session = useSession();
   const state = useSessionState();
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const { message } = useI18n();
   return (
     <Tombstone
-      title="This page isn't available"
-      detail="It may have been deleted, or the reference may point to a page that was never created. NeoSeq keeps the reference resolvable instead of creating a replacement."
+      title={message("page.missing")}
+      detail={message("page.missingDetail")}
       graphId={graphId}
       actions={
         state.mode !== "readonly" ? (
@@ -76,14 +84,14 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
                   .then(() => setRestoreError(null))
                   .catch((cause) =>
                     setRestoreError(
-                      cause instanceof Error && !cause.message.includes("page does not exist")
-                        ? cause.message
-                        : "Nothing to restore: this page never existed.",
+                      cause instanceof Error && cause.message.includes("page does not exist")
+                        ? message("page.nothingToRestore")
+                        : failureReason(cause, message),
                     )
                   )
               }
             >
-              Try to restore
+              {message("page.restore")}
             </button>
             {restoreError && (
               <span className="field-error" data-testid="restore-error">
@@ -140,6 +148,7 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
   const [renameError, setRenameError] = useState<string | null>(null);
   const errorId = useId();
   const isJournal = pageKind(page) === "journal";
+  const { message } = useI18n();
 
   if (isJournal) {
     return <h1>{authoritative}</h1>;
@@ -154,7 +163,7 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
         .execute({ type: "rename_page", page_id: page.id, title: next })
         .catch((cause) => {
           setRenameError(
-            cause instanceof Error ? cause.message : `Could not rename page to “${next}”`,
+            failureReason(cause, message),
           );
         });
     }
@@ -165,7 +174,7 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
       <input
         className="page-title"
         value={draft ?? authoritative}
-        aria-label="Page title"
+        aria-label={message("page.title")}
         aria-invalid={renameError ? true : undefined}
         aria-describedby={renameError ? errorId : undefined}
         data-testid="page-title"
@@ -215,6 +224,7 @@ export function PageMenu({
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
+  const { message } = useI18n();
   const readonly = state.mode === "readonly";
   const isJournal = pageKind(page) === "journal";
   const [info, setInfo] = useState(false);
@@ -224,7 +234,11 @@ export function PageMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="icon-btn" aria-label="Page actions" data-testid="page-menu">
+          <button
+            className="icon-btn"
+            aria-label={message("page.actions")}
+            data-testid="page-menu"
+          >
             <MoreHorizontalIcon aria-hidden />
           </button>
         </DropdownMenuTrigger>
@@ -234,12 +248,12 @@ export function PageMenu({
             onSelect={onOpenProperties}
           >
             <Settings2Icon aria-hidden />
-            Page properties
+            {message("page.properties")}
             <DropdownMenuShortcut>{MOD}⇧P</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setInfo(true)}>
             <InfoIcon aria-hidden />
-            Page info
+            {message("page.info")}
           </DropdownMenuItem>
           {!isJournal && !readonly && (
             <>
@@ -250,7 +264,7 @@ export function PageMenu({
                 onSelect={() => setConfirmDelete(true)}
               >
                 <Trash2Icon aria-hidden />
-                Delete page…
+                {message("page.delete")}
               </DropdownMenuItem>
             </>
           )}
@@ -258,14 +272,13 @@ export function PageMenu({
       </DropdownMenu>
       {info && <PageInfoDialog page={page} onClose={() => setInfo(false)} />}
       {confirmDelete && (
-        <Dialog title="Delete page" onClose={() => setConfirmDelete(false)}>
+        <Dialog title={message("page.deleteTitle")} onClose={() => setConfirmDelete(false)}>
           <p>
-            Delete <strong>{pageTitle(page)}</strong>? References to it stay resolvable, and you
-            can restore it from the tombstone they lead to.
+            {message("page.deleteConfirm", { name: pageTitle(page) })}
           </p>
           <div className="dialog-actions">
             <button className="btn" onClick={() => setConfirmDelete(false)}>
-              Cancel
+              {message("common.cancel")}
             </button>
             <button
               className="btn btn-danger"
@@ -277,11 +290,14 @@ export function PageMenu({
                   .catch((error: unknown) => {
                     // The dialog is gone by now, so there is nowhere inline
                     // left for this to be said.
-                    notify.failure(`Couldn’t delete “${pageTitle(page)}”`, error);
+                    notify.failure(
+                      message("failure.deletePage", { name: pageTitle(page) }),
+                      error,
+                    );
                   });
               }}
             >
-              Delete page
+              {message("page.deleteAction")}
             </button>
           </div>
         </Dialog>
@@ -298,70 +314,61 @@ export function PageMenu({
 function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => void }) {
   const { graphId = "" } = useParams();
   const notify = useNotify();
+  const { message, formatInstant } = useI18n();
   const created = stringValue(page.properties, "system.created-at");
   const updated = stringValue(page.properties, "system.updated-at");
   const journal = stringValue(page.properties, "journal.date");
   const [copied, setCopied] = useState(false);
 
   return (
-    <Dialog title="Page info" onClose={onClose}>
+    <Dialog title={message("page.info")} onClose={onClose}>
       <dl className="page-info">
-        <dt>Kind</dt>
-        <dd>{pageKind(page) === "journal" ? "Journal day" : "Page"}</dd>
+        <dt>{message("page.kind")}</dt>
+        <dd>
+          {pageKind(page) === "journal" ? message("page.journalDay") : message("common.page")}
+        </dd>
         {journal && (
           <>
-            <dt>Journal date</dt>
+            <dt>{message("page.journalDate")}</dt>
             <dd className="mono">{journal}</dd>
           </>
         )}
         {created && (
           <>
-            <dt>Created</dt>
-            <dd>{formatInstant(created)}</dd>
+            <dt>{message("page.created")}</dt>
+            <dd>{formatInstant(created, configuredTimezone())}</dd>
           </>
         )}
         {updated && (
           <>
-            <dt>Updated</dt>
-            <dd>{formatInstant(updated)}</dd>
+            <dt>{message("page.updated")}</dt>
+            <dd>{formatInstant(updated, configuredTimezone())}</dd>
           </>
         )}
-        <dt>Page id</dt>
+        <dt>{message("page.pageId")}</dt>
         <dd>
           <button
             type="button"
-            aria-label="Copy page id"
+            aria-label={message("page.copyId")}
             onClick={() => {
               // The label swap is the acknowledgement; only its absence needs
               // reporting, because a button that does nothing looks broken.
               void navigator.clipboard?.writeText(page.id).then(
                 () => setCopied(true),
                 (error: unknown) => {
-                  notify.failure("Couldn’t copy the page id", error);
+                  notify.failure(message("failure.copyPageId"), error);
                 },
               );
             }}
           >
-            {copied ? "Copied" : page.id}
+            {copied ? message("common.copied") : page.id}
           </button>
         </dd>
-        <dt>Graph</dt>
+        <dt>{message("page.graph")}</dt>
         <dd className="mono">{graphId}</dd>
       </dl>
     </Dialog>
   );
-}
-
-function formatInstant(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.valueOf())) return iso;
-  return parsed.toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 export function Tombstone({
@@ -375,6 +382,7 @@ export function Tombstone({
   graphId: string;
   actions?: ReactNode;
 }) {
+  const { message } = useI18n();
   return (
     <div className="page-scroll">
       {/* A failure keeps the shell: the rail and top bar stay put so a mistyped
@@ -385,7 +393,7 @@ export function Tombstone({
           <p>{detail}</p>
           <div className="actions">
             <Link className="btn" to={`/g/${graphId}/journal`}>
-              Go to journal
+              {message("page.goToJournal")}
             </Link>
             {actions}
           </div>

@@ -54,9 +54,11 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  closeLabel = "Close",
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  closeLabel?: string;
 }) {
   return (
     <DialogPortal>
@@ -75,7 +77,7 @@ function DialogContent({
             <DialogPrimitive.Close
               data-slot="dialog-close"
               className="absolute right-3 top-3 inline-flex size-6 items-center justify-center rounded-md text-[var(--ink-3)] transition-colors hover:bg-accent hover:text-foreground"
-              aria-label="Close"
+              aria-label={closeLabel}
             >
               <XIcon className="size-3.5" />
             </DialogPrimitive.Close>

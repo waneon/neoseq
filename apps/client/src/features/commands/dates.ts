@@ -6,6 +6,7 @@
 // strings so it never disagrees with the configured journal timezone.
 
 import { addDays } from "../../entities/journal";
+import type { SupportedLocale } from "../../i18n";
 
 const WEEKDAYS = [
   "sunday",
@@ -60,11 +61,17 @@ function isRealDate(date: string): boolean {
  * `today` anchors every relative form, so the result always agrees with the
  * journal's own notion of the current day.
  */
-export function parseDateQuery(raw: string, today: string): string | null {
+export function parseDateQuery(
+  raw: string,
+  today: string,
+  locale: SupportedLocale = "en",
+): string | null {
   const query = raw.trim().toLowerCase();
   if (query.length === 0) return null;
 
   if (ISO.test(query)) return isRealDate(query) ? query : null;
+
+  if (locale === "ko") return parseKoreanDateQuery(query, today);
 
   if (query === "today" || query === "now") return today;
   if (query === "tomorrow") return addDays(today, 1);
@@ -125,5 +132,37 @@ export function parseDateQuery(raw: string, today: string): string | null {
   if (month === null || day === null) return null;
   const resolvedYear = year ?? Number(today.slice(0, 4));
   const candidate = `${resolvedYear}-${pad(month)}-${pad(day)}`;
+  return isRealDate(candidate) ? candidate : null;
+}
+
+function parseKoreanDateQuery(query: string, today: string): string | null {
+  if (query === "오늘" || query === "지금") return today;
+  if (query === "내일") return addDays(today, 1);
+  if (query === "어제") return addDays(today, -1);
+
+  const relative = /^(\d{1,4})\s*(일|주|주일|개월|달)\s*(전|후|뒤)$/.exec(query);
+  if (relative) {
+    const amount = Number(relative[1]);
+    const unit = relative[2];
+    const days = unit === "주" || unit === "주일" ? amount * 7 : unit === "개월" || unit === "달" ? amount * 30 : amount;
+    return addDays(today, relative[3] === "전" ? -days : days);
+  }
+
+  const weekday = /^(?:(다음|지난|이번)\s*)?(일|월|화|수|목|금|토)요일$/.exec(query);
+  if (weekday) {
+    const index = ["일", "월", "화", "수", "목", "금", "토"].indexOf(weekday[2]);
+    const current = dayOfWeek(today);
+    if (weekday[1] === "지난") {
+      const back = ((current - index + 7 - 1) % 7) + 1;
+      return addDays(today, -back);
+    }
+    const forward = ((index - current + 7 - 1) % 7) + 1;
+    return addDays(today, forward);
+  }
+
+  const calendar = /^(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일$/.exec(query);
+  if (!calendar) return null;
+  const year = Number(calendar[1] ?? today.slice(0, 4));
+  const candidate = `${year}-${pad(Number(calendar[2]))}-${pad(Number(calendar[3]))}`;
   return isRealDate(candidate) ? candidate : null;
 }

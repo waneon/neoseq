@@ -42,7 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { nextTheme, setTheme, storedTheme, type Theme } from "../../ui/theme";
-import { addDays, formatJournalTitle, todayLocalDate } from "../../entities/journal";
+import { addDays, todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import { CommandContext, type CommandBridge } from "../commands/context";
 import { CommandPalette } from "../commands/CommandPalette";
@@ -54,6 +54,7 @@ import type { RdfTerm } from "../../generated/core-port";
 import type { Command } from "../commands/registry";
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
+import { useI18n, type MessageFunction } from "../../i18n";
 
 declare global {
   interface Window {
@@ -136,6 +137,7 @@ function ShellBody({
   const navigate = useNavigate();
   const location = useLocation();
   const notify = useNotify();
+  const { message, locale, formatLocalDate, compare } = useI18n();
   const name = useMemo(() => graphName(graphId), [graphId]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -158,23 +160,23 @@ function ShellBody({
     () =>
       state.snapshot.pages
         .filter((page) => pageKind(page) === "regular" && !isDeleted(page))
-        .sort((left, right) => pageTitle(left).localeCompare(pageTitle(right))),
-    [state.snapshot],
+        .sort((left, right) => compare(pageTitle(left), pageTitle(right))),
+    [compare, state.snapshot],
   );
 
   const createPage = useCallback(
     async (title?: string) => {
       const pageId = `p-${crypto.randomUUID()}`;
-      const pageName = title ?? nextAvailableEntityName("Untitled", pages.map(pageTitle));
+      const pageName = title ?? nextAvailableEntityName(message("page.untitled"), pages.map(pageTitle));
       try {
         await session.execute({ type: "ensure_page", page_id: pageId, title: pageName });
       } catch (error) {
-        notify.failure(`Couldn’t create “${pageName}”`, error);
+        notify.failure(message("failure.createPage", { name: pageName }), error);
         return;
       }
       navigate(`/g/${graphId}/p/${pageId}`);
     },
-    [graphId, navigate, notify, pages, session],
+    [graphId, message, navigate, notify, pages, session],
   );
 
   const toggleRail = useCallback(() => {
@@ -216,7 +218,7 @@ function ShellBody({
   // exception and handles the document undo itself, because there its text edits
   // *are* the document.
   useEffect(() => {
-    const undo = (redo: boolean) => void runHistory(session, notify, redo);
+    const undo = (redo: boolean) => void runHistory(session, notify, message, redo);
     const bindings: KeyBinding[] = [
       { key: "k", run: () => setPaletteOpen(true) },
       { key: "p", shift: true, run: () => bridge.requestProperties() },
@@ -244,7 +246,7 @@ function ShellBody({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, graphId, navigate, notify, session, toggleRail]);
+  }, [bridge, graphId, message, navigate, notify, session, toggleRail]);
 
   // Read-only is a state a second tab lands in without asking for it, and the
   // 12px label beside the save slot is easy to miss when the first thing you do
@@ -258,11 +260,10 @@ function ShellBody({
       tone: "info",
       key: "readonly-lease",
       duration: null,
-      title: "This graph is open in another tab",
-      detail:
-        "Editing is disabled here so the two tabs cannot overwrite each other. Close the other tab and reload to take over.",
+      title: message("shell.readonlyTitle"),
+      detail: message("shell.readonlyDetail"),
     });
-  }, [notify, readonly]);
+  }, [message, notify, readonly]);
 
   // The top bar earns its bottom edge and its condensed title only once the
   // content beneath has actually moved. `scroll` does not bubble, but it still
@@ -292,15 +293,15 @@ function ShellBody({
     (query: string): Command[] => {
       if (query.length === 0) return [];
       const rows: Command[] = [];
-      const date = parseDateQuery(query, today);
+      const date = parseDateQuery(query, today, locale);
       if (date) {
         rows.push({
           id: `journal-${date}`,
           group: "Journal",
-          label: formatJournalTitle(date),
-          hint: date === today ? "Today" : "Journal",
+          label: formatLocalDate(date),
+          hint: date === today ? message("commands.hintToday") : message("commands.hintJournal"),
           icon: <CalendarDaysIcon aria-hidden />,
-          pointerRoute: "the calendar button beside the journal title",
+          pointerRoute: message("shortcuts.nextPrevDayRoute"),
           run: () => navigate(`/g/${graphId}/journal/${date}`),
         });
       }
@@ -311,15 +312,15 @@ function ShellBody({
         rows.push({
           id: "create-page",
           group: "Pages",
-          label: `Create page “${query}”`,
+          label: message("commands.createPage", { title: query }),
           icon: <PlusIcon aria-hidden />,
-          pointerRoute: "the ＋ beside Pages in the sidebar, then rename the page",
+          pointerRoute: message("shortcuts.newPageRoute"),
           run: () => createPage(query),
         });
       }
       return rows;
     },
-    [createPage, graphId, navigate, pages, readonly, today],
+    [createPage, formatLocalDate, graphId, locale, message, navigate, pages, readonly, today],
   );
 
   const searchGraph = useCallback(
@@ -355,14 +356,14 @@ SELECT ?entity ?content ?page WHERE {
           id: `search-${index}-${entity.value}`,
           group: "Search" as const,
           label: content || (isBlock ? entity.entity.id : pageId),
-          hint: isBlock ? "Block" : "Page",
+          hint: isBlock ? message("commands.blockHint") : message("commands.hintPage"),
           icon: <SearchIcon aria-hidden />,
-          pointerRoute: "the Search field in the top bar",
+          pointerRoute: message("shell.search"),
           run: () => navigate(`/g/${graphId}/p/${pageId}`),
         }];
       });
     },
-    [graphId, navigate, session],
+    [graphId, message, navigate, session],
   );
 
   // A calm, delayed loader (rather than a full-bleed card) prevents the
@@ -374,13 +375,11 @@ SELECT ?entity ?content ?page WHERE {
       <main className="picker">
         <div className="picker-inner">
           <div className="tombstone" data-testid="graph-error">
-            <h1>This graph could not be opened</h1>
-            <p>
-              {state.error?.message ?? "Unknown error."} ({state.error?.code ?? "internal"})
-            </p>
+            <h1>{message("graph.loadError")}</h1>
+            <p>{message("error.internal")}</p>
             <div className="actions">
               <Link className="btn" to="/">
-                Back to graphs
+                {message("graph.backToGraphs")}
               </Link>
             </div>
           </div>
@@ -393,13 +392,13 @@ SELECT ?entity ?content ?page WHERE {
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
   const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
   const contextTitle = currentDate
-    ? formatJournalTitle(currentDate)
+    ? formatLocalDate(currentDate)
     : currentPage
       ? (pages.find((page) => page.id === currentPage)
           ? pageTitle(pages.find((page) => page.id === currentPage)!)
-          : "Page")
+          : message("common.page"))
       : location.pathname.endsWith("/settings")
-        ? "Settings"
+        ? message("settings.title")
         : name;
 
   const commands = buildCommands({
@@ -418,48 +417,54 @@ SELECT ?entity ?content ?page WHERE {
     toggleRail,
     railCollapsed,
     applyTheme,
+    message,
+    formatLocalDate,
   });
 
   return (
     <CommandContext.Provider value={bridge}>
       <div className="shell" data-rail={railCollapsed ? "collapsed" : "expanded"}>
         <a className="skip-link" href="#page-content">
-          Skip to content
+          {message("shell.skipContent")}
         </a>
         {sidebarOpen && (
-          <button className="shell-scrim" aria-label="Close menu" onClick={onToggleSidebar} />
+          <button
+            className="shell-scrim"
+            aria-label={message("shell.closeMenu")}
+            onClick={onToggleSidebar}
+          />
         )}
         <nav
           className="shell-sidebar"
           data-open={sidebarOpen}
-          aria-label="Graph navigation"
+          aria-label={message("shell.graphNavigation")}
           data-testid="sidebar"
         >
           <GraphSwitcher graphId={graphId} name={name} onExit={onExit} />
           <div className="shell-nav">
             <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
               <CalendarDaysIcon aria-hidden />
-              <span className="nav-label">Journal</span>
+              <span className="nav-label">{message("shell.journal")}</span>
             </NavLink>
           </div>
           <div className="rail-group">
-            <h2>Pages</h2>
+            <h2>{message("shell.pages")}</h2>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   className="icon-btn"
-                  aria-label="New page"
+                  aria-label={message("shell.newPage")}
                   onClick={() => void createPage()}
                   data-testid="new-page"
                 >
                   <PlusIcon aria-hidden />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>New page</TooltipContent>
+              <TooltipContent>{message("shell.newPage")}</TooltipContent>
             </Tooltip>
           </div>
           <div className="shell-nav" data-testid="page-list">
-            {pages.length === 0 && <p className="rail-note">No pages yet.</p>}
+            {pages.length === 0 && <p className="rail-note">{message("shell.noPages")}</p>}
             {pages.map((page) => (
               <NavLink key={page.id} className="shell-nav-item" to={`/g/${graphId}/p/${page.id}`}>
                 <FileTextIcon aria-hidden />
@@ -471,11 +476,11 @@ SELECT ?entity ?content ?page WHERE {
           <div className="rail-footer">
             <NavLink className="shell-nav-item" to={`/g/${graphId}/settings`}>
               <SettingsIcon aria-hidden />
-              <span className="nav-label">Settings</span>
+              <span className="nav-label">{message("shell.settings")}</span>
             </NavLink>
             <button className="shell-nav-item" onClick={onExit}>
               <LayoutGridIcon aria-hidden />
-              <span className="nav-label">All graphs</span>
+              <span className="nav-label">{message("shell.allGraphs")}</span>
             </button>
           </div>
         </nav>
@@ -483,7 +488,7 @@ SELECT ?entity ?content ?page WHERE {
           <header className="shell-topbar" data-scrolled={scrolled}>
             <button
               className="icon-btn shell-toggle"
-              aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+              aria-label={sidebarOpen ? message("shell.closeMenu") : message("shell.openMenu")}
               aria-expanded={sidebarOpen}
               onClick={onToggleSidebar}
             >
@@ -493,14 +498,14 @@ SELECT ?entity ?content ?page WHERE {
               <TooltipTrigger asChild>
                 <button
                   className="icon-btn rail-toggle"
-                  aria-label="Show sidebar"
+                  aria-label={message("shell.showSidebar")}
                   aria-keyshortcuts="Meta+Backslash"
                   onClick={toggleRail}
                 >
                   <PanelLeftIcon />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Show sidebar · {MOD}\</TooltipContent>
+              <TooltipContent>{message("shell.showSidebar")} · {MOD}\</TooltipContent>
             </Tooltip>
             <span className="topbar-title" aria-hidden>
               {contextTitle}
@@ -509,49 +514,49 @@ SELECT ?entity ?content ?page WHERE {
               <button
                 className="search-pill"
                 onClick={() => setPaletteOpen(true)}
-                aria-label="Search pages and commands"
+                aria-label={message("commands.searchLabel")}
                 aria-keyshortcuts="Meta+K"
                 data-testid="open-palette"
               >
                 <SearchIcon aria-hidden />
-                <span className="label">Search</span>
+                <span className="label">{message("shell.search")}</span>
                 <kbd className="kbd">{MOD}K</kbd>
               </button>
               <SaveStatus state={state} onRetry={() => void session.retry()} />
               {readonly && (
                 <span className="readonly-label" data-testid="readonly-pill">
-                  Read-only · open in another tab
+                  {message("shell.readonly")}
                 </span>
               )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     className="icon-btn"
-                    aria-label="Undo"
+                    aria-label={message("shell.undo")}
                     aria-keyshortcuts="Meta+Z"
                     disabled={readonly}
-                    onClick={() => void runHistory(session, notify, false)}
+                    onClick={() => void runHistory(session, notify, message, false)}
                     data-testid="undo"
                   >
                     <Undo2Icon aria-hidden />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Undo · {MOD}Z</TooltipContent>
+                <TooltipContent>{message("shell.undo")} · {MOD}Z</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     className="icon-btn"
-                    aria-label="Redo"
+                    aria-label={message("shell.redo")}
                     aria-keyshortcuts="Meta+Shift+Z"
                     disabled={readonly}
-                    onClick={() => void runHistory(session, notify, true)}
+                    onClick={() => void runHistory(session, notify, message, true)}
                     data-testid="redo"
                   >
                     <Redo2Icon aria-hidden />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Redo · {MOD}⇧Z</TooltipContent>
+                <TooltipContent>{message("shell.redo")} · {MOD}⇧Z</TooltipContent>
               </Tooltip>
             </div>
           </header>
@@ -559,8 +564,9 @@ SELECT ?entity ?content ?page WHERE {
             {state.recovery && state.recovery.quarantined_records.length > 0 && (
               <div className="callout-slot">
                 <Callout tone="danger">
-                  {state.recovery.quarantined_records.length} damaged record(s) were quarantined
-                  during recovery. Intact data up to the last valid state was restored.
+                  {message("shell.recovery", {
+                    count: state.recovery.quarantined_records.length,
+                  })}
                 </Callout>
               </div>
             )}
@@ -595,6 +601,7 @@ function GraphSwitcher({
   onExit: () => void;
 }) {
   const navigate = useNavigate();
+  const { message } = useI18n();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(name);
 
@@ -610,7 +617,7 @@ function GraphSwitcher({
       >
         <input
           className="h-8 w-full rounded-md bg-[var(--canvas)] px-2 text-sm shadow-[var(--e1)]"
-          aria-label="Graph name"
+          aria-label={message("graph.graphName")}
           autoFocus
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -644,14 +651,14 @@ function GraphSwitcher({
             setRenaming(true);
           }}
         >
-          Rename graph
+          {message("graph.rename")}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate(`/g/${graphId}/settings`)}>
-          Graph settings
+          {message("graph.settings")}
           <DropdownMenuShortcut>{MOD},</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onExit}>All graphs</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onExit}>{message("graph.allGraphs")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -673,6 +680,8 @@ interface CommandInputs {
   bridge: CommandBridge;
   toggleRail: () => void;
   applyTheme: (next: Theme) => void;
+  message: MessageFunction;
+  formatLocalDate: (date: string) => string;
 }
 
 /**
@@ -681,20 +690,25 @@ interface CommandInputs {
  * only thing that separates "there was nothing to undo" from "the command was
  * rejected", so neither path is allowed to swallow its error.
  */
-function runHistory(session: GraphSession, notify: Notifier, redo: boolean): Promise<void> {
+function runHistory(
+  session: GraphSession,
+  notify: Notifier,
+  message: MessageFunction,
+  redo: boolean,
+): Promise<void> {
   return session
     .execute({ type: redo ? "redo" : "undo" })
     .then(() => undefined)
     .catch((error: unknown) => {
-      notify.failure(redo ? "Couldn’t redo" : "Couldn’t undo", error);
+      notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
     });
 }
 
-const THEME_LABEL: Record<Theme, string> = {
-  system: "Match the system",
-  light: "Light",
-  dark: "Dark",
-};
+const THEME_MESSAGE = {
+  system: "theme.system",
+  light: "theme.light",
+  dark: "theme.dark",
+} as const;
 
 /**
  * Builds the palette's contents. Navigation comes first because that is what a
@@ -718,8 +732,10 @@ function buildCommands(input: CommandInputs): Command[] {
     toggleRail,
     railCollapsed,
     applyTheme,
+    message,
+    formatLocalDate,
   } = input;
-  const blocked = readonly ? "Read-only — this graph is open in another tab" : null;
+  const blocked = readonly ? message("commands.readonlyReason") : null;
   const commands: Command[] = [];
 
   for (const page of pages) {
@@ -729,9 +745,9 @@ function buildCommands(input: CommandInputs): Command[] {
       group: "Pages",
       label: title,
       keywords: ["open page", "go to"],
-      hint: "Page",
+      hint: message("commands.hintPage"),
       icon: <FileTextIcon aria-hidden />,
-      pointerRoute: "the page list in the sidebar",
+      pointerRoute: message("shell.pages"),
       run: () => navigate(`/g/${graphId}/p/${page.id}`),
     });
   }
@@ -739,22 +755,22 @@ function buildCommands(input: CommandInputs): Command[] {
   commands.push({
     id: "new-page",
     group: "Pages",
-    label: "New page",
+    label: message("commands.label.newPage"),
     keywords: ["create", "add page"],
     icon: <PlusIcon aria-hidden />,
     disabledReason: blocked,
-    pointerRoute: "the ＋ beside Pages in the sidebar",
+    pointerRoute: message("shortcuts.newPageRoute"),
     run: () => void createPage(),
   });
 
   commands.push({
     id: "journal-today",
     group: "Journal",
-    label: "Today’s journal",
+    label: message("commands.label.todayJournal"),
     keywords: ["today", "journal", "daily"],
-    hint: formatJournalTitle(today),
+    hint: formatLocalDate(today),
     icon: <CalendarDaysIcon aria-hidden />,
-    pointerRoute: "Journal in the sidebar",
+    pointerRoute: message("shell.journal"),
     run: () => navigate(`/g/${graphId}/journal`),
   });
 
@@ -763,17 +779,17 @@ function buildCommands(input: CommandInputs): Command[] {
       {
         id: "journal-prev",
         group: "Journal",
-        label: "Previous day",
+        label: message("commands.label.previousDay"),
         icon: <CalendarDaysIcon aria-hidden />,
-        pointerRoute: "the ‹ beside the journal title",
+        pointerRoute: message("shortcuts.nextPrevDayRoute"),
         run: () => navigate(`/g/${graphId}/journal/${addDays(currentDate, -1)}`),
       },
       {
         id: "journal-next",
         group: "Journal",
-        label: "Next day",
+        label: message("commands.label.nextDay"),
         icon: <CalendarDaysIcon aria-hidden />,
-        pointerRoute: "the › beside the journal title",
+        pointerRoute: message("shortcuts.nextPrevDayRoute"),
         run: () => navigate(`/g/${graphId}/journal/${addDays(currentDate, 1)}`),
       },
     );
@@ -782,12 +798,12 @@ function buildCommands(input: CommandInputs): Command[] {
   commands.push({
     id: "properties",
     group: "Block",
-    label: "Properties & tags",
+    label: message("commands.label.properties"),
     keywords: ["property", "tag", "metadata"],
     binding: `${MOD}⇧P`,
-    hint: "This block, or the page",
+    hint: message("commands.pagePropertiesHint"),
     icon: <Settings2Icon aria-hidden />,
-    pointerRoute: "the ⋯ on a row, or the ⋯ beside the page title",
+    pointerRoute: message("shortcuts.blockActionsRoute"),
     run: () => bridge.requestProperties(),
   });
 
@@ -795,22 +811,22 @@ function buildCommands(input: CommandInputs): Command[] {
     {
       id: "undo",
       group: "Edit",
-      label: "Undo",
+      label: message("commands.label.undo"),
       binding: `${MOD}Z`,
       icon: <Undo2Icon aria-hidden />,
       disabledReason: blocked,
-      pointerRoute: "the undo arrow in the top bar",
-      run: () => void runHistory(session, notify, false),
+      pointerRoute: message("shell.undo"),
+      run: () => void runHistory(session, notify, message, false),
     },
     {
       id: "redo",
       group: "Edit",
-      label: "Redo",
+      label: message("commands.label.redo"),
       binding: `${MOD}⇧Z`,
       icon: <Redo2Icon aria-hidden />,
       disabledReason: blocked,
-      pointerRoute: "the redo arrow in the top bar",
-      run: () => void runHistory(session, notify, true),
+      pointerRoute: message("shell.redo"),
+      run: () => void runHistory(session, notify, message, true),
     },
   );
 
@@ -818,19 +834,19 @@ function buildCommands(input: CommandInputs): Command[] {
     {
       id: "settings",
       group: "Graph",
-      label: "Settings",
+      label: message("commands.label.settings"),
       binding: `${MOD},`,
       icon: <SettingsIcon aria-hidden />,
-      pointerRoute: "Settings at the bottom of the sidebar",
+      pointerRoute: message("shell.settings"),
       run: () => navigate(`/g/${graphId}/settings`),
     },
     {
       id: "all-graphs",
       group: "Graph",
-      label: "All graphs",
+      label: message("commands.label.allGraphs"),
       keywords: ["switch graph", "close graph"],
       icon: <LayoutGridIcon aria-hidden />,
-      pointerRoute: "All graphs at the bottom of the sidebar",
+      pointerRoute: message("shell.allGraphs"),
       run: onExit,
     },
   );
@@ -839,29 +855,33 @@ function buildCommands(input: CommandInputs): Command[] {
     {
       id: "theme",
       group: "App",
-      label: `Appearance: ${THEME_LABEL[theme]}`,
+      label: message("commands.appearance", { theme: message(THEME_MESSAGE[theme]) }),
       keywords: ["dark mode", "light mode", "theme"],
-      hint: `Switch to ${THEME_LABEL[nextTheme(theme)].toLowerCase()}`,
+      hint: message("commands.appearanceHint", {
+        theme: message(THEME_MESSAGE[nextTheme(theme)]),
+      }),
       icon: <MoonIcon aria-hidden />,
-      pointerRoute: "Settings → Appearance",
+      pointerRoute: message("settings.appearance"),
       run: () => applyTheme(nextTheme(theme)),
     },
     {
       id: "toggle-rail",
       group: "App",
-      label: railCollapsed ? "Show sidebar" : "Hide sidebar",
+      label: railCollapsed
+        ? message("commands.label.showSidebar")
+        : message("commands.label.hideSidebar"),
       binding: `${MOD}\\`,
       icon: <PanelLeftIcon aria-hidden />,
-      pointerRoute: "the sidebar icon in the top bar",
+      pointerRoute: message("shell.showSidebar"),
       run: toggleRail,
     },
     {
       id: "shortcuts",
       group: "App",
-      label: "Keyboard shortcuts",
+      label: message("commands.label.keyboardShortcuts"),
       binding: `${MOD}/`,
       icon: <KeyboardIcon aria-hidden />,
-      pointerRoute: "the palette’s Keyboard shortcuts entry",
+      pointerRoute: message("commands.label.keyboardShortcuts"),
       run: () => bridge.openShortcuts(),
     },
   );
@@ -875,6 +895,7 @@ function buildCommands(input: CommandInputs): Command[] {
  * opens (the common case) show no loading screen at all.
  */
 function ShellLoading() {
+  const { message } = useI18n();
   const [show, setShow] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setShow(true), 220);
@@ -885,7 +906,7 @@ function ShellLoading() {
   return (
     <div className="shell-loading" role="status" aria-busy="true">
       <Loader2Icon className="spinner" aria-hidden />
-      <p>Opening graph…</p>
+      <p>{message("graph.loading")}</p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SessionState } from "../../core-port/session";
+import { useI18n } from "../../i18n";
 
 const SAVING_DELAY_MS = 600;
 
@@ -23,6 +24,7 @@ export function SaveStatus({
   state: SessionState;
   onRetry: () => void;
 }) {
+  const { message } = useI18n();
   const save = state.save;
   const [showSaving, setShowSaving] = useState(false);
 
@@ -38,8 +40,8 @@ export function SaveStatus({
   const reason =
     save.kind === "unsaved"
       ? save.code === "storage_full"
-        ? "Storage full — not saved"
-        : "Not saved"
+        ? message("save.storageFull")
+        : message("save.notSaved")
       : null;
 
   return (
@@ -51,11 +53,13 @@ export function SaveStatus({
         data-testid="save-status"
         aria-live={save.kind === "unsaved" ? "assertive" : "off"}
       >
-        {save.kind === "saved" && <span className="sr-only">Saved locally</span>}
+        {save.kind === "saved" && (
+          <span className="sr-only">{message("save.saved")}</span>
+        )}
         {save.kind === "saving" && showSaving && (
           <>
             <span className="save-dot" aria-hidden />
-            <span className="sr-only">Saving</span>
+            <span className="sr-only">{message("save.saving")}</span>
           </>
         )}
         {reason && (
@@ -67,7 +71,7 @@ export function SaveStatus({
       </output>
       {save.kind === "unsaved" && save.retryable && (
         <button className="btn" onClick={onRetry} data-testid="retry-save">
-          Retry
+          {message("common.retryShort")}
         </button>
       )}
     </>

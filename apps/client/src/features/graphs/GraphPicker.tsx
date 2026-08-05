@@ -18,6 +18,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
+import { configuredTimezone } from "../../entities/journal";
+import { useI18n } from "../../i18n";
 
 type LoadState =
   | { status: "loading" }
@@ -36,6 +38,7 @@ const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
  * dashed box holding an instruction that points at a form below it.
  */
 export function GraphPicker() {
+  const { message, formatInstant } = useI18n();
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [newName, setNewName] = useState("");
@@ -60,7 +63,7 @@ export function GraphPicker() {
 
   const create = (event: FormEvent) => {
     event.preventDefault();
-    const name = newName.trim() || "My graph";
+    const name = newName.trim() || message("graph.defaultName");
     const graph = registerGraph(name);
     navigate(`/g/${graph.id}`);
   };
@@ -72,16 +75,18 @@ export function GraphPicker() {
           <ListTreeIcon aria-hidden />
           NeoSeq
         </p>
-        <h1>Your graphs</h1>
+        <h1>{message("graph.yourGraphs")}</h1>
         <p className="picker-lede">
-          Your notes stay in this browser — no account, no server.
+          {message("graph.lede")}
         </p>
         {state.status === "failed" && (
-          <Callout tone="danger">Could not list local graphs: {state.message}</Callout>
+          <Callout tone="danger">
+            {message("graph.listFailed", { detail: message("error.internal") })}
+          </Callout>
         )}
         {state.status === "ready" && state.graphs.length === 0 && (
           <p className="picker-empty" data-testid="picker-empty">
-            No graphs yet — your first one starts with a name.
+            {message("graph.empty")}
           </p>
         )}
         {state.status === "ready" && state.graphs.length > 0 && (
@@ -95,7 +100,9 @@ export function GraphPicker() {
                 >
                   <span className="name">{graph.name}</span>
                   <span className="meta">
-                    Created {new Date(graph.created_at).toLocaleDateString(undefined, CREATED)}
+                    {message("graph.created", {
+                      date: formatInstant(graph.created_at, configuredTimezone(), CREATED),
+                    })}
                   </span>
                 </button>
                 {/* Both verbs live behind one named menu, so a destructive
@@ -104,20 +111,23 @@ export function GraphPicker() {
                 <div className="graph-actions">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="icon-btn" aria-label={`Actions for ${graph.name}`}>
+                      <button
+                        className="icon-btn"
+                        aria-label={message("graph.actionsFor", { name: graph.name })}
+                      >
                         <MoreHorizontalIcon aria-hidden />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onSelect={() => setRenaming(graph)}>
-                        Rename graph
+                        {message("graph.rename")}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         variant="destructive"
                         onSelect={() => setDeleting(graph)}
                       >
-                        Delete graph…
+                        {message("graph.delete")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -128,14 +138,14 @@ export function GraphPicker() {
         )}
         <form className="picker-new" onSubmit={create}>
           <Input
-            placeholder="New graph name"
-            aria-label="New graph name"
+            placeholder={message("graph.newName")}
+            aria-label={message("graph.newName")}
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
             data-testid="new-graph-name"
           />
           <button className="btn btn-primary" type="submit" data-testid="create-graph">
-            Create
+            {message("graph.create")}
           </button>
         </form>
       </div>
@@ -173,9 +183,10 @@ function RenameDialog({
   onClose: () => void;
   onRenamed: () => void;
 }) {
+  const { message } = useI18n();
   const [name, setName] = useState(graph.name);
   return (
-    <Dialog title="Rename graph" onClose={onClose}>
+    <Dialog title={message("graph.rename")} onClose={onClose}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -186,7 +197,7 @@ function RenameDialog({
         }}
       >
         <label className="field-label" htmlFor="rename-graph-input">
-          Graph name
+          {message("graph.graphName")}
         </label>
         <Input
           id="rename-graph-input"
@@ -196,7 +207,7 @@ function RenameDialog({
         />
         <div className="dialog-actions">
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {message("common.cancel")}
           </button>
           <button
             type="submit"
@@ -204,7 +215,7 @@ function RenameDialog({
             disabled={!name.trim()}
             data-testid="rename-graph-submit"
           >
-            Rename
+            {message("common.rename")}
           </button>
         </div>
       </form>
@@ -221,18 +232,18 @@ function DeleteDialog({
   onClose: () => void;
   onDeleted: () => void;
 }) {
+  const { message } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <Dialog title="Delete graph" onClose={onClose}>
+    <Dialog title={message("graph.deleteTitle")} onClose={onClose}>
       <p>
-        Permanently delete <strong>{graph.name}</strong> and all of its notes from this browser?
-        This cannot be undone.
+        {message("graph.deleteConfirm", { name: graph.name })}
       </p>
       {error && <p className="field-error">{error}</p>}
       <div className="dialog-actions">
         <button className="btn" onClick={onClose} disabled={busy}>
-          Cancel
+          {message("common.cancel")}
         </button>
         <button
           className="btn btn-danger"
@@ -244,11 +255,11 @@ function DeleteDialog({
               .then(onDeleted)
               .catch((cause) => {
                 setBusy(false);
-                setError(cause instanceof Error ? cause.message : String(cause));
+                setError(message("error.internal"));
               });
           }}
         >
-          Delete forever
+          {message("common.deleteForever")}
         </button>
       </div>
     </Dialog>

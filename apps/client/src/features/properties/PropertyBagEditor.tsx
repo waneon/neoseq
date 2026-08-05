@@ -26,6 +26,8 @@ import { Button } from "@/ui/shadcn/button";
 import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
+import { useI18n, type MessageFunction } from "../../i18n";
+import { failureReason } from "../notify/errors";
 
 export type BagKind = "block" | "page";
 
@@ -54,6 +56,7 @@ export function PropertyBagEditor({
   const state = useSessionState();
   const readonly = state.mode === "readonly";
   const [error, setError] = useState<string | null>(null);
+  const { message } = useI18n();
 
   const entity: EntityRef =
     kind === "block"
@@ -72,7 +75,7 @@ export function PropertyBagEditor({
       await session.execute(command);
       return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(failureReason(cause, message));
       return false;
     }
   };
@@ -84,7 +87,7 @@ export function PropertyBagEditor({
     if (sameValue(entry.value, next)) return;
     const issue = validate(entry.key, next);
     if (issue) {
-      setError(issue.message);
+      setError(validationMessage(issue, message));
       return;
     }
     if (cardinalityOf(entry.key) === "repeated") {
@@ -108,12 +111,12 @@ export function PropertyBagEditor({
   const addEntry = async (key: string, value: PropertyValue, repeated: boolean) => {
     const keyIssue = validateKey(key);
     if (keyIssue) {
-      setError(keyIssue.message);
+      setError(validationMessage(keyIssue, message));
       return false;
     }
     const issue = validateValue(key, value, repeated ? "repeated" : "single");
     if (issue) {
-      setError(issue.message);
+      setError(validationMessage(issue, message));
       return false;
     }
     if (repeated) {
@@ -142,7 +145,9 @@ export function PropertyBagEditor({
         {description && <p>{description}</p>}
       </header>
       <div className="props-list">
-        {visible.length === 0 && <p className="ac-hint">No properties yet.</p>}
+        {visible.length === 0 && (
+          <p className="ac-hint">{message("properties.empty")}</p>
+        )}
         {visible.map((entry, index) => (
           <PropertyRow
             key={`${entry.key}:${index}`}
@@ -174,14 +179,15 @@ function PropertyRow({
   onCommit: (value: PropertyValue) => void;
   onRemove: () => void;
 }) {
+  const { message } = useI18n();
   const known = definition(entry.key);
   const repeated = cardinalityOf(entry.key) === "repeated";
   return (
     <div className="props-row" data-testid={`prop-${entry.key}`}>
       <span className="props-key" title={entry.key}>
         {entry.key}
-        {!known && <span className="flag">custom</span>}
-        {repeated && <span className="flag">repeated</span>}
+        {!known && <span className="flag">{message("common.custom")}</span>}
+        {repeated && <span className="flag">{message("common.repeated")}</span>}
       </span>
       <span className="props-value">
         <ValueEditor entryKey={entry.key} value={entry.value} readonly={readonly} onCommit={onCommit} />
@@ -189,7 +195,7 @@ function PropertyRow({
       {!readonly ? (
         <button
           className="icon-btn"
-          aria-label={`Remove ${entry.key}`}
+          aria-label={message("properties.remove", { key: entry.key })}
           data-testid={`remove-${entry.key}`}
           onClick={onRemove}
         >
@@ -224,6 +230,7 @@ function ValueEditor({
   readonly: boolean;
   onCommit: (value: PropertyValue) => void;
 }) {
+  const { message } = useI18n();
   const state = useSessionState();
   const known = definition(entryKey);
 
@@ -235,7 +242,7 @@ function ValueEditor({
     return (
       <Checkbox
         checked={value.value}
-        aria-label={`${entryKey} value`}
+        aria-label={message("properties.value", { key: entryKey })}
         onChange={(event) => onCommit({ type: "checkbox", value: event.target.checked })}
       />
     );
@@ -246,7 +253,7 @@ function ValueEditor({
       <Input
         type="date"
         value={value.value}
-        aria-label={`${entryKey} value`}
+        aria-label={message("properties.value", { key: entryKey })}
         onChange={(event) => {
           if (event.target.value) onCommit({ type: "date", value: event.target.value });
         }}
@@ -260,7 +267,7 @@ function ValueEditor({
         key={String(value.value)}
         type="number"
         initial={String(value.value)}
-        label={`${entryKey} value`}
+        label={message("properties.value", { key: entryKey })}
         onCommit={(raw) => {
           const parsed = Number(raw);
           if (!Number.isNaN(parsed)) onCommit({ type: "number", value: parsed });
@@ -278,7 +285,7 @@ function ValueEditor({
           <span className="chip-link">{page ? pageTitle(page) : value.value}</span>
         </span>
         <PageAutocomplete
-          placeholder="Replace page reference"
+          placeholder={message("properties.replacePage")}
           onPick={(pageId) => onCommit({ type: "page", value: pageId })}
         />
       </>
@@ -289,12 +296,12 @@ function ValueEditor({
     return (
       <NativeSelect
         value={value.value}
-        aria-label={`${entryKey} value`}
+        aria-label={message("properties.value", { key: entryKey })}
         onChange={(event) => onCommit({ type: "string", value: event.target.value })}
       >
         {known.allowed_strings.map((allowed) => (
           <option key={allowed} value={allowed}>
-            {allowed}
+            {localizedAllowedValue(entryKey, allowed, message)}
           </option>
         ))}
       </NativeSelect>
@@ -306,7 +313,7 @@ function ValueEditor({
       key={value.value}
       type="text"
       initial={value.value}
-      label={`${entryKey} value`}
+      label={message("properties.value", { key: entryKey })}
       onCommit={(raw) => onCommit({ type: "string", value: raw })}
     />
   );
@@ -314,8 +321,9 @@ function ValueEditor({
 
 function ReadonlyValue({ value }: { value: PropertyValue }): ReactNode {
   const state = useSessionState();
+  const { message } = useI18n();
   if (value.type === "checkbox") {
-    return <Checkbox checked={value.value} disabled aria-label="value" />;
+    return <Checkbox checked={value.value} disabled aria-label={message("common.value")} />;
   }
   if (value.type === "page") {
     const page = findPage(state.snapshot, value.value);
@@ -363,6 +371,7 @@ function AddPropertyRow({
   kind: BagKind;
   onAdd: (key: string, value: PropertyValue, repeated: boolean) => Promise<boolean>;
 }) {
+  const { message } = useI18n();
   const [key, setKey] = useState("");
   const [type, setType] = useState<PropertyValueType>("string");
   const [draft, setDraft] = useState<PropertyValue>({ type: "string", value: "" });
@@ -403,8 +412,8 @@ function AddPropertyRow({
       <div>
         <Input
           list={datalistId}
-          placeholder="Property key"
-          aria-label="New property key"
+          placeholder={message("properties.propertyKey")}
+          aria-label={message("properties.newKey")}
           value={key}
           onChange={(event) => syncType(event.target.value)}
         />
@@ -415,7 +424,7 @@ function AddPropertyRow({
         </datalist>
       </div>
       <NativeSelect
-        aria-label="New property type"
+        aria-label={message("properties.newType")}
         value={effectiveType}
         disabled={known !== undefined}
         onChange={(event) => {
@@ -426,7 +435,12 @@ function AddPropertyRow({
       >
         {VALUE_TYPES.map((item) => (
           <option key={item} value={item}>
-            {item}
+            {message(`properties.type.${item}` as
+              | "properties.type.string"
+              | "properties.type.number"
+              | "properties.type.checkbox"
+              | "properties.type.date"
+              | "properties.type.page")}
           </option>
         ))}
       </NativeSelect>
@@ -438,7 +452,7 @@ function AddPropertyRow({
         onSubmit={() => void submit()}
       />
       <Button variant="secondary" onClick={() => void submit()} data-testid="props-add-submit">
-        Add
+        {message("common.add")}
       </Button>
     </div>
   );
@@ -462,6 +476,7 @@ function NewValueInput({
   onChange: (value: PropertyValue) => void;
   onSubmit: () => void;
 }) {
+  const { message } = useI18n();
   const known = definition(entryKey);
   const value = coerceDraft(draft, type);
 
@@ -469,7 +484,7 @@ function NewValueInput({
     return (
       <div className="flex h-8 items-center">
         <Checkbox
-          aria-label="New property value"
+          aria-label={message("properties.newValue")}
           checked={value.type === "checkbox" && value.value}
           onChange={(event) => onChange({ type: "checkbox", value: event.target.checked })}
         />
@@ -480,7 +495,7 @@ function NewValueInput({
     return (
       <Input
         type="date"
-        aria-label="New property value"
+        aria-label={message("properties.newValue")}
         value={value.type === "date" ? value.value : ""}
         onChange={(event) => onChange({ type: "date", value: event.target.value })}
       />
@@ -490,7 +505,7 @@ function NewValueInput({
     return (
       <Input
         type="number"
-        aria-label="New property value"
+        aria-label={message("properties.newValue")}
         value={value.type === "number" ? String(value.value) : "0"}
         onChange={(event) => onChange({ type: "number", value: Number(event.target.value) })}
         onKeyDown={(event) => {
@@ -502,7 +517,7 @@ function NewValueInput({
   if (type === "page") {
     return (
       <PageAutocomplete
-        placeholder="Pick a page"
+        placeholder={message("properties.pickPage")}
         allowCreate
         onPick={(pageId) => onChange({ type: "page", value: pageId })}
       />
@@ -511,14 +526,14 @@ function NewValueInput({
   if (known && known.allowed_strings.length > 0) {
     return (
       <NativeSelect
-        aria-label="New property value"
+        aria-label={message("properties.newValue")}
         value={value.type === "string" ? value.value : known.allowed_strings[0]}
         onChange={(event) => onChange({ type: "string", value: event.target.value })}
       >
-        <option value="">choose…</option>
+        <option value="">{message("properties.choose")}</option>
         {known.allowed_strings.map((allowed) => (
           <option key={allowed} value={allowed}>
-            {allowed}
+            {localizedAllowedValue(entryKey, allowed, message)}
           </option>
         ))}
       </NativeSelect>
@@ -526,8 +541,8 @@ function NewValueInput({
   }
   return (
     <Input
-      aria-label="New property value"
-      placeholder="Value"
+      aria-label={message("properties.newValue")}
+      placeholder={message("properties.valuePlaceholder")}
       value={value.type === "string" ? value.value : ""}
       onChange={(event) => onChange({ type: "string", value: event.target.value })}
       onKeyDown={(event) => {
@@ -535,4 +550,59 @@ function NewValueInput({
       }}
     />
   );
+}
+
+function localizedAllowedValue(
+  key: string,
+  value: string,
+  message: MessageFunction,
+): string {
+  if (key === "task.status" && ["todo", "doing", "done"].includes(value)) {
+    return message(`task.status.${value}` as
+      | "task.status.todo"
+      | "task.status.doing"
+      | "task.status.done");
+  }
+  if (key === "task.priority" && ["low", "medium", "high"].includes(value)) {
+    return message(`task.priority.${value}` as
+      | "task.priority.low"
+      | "task.priority.medium"
+      | "task.priority.high");
+  }
+  return value;
+}
+
+function validationMessage(issue: ValidationIssue, message: MessageFunction): string {
+  const values = issue.values ?? {};
+  switch (issue.code) {
+    case "reserved_key":
+      return message("validation.reservedKey", { key: values.key });
+    case "property_type":
+      return message("validation.propertyType", { key: values.key, type: values.type });
+    case "property_cardinality":
+      return message("validation.propertyCardinality", {
+        key: values.key,
+        cardinality: values.cardinality,
+      });
+    case "property_strings":
+      return message("validation.propertyStrings", { key: values.key, values: values.values });
+    case "default_forbidden":
+      return message("validation.defaultForbidden", { key: values.key });
+    case "control_character":
+      return message("validation.controlCharacter");
+    case "date":
+      return message("validation.date");
+    case "empty_key":
+      return message("validation.emptyKey");
+    case "empty_page":
+      return message("validation.emptyPage");
+    case "finite_number":
+      return message("validation.finiteNumber");
+    case "key_length":
+      return message("validation.keyLength");
+    case "string_length":
+      return message("validation.stringLength");
+    case "whitespace_key":
+      return message("validation.whitespaceKey");
+  }
 }

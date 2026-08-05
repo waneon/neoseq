@@ -142,7 +142,7 @@ Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md)
 § Disclosure), and the command layer is what makes that safe rather than merely
 sparse. `features/commands/` owns one registry, one window keydown listener, the
 `⌘K` palette, and the `⌘/` sheet generated from the same registry. Each entry has
-a required, localized `pointerRouteKey`, so the palette is never the only route.
+a localized pointer route, so the palette is never the only route.
 
 Key arbitration order is fixed: an IME-composition guard first (a composition
 owns the keyboard outright — losing a keystroke corrupts CJK input), then any
@@ -166,8 +166,8 @@ the toast layer only when it would otherwise leave no trace** —
 [`DESIGN.md`](../DESIGN.md) § Toasts says which side each one falls on. Durability
 is the exclusion the code enforces: `dirty_unsaved` and `storage_full` belong to
 the save slot, so the notifier returns `null` for them. `errors.ts` maps stable
-`CorePortError` codes and typed context to localized title/detail message IDs; raw
-codes and the core's diagnostic fallback remain off screen.
+`CorePortError` codes and known safe validation diagnostics to localized
+title/detail message IDs; raw codes and unknown diagnostics remain off screen.
 
 ## Navigation and Journals
 
