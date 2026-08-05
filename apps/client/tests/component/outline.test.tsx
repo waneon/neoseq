@@ -208,4 +208,30 @@ describe("outliner keyboard commands", () => {
     await user.keyboard("{Meta>}{Shift>}z{/Shift}{/Meta}");
     await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
   });
+
+  it("reconciles a focused text draft after undo and redo", async () => {
+    const { session } = await mountOutline(["alpha"]);
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text");
+    await user.click(textarea);
+    await user.keyboard("beta");
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((p) => p.id === "home");
+      expect(page?.blocks[0].markdown).toBe("alphabeta");
+    });
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      expect(textarea).toHaveValue("alpha");
+      const page = session.getState().snapshot.pages.find((p) => p.id === "home");
+      expect(page?.blocks[0].markdown).toBe("alpha");
+    });
+
+    await user.keyboard("{Meta>}{Shift>}z{/Shift}{/Meta}");
+    await waitFor(() => {
+      expect(textarea).toHaveValue("alphabeta");
+      const page = session.getState().snapshot.pages.find((p) => p.id === "home");
+      expect(page?.blocks[0].markdown).toBe("alphabeta");
+    });
+  });
 });

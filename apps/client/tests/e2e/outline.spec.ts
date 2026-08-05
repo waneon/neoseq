@@ -100,6 +100,21 @@ test("splits a block at the caret and deletes empty blocks", async ({ page }) =>
   await expect(page.locator('[data-testid="outline-row"] textarea').first()).toBeFocused();
 });
 
+test("undo and redo reconcile text in the focused block", async ({ page }) => {
+  await createGraph(page, "Text History Graph");
+  await startOutline(page);
+
+  const textarea = page.locator('[data-testid="outline-row"] textarea').first();
+  await page.keyboard.type("alpha");
+  await awaitSaved(page);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(textarea).toHaveValue("");
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(textarea).toHaveValue("alpha");
+});
+
 test("the bullet carries the block's menu, and every structural verb in it", async ({
   page,
 }) => {

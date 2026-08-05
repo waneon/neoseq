@@ -126,6 +126,7 @@ interface EditorContext {
   onCompositionEnd(row: OutlineRow): void;
   onKeyDown(row: OutlineRow, rows: OutlineRow[], event: KeyboardEvent<HTMLTextAreaElement>): void;
   flushNow(id: string): void;
+  runHistory(id: string, redo: boolean): void;
   insertRootBlock(index: number): void;
   enqueuePendingInsert(row: OutlineRow, tail: string, asChild: boolean): void;
   queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
@@ -173,6 +174,7 @@ export function Outliner({
   const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCaret = useRef<number | null>(null);
   const pendingSeq = useRef(0);
+  const draftInputRevision = useRef(0);
   const pendingRows = useRef<PendingRow[]>([]);
   const pendingDispatching = useRef(false);
   const pageRef = useRef(page);
@@ -305,6 +307,28 @@ export function Outliner({
       );
     },
     [flush],
+  );
+
+  const runHistory = useCallback(
+    (id: string, redo: boolean) => {
+      flushNow(id);
+      const inputRevision = draftInputRevision.current;
+      void session
+        .execute({ type: redo ? "redo" : "undo" })
+        .then(() => {
+          // GraphSession resolves only after its snapshot is authoritative. A
+          // focused clean draft must stand down now or it masks the history
+          // result; preserve it only if the user typed again while we waited.
+          if (draftInputRevision.current !== inputRevision) return;
+          drafts.current.delete(id);
+          baselines.current.delete(id);
+          force();
+        })
+        .catch((error: unknown) => {
+          notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
+        });
+    },
+    [flushNow, message, notify, session],
   );
 
   const focusedRef = useRef<string | null>(null);
@@ -750,6 +774,7 @@ export function Outliner({
     },
     draftOf: (row) => drafts.current.get(row.block.id) ?? row.block.markdown,
     onInput: (row, value) => {
+      draftInputRevision.current += 1;
       if (!baselines.current.has(row.block.id)) {
         baselines.current.set(row.block.id, row.block.markdown);
       }
@@ -771,6 +796,7 @@ export function Outliner({
     },
     onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event, bindings),
     flushNow,
+    runHistory,
     onGripPointerDown,
     onBulletPointerDown,
     onRowContextMenu,
@@ -1288,15 +1314,7 @@ function onKeyDown(
   const isRedo = bindingMatches(event, bindings.redo);
   if (isRedo || isUndo) {
     event.preventDefault();
-    editor.flushNow(id);
-    void editor.session
-      .execute({ type: isRedo ? "redo" : "undo" })
-      .catch((error: unknown) => {
-        editor.notify.failure(
-          isRedo ? editor.message("failure.redo") : editor.message("failure.undo"),
-          error,
-        );
-      });
+    editor.runHistory(id, isRedo);
     return;
   }
 
