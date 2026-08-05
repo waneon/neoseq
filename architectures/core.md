@@ -68,6 +68,14 @@ handle. The runtime rejects malformed IDs, invalid values, cycles, references to
 a different graph, and resource-limit violations before mutation. It does not
 reject valid commands merely because the network is unavailable.
 
+Live regular page names and live tag names are unique in separate graph-scoped
+namespaces. Comparison trims and collapses whitespace and applies Unicode
+lowercasing; commands preserve the submitted display form. Snapshot open and
+ensure, rename, and restore validate the relevant namespace. A remote update is first applied to a
+deep document fork and rejected without mutating canonical state if it would
+introduce a name collision. A future sync transport must surface that semantic
+conflict for user resolution rather than retrying it as a transient failure.
+
 Idempotency is scoped to an open runtime: a bounded result cache prevents
 duplicate submission after a bridge timeout. After restart, the client
 rehydrates canonical state instead of replaying an uncertain UI request.

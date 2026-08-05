@@ -43,6 +43,7 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { nextTheme, setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { addDays, formatJournalTitle, todayLocalDate } from "../../entities/journal";
+import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import { CommandContext, type CommandBridge } from "../commands/context";
 import { CommandPalette } from "../commands/CommandPalette";
 import { ShortcutSheet } from "../commands/ShortcutSheet";
@@ -160,9 +161,10 @@ function ShellBody({
 
   const createPage = useCallback(async () => {
     const pageId = `p-${crypto.randomUUID()}`;
-    await session.execute({ type: "ensure_page", page_id: pageId, title: "Untitled" });
+    const title = nextAvailableEntityName("Untitled", pages.map(pageTitle));
+    await session.execute({ type: "ensure_page", page_id: pageId, title });
     navigate(`/g/${graphId}/p/${pageId}`);
-  }, [graphId, navigate, session]);
+  }, [graphId, navigate, pages, session]);
 
   const toggleRail = useCallback(() => {
     setRailCollapsed((collapsed) => {
@@ -278,7 +280,7 @@ function ShellBody({
         });
       }
       const exists = pages.some(
-        (page) => pageTitle(page).toLowerCase() === query.toLowerCase(),
+        (page) => canonicalEntityName(pageTitle(page)) === canonicalEntityName(query),
       );
       if (!date && !exists && !readonly) {
         rows.push({
@@ -289,9 +291,7 @@ function ShellBody({
           pointerRoute: "the ＋ beside Pages in the sidebar, then rename the page",
           run: async () => {
             const pageId = `p-${crypto.randomUUID()}`;
-            await session
-              .execute({ type: "ensure_page", page_id: pageId, title: query })
-              .catch(() => undefined);
+            await session.execute({ type: "ensure_page", page_id: pageId, title: query });
             navigate(`/g/${graphId}/p/${pageId}`);
           },
         });

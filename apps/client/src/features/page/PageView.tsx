@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import {
   InfoIcon,
@@ -61,7 +61,13 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
                 void session
                   .execute({ type: "restore_page", page_id: pageId })
                   .then(() => setRestoreError(null))
-                  .catch(() => setRestoreError("Nothing to restore: this page never existed."))
+                  .catch((cause) =>
+                    setRestoreError(
+                      cause instanceof Error && !cause.message.includes("page does not exist")
+                        ? cause.message
+                        : "Nothing to restore: this page never existed.",
+                    )
+                  )
               }
             >
               Try to restore
@@ -118,6 +124,8 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
   const state = useSessionState();
   const authoritative = pageTitle(page);
   const [draft, setDraft] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const errorId = useId();
   const isJournal = pageKind(page) === "journal";
 
   if (isJournal) {
@@ -127,37 +135,55 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
   const commit = () => {
     const next = draft?.trim();
     setDraft(null);
+    setRenameError(null);
     if (next && next !== authoritative) {
       void session
         .execute({ type: "rename_page", page_id: page.id, title: next })
-        .catch(() => undefined);
+        .catch((cause) => {
+          setRenameError(
+            cause instanceof Error ? cause.message : `Could not rename page to “${next}”`,
+          );
+        });
     }
   };
 
   return (
-    <input
-      className="page-title"
-      value={draft ?? authoritative}
-      aria-label="Page title"
-      data-testid="page-title"
-      readOnly={state.mode === "readonly"}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing) return;
-        if (event.key === "Enter") {
-          event.preventDefault();
-          commit();
-          event.currentTarget.blur();
-        } else if (event.key === "Escape") {
-          // Escape abandons the draft rather than committing it — the field had
-          // no way out before except reverting the text by hand.
-          event.preventDefault();
-          setDraft(null);
-          event.currentTarget.blur();
-        }
-      }}
-    />
+    <div className="page-title-field">
+      <input
+        className="page-title"
+        value={draft ?? authoritative}
+        aria-label="Page title"
+        aria-invalid={renameError ? true : undefined}
+        aria-describedby={renameError ? errorId : undefined}
+        data-testid="page-title"
+        readOnly={state.mode === "readonly"}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setRenameError(null);
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            // Escape abandons the draft rather than committing it — the field had
+            // no way out before except reverting the text by hand.
+            event.preventDefault();
+            setDraft(null);
+            setRenameError(null);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      {renameError && (
+        <p id={errorId} className="field-error" role="alert">
+          {renameError}
+        </p>
+      )}
+    </div>
   );
 }
 

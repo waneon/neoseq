@@ -97,7 +97,7 @@ nix flake check
 검증 corpus는 다음을 포함한다.
 
 - 모든 entity/relation과 다섯 property type의 RDF mapping
-- repeated value, deleted entity, dangling PageId/TagId, duplicate display title
+- repeated value, deleted entity, dangling PageId/TagId, duplicate-name rejection
 - SPARQL supported profile과 명시적으로 제외한 query/update form
 - hierarchy property path와 Markdown search
 - incremental revision과 clean rebuild의 semantic triple/result equality

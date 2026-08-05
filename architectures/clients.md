@@ -163,6 +163,10 @@ harness.
   calls `EnsureJournal(LocalDate)`; the core guarantees idempotence.
 - Routes use stable page IDs. Human-readable titles are optional route hints,
   not identity.
+- Page and tag creation uses the core's case/whitespace name identity. The
+  autocomplete reuses an exact normalized match, default page creation chooses
+  the next available `Untitled N`, and a rejected rename remains on the
+  authoritative title with an accessible inline error.
 - Page-reference autocomplete searches the page summary, while tag autocomplete
   searches the independent tag registry and writes `TagId` membership.
 - Journal date entry is a palette concern: the palette parses natural-language

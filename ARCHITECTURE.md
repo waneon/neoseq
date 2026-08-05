@@ -134,6 +134,10 @@ TypeScript, native, and WebAssembly adapters compatible.
   and read boundary around its root node and page-local outline.
 - Tags are first-class graph entities in a `TagId`-keyed registry. Query and
   task features remain projections over well-known property keys.
+- Live regular page names and live tag names are unique in separate graph-scoped
+  namespaces after case and whitespace normalization; stable IDs remain entity
+  identity. Snapshot open, local commands, and staged remote imports enforce
+  the invariant before canonical state is published.
 - Block ownership is structural: a block belongs to the page whose nested tree
   contains it. Moves are page-local, and block commands carry both `PageId` and
   `BlockId` so reads and writes never scan other pages.

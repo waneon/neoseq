@@ -27,6 +27,12 @@ pub enum CoreError {
     TagNotFound(TagId),
     #[error("tag is deleted: {0}")]
     TagDeleted(TagId),
+    #[error("page name already exists: {name} (page {existing})")]
+    PageNameConflict { name: String, existing: PageId },
+    #[error("tag name already exists: {name} (tag {existing})")]
+    TagNameConflict { name: String, existing: TagId },
+    #[error("{entity} name must not be empty")]
+    EmptyName { entity: &'static str },
     #[error("block does not exist or is deleted: {0}")]
     BlockNotFound(BlockId),
     #[error("invalid block hierarchy: {0}")]
@@ -96,6 +102,7 @@ impl GraphCore {
         let doc = LoroDoc::from_snapshot(snapshot)?;
         doc.set_peer_id(peer_id)?;
         verify_schema(&doc, &graph_id)?;
+        validate_unique_entity_names(&doc)?;
         enable_page_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
         Ok(Self {
@@ -144,10 +151,24 @@ impl GraphCore {
         match &envelope.command {
             Command::Undo => {
                 result.changed = self.undo.undo()?;
+                if result.changed
+                    && let Err(error) = validate_unique_entity_names(&self.doc)
+                {
+                    self.undo.redo()?;
+                    self.doc.commit();
+                    return Err(error);
+                }
                 self.doc.commit();
             }
             Command::Redo => {
                 result.changed = self.undo.redo()?;
+                if result.changed
+                    && let Err(error) = validate_unique_entity_names(&self.doc)
+                {
+                    self.undo.undo()?;
+                    self.doc.commit();
+                    return Err(error);
+                }
                 self.doc.commit();
             }
             command => {
@@ -176,9 +197,15 @@ impl GraphCore {
     }
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), CoreError> {
+        // Validate on a deep fork first: a rejected remote update must not
+        // partially enter the canonical document.
+        let candidate = self.doc.fork();
+        candidate.import(update)?;
+        verify_schema(&candidate, &self.graph_id)?;
+        validate_unique_entity_names(&candidate)?;
+
         self.doc.set_next_commit_origin("remote:import");
         self.doc.import(update)?;
-        verify_schema(&self.doc, &self.graph_id)?;
         Ok(())
     }
 
@@ -333,16 +360,31 @@ impl GraphCore {
 
     fn validate(&self, command: &Command) -> Result<(), CoreError> {
         match command {
-            Command::EnsurePage { title, .. } | Command::EnsureTag { name: title, .. } => {
+            Command::EnsurePage { page_id, title } => {
                 validate_text(title, 1024)?;
+                validate_name(title, "page")?;
+                if self.doc.get_map("pages").get(page_id.as_str()).is_none() {
+                    ensure_page_name_available(&self.doc, page_id, title)?;
+                }
+            }
+            Command::EnsureTag { tag_id, name } => {
+                validate_text(name, 1024)?;
+                validate_name(name, "tag")?;
+                if self.doc.get_map("tags").get(tag_id.as_str()).is_none() {
+                    ensure_tag_name_available(&self.doc, tag_id, name)?;
+                }
             }
             Command::RenamePage { page_id, title } => {
                 validate_text(title, 1024)?;
+                validate_name(title, "page")?;
                 self.require_page(page_id)?;
+                ensure_page_name_available(&self.doc, page_id, title)?;
             }
             Command::RenameTag { tag_id, name } => {
                 validate_text(name, 1024)?;
+                validate_name(name, "tag")?;
                 self.require_tag(tag_id)?;
+                ensure_tag_name_available(&self.doc, tag_id, name)?;
             }
             Command::InsertBlock {
                 page_id,
@@ -395,13 +437,31 @@ impl GraphCore {
             | Command::DeleteBlock { page_id, block_id } => {
                 self.require_block(page_id, block_id)?;
             }
-            Command::DeletePage { page_id } | Command::RestorePage { page_id } => {
+            Command::DeletePage { page_id } => {
                 self.require_page(page_id)?;
             }
-            Command::DeleteTag { tag_id }
-            | Command::RestoreTag { tag_id }
-            | Command::RemoveTagDefault { tag_id, .. } => {
+            Command::RestorePage { page_id } => {
+                let root = self.page_root(page_id)?;
+                let title = match root.get("content") {
+                    Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
+                    _ => {
+                        return Err(CoreError::InvalidHierarchy(
+                            "page root content is missing".to_owned(),
+                        ));
+                    }
+                };
+                validate_name(&title, "page")?;
+                ensure_page_name_available(&self.doc, page_id, &title)?;
+            }
+            Command::DeleteTag { tag_id } | Command::RemoveTagDefault { tag_id, .. } => {
                 self.require_tag(tag_id)?;
+            }
+            Command::RestoreTag { tag_id } => {
+                let tag = self.require_tag(tag_id)?;
+                let name = map_string(&tag, "name")
+                    .ok_or_else(|| CoreError::TagNotFound(tag_id.clone()))?;
+                validate_name(&name, "tag")?;
+                ensure_tag_name_available(&self.doc, tag_id, &name)?;
             }
             Command::SetProperty { entity, key, value } => {
                 self.validate_entity(entity)?;
@@ -964,6 +1024,116 @@ fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
     } else {
         Ok(())
     }
+}
+
+fn canonical_entity_name(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn validate_name(value: &str, entity: &'static str) -> Result<(), CoreError> {
+    if canonical_entity_name(value).is_empty() {
+        Err(CoreError::EmptyName { entity })
+    } else {
+        Ok(())
+    }
+}
+
+fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
+    let mut names = Vec::new();
+    doc.get_map("pages").for_each(|raw_id, value| {
+        let Ok(page_id) = PageId::new(raw_id) else {
+            return;
+        };
+        let Some(page) = value_into_map(value) else {
+            return;
+        };
+        let mut quarantined = Vec::new();
+        let Some(snapshot) = page_metadata(&page_id, &page, &mut quarantined) else {
+            return;
+        };
+        let is_journal = snapshot.properties.iter().any(|entry| {
+            entry.key.as_str() == "page.kind"
+                && entry.value == PropertyValue::String("journal".to_owned())
+        });
+        if !is_journal {
+            names.push((page_id, snapshot.title));
+        }
+    });
+    names.sort_by(|left, right| left.0.cmp(&right.0));
+    names
+}
+
+fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
+    let mut quarantined = Vec::new();
+    tag_snapshots(doc, &mut quarantined)
+        .into_iter()
+        .map(|tag| (tag.id, tag.name))
+        .collect()
+}
+
+fn ensure_page_name_available(
+    doc: &LoroDoc,
+    page_id: &PageId,
+    name: &str,
+) -> Result<(), CoreError> {
+    let canonical = canonical_entity_name(name);
+    if let Some((existing, _)) = live_page_names(doc)
+        .into_iter()
+        .find(|(id, title)| id != page_id && canonical_entity_name(title) == canonical)
+    {
+        return Err(CoreError::PageNameConflict {
+            name: name.to_owned(),
+            existing,
+        });
+    }
+    Ok(())
+}
+
+fn ensure_tag_name_available(doc: &LoroDoc, tag_id: &TagId, name: &str) -> Result<(), CoreError> {
+    let canonical = canonical_entity_name(name);
+    if let Some((existing, _)) = live_tag_names(doc)
+        .into_iter()
+        .find(|(id, current)| id != tag_id && canonical_entity_name(current) == canonical)
+    {
+        return Err(CoreError::TagNameConflict {
+            name: name.to_owned(),
+            existing,
+        });
+    }
+    Ok(())
+}
+
+fn validate_unique_entity_names(doc: &LoroDoc) -> Result<(), CoreError> {
+    let mut pages = BTreeMap::<String, (PageId, String)>::new();
+    for (page_id, name) in live_page_names(doc) {
+        validate_name(&name, "page")?;
+        let canonical = canonical_entity_name(&name);
+        if let Some((existing, _)) = pages.get(&canonical) {
+            return Err(CoreError::PageNameConflict {
+                name,
+                existing: existing.clone(),
+            });
+        }
+        pages.insert(canonical, (page_id, name));
+    }
+
+    let mut tags = BTreeMap::<String, (TagId, String)>::new();
+    for (tag_id, name) in live_tag_names(doc) {
+        validate_name(&name, "tag")?;
+        let canonical = canonical_entity_name(&name);
+        if let Some((existing, _)) = tags.get(&canonical) {
+            return Err(CoreError::TagNameConflict {
+                name,
+                existing: existing.clone(),
+            });
+        }
+        tags.insert(canonical, (tag_id, name));
+    }
+    Ok(())
 }
 
 fn validate_target(entity: &EntityId, key: &PropertyKey) -> Result<(), CoreError> {

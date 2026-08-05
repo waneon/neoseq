@@ -41,6 +41,8 @@ event log를 출력한다.
 ### Graph command
 
 - page ensure/rename/delete/restore와 deterministic journal ensure를 구현한다.
+- live regular page 이름과 tag 이름은 각각 graph-scoped namespace에서
+  대소문자·공백 정규화 기준으로 중복을 거부한다.
 - block insert/edit/move/indent/outdent/delete를 intent command로 구현한다.
 - property set/remove/add-repeated/remove-repeated와 page default command를
   구현한다.

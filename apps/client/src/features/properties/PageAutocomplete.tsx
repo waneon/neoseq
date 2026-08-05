@@ -16,6 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
+import { canonicalEntityName } from "../../entities/names";
 import { Input } from "@/ui/shadcn/input";
 import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -46,25 +47,31 @@ export function PageAutocomplete({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
   const listId = useId();
+  const errorId = useId();
 
   const options = useMemo<Option[]>(() => {
-    const lower = query.trim().toLowerCase();
+    const canonical = canonicalEntityName(query);
     const entities = kind === "tag"
       ? state.snapshot.tags.map((tag) => ({ id: tag.id, label: tag.name }))
       : state.snapshot.pages
         .filter((page) => !isDeleted(page))
         .map((page) => ({ id: page.id, label: pageTitle(page), kind: pageKind(page) }));
     const matches = entities
-      .filter((entity) => lower.length === 0 || entity.label.toLowerCase().includes(lower))
+      .filter((entity) =>
+        canonical.length === 0 || canonicalEntityName(entity.label).includes(canonical)
+      )
       .sort((left, right) => left.label.localeCompare(right.label))
       .slice(0, 8);
-    const exact = matches.some((entity) => entity.label.toLowerCase() === lower);
+    const exact = entities.some(
+      (entity) => canonicalEntityName(entity.label) === canonical,
+    );
     const result: Option[] = matches.map(({ id, label }) => ({ id, label }));
-    if (allowCreate && lower.length > 0 && !exact) {
+    if (allowCreate && canonical.length > 0 && !exact) {
       result.push({ id: "", label: query.trim(), create: true });
     }
     return result;
@@ -90,17 +97,24 @@ export function PageAutocomplete({
   }, [open, reposition, options.length]);
 
   const pick = async (option: Option) => {
-    setOpen(false);
-    setQuery("");
-    if (option.create) {
-      const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
-      const command = kind === "tag"
-        ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
-        : { type: "ensure_page" as const, page_id: id, title: option.label };
-      await session.execute(command).catch(() => undefined);
-      await onPick(id);
-    } else {
-      await onPick(option.id);
+    setError(null);
+    try {
+      if (option.create) {
+        const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
+        const command = kind === "tag"
+          ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
+          : { type: "ensure_page" as const, page_id: id, title: option.label };
+        await session.execute(command);
+        await onPick(id);
+      } else {
+        await onPick(option.id);
+      }
+      setOpen(false);
+      setQuery("");
+    } catch (cause) {
+      setOpen(false);
+      setQuery(option.label);
+      setError(cause instanceof Error ? cause.message : `Could not create ${kind}`);
     }
   };
 
@@ -135,12 +149,15 @@ export function PageAutocomplete({
         aria-autocomplete="list"
         aria-label={placeholder}
         aria-activedescendant={open && options[active] ? optionId(active) : undefined}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
         placeholder={placeholder}
         value={query}
         autoFocus={autoFocus}
         data-testid={`${kind}-autocomplete`}
         onChange={(event) => {
           setQuery(event.target.value);
+          setError(null);
           setOpen(true);
           setActive(0);
         }}
@@ -150,6 +167,11 @@ export function PageAutocomplete({
         }}
         onKeyDown={onKeyDown}
       />
+      {error && (
+        <p id={errorId} className="field-error" role="alert">
+          {error}
+        </p>
+      )}
       {open &&
         anchor &&
         createPortal(

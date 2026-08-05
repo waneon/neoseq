@@ -37,9 +37,12 @@ root: NodeData
 outline: MovableTree<NodeData>
 ```
 
-The root node's collaborative `content` is the regular page title; title
-uniqueness is not required. Regular pages have `page.kind: "regular"` in the
-root property bag. Journals have `page.kind: "journal"`
+The root node's collaborative `content` is the regular page title. Live regular
+page names are unique within a graph after trimming, collapsing whitespace, and
+Unicode lowercasing. The stable `PageId`, not the normalized name, remains
+identity. Deletion releases a name; restore is rejected if another live page
+has claimed it. Regular pages have `page.kind: "regular"` in the root property
+bag. Journals have `page.kind: "journal"`
 and `journal.date: Date`; their display title is derived from the date. Journal
 IDs are deterministically derived from `GraphId` and the date, so all replicas
 address the same page when creating that day's journal.
@@ -96,6 +99,11 @@ membership is a CRDT set encoded as `tag_refs: Map<TagId, true>`; it is not a
 property and never points to a page. Renaming a tag therefore does not rewrite
 members. Reverse membership is a derived local query index, not a second
 authoritative CRDT relation.
+
+Live tag names use the same normalization and uniqueness rule as page names,
+in an independent namespace. Deleted tag names are reusable, and a restore
+that would collide is rejected. The original spelling and spacing remain the
+stored display name; normalization is lookup identity only.
 
 Adding a tag and materializing its missing defaults is one transaction.
 Removing it leaves materialized properties intact. Deleting a tag is logical;

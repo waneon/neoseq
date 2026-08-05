@@ -936,9 +936,13 @@ h2 {
 }
 
 .title-row h1,
-.page-title {
+.page-title-field {
   flex: 1;
   min-width: 0;
+}
+
+.title-row h1,
+.page-title {
   font-size: var(--text-xl);
   line-height: var(--lh-xl);
   letter-spacing: var(--track-xl);
@@ -948,6 +952,7 @@ h2 {
 
 /* The title is an input; it should look like text and behave like a field. */
 .page-title {
+  width: 100%;
   margin: 0 calc(var(--sp-2) * -1);
   padding: 0 var(--sp-2);
   border: none;

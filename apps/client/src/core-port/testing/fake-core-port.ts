@@ -32,6 +32,7 @@ import type {
   TagSnapshot,
 } from "../snapshot";
 import { sameValue, validateDefault, validateValue } from "../../entities/properties";
+import { canonicalEntityName } from "../../entities/names";
 import type { SessionPort } from "../session";
 
 interface GraphEventRecord {
@@ -194,6 +195,7 @@ export class FakeCorePort implements SessionPort {
     switch (command.type) {
       case "ensure_page": {
         if (!this.rawPage(command.page_id)) {
+          this.assertPageNameAvailable(command.title, command.page_id);
           this.pages.push(newPage(command.page_id, "regular", command.title, null));
           result.created_page = command.page_id;
         } else {
@@ -212,6 +214,7 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "rename_page":
+        this.assertPageNameAvailable(command.title, command.page_id);
         this.requirePage(command.page_id).title = command.title;
         break;
       case "delete_page":
@@ -223,11 +226,13 @@ export class FakeCorePort implements SessionPort {
       case "restore_page": {
         const page = this.rawPage(command.page_id);
         if (!page) fail("internal", `page does not exist: ${command.page_id}`);
+        this.assertPageNameAvailable(page.title, page.id);
         page.properties = page.properties.filter((entry) => entry.key !== "system.deleted-at");
         break;
       }
       case "ensure_tag": {
         if (!this.rawTag(command.tag_id)) {
+          this.assertTagNameAvailable(command.name, command.tag_id);
           this.tags.push({ id: command.tag_id, name: command.name, properties: [], defaults: [] });
           result.created_tag = command.tag_id;
         } else {
@@ -236,6 +241,7 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "rename_tag":
+        this.assertTagNameAvailable(command.name, command.tag_id);
         this.requireTag(command.tag_id).name = command.name;
         break;
       case "delete_tag":
@@ -247,6 +253,7 @@ export class FakeCorePort implements SessionPort {
       case "restore_tag": {
         const tag = this.rawTag(command.tag_id);
         if (!tag) fail("internal", `tag does not exist: ${command.tag_id}`);
+        this.assertTagNameAvailable(tag.name, tag.id);
         tag.properties = tag.properties.filter((entry) => entry.key !== "system.deleted-at");
         break;
       }
@@ -389,6 +396,32 @@ export class FakeCorePort implements SessionPort {
         }
         break;
       }
+    }
+  }
+
+  private assertPageNameAvailable(name: string, exceptId: string): void {
+    const canonical = canonicalEntityName(name);
+    if (!canonical) fail("invalid_request", "page name must not be empty");
+    const existing = this.pages.find((page) =>
+      page.id !== exceptId
+      && !hasKey(page.properties, "system.deleted-at")
+      && canonicalEntityName(page.title) === canonical
+    );
+    if (existing) {
+      fail("invalid_request", `page name already exists: ${name} (page ${existing.id})`);
+    }
+  }
+
+  private assertTagNameAvailable(name: string, exceptId: string): void {
+    const canonical = canonicalEntityName(name);
+    if (!canonical) fail("invalid_request", "tag name must not be empty");
+    const existing = this.tags.find((tag) =>
+      tag.id !== exceptId
+      && !hasKey(tag.properties, "system.deleted-at")
+      && canonicalEntityName(tag.name) === canonical
+    );
+    if (existing) {
+      fail("invalid_request", `tag name already exists: ${name} (tag ${existing.id})`);
     }
   }
 

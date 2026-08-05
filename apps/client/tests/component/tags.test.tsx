@@ -77,4 +77,16 @@ describe("first-class tags and tag defaults", () => {
     // Copied properties are plain properties: removing the tag keeps them.
     expect(within(inspector).getByLabelText("task.status value")).toHaveValue("todo");
   });
+
+  it("does not offer a duplicate tag create action", async () => {
+    await mountTagged();
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("block-menu"));
+    await user.click(await screen.findByTestId("menu-properties"));
+    const inspector = await screen.findByTestId("block-inspector");
+    await user.type(within(inspector).getByTestId("tag-autocomplete"), "  project  ");
+
+    expect(await screen.findByRole("option", { name: "Project" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Create tag/ })).not.toBeInTheDocument();
+  });
 });
