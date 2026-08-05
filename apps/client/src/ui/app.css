@@ -91,6 +91,8 @@
   --text-xl: 33px;
   --lh-xl: 40px;
   --track-xl: -0.019em;
+  --weight-normal: 500;
+  --weight-medium: 550;
 
   --sp-0: 2px;
   --sp-1: 4px;
@@ -234,6 +236,7 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-md);
   line-height: var(--lh-md);
+  font-weight: var(--weight-normal);
   font-optical-sizing: auto;
   font-feature-settings: "lnum", "locl";
   -webkit-font-smoothing: antialiased;
@@ -353,7 +356,7 @@ h2 {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   cursor: pointer;
   white-space: nowrap;
   transition: background-color var(--dur-press) var(--ease-out);
@@ -461,7 +464,7 @@ h2 {
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -502,7 +505,7 @@ h2 {
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .chip-link {
@@ -568,7 +571,7 @@ h2 {
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 /* ── The group label ──
@@ -847,7 +850,7 @@ h2 {
   font: inherit;
   font-size: var(--text-sm);
   letter-spacing: var(--track-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   text-align: left;
   cursor: pointer;
 }
@@ -910,7 +913,7 @@ h2 {
 .shell-nav-item[aria-current="true"] {
   background: var(--surface-3);
   color: var(--ink);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .shell-nav-item svg {
@@ -1058,7 +1061,7 @@ h2 {
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
@@ -1088,7 +1091,7 @@ h2 {
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
@@ -1280,7 +1283,7 @@ h2 {
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
@@ -1703,7 +1706,7 @@ h2 {
 
 .query-language {
   color: var(--ink-2);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .query-revision {
@@ -1794,7 +1797,7 @@ h2 {
 
 .query-table th {
   color: var(--ink-3);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .query-table td {
@@ -1918,7 +1921,7 @@ h2 {
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
@@ -2001,7 +2004,7 @@ h2 {
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
@@ -2466,7 +2469,7 @@ h2 {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 /* Hovering a card raises it to --surface-2, where --ink-3 fails AA. */
@@ -2570,7 +2573,7 @@ h2 {
 .settings-tab[aria-current="true"] {
   background: var(--surface-3);
   color: var(--ink);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .settings-pane {
@@ -2894,7 +2897,7 @@ h2 {
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .diagnostic-summary dd {
@@ -2929,7 +2932,7 @@ h2 {
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .diagnostic-note-field textarea {
@@ -2944,7 +2947,7 @@ h2 {
   font: inherit;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  font-weight: 400;
+  font-weight: var(--weight-normal);
 }
 
 .diagnostic-note-field textarea:focus-visible {
@@ -2955,7 +2958,7 @@ h2 {
 .diagnostic-note-field small {
   color: var(--ink-3);
   font: inherit;
-  font-weight: 400;
+  font-weight: var(--weight-normal);
 }
 
 .diagnostic-review-actions > :first-child {
@@ -3000,7 +3003,7 @@ h2 {
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
@@ -3078,7 +3081,7 @@ h2 {
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: pointer;
@@ -3358,7 +3361,7 @@ h2 {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .toast-count {

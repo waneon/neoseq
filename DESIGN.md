@@ -58,16 +58,16 @@ typography:
   features: "\"lnum\", \"locl\", \"cv11\""
   optical-sizing: auto
   # Five sizes. Nothing else exists. Weight never exceeds 600.
-  xs:  { size: 12px, line: 16px, track: 0em,       weight: 500 }   # metadata, chips, badges
-  sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 400 }   # UI default — nav, buttons, inputs, menus
-  md:  { size: 16px, line: 26px, track: 0em,       weight: 400 }   # block text and page body
+  xs:  { size: 12px, line: 16px, track: 0em,       weight: 550 }   # metadata, chips, badges
+  sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 500 }   # UI default — nav, buttons, inputs, menus
+  md:  { size: 16px, line: 26px, track: 0em,       weight: 500 }   # block text and page body
   lg:  { size: 19px, line: 25px, track: -0.012em,  weight: 600 }   # section headings (real <h2>)
   xl:  { size: 33px, line: 40px, track: -0.019em,  weight: 600 }   # page and journal titles (<h1>)
   xl-mobile: { size: "clamp(26px, 6vw, 33px)", track: -0.015em }
-  mono-xs: { size: 12px, line: 16px, weight: 500 }                  # property keys, ids
+  mono-xs: { size: 12px, line: 16px, weight: 550 }                  # property keys, ids
   # A group divider, and the one place tracking goes positive — see § The group label.
   group-label: { size: 12px, line: 16px, track: 0.06em, weight: 600, color: "{ink-3}" }
-  weights: { normal: 400, medium: 500, strong: 600 }
+  weights: { normal: 500, medium: 550, strong: 600 }
 
 spacing:
   sp-0: 2px
@@ -141,8 +141,8 @@ iconography:
 components:
   topbar:      { height: 44px, background: "{canvas}", border: none, edge: "fades in on scroll" }
   rail:        { width: 240px, background: "{rail}", typography: "{sm}" }
-  nav-row:     { height: 32px, radius: "{r-2}", rest: "{ink-2}", hover: "{surface-2}", active: "{surface-3} + {ink} + 500" }
-  btn:         { height: 32px, radius: "{r-2}", typography: "{sm}", weight: 500 }
+  nav-row:     { height: 32px, radius: "{r-2}", rest: "{ink-2}", hover: "{surface-2}", active: "{surface-3} + {ink} + 550" }
+  btn:         { height: 32px, radius: "{r-2}", typography: "{sm}", weight: 550 }
   btn-primary: { background: "{accent}", text: "{on-accent}", hover: "{accent-hover}" }
   btn-quiet:   { background: transparent, text: "{ink}", hover: "{surface-2}" }
   btn-danger:  { background: transparent, text: "{danger}", hover: "{danger-soft}" }
@@ -336,9 +336,9 @@ for translation and are never sized to an English string.
 
 | Role | Size / Line | Tracking | Weight | Use |
 |---|---|---|---|---|
-| `xs` | 12 / 16 | 0 | 500 | Metadata, chips, group headers, shortcut badges, save reason |
-| `sm` | 14 / 20 | −0.005em | 400 | UI default: nav rows, buttons, inputs, menu items, property values |
-| `md` | 16 / 26 | 0 | 400 | **Block text and page body.** The user's own words. |
+| `xs` | 12 / 16 | 0 | 550 | Metadata, chips, group headers, shortcut badges, save reason |
+| `sm` | 14 / 20 | −0.005em | 500 | UI default: nav rows, buttons, inputs, menu items, property values |
+| `md` | 16 / 26 | 0 | 500 | **Block text and page body.** The user's own words. |
 | `lg` | 19 / 25 | −0.012em | 600 | Real `<h2>` section headings |
 | `xl` | 33 / 40 | −0.019em | 600 | Page and journal `<h1>`, tombstone, "Your graphs" |
 
@@ -346,13 +346,13 @@ Nothing else exists. The sizes 9, 11, 13, 15, 17, 20, 22, 26, 36 and 40 that
 accumulated in v1 are deleted, along with the 1px collision between a 15px `.btn` and
 a 14px shadcn `Button` on the same screen.
 
-**The user's writing is the largest 400-weight text in the interface and the only text
+**The user's writing is the largest 500-weight text in the interface and the only text
 at 26px line-height.** Chrome is 14px or smaller. This is the hierarchy — not size
 alone, but the fact that chrome and content are typographically different kinds of thing.
 
 ### The mono voice
 
-`ui-monospace, SFMono-Regular, "SF Mono", Menlo, …` at 12px/500 is reserved for things
+`ui-monospace, SFMono-Regular, "SF Mono", Menlo, …` at 12px/550 is reserved for things
 that are *identifiers rather than prose*: property keys (`task.status`), graph ids, and
 ISO dates in the page-info popover. It is never used for body copy, headings, or labels.
 This is the interface admitting which of its strings are addresses and which are language.
@@ -377,7 +377,7 @@ and one ink step apart**, and one step of anything is not a hierarchy. The headi
 as the first item of its own list.
 
 A group label is now different from a row in four ways at once — 12px against 14px, 600
-against 400, `+0.06em` tracking against none, and `--ink-3` against `--ink`. Four weak
+against 500, `+0.06em` tracking against none, and `--ink-3` against `--ink`. Four weak
 signals in agreement is what reads as "different kind of thing" when no single one of
 them can. **This is the only place in the type system where tracking goes positive,**
 and that is deliberate: it is what makes a label unmistakable for body copy.
@@ -1378,7 +1378,7 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Declare every colour in both modes in the same block, and keep hue and chroma fixed.
 - Consult the contrast table before styling text on a tinted surface.
 - Reserve `--accent` for actions, links, carets, selection/drop state and the active thread.
-- Keep chrome at 14px and smaller so the user's 16px writing is the largest 400-weight
+- Keep chrome at 14px and smaller so the user's 16px writing is the largest 500-weight
   text on screen.
 - Use mono only for identifiers: property keys, shortcut badges, ids.
 - Render nothing at all for `saved`, on-today, and an empty property bag.
