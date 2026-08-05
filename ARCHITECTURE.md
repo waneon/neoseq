@@ -27,6 +27,8 @@ architecture for later steps and are not current build artifacts.
   semantics on web, macOS, and Android.
 - The UI should be shared across platforms without making the domain depend on a
   webview or JavaScript runtime.
+- Product localization must remain a presentation concern: changing UI language
+  cannot mutate graph data or alter domain, query, and synchronization semantics.
 - Development and builds must be reproducible through Nix, subject to Apple
   signing and SDK constraints.
 - Nix dependency caches must be invalidated by dependency-manifest content, not
@@ -83,9 +85,9 @@ agent.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
 - `app-ui` owns editing interaction, navigation, the command layer, failure
-  reporting, and responsive presentation. It does not hold canonical graph
-  state. Its visual contract — tokens, disclosure rules, motion constraints, and
-  the committed contrast table — is [`DESIGN.md`](DESIGN.md).
+  reporting, localization, and responsive presentation. It does not hold
+  canonical graph state. Its visual contract — tokens, disclosure rules, motion
+  constraints, and the committed contrast table — is [`DESIGN.md`](DESIGN.md).
 - The future `sync-server` owns authentication boundaries, graph authorization, durable
   update relay, and compaction. It does not interpret notes or execute queries.
 
@@ -95,6 +97,7 @@ Detailed contracts are in:
 - [CRDT data model and persistence](architectures/data.md)
 - [Query engine](architectures/query.md)
 - [Client applications](architectures/clients.md)
+- [Internationalization](architectures/i18n.md)
 - [Design language and UI contract](DESIGN.md)
 - [Remote synchronization server](architectures/server.md)
 - [Build, delivery, and verification](architectures/build.md)
@@ -217,7 +220,7 @@ crates/
   platform-native/    # Headless SQLite and native CorePort parity adapter
   platform-web/       # Product wasm-bindgen graph-core adapter
 apps/
-  client/             # React/TypeScript Web UI, Worker, and IndexedDB adapter
+  client/             # React/TypeScript UI, i18n, Worker, and IndexedDB adapter
 architectures/        # Component architecture documents
 steps/                # Verifiable, staged implementation plan
 flake.nix

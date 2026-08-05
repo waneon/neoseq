@@ -310,6 +310,12 @@ negative at 19px and above, where system faces are already optically tightened.
 > If a self-hosted variable face is wanted later, it is a two-line change here plus a
 > `@font-face`. It is deliberately not the default.
 
+The active UI locale sets the document's `lang`, so the system stack can select the
+right script-specific glyphs through `locl`. Tracking values are defaults for Latin
+UI copy, not a mandate for every script; locale/script overrides may reduce them to
+zero, but may not introduce a downloaded font or a sixth type size. Text containers
+grow or wrap for translation and are never sized to an English string.
+
 ### The five roles
 
 | Role | Size / Line | Tracking | Weight | Use |
@@ -867,6 +873,22 @@ both colour schemes):
 8. Hit targets are ≥ 24px, and ≥ 32px at or below 600px.
 9. IME composition is guarded before any key handler runs.
 10. `role="option"` rows are non-focusable `<div>`s, not buttons.
+
+### Localization and bidirectionality
+
+- Product copy, accessible names, descriptions, validation, and live-region messages
+  use the same typed catalog contract; translated HTML is never rendered.
+- The locale provider sets `<html lang>` and `<html dir>` before interactive content
+  appears. A locale change updates visible and assistive copy in one commit.
+- Layout uses logical inline/block properties. Directional navigation and hierarchy
+  glyphs mirror when their meaning reverses; neutral glyphs do not. User-authored
+  text uses `dir="auto"`, independent of the chrome direction.
+- Every component must survive the expansion pseudo-locale at twice the English copy
+  length and the RTL pseudo-locale without clipping focus, status, or destructive
+  confirmation text. Wrapping wins over ellipsis for actions and feedback.
+- Locale controls presentation only. Journal timezone, graph content language, stable
+  stored values, and search analysis remain separate contracts; see
+  [`architectures/i18n.md`](architectures/i18n.md).
 
 ---
 

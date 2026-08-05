@@ -9,7 +9,8 @@ and capability detection replace platform forks.
 
 React owns transient presentation state only: focus, selection, open panels,
 optimistic text composition, and viewport caches. Canonical block Markdown and
-page/block property bags live in the Rust graph runtime.
+page/block property bags live in the Rust graph runtime. UI localization follows
+the device-local [`LocaleRuntime`](i18n.md) and never translates graph data.
 
 ## CorePort
 
@@ -140,10 +141,8 @@ completion extend that operation rather than add graph-scan APIs.
 Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md)
 § Disclosure), and the command layer is what makes that safe rather than merely
 sparse. `features/commands/` owns one registry, one window keydown listener, the
-`⌘K` palette, and the `⌘/` sheet generated from the same registry. Every registry
-entry carries a `pointerRoute` describing how a user who never learns a shortcut
-reaches that verb; the field is required by the type, so the palette can never
-become the only way to do something.
+`⌘K` palette, and the `⌘/` sheet generated from the same registry. Each entry has
+a required, localized `pointerRouteKey`, so the palette is never the only route.
 
 Key arbitration order is fixed: an IME-composition guard first (a composition
 owns the keyboard outright — losing a keystroke corrupts CJK input), then any
@@ -166,9 +165,9 @@ in a test. **A failure is reported where the user is already looking, and reache
 the toast layer only when it would otherwise leave no trace** —
 [`DESIGN.md`](../DESIGN.md) § Toasts says which side each one falls on. Durability
 is the exclusion the code enforces: `dirty_unsaved` and `storage_full` belong to
-the save slot, so the notifier returns `null` for them. `errors.ts` keeps
-`CorePortError` codes off the screen, rendering the core's message as a sentence
-under a title naming the verb the user tried.
+the save slot, so the notifier returns `null` for them. `errors.ts` maps stable
+`CorePortError` codes and typed context to localized title/detail message IDs; raw
+codes and the core's diagnostic fallback remain off screen.
 
 ## Navigation and Journals
 
@@ -182,9 +181,9 @@ under a title naming the verb the user tried.
   authoritative title with an accessible inline error.
 - Page-reference autocomplete searches the page summary, while tag autocomplete
   searches the independent tag registry and writes `TagId` membership.
-- Journal date entry is a palette concern: the palette parses natural-language
-  dates (`tomorrow`, `aug 5`, `2026-08-05`, `next monday`) in the same input used
-  to search. The day view keeps a mounted, focusable native date input as the
+- Journal date entry is a palette concern: an injected locale adapter parses
+  locale-specific words and month/weekday names, while ISO `2026-08-05` works in
+  every locale. The day view keeps a mounted, focusable native date input as the
   keyboard route and the `showPicker()` target, without restating the date beside
   a heading that already spells it out.
 - Deleted or missing references open a tombstone view rather than silently
@@ -247,6 +246,7 @@ features/notify/    the notification layer: toast queue, failure copy, viewport
 entities/        page/block view models and renderers
 core-port/       session, commands, snapshot DTOs, graph directory, lease
 generated/       CorePort contract types (path fixed by the drift check)
+i18n/            locale resolution, typed catalogs, provider, Intl formatters
 lib/             framework-agnostic UI helpers (class-name merge)
 ui/              design tokens, Tailwind v4 theme, appearance, shadcn/Radix primitives
 ```
@@ -273,16 +273,15 @@ it appears animates nothing, so an audit never reads one mid-fade.
 
 The property registry the UI validates against is imported from the versioned
 core fixture (`fixtures/core/property-definitions-v3.json`), so client and core
-share one definition source. Feature modules may depend on `entities`,
-`core-port`, and `ui`; reverse imports are forbidden. Cross-feature actions are
-domain commands, app-level navigation, or a layer provided through context —
+share one definition source. Features depend inward on `entities`, `core-port`,
+`i18n`, and `ui`; reverse imports are forbidden. Cross-feature actions are domain
+commands, app-level navigation, or a layer provided through context —
 never a shared mutable store.
 
 ## Accessibility and Testing
 
-- The outline exposes tree/treeitem semantics, depth, expansion, and keyboard
-  navigation, including `ArrowLeft`/`ArrowRight` collapse-and-step so nothing is
-  pointer-only; query results use appropriate list/table semantics.
+- The outline exposes accessible tree semantics and keyboard collapse-and-step;
+  query results use appropriate list/table semantics.
 - Property editors are progressive: both page bags live in one disclosure between
   the title and the writing, reached from the property strip, the page menu, or
   `⌘⇧P`. System-owned keys are page *information* and surface in the page-info
