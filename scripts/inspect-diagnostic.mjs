@@ -4,15 +4,17 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const MAX_FILES = 64;
-const MAX_EXPANDED_BYTES = 64 * 1024 * 1024;
+const MAX_EXPANDED_BYTES = 96 * 1024 * 1024;
 const MAX_JSON_LINE_BYTES = 1024 * 1024;
+const MAX_SENSITIVE_JSON_LINE_BYTES = 50 * 1024 * 1024;
 const MAX_JSON_DEPTH = 64;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 const args = process.argv.slice(2).filter((argument) => argument !== "--");
 const jsonOutput = args.includes("--json");
+const allowSensitive = args.includes("--allow-sensitive");
 const path = args.find((argument) => !argument.startsWith("--"));
-if (!path) fail("usage: pnpm diagnostics:inspect -- <report.neoseq-bug> [--json]");
+if (!path) fail("usage: pnpm diagnostics:inspect -- [--allow-sensitive] <report.neoseq-bug> [--json]");
 
 const archive = await readFile(path);
 const files = readZip(archive);
@@ -36,9 +38,30 @@ const summary = parseJson(files.get("summary.json"), "summary.json");
 if (manifest.artifact_schema_version !== 1) {
   fail(`unsupported artifact schema: ${String(manifest.artifact_schema_version)}`);
 }
+const containsSensitive = manifest.contains_sensitive_content === true;
+if (containsSensitive && !allowSensitive) {
+  fail("artifact contains sensitive user content; inspect again with --allow-sensitive after reviewing its source");
+}
+if (containsSensitive !== files.has("sensitive/content.jsonl")) {
+  fail("sensitive content declaration does not match artifact files");
+}
 validateInventory(manifest, files);
 parseJson(files.get("schemas/manifest.schema.json"), "schemas/manifest.schema.json");
 parseJson(files.get("schemas/record.schema.json"), "schemas/record.schema.json");
+let sensitiveRecords = [];
+if (containsSensitive) {
+  if (!files.has("schemas/sensitive-record.schema.json")) {
+    fail("artifact is missing schemas/sensitive-record.schema.json");
+  }
+  parseJson(files.get("schemas/sensitive-record.schema.json"), "schemas/sensitive-record.schema.json");
+  sensitiveRecords = validateSensitiveJsonLines(
+    files.get("sensitive/content.jsonl"),
+    "sensitive/content.jsonl",
+  );
+  if (manifest.sensitive_record_count !== sensitiveRecords.length) {
+    fail("sensitive record count does not match artifact stream");
+  }
+}
 decodeUtf8(files.get("README.md"), "README.md");
 const records = ["events.jsonl", "metrics.jsonl", "errors.jsonl"]
   .flatMap((stream) => validateJsonLines(files.get(stream), stream));
@@ -54,6 +77,8 @@ const result = {
   capture_policy_version: manifest.capture_policy_version,
   redaction_level: manifest.redaction_level,
   contains_user_content: manifest.contains_user_content,
+  contains_sensitive_content: containsSensitive,
+  sensitive_record_count: sensitiveRecords.length,
   application: manifest.application,
   duration_ms: summary.duration_ms,
   record_count: summary.record_count,
@@ -70,7 +95,7 @@ if (jsonOutput) {
   const app = result.application ?? {};
   process.stdout.write([
     `Neoseq diagnostic artifact v${result.artifact_schema_version}`,
-    `Capture: ${String(result.redaction_level)}${result.contains_user_content ? " (contains user annotation)" : " (content-free)"}`,
+    `Capture: ${String(result.redaction_level)}${result.contains_sensitive_content ? " (contains sensitive user content)" : result.contains_user_content ? " (contains user annotation)" : " (content-free)"}`,
     `Build: ${String(app.version ?? "unknown")} / ${String(app.build_id ?? "unknown")}`,
     `Duration: ${String(result.duration_ms)} ms`,
     `Records: ${String(result.record_count)} (${String(result.dropped_count)} dropped)`,
@@ -179,6 +204,33 @@ function validateJsonLines(buffer, name) {
       records.push(record);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("invalid diagnostic")) throw error;
+      fail(`invalid JSON line: ${name}`);
+    }
+  }
+  return records;
+}
+
+function validateSensitiveJsonLines(buffer, name) {
+  const records = [];
+  for (const line of decodeUtf8(buffer, name).split("\n")) {
+    if (!line) continue;
+    if (Buffer.byteLength(line) > MAX_SENSITIVE_JSON_LINE_BYTES) {
+      fail(`oversized sensitive JSON line: ${name}`);
+    }
+    try {
+      const record = JSON.parse(line);
+      assertJsonDepth(record, name);
+      if (
+        record.schema_version !== 1 ||
+        typeof record.payload_id !== "string" ||
+        typeof record.monotonic_ms !== "number" ||
+        !["command", "query", "page_snapshot", "tag_snapshot", "graph_snapshot"].includes(record.kind)
+      ) {
+        fail(`invalid sensitive diagnostic record: ${name}`);
+      }
+      records.push(record);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("invalid sensitive")) throw error;
       fail(`invalid JSON line: ${name}`);
     }
   }

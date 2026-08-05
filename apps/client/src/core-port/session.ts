@@ -56,6 +56,7 @@ export class GraphSession {
   private opening: Promise<void> | null = null;
   private closeRequested = false;
   private queue: Promise<unknown> = Promise.resolve();
+  private pendingCommandCount = 0;
   private listeners = new Set<() => void>();
 
   constructor(
@@ -129,11 +130,17 @@ export class GraphSession {
    * resolves after the authoritative summary/page state has been reconciled.
    */
   execute(command: Command): Promise<CommandResult> {
+    this.pendingCommandCount += 1;
     diagnostics.recordCommand(command);
     const run = this.queue.then(() => this.executeNow(command));
+    const tracked = run.finally(() => {
+      this.pendingCommandCount = Math.max(0, this.pendingCommandCount - 1);
+      this.recordDiagnosticState();
+    });
     // Keep the queue alive after failures so later commands still run.
-    this.queue = run.catch(() => undefined);
-    return run;
+    this.queue = tracked.catch(() => undefined);
+    this.recordDiagnosticState();
+    return tracked;
   }
 
   hydratePage(pageId: string): Promise<void> {
@@ -232,7 +239,10 @@ export class GraphSession {
           commandPageId(command, response.result as CommandResult),
           command.type === "undo" || command.type === "redo",
         ));
-      span.end("ok", { result_kind: "command_result" });
+      span.end("ok", {
+        result_kind: "command_result",
+        changed: (response.result as CommandResult).changed,
+      });
       return response.result as CommandResult;
     } catch (error) {
       span.fail(error);
@@ -345,13 +355,19 @@ export class GraphSession {
 
   private patch(partial: Partial<SessionState>): void {
     this.state = { ...this.state, ...partial };
+    this.recordDiagnosticState();
+    for (const listener of this.listeners) listener();
+  }
+
+  private recordDiagnosticState(): void {
     diagnostics.recordSessionState(this.state.snapshot, {
       session_status: this.state.status,
       lease_mode: this.state.mode,
       save_state: this.state.save.kind,
       hydrated_page_count: this.state.hydratedPages.size,
+      pending_command_count: this.pendingCommandCount,
+      snapshot_revision: this.state.revision,
     });
-    for (const listener of this.listeners) listener();
   }
 }
 

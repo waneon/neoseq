@@ -5,6 +5,7 @@ import { commandAttributes, queryAttributes } from "../../src/diagnostics/redact
 import type {
   DiagnosticRecord,
   PersistedDiagnosticSession,
+  SensitiveDiagnosticPayload,
 } from "../../src/diagnostics/types";
 import type {
   DiagnosticStore,
@@ -14,6 +15,7 @@ import type {
 class MemoryDiagnosticStore implements DiagnosticStore {
   session: PersistedDiagnosticSession | null = null;
   records: DiagnosticRecord[] = [];
+  sensitive: SensitiveDiagnosticPayload[] = [];
 
   async saveSession(session: PersistedDiagnosticSession): Promise<void> {
     this.session = session;
@@ -25,13 +27,23 @@ class MemoryDiagnosticStore implements DiagnosticStore {
     this.records = [...bySequence.values()].sort((left, right) => left.sequence - right.sequence);
   }
 
+  async appendSensitivePayloads(
+    _recordingId: string,
+    payloads: readonly SensitiveDiagnosticPayload[],
+  ): Promise<void> {
+    this.sensitive.push(...payloads);
+  }
+
   async loadRecoverable(): Promise<StoredDiagnosticRecording | null> {
-    return this.session ? { session: this.session, records: [...this.records] } : null;
+    return this.session
+      ? { session: this.session, records: [...this.records], sensitive_payloads: [...this.sensitive] }
+      : null;
   }
 
   async deleteRecording(): Promise<void> {
     this.session = null;
     this.records = [];
+    this.sensitive = [];
   }
 }
 
@@ -89,6 +101,13 @@ describe("diagnostic recording", () => {
       block_id: "private-block-id",
       markdown: "PRIVATE-CONTENT-CANARY",
     });
+    coordinator.recordEditorState("private-block-id", {
+      checkpoint: "reconcile",
+      snapshot_revision: 4,
+      focused: true,
+      draft_state: "clean",
+      draft_authoritative_relation: "different",
+    });
     const span = coordinator.startSpan("session", "session.execute", {
       command_type: "edit_markdown",
     });
@@ -109,16 +128,73 @@ describe("diagnostic recording", () => {
     expect(artifact.blob.type).toBe("application/vnd.neoseq.bug+zip");
     expect(artifact.manifest).toMatchObject({
       artifact_schema_version: 1,
-      capture_policy_version: 1,
+      capture_policy_version: 2,
       redaction_level: "standard",
       contains_user_content: false,
     });
+    expect(review.records.find((record) => record.name === "editor_state")?.attributes)
+      .toMatchObject({
+        subject_token: "E1",
+        checkpoint: "reconcile",
+        draft_state: "clean",
+        draft_authoritative_relation: "different",
+      });
 
     const annotated = await buildDiagnosticArtifact(review, "The editor froze after saving.");
     expect(annotated.manifest).toMatchObject({ contains_user_content: true });
     expect(new TextDecoder().decode(annotated.files.get("events.jsonl"))).toContain(
       "The editor froze after saving.",
     );
+  });
+
+  it("keeps enhanced content separate and exports it only after explicit inclusion", async () => {
+    const coordinator = new DiagnosticsCoordinator(new MemoryDiagnosticStore());
+    const canary = "PRIVATE-ENHANCED-CONTENT";
+    coordinator.registerGraphContext({
+      graph_id: "graph-private",
+      active_page_id: "page-private",
+      read: () => ({
+        revision: 3,
+        snapshot: {
+          schema_version: 3,
+          graph_id: "graph-private",
+          tags: [],
+          quarantined: [],
+          pages: [{
+            id: "page-private",
+            title: "Private page",
+            properties: [],
+            tags: [],
+            blocks: [{ id: "block-private", markdown: canary, properties: [], tags: [], children: [] }],
+          }],
+        },
+      }),
+    });
+    await coordinator.start({
+      level: "enhanced",
+      scope: "active_page",
+      categories: ["graph_data"],
+    });
+    coordinator.recordCommand({
+      type: "edit_markdown",
+      page_id: "page-private",
+      block_id: "block-private",
+      markdown: canary,
+    });
+    await coordinator.stop();
+
+    const review = coordinator.getState().review!;
+    const standardOnly = await buildDiagnosticArtifact(review);
+    expect(standardOnly.files.has("sensitive/content.jsonl")).toBe(false);
+    expect([...standardOnly.files.values()].some((bytes) =>
+      new TextDecoder().decode(bytes).includes(canary))).toBe(false);
+
+    const enhanced = await buildDiagnosticArtifact(review, "", { includeSensitive: true });
+    expect(enhanced.manifest).toMatchObject({
+      redaction_level: "enhanced",
+      contains_sensitive_content: true,
+    });
+    expect(new TextDecoder().decode(enhanced.files.get("sensitive/content.jsonl"))).toContain(canary);
   });
 
   it("recovers an interrupted persisted recording into review", async () => {
@@ -131,7 +207,16 @@ describe("diagnostic recording", () => {
       byte_count: 100,
       record_count: 1,
       dropped_count: 0,
-      limits: { max_duration_ms: 1000, max_bytes: 1000, max_records: 10 },
+      capture_policy: { level: "standard" },
+      sensitive_byte_count: 0,
+      sensitive_record_count: 0,
+      sensitive_truncated: false,
+      limits: {
+        max_duration_ms: 1000,
+        max_bytes: 1000,
+        max_sensitive_bytes: 1000,
+        max_records: 10,
+      },
     };
     store.records = [{
       schema_version: 1,
@@ -156,6 +241,7 @@ describe("diagnostic recording", () => {
     const coordinator = new DiagnosticsCoordinator(new MemoryDiagnosticStore(), {
       max_duration_ms: 60_000,
       max_bytes: 100_000,
+      max_sensitive_bytes: 100_000,
       max_records: 3,
     });
     await coordinator.start();

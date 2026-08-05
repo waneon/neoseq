@@ -29,7 +29,9 @@ export function RecordingStatus() {
       data-testid="diagnostics-recording-status"
     >
       <span className="diagnostic-recording-dot" aria-hidden />
-      <span>{message("diagnostics.recording")}</span>
+      <span>{state.active?.capture_policy.level === "enhanced"
+        ? message("diagnostics.enhancedRecording")
+        : message("diagnostics.recording")}</span>
       <time>{formatElapsed(elapsed)}</time>
     </Button>
   );

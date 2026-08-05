@@ -1,12 +1,15 @@
 import type { CorePortErrorCode, SparqlQueryRequest } from "../generated/core-port";
 import type { Command } from "../core-port/commands";
-import type { GraphSnapshot } from "../core-port/snapshot";
+import type { GraphSnapshot, PageSnapshot } from "../core-port/snapshot";
 import { commandAttributes, queryAttributes } from "./redaction";
 import { IndexedDbDiagnosticStore, type DiagnosticStore } from "./store";
 import {
   DEFAULT_DIAGNOSTIC_LIMITS,
+  STANDARD_CAPTURE_POLICY,
   DIAGNOSTIC_ARTIFACT_SCHEMA,
+  SENSITIVE_PAYLOAD_SCHEMA,
   type DiagnosticAttributes,
+  type DiagnosticCapturePolicy,
   type DiagnosticLimits,
   type DiagnosticOperation,
   type DiagnosticOutcome,
@@ -14,6 +17,7 @@ import {
   type DiagnosticsViewState,
   type DiagnosticTraceContext,
   type PersistedDiagnosticSession,
+  type SensitiveDiagnosticPayload,
   type WorkerDiagnosticContext,
   type WorkerDiagnosticSpan,
 } from "./types";
@@ -22,6 +26,16 @@ const encoder = new TextEncoder();
 const FLUSH_INTERVAL_MS = 500;
 // Keep room for a final limit marker so a capped recording explains its own gap.
 const LIMIT_MARKER_RESERVE_BYTES = 1_024;
+
+type SensitivePayloadInput<T = SensitiveDiagnosticPayload> = T extends SensitiveDiagnosticPayload
+  ? Omit<T, "schema_version" | "payload_id" | "monotonic_ms">
+  : never;
+
+export interface DiagnosticGraphContext {
+  readonly graph_id: string;
+  readonly active_page_id: string | null;
+  read(): { readonly snapshot: GraphSnapshot; readonly revision: number };
+}
 
 export interface DiagnosticSpanHandle {
   readonly context: DiagnosticTraceContext | null;
@@ -43,6 +57,16 @@ export class DiagnosticsCoordinator {
   private session: PersistedDiagnosticSession | null = null;
   private records: DiagnosticRecord[] = [];
   private pending: DiagnosticRecord[] = [];
+  private sensitivePayloads: SensitiveDiagnosticPayload[] = [];
+  private pendingSensitive: SensitiveDiagnosticPayload[] = [];
+  private nextSensitiveSequence = 1;
+  private sensitiveCaptureStopped = false;
+  private lastSensitiveRevision = -1;
+  private readonly touchedPageIds = new Set<string>();
+  private readonly touchedTagIds = new Set<string>();
+  private readonly subjectTokens = new Map<string, string>();
+  private graphContext: DiagnosticGraphContext | null = null;
+  private captureGraphContext: DiagnosticGraphContext | null = null;
   private nextSequence = 1;
   private flushTimer: number | null = null;
   private limitTimer: number | null = null;
@@ -62,6 +86,13 @@ export class DiagnosticsCoordinator {
 
   getState = (): DiagnosticsViewState => this.state;
 
+  registerGraphContext(context: DiagnosticGraphContext): () => void {
+    this.graphContext = context;
+    return () => {
+      if (this.graphContext === context) this.graphContext = null;
+    };
+  }
+
   requestStart(): void {
     if (this.state.phase !== "idle") return;
     this.patch({ phase: "consent" });
@@ -71,11 +102,20 @@ export class DiagnosticsCoordinator {
     if (this.state.phase === "consent") this.patch({ phase: "idle" });
   }
 
-  async start(): Promise<void> {
+  async start(capturePolicy: DiagnosticCapturePolicy = STANDARD_CAPTURE_POLICY): Promise<void> {
     if (this.state.phase !== "consent" && this.state.phase !== "idle") return;
     const startedAt = new Date().toISOString();
     this.records = [];
     this.pending = [];
+    this.sensitivePayloads = [];
+    this.pendingSensitive = [];
+    this.nextSensitiveSequence = 1;
+    this.sensitiveCaptureStopped = false;
+    this.lastSensitiveRevision = -1;
+    this.touchedPageIds.clear();
+    this.touchedTagIds.clear();
+    this.subjectTokens.clear();
+    this.captureGraphContext = capturePolicy.level === "enhanced" ? this.graphContext : null;
     this.nextSequence = 1;
     this.stopping = false;
     this.session = {
@@ -86,6 +126,10 @@ export class DiagnosticsCoordinator {
       byte_count: 0,
       record_count: 0,
       dropped_count: 0,
+      capture_policy: normalizeCapturePolicy(capturePolicy),
+      sensitive_byte_count: 0,
+      sensitive_record_count: 0,
+      sensitive_truncated: false,
       limits: this.limits,
     };
     this.patch({
@@ -96,7 +140,10 @@ export class DiagnosticsCoordinator {
       crash_recovery_available: true,
       storage_warning: false,
     });
-    this.append("marker", "ui", "recording_started", {});
+    this.append("marker", "ui", "recording_started", {
+      capture_level: this.session.capture_policy.level,
+    });
+    this.captureSensitiveSnapshot("initial");
     try {
       await this.store.saveSession(this.session);
       this.scheduleFlush();
@@ -114,6 +161,9 @@ export class DiagnosticsCoordinator {
       if (!stored) return;
       this.records = stored.records;
       this.pending = [];
+      this.sensitivePayloads = stored.sensitive_payloads;
+      this.pendingSensitive = [];
+      this.nextSensitiveSequence = this.sensitivePayloads.length + 1;
       this.nextSequence = (this.records.at(-1)?.sequence ?? 0) + 1;
       const lastMonotonic = this.records.at(-1)?.monotonic_ms ?? 0;
       const recoveredRecord: DiagnosticRecord = {
@@ -140,7 +190,12 @@ export class DiagnosticsCoordinator {
       this.patch({
         phase: "review",
         active: null,
-        review: { session, records: [...this.records], recovered: true },
+        review: {
+          session,
+          records: [...this.records],
+          sensitive_payloads: [...this.sensitivePayloads],
+          recovered: true,
+        },
         review_open: true,
         crash_recovery_available: true,
       });
@@ -152,6 +207,7 @@ export class DiagnosticsCoordinator {
   async stop(reason: "user" | "limit" = "user"): Promise<void> {
     if (this.state.phase !== "recording" || !this.session || this.stopping) return;
     this.stopping = true;
+    this.captureSensitiveSnapshot("final");
     this.append("marker", "ui", reason === "limit" ? "recording_limit_reached" : "recording_stopped", {
       reason,
       record_count: this.session.record_count,
@@ -177,7 +233,12 @@ export class DiagnosticsCoordinator {
     this.patch({
       phase: "review",
       active: null,
-      review: { session, records: [...this.records], recovered: false },
+      review: {
+        session,
+        records: [...this.records],
+        sensitive_payloads: [...this.sensitivePayloads],
+        recovered: false,
+      },
       review_open: true,
     });
     this.stopping = false;
@@ -190,6 +251,15 @@ export class DiagnosticsCoordinator {
     this.session = null;
     this.records = [];
     this.pending = [];
+    this.sensitivePayloads = [];
+    this.pendingSensitive = [];
+    this.nextSensitiveSequence = 1;
+    this.sensitiveCaptureStopped = false;
+    this.lastSensitiveRevision = -1;
+    this.touchedPageIds.clear();
+    this.touchedTagIds.clear();
+    this.subjectTokens.clear();
+    this.captureGraphContext = null;
     this.nextSequence = 1;
     this.stopping = false;
     this.patch({
@@ -211,11 +281,38 @@ export class DiagnosticsCoordinator {
   }
 
   recordCommand(command: Command): void {
-    this.append("interaction", "ui", "command", commandAttributes(command));
+    if (this.state.phase !== "recording") return;
+    const subjectId = commandSubjectId(command);
+    this.append("interaction", "ui", "command", {
+      ...commandAttributes(command),
+      subject_token: subjectId ? this.subjectToken(subjectId) : undefined,
+    });
+    if (!this.enhancedCategoryEnabled("graph_data")) return;
+    if (this.graphContext?.graph_id !== this.captureGraphContext?.graph_id) return;
+    const pageId = commandPageId(command);
+    const tagId = commandTagId(command);
+    const policy = this.enhancedPolicy();
+    if (!policy) return;
+    if (policy.scope === "active_page" && pageId !== this.captureGraphContext?.active_page_id && command.type !== "undo" && command.type !== "redo") return;
+    if (policy.scope === "touched_entities" && pageId && !this.touchedPageIds.has(pageId)) {
+      this.capturePage(pageId, "before");
+      this.touchedPageIds.add(pageId);
+    }
+    if (policy.scope === "touched_entities" && tagId && !this.touchedTagIds.has(tagId)) {
+      this.captureTag(tagId, "before");
+      this.touchedTagIds.add(tagId);
+    }
+    this.appendSensitive({ kind: "command", command });
   }
 
   recordQuery(query: SparqlQueryRequest): void {
     this.append("interaction", "ui", "query", queryAttributes(query));
+    if (
+      this.enhancedCategoryEnabled("query_text") &&
+      this.graphContext?.graph_id === this.captureGraphContext?.graph_id
+    ) {
+      this.appendSensitive({ kind: "query", query });
+    }
   }
 
   recordRoute(routeKind: NonNullable<DiagnosticAttributes["route_kind"]>): void {
@@ -228,6 +325,18 @@ export class DiagnosticsCoordinator {
       page_count: snapshot.pages.length,
       tag_count: snapshot.tags.length,
       quarantined_count: snapshot.quarantined.length,
+    });
+    const revision = attributes.snapshot_revision;
+    if (revision !== undefined && revision !== this.lastSensitiveRevision) {
+      this.captureSensitiveSnapshot("reconcile", snapshot, revision);
+    }
+  }
+
+  recordEditorState(subjectId: string, attributes: DiagnosticAttributes): void {
+    if (this.state.phase !== "recording") return;
+    this.append("state", "ui", "editor_state", {
+      ...attributes,
+      subject_token: this.subjectToken(subjectId),
     });
   }
 
@@ -396,6 +505,99 @@ export class DiagnosticsCoordinator {
     this.scheduleFlush();
   }
 
+  private appendSensitive(
+    payload: SensitivePayloadInput,
+  ): void {
+    if (!this.session || this.state.phase !== "recording" || this.sensitiveCaptureStopped) return;
+    const record = {
+      ...payload,
+      schema_version: SENSITIVE_PAYLOAD_SCHEMA,
+      payload_id: `S${this.nextSensitiveSequence}`,
+      monotonic_ms: Math.max(0, performance.now() - this.session.started_monotonic_ms),
+    } as SensitiveDiagnosticPayload;
+    const size = encodedSize(record);
+    if (this.session.sensitive_byte_count + size > this.limits.max_sensitive_bytes) {
+      this.sensitiveCaptureStopped = true;
+      this.session = { ...this.session, sensitive_truncated: true };
+      this.append("marker", "ui", "sensitive_capture_limit_reached", {
+        sensitive_record_count: this.session.sensitive_record_count,
+        sensitive_byte_count: this.session.sensitive_byte_count,
+      });
+      return;
+    }
+    this.nextSensitiveSequence += 1;
+    this.sensitivePayloads.push(record);
+    this.pendingSensitive.push(record);
+    this.session = {
+      ...this.session,
+      sensitive_record_count: this.sensitivePayloads.length,
+      sensitive_byte_count: this.session.sensitive_byte_count + size,
+    };
+    this.scheduleFlush();
+  }
+
+  private captureSensitiveSnapshot(
+    stage: "initial" | "reconcile" | "final",
+    knownSnapshot?: GraphSnapshot,
+    knownRevision?: number,
+  ): void {
+    const policy = this.enhancedPolicy();
+    if (!policy || !policy.categories.includes("graph_data") || !this.captureGraphContext) return;
+    if (knownSnapshot && knownSnapshot.graph_id !== this.captureGraphContext.graph_id) return;
+    const current = knownSnapshot && knownRevision !== undefined
+      ? { snapshot: knownSnapshot, revision: knownRevision }
+      : this.captureGraphContext.read();
+    this.lastSensitiveRevision = current.revision;
+    if (policy.scope === "full_graph") {
+      this.appendSensitive({ kind: "graph_snapshot", stage, revision: current.revision, snapshot: current.snapshot });
+      return;
+    }
+    const pageIds = policy.scope === "active_page"
+      ? [this.captureGraphContext.active_page_id]
+      : [...this.touchedPageIds];
+    for (const pageId of pageIds) {
+      if (!pageId) continue;
+      const page = current.snapshot.pages.find((candidate) => candidate.id === pageId);
+      if (page) this.appendSensitive({ kind: "page_snapshot", stage, revision: current.revision, page });
+    }
+    if (policy.scope === "touched_entities" && stage !== "initial") {
+      for (const tagId of this.touchedTagIds) {
+        const tag = current.snapshot.tags.find((candidate) => candidate.id === tagId);
+        if (tag) this.appendSensitive({ kind: "tag_snapshot", stage, revision: current.revision, tag });
+      }
+    }
+  }
+
+  private capturePage(pageId: string, stage: "before"): void {
+    if (!this.captureGraphContext) return;
+    const { snapshot, revision } = this.captureGraphContext.read();
+    const page = snapshot.pages.find((candidate) => candidate.id === pageId);
+    if (page) this.appendSensitive({ kind: "page_snapshot", stage, revision, page });
+  }
+
+  private captureTag(tagId: string, stage: "before"): void {
+    if (!this.captureGraphContext) return;
+    const { snapshot, revision } = this.captureGraphContext.read();
+    const tag = snapshot.tags.find((candidate) => candidate.id === tagId);
+    if (tag) this.appendSensitive({ kind: "tag_snapshot", stage, revision, tag });
+  }
+
+  private enhancedPolicy(): Extract<DiagnosticCapturePolicy, { level: "enhanced" }> | null {
+    return this.session?.capture_policy.level === "enhanced" ? this.session.capture_policy : null;
+  }
+
+  private enhancedCategoryEnabled(category: "graph_data" | "query_text"): boolean {
+    return this.state.phase === "recording" && (this.enhancedPolicy()?.categories.includes(category) ?? false);
+  }
+
+  private subjectToken(subjectId: string): string {
+    const existing = this.subjectTokens.get(subjectId);
+    if (existing) return existing;
+    const token = `E${this.subjectTokens.size + 1}`;
+    this.subjectTokens.set(subjectId, token);
+    return token;
+  }
+
   private scheduleFlush(): void {
     if (this.flushTimer !== null || !this.session || !this.state.crash_recovery_available) return;
     this.flushTimer = window.setTimeout(() => {
@@ -413,12 +615,16 @@ export class DiagnosticsCoordinator {
       this.flushTimer = null;
     }
     const batch = this.pending;
+    const sensitiveBatch = this.pendingSensitive;
     this.pending = [];
+    this.pendingSensitive = [];
     try {
       await this.store.appendRecords(this.session.recording_id, batch);
+      await this.store.appendSensitivePayloads(this.session.recording_id, sensitiveBatch);
       await this.store.saveSession(this.session);
     } catch (error) {
       this.pending = [...batch, ...this.pending];
+      this.pendingSensitive = [...sensitiveBatch, ...this.pendingSensitive];
       throw error;
     }
   }
@@ -457,8 +663,38 @@ export class DiagnosticsCoordinator {
 
 export const diagnostics = new DiagnosticsCoordinator();
 
-function encodedSize(record: DiagnosticRecord): number {
+function encodedSize(record: DiagnosticRecord | SensitiveDiagnosticPayload): number {
   return encoder.encode(JSON.stringify(record)).length + 1;
+}
+
+function normalizeCapturePolicy(policy: DiagnosticCapturePolicy): DiagnosticCapturePolicy {
+  if (policy.level === "standard") return STANDARD_CAPTURE_POLICY;
+  const categories = [...new Set(policy.categories)].filter(
+    (category): category is "graph_data" | "query_text" =>
+      category === "graph_data" || category === "query_text",
+  );
+  return { level: "enhanced", scope: policy.scope, categories };
+}
+
+function commandPageId(command: Command): string | undefined {
+  if ("page_id" in command) return command.page_id;
+  if ("entity" in command) {
+    return command.entity.kind === "block" ? command.entity.page_id : command.entity.id;
+  }
+  return undefined;
+}
+
+function commandSubjectId(command: Command): string | undefined {
+  if ("block_id" in command) return command.block_id;
+  if ("entity" in command) return command.entity.id;
+  if ("tag_id" in command) return command.tag_id;
+  if ("page_id" in command) return command.page_id;
+  return undefined;
+}
+
+function commandTagId(command: Command): string | undefined {
+  if ("tag_id" in command) return command.tag_id;
+  return undefined;
 }
 
 function rounded(value: number): number {

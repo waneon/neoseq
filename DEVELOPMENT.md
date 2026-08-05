@@ -70,7 +70,11 @@ writing outside the terminal:
 ```sh
 pnpm diagnostics:inspect -- report.neoseq-bug
 pnpm diagnostics:inspect -- report.neoseq-bug --json
+pnpm diagnostics:inspect -- --allow-sensitive report.neoseq-bug
 ```
+
+The inspector refuses Enhanced artifacts that contain user content unless
+`--allow-sensitive` is supplied explicitly.
 
 For another crate or a single Rust test, run Cargo in the development shell:
 

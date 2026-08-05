@@ -32,6 +32,7 @@ export function Dialog({
         closeLabel={message("common.close")}
         showCloseButton={dismissible}
         className={cn(
+          size !== "settings" && "max-h-[calc(100dvh-2rem)] overflow-y-auto",
           size === "wide" && "max-w-[720px]",
           size === "settings" && "max-w-[820px]",
         )}

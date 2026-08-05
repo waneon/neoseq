@@ -68,6 +68,8 @@ import {
   type DropTarget,
 } from "./selection";
 import { useI18n, type MessageFunction } from "../../i18n";
+import { diagnostics } from "../../diagnostics/coordinator";
+import { lengthBucket } from "../../diagnostics/redaction";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -198,6 +200,32 @@ export function Outliner({
     [rows, selected],
   );
 
+  const recordEditorDiagnostic = useCallback((id: string, checkpoint: "flush" | "reconcile") => {
+    if (isPendingId(id)) return;
+    const draft = drafts.current.get(id);
+    const baseline = baselines.current.get(id);
+    const authoritative = findBlock(pageRef.current, id)?.markdown;
+    diagnostics.recordEditorState(id, {
+      checkpoint,
+      snapshot_revision: state.revision,
+      focused: focusedId === id,
+      composing: focusedId === id && composing.current,
+      draft_state: draft === undefined ? "absent" : draft === baseline ? "clean" : "dirty",
+      draft_length: draft === undefined ? undefined : lengthBucket(draft.length),
+      authoritative_length: authoritative === undefined ? undefined : lengthBucket(authoritative.length),
+      draft_baseline_relation: valueRelation(draft, baseline),
+      draft_authoritative_relation: valueRelation(draft, authoritative),
+    });
+  }, [focusedId, state.revision]);
+
+  useEffect(() => {
+    const ids = new Set(drafts.current.keys());
+    if (focusedId) ids.add(focusedId);
+    for (const id of ids) recordEditorDiagnostic(id, "reconcile");
+    // This checkpoint deliberately follows authoritative session revisions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.revision]);
+
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
   // and in-flight typing are never clobbered.
@@ -228,6 +256,7 @@ export function Outliner({
       const draft = drafts.current.get(id);
       const baseline = baselines.current.get(id);
       if (draft === undefined || baseline === undefined) return;
+      recordEditorDiagnostic(id, "flush");
       const splice = diffSplice(baseline, draft);
       if (!splice) return;
       baselines.current.set(id, draft);
@@ -248,7 +277,7 @@ export function Outliner({
           notify.failure(message("failure.lastEdit"), error);
         });
     },
-    [message, notify, session],
+    [message, notify, recordEditorDiagnostic, session],
   );
 
   const flushNow = useCallback(
@@ -1054,6 +1083,14 @@ export function Outliner({
       )}
     </section>
   );
+}
+
+function valueRelation(
+  left: string | undefined,
+  right: string | undefined,
+): "equal" | "different" | "missing" {
+  if (left === undefined || right === undefined) return "missing";
+  return left === right ? "equal" : "different";
 }
 
 /** Runs core commands in order, stopping at the first rejection. */

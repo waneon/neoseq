@@ -2,10 +2,9 @@
 
 ## Status and Purpose
 
-The Web client implements the content-free `standard` recorder, crash recovery,
-`.neoseq-bug` writer, and local inspector. Standard state-relationship checkpoints
-and the `enhanced` option specified here are the next implementation scope. Native
-hosts, replay, cross-clock calibration, and sanitized frames remain future work.
+The Web client implements `standard` and `enhanced` recording, state-relationship
+checkpoints, crash recovery, the `.neoseq-bug` writer, and the local inspector.
+Native hosts, replay, cross-clock calibration, and sanitized frames remain future work.
 
 Diagnostic recording turns a user-observed failure into bounded, structured
 evidence that a human or coding agent can inspect. A recording connects one
@@ -28,8 +27,7 @@ level, scope, limits, and exclusions. Stopping opens a review that shows:
 
 - duration, size, event count, dropped-event count, and active limits;
 - the categories collected and excluded;
-- every content-bearing attachment, separately classified with preview/removal
-  controls;
+- the sensitive stream as a separate classified inventory with an exclusion control;
 - actions to save locally or discard.
 
 Saving creates a local file. The application does not silently upload, attach,
@@ -80,8 +78,8 @@ Standard state checkpoints correlate semantic boundaries rather than keystrokes.
 They may include command/result `changed`, command and snapshot revisions, hydrated
 scope, pending-command count, focus/composition state, draft/baseline presence,
 length buckets, and draft-to-baseline or draft-to-authoritative relationships. A
-checkpoint is attached to the same recording-scoped entity token and trace as the
-command that caused reconciliation. This makes stale presentation state, missed
+checkpoint is attached to the same recording-scoped entity token as related
+commands. This makes stale presentation state, missed
 refreshes, and ordering faults diagnosable without revealing content.
 
 Environment data is minimized. Exact app/contract/schema versions and adapter
@@ -92,16 +90,16 @@ are excluded. Unsupported metrics appear as absent capabilities rather than
 synthetic zero values.
 
 `enhanced` adds only the content categories and scope shown at consent. The initial
-scope choices are the active page, entities touched during recording, and an optional
-full-graph snapshot through the verified export path; the active page is the default.
-Exact note/name/property/query content, command payloads, identifiers, and raw product
-errors may be included only when their category is selected. Sensitive payloads are
+scope choices are the active page, entities touched during recording, and a full-graph
+snapshot; the active page is the default. Exact note/name/property/query content,
+command payloads, and identifiers may be included only when their category is selected. Sensitive payloads are
 segregated from standard streams and linked through recording-scoped references.
 
-Enhanced still never captures credentials, cookies, authorization or request headers,
-password/payment fields, clipboard data, unrelated browser storage, filesystem paths,
-or URL query/fragment data. It does not enable network capture, console scraping, or
-blanket logging. Scope expansion requires a new recording and fresh consent.
+Enhanced never instruments application credentials, cookies, authorization or request
+headers, password/payment fields, clipboard data, unrelated browser storage, filesystem
+paths, or browser URL query/fragment data. User-authored graph content is included
+verbatim and may itself contain private data. Enhanced does not enable network capture,
+console scraping, or blanket logging. Scope expansion requires a new recording.
 
 ## Component Boundaries
 
@@ -217,7 +215,6 @@ schemas/record.schema.json
 README.md
 checksums.sha256
 sensitive/content.jsonl       # enhanced payloads and scoped checkpoints
-sensitive/graph.neoseq        # optional enhanced full-graph snapshot
 ```
 
 `manifest.json` contains artifact/policy versions, recording boundary and
@@ -250,6 +247,7 @@ The supported entry point is a non-mutating command such as:
 
 ```text
 pnpm diagnostics:inspect -- report.neoseq-bug
+pnpm diagnostics:inspect -- --allow-sensitive report.neoseq-bug
 ```
 
 It validates the bounded container and record envelope, verifies checksums, and
@@ -275,8 +273,8 @@ paths to open automatically.
 
 - Schema fixtures cover complete, truncated, crash-recovered, content-free,
   content-bearing, and newer-compatible artifacts.
-- Privacy tests prove standard excludes every canary, enhanced includes only
-  consented categories/scope, and always-forbidden secrets remain absent.
+- Privacy tests prove standard excludes every canary and enhanced includes only
+  consented categories/scope while application-owned secret sources stay absent.
 - Future contract tests will run the same synthetic trace through Web Worker
   and native adapters and verify correlation, clock uncertainty, ordering, and gaps.
 - Fault tests cover queue overflow, storage quota, crash between checkpoints,

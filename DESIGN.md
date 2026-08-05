@@ -950,14 +950,15 @@ The notification layer knows this and **stays silent on `dirty_unsaved` and
 
 ### Diagnostic recorder
 
-Diagnostic recording is summoned from the command palette or Settings. Before
-capture begins, a modal names what is and is not recorded. While active, the top
-bar shows one 5px `--danger` dot, `Recording`, and a tabular elapsed time; the
-whole status is a button that stops and opens review. Below 600px the word hides,
-but the dot and elapsed time remain. Review uses a wide dialog with a four-value
-summary, the standard content-exclusion statement, an optional user annotation,
-and Save/Discard actions. It never introduces a bordered status pill or a second
-accent colour, and nothing is uploaded by the application.
+Diagnostic recording is summoned from the command palette or Settings. Its modal
+starts with a two-choice Standard/Enhanced ledger. Standard is the default;
+Enhanced discloses a danger-toned inset with scope and category controls and is
+never remembered. While active, the top bar shows one 5px `--danger` dot, the
+capture level, and tabular elapsed time; the whole status stops and opens review.
+Below 600px the label hides, but dot and time remain. Review uses a wide dialog
+with a four-value summary, content policy, annotation, and Save/Discard actions.
+Enhanced review inventories the sensitive stream, permits excluding it, and
+requires a second confirmation to include it. Nothing is uploaded by the app.
 
 ### Toasts
 

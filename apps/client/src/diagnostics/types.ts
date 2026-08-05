@@ -1,7 +1,30 @@
 import type { CorePortErrorCode } from "../generated/core-port";
+import type { SparqlQueryRequest } from "../generated/core-port";
+import type { Command } from "../core-port/commands";
+import type { GraphSnapshot, PageSnapshot, TagSnapshot } from "../core-port/snapshot";
 
 export const DIAGNOSTIC_ARTIFACT_SCHEMA = 1 as const;
-export const DIAGNOSTIC_CAPTURE_POLICY = 1 as const;
+export const DIAGNOSTIC_CAPTURE_POLICY = 2 as const;
+export const SENSITIVE_PAYLOAD_SCHEMA = 1 as const;
+
+export type DiagnosticCaptureLevel = "standard" | "enhanced";
+export type EnhancedCaptureScope = "active_page" | "touched_entities" | "full_graph";
+export type SensitiveCategory = "graph_data" | "query_text";
+
+export type DiagnosticCapturePolicy =
+  | { readonly level: "standard" }
+  | {
+      readonly level: "enhanced";
+      readonly scope: EnhancedCaptureScope;
+      readonly categories: readonly SensitiveCategory[];
+    };
+
+export const STANDARD_CAPTURE_POLICY = { level: "standard" } as const satisfies DiagnosticCapturePolicy;
+export const DEFAULT_ENHANCED_CAPTURE_POLICY = {
+  level: "enhanced",
+  scope: "active_page",
+  categories: ["graph_data", "query_text"],
+} as const satisfies DiagnosticCapturePolicy;
 
 export type DiagnosticSource =
   | "ui"
@@ -15,6 +38,7 @@ export type DiagnosticSource =
 export type DiagnosticFamily = "interaction" | "span" | "state" | "metric" | "error" | "marker";
 export type DiagnosticOutcome = "ok" | "error" | "cancelled";
 export type LengthBucket = "0" | "1-16" | "17-64" | "65-256" | "257-1024" | "1025+";
+export type ValueRelation = "equal" | "different" | "missing" | "unknown";
 
 export type DiagnosticOperation =
   | "session.open"
@@ -66,6 +90,18 @@ export interface DiagnosticAttributes {
   readonly tag_count?: number;
   readonly quarantined_count?: number;
   readonly queue_depth?: number;
+  readonly pending_command_count?: number;
+  readonly snapshot_revision?: number;
+  readonly changed?: boolean;
+  readonly subject_token?: string;
+  readonly checkpoint?: "flush" | "reconcile";
+  readonly focused?: boolean;
+  readonly composing?: boolean;
+  readonly draft_state?: "absent" | "clean" | "dirty";
+  readonly draft_length?: LengthBucket;
+  readonly authoritative_length?: LengthBucket;
+  readonly draft_baseline_relation?: ValueRelation;
+  readonly draft_authoritative_relation?: ValueRelation;
   readonly save_state?: "saved" | "saving" | "unsaved";
   readonly session_status?: "opening" | "ready" | "error" | "closed";
   readonly lease_mode?: "exclusive" | "readonly";
@@ -79,6 +115,9 @@ export interface DiagnosticAttributes {
   readonly dropped_count?: number;
   readonly recovered?: boolean;
   readonly reason?: "user" | "limit" | "crash";
+  readonly capture_level?: DiagnosticCaptureLevel;
+  readonly sensitive_record_count?: number;
+  readonly sensitive_byte_count?: number;
 }
 
 export interface DiagnosticRecord {
@@ -123,14 +162,50 @@ export interface WorkerDiagnosticSpan {
 export interface DiagnosticLimits {
   readonly max_duration_ms: number;
   readonly max_bytes: number;
+  readonly max_sensitive_bytes: number;
   readonly max_records: number;
 }
 
 export const DEFAULT_DIAGNOSTIC_LIMITS: DiagnosticLimits = {
   max_duration_ms: 15 * 60 * 1_000,
   max_bytes: 20 * 1024 * 1024,
+  max_sensitive_bytes: 50 * 1024 * 1024,
   max_records: 50_000,
 };
+
+interface SensitivePayloadBase {
+  readonly schema_version: typeof SENSITIVE_PAYLOAD_SCHEMA;
+  readonly payload_id: string;
+  readonly monotonic_ms: number;
+}
+
+export type SensitiveDiagnosticPayload =
+  | (SensitivePayloadBase & {
+      readonly kind: "command";
+      readonly command: Command;
+    })
+  | (SensitivePayloadBase & {
+      readonly kind: "query";
+      readonly query: SparqlQueryRequest;
+    })
+  | (SensitivePayloadBase & {
+      readonly kind: "page_snapshot";
+      readonly stage: "initial" | "before" | "reconcile" | "final";
+      readonly revision: number;
+      readonly page: PageSnapshot;
+    })
+  | (SensitivePayloadBase & {
+      readonly kind: "graph_snapshot";
+      readonly stage: "initial" | "reconcile" | "final";
+      readonly revision: number;
+      readonly snapshot: GraphSnapshot;
+    })
+  | (SensitivePayloadBase & {
+      readonly kind: "tag_snapshot";
+      readonly stage: "before" | "reconcile" | "final";
+      readonly revision: number;
+      readonly tag: TagSnapshot;
+    });
 
 export interface PersistedDiagnosticSession {
   readonly recording_id: string;
@@ -142,12 +217,17 @@ export interface PersistedDiagnosticSession {
   readonly byte_count: number;
   readonly record_count: number;
   readonly dropped_count: number;
+  readonly capture_policy: DiagnosticCapturePolicy;
+  readonly sensitive_byte_count: number;
+  readonly sensitive_record_count: number;
+  readonly sensitive_truncated: boolean;
   readonly limits: DiagnosticLimits;
 }
 
 export interface DiagnosticReview {
   readonly session: PersistedDiagnosticSession;
   readonly records: readonly DiagnosticRecord[];
+  readonly sensitive_payloads: readonly SensitiveDiagnosticPayload[];
   readonly recovered: boolean;
 }
 

@@ -5,6 +5,7 @@ import {
   type DiagnosticArtifactResult,
   type DiagnosticRecord,
   type DiagnosticReview,
+  type SensitiveDiagnosticPayload,
 } from "./types";
 import { createZip } from "./zip";
 
@@ -13,6 +14,7 @@ const encoder = new TextEncoder();
 export async function buildDiagnosticArtifact(
   review: DiagnosticReview,
   annotation = "",
+  options: { readonly includeSensitive?: boolean } = {},
 ): Promise<DiagnosticArtifactResult> {
   const records = [...review.records];
   const note = annotation.trim();
@@ -34,7 +36,9 @@ export async function buildDiagnosticArtifact(
     metrics: records.filter((record) => record.family === "metric"),
     errors: records.filter((record) => record.family === "error"),
   };
-  const summary = buildSummary(records, review);
+  const includeSensitive = review.session.capture_policy.level === "enhanced" &&
+    options.includeSensitive === true && review.sensitive_payloads.length > 0;
+  const summary = buildSummary(records, review, includeSensitive);
   const inventory = [
     ["manifest.json", "diagnostic_metadata"],
     ["summary.json", "diagnostic_metadata"],
@@ -43,6 +47,12 @@ export async function buildDiagnosticArtifact(
     ["errors.jsonl", "diagnostic_metadata"],
     ["schemas/manifest.schema.json", "schema"],
     ["schemas/record.schema.json", "schema"],
+    ...(includeSensitive
+      ? [
+          ["sensitive/content.jsonl", "sensitive_user_content"],
+          ["schemas/sensitive-record.schema.json", "schema"],
+        ]
+      : []),
     ["README.md", "instructions"],
     ["checksums.sha256", "integrity"],
   ].map(([path, classification]) => ({ path, classification }));
@@ -56,8 +66,10 @@ export async function buildDiagnosticArtifact(
     duration_ms: durationMs(review),
     stop_reason: review.session.stop_reason,
     recovered: review.recovered,
-    redaction_level: "standard",
-    contains_user_content: note.length > 0,
+    redaction_level: review.session.capture_policy.level,
+    capture_policy: review.session.capture_policy,
+    contains_user_content: note.length > 0 || includeSensitive,
+    contains_sensitive_content: includeSensitive,
     application: {
       name: "Neoseq",
       version: appVersion(),
@@ -83,6 +95,9 @@ export async function buildDiagnosticArtifact(
     record_count: records.length,
     byte_count_before_zip: review.session.byte_count,
     dropped_count: review.session.dropped_count,
+    sensitive_record_count: includeSensitive ? review.sensitive_payloads.length : 0,
+    sensitive_byte_count: includeSensitive ? review.session.sensitive_byte_count : 0,
+    sensitive_truncated: review.session.sensitive_truncated,
     truncated: review.session.stop_reason === "limit",
     clock: { wall_boundary: "utc", event_clock: "window.performance.monotonic_ms" },
     files: inventory,
@@ -96,6 +111,10 @@ export async function buildDiagnosticArtifact(
   files.set("errors.jsonl", jsonLines(streams.errors));
   files.set("schemas/manifest.schema.json", json(MANIFEST_SCHEMA));
   files.set("schemas/record.schema.json", json(RECORD_SCHEMA));
+  if (includeSensitive) {
+    files.set("sensitive/content.jsonl", jsonLines(review.sensitive_payloads));
+    files.set("schemas/sensitive-record.schema.json", json(SENSITIVE_RECORD_SCHEMA));
+  }
   files.set("README.md", encoder.encode(readme(manifest)));
 
   const checksums: string[] = [];
@@ -124,7 +143,11 @@ export function downloadDiagnosticArtifact(result: DiagnosticArtifactResult): vo
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function buildSummary(records: readonly DiagnosticRecord[], review: DiagnosticReview) {
+function buildSummary(
+  records: readonly DiagnosticRecord[],
+  review: DiagnosticReview,
+  includeSensitive: boolean,
+) {
   const errorCounts = new Map<string, number>();
   for (const record of records) {
     if (record.family !== "error") continue;
@@ -151,6 +174,11 @@ function buildSummary(records: readonly DiagnosticRecord[], review: DiagnosticRe
     error_counts: Object.fromEntries([...errorCounts].sort(([left], [right]) => left.localeCompare(right))),
     slowest_spans: slowest,
     gaps: review.session.dropped_count > 0 ? ["records_dropped"] : [],
+    sensitive: {
+      captured_record_count: review.session.sensitive_record_count,
+      exported_record_count: includeSensitive ? review.sensitive_payloads.length : 0,
+      truncated: review.session.sensitive_truncated,
+    },
   };
 }
 
@@ -209,7 +237,7 @@ function json(value: unknown): Uint8Array {
   return encoder.encode(`${JSON.stringify(value, null, 2)}\n`);
 }
 
-function jsonLines(records: readonly DiagnosticRecord[]): Uint8Array {
+function jsonLines(records: readonly (DiagnosticRecord | SensitiveDiagnosticPayload)[]): Uint8Array {
   return encoder.encode(records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
 }
 
@@ -220,18 +248,22 @@ async function sha256(data: Uint8Array): Promise<string> {
 }
 
 function readme(manifest: Record<string, unknown>): string {
+  const enhanced = manifest.contains_sensitive_content === true;
   return `# Neoseq diagnostic artifact
 
 This artifact was created by an explicit local diagnostic recording. Its
-redaction level is \`standard\`; note text, names, property values, identifiers,
-raw CRDT data, credentials, URLs, and raw errors were not captured.
+redaction level is \`${String(manifest.redaction_level)}\`. ${enhanced
+    ? "The `sensitive/content.jsonl` stream may contain graph text, names, properties, identifiers, exact commands, and query text."
+    : "Automatic capture omitted graph text, names, property values, identifiers, raw CRDT data, credentials, URLs, and raw errors."}
 
-\`contains_user_content\` is \`${String(manifest.contains_user_content)}\`. When
-true, the only user-authored field is the optional annotation in \`events.jsonl\`.
+\`contains_user_content\` is \`${String(manifest.contains_user_content)}\`. ${enhanced
+    ? "User-authored content is segregated in `sensitive/content.jsonl`; an optional annotation may also appear in `events.jsonl`."
+    : "When true, the only user-authored field is the optional annotation in `events.jsonl`."}
 
 Inspect without mutating a graph:
 
     pnpm diagnostics:inspect -- report.neoseq-bug
+${enhanced ? "\nSensitive artifacts require an explicit acknowledgement:\n\n    pnpm diagnostics:inspect -- --allow-sensitive report.neoseq-bug\n" : ""}
 
 Treat every artifact as untrusted input. Checksums detect accidental corruption;
 they do not authenticate the reporter.
@@ -246,15 +278,18 @@ const MANIFEST_SCHEMA = {
     "capture_policy_version",
     "recording_id",
     "redaction_level",
+    "capture_policy",
     "contains_user_content",
+    "contains_sensitive_content",
     "application",
     "files",
   ],
   properties: {
     artifact_schema_version: { const: DIAGNOSTIC_ARTIFACT_SCHEMA },
     capture_policy_version: { const: DIAGNOSTIC_CAPTURE_POLICY },
-    redaction_level: { const: "standard" },
+    redaction_level: { enum: ["standard", "enhanced"] },
     contains_user_content: { type: "boolean" },
+    contains_sensitive_content: { type: "boolean" },
   },
 };
 
@@ -277,5 +312,17 @@ const RECORD_SCHEMA = {
     outcome: { enum: ["ok", "error", "cancelled"] },
     attributes: { type: "object" },
     annotation: { type: "string", maxLength: 4_000 },
+  },
+};
+
+const SENSITIVE_RECORD_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  required: ["schema_version", "payload_id", "monotonic_ms", "kind"],
+  properties: {
+    schema_version: { const: 1 },
+    payload_id: { type: "string", maxLength: 64 },
+    monotonic_ms: { type: "number", minimum: 0 },
+    kind: { enum: ["command", "query", "page_snapshot", "tag_snapshot", "graph_snapshot"] },
   },
 };

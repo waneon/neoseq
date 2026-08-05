@@ -41,7 +41,13 @@ import {
 } from "virtual:neoseq-worker-factory";
 import { GraphSession } from "../../core-port/session";
 import { graphName, renameGraph, subscribeGraphDirectory } from "../../core-port/directory";
-import { isDeleted, pageKind, pageTitle, type PageSnapshot } from "../../core-port/snapshot";
+import {
+  findJournalPage,
+  isDeleted,
+  pageKind,
+  pageTitle,
+  type PageSnapshot,
+} from "../../core-port/snapshot";
 import { Wordmark } from "../../ui/brand";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
@@ -420,6 +426,24 @@ function ShellBody({
   }, [diagnostics, location.pathname, settingsSection]);
 
   const today = todayLocalDate();
+  const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
+  const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
+  const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
+  const diagnosticPageId = currentPage ?? (
+    currentDate ? findJournalPage(state.snapshot, currentDate)?.id : undefined
+  );
+
+  useEffect(
+    () => diagnostics.registerGraphContext({
+      graph_id: graphId,
+      active_page_id: diagnosticPageId ?? null,
+      read: () => {
+        const current = session.getState();
+        return { snapshot: current.snapshot, revision: current.revision };
+      },
+    }),
+    [diagnosticPageId, graphId, session],
+  );
 
   // Query-dependent rows: a date the user typed, and — when nothing matches — a
   // page to create, so the list is never a dead end.
@@ -525,9 +549,6 @@ SELECT ?entity ?content ?page WHERE {
     );
   }
 
-  const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
-  const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
-  const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
   const contextTitle = currentDate
     ? formatJournalDate(currentDate)
     : currentPage

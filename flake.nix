@@ -167,7 +167,7 @@
           src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-mGBQU9GzG8oM/MaiStMv7i2w1gaGw18+a2+tPY4NRrI=";
+          hash = "sha256-0Zg2uvyJ10UAaWn2C8Zmq3wwloc8DHHEEATMAGUhxfQ=";
         };
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {
