@@ -3,9 +3,9 @@
 ## Status and Purpose
 
 The Web client implements the content-free `standard` recorder, crash recovery,
-`.neoseq-bug` writer, and local inspector described here. Native-client hosts,
-content-bearing graph snapshots, replay, cross-clock uncertainty calibration,
-and sanitized stack frames remain future extensions and are called out below.
+`.neoseq-bug` writer, and local inspector. Standard state-relationship checkpoints
+and the `enhanced` option specified here are the next implementation scope. Native
+hosts, replay, cross-clock calibration, and sanitized frames remain future work.
 
 Diagnostic recording turns a user-observed failure into bounded, structured
 evidence that a human or coding agent can inspect. A recording connects one
@@ -23,12 +23,13 @@ needed to reproduce it.
 The user explicitly starts and stops each recording. Start is available as one
 canonical application command and from Settings; recording state remains
 visible and accessible across navigation until it is stopped or its limit is
-reached. Starting explains the standard capture policy before any event is
-retained. Stopping opens a review that shows:
+reached. Before any event is retained, starting explains the selected capture
+level, scope, limits, and exclusions. Stopping opens a review that shows:
 
 - duration, size, event count, dropped-event count, and active limits;
 - the categories collected and excluded;
-- every content-bearing attachment, separately classified;
+- every content-bearing attachment, separately classified with preview/removal
+  controls;
 - actions to save locally or discard.
 
 Saving creates a local file. The application does not silently upload, attach,
@@ -47,7 +48,15 @@ reload recovers an unfinished recording directly into review, from which it can
 only be saved or discarded. Finalization is idempotent, and starting another
 recording cannot overwrite recoverable data.
 
+The capture level and content scope are immutable once recording starts. Standard
+cannot be promoted mid-recording or used to collect content retroactively. Enhanced
+is a one-recording choice, never a remembered preference; another enhanced run
+requires fresh consent. Exporting any sensitive payload requires a second confirmation.
+
 ## Capture Levels and Privacy
+
+`CapturePolicy` is a closed union: `{ level: "standard" }` or
+`{ level: "enhanced", scope, categories }`. Invalid combinations cannot reach a sink.
 
 The default `standard` level records only allowlisted structured fields. It
 never records:
@@ -62,10 +71,18 @@ never records:
 
 Text is represented by length buckets and operation shape, not by a hash;
 hashing user text would permit dictionary attacks. Stable identifiers needed to
-join events are replaced by recording-scoped opaque tokens. The token mapping
-uses a random in-memory key and is consistent only inside that recording. Route
-kinds and well-known property keys may be recorded; raw route values and custom
-keys may not.
+join events become recording-scoped opaque tokens. Standard may record value
+relationships such as `equal`, `different`, `missing`, or `unknown`, but never the
+values being compared. Route kinds and well-known property keys are allowed; raw
+route values and custom keys are not.
+
+Standard state checkpoints correlate semantic boundaries rather than keystrokes.
+They may include command/result `changed`, command and snapshot revisions, hydrated
+scope, pending-command count, focus/composition state, draft/baseline presence,
+length buckets, and draft-to-baseline or draft-to-authoritative relationships. A
+checkpoint is attached to the same recording-scoped entity token and trace as the
+command that caused reconciliation. This makes stale presentation state, missed
+refreshes, and ordering faults diagnosable without revealing content.
 
 Environment data is minimized. Exact app/contract/schema versions and adapter
 kind are allowed because they select code paths. Locale, UTC offset, viewport,
@@ -74,32 +91,37 @@ location, device name, extension inventory, and unrelated browser capabilities
 are excluded. Unsupported metrics appear as absent capabilities rather than
 synthetic zero values.
 
-A future capture level may add a `graph_snapshot` attachment when a bug is
-data-dependent. The current Web implementation has no snapshot option. Such an
-extension must use the verified graph-export path, be marked
-`contains_user_content`, and require a second confirmation at export; it must
-never be selected by default or implied by starting a standard recording.
+`enhanced` adds only the content categories and scope shown at consent. The initial
+scope choices are the active page, entities touched during recording, and an optional
+full-graph snapshot through the verified export path; the active page is the default.
+Exact note/name/property/query content, command payloads, identifiers, and raw product
+errors may be included only when their category is selected. Sensitive payloads are
+segregated from standard streams and linked through recording-scoped references.
+
+Enhanced still never captures credentials, cookies, authorization or request headers,
+password/payment fields, clipboard data, unrelated browser storage, filesystem paths,
+or URL query/fragment data. It does not enable network capture, console scraping, or
+blanket logging. Scope expansion requires a new recording and fresh consent.
 
 ## Component Boundaries
 
 Diagnostics is an observation plane, not a domain capability:
 
 ```text
-features/diagnostics ──> DiagnosticsCoordinator ──> bounded event sink
-                                │                         │
-        UI/GraphSession spans ──┤                         ├──> artifact writer
-        CorePort wrapper spans ─┤                         │
-        Worker/native spans ────┤                         └──> temporary store
-        core/query spans ───────┤
-        storage/sync spans ─────┘
+typed boundary spans ───┐                       ┌─> standard streams
+editor state relations ─┼─> DiagnosticsCoordinator ─> temporary store/writer
+storage/query metrics ──┘              │        └─> manifest + review inventory
+                                       │
+consented scoped content ──> enhanced payload sink ─> sensitive/
+                              (inactive in standard)
 ```
 
 - `features/diagnostics/` owns start, visible recording state, stop, review,
   attachment consent, save, recovery, and discard UX.
 - The Web `DiagnosticsCoordinator` owns the state machine, capture policy,
-  budgets, ordering, and temporary-store coordination.
-- A `DiagnosticSink` accepts already structured event types. Producers cannot
-  submit arbitrary maps or strings; schema types are the privacy boundary.
+  enhanced scope, budgets, ordering, and temporary-store coordination.
+- `DiagnosticSink` accepts standard-safe types; a separate enhanced payload sink
+  exists only while that policy is active. Neither accepts arbitrary maps or strings.
 - IndexedDB and browser download APIs are the current Web host. Native support
   will extract a `DiagnosticsHost` for metadata, temporary storage, and saving;
   it remains outside `CorePort`, whose contract is graph semantics only.
@@ -127,9 +149,9 @@ The standard schema permits these record families:
 
 - `interaction`: semantic action name and input shape, never raw input;
 - `span`: enqueue/start/end/cancel status, duration, payload-size bucket, queue
-  depth, and stable result code;
-- `state`: route kind, save/sync/lease state, recovery state, and graph-size
-  counts or buckets;
+  depth, stable result code, and whether a semantic command changed state;
+- `state`: route/save/sync/lease state, revisions, graph-size buckets, and typed
+  editor relationships between local draft, baseline, and authoritative state;
 - `metric`: long-task, render-commit, memory-pressure, storage, query, and
   transport measurements when the platform exposes them safely;
 - `error`: stable error code, recoverability, and owning boundary; sanitized
@@ -159,9 +181,9 @@ Recording is bounded by policy version. Initial defaults are 15 minutes,
 20 MiB of encoded standard diagnostic data before ZIP compression, and 50,000
 structured records. Reaching any hard limit stops capture, preserves the
 records already collected, and creates a visible `limit_reached` marker. Size
-and count limits apply before allocation to unexpectedly large fields. A future
-graph snapshot has a separate graph-export size policy, is listed in review,
-and does not expand the standard event budget.
+and count limits apply before allocation to unexpectedly large fields. Enhanced
+payloads have a separate 50 MiB bound; an oversized scope or graph snapshot is
+rejected rather than expanding either budget.
 
 Producers write to a bounded in-memory queue and never wait for artifact I/O.
 The hard bounds reserve capacity for the terminal lifecycle marker, and the
@@ -194,13 +216,15 @@ schemas/manifest.schema.json
 schemas/record.schema.json
 README.md
 checksums.sha256
-sensitive/graph.neoseq        # future, explicitly consented
+sensitive/content.jsonl       # enhanced payloads and scoped checkpoints
+sensitive/graph.neoseq        # optional enhanced full-graph snapshot
 ```
 
 `manifest.json` contains artifact/policy versions, recording boundary and
 duration, application/build identity, platform and instrumentation
 capabilities, clock description, active bounds, truncation/drop counts,
-redaction level, and a classified inventory of files. Build identity comes from
+redaction/capture level, consented categories/scope, and a classified inventory.
+Build identity comes from
 the application version plus `NEOSEQ_BUILD_ID` injected at the Vite boundary;
 development builds identify themselves explicitly. Independent Web/core asset
 hashes remain a release-provenance extension.
@@ -232,7 +256,8 @@ It validates the bounded container and record envelope, verifies checksums, and
 reports redaction, truncation, gaps, and the slowest correlated spans. It must
 not require network access, import a graph, render user content, or execute artifact data.
 Machine-readable output is available so a coding agent can cite trace IDs,
-durations, error codes, and source boundaries in its diagnosis.
+durations, error codes, and source boundaries. Sensitive files are only inventoried
+unless the operator supplies an explicit `--allow-sensitive` access flag.
 
 Replay is a separate, explicit operation and is unavailable for a standard
 artifact. If a content snapshot and a compatible command stream are present,
@@ -250,8 +275,8 @@ paths to open automatically.
 
 - Schema fixtures cover complete, truncated, crash-recovered, content-free,
   content-bearing, and newer-compatible artifacts.
-- Privacy tests seed every forbidden value with unique canaries and assert that
-  neither files nor compressed bytes contain them.
+- Privacy tests prove standard excludes every canary, enhanced includes only
+  consented categories/scope, and always-forbidden secrets remain absent.
 - Future contract tests will run the same synthetic trace through Web Worker
   and native adapters and verify correlation, clock uncertainty, ordering, and gaps.
 - Fault tests cover queue overflow, storage quota, crash between checkpoints,
@@ -260,12 +285,12 @@ paths to open automatically.
   persistence paths and enforce an explicit overhead budget before release.
 - Parser tests and fuzzing cover ZIP and JSONL limits; replay tests prove profile
   isolation and disabled network access.
-- Accessibility tests cover start disclosure, persistent state, automatic stop,
-  review classification, save failure, and crash recovery.
+- Accessibility tests cover level/scope disclosure, persistent state, automatic
+  stop, sensitive export confirmation, review, save failure, and recovery.
 
 Artifact schema and capture-policy versions evolve independently from
 `CorePort`, document schema, query profile, and sync protocol. Additive optional
-records remain readable by older analyzers. A change that collects a new field,
-weakens redaction, or adds a content-bearing attachment increments capture
-policy and requires renewed privacy review. Required semantic changes increment
+records remain readable by older analyzers. A new field, relationship signal,
+content category, or wider scope increments capture policy and requires renewed
+privacy review. Required semantic changes increment
 artifact schema and ship compatibility fixtures with both writer and reader.

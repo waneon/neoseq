@@ -42,8 +42,8 @@ architecture for later steps and are not current build artifacts.
 - Extensible metadata must use one property model; identity and relationships
   such as containment and tag membership remain explicit structural data.
 - A user must be able to capture bounded, local diagnostic evidence for a human
-  or coding agent without enabling telemetry or disclosing note content by
-  default.
+  or coding agent without enabling telemetry or disclosing note content by default,
+  with an explicit one-recording option when content is needed to reproduce a bug.
 
 ## System Context
 
@@ -89,9 +89,9 @@ agent.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
 - `diagnostics` is a local, opt-in observation plane across UI, adapter, core,
-  query, and persistence boundaries. Its typed allowlist, redaction, temporary
-  store, and artifact writer do not alter graph state or use `CorePort` as a
-  logging API.
+  query, and persistence boundaries. Its standard policy records typed state
+  relationships without values; its enhanced policy separately classifies explicitly
+  consented content. Neither alters graph state nor uses `CorePort` as a logging API.
 - `app-ui` owns editing interaction, block selection, navigation, the command
   layer, failure reporting, browser-local preferences, localization, and
   responsive presentation. It does not hold canonical graph state, and the
@@ -209,10 +209,10 @@ step 3 succeeds. Network failure never blocks local editing.
 ## Security and Privacy Boundaries
 
 - Local-only graphs never contact the sync service.
-- Diagnostic recording is explicitly started, locally bounded, and never
-  uploaded by the application. Standard artifacts exclude note content and
-  stable graph/entity identifiers; a future content-bearing graph snapshot
-  would require a separate export confirmation.
+- Diagnostic recording is explicitly started, locally bounded, and never uploaded
+  by the application. Standard artifacts exclude content while retaining typed
+  state relationships. Enhanced capture is off by default, fixed for one recording,
+  limited to a disclosed scope, and separately confirmed before sensitive export.
 - Remote endpoints require TLS and authenticated graph membership. Authorization
   metadata is server state, not CRDT state, so clients cannot grant themselves
   access by editing a graph.
@@ -267,7 +267,7 @@ transport types only and will not expose server persistence models.
   versioned independently from the CRDT schema. Cached indexes from any
   mismatched version are rebuilt from Loro rather than migrated as user data.
 - Diagnostic artifact schema and capture policy are versioned independently
-  from product contracts; new captured fields require privacy review and
-  compatibility fixtures.
+  from product contracts; new fields, relationship signals, content categories,
+  or scope changes require privacy review and compatibility fixtures.
 - Architecture-affecting code changes update this document and the relevant
   component document in the same change.

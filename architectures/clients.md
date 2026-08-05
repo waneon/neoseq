@@ -161,7 +161,7 @@ diagnostics, which remain beside the input or query block that owns them.
 Every report expires with a countdown that pauses while the user is looking at it. `errors.ts`
 maps safe, stable errors to localized messages; raw diagnostics stay off screen.
 
-`features/diagnostics/` preserves bounded, user-started evidence without expanding `CorePort`; [diagnostics.md](diagnostics.md) owns its artifact and privacy contract.
+`features/diagnostics/` records content-free state relationships or explicitly consented enhanced content without expanding `CorePort`; [diagnostics.md](diagnostics.md) owns the privacy contract.
 
 ## Navigation and Journals
 
