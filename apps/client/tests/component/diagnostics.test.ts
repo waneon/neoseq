@@ -70,7 +70,18 @@ describe("diagnostic redaction", () => {
       page_id: `page-${canary}`,
       block_ids: [`first-${canary}`, `second-${canary}`],
     });
-    expect(JSON.stringify({ command, query, structural })).not.toContain(canary);
+    const outline = commandAttributes({
+      type: "insert_outline",
+      page_id: `page-${canary}`,
+      parent: null,
+      index: 0,
+      replace: null,
+      items: [
+        { depth: 0, markdown: canary },
+        { depth: 1, markdown: canary },
+      ],
+    });
+    expect(JSON.stringify({ command, query, structural, outline })).not.toContain(canary);
     expect(command).toMatchObject({
       command_type: "insert_block",
       entity_kind: "block",
@@ -81,6 +92,12 @@ describe("diagnostic redaction", () => {
       command_type: "delete_blocks",
       entity_kind: "block",
       requested_target_count: 2,
+    });
+    expect(outline).toEqual({
+      command_type: "insert_outline",
+      entity_kind: "block",
+      requested_target_count: 2,
+      text_length: "17-64",
     });
   });
 

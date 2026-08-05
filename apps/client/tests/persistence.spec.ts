@@ -16,7 +16,7 @@ test("IndexedDB repository passes persistence and restart corpus", async ({ page
   await runCorpus(page, "persistence");
 });
 
-test("Web Worker adapter matches CorePort v3 golden contract", async ({ page }) => {
+test("Web Worker adapter matches the current CorePort golden contract", async ({ page }) => {
   await runCorpus(page, "core-port");
 });
 

@@ -80,11 +80,19 @@ a bare `⌫` is never ambiguous. Selection arithmetic (which rows a drag covers,
 are the roots of the moved subtrees, where a drop legally lands) is pure, lives in
 `features/outline/selection.ts`, and is addressed by row *index* rather than by
 rectangle, because virtualized rows a marquee never mounted must still be
-selectable. Bulk move, indent, outdent and delete cross the boundary as one command
+selectable. A range drag may start on a quiet row surface or in the page margin while
+an already-focused textarea keeps native text selection. Bulk move, indent, outdent and delete cross the boundary as one command
 per selected gesture. Single-block actions use the same plural command with one ID.
 The client resolves visible selection roots and a geometric drop destination;
 the core normalizes ancestors/descendants, derives authoritative operation order,
 preflights the complete hierarchy change, and owns its transaction and undo group.
+
+Structural clipboard data uses portable plain-text Markdown list items. The client
+serializes the visible selection with normalized relative depth and parses only text
+that is unambiguously a Markdown list; ordinary multiline text stays inside the active
+block. Parsed items cross the boundary in one `insert_outline` command, which validates
+the pre-order depth shape, optionally reuses an empty target, creates the hierarchy,
+and owns one undo group. Clipboard contents never enter diagnostic records.
 
 Text input follows one sequence: preserve native IME composition locally; submit an edit
 with block ID and text-range intent at a composition boundary or short debounce; reconcile

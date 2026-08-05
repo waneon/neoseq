@@ -604,6 +604,60 @@ impl GraphCore {
                     self.require_block(page_id, parent)?;
                 }
             }
+            Command::InsertOutline {
+                page_id,
+                parent,
+                replace,
+                items,
+                ..
+            } => {
+                self.require_live_page(page_id)?;
+                if replace.is_none()
+                    && let Some(parent) = parent
+                {
+                    self.require_block(page_id, parent)?;
+                }
+                if items.is_empty() {
+                    return Err(CoreError::InvalidHierarchy(
+                        "outline insert requires at least one item".into(),
+                    ));
+                }
+                if items.len() > MAX_STRUCTURAL_TARGETS {
+                    return Err(CoreError::InvalidHierarchy(
+                        "outline insert exceeds the block target limit".into(),
+                    ));
+                }
+                if items[0].depth != 0 {
+                    return Err(CoreError::InvalidHierarchy(
+                        "outline insert must start at depth zero".into(),
+                    ));
+                }
+                let mut previous_depth = 0;
+                let mut total_text = 0usize;
+                for item in items {
+                    if item.depth > previous_depth + 1 {
+                        return Err(CoreError::InvalidHierarchy(
+                            "outline insert skips a depth".into(),
+                        ));
+                    }
+                    validate_text(&item.markdown, 1_048_576)?;
+                    total_text = total_text.saturating_add(item.markdown.len());
+                    if total_text > 1_048_576 {
+                        return Err(CoreError::InvalidHierarchy(
+                            "outline insert exceeds the text limit".into(),
+                        ));
+                    }
+                    previous_depth = item.depth;
+                }
+                if let Some(block_id) = replace {
+                    self.require_block(page_id, block_id)?;
+                    if !self.block_text(page_id, block_id)?.to_string().is_empty() {
+                        return Err(CoreError::InvalidHierarchy(
+                            "outline replacement block is not empty".into(),
+                        ));
+                    }
+                }
+            }
             Command::EditMarkdown {
                 page_id,
                 block_id,
@@ -768,6 +822,90 @@ impl GraphCore {
                 initialize_node(&meta, markdown)?;
                 result.created_block = Some(block_id(node));
             }
+            Command::InsertOutline {
+                page_id,
+                parent,
+                index,
+                replace,
+                items,
+            } => {
+                let outline = self.page_outline(page_id)?;
+                let requested_parent = parent.as_ref().map(tree_id).transpose()?;
+                let mut base_parent = requested_parent;
+                let mut base_index = *index;
+                let mut levels: Vec<TreeID> = Vec::new();
+                let mut inserted_children: BTreeMap<TreeID, usize> = BTreeMap::new();
+                let mut root_offset = 0;
+
+                if let Some(replace_id) = replace {
+                    let target = require_block_in(&outline, replace_id)?;
+                    let actual_parent = outline
+                        .parent(target)
+                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
+                    let siblings = outline.children(actual_parent).unwrap_or_default();
+                    base_index = siblings
+                        .iter()
+                        .position(|candidate| *candidate == target)
+                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
+                    base_parent = match actual_parent {
+                        TreeParentId::Node(parent) => Some(parent),
+                        TreeParentId::Root => None,
+                        TreeParentId::Deleted | TreeParentId::Unexist => {
+                            return Err(CoreError::BlockNotFound(replace_id.clone()));
+                        }
+                    };
+                    root_offset = 1;
+                }
+
+                for (position, item) in items.iter().enumerate() {
+                    let node = if position == 0 {
+                        if let Some(replace_id) = replace {
+                            let target = require_block_in(&outline, replace_id)?;
+                            replace_text(&self.block_text(page_id, replace_id)?, &item.markdown)?;
+                            target
+                        } else {
+                            let available = base_parent.map_or_else(
+                                || outline.roots().len(),
+                                |parent| outline.children(parent).map_or(0, |rows| rows.len()),
+                            );
+                            let target =
+                                outline.create_at(base_parent, base_index.min(available))?;
+                            initialize_node(&outline.get_meta(target)?, &item.markdown)?;
+                            root_offset = 1;
+                            target
+                        }
+                    } else if item.depth == 0 {
+                        let available = base_parent.map_or_else(
+                            || outline.roots().len(),
+                            |parent| outline.children(parent).map_or(0, |rows| rows.len()),
+                        );
+                        let target = outline
+                            .create_at(base_parent, (base_index + root_offset).min(available))?;
+                        initialize_node(&outline.get_meta(target)?, &item.markdown)?;
+                        root_offset += 1;
+                        target
+                    } else {
+                        let parent_node = *levels.get(item.depth - 1).ok_or_else(|| {
+                            CoreError::InvalidHierarchy("outline insert skips a depth".into())
+                        })?;
+                        let child_index = inserted_children.entry(parent_node).or_default();
+                        let target = outline.create_at(Some(parent_node), *child_index)?;
+                        *child_index += 1;
+                        initialize_node(&outline.get_meta(target)?, &item.markdown)?;
+                        target
+                    };
+
+                    if levels.len() <= item.depth {
+                        levels.push(node);
+                    } else {
+                        levels[item.depth] = node;
+                        levels.truncate(item.depth + 1);
+                    }
+                    let created_id = block_id(node);
+                    self.touch_block(page_id, &created_id, now)?;
+                    result.created_block = Some(created_id);
+                }
+            }
             Command::EditMarkdown {
                 page_id,
                 block_id,
@@ -889,6 +1027,7 @@ impl GraphCore {
                 }
                 self.touch_page(page_id, now)?;
             }
+            Command::InsertOutline { page_id, .. } => self.touch_page(page_id, now)?,
             Command::EditMarkdown {
                 page_id, block_id, ..
             }
@@ -1486,7 +1625,7 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::RenameTag { .. } => "TagRenamed",
         Command::DeleteTag { .. } => "TagDeleted",
         Command::RestoreTag { .. } => "TagRestored",
-        Command::InsertBlock { .. } => "BlockInserted",
+        Command::InsertBlock { .. } | Command::InsertOutline { .. } => "BlockInserted",
         Command::EditMarkdown { .. } | Command::SpliceMarkdown { .. } => "BlockTextChanged",
         Command::MoveBlocks { .. }
         | Command::IndentBlocks { .. }
@@ -2198,6 +2337,70 @@ mod tests {
         core.execute(envelope("redo-many", Command::Redo), "t6")
             .unwrap();
         assert!(core.page_snapshot(&page()).unwrap().blocks.is_empty());
+    }
+
+    #[test]
+    fn outline_insert_preserves_depth_replaces_an_empty_target_and_undoes_once() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let empty = insert_root(&mut core, "empty", &page(), 0, "");
+
+        core.execute(
+            envelope(
+                "paste-outline",
+                Command::InsertOutline {
+                    page_id: page(),
+                    parent: None,
+                    index: 0,
+                    replace: Some(empty),
+                    items: vec![
+                        domain::OutlineItem {
+                            depth: 0,
+                            markdown: "one".into(),
+                        },
+                        domain::OutlineItem {
+                            depth: 1,
+                            markdown: "two".into(),
+                        },
+                        domain::OutlineItem {
+                            depth: 1,
+                            markdown: "three".into(),
+                        },
+                        domain::OutlineItem {
+                            depth: 0,
+                            markdown: "four".into(),
+                        },
+                    ],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let pasted = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            pasted
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["one", "four"]
+        );
+        assert_eq!(
+            pasted.blocks[0]
+                .children
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["two", "three"]
+        );
+
+        core.execute(envelope("undo-paste", Command::Undo), "t4")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(restored.blocks.len(), 1);
+        assert_eq!(restored.blocks[0].markdown, "");
+        assert!(restored.blocks[0].children.is_empty());
     }
 
     #[test]

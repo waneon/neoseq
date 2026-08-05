@@ -66,11 +66,13 @@ export type DiagnosticFeature =
   | "graph"
   | "domain";
 export type DiagnosticActionName =
+  | "copy_selection"
   | "delete_selection"
   | "indent_selection"
   | "outdent_selection"
   | "move_selection"
   | "insert_block"
+  | "paste_outline"
   | "undo"
   | "redo"
   | "run_query"

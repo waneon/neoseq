@@ -7,7 +7,7 @@
 
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GRAPH_ID, mountAt } from "./harness";
 
 async function mountRows(markdowns: string[]) {
@@ -161,5 +161,58 @@ describe("block selection", () => {
       const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
       expect(page?.blocks).toHaveLength(0);
     });
+  });
+
+  it("copies the covered hierarchy as an indented Markdown list", async () => {
+    const { session } = await mountRows(["parent"]);
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: "b-1",
+      index: 0,
+      markdown: "child\ncontinuation",
+    });
+    await waitFor(() => expect(screen.getAllByRole("treeitem")).toHaveLength(2));
+
+    fireEvent.pointerDown(screen.getAllByTestId("row-grip")[0], {
+      button: 0,
+      clientX: 2,
+      clientY: 10,
+    });
+    fireEvent.pointerUp(window, { button: 0, clientX: 2, clientY: 10 });
+    expect(selectedTexts()).toEqual(["parent", "child\ncontinuation"]);
+
+    const setData = vi.fn();
+    fireEvent.copy(screen.getByRole("tree"), { clipboardData: { setData } });
+    expect(setData).toHaveBeenCalledWith(
+      "text/plain",
+      "- parent\n  - child\n    continuation",
+    );
+  });
+
+  it("pastes a Markdown list as one undoable outline command", async () => {
+    const { session, port } = await mountRows([""]);
+    const commands: string[] = [];
+    port.beforeExecute = async (command) => {
+      commands.push(command.type);
+    };
+
+    fireEvent.paste(screen.getByLabelText("Block text"), {
+      clipboardData: {
+        getData: () => "- one\n  - two\n  - three\n- four",
+      },
+    });
+
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["one", "four"]);
+      expect(page?.blocks[0].children.map((block) => block.markdown)).toEqual(["two", "three"]);
+    });
+    expect(commands).toEqual(["insert_outline"]);
+
+    await session.execute({ type: "undo" });
+    expect(
+      session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks,
+    ).toMatchObject([{ markdown: "", children: [] }]);
   });
 });

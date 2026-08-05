@@ -11,7 +11,7 @@ pub use generated::core_port::*;
 pub use ids::{BlockId, CommandId, GraphId, IdError, LocalDate, PageId, PropertyKey, TagId};
 pub use model::{
     BlockSnapshot, Command, CommandEnvelope, CommandResult, EntityId, GraphSnapshot, GraphSummary,
-    PageSnapshot, PageSummary, TagSnapshot,
+    OutlineItem, PageSnapshot, PageSummary, TagSnapshot,
 };
 pub use property::{
     Cardinality, PropertyBag, PropertyDefinition, PropertyEntry, PropertyError, PropertyType,

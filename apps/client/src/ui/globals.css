@@ -39,7 +39,7 @@
   --color-destructive-foreground: var(--on-accent);
   --color-border: var(--line);
   --color-input: var(--line);
-  --color-ring: var(--accent);
+  --color-ring: var(--ink-3);
 
   --radius-sm: var(--r-1);
   --radius-md: var(--r-2);

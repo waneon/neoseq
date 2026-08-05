@@ -279,6 +279,54 @@ export class FakeCorePort implements SessionPort {
         result.created_block = id;
         break;
       }
+      case "insert_outline": {
+        if (command.items.length === 0 || command.items[0].depth !== 0) {
+          fail("internal", "outline insert must start at depth zero");
+        }
+        command.items.forEach((item, index) => {
+          if (index > 0 && item.depth > command.items[index - 1].depth + 1) {
+            fail("internal", "outline insert skips a depth");
+          }
+        });
+        const requestedSiblings = command.parent
+          ? this.requireBlock(command.page_id, command.parent).block.children
+          : this.requirePage(command.page_id).blocks;
+        let baseSiblings = requestedSiblings;
+        let baseIndex = command.index;
+        const levels: BlockSnapshot[] = [];
+        let rootOffset = 0;
+
+        if (command.replace) {
+          const target = this.requireBlock(command.page_id, command.replace);
+          if (target.block.markdown !== "") fail("internal", "outline replacement block is not empty");
+          baseSiblings = target.siblings;
+          baseIndex = target.siblings.indexOf(target.block);
+          rootOffset = 1;
+        }
+
+        command.items.forEach((item, position) => {
+          let block: BlockSnapshot;
+          if (position === 0 && command.replace) {
+            block = this.requireBlock(command.page_id, command.replace).block;
+            block.markdown = item.markdown;
+          } else {
+            const id = `b-${(this.blockCounter += 1)}`;
+            block = { id, markdown: item.markdown, properties: [], tags: [], children: [] };
+            if (item.depth === 0) {
+              baseSiblings.splice(Math.min(baseIndex + rootOffset, baseSiblings.length), 0, block);
+              rootOffset += 1;
+            } else {
+              const parent = levels[item.depth - 1];
+              if (!parent) fail("internal", "outline insert skips a depth");
+              parent.children.push(block);
+            }
+          }
+          levels[item.depth] = block;
+          levels.length = item.depth + 1;
+          result.created_block = block.id;
+        });
+        break;
+      }
       case "edit_markdown":
         this.requireBlock(command.page_id, command.block_id).block.markdown = command.markdown;
         break;
@@ -467,6 +515,10 @@ export class FakeCorePort implements SessionPort {
         this.touchPage(command.page_id, timestamp);
         break;
       case "insert_block":
+        if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "insert_outline":
         if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
         this.touchPage(command.page_id, timestamp);
         break;

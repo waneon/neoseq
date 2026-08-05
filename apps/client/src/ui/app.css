@@ -250,23 +250,18 @@ a:hover {
   background: var(--accent-soft);
 }
 
-/* One ring, radius inherited from the element. Never declare a radius here —
-   doing so squares off every rounded control the moment it is focused. */
+/* Keyboard focus stays achromatic. Indigo means an action or structural drop;
+   using it for every focused control made the interface flash blue as the user
+   simply moved through a form. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ink-3);
   outline-offset: 2px;
 }
 
-/* …with one refinement, and it is the difference between a focus indicator and a
-   blue box that follows the pointer around. A *text field* is the one control the
-   browser matches `:focus-visible` on for an ordinary mouse click — it has to, or
-   a typist would lose the caret's whereabouts — so the offset ring fired every
-   single time a user clicked into an input, a search box, or a property value.
-   Fields therefore draw the accent as their own edge instead of as a halo around
-   it: the resting `--e1` inset ring becomes a 2px `--accent` inset ring. Same
-   colour, same 2px, radius still inherited, and nothing outside the control
-   moves. Non-field controls keep the offset ring, which they only ever get from
-   the keyboard. */
+/* Text fields never take an offset outline. Browsers match `:focus-visible` on
+   them for ordinary pointer focus, so an outline follows every click. Field-like
+   controls use a quiet luminance change where they are declared; borderless
+   writing surfaces use the caret and active thread. */
 :where(input, textarea, select):focus,
 :where(input, textarea, select):focus-visible {
   outline: none;
@@ -658,14 +653,13 @@ h2 {
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
-/* Focused and open are the same edge: it is a `<button>`, so it would otherwise
-   take the offset ring while the `<input>` beside it in the same row took the inset
-   one, and the whole point of the trigger is that it reads as the field it stands in
-   for. Open needs the same mark because the popup is already the loud part. */
+/* Focused and open are the same quiet field state. The popup is already the loud
+   part, so the trigger changes luminance without acquiring an accent frame. */
 .menu-select:focus-visible,
 .menu-select[data-state="open"] {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--surface-2);
+  box-shadow: var(--e1);
 }
 
 .menu-select:disabled {
@@ -1235,15 +1229,19 @@ h2 {
   background: none;
   font-family: inherit;
   caret-color: var(--accent);
+  cursor: pointer;
   transition: background-color var(--dur-press) var(--ease-out);
 }
 
-/* Hover and focus are the same wash. A 33px title is the largest text on the
-   surface; a 2px ring drawn around it is the drawn box § Depth forbids, at the
-   worst possible size. The wash plus the `--accent` caret is the signal. */
-.page-title:hover:not(:read-only),
-.page-title:focus-visible:not(:read-only) {
+/* Hover says the title can be clicked; focus removes that invitation because the
+   title is already being edited and the caret is the complete signal. */
+.page-title:hover:not(:read-only):not(:focus) {
   background: var(--surface-2);
+}
+
+.page-title:focus {
+  background: none;
+  cursor: text;
 }
 
 .title-actions {
@@ -1399,7 +1397,7 @@ h2 {
   padding-top: 2px;
   padding-bottom: 2px;
   padding-left: calc(var(--gutter) + var(--depth) * var(--indent));
-  border-radius: var(--r-2);
+  border-radius: 0;
   cursor: text;
   background-image:
     repeating-linear-gradient(
@@ -1742,7 +1740,8 @@ h2 {
    was here: this one already knew an offset ring around a full-width code area
    was wrong. */
 .query-source:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--surface-2);
+  box-shadow: var(--e1);
 }
 
 .query-output {
@@ -2946,7 +2945,8 @@ h2 {
 }
 
 .diagnostic-note-field textarea:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--surface-2);
+  box-shadow: var(--e1);
 }
 
 .diagnostic-note-field small {

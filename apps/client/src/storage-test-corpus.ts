@@ -1,6 +1,6 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
-import golden from "../../../fixtures/core-port/v3.json";
+import golden from "../../../fixtures/core-port/v5.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
 
@@ -73,7 +73,7 @@ export async function runIndexedDbPersistenceCorpus() {
 
 export async function runWorkerCorePortCorpus() {
   assert(golden.contract_version === CORE_PORT_VERSION, "golden contract version mismatch");
-  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "read_page", "subscribe", "close_graph"]), "golden operations changed");
+  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "read_page", "query", "subscribe", "close_graph"]), "golden operations changed");
   const graph = graphId("worker-port");
   const worker = new TestCoreWorker();
   await expectCode(worker.read({ graph_handle: "missing" }), "graph_not_open");
@@ -92,6 +92,14 @@ export async function runWorkerCorePortCorpus() {
   assert((read.summary as Snapshot).schema_version === 3, "worker read did not return schema v3");
   const page = await worker.readPage({ graph_handle: opened.graph_handle, page_id: "home" });
   assert((page.page as { id: string }).id === "home", "worker page read returned the wrong page");
+  const queried = await worker.query({
+    graph_handle: opened.graph_handle,
+    query: {
+      language: "sparql-1.1/neoseq-v1",
+      source: "PREFIX neo: <urn:neoseq:vocab:v1:> SELECT ?page WHERE { ?page a neo:Page }",
+    },
+  });
+  assert(queried.result.kind === "select" && queried.result.rows.length === 1, "worker query result differs from golden");
   const subscription = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
   assert(subscription.events.length === 2 && !subscription.resync_required, "worker subscription transcript differs");
   const eventTypes = subscription.events.map((event) => (event as { kind: { type: string } }).kind.type);

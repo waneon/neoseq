@@ -7,6 +7,11 @@ export type EntityRef =
   | { kind: "page"; id: string }
   | { kind: "block"; page_id: string; id: string };
 
+export interface OutlineItemInput {
+  depth: number;
+  markdown: string;
+}
+
 export type Command =
   | { type: "ensure_page"; page_id: string; title: string }
   | { type: "ensure_journal"; date: string }
@@ -18,6 +23,14 @@ export type Command =
   | { type: "delete_tag"; tag_id: string }
   | { type: "restore_tag"; tag_id: string }
   | { type: "insert_block"; page_id: string; parent: string | null; index: number; markdown: string }
+  | {
+      type: "insert_outline";
+      page_id: string;
+      parent: string | null;
+      index: number;
+      replace: string | null;
+      items: OutlineItemInput[];
+    }
   | { type: "edit_markdown"; page_id: string; block_id: string; markdown: string }
   | { type: "splice_markdown"; page_id: string; block_id: string; index: number; delete: number; insert: string }
   | { type: "move_blocks"; block_ids: string[]; page_id: string; parent: string | null; index: number }

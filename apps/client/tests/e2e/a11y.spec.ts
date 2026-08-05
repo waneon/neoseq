@@ -50,5 +50,18 @@ test("settings passes the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Settings");
   await openSettings(page);
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  const appearanceTab = page.getByTestId("settings-tab-appearance");
+  await appearanceTab.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect.poll(() => appearanceTab.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--ink-3)";
+    document.body.append(probe);
+    const neutral = getComputedStyle(probe).color;
+    probe.remove();
+    return styles.outlineStyle === "solid" && styles.outlineColor === neutral;
+  })).toBe(true);
   expect(await audit(page)).toEqual([]);
 });

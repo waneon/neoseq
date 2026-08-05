@@ -40,7 +40,7 @@ export function selectionSize(
 }
 
 /** `true` at every row that is a selected root or lives inside one. */
-function coveredMask(
+export function coveredMask(
   rows: readonly OutlineRow[],
   ids: ReadonlySet<string>,
 ): boolean[] {

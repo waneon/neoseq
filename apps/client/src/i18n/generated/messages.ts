@@ -143,6 +143,7 @@ export interface MessageArgumentMap {
   "error.wrongGraph": undefined;
   "failure.addBlock": undefined;
   "failure.addTag": undefined;
+  "failure.copyBlocks": undefined;
   "failure.copyGraphId": undefined;
   "failure.copyPageId": undefined;
   "failure.createEntity": { readonly "name": string | number };
@@ -160,6 +161,7 @@ export interface MessageArgumentMap {
   "failure.moveBlocks": { readonly "count": number };
   "failure.openJournal": undefined;
   "failure.outdentBlock": undefined;
+  "failure.pasteBlocks": undefined;
   "failure.redo": undefined;
   "failure.removeTag": { readonly "name": string | number };
   "failure.renamePage": undefined;
@@ -214,6 +216,7 @@ export interface MessageArgumentMap {
   "outline.blocks": undefined;
   "outline.clearSelection": undefined;
   "outline.collapse": undefined;
+  "outline.copySelection": { readonly "count": number };
   "outline.deleteBlock": undefined;
   "outline.deleteSelection": { readonly "count": number };
   "outline.engineMissingId": undefined;

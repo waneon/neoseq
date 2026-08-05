@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
-// Focus is the one global `:focus-visible` outline from app.css — these
+// Focus is the one neutral global `:focus-visible` outline from app.css — these
 // variants deliberately do not set `outline-none` (which would suppress it) and
 // do not add a ring or recolour a border on top of it. Press feedback is a
 // background change; nothing here animates a transform.

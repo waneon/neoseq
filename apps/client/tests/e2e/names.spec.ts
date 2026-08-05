@@ -23,3 +23,16 @@ test("live page names are unique and default names remain usable", async ({ page
   await page.getByTestId("new-page").click();
   await expect(page.getByTestId("page-title")).toHaveValue("Untitled 2");
 });
+
+test("page title uses a pointer invitation and a bare editing state", async ({ page }) => {
+  await createGraph(page, "Title Focus Graph");
+  await createPage(page, "Readable title");
+  const title = page.getByTestId("page-title");
+
+  await title.hover();
+  await expect(title).toHaveCSS("cursor", "pointer");
+  await title.click();
+  await expect(title).toHaveCSS("cursor", "text");
+  await expect(title).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(title).toHaveCSS("outline-style", "none");
+});

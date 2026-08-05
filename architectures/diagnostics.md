@@ -283,6 +283,9 @@ A feature requires integration when it adds a semantic action, transient/optimis
 
 Command redaction and Worker-operation mappings are exhaustive typed tables; a variant cannot compile without a safe shape or explicit exclusion. Artifact tests cover intent, linked spans, terminal state, standard canaries and Enhanced scope together. The inspector reports completeness gaps rather than treating absent spans as zero work.
 
+Outline copy and Markdown-outline paste publish typed semantic actions with selected or inserted block counts and terminal checkpoints.
+The clipboard payload is excluded at every capture level; standard records retain only an aggregate `insert_outline` length bucket and item count.
+
 Hot paths use lazy builders. Schema validation runs at finalization/inspection, not each append; CI compares recording off, standard and enhanced on representative paths.
 
 ## Verification and Evolution

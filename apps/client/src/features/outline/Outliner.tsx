@@ -18,6 +18,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type ClipboardEvent,
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -29,6 +30,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   ChevronDownIcon,
+  CopyIcon,
   CornerDownRightIcon,
   IndentDecreaseIcon,
   IndentIncreaseIcon,
@@ -61,11 +63,17 @@ import { TaskProjection } from "../tasks/TaskProjection";
 import { codePointIndex, codePointLength, diffSplice } from "./text-diff";
 import {
   dropTarget,
+  coveredMask,
   idsInRange,
   selectionRoots,
   selectionSize,
   type DropTarget,
 } from "./selection";
+import {
+  parseMarkdownOutline,
+  serializeOutlineSelection,
+  type OutlineClipboardItem,
+} from "./clipboard";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { diagnostics } from "../../diagnostics/coordinator";
 import { lengthBucket } from "../../diagnostics/redaction";
@@ -133,7 +141,8 @@ interface EditorContext {
   pendingCaret: RefObject<number | null>;
   inspectedId: string | null;
   menuFor: string | null;
-  selected: ReadonlySet<string>;
+  /** Explicit roots plus the descendants their structural action carries. */
+  covered: ReadonlySet<string>;
   /** Rows the last expand uncovered. They fade up; nothing else in the list does. */
   revealed: ReadonlySet<string>;
   /** Rows the selection covers, passengers included — what a bulk verb will take. */
@@ -160,12 +169,14 @@ interface EditorContext {
   queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
   /** Pointer entry points for the selection strip and the bullet handle. */
   onGripPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
+  onSurfacePointerDown(row: OutlineRow, event: ReactPointerEvent): void;
   onBulletPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
   onRowContextMenu(row: OutlineRow, event: React.MouseEvent): void;
   /** True when the press that is being handled began with something floating. */
   pressStartedOverOverlay(): boolean;
   /** Closes what is floating over the outline and drops a selection. */
   dismissTransient(): void;
+  pasteOutline(row: OutlineRow, items: OutlineClipboardItem[]): void;
   menu: {
     addChild(row: OutlineRow): void;
     indent(row: OutlineRow): void;
@@ -175,6 +186,7 @@ interface EditorContext {
     indentSelection(inputMethod: DiagnosticInputMethod): void;
     outdentSelection(inputMethod: DiagnosticInputMethod): void;
     removeSelection(inputMethod: DiagnosticInputMethod): void;
+    copySelection(inputMethod: DiagnosticInputMethod): void;
   };
 }
 
@@ -236,6 +248,10 @@ export function Outliner({
     () => (selected.size === 0 ? 0 : selectionSize(rows, selected)),
     [rows, selected],
   );
+  const selectionCovered = useMemo(() => {
+    const mask = coveredMask(rows, selected);
+    return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
+  }, [rows, selected]);
 
   const recordEditorDiagnostic = useCallback((id: string, checkpoint: "flush" | "reconcile") => {
     if (!diagnostics.isRecording() || isPendingId(id)) return;
@@ -640,12 +656,13 @@ export function Outliner({
       action: DiagnosticActionName,
       inputMethod: DiagnosticInputMethod,
       selection: ReadonlySet<string> = selectedRef.current,
+      extra: DiagnosticAttributes = {},
     ) => {
       const context = diagnostics.startAction({ feature: "outline", action, input_method: inputMethod });
       diagnostics.recordCheckpointLazy(
         context,
         "before",
-        () => outlineDiagnosticAttributes(selection),
+        () => ({ ...outlineDiagnosticAttributes(selection), ...extra }),
       );
       return context;
     },
@@ -653,8 +670,16 @@ export function Outliner({
   );
 
   const finishOutlineAction = useCallback(
-    (context: DiagnosticActionContext | null, phase: "after" | "failed") => {
-      diagnostics.recordCheckpointLazy(context, phase, outlineDiagnosticAttributes);
+    (
+      context: DiagnosticActionContext | null,
+      phase: "after" | "failed",
+      extra: DiagnosticAttributes = {},
+    ) => {
+      diagnostics.recordCheckpointLazy(
+        context,
+        phase,
+        () => ({ ...outlineDiagnosticAttributes(), ...extra }),
+      );
     },
     [outlineDiagnosticAttributes],
   );
@@ -757,21 +782,41 @@ export function Outliner({
     [endGesture],
   );
 
-  /** Selection by range, not by rectangle — see `selection.ts`. */
-  const onGripPointerDown = useCallback(
-    (row: OutlineRow, event: ReactPointerEvent) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      const start = rowIndexOf(rowsRef.current, row.block.id);
+  /** Selection by row range, started from any quiet writing-surface area. */
+  const beginRangeSelection = useCallback(
+    (
+      start: number,
+      point: { clientX: number; clientY: number; shiftKey: boolean; preventDefault(): void },
+      immediate: boolean,
+    ) => {
       if (start < 0) return;
-      const extend = event.shiftKey ? anchorRowIndex(rowsRef.current) : -1;
+      const extend = point.shiftKey ? anchorRowIndex(rowsRef.current) : -1;
       const anchor = extend >= 0 ? extend : start;
+      const startX = point.clientX;
+      const startY = point.clientY;
+      let active = immediate;
       anchorId.current = rowsRef.current[anchor]?.block.id ?? null;
-      takeTreeFocus();
-      setMarqueeing(true);
-      setSelected(selectableIds(rowsRef.current, anchor, start));
+
+      const activate = () => {
+        takeTreeFocus();
+        setMarqueeing(true);
+        setSelected(selectableIds(rowsRef.current, anchor, start));
+      };
+      if (immediate) {
+        point.preventDefault();
+        activate();
+      }
+
       listen(
         (move) => {
+          if (!active) {
+            if (Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX) {
+              return;
+            }
+            active = true;
+            move.preventDefault();
+            activate();
+          }
           updateAutoScroll(move.clientY);
           const index = rowIndexAtPoint(viewportRef.current, move.clientY, rowsRef.current);
           if (index === null) return;
@@ -779,13 +824,57 @@ export function Outliner({
           setSelected((current) => (sameIds(current, next) ? current : next));
         },
         () => {
+          if (!active) return;
           setMarqueeing(false);
           takeTreeFocus();
         },
       );
     },
-    [listen, updateAutoScroll],
+    [anchorRowIndex, listen, takeTreeFocus, updateAutoScroll],
   );
+
+  const onGripPointerDown = useCallback(
+    (row: OutlineRow, event: ReactPointerEvent) => {
+      if (event.button !== 0) return;
+      beginRangeSelection(rowIndexOf(rowsRef.current, row.block.id), event, true);
+    },
+    [beginRangeSelection],
+  );
+
+  const onSurfacePointerDown = useCallback(
+    (row: OutlineRow, event: ReactPointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest("button, a, select, input, [contenteditable='true'], .outline-tags, .task-projection, .query-block")) {
+        return;
+      }
+      if (target instanceof HTMLTextAreaElement) {
+        if (!target.classList.contains("outline-input") || document.activeElement === target) return;
+      }
+      beginRangeSelection(rowIndexOf(rowsRef.current, row.block.id), event, false);
+    },
+    [beginRangeSelection],
+  );
+
+  // The centered page leaves a broad quiet margin beside the outline. At the
+  // same vertical position as the rows it behaves like the writing surface,
+  // so a selection drag does not have to begin on a tiny gutter target.
+  useEffect(() => {
+    if (!scrollElement) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || !(event.target instanceof HTMLElement)) return;
+      if (event.target.closest(".page-body")) return;
+      const viewport = viewportRef.current;
+      if (!viewport || rowsRef.current.length === 0) return;
+      const rect = viewport.getBoundingClientRect();
+      if (event.clientY < rect.top || event.clientY > rect.bottom) return;
+      const index = rowIndexAtPoint(viewport, event.clientY, rowsRef.current);
+      if (index !== null) beginRangeSelection(index, event, false);
+    };
+    scrollElement.addEventListener("pointerdown", onPointerDown);
+    return () => scrollElement.removeEventListener("pointerdown", onPointerDown);
+  }, [beginRangeSelection, scrollElement]);
 
   const applyMove = useCallback(
     (target: DropTarget, moving: ReadonlySet<string>) => {
@@ -912,13 +1001,81 @@ export function Outliner({
       if (isPendingId(row.block.id)) return;
       // Right-clicking outside the selection collapses it onto the row under the
       // pointer; inside it, the selection is what the menu is about.
-      if (!selectedRef.current.has(row.block.id)) {
+      if (!selectionCovered.has(row.block.id)) {
         anchorId.current = row.block.id;
         setSelected(new Set());
       }
       setMenuFor(row.block.id);
     },
-    [],
+    [selectionCovered],
+  );
+
+  const copySelection = useCallback(
+    (inputMethod: DiagnosticInputMethod) => {
+      const markdown = serializeOutlineSelection(rowsRef.current, selectedRef.current);
+      if (!markdown) return;
+      const action = startOutlineAction("copy_selection", inputMethod);
+      const write = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+      if (!write) {
+        finishOutlineAction(action, "failed");
+        notify.failure(message("failure.copyBlocks"), new Error("Clipboard API unavailable"));
+        return;
+      }
+      void write(markdown).then(
+        () => finishOutlineAction(action, "after"),
+        (error: unknown) => {
+          finishOutlineAction(action, "failed");
+          notify.failure(message("failure.copyBlocks"), error);
+        },
+      );
+    },
+    [finishOutlineAction, message, notify, startOutlineAction],
+  );
+
+  const onCopySelection = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      if (selectedRef.current.size === 0) return;
+      const markdown = serializeOutlineSelection(rowsRef.current, selectedRef.current);
+      if (!markdown) return;
+      const action = startOutlineAction("copy_selection", "keyboard");
+      event.preventDefault();
+      event.clipboardData.setData("text/plain", markdown);
+      finishOutlineAction(action, "after");
+    },
+    [finishOutlineAction, startOutlineAction],
+  );
+
+  const pasteOutline = useCallback(
+    (row: OutlineRow, items: OutlineClipboardItem[]) => {
+      if (readonly || isPendingId(row.block.id) || items.length === 0) return;
+      flushNow(row.block.id);
+      const replace = (drafts.current.get(row.block.id) ?? row.block.markdown).length === 0
+        ? row.block.id
+        : null;
+      const shape = {
+        requested_target_count: items.length,
+        affected_block_count: items.length,
+      } satisfies DiagnosticAttributes;
+      const action = startOutlineAction("paste_outline", "keyboard", new Set(), shape);
+      void session.execute({
+        type: "insert_outline",
+        page_id: authoritativePage.id,
+        parent: row.parentId,
+        index: replace ? row.index : row.index + 1,
+        replace,
+        items,
+      }, action).then(
+        (result) => {
+          finishOutlineAction(action, "after", shape);
+          if (result.created_block) setFocus(result.created_block);
+        },
+        (error: unknown) => {
+          finishOutlineAction(action, "failed", shape);
+          notify.failure(message("failure.pasteBlocks"), error);
+        },
+      );
+    },
+    [authoritativePage.id, finishOutlineAction, flushNow, message, notify, readonly, session, setFocus, startOutlineAction],
   );
 
   const editor: EditorContext = {
@@ -931,7 +1088,7 @@ export function Outliner({
     pendingCaret,
     inspectedId,
     menuFor,
-    selected,
+    covered: selectionCovered,
     revealed,
     selectionCount,
     setFocus,
@@ -996,6 +1153,7 @@ export function Outliner({
     flushNow,
     runHistory,
     onGripPointerDown,
+    onSurfacePointerDown,
     onBulletPointerDown,
     onRowContextMenu,
     pressStartedOverOverlay: () => overlayAtPressStart.current,
@@ -1009,6 +1167,7 @@ export function Outliner({
       setMenuFor(null);
       if (selectedRef.current.size > 0) clearSelection();
     },
+    pasteOutline,
     enqueuePendingInsert: (row, tail, asChild, inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
@@ -1162,6 +1321,7 @@ export function Outliner({
           action,
         ).then(() => setFocus(fallback));
       },
+      copySelection,
     },
   };
 
@@ -1279,6 +1439,16 @@ export function Outliner({
           ref={viewportRef}
           tabIndex={-1}
           onKeyDown={onSelectionKeyDown}
+          onCopy={onCopySelection}
+          onPointerDownCapture={(event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const rowElement = target.closest<HTMLElement>("[data-block-id]");
+            const row = rowsRef.current.find(
+              (candidate) => candidate.block.id === rowElement?.dataset.blockId,
+            );
+            if (row) onSurfacePointerDown(row, event);
+          }}
         >
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];
@@ -1703,7 +1873,7 @@ function BlockRow({
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
   const tags = row.block.tags;
-  const selected = editor.selected.has(row.block.id);
+  const selected = editor.covered.has(row.block.id);
   const selectionCount = editor.selectionCount;
   const menuOpen = editor.menuFor === row.block.id;
 
@@ -1819,6 +1989,17 @@ function BlockRow({
             >
               {selected && selectionCount > 1 ? (
                 <>
+                  <DropdownMenuItem
+                    data-testid="menu-copy-selection"
+                    onSelect={() => editor.menu.copySelection("context_menu")}
+                  >
+                    <CopyIcon aria-hidden />
+                    {message("outline.copySelection", { count: selectionCount })}
+                    <DropdownMenuShortcut>
+                      <Kbd parts={["⌘", "C"]} plain />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     disabled={editor.readonly}
                     onSelect={() => editor.menu.indentSelection("context_menu")}
@@ -1951,6 +2132,12 @@ function BlockRow({
           onCompositionStart={() => editor.onCompositionStart(row)}
           onCompositionEnd={() => editor.onCompositionEnd(row)}
           onKeyDown={(event) => editor.onKeyDown(row, rows, event)}
+          onPaste={(event) => {
+            const items = parseMarkdownOutline(event.clipboardData.getData("text/plain"));
+            if (!items || editor.readonly || pending) return;
+            event.preventDefault();
+            editor.pasteOutline(row, items);
+          }}
         />
         {tags.length > 0 && (
           <div className="outline-tags">

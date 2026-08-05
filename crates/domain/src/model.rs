@@ -50,6 +50,13 @@ pub enum Command {
         index: usize,
         markdown: String,
     },
+    InsertOutline {
+        page_id: PageId,
+        parent: Option<BlockId>,
+        index: usize,
+        replace: Option<BlockId>,
+        items: Vec<OutlineItem>,
+    },
     EditMarkdown {
         page_id: PageId,
         block_id: BlockId,
@@ -118,6 +125,12 @@ pub enum Command {
     },
     Undo,
     Redo,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutlineItem {
+    pub depth: usize,
+    pub markdown: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

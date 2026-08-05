@@ -152,19 +152,46 @@ test("drags a range of blocks out and moves them as one", async ({ page }) => {
   await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three"]);
   await awaitSaved(page);
 
-  // The strip left of the bullets is the selection gutter: drag down it and the
-  // rows it passes are selected.
+  // Dragging across a quiet row surface selects whole blocks. The already-active
+  // third textarea still keeps native text selection; a different row starts a
+  // structural range.
   const rows = page.locator('[data-testid="outline-row"]');
   const first = await rows.nth(0).boundingBox();
   const second = await rows.nth(1).boundingBox();
   if (!first || !second) throw new Error("outline rows have no layout");
-  await page.mouse.move(first.x + 4, first.y + first.height / 2);
+  await page.mouse.move(first.x + first.width * 0.7, first.y + first.height / 2);
   await page.mouse.down();
-  await page.mouse.move(second.x + 4, second.y + second.height / 2, { steps: 6 });
+  await page.mouse.move(second.x + second.width * 0.7, second.y + second.height / 2, { steps: 6 });
   await page.mouse.up();
   await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
   await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
   await expect(rows.nth(2)).toHaveAttribute("data-selected", "false");
+  await expect(rows.nth(0)).toHaveCSS("border-radius", "0px");
+
+  await page.keyboard.press("Escape");
+
+  // The blank page margin between the rail and the centered editor is the same
+  // range handle, so selection does not depend on finding a narrow gutter.
+  const body = await page.locator(".page-body").boundingBox();
+  const scroll = await page.locator(".page-scroll").boundingBox();
+  if (!body || !scroll) throw new Error("page surface has no layout");
+  const marginX = Math.max(scroll.x + 4, body.x - 12);
+  await page.mouse.move(marginX, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(marginX, second.y + second.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+
+  const [copied] = await Promise.all([
+    page.evaluate(() => new Promise<string>((resolve) => {
+      document.addEventListener("copy", (event) => {
+        resolve(event.clipboardData?.getData("text/plain") ?? "");
+      }, { once: true });
+    })),
+    page.keyboard.press("ControlOrMeta+c"),
+  ]);
+  expect(copied).toBe("- one\n- two");
 
   // Dragging any selected bullet past the last row moves the whole selection.
   const handle = await page.getByTestId("block-bullet").nth(0).boundingBox();
@@ -187,4 +214,24 @@ test("drags a range of blocks out and moves them as one", async ({ page }) => {
   await expect.poll(() => blockTexts(page)).toEqual(["three", "one", "two"]);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect.poll(() => blockTexts(page)).toEqual(["three"]);
+});
+
+test("pastes Markdown list items as one outline history step", async ({ page }) => {
+  await createGraph(page, "Clipboard Graph");
+  await startOutline(page);
+
+  await page.getByLabel("Block text").evaluate((target) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", "- one\n  - two\n  - three\n- four");
+    target.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+
+  await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three", "four"]);
+  await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "2", "1"]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => blockTexts(page)).toEqual([""]);
 });

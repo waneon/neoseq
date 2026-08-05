@@ -147,8 +147,8 @@ components:
   btn-quiet:   { background: transparent, text: "{ink}", hover: "{surface-2}" }
   btn-danger:  { background: transparent, text: "{danger}", hover: "{danger-soft}" }
   icon-btn:    { size: 24px, radius: "{r-2}", glyph: "{ink-3}", hover: "{surface-2} + {ink}" }
-  input:       { height: 32px, radius: "{r-2}", background: "{canvas}", ring: "{e1}", focus: "2px {accent} INSET ring — see § Interaction States" }
-  menu-select: { height: 32px, radius: "{r-2}", trigger: "{input}", menu: "{overlay} — the same menu a bullet opens", open: "2px {accent} inset ring", max-height: 320px }
+  input:       { height: 32px, radius: "{r-2}", background: "{canvas}", ring: "{e1}", focus: "{surface-2} fill + {e1} — see § Interaction States" }
+  menu-select: { height: 32px, radius: "{r-2}", trigger: "{input}", menu: "{overlay} — the same menu a bullet opens", open: "{surface-2} fill + {e1}", max-height: 320px }
   panel:       { background: "{surface-1}", radius: "{r-3}", border: none, padding: "{sp-4}" }
   overlay:     { background: "{overlay}", radius: "{r-3}", elevation: "{e2}", layer: "{layers.menu}" }
   dialog:      { background: "{overlay}", radius: "{r-4}", elevation: "{e3}", layer: "{layers.dialog}" }
@@ -160,7 +160,7 @@ components:
   kbd:         { min-width: 20px, height: 18px, radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs} sans", gap: 3px, part-min-width: 1ch, plain: "no fill — menus and tables", border: none }
   bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring", empty: "40% opacity", cursor: pointer, role: "handle — click, drag, right-click" }
   chevron:     { box: 16px, glyph: 12px, centre: "the middle of the indent column left of the bullet", fill: none, collapsed: "rotate(-90deg) over {dur-disclose}" }
-  selection:   { fill: "{accent-soft}", gutter: "{gutter} left of every bullet", drop: "2px {accent} rule at the target depth" }
+  selection:   { fill: "{accent-soft}", shape: "one square continuous ribbon", gutter: "quiet page margin through every row", drop: "2px {accent} rule at the target depth" }
   settings:    { width: 820px, scopes: 2, nav: 168px, url: "?settings=<section>" }
   shortcut-key: { height: 24px, radius: "{r-1}", typography: "{mono-xs}", recording: "{accent} fill", touch: 32px }
   thread:      { width: 1px, colour: "{thread}", active: "{thread-active}", offset: "{slot}/2" }
@@ -187,7 +187,7 @@ allowed to be decorative.
 step in lightness rather than by borders, so a panel reads as a change in depth
 instead of a drawn box. The type comes from the operating system, which means it
 renders in zero milliseconds and looks native on the machine it runs on. One colour
-— an ink indigo — carries every action, link, and focus ring, and it is the only
+— an ink indigo — carries every action, link, caret, and structural drop, and it is the only
 chroma in the interface. Both a light and a dark mode ship from a single token
 declaration, because a tool you write in at night is a tool you write in at night.
 
@@ -268,7 +268,7 @@ theme — the single most common tell of a web app that only pretends to have a 
 | `--ink` | Body text, block text, headings, the value the user typed. |
 | `--ink-2` | Secondary text: nav rows, property values, menu items, hints. |
 | `--ink-3` | Metadata, placeholders, group headers, resting icon glyphs. |
-| `--accent` | Links, the primary action, the focus ring, the active thread. Nothing else. |
+| `--accent` | Links, the primary action, carets, selection/drop state, and the active thread. Nothing else. |
 | `--danger` | Destructive verbs and the unsaved state. Never a fill behind body text. |
 | `--ok` | The one affirmative indicator (persistent-storage granted). A dot, not a fill. |
 
@@ -503,13 +503,13 @@ bordered status pills, and — emphatically — no dashed empty states.
 | Token | Value | Use |
 |---|---|---|
 | `--r-1` | 4px | Chips, shortcut badges |
-| `--r-2` | 6px | Inputs, buttons, menu items, nav rows, selected rows, settings tabs |
+| `--r-2` | 6px | Inputs, buttons, menu items, nav rows, settings tabs |
 | `--r-3` | 10px | Panels, popovers, graph cards |
 | `--r-4` | 14px | Dialogs, the command palette |
 | `--r-full` | 9999px | The bullet dot, and nothing else |
 
 Radius grows with the surface, so a control inside a panel is always tighter than the
-panel. A focus ring **never declares a radius** — it inherits the element's own. v1's
+panel. A neutral control focus ring **never declares a radius** — it inherits the element's own. v1's
 global `:focus-visible { border-radius: 4px }` squared off every rounded control in the
 product the moment it was focused, because `app.css` was imported unlayered and
 therefore outranked every Tailwind utility.
@@ -640,19 +640,15 @@ state is unfinished.
 |---|---|
 | Default | Per component |
 | Hover | `--surface-2` — the one hover colour in the product; glyphs rise to `--ink` |
-| Focus (controls) | `outline: 2px solid var(--accent); outline-offset: 2px` — and nothing else |
-| Focus (fields) | `box-shadow: inset 0 0 0 2px var(--accent)` — the same accent, drawn as the field's own edge |
+| Focus (controls) | `outline: 2px solid var(--ink-3); outline-offset: 2px` — achromatic and keyboard-only |
+| Focus (fields) | `--surface-2` plus the resting `--e1` edge; borderless writing surfaces use their caret or active thread |
 | Pressed | `--surface-3` (or `--accent-hover` for the primary action). No transform. |
 | Disabled | 50% opacity, pointer events off, still in the layout, still announced, and in the palette still listed **with its reason** |
 
-> **Why focus has two forms, and why that is still "one signal per state".** A browser
-> matches `:focus-visible` on a *text field* for an ordinary mouse click — it has to, or a
-> typist would lose track of the caret. So the offset ring fired every single time anyone
-> clicked into any input, search box or property value in the product: a blue halo
-> following the pointer around a box that was only being typed in. Fields therefore take
-> the accent as their resting `--e1` inset ring going 2px `--accent`, in place of a halo
-> outside it. Same colour, same 2px, radius still inherited, nothing outside the control
-> moves — one signal, expressed on the edge the control already had.
+> **Why focus is achromatic.** Indigo names an action, a caret, or a structural drop.
+> Reusing it on every field made ordinary navigation read as a succession of actions and
+> put a blue frame around controls opened with the pointer. Fields now change luminance
+> while keeping their resting edge; keyboard-focused controls use a neutral ink outline.
 >
 > Two kinds of surface are excluded and each says so instead. A **borderless typing
 > surface** that looks like text rather than like a field — a 33px page title, a block's
@@ -1005,17 +1001,18 @@ The outline has two kinds of "current", and they are deliberately different thin
 blocks a structural command acts on. *They never coexist:* taking one drops the other, so
 `⌫` can only ever mean one thing.
 
-- **The gutter is the handle for range selection.** Every row reaches one gutter width
-  further left than its text, at every depth, and that strip is not text — it has no
-  caret and no fill of its own, the indent thread simply shows through it. Dragging down
-  it selects the rows it passes.
+- **The quiet writing surface is the handle for range selection.** Dragging may begin in
+  the row, in its gutter, or in the page margin between the rail and the centered editor.
+  A drag that starts in the already-focused textarea remains native text selection; this
+  is the stable distinction between selecting words and selecting blocks.
 - **It selects by row *range*, not by rectangle.** The rows are virtualized, so a
   rect-intersection marquee would only ever see the handful currently mounted. A range
   between the row the drag started on and the row it is over now covers everything
   between them whether it is mounted or not — and it is also the honest model, because
   an outline row is a line, not an area.
-- **No rubber band is drawn.** The selected rows highlight themselves in `--accent-soft`,
-  the same wash the platform paints behind selected text, one level up. That is the one
+- **No rubber band is drawn.** The selected rows form one square-edged continuous ribbon
+  in `--accent-soft`; descendants carried by a selected ancestor join the same ribbon.
+  It is the same wash the platform paints behind selected text, one level up: the one
   row fill in the product, and it exists because a selection has nothing else to say it
   while `⌫` and a drag are both waiting on it.
 - **`⇧`-click a bullet extends** from the last bullet touched; **`⌘`/`⌃`-click toggles**
@@ -1034,8 +1031,7 @@ blocks a structural command acts on. *They never coexist:* taking one drops the 
   `⇧⇥` indent and outdent the group, `↑` / `↓` collapse back to a caret at the edge the
   selection was left from, and `⎋` clears the selection **and returns the caret** to the
   row it started on, because Escape means "back to writing".
-- **The tree's own focus ring is suppressed, and that is the one deliberate exception to
-  "one visible focus ring on every interactive element".** The viewport is a focus
+- **The tree's own focus outline is suppressed.** The viewport is a focus
   *container*, not a control: it is not a tab stop, what has focus is the selection, and
   the selection says so with its own fill. A 2px ring around the entire outline would be
   precisely the drawn box § Depth forbids. Focus is never left there with nothing
@@ -1043,9 +1039,14 @@ blocks a structural command acts on. *They never coexist:* taking one drops the 
 - **Collapsing a row drops any selected descendant it just hid.** Every bulk verb resolves
   the selection against the *visible* outline, so a hidden member would make `⌫` and `⇥`
   quietly do nothing.
-- **A bulk verb is one document-history step.** Delete, indent, outdent, and move cross
-  the graph boundary as one command, so one `⌘Z` restores the entire selected action and
+- **A bulk verb is one document-history step.** Delete, indent, outdent, move, and an
+  outline paste cross the graph boundary as one command, so one `⌘Z` restores the action and
   redo reapplies it as a unit.
+- **Copy is portable Markdown.** `⌘C` and the selection menu write plain-text list items,
+  normalize the shallowest selected row to level zero, preserve descendant indentation,
+  and indent continuation lines under their item. Pasting an unordered or ordered
+  Markdown list creates real outline blocks; ordinary multiline text remains an in-block
+  paste. An empty destination is reused rather than leaving a blank block behind.
 - `role="tree"` gains `aria-multiselectable`, rows carry `aria-selected`, and the count is
   announced politely — the highlight is the visible count, so a live region is how it
   reaches a screen reader. It counts the rows a verb will *take*, passengers included, and
@@ -1073,8 +1074,9 @@ focusable, but clipped — it is a real keyboard tab stop and the target of
 `showPicker()`, without stating the date a third time in the platform's own locale
 format beside a heading that already reads `Tuesday, August 4, 2026`.
 
-A page title is an in-place `<input>` that finally has affordances: `--surface-2` on
-hover, a real focus outline, an `--accent` caret, `⏎` to commit, `Esc` to revert. `⏎` also
+A page title is an in-place `<input>` with a pointer cursor and `--surface-2` only while
+hovered at rest. Focus removes the wash, switches to the text cursor, and leaves the
+`--accent` caret as the editing signal. `⏎` commits and `Esc` reverts. `⏎` also
 blurs, and a blur commits, so the commit is guarded against running twice on one draft —
 otherwise a refused rename reported itself twice for one keystroke.
 
@@ -1238,7 +1240,7 @@ the most disorienting thing a form can do.
 
 - **The trigger keeps the shape of a field**, because it is standing in for one: 32px,
   `--r-2`, `--canvas`, the `--e1` inset ring, a 14px chevron at the trailing edge. Open is
-  the same 2px `--accent` inset ring focus is — the popup is already the loud part.
+  `--surface-2` with the same `--e1` resting edge — the popup is already the loud part.
 - **The menu is the block menu**, `--overlay` on `--e2`, matched to the trigger's width so
   a long list does not open as a panel narrower than the control that summoned it. It caps
   at 320px and scrolls; the timezone list is four hundred rows and is why the cap exists.
@@ -1311,7 +1313,8 @@ Non-negotiable, and partly enforced by CI (axe, wcag2a/wcag2aa, serious + critic
 both colour schemes):
 
 1. Contrast follows the committed table. `--ink-3` never touches `--surface-2/3`.
-2. One visible focus ring on every interactive element, radius inherited, never removed.
+2. One visible focus indicator on every interactive element: neutral outline for
+   controls, luminance/resting edge for fields, and caret/thread for writing surfaces.
 3. Real landmarks: a `<main>` in the primary view and a skip link. `aria-hidden` never
    lands on the only landmark.
 4. Real headings. Every section that looks like a heading is one; no uppercase `<span>`
@@ -1380,7 +1383,7 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   places listed in § Depth.
 - Declare every colour in both modes in the same block, and keep hue and chroma fixed.
 - Consult the contrast table before styling text on a tinted surface.
-- Reserve `--accent` for actions, links, focus and the active thread.
+- Reserve `--accent` for actions, links, carets, selection/drop state and the active thread.
 - Keep chrome at 14px and smaller so the user's 16px writing is the largest 400-weight
   text on screen.
 - Use mono only for identifiers: property keys, shortcut badges, ids.
@@ -1416,8 +1419,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Don't animate `transform`, `scale`, or `translate` — not on entrance, not on press,
   not on hover. The two exceptions are named in § Motion and are a box's own size and the
   collapse chevron's rotation; a third has to be argued there before it ships.
-- Don't put a 2px offset ring on a text field — the browser fires `:focus-visible` on a
-  plain mouse click there, so it becomes a blue halo that follows the pointer around.
+- Don't use an accent focus ring. Indigo is reserved for actions, carets, and structural
+  drops; keyboard focus uses neutral ink and fields use luminance.
 - Don't ship two controls that look identical at rest and open different popups.
 - Don't set a modifier and its key as one run of mono text, and don't leave them touching.
 - Don't separate a group heading from its rows by one type size and nothing else.
