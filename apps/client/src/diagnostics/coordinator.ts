@@ -8,6 +8,8 @@ import {
   STANDARD_CAPTURE_POLICY,
   DIAGNOSTIC_ARTIFACT_SCHEMA,
   SENSITIVE_PAYLOAD_SCHEMA,
+  type DiagnosticActionContext,
+  type DiagnosticActionInput,
   type DiagnosticAttributes,
   type DiagnosticCapturePolicy,
   type DiagnosticLimits,
@@ -85,6 +87,10 @@ export class DiagnosticsCoordinator {
   };
 
   getState = (): DiagnosticsViewState => this.state;
+
+  isRecording(): boolean {
+    return this.state.phase === "recording";
+  }
 
   registerGraphContext(context: DiagnosticGraphContext): () => void {
     this.graphContext = context;
@@ -280,20 +286,60 @@ export class DiagnosticsCoordinator {
     if (this.state.phase === "review") this.patch({ review_open: false });
   }
 
-  recordCommand(command: Command): void {
-    if (this.state.phase !== "recording") return;
+  startAction(input: DiagnosticActionInput): DiagnosticActionContext | null {
+    if (this.state.phase !== "recording") return null;
+    const context = this.newActionContext();
+    this.append("interaction", "ui", "action", {
+      action_id: context.action_id,
+      feature: input.feature,
+      action: input.action,
+      input_method: input.input_method,
+    }, false, undefined, context.trace_id);
+    return context;
+  }
+
+  recordCheckpointLazy(
+    context: DiagnosticActionContext | null | undefined,
+    phase: NonNullable<DiagnosticAttributes["checkpoint_phase"]>,
+    build: () => DiagnosticAttributes,
+  ): void {
+    if (!context || this.state.phase !== "recording") return;
+    this.append("state", "ui", "feature_checkpoint", {
+      ...build(),
+      action_id: context.action_id,
+      checkpoint_phase: phase,
+    }, false, undefined, context.trace_id);
+  }
+
+  recordCommand(
+    command: Command,
+    action?: DiagnosticActionContext | null,
+  ): DiagnosticActionContext | null {
+    if (this.state.phase !== "recording") return null;
+    const context = action ?? this.newActionContext();
     const subjectId = commandSubjectId(command);
     this.append("interaction", "ui", "command", {
       ...commandAttributes(command),
+      action_id: context.action_id,
       subject_token: subjectId ? this.subjectToken(subjectId) : undefined,
-    });
-    if (!this.enhancedCategoryEnabled("graph_data")) return;
-    if (this.graphContext?.graph_id !== this.captureGraphContext?.graph_id) return;
+    }, false, undefined, context.trace_id);
+    if (!this.enhancedCategoryEnabled("graph_data")) return context;
+    if (!this.captureGraphContext) {
+      this.recordSensitiveOmission(context, "missing_graph_context");
+      return context;
+    }
+    if (this.graphContext?.graph_id !== this.captureGraphContext.graph_id) {
+      this.recordSensitiveOmission(context, "outside_scope");
+      return context;
+    }
     const pageId = commandPageId(command);
     const tagId = commandTagId(command);
     const policy = this.enhancedPolicy();
-    if (!policy) return;
-    if (policy.scope === "active_page" && pageId !== this.captureGraphContext?.active_page_id && command.type !== "undo" && command.type !== "redo") return;
+    if (!policy) return context;
+    if (policy.scope === "active_page" && pageId !== this.captureGraphContext.active_page_id && command.type !== "undo" && command.type !== "redo") {
+      this.recordSensitiveOmission(context, "outside_scope");
+      return context;
+    }
     if (policy.scope === "touched_entities" && pageId && !this.touchedPageIds.has(pageId)) {
       this.capturePage(pageId, "before");
       this.touchedPageIds.add(pageId);
@@ -302,17 +348,32 @@ export class DiagnosticsCoordinator {
       this.captureTag(tagId, "before");
       this.touchedTagIds.add(tagId);
     }
-    this.appendSensitive({ kind: "command", command });
+    this.appendSensitive({ kind: "command", command, action_id: context.action_id });
+    return context;
   }
 
-  recordQuery(query: SparqlQueryRequest): void {
-    this.append("interaction", "ui", "query", queryAttributes(query));
+  recordQuery(
+    query: SparqlQueryRequest,
+    action?: DiagnosticActionContext | null,
+  ): DiagnosticActionContext | null {
+    if (this.state.phase !== "recording") return null;
+    const context = action ?? this.newActionContext();
+    this.append("interaction", "ui", "query", {
+      ...queryAttributes(query),
+      action_id: context.action_id,
+    }, false, undefined, context.trace_id);
     if (
       this.enhancedCategoryEnabled("query_text") &&
       this.graphContext?.graph_id === this.captureGraphContext?.graph_id
     ) {
-      this.appendSensitive({ kind: "query", query });
+      this.appendSensitive({ kind: "query", query, action_id: context.action_id });
+    } else if (this.enhancedCategoryEnabled("query_text")) {
+      this.recordSensitiveOmission(
+        context,
+        this.captureGraphContext ? "outside_scope" : "missing_graph_context",
+      );
     }
+    return context;
   }
 
   recordRoute(routeKind: NonNullable<DiagnosticAttributes["route_kind"]>): void {
@@ -320,6 +381,7 @@ export class DiagnosticsCoordinator {
   }
 
   recordSessionState(snapshot: GraphSnapshot, attributes: DiagnosticAttributes): void {
+    if (this.state.phase !== "recording") return;
     this.append("state", "session", "session_state", {
       ...attributes,
       page_count: snapshot.pages.length,
@@ -357,12 +419,13 @@ export class DiagnosticsCoordinator {
     source: "session" | "adapter",
     name: DiagnosticOperation,
     attributes: DiagnosticAttributes = {},
+    action?: DiagnosticActionContext | null,
   ): DiagnosticSpanHandle {
+    if (this.state.phase !== "recording") return NOOP_SPAN;
     const started = performance.now();
-    if (this.state.phase !== "recording") return noopSpan(started);
     const parent = this.activeContext;
     const context: DiagnosticTraceContext = {
-      trace_id: parent?.trace_id ?? crypto.randomUUID(),
+      trace_id: parent?.trace_id ?? action?.trace_id ?? crypto.randomUUID(),
       span_id: crypto.randomUUID(),
     };
     let ended = false;
@@ -374,6 +437,7 @@ export class DiagnosticsCoordinator {
         ended = true;
         this.appendSpan(source, name, context, parent?.span_id, started, outcome, {
           ...attributes,
+          action_id: action?.action_id,
           ...completion,
         });
       },
@@ -384,6 +448,7 @@ export class DiagnosticsCoordinator {
         ended = true;
         this.appendSpan(source, name, context, parent?.span_id, started, "error", {
           ...attributes,
+          action_id: action?.action_id,
           error_code: detail.code,
           retryable: detail.retryable,
         });
@@ -465,6 +530,7 @@ export class DiagnosticsCoordinator {
     attributes: DiagnosticAttributes,
     force = false,
     durationMs?: number,
+    traceId?: string,
   ): void {
     if ((!force && this.state.phase !== "recording") || !this.session) return;
     this.appendRecord({
@@ -476,7 +542,7 @@ export class DiagnosticsCoordinator {
       name,
       duration_ms: durationMs === undefined ? undefined : rounded(durationMs),
       attributes,
-    }, undefined, force);
+    }, traceId, force);
   }
 
   private appendRecord(input: DiagnosticRecord, traceId?: string, force = false): void {
@@ -549,6 +615,10 @@ export class DiagnosticsCoordinator {
       : this.captureGraphContext.read();
     this.lastSensitiveRevision = current.revision;
     if (policy.scope === "full_graph") {
+      // The initial snapshot, exact command stream and final snapshot are
+      // sufficient to reconstruct each authoritative revision. Re-copying the
+      // complete graph after every revision dominates Enhanced recording cost.
+      if (stage === "reconcile") return;
       this.appendSensitive({ kind: "graph_snapshot", stage, revision: current.revision, snapshot: current.snapshot });
       return;
     }
@@ -596,6 +666,20 @@ export class DiagnosticsCoordinator {
     const token = `E${this.subjectTokens.size + 1}`;
     this.subjectTokens.set(subjectId, token);
     return token;
+  }
+
+  private newActionContext(): DiagnosticActionContext {
+    return { action_id: crypto.randomUUID(), trace_id: crypto.randomUUID() };
+  }
+
+  private recordSensitiveOmission(
+    context: DiagnosticActionContext,
+    omissionReason: NonNullable<DiagnosticAttributes["omission_reason"]>,
+  ): void {
+    this.append("marker", "ui", "sensitive_payload_omitted", {
+      action_id: context.action_id,
+      omission_reason: omissionReason,
+    }, false, undefined, context.trace_id);
   }
 
   private scheduleFlush(): void {
@@ -686,6 +770,7 @@ function commandPageId(command: Command): string | undefined {
 
 function commandSubjectId(command: Command): string | undefined {
   if ("block_id" in command) return command.block_id;
+  if ("block_ids" in command) return command.block_ids[0];
   if ("entity" in command) return command.entity.id;
   if ("tag_id" in command) return command.tag_id;
   if ("page_id" in command) return command.page_id;
@@ -712,6 +797,9 @@ function safeError(error: unknown): {
   return { code: "worker_error", retryable: false };
 }
 
-function noopSpan(started: number): DiagnosticSpanHandle {
-  return { context: null, started_monotonic_ms: started, end: () => {}, fail: () => {} };
-}
+const NOOP_SPAN: DiagnosticSpanHandle = {
+  context: null,
+  started_monotonic_ms: 0,
+  end: () => {},
+  fail: () => {},
+};

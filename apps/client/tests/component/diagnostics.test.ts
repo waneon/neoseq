@@ -11,6 +11,7 @@ import type {
   DiagnosticStore,
   StoredDiagnosticRecording,
 } from "../../src/diagnostics/store";
+import type { GraphSnapshot } from "../../src/core-port/snapshot";
 
 class MemoryDiagnosticStore implements DiagnosticStore {
   session: PersistedDiagnosticSession | null = null;
@@ -79,6 +80,7 @@ describe("diagnostic redaction", () => {
     expect(structural).toEqual({
       command_type: "delete_blocks",
       entity_kind: "block",
+      requested_target_count: 2,
     });
   });
 
@@ -99,6 +101,78 @@ describe("diagnostic redaction", () => {
 });
 
 describe("diagnostic recording", () => {
+  it("does not build feature projections while recording is disabled", () => {
+    const coordinator = new DiagnosticsCoordinator(new MemoryDiagnosticStore());
+    let builds = 0;
+    coordinator.recordCheckpointLazy(
+      { action_id: "inactive-action", trace_id: "inactive-trace" },
+      "before",
+      () => {
+        builds += 1;
+        return { feature: "outline" };
+      },
+    );
+    expect(builds).toBe(0);
+    expect(coordinator.startSpan("session", "session.execute").context).toBeNull();
+  });
+
+  it("correlates feature intent, command, execution, and terminal state", async () => {
+    const coordinator = new DiagnosticsCoordinator(new MemoryDiagnosticStore());
+    await coordinator.start();
+    const action = coordinator.startAction({
+      feature: "outline",
+      action: "delete_selection",
+      input_method: "keyboard",
+    });
+    coordinator.recordCheckpointLazy(action, "before", () => ({
+      feature: "outline",
+      explicit_selection_count: 2,
+      covered_selection_count: 3,
+      selection_root_count: 1,
+    }));
+    coordinator.recordCommand({
+      type: "delete_blocks",
+      page_id: "private-page",
+      block_ids: ["private-parent"],
+    }, action);
+    const span = coordinator.startSpan(
+      "session",
+      "session.execute",
+      { command_type: "delete_blocks" },
+      action,
+    );
+    span.end("ok", { changed: true });
+    coordinator.recordCheckpointLazy(action, "after", () => ({
+      feature: "outline",
+      explicit_selection_count: 0,
+      covered_selection_count: 0,
+      selection_root_count: 0,
+    }));
+    await coordinator.stop();
+
+    const records = coordinator.recordsForTesting();
+    const correlated = records.filter((record) => record.attributes.action_id === action?.action_id);
+    expect(correlated.map((record) => record.name)).toEqual([
+      "action",
+      "feature_checkpoint",
+      "command",
+      "session.execute",
+      "feature_checkpoint",
+    ]);
+    expect(new Set(correlated.map((record) => record.trace_id))).toEqual(
+      new Set([action?.trace_id]),
+    );
+
+    const artifact = await buildDiagnosticArtifact(coordinator.getState().review!);
+    const summary = JSON.parse(new TextDecoder().decode(artifact.files.get("summary.json")));
+    expect(summary.diagnostic_quality).toEqual({
+      action_count: 1,
+      unlinked_action_count: 0,
+      incomplete_action_count: 0,
+      sensitive_omission_count: 0,
+    });
+  });
+
   it("records bounded structured evidence and builds a self-contained artifact", async () => {
     const store = new MemoryDiagnosticStore();
     const coordinator = new DiagnosticsCoordinator(store);
@@ -137,9 +211,19 @@ describe("diagnostic recording", () => {
     expect(artifact.blob.type).toBe("application/vnd.neoseq.bug+zip");
     expect(artifact.manifest).toMatchObject({
       artifact_schema_version: 1,
-      capture_policy_version: 2,
+      capture_policy_version: 3,
       redaction_level: "standard",
       contains_user_content: false,
+    });
+    const recordSchema = JSON.parse(
+      new TextDecoder().decode(artifact.files.get("schemas/record.schema.json")),
+    );
+    expect(recordSchema.properties.attributes).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        action_id: { type: "string" },
+        explicit_selection_count: { type: "integer" },
+      },
     });
     expect(review.records.find((record) => record.name === "editor_state")?.attributes)
       .toMatchObject({
@@ -204,6 +288,55 @@ describe("diagnostic recording", () => {
       contains_sensitive_content: true,
     });
     expect(new TextDecoder().decode(enhanced.files.get("sensitive/content.jsonl"))).toContain(canary);
+  });
+
+  it("keeps full-graph intermediate capture command-based and reports scope omissions", async () => {
+    const coordinator = new DiagnosticsCoordinator(new MemoryDiagnosticStore());
+    const snapshot: GraphSnapshot = {
+      schema_version: 3,
+      graph_id: "graph-private",
+      tags: [],
+      quarantined: [],
+      pages: [{
+        id: "page-private",
+        title: "Private page",
+        properties: [],
+        tags: [],
+        blocks: [],
+      }],
+    };
+    coordinator.registerGraphContext({
+      graph_id: "graph-private",
+      active_page_id: "page-private",
+      read: () => ({ revision: 3, snapshot }),
+    });
+    await coordinator.start({
+      level: "enhanced",
+      scope: "full_graph",
+      categories: ["graph_data"],
+    });
+    coordinator.recordSessionState(snapshot, { snapshot_revision: 4 });
+    await coordinator.stop();
+    expect(coordinator.getState().review?.sensitive_payloads
+      .filter((payload) => payload.kind === "graph_snapshot")
+      .map((payload) => payload.stage)).toEqual(["initial", "final"]);
+
+    await coordinator.discard();
+    coordinator.requestStart();
+    await coordinator.start({
+      level: "enhanced",
+      scope: "active_page",
+      categories: ["graph_data"],
+    });
+    coordinator.recordCommand({
+      type: "delete_blocks",
+      page_id: "outside-page",
+      block_ids: ["outside-block"],
+    });
+    expect(coordinator.recordsForTesting().some(
+      (record) => record.name === "sensitive_payload_omitted" &&
+        record.attributes.omission_reason === "outside_scope",
+    )).toBe(true);
   });
 
   it("recovers an interrupted persisted recording into review", async () => {

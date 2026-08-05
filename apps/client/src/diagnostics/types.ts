@@ -4,8 +4,18 @@ import type { Command } from "../core-port/commands";
 import type { GraphSnapshot, PageSnapshot, TagSnapshot } from "../core-port/snapshot";
 
 export const DIAGNOSTIC_ARTIFACT_SCHEMA = 1 as const;
-export const DIAGNOSTIC_CAPTURE_POLICY = 2 as const;
+export const DIAGNOSTIC_CAPTURE_POLICY = 3 as const;
 export const SENSITIVE_PAYLOAD_SCHEMA = 1 as const;
+
+export const DIAGNOSTIC_CAPABILITIES = [
+  "ui.action-correlation.v1",
+  "ui.feature-checkpoint.v1",
+  "ui.editor-relationship.v1",
+  "session.reconcile-detail.v1",
+  "worker.core-result-detail.v1",
+  "storage.boundary-span.v1",
+  "query.result-shape.v1",
+] as const;
 
 export type DiagnosticCaptureLevel = "standard" | "enhanced";
 export type EnhancedCaptureScope = "active_page" | "touched_entities" | "full_graph";
@@ -39,6 +49,33 @@ export type DiagnosticFamily = "interaction" | "span" | "state" | "metric" | "er
 export type DiagnosticOutcome = "ok" | "error" | "cancelled";
 export type LengthBucket = "0" | "1-16" | "17-64" | "65-256" | "257-1024" | "1025+";
 export type ValueRelation = "equal" | "different" | "missing" | "unknown";
+export type DiagnosticInputMethod =
+  | "keyboard"
+  | "pointer"
+  | "context_menu"
+  | "palette"
+  | "automatic"
+  | "programmatic"
+  | "unknown";
+export type DiagnosticFeature =
+  | "outline"
+  | "query"
+  | "command_layer"
+  | "navigation"
+  | "settings"
+  | "graph"
+  | "domain";
+export type DiagnosticActionName =
+  | "delete_selection"
+  | "indent_selection"
+  | "outdent_selection"
+  | "move_selection"
+  | "insert_block"
+  | "undo"
+  | "redo"
+  | "run_query"
+  | "execute_command";
+export type DiagnosticCheckpointPhase = "before" | "after" | "failed";
 
 export type DiagnosticOperation =
   | "session.open"
@@ -75,6 +112,11 @@ export type DiagnosticOperation =
   | "storage.capabilities";
 
 export interface DiagnosticAttributes {
+  readonly action_id?: string;
+  readonly feature?: DiagnosticFeature;
+  readonly action?: DiagnosticActionName;
+  readonly input_method?: DiagnosticInputMethod;
+  readonly checkpoint_phase?: DiagnosticCheckpointPhase;
   readonly operation?: string;
   readonly command_type?: string;
   readonly entity_kind?: "page" | "block" | "tag" | "graph" | "none";
@@ -89,10 +131,31 @@ export interface DiagnosticAttributes {
   readonly hydrated_page_count?: number;
   readonly tag_count?: number;
   readonly quarantined_count?: number;
+  readonly checkpoint_sequence?: number;
+  readonly replayed_update_count?: number;
   readonly queue_depth?: number;
   readonly pending_command_count?: number;
+  readonly requested_target_count?: number;
+  readonly normalized_root_count?: number;
+  readonly affected_block_count?: number;
+  readonly explicit_selection_count?: number;
+  readonly covered_selection_count?: number;
+  readonly selection_root_count?: number;
+  readonly visible_row_count?: number;
+  readonly collapsed_count?: number;
+  readonly pending_row_count?: number;
+  readonly pending_intent_count?: number;
+  readonly focus_kind?: "none" | "editor" | "pending_editor" | "selection";
+  readonly event_count?: number;
+  readonly page_read_count?: number;
+  readonly cursor_before?: number;
+  readonly cursor_after?: number;
+  readonly resync_required?: boolean;
+  readonly reconcile_fallback?: boolean;
   readonly snapshot_revision?: number;
   readonly changed?: boolean;
+  readonly duplicate?: boolean;
+  readonly semantic_kind?: string;
   readonly subject_token?: string;
   readonly checkpoint?: "flush" | "reconcile";
   readonly focused?: boolean;
@@ -110,6 +173,10 @@ export interface DiagnosticAttributes {
   readonly error_code?: CorePortErrorCode | "worker_error" | "storage_unavailable";
   readonly retryable?: boolean;
   readonly result_kind?: string;
+  readonly result_row_count?: number;
+  readonly result_column_count?: number;
+  readonly result_revision?: number;
+  readonly stale_result?: boolean;
   readonly record_count?: number;
   readonly byte_count?: number;
   readonly dropped_count?: number;
@@ -118,6 +185,7 @@ export interface DiagnosticAttributes {
   readonly capture_level?: DiagnosticCaptureLevel;
   readonly sensitive_record_count?: number;
   readonly sensitive_byte_count?: number;
+  readonly omission_reason?: "outside_scope" | "missing_graph_context";
 }
 
 export interface DiagnosticRecord {
@@ -140,6 +208,17 @@ export interface DiagnosticRecord {
 export interface DiagnosticTraceContext {
   readonly trace_id: string;
   readonly span_id: string;
+}
+
+export interface DiagnosticActionContext {
+  readonly action_id: string;
+  readonly trace_id: string;
+}
+
+export interface DiagnosticActionInput {
+  readonly feature: DiagnosticFeature;
+  readonly action: DiagnosticActionName;
+  readonly input_method: DiagnosticInputMethod;
 }
 
 export interface WorkerDiagnosticContext {
@@ -177,6 +256,7 @@ interface SensitivePayloadBase {
   readonly schema_version: typeof SENSITIVE_PAYLOAD_SCHEMA;
   readonly payload_id: string;
   readonly monotonic_ms: number;
+  readonly action_id?: string;
 }
 
 export type SensitiveDiagnosticPayload =

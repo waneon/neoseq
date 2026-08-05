@@ -47,7 +47,25 @@ if (containsSensitive !== files.has("sensitive/content.jsonl")) {
 }
 validateInventory(manifest, files);
 parseJson(files.get("schemas/manifest.schema.json"), "schemas/manifest.schema.json");
-parseJson(files.get("schemas/record.schema.json"), "schemas/record.schema.json");
+const recordSchema = parseJson(files.get("schemas/record.schema.json"), "schemas/record.schema.json");
+const attributeSchema = recordSchema?.properties?.attributes;
+let allowedAttributes = null;
+if (manifest.capture_policy_version >= 3) {
+  if (
+    attributeSchema?.additionalProperties !== false ||
+    !attributeSchema.properties ||
+    typeof attributeSchema.properties !== "object"
+  ) {
+    fail("record schema does not declare a closed attribute contract");
+  }
+  allowedAttributes = new Set(Object.keys(attributeSchema.properties));
+} else if (
+  attributeSchema?.additionalProperties === false &&
+  attributeSchema.properties &&
+  typeof attributeSchema.properties === "object"
+) {
+  allowedAttributes = new Set(Object.keys(attributeSchema.properties));
+}
 let sensitiveRecords = [];
 if (containsSensitive) {
   if (!files.has("schemas/sensitive-record.schema.json")) {
@@ -64,7 +82,7 @@ if (containsSensitive) {
 }
 decodeUtf8(files.get("README.md"), "README.md");
 const records = ["events.jsonl", "metrics.jsonl", "errors.jsonl"]
-  .flatMap((stream) => validateJsonLines(files.get(stream), stream));
+  .flatMap((stream) => validateJsonLines(files.get(stream), stream, allowedAttributes));
 if (manifest.record_count !== records.length || summary.record_count !== records.length) {
   fail("record count does not match artifact streams");
 }
@@ -80,12 +98,14 @@ const result = {
   contains_sensitive_content: containsSensitive,
   sensitive_record_count: sensitiveRecords.length,
   application: manifest.application,
+  instrumentation: manifest.instrumentation,
   duration_ms: summary.duration_ms,
   record_count: summary.record_count,
   dropped_count: summary.dropped_count,
   recovered: summary.recovered,
   error_counts: summary.error_counts,
   gaps: summary.gaps,
+  diagnostic_quality: summary.diagnostic_quality,
   slowest_spans: summary.slowest_spans,
 };
 
@@ -97,11 +117,13 @@ if (jsonOutput) {
     `Neoseq diagnostic artifact v${result.artifact_schema_version}`,
     `Capture: ${String(result.redaction_level)}${result.contains_sensitive_content ? " (contains sensitive user content)" : result.contains_user_content ? " (contains user annotation)" : " (content-free)"}`,
     `Build: ${String(app.version ?? "unknown")} / ${String(app.build_id ?? "unknown")}`,
+    `Observed instrumentation: ${JSON.stringify(result.instrumentation?.observed ?? [])}`,
     `Duration: ${String(result.duration_ms)} ms`,
     `Records: ${String(result.record_count)} (${String(result.dropped_count)} dropped)`,
     `Recovered: ${String(result.recovered)}`,
     `Errors: ${JSON.stringify(result.error_counts ?? {})}`,
     `Gaps: ${JSON.stringify(result.gaps ?? [])}`,
+    `Quality: ${JSON.stringify(result.diagnostic_quality ?? {})}`,
     "Slowest spans:",
     ...((result.slowest_spans ?? []).map((span) =>
       `  ${String(span.duration_ms).padStart(8)} ms  ${span.source}.${span.name}  trace=${span.trace_id ?? "-"}`)),
@@ -190,7 +212,7 @@ function parseJson(buffer, name) {
   }
 }
 
-function validateJsonLines(buffer, name) {
+function validateJsonLines(buffer, name, allowedAttributes) {
   const records = [];
   for (const line of decodeUtf8(buffer, name).split("\n")) {
     if (!line) continue;
@@ -200,6 +222,14 @@ function validateJsonLines(buffer, name) {
       assertJsonDepth(record, name);
       if (record.schema_version !== 1 || typeof record.sequence !== "number") {
         fail(`invalid diagnostic record: ${name}`);
+      }
+      if (!record.attributes || typeof record.attributes !== "object" || Array.isArray(record.attributes)) {
+        fail(`invalid diagnostic attributes: ${name}`);
+      }
+      for (const key of Object.keys(record.attributes)) {
+        if (allowedAttributes && !allowedAttributes.has(key)) {
+          fail(`unsupported diagnostic attribute: ${key}`);
+        }
       }
       records.push(record);
     } catch (error) {

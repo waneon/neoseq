@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
@@ -8,6 +9,22 @@ import { defineConfig, type Plugin } from "vite";
 const clientPackage = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
 ) as { version: string };
+
+function sourceBuildId(): string {
+  if (process.env.NEOSEQ_BUILD_ID) return process.env.NEOSEQ_BUILD_ID;
+  try {
+    const root = fileURLToPath(new URL("../..", import.meta.url));
+    const revision = execFileSync(
+      "jj",
+      ["log", "-r", "@", "--no-graph", "-T", "commit_id.short(12)"],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    if (revision) return `jj-${revision}`;
+  } catch {
+    // Source archives and Nix builds inject NEOSEQ_BUILD_ID when provenance is available.
+  }
+  return "source-unknown";
+}
 
 // Generates the application-shell Service Worker with the built asset list
 // precached, so an offline reload can boot the full shell (including the
@@ -96,7 +113,7 @@ export default defineConfig(({ mode }) => ({
   clearScreen: false,
   define: {
     __NEOSEQ_APP_VERSION__: JSON.stringify(clientPackage.version),
-    __NEOSEQ_BUILD_ID__: JSON.stringify(process.env.NEOSEQ_BUILD_ID ?? "development"),
+    __NEOSEQ_BUILD_ID__: JSON.stringify(sourceBuildId()),
   },
   server: {
     host: "127.0.0.1",

@@ -55,7 +55,11 @@ export function commandAttributes(command: Command): DiagnosticAttributes {
     case "indent_blocks":
     case "outdent_blocks":
     case "delete_blocks":
-      return { ...base, entity_kind: "block" };
+      return {
+        ...base,
+        entity_kind: "block",
+        requested_target_count: command.block_ids.length,
+      };
     case "set_property":
     case "remove_property":
     case "add_repeated_property":

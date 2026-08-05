@@ -22,15 +22,21 @@ export class WorkerDiagnosticCollector {
     source: WorkerSpanSource,
     name: DiagnosticOperation,
     run: () => T,
-    attributes: DiagnosticAttributes = {},
+    attributes: DiagnosticAttributes | ((result: T) => DiagnosticAttributes) = {},
   ): T {
     const started = performance.now();
     try {
       const result = run();
-      this.push(source, name, started, "ok", attributes);
+      this.push(
+        source,
+        name,
+        started,
+        "ok",
+        typeof attributes === "function" ? attributes(result) : attributes,
+      );
       return result;
     } catch (error) {
-      this.push(source, name, started, "error", attributes);
+      this.push(source, name, started, "error", typeof attributes === "function" ? {} : attributes);
       throw error;
     }
   }
@@ -39,15 +45,21 @@ export class WorkerDiagnosticCollector {
     source: WorkerSpanSource,
     name: DiagnosticOperation,
     run: () => Promise<T>,
-    attributes: DiagnosticAttributes = {},
+    attributes: DiagnosticAttributes | ((result: T) => DiagnosticAttributes) = {},
   ): Promise<T> {
     const started = performance.now();
     try {
       const result = await run();
-      this.push(source, name, started, "ok", attributes);
+      this.push(
+        source,
+        name,
+        started,
+        "ok",
+        typeof attributes === "function" ? attributes(result) : attributes,
+      );
       return result;
     } catch (error) {
-      this.push(source, name, started, "error", attributes);
+      this.push(source, name, started, "error", typeof attributes === "function" ? {} : attributes);
       throw error;
     }
   }

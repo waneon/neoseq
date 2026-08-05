@@ -2,8 +2,9 @@
 
 ## Status and Purpose
 
-The Web client implements `standard` and `enhanced` recording, state-relationship
-checkpoints, crash recovery, the `.neoseq-bug` writer, and the local inspector.
+The Web client implements capture-policy v3 `standard` and `enhanced` recording,
+correlated action and state-relationship checkpoints, crash recovery, the
+`.neoseq-bug` writer, and the local inspector.
 Native hosts, replay, cross-clock calibration, and sanitized frames remain future work.
 
 Diagnostic recording turns a user-observed failure into bounded, structured
@@ -106,10 +107,10 @@ console scraping, or blanket logging. Scope expansion requires a new recording.
 Diagnostics is an observation plane, not a domain capability:
 
 ```text
-typed boundary spans ───┐                       ┌─> standard streams
-editor state relations ─┼─> DiagnosticsCoordinator ─> temporary store/writer
-storage/query metrics ──┘              │        └─> manifest + review inventory
-                                       │
+semantic action intent ─┐                       ┌─> standard streams
+typed boundary spans ───┼─> DiagnosticsCoordinator ─> temporary store/writer
+feature checkpoints ────┤              │        └─> manifest + review inventory
+storage/query metrics ──┘              │
 consented scoped content ──> enhanced payload sink ─> sensitive/
                               (inactive in standard)
 ```
@@ -130,15 +131,18 @@ consented scoped content ──> enhanced payload sink ─> sensitive/
   adapters may emit allowlisted spans through an optional sink; absence of a
   sink has no semantic effect.
 
-The recorder wraps boundaries instead of adding logging calls to React feature
-components ad hoc. A new captured field is a schema and privacy-policy change,
-not an unreviewed string passed to a logger.
+The recorder wraps boundaries instead of adding arbitrary logging calls to React
+components. Feature controllers may publish a typed, lazily built checkpoint at a
+semantic boundary. A new captured field is a schema and privacy-policy change, not
+an unreviewed string passed to a logger.
 
 ## Trace and Event Model
 
 Every record has an artifact-schema version, monotonically increasing sequence,
-source, event type, and monotonic timestamp. Operations have a random
-recording-scoped `trace_id`; nested stages use `span_id` and `parent_span_id`.
+source, event type, and monotonic timestamp. A semantic UI action has random
+recording-scoped `action_id` and `trace_id`; its command/query, session span,
+adapter/Worker/core children and terminal feature checkpoint retain that identity.
+Nested stages use `span_id` and `parent_span_id`.
 The Web adapter translates Worker-relative offsets from the request dispatch
 boundary; it does not yet claim calibrated cross-clock uncertainty. Wall-clock
 time is stored only for the recording boundary in UTC.
@@ -165,9 +169,8 @@ stack strings never flow into that field.
 The initial end-to-end stages are:
 
 ```text
-interaction -> GraphSession -> CorePort enqueue -> adapter receive
-            -> core execute/query -> repository/sync -> semantic event
-            -> session reconciliation -> render commit
+action intent -> command/query -> GraphSession -> adapter/Worker -> core/storage/query
+              -> semantic event -> session reconciliation -> feature checkpoint
 ```
 
 Each stage can be absent and declares its instrumentation capability in the
@@ -184,10 +187,16 @@ payloads have a separate 50 MiB bound; an oversized scope or graph snapshot is
 rejected rather than expanding either budget.
 
 Producers write to a bounded in-memory queue and never wait for artifact I/O.
+Disabled recording takes a constant-time fast path before feature projections are
+built; pointer movement, individual keystrokes and ordinary renders are not records.
 The hard bounds reserve capacity for the terminal lifecycle marker, and the
 artifact exposes an aggregate dropped count. Metrics are sampled, text edits are
 coalesced at the existing command boundary, and the recorder does not observe
 individual keystrokes.
+
+For Enhanced full-graph capture, the graph is copied at the initial and final
+boundaries; exact commands and reconciled metadata describe intermediate revisions.
+Active-page and touched-entity policies may capture smaller intermediate views.
 
 For crash recovery, sanitized batches are asynchronously checkpointed outside
 the command and render critical paths. Web uses a dedicated IndexedDB
@@ -218,8 +227,8 @@ sensitive/content.jsonl       # enhanced payloads and scoped checkpoints
 ```
 
 `manifest.json` contains artifact/policy versions, recording boundary and
-duration, application/build identity, platform and instrumentation
-capabilities, clock description, active bounds, truncation/drop counts,
+duration, application/build identity, platform and installed/observed versioned
+instrumentation capabilities, clock description, active bounds, truncation/drop counts,
 redaction/capture level, consented categories/scope, and a classified inventory.
 Build identity comes from
 the application version plus `NEOSEQ_BUILD_ID` injected at the Vite boundary;
@@ -229,8 +238,9 @@ hashes remain a release-provenance extension.
 JSON Lines keeps partial captures inspectable after an interrupted recording.
 Sequence numbers are global across streams, and each JSONL file is sequence
 ordered; trace relationships, not file adjacency, are the causal contract.
-`summary.json` is a deterministic index of errors, slowest spans, counts, and
-recording gaps. `README.md` explains the privacy level and exact inspection
+`summary.json` is a deterministic index of errors, slowest spans, counts, recording
+gaps, unlinked/incomplete actions, and consented payloads omitted by scope.
+`README.md` explains the privacy level and exact inspection
 commands without interpreting the bug. Embedded schemas make the artifact
 self-describing. Checksums cover every payload file except the checksum list
 itself; they detect accidental corruption but do not authenticate a reporter.
@@ -257,11 +267,9 @@ Machine-readable output is available so a coding agent can cite trace IDs,
 durations, error codes, and source boundaries. Sensitive files are only inventoried
 unless the operator supplies an explicit `--allow-sensitive` access flag.
 
-Replay is a separate, explicit operation and is unavailable for a standard
-artifact. If a content snapshot and a compatible command stream are present,
-replay creates a disposable profile, disables network and sync, verifies all
-limits, and never opens or replaces the user's normal graph. A tool or agent
-must require an explicit content-access flag before reading `sensitive/`.
+Replay is separate from inspection and unavailable for a standard artifact. With
+consented content it uses a bounded disposable profile, disables network and sync,
+and never opens or replaces the user's normal graph.
 
 All submitted artifacts are untrusted input. Readers reject path traversal,
 links, duplicate names, excessive file count, excessive compressed or expanded
@@ -269,22 +277,17 @@ size, oversized JSON lines, deep nesting, invalid UTF-8, and checksum mismatch.
 Artifact strings are data, never shell arguments, HTML, Markdown execution, or
 paths to open automatically.
 
+## Feature Integration Contract
+
+A feature requires integration when it adds a semantic action, transient/optimistic/derived state, async/cancel/retry boundary, local failure, environment-dependent behavior, or performance-sensitive path. Its controller declares a typed action, passes its context through execution, and publishes minimal before and terminal checkpoints. Pure deterministic presentation needs no feature record.
+
+Command redaction and Worker-operation mappings are exhaustive typed tables; a variant cannot compile without a safe shape or explicit exclusion. Artifact tests cover intent, linked spans, terminal state, standard canaries and Enhanced scope together. The inspector reports completeness gaps rather than treating absent spans as zero work.
+
+Hot paths use lazy builders. Schema validation runs at finalization/inspection, not each append; CI compares recording off, standard and enhanced on representative paths.
+
 ## Verification and Evolution
 
-- Schema fixtures cover complete, truncated, crash-recovered, content-free,
-  content-bearing, and newer-compatible artifacts.
-- Privacy tests prove standard excludes every canary and enhanced includes only
-  consented categories/scope while application-owned secret sources stay absent.
-- Future contract tests will run the same synthetic trace through Web Worker
-  and native adapters and verify correlation, clock uncertainty, ordering, and gaps.
-- Fault tests cover queue overflow, storage quota, crash between checkpoints,
-  failed save, archive corruption, and cleanup after save/discard/expiry.
-- Performance tests compare recording off/on for typing, command, query, and
-  persistence paths and enforce an explicit overhead budget before release.
-- Parser tests and fuzzing cover ZIP and JSONL limits; replay tests prove profile
-  isolation and disabled network access.
-- Accessibility tests cover level/scope disclosure, persistent state, automatic
-  stop, sensitive export confirmation, review, save failure, and recovery.
+Fixtures cover complete, truncated, recovered, content-free/content-bearing and newer-compatible artifacts. Privacy tests prove standard canary exclusion and exact Enhanced scope. Contract/fault suites cover correlation, gaps, overflow, quota, checkpoint crashes, save failure, corruption and cleanup. Performance suites compare recording off/standard/enhanced; parser fuzzing, replay isolation and accessibility cover the remaining trust and product boundaries.
 
 Artifact schema and capture-policy versions evolve independently from
 `CorePort`, document schema, query profile, and sync protocol. Additive optional

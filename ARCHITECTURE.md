@@ -90,8 +90,10 @@ agent.
   adapters. It contains no domain decisions.
 - `diagnostics` is a local, opt-in observation plane across UI, adapter, core,
   query, and persistence boundaries. Its standard policy records typed state
-  relationships without values; its enhanced policy separately classifies explicitly
-  consented content. Neither alters graph state nor uses `CorePort` as a logging API.
+  relationships without values and correlates semantic UI intent, boundary spans,
+  reconciliation and terminal presentation checkpoints. Its enhanced policy separately
+  classifies explicitly consented content. Neither alters graph state nor uses `CorePort`
+  as a logging API, and disabled recording avoids feature-state projection work.
 - `app-ui` owns editing interaction, block selection, navigation, the command
   layer, failure reporting, browser-local preferences, localization, and
   responsive presentation. It does not hold canonical graph state, and the

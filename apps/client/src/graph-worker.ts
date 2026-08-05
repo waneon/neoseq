@@ -18,7 +18,11 @@ import {
   type QuarantineRecord,
 } from "./persistence";
 import { WorkerDiagnosticCollector } from "./diagnostics/worker";
-import type { WorkerDiagnosticContext } from "./diagnostics/types";
+import type {
+  DiagnosticAttributes,
+  LengthBucket,
+  WorkerDiagnosticContext,
+} from "./diagnostics/types";
 
 interface Message {
   id: number;
@@ -105,8 +109,17 @@ async function openGraph(request: OpenGraphRequest, collector?: WorkerDiagnostic
   if (metadata.schema_version !== 3) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
-  const recovery = await measuredAsync(collector, "storage", "storage.recover", () =>
-    recover(repository, request.locator.graph_id, request.peer_id));
+  const recovery = await measuredAsync(
+    collector,
+    "storage",
+    "storage.recover",
+    () => recover(repository, request.locator.graph_id, request.peer_id),
+    ({ report }) => ({
+      checkpoint_sequence: report.checkpoint_sequence,
+      replayed_update_count: report.replayed_updates,
+      quarantined_count: report.quarantined_records.length,
+    }),
+  );
   const state: OpenState = {
     graphId: request.locator.graph_id,
     core: recovery.core,
@@ -190,13 +203,23 @@ async function execute(request: ExecuteRequest, collector?: WorkerDiagnosticColl
   if (request.timeout_ms === 0) throw failure("command_timeout", "command deadline elapsed before dispatch", true);
   const state = requireState(request.graph_handle);
   if (state.pending) throw failure("dirty_unsaved", "retry pending update before another mutation", true);
-  const { execution, update } = measured(collector, "core", "core.execute", () => {
-    const raw = state.core.executeJson(JSON.stringify(request.command), now());
-    return {
-      execution: JSON.parse(raw) as { result: unknown; semantic: string; duplicate: boolean },
-      update: ownedBuffer(state.core.takeUpdate()),
-    };
-  });
+  const { execution, update } = measured(
+    collector,
+    "core",
+    "core.execute",
+    () => {
+      const raw = state.core.executeJson(JSON.stringify(request.command), now());
+      return {
+        execution: JSON.parse(raw) as { result: unknown; semantic: string; duplicate: boolean },
+        update: ownedBuffer(state.core.takeUpdate()),
+      };
+    },
+    ({ execution: completed, update: completedUpdate }) => ({
+      semantic_kind: completed.semantic,
+      duplicate: completed.duplicate,
+      payload_size: sizeBucket(completedUpdate.byteLength),
+    }),
+  );
   if (execution.duplicate || update.byteLength === 0) {
     const metadata = await state.repository.metadata(state.graphId);
     return {
@@ -225,8 +248,13 @@ async function execute(request: ExecuteRequest, collector?: WorkerDiagnosticColl
 async function persistPending(state: OpenState, collector?: WorkerDiagnosticCollector) {
   const pending = state.pending;
   if (!pending) return { local_sequence: 0, checksum: "" };
-  const receipt = await measuredAsync(collector, "storage", "storage.append", () =>
-    state.repository.appendUpdate(state.graphId, pending.payload, pending.createdAt));
+  const receipt = await measuredAsync(
+    collector,
+    "storage",
+    "storage.append",
+    () => state.repository.appendUpdate(state.graphId, pending.payload, pending.createdAt),
+    { payload_size: sizeBucket(pending.payload.byteLength) },
+  );
   push(state, "local", { type: "semantic", name: pending.semantic, command_id: pending.commandId });
   push(state, "local", { type: "saved_locally", ...receipt });
   state.pending = undefined;
@@ -311,8 +339,9 @@ function measured<T>(
   source: "worker" | "core" | "query" | "storage",
   name: Parameters<WorkerDiagnosticCollector["measure"]>[1],
   run: () => T,
+  attributes: DiagnosticAttributes | ((result: T) => DiagnosticAttributes) = {},
 ): T {
-  return collector ? collector.measure(source, name, run) : run();
+  return collector ? collector.measure(source, name, run, attributes) : run();
 }
 
 function measuredAsync<T>(
@@ -320,8 +349,18 @@ function measuredAsync<T>(
   source: "worker" | "core" | "query" | "storage",
   name: Parameters<WorkerDiagnosticCollector["measureAsync"]>[1],
   run: () => Promise<T>,
+  attributes: DiagnosticAttributes | ((result: T) => DiagnosticAttributes) = {},
 ): Promise<T> {
-  return collector ? collector.measureAsync(source, name, run) : run();
+  return collector ? collector.measureAsync(source, name, run, attributes) : run();
+}
+
+function sizeBucket(size: number): LengthBucket {
+  if (size <= 0) return "0";
+  if (size <= 16) return "1-16";
+  if (size <= 64) return "17-64";
+  if (size <= 256) return "65-256";
+  if (size <= 1_024) return "257-1024";
+  return "1025+";
 }
 
 async function testControl(payload: Record<string, unknown>) {

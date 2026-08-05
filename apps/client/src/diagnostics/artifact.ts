@@ -2,6 +2,7 @@ import { CORE_PORT_VERSION } from "../generated/core-port";
 import {
   DIAGNOSTIC_ARTIFACT_SCHEMA,
   DIAGNOSTIC_CAPTURE_POLICY,
+  DIAGNOSTIC_CAPABILITIES,
   type DiagnosticArtifactResult,
   type DiagnosticRecord,
   type DiagnosticReview,
@@ -30,6 +31,7 @@ export async function buildDiagnosticArtifact(
       annotation: note,
     });
   }
+  validateRecordContract(records);
 
   const streams = {
     events: records.filter((record) => record.family !== "metric" && record.family !== "error"),
@@ -90,6 +92,8 @@ export async function buildDiagnosticArtifact(
       long_tasks: supportsLongTasks(),
       native: false,
       sync_server: false,
+      capabilities: DIAGNOSTIC_CAPABILITIES,
+      observed: observedCapabilities(records),
     },
     limits: review.session.limits,
     record_count: records.length,
@@ -166,6 +170,7 @@ function buildSummary(
       duration_ms: record.duration_ms,
       outcome: record.outcome,
     }));
+  const quality = diagnosticQuality(records);
   return {
     duration_ms: durationMs(review),
     record_count: records.length,
@@ -173,13 +178,71 @@ function buildSummary(
     recovered: review.recovered,
     error_counts: Object.fromEntries([...errorCounts].sort(([left], [right]) => left.localeCompare(right))),
     slowest_spans: slowest,
-    gaps: review.session.dropped_count > 0 ? ["records_dropped"] : [],
+    gaps: [
+      ...(review.session.dropped_count > 0 ? ["records_dropped"] : []),
+      ...(quality.unlinked_action_count > 0 ? ["unlinked_actions"] : []),
+      ...(quality.incomplete_action_count > 0 ? ["incomplete_actions"] : []),
+      ...(quality.sensitive_omission_count > 0 ? ["sensitive_payloads_omitted"] : []),
+    ],
+    diagnostic_quality: quality,
     sensitive: {
       captured_record_count: review.session.sensitive_record_count,
       exported_record_count: includeSensitive ? review.sensitive_payloads.length : 0,
       truncated: review.session.sensitive_truncated,
     },
   };
+}
+
+function diagnosticQuality(records: readonly DiagnosticRecord[]) {
+  const actions = new Set(
+    records
+      .filter((record) => record.name === "action")
+      .map((record) => record.attributes.action_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  const linked = new Set(
+    records
+      .filter((record) => record.name === "command" || record.name === "query")
+      .map((record) => record.attributes.action_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  const completed = new Set(
+    records
+      .filter((record) =>
+        record.name === "feature_checkpoint" &&
+        (record.attributes.checkpoint_phase === "after" ||
+          record.attributes.checkpoint_phase === "failed"))
+      .map((record) => record.attributes.action_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return {
+    action_count: actions.size,
+    unlinked_action_count: [...actions].filter((id) => !linked.has(id)).length,
+    incomplete_action_count: [...actions].filter((id) => !completed.has(id)).length,
+    sensitive_omission_count: records.filter(
+      (record) => record.name === "sensitive_payload_omitted",
+    ).length,
+  };
+}
+
+function observedCapabilities(records: readonly DiagnosticRecord[]): string[] {
+  const observed = new Set<string>();
+  if (records.some((record) => record.name === "action")) observed.add("ui.action-correlation.v1");
+  if (records.some((record) => record.name === "feature_checkpoint")) observed.add("ui.feature-checkpoint.v1");
+  if (records.some((record) => record.name === "editor_state")) observed.add("ui.editor-relationship.v1");
+  if (records.some((record) => record.name === "session.reconcile" && record.attributes.event_count !== undefined)) {
+    observed.add("session.reconcile-detail.v1");
+  }
+  if (records.some((record) => record.name === "core.execute" && record.attributes.semantic_kind !== undefined)) {
+    observed.add("worker.core-result-detail.v1");
+  }
+  if (records.some((record) => record.source === "storage" && record.family === "span")) {
+    observed.add("storage.boundary-span.v1");
+  }
+  if (records.some((record) => record.name === "session.query" && record.attributes.result_row_count !== undefined)) {
+    observed.add("query.result-shape.v1");
+  }
+  return [...observed].sort();
 }
 
 function durationMs(review: DiagnosticReview): number {
@@ -293,6 +356,87 @@ const MANIFEST_SCHEMA = {
   },
 };
 
+const LENGTH_BUCKET_SCHEMA = {
+  enum: ["0", "1-16", "17-64", "65-256", "257-1024", "1025+"],
+};
+const COUNT_SCHEMA = { type: "integer", minimum: 0 };
+const ATTRIBUTE_PROPERTIES = {
+  action_id: { type: "string", maxLength: 64 },
+  feature: { enum: ["outline", "query", "command_layer", "navigation", "settings", "graph", "domain"] },
+  action: { enum: ["delete_selection", "indent_selection", "outdent_selection", "move_selection", "insert_block", "undo", "redo", "run_query", "execute_command"] },
+  input_method: { enum: ["keyboard", "pointer", "context_menu", "palette", "automatic", "programmatic", "unknown"] },
+  checkpoint_phase: { enum: ["before", "after", "failed"] },
+  operation: { type: "string", maxLength: 80 },
+  command_type: { type: "string", maxLength: 64 },
+  entity_kind: { enum: ["page", "block", "tag", "graph", "none"] },
+  property_kind: { enum: ["well_known", "custom", "none"] },
+  text_length: LENGTH_BUCKET_SCHEMA,
+  source_length: LENGTH_BUCKET_SCHEMA,
+  insert_length: LENGTH_BUCKET_SCHEMA,
+  delete_length: LENGTH_BUCKET_SCHEMA,
+  payload_size: LENGTH_BUCKET_SCHEMA,
+  binding_count: COUNT_SCHEMA,
+  page_count: COUNT_SCHEMA,
+  hydrated_page_count: COUNT_SCHEMA,
+  tag_count: COUNT_SCHEMA,
+  quarantined_count: COUNT_SCHEMA,
+  checkpoint_sequence: COUNT_SCHEMA,
+  replayed_update_count: COUNT_SCHEMA,
+  queue_depth: COUNT_SCHEMA,
+  pending_command_count: COUNT_SCHEMA,
+  requested_target_count: COUNT_SCHEMA,
+  normalized_root_count: COUNT_SCHEMA,
+  affected_block_count: COUNT_SCHEMA,
+  explicit_selection_count: COUNT_SCHEMA,
+  covered_selection_count: COUNT_SCHEMA,
+  selection_root_count: COUNT_SCHEMA,
+  visible_row_count: COUNT_SCHEMA,
+  collapsed_count: COUNT_SCHEMA,
+  pending_row_count: COUNT_SCHEMA,
+  pending_intent_count: COUNT_SCHEMA,
+  focus_kind: { enum: ["none", "editor", "pending_editor", "selection"] },
+  event_count: COUNT_SCHEMA,
+  page_read_count: COUNT_SCHEMA,
+  cursor_before: COUNT_SCHEMA,
+  cursor_after: COUNT_SCHEMA,
+  resync_required: { type: "boolean" },
+  reconcile_fallback: { type: "boolean" },
+  snapshot_revision: COUNT_SCHEMA,
+  changed: { type: "boolean" },
+  duplicate: { type: "boolean" },
+  semantic_kind: { type: "string", maxLength: 80 },
+  subject_token: { type: "string", maxLength: 64 },
+  checkpoint: { enum: ["flush", "reconcile"] },
+  focused: { type: "boolean" },
+  composing: { type: "boolean" },
+  draft_state: { enum: ["absent", "clean", "dirty"] },
+  draft_length: LENGTH_BUCKET_SCHEMA,
+  authoritative_length: LENGTH_BUCKET_SCHEMA,
+  draft_baseline_relation: { enum: ["equal", "different", "missing", "unknown"] },
+  draft_authoritative_relation: { enum: ["equal", "different", "missing", "unknown"] },
+  save_state: { enum: ["saved", "saving", "unsaved"] },
+  session_status: { enum: ["opening", "ready", "error", "closed"] },
+  lease_mode: { enum: ["exclusive", "readonly"] },
+  route_kind: { enum: ["graph_picker", "journal", "page", "settings", "other"] },
+  render_phase: { enum: ["mount", "update", "nested-update"] },
+  error_code: { type: "string", maxLength: 64 },
+  retryable: { type: "boolean" },
+  result_kind: { type: "string", maxLength: 64 },
+  result_row_count: COUNT_SCHEMA,
+  result_column_count: COUNT_SCHEMA,
+  result_revision: COUNT_SCHEMA,
+  stale_result: { type: "boolean" },
+  record_count: COUNT_SCHEMA,
+  byte_count: COUNT_SCHEMA,
+  dropped_count: COUNT_SCHEMA,
+  recovered: { type: "boolean" },
+  reason: { enum: ["user", "limit", "crash"] },
+  capture_level: { enum: ["standard", "enhanced"] },
+  sensitive_record_count: COUNT_SCHEMA,
+  sensitive_byte_count: COUNT_SCHEMA,
+  omission_reason: { enum: ["outside_scope", "missing_graph_context"] },
+};
+
 const RECORD_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object",
@@ -310,10 +454,23 @@ const RECORD_SCHEMA = {
     parent_span_id: { type: "string", maxLength: 64 },
     duration_ms: { type: "number", minimum: 0 },
     outcome: { enum: ["ok", "error", "cancelled"] },
-    attributes: { type: "object" },
+    attributes: {
+      type: "object",
+      additionalProperties: false,
+      properties: ATTRIBUTE_PROPERTIES,
+    },
     annotation: { type: "string", maxLength: 4_000 },
   },
 };
+
+function validateRecordContract(records: readonly DiagnosticRecord[]): void {
+  const allowed = new Set(Object.keys(ATTRIBUTE_PROPERTIES));
+  for (const record of records) {
+    for (const key of Object.keys(record.attributes)) {
+      if (!allowed.has(key)) throw new Error(`unsupported diagnostic attribute: ${key}`);
+    }
+  }
+}
 
 const SENSITIVE_RECORD_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -323,6 +480,7 @@ const SENSITIVE_RECORD_SCHEMA = {
     schema_version: { const: 1 },
     payload_id: { type: "string", maxLength: 64 },
     monotonic_ms: { type: "number", minimum: 0 },
+    action_id: { type: "string", maxLength: 64 },
     kind: { enum: ["command", "query", "page_snapshot", "tag_snapshot", "graph_snapshot"] },
   },
 };

@@ -16,6 +16,7 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
         lib = pkgs.lib;
+        sourceBuildId = self.shortRev or (self.dirtyShortRev or "nix-source");
 
         rustToolchain = pkgs.rust-bin.stable.latest.minimal.override {
           extensions = [ "clippy" "rustfmt" ];
@@ -175,6 +176,7 @@
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {
           inherit src pnpmDeps;
+          NEOSEQ_BUILD_ID = sourceBuildId;
           pnpmWorkspaces = [ "@neoseq/client" ];
           nativeBuildInputs = nodeInputs;
         };

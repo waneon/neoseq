@@ -8,6 +8,8 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
+import { diagnostics } from "../../diagnostics/coordinator";
+import type { DiagnosticInputMethod } from "../../diagnostics/types";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 const RUN_DEBOUNCE_MS = 300;
@@ -27,16 +29,36 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   useEffect(() => setDraft(source ?? ""), [source]);
 
-  const run = () => {
+  const run = (inputMethod: DiagnosticInputMethod = "automatic") => {
     const current = ++generation.current;
+    const action = diagnostics.startAction({
+      feature: "query",
+      action: "run_query",
+      input_method: inputMethod,
+    });
+    diagnostics.recordCheckpointLazy(action, "before", () => ({
+      feature: "query",
+      result_kind: result?.kind ?? "none",
+      result_revision: result?.revision,
+    }));
     setLoading(true);
     setError(null);
     void session
-      .query({ language: LANGUAGE, source: draft, bindings: {} })
+      .query({ language: LANGUAGE, source: draft, bindings: {} }, action)
       .then((next) => {
-        if (current === generation.current) setResult(next);
+        const stale = current !== generation.current;
+        diagnostics.recordCheckpointLazy(action, "after", () => ({
+          feature: "query",
+          result_kind: next.kind,
+          result_row_count: next.kind === "select" ? next.rows.length : 1,
+          result_column_count: next.kind === "select" ? next.variables.length : 1,
+          result_revision: next.revision,
+          stale_result: stale,
+        }));
+        if (!stale) setResult(next);
       })
       .catch((cause) => {
+        diagnostics.recordCheckpointLazy(action, "failed", () => ({ feature: "query" }));
         if (current === generation.current) {
           setResult(null);
           setError(failureReason(cause, message));
@@ -97,7 +119,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
           type="button"
           variant="ghost"
           size="icon"
-          onClick={run}
+          onClick={() => run("pointer")}
           aria-label={message("query.run")}
           disabled={loading}
         >
@@ -115,7 +137,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
-            run();
+            run("keyboard");
           }
         }}
       />

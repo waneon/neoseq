@@ -22,6 +22,7 @@ import type { GraphSnapshot, GraphSummary, PageSnapshot } from "./snapshot";
 import { EMPTY_SNAPSHOT, mergePage, mergeSummary } from "./snapshot";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 import { diagnostics } from "../diagnostics/coordinator";
+import type { DiagnosticActionContext } from "../diagnostics/types";
 
 const COMMAND_TIMEOUT_MS = 10_000;
 
@@ -114,7 +115,12 @@ export class GraphSession {
         capabilities: opened.capabilities,
         recovery: opened.recovery,
       });
-      span.end("ok");
+      span.end("ok", {
+        lease_mode: this.lease.mode,
+        checkpoint_sequence: opened.recovery.checkpoint_sequence,
+        replayed_update_count: opened.recovery.replayed_updates,
+        quarantined_count: opened.recovery.quarantined_records.length,
+      });
     } catch (error) {
       span.fail(error);
       if (!this.closeRequested) {
@@ -129,10 +135,13 @@ export class GraphSession {
    * Executes a domain command. Commands are serialized; the returned promise
    * resolves after the authoritative summary/page state has been reconciled.
    */
-  execute(command: Command): Promise<CommandResult> {
+  execute(
+    command: Command,
+    action?: DiagnosticActionContext | null,
+  ): Promise<CommandResult> {
     this.pendingCommandCount += 1;
-    diagnostics.recordCommand(command);
-    const run = this.queue.then(() => this.executeNow(command));
+    const diagnosticAction = diagnostics.recordCommand(command, action);
+    const run = this.queue.then(() => this.executeNow(command, diagnosticAction));
     const tracked = run.finally(() => {
       this.pendingCommandCount = Math.max(0, this.pendingCommandCount - 1);
       this.recordDiagnosticState();
@@ -157,10 +166,13 @@ export class GraphSession {
   }
 
   /** Executes against the published derived index after prior mutations settle. */
-  query(query: SparqlQueryRequest): Promise<SparqlQueryResult> {
-    diagnostics.recordQuery(query);
+  query(
+    query: SparqlQueryRequest,
+    action?: DiagnosticActionContext | null,
+  ): Promise<SparqlQueryResult> {
+    const diagnosticAction = diagnostics.recordQuery(query, action);
     return this.queue.then(async () => {
-      const span = diagnostics.startSpan("session", "session.query");
+      const span = diagnostics.startSpan("session", "session.query", {}, diagnosticAction);
       if (this.state.status !== "ready") {
         const error = new CorePortFailure({
           code: "graph_not_open",
@@ -173,7 +185,12 @@ export class GraphSession {
       try {
         const response = await diagnostics.withContext(span.context, () =>
           this.port.query({ graph_handle: this.handle, query }));
-        span.end("ok", { result_kind: response.result.kind });
+        span.end("ok", {
+          result_kind: response.result.kind,
+          result_row_count: response.result.kind === "select" ? response.result.rows.length : 1,
+          result_column_count: response.result.kind === "select" ? response.result.variables.length : 1,
+          result_revision: response.result.revision,
+        });
         return response.result;
       } catch (error) {
         span.fail(error);
@@ -203,10 +220,13 @@ export class GraphSession {
     span.end("ok");
   }
 
-  private async executeNow(command: Command): Promise<CommandResult> {
+  private async executeNow(
+    command: Command,
+    action: DiagnosticActionContext | null,
+  ): Promise<CommandResult> {
     const span = diagnostics.startSpan("session", "session.execute", {
       command_type: command.type,
-    });
+    }, action);
     if (this.state.status !== "ready") {
       const error = new CorePortFailure({ code: "graph_not_open", message: "graph is not open", retryable: false });
       span.fail(error);
@@ -312,13 +332,22 @@ export class GraphSession {
     refreshHydrated = false,
   ): Promise<void> {
     const span = diagnostics.startSpan("session", "session.reconcile");
+    const cursorBefore = this.cursor;
+    let eventCount = 0;
+    let resyncRequired = false;
+    let reconcileFallback = false;
+    let pageReadCount = 0;
     try {
       try {
         const batch = await diagnostics.withContext(span.context, () =>
           this.port.subscribe({ graph_handle: this.handle, after_cursor: this.cursor }));
+        eventCount = batch.events.length;
+        resyncRequired = batch.resync_required;
+        reconcileFallback = batch.resync_required;
         this.cursor = batch.next_cursor;
       } catch {
         // A failed event poll falls through to the full re-read below.
+        reconcileFallback = true;
       }
       const read = await diagnostics.withContext(span.context, () =>
         this.port.read({ graph_handle: this.handle }));
@@ -333,6 +362,7 @@ export class GraphSession {
         const response = await diagnostics.withContext(span.context, () =>
           this.port.readPage({ graph_handle: this.handle, page_id: id }));
         snapshot = mergePage(snapshot, response.page as PageSnapshot);
+        pageReadCount += 1;
       }
       const pageIds = new Set(snapshot.pages.map((page) => page.id));
       const hydratedPages = new Set(
@@ -342,7 +372,14 @@ export class GraphSession {
         if (pageIds.has(id)) hydratedPages.add(id);
       }
       this.patch({ snapshot, hydratedPages, save, revision: this.state.revision + 1 });
-      span.end("ok");
+      span.end("ok", {
+        event_count: eventCount,
+        page_read_count: pageReadCount,
+        cursor_before: cursorBefore,
+        cursor_after: this.cursor,
+        resync_required: resyncRequired,
+        reconcile_fallback: reconcileFallback,
+      });
     } catch (error) {
       span.fail(error);
       throw error;

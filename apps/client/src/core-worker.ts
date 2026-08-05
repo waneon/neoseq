@@ -31,6 +31,19 @@ export interface SavedReceipt {
   checksum: string;
 }
 
+export type WorkerOperation =
+  | "open_graph"
+  | "execute"
+  | "read"
+  | "read_page"
+  | "query"
+  | "subscribe"
+  | "close_graph"
+  | "retry_pending"
+  | "list_graphs"
+  | "delete_graph"
+  | "test_control";
+
 interface WorkerResponse {
   id: number;
   ok: boolean;
@@ -95,7 +108,7 @@ export class CoreWorker implements CorePort {
     this.worker.terminate();
   }
 
-  protected request<T>(operation: string, payload: unknown): Promise<T> {
+  protected request<T>(operation: WorkerOperation, payload: unknown): Promise<T> {
     const id = this.nextId++;
     const diagnosticOperation = adapterOperation(operation);
     const span = diagnosticOperation
@@ -138,18 +151,21 @@ export class CoreWorker implements CorePort {
   }
 }
 
-function adapterOperation(operation: string): DiagnosticOperation | null {
-  const operations: Record<string, DiagnosticOperation> = {
-    open_graph: "adapter.open_graph",
-    execute: "adapter.execute",
-    read: "adapter.read",
-    read_page: "adapter.read_page",
-    query: "adapter.query",
-    subscribe: "adapter.subscribe",
-    close_graph: "adapter.close_graph",
-    retry_pending: "adapter.retry_pending",
-    list_graphs: "adapter.list_graphs",
-    delete_graph: "adapter.delete_graph",
-  };
-  return operations[operation] ?? null;
+function adapterOperation(operation: WorkerOperation): DiagnosticOperation | null {
+  return DIAGNOSTIC_OPERATION_BY_WORKER_OPERATION[operation];
 }
+
+const DIAGNOSTIC_OPERATION_BY_WORKER_OPERATION = {
+  open_graph: "adapter.open_graph",
+  execute: "adapter.execute",
+  read: "adapter.read",
+  read_page: "adapter.read_page",
+  query: "adapter.query",
+  subscribe: "adapter.subscribe",
+  close_graph: "adapter.close_graph",
+  retry_pending: "adapter.retry_pending",
+  list_graphs: "adapter.list_graphs",
+  delete_graph: "adapter.delete_graph",
+  // Verification-only traffic is deliberately excluded from product artifacts.
+  test_control: null,
+} as const satisfies Record<WorkerOperation, DiagnosticOperation | null>;
