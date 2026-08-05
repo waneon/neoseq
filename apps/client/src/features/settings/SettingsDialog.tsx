@@ -27,6 +27,8 @@ import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
 import { NativeSelect } from "@/ui/shadcn/native-select";
+import { Button } from "@/ui/shadcn/button";
+import { useDiagnostics, useDiagnosticsState } from "../diagnostics/context";
 import { useNotify } from "../notify/context";
 import { useSessionState } from "../shell/session-context";
 import { ShortcutEditor } from "./ShortcutEditor";
@@ -123,7 +125,7 @@ export function SettingsDialog({
           {section === "language" && <LanguageSection />}
           {section === "journal" && <JournalSection />}
           {section === "keyboard" && <ShortcutEditor />}
-          {section === "storage" && <StorageSection />}
+          {section === "storage" && <StorageSection onClose={onClose} />}
           {section === "graph" && <GraphSection graphId={graphId} />}
           {section === "danger" && <DangerSection graphId={graphId} onClose={onClose} />}
         </div>
@@ -284,9 +286,11 @@ function JournalSection() {
  * permission and the origin's usage are the same numbers whichever graph is
  * open, which is why they sit in the application scope.
  */
-function StorageSection() {
+function StorageSection({ onClose }: { onClose: () => void }) {
   const state = useSessionState();
   const notify = useNotify();
+  const diagnostics = useDiagnostics();
+  const diagnosticsState = useDiagnosticsState();
   const { message, formatBytes } = useI18n();
   const [persisted, setPersisted] = useState<boolean | null>(
     state.capabilities?.persisted ?? null,
@@ -349,6 +353,43 @@ function StorageSection() {
       )}
       <details className="settings-details">
         <summary>{message("settings.diagnostics")}</summary>
+        <p className="settings-detail-description">
+          {message("diagnostics.settingsDescription")}
+        </p>
+        <div className="settings-diagnostic-actions">
+          {diagnosticsState.phase === "recording" ? (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                onClose();
+                void diagnostics.stop();
+              }}
+            >
+              {message("diagnostics.stopAndReview")}
+            </Button>
+          ) : diagnosticsState.phase === "review" ? (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                onClose();
+                diagnostics.showReview();
+              }}
+            >
+              {message("diagnostics.review")}
+            </Button>
+          ) : (
+            <Button
+              disabled={diagnosticsState.phase !== "idle"}
+              onClick={() => {
+                onClose();
+                diagnostics.requestStart();
+              }}
+              data-testid="settings-start-diagnostics"
+            >
+              {message("diagnostics.start")}
+            </Button>
+          )}
+        </div>
         <dl className="settings-grid">
           <dt>{message("settings.backend")}</dt>
           <dd>{capabilities?.durable ? "IndexedDB" : message("common.unavailable")}</dd>

@@ -150,21 +150,18 @@ harness.
 
 ## Failure Reporting
 
-`features/notify/` owns one toast queue, provided above the router so reports survive
-navigation and reach the shell-less graph picker; consumers take a `Notifier` from context
-whose default is a no-op, so a feature still mounts bare in a test.
-**Every rejected command is reported through this one layer** — structural
-key, rename, autocomplete pick, page restore, task field, query source, graph search
-alike: one surface, one copy contract, one place to look. The exclusions are narrow:
-durability is enforced in code (`dirty_unsaved` and `storage_full` belong to the save
-slot, so the notifier returns `null`), *validation* stays beside its field because "what
-you typed cannot be a value" is a fact about that input, and query diagnostics stay in the
-query block because they are its output.
+`features/notify/` owns one toast queue above the router, so reports survive navigation
+and reach the shell-less picker; a default no-op `Notifier` lets features mount bare in
+tests. **Every rejected command is reported through this one layer** — structural key,
+rename, autocomplete pick, page restore, task field, query source, graph search alike:
+one surface, one copy contract, one place to look. The narrow exclusions are durability
+(`dirty_unsaved` and `storage_full` stay in the save slot), field validation, and query
+diagnostics, which remain beside the input or query block that owns them.
 
-Every report expires and shows how much of its window is left, and the countdown pauses
-while the user is looking at it. `errors.ts` maps stable `CorePortError` codes and known
-safe diagnostics to localized title/detail message IDs; raw codes and unknown diagnostics
-stay off screen.
+Every report expires with a countdown that pauses while the user is looking at it. `errors.ts`
+maps safe, stable errors to localized messages; raw diagnostics stay off screen.
+
+`features/diagnostics/` preserves bounded, user-started evidence without expanding `CorePort`; [diagnostics.md](diagnostics.md) owns its artifact and privacy contract.
 
 ## Navigation and Journals
 
@@ -226,7 +223,7 @@ equivalents without changing command semantics.
 
 ```text
 app/             composition, routing, lifecycle
-features/        editor and property-driven journal/query/task/graph views
+features/        editor and property-driven journal/query/task/graph/diagnostic views
 features/commands/  the command layer: registry, bindings, arbitration, palette, sheet
 features/notify/    the notification layer: toast queue, failure copy, viewport
 features/settings/  the two-scope settings dialog and the shortcut editor

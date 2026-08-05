@@ -64,6 +64,14 @@ nix run .#test-query-differential
 nix run .#test-query-budget
 ```
 
+Inspect a user-provided diagnostic artifact without importing its graph data or
+writing outside the terminal:
+
+```sh
+pnpm diagnostics:inspect -- report.neoseq-bug
+pnpm diagnostics:inspect -- report.neoseq-bug --json
+```
+
 For another crate or a single Rust test, run Cargo in the development shell:
 
 ```sh

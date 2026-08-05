@@ -35,6 +35,12 @@ Source revision and toolchain manifests are release provenance, not runtime
 inputs. They are deliberately absent at Step 5 so a metadata-only change cannot
 rebuild Wasm and every downstream Web artifact.
 
+The Web diagnostic recorder consumes the application version and
+`NEOSEQ_BUILD_ID` injected by Vite without linking VCS metadata into Wasm.
+Development builds use an explicit `development` identity. Independent Web and
+core asset hashes remain a release-provenance extension; adding them must not
+invalidate the core or dependency derivations.
+
 ## Flake Outputs
 
 - `packages.web`: the production static application;

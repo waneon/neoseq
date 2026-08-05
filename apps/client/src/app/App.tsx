@@ -6,6 +6,7 @@ import { GraphPicker } from "../features/graphs/GraphPicker";
 import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
 import { PageView } from "../features/page/PageView";
+import { DiagnosticsProvider } from "../features/diagnostics/context";
 
 /**
  * Settings is a dialog over whatever you were reading, not a place you navigate
@@ -43,7 +44,9 @@ export default function App() {
   return (
     <LocaleProvider>
       <NotifyProvider>
-        <RouterProvider router={router} />
+        <DiagnosticsProvider>
+          <RouterProvider router={router} />
+        </DiagnosticsProvider>
       </NotifyProvider>
     </LocaleProvider>
   );

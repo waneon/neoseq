@@ -41,6 +41,9 @@ architecture for later steps and are not current build artifacts.
   must never delete user data.
 - Extensible metadata must use one property model; identity and relationships
   such as containment and tag membership remain explicit structural data.
+- A user must be able to capture bounded, local diagnostic evidence for a human
+  or coding agent without enabling telemetry or disclosing note content by
+  default.
 
 ## System Context
 
@@ -85,6 +88,10 @@ agent.
   as a normal query path, select another graph, or call the server.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
+- `diagnostics` is a local, opt-in observation plane across UI, adapter, core,
+  query, and persistence boundaries. Its typed allowlist, redaction, temporary
+  store, and artifact writer do not alter graph state or use `CorePort` as a
+  logging API.
 - `app-ui` owns editing interaction, block selection, navigation, the command
   layer, failure reporting, browser-local preferences, localization, and
   responsive presentation. It does not hold canonical graph state, and the
@@ -103,6 +110,7 @@ Detailed contracts are in:
 - [Query engine](architectures/query.md)
 - [Client applications](architectures/clients.md)
 - [Internationalization](architectures/i18n.md)
+- [Diagnostic recording and bug artifacts](architectures/diagnostics.md)
 - [Design language and UI contract](DESIGN.md)
 - [Remote synchronization server](architectures/server.md)
 - [Build, delivery, and verification](architectures/build.md)
@@ -201,6 +209,10 @@ step 3 succeeds. Network failure never blocks local editing.
 ## Security and Privacy Boundaries
 
 - Local-only graphs never contact the sync service.
+- Diagnostic recording is explicitly started, locally bounded, and never
+  uploaded by the application. Standard artifacts exclude note content and
+  stable graph/entity identifiers; a future content-bearing graph snapshot
+  would require a separate export confirmation.
 - Remote endpoints require TLS and authenticated graph membership. Authorization
   metadata is server state, not CRDT state, so clients cannot grant themselves
   access by editing a graph.
@@ -254,5 +266,8 @@ transport types only and will not expose server persistence models.
 - RDF vocabulary/projection, query-profile, and text-analyzer changes are
   versioned independently from the CRDT schema. Cached indexes from any
   mismatched version are rebuilt from Loro rather than migrated as user data.
+- Diagnostic artifact schema and capture policy are versioned independently
+  from product contracts; new captured fields require privacy review and
+  compatibility fixtures.
 - Architecture-affecting code changes update this document and the relevant
   component document in the same change.

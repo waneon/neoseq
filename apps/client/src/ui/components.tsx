@@ -12,12 +12,14 @@ export function Dialog({
   title,
   onClose,
   size = "default",
+  dismissible = true,
   children,
 }: {
   title: string;
   onClose: () => void;
   /** `settings` is the two-pane dialog: wider, and it owns its own scrolling. */
   size?: "default" | "wide" | "settings";
+  dismissible?: boolean;
   children: ReactNode;
 }) {
   const { message } = useI18n();
@@ -28,10 +30,17 @@ export function Dialog({
     <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
         closeLabel={message("common.close")}
+        showCloseButton={dismissible}
         className={cn(
           size === "wide" && "max-w-[720px]",
           size === "settings" && "max-w-[820px]",
         )}
+        onEscapeKeyDown={(event) => {
+          if (!dismissible) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (!dismissible) event.preventDefault();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}

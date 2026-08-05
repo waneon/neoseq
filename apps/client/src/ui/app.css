@@ -847,6 +847,26 @@ h2 {
   height: 12px;
 }
 
+.diagnostic-recording-status {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.diagnostic-recording-status time {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.diagnostic-recording-dot {
+  display: inline-block;
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--danger);
+}
+
 .shell-content {
   display: flex;
   flex-direction: column;
@@ -2068,6 +2088,13 @@ h2 {
   background: var(--canvas);
 }
 
+.picker-recording-status {
+  position: fixed;
+  z-index: 20;
+  top: var(--sp-3);
+  right: var(--gutter);
+}
+
 .picker-inner {
   width: min(560px, 100%);
 }
@@ -2404,8 +2431,143 @@ h2 {
   color: var(--ink-2);
 }
 
+.settings-detail-description {
+  max-width: 60ch;
+  margin: 0 0 var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.settings-diagnostic-actions {
+  display: flex;
+  margin-bottom: var(--sp-4);
+}
+
 .settings-danger h2 {
   color: var(--danger);
+}
+
+/* Diagnostic recording is an explicit privacy state. Its one persistent mark
+   is the same 5px deviation dot used by durability, not a new badge language. */
+.diagnostic-disclosure {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-4);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+}
+
+.diagnostic-disclosure h3,
+.diagnostic-disclosure p {
+  margin: 0;
+}
+
+.diagnostic-disclosure h3 {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: 500;
+}
+
+.diagnostic-disclosure p {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.diagnostic-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin: 0;
+}
+
+.diagnostic-summary > div {
+  min-width: 0;
+}
+
+.diagnostic-summary dt {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: 500;
+}
+
+.diagnostic-summary dd {
+  margin: var(--sp-0) 0 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.diagnostic-content-policy {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+}
+
+.diagnostic-content-policy p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.diagnostic-note-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: 500;
+}
+
+.diagnostic-note-field textarea {
+  min-height: 88px;
+  resize: vertical;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  box-shadow: var(--e1);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: 400;
+}
+
+.diagnostic-note-field small {
+  color: var(--ink-3);
+  font: inherit;
+  font-weight: 400;
+}
+
+.diagnostic-review-actions > :first-child {
+  margin-right: auto;
+}
+
+@media (max-width: 600px) {
+  .diagnostic-recording-status > span:not(.diagnostic-recording-dot) {
+    display: none;
+  }
+
+  .diagnostic-disclosure,
+  .diagnostic-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .diagnostic-review-actions > :first-child {
+    margin-right: 0;
+  }
 }
 
 .segmented {

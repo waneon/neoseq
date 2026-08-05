@@ -580,6 +580,7 @@ permanently visible.**
 | Page list + `＋` | Rail | Navigation, and the only pointer route to a new page |
 | `Settings` | Rail footer | Workspace-level, deliberately away from daily use |
 | Save slot | Top bar | **Renders nothing when saved.** Present only on deviation |
+| Diagnostic recording | Top bar; picker upper-right | **Renders only while recording.** Privacy-sensitive state must remain visible |
 | Read-only label | Top bar | Only in read-only mode |
 | Bullet | Every outline row | The block's own handle: caret, drag, and its menu |
 | `Today` pill | Journal title row | Only when the date is not today |
@@ -946,6 +947,17 @@ The element stays mounted with its `data-save` attribute in every state. A trans
 toast would be wrong here: durability is ambient, and it is also the thing tests wait on.
 The notification layer knows this and **stays silent on `dirty_unsaved` and
 `storage_full`**, so one failure is never reported by two surfaces at once.
+
+### Diagnostic recorder
+
+Diagnostic recording is summoned from the command palette or Settings. Before
+capture begins, a modal names what is and is not recorded. While active, the top
+bar shows one 5px `--danger` dot, `Recording`, and a tabular elapsed time; the
+whole status is a button that stops and opens review. Below 600px the word hides,
+but the dot and elapsed time remain. Review uses a wide dialog with a four-value
+summary, the standard content-exclusion statement, an optional user annotation,
+and Save/Discard actions. It never introduces a bordered status pill or a second
+accent colour, and nothing is uploaded by the application.
 
 ### Toasts
 

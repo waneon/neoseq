@@ -17,6 +17,7 @@ import {
 } from "react-router";
 import {
   CalendarDaysIcon,
+  BugIcon,
   ChevronsUpDownIcon,
   FileTextIcon,
   InfoIcon,
@@ -83,6 +84,9 @@ import {
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
 import { useI18n, type MessageFunction } from "../../i18n";
+import { useDiagnostics, useDiagnosticsState } from "../diagnostics/context";
+import { RecordingStatus } from "../diagnostics/RecordingStatus";
+import type { DiagnosticsPhase } from "../../diagnostics/types";
 
 declare global {
   interface Window {
@@ -169,6 +173,8 @@ function ShellBody({
   const notify = useNotify();
   const { message, locale, formatJournalDate, compare } = useI18n();
   const bindings = useShortcutBindings();
+  const diagnostics = useDiagnostics();
+  const diagnosticsState = useDiagnosticsState();
   // Renaming happens in the settings dialog, which sits over this rail; both have
   // to say the same thing while they are on screen together.
   const name = useSyncExternalStore(
@@ -400,6 +406,19 @@ function ShellBody({
     setScrolled(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    const path = location.pathname;
+    diagnostics.recordRoute(
+      settingsSection
+        ? "settings"
+        : path.includes("/journal")
+          ? "journal"
+          : path.includes("/p/")
+            ? "page"
+            : "other",
+    );
+  }, [diagnostics, location.pathname, settingsSection]);
+
   const today = todayLocalDate();
 
   // Query-dependent rows: a date the user typed, and — when nothing matches — a
@@ -488,6 +507,9 @@ SELECT ?entity ?content ?page WHERE {
   if (state.status === "error") {
     return (
       <main className="picker">
+        <div className="picker-recording-status">
+          <RecordingStatus />
+        </div>
         <div className="picker-inner">
           <div className="tombstone" data-testid="graph-error">
             <h1>{message("graph.loadError")}</h1>
@@ -533,6 +555,10 @@ SELECT ?entity ?content ?page WHERE {
     message,
     formatJournalDate,
     bindings,
+    diagnosticsPhase: diagnosticsState.phase,
+    requestDiagnostics: () => diagnostics.requestStart(),
+    stopDiagnostics: () => void diagnostics.stop(),
+    reviewDiagnostics: () => diagnostics.showReview(),
   });
 
   return (
@@ -647,10 +673,11 @@ SELECT ?entity ?content ?page WHERE {
             <span className="topbar-title" aria-hidden>
               {contextTitle}
             </span>
-            {/* What is left here is state, not verbs: durability and the
-                read-only lease. Both render nothing when there is nothing to
-                say, so the bar above the writing is usually empty. */}
+            {/* What is left here is state, not verbs: durability, the read-only
+                lease, and active diagnostic recording. Each renders nothing
+                when there is nothing to say. */}
             <div className="topbar-right">
+              <RecordingStatus />
               <SaveStatus state={state} onRetry={() => void session.retry()} />
               {readonly && (
                 <span className="readonly-label" data-testid="readonly-pill">
@@ -782,6 +809,10 @@ interface CommandInputs {
   message: MessageFunction;
   formatJournalDate: (date: string) => string;
   bindings: Record<ShortcutId, Binding>;
+  diagnosticsPhase: DiagnosticsPhase;
+  requestDiagnostics: () => void;
+  stopDiagnostics: () => void;
+  reviewDiagnostics: () => void;
 }
 
 /**
@@ -835,6 +866,10 @@ function buildCommands(input: CommandInputs): Command[] {
     message,
     formatJournalDate,
     bindings,
+    diagnosticsPhase,
+    requestDiagnostics,
+    stopDiagnostics,
+    reviewDiagnostics,
   } = input;
   const blocked = readonly ? message("commands.readonlyReason") : null;
   const commands: Command[] = [];
@@ -1009,6 +1044,26 @@ function buildCommands(input: CommandInputs): Command[] {
       pointerRoute: message("shortcuts.customiseRoute"),
       run: () => bridge.openShortcuts(),
     },
+    {
+      id: "diagnostics",
+      group: "App",
+      label: diagnosticsPhase === "recording"
+        ? message("diagnostics.stopAndReview")
+        : diagnosticsPhase === "review"
+          ? message("diagnostics.review")
+          : message("diagnostics.start"),
+      keywords: ["bug", "performance", "trace", "report"],
+      icon: <BugIcon aria-hidden />,
+      disabledReason: diagnosticsPhase === "consent" || diagnosticsPhase === "finalizing"
+        ? message("diagnostics.preparing")
+        : null,
+      pointerRoute: message("diagnostics.pointerRoute"),
+      run: diagnosticsPhase === "recording"
+        ? stopDiagnostics
+        : diagnosticsPhase === "review"
+          ? reviewDiagnostics
+          : requestDiagnostics,
+    },
   );
 
   return commands;
@@ -1027,11 +1082,19 @@ function ShellLoading() {
     return () => clearTimeout(timer);
   }, []);
 
-  if (!show) return <div className="shell-loading" aria-busy="true" />;
   return (
-    <div className="shell-loading" role="status" aria-busy="true">
-      <Loader2Icon className="spinner" aria-hidden />
-      <p>{message("graph.loading")}</p>
-    </div>
+    <>
+      <div className="picker-recording-status">
+        <RecordingStatus />
+      </div>
+      <div className="shell-loading" role="status" aria-busy="true">
+        {show && (
+          <>
+          <Loader2Icon className="spinner" aria-hidden />
+          <p>{message("graph.loading")}</p>
+          </>
+        )}
+      </div>
+    </>
   );
 }
