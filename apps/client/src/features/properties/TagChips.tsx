@@ -9,11 +9,13 @@
 import { XIcon } from "lucide-react";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findTag } from "../../core-port/snapshot";
+import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 
 export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   return (
     <>
       {block.tags.map((tagId) => {
@@ -39,7 +41,11 @@ export function TagChips({ pageId, block }: { pageId: string; block: BlockSnapsh
                       entity: { kind: "block", page_id: pageId, id: block.id },
                       tag_id: tagId,
                     })
-                    .catch(() => undefined)
+                    .catch((error: unknown) => {
+                      // The chip stays put on failure, which on its own reads
+                      // as a click that did not register.
+                      notify.failure(`Couldn’t remove #${label}`, error);
+                    })
                 }
               >
                 <XIcon className="size-3" aria-hidden />

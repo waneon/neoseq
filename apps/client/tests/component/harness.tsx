@@ -9,6 +9,7 @@ import {
   FakeCorePort,
   openFakeSession,
 } from "../../src/core-port/testing/fake-core-port";
+import { NotifyProvider } from "../../src/features/notify/context";
 import { SessionContext } from "../../src/features/shell/session-context";
 import { JournalView } from "../../src/features/journal/JournalView";
 import { PageView } from "../../src/features/page/PageView";
@@ -46,7 +47,13 @@ export async function mountAt(
     ],
     { initialEntries: [initialPath] },
   );
-  const view = render(<RouterProvider router={router} />);
+  // The notification layer wraps the router in the real app too, so a failure
+  // raised by a routed view has the same surface here as in production.
+  const view = render(
+    <NotifyProvider>
+      <RouterProvider router={router} />
+    </NotifyProvider>,
+  );
   return { session, port, view };
 }
 

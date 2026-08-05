@@ -10,6 +10,7 @@ import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
 import { NativeSelect } from "@/ui/shadcn/native-select";
+import { useNotify } from "../notify/context";
 import { useSessionState } from "../shell/session-context";
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -22,6 +23,7 @@ export function SettingsView() {
   const { graphId = "" } = useParams();
   const navigate = useNavigate();
   const state = useSessionState();
+  const notify = useNotify();
   const [theme, setThemeState] = useState<Theme>(storedTheme);
   const [timezone, setTimezone] = useState(configuredTimezone);
   const [name, setName] = useState(() => graphName(graphId));
@@ -52,16 +54,40 @@ export function SettingsView() {
   const formatBytes = (bytes: number | null | undefined) =>
     typeof bytes === "number" ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : "unknown";
 
+  // A blocked clipboard costs the shortcut, not the value: the id stays on
+  // screen and selectable. The button going nowhere still needs explaining.
   const copyGraphId = () => {
     try {
       void navigator.clipboard
         ?.writeText(graphId)
         .then(() => setCopied(true))
-        .catch(() => undefined);
-    } catch {
-      // A blocked clipboard costs the shortcut, not the value: the id stays on
-      // screen and selectable.
+        .catch((error: unknown) => {
+          notify.failure("Couldn’t copy the graph id", error);
+        });
+    } catch (error) {
+      notify.failure("Couldn’t copy the graph id", error);
     }
+  };
+
+  // `persist()` resolves `false` when the browser declines, which changes
+  // nothing on screen — the callout that prompted the request just stays put.
+  const requestPersistence = () => {
+    void navigator.storage
+      ?.persist?.()
+      .then((granted) => {
+        setPersisted(granted);
+        if (granted) return;
+        notify.show({
+          tone: "danger",
+          key: "persist-declined",
+          title: "The browser declined persistent storage",
+          detail:
+            "This graph can still be evicted under storage pressure. Adding NeoSeq to your home screen or bookmarks usually earns the permission.",
+        });
+      })
+      .catch((error: unknown) => {
+        notify.failure("Couldn’t request persistent storage", error);
+      });
   };
 
   return (
@@ -148,13 +174,7 @@ export function SettingsView() {
           {persisted === false && (
             <Callout>
               The browser may evict this graph under storage pressure.
-              <button
-                type="button"
-                className="btn"
-                onClick={() =>
-                  void navigator.storage?.persist?.().then((granted) => setPersisted(granted))
-                }
-              >
+              <button type="button" className="btn" onClick={requestPersistence}>
                 Request persistent storage
               </button>
             </Callout>

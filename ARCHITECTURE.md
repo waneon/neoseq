@@ -82,10 +82,10 @@ agent.
   as a normal query path, select another graph, or call the server.
 - `platform` owns native/WebAssembly bindings plus persistence and transport
   adapters. It contains no domain decisions.
-- `app-ui` owns editing interaction, navigation, the command layer, and
-  responsive presentation. It does not hold canonical graph state. Its visual
-  contract — tokens, disclosure rules, motion constraints, and the committed
-  contrast table — is [`DESIGN.md`](DESIGN.md).
+- `app-ui` owns editing interaction, navigation, the command layer, failure
+  reporting, and responsive presentation. It does not hold canonical graph
+  state. Its visual contract — tokens, disclosure rules, motion constraints, and
+  the committed contrast table — is [`DESIGN.md`](DESIGN.md).
 - The future `sync-server` owns authentication boundaries, graph authorization, durable
   update relay, and compaction. It does not interpret notes or execute queries.
 

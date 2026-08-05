@@ -3,7 +3,7 @@
 // by its journal.date property, so identity stays with the core (deterministic
 // PageId), not with the client.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { findJournalPage } from "../../core-port/snapshot";
@@ -13,6 +13,7 @@ import {
   todayLocalDate,
 } from "../../entities/journal";
 import { isValidLocalDate } from "../../entities/properties";
+import { useNotify } from "../notify/context";
 import { PageBody, Tombstone } from "../page/PageView";
 import { useSession, useSessionState } from "../shell/session-context";
 
@@ -21,6 +22,7 @@ export function JournalView() {
   const navigate = useNavigate();
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const [today] = useState(todayLocalDate);
   const date = routeDate ?? today;
   const ensured = useRef<string | null>(null);
@@ -29,17 +31,31 @@ export function JournalView() {
   const valid = isValidLocalDate(date);
   const page = valid ? findJournalPage(state.snapshot, date) : undefined;
 
+  // Without a report this failure parks the view on "Preparing this journal
+  // day…" forever, with no way to tell a slow open from a dead one.
+  const ensure = useCallback<() => void>(() => {
+    ensured.current = date;
+    void session.execute({ type: "ensure_journal", date }).catch((error: unknown) => {
+      ensured.current = null;
+      notify.failure("Couldn’t open this journal day", error, {
+        label: "Try again",
+        run: ensure,
+      });
+    });
+  }, [date, notify, session]);
+
   useEffect(() => {
     if (!valid || state.status !== "ready" || state.mode === "readonly") return;
     if (page || ensured.current === date) return;
-    ensured.current = date;
-    void session.execute({ type: "ensure_journal", date }).catch(() => undefined);
-  }, [valid, state.status, state.mode, page, date, session]);
+    ensure();
+  }, [ensure, valid, state.status, state.mode, page, date]);
 
   useEffect(() => {
     if (!page || state.status !== "ready" || state.hydratedPages.has(page.id)) return;
-    void session.hydratePage(page.id).catch(() => undefined);
-  }, [page, session, state.hydratedPages, state.status]);
+    void session.hydratePage(page.id).catch((error: unknown) => {
+      notify.failure("Couldn’t load this journal day", error);
+    });
+  }, [notify, page, session, state.hydratedPages, state.status]);
 
   if (!valid) {
     return (

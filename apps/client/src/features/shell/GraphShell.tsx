@@ -49,6 +49,7 @@ import { CommandPalette } from "../commands/CommandPalette";
 import { ShortcutSheet } from "../commands/ShortcutSheet";
 import { parseDateQuery } from "../commands/dates";
 import { MOD, isTextEntry, matchGlobal, type KeyBinding } from "../commands/keys";
+import { useNotify, type Notifier } from "../notify/context";
 import type { RdfTerm } from "../../generated/core-port";
 import type { Command } from "../commands/registry";
 import { SessionContext } from "./session-context";
@@ -134,6 +135,7 @@ function ShellBody({
   const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
   const navigate = useNavigate();
   const location = useLocation();
+  const notify = useNotify();
   const name = useMemo(() => graphName(graphId), [graphId]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -148,6 +150,7 @@ function ShellBody({
   const [scrolled, setScrolled] = useState(false);
   const blockProperties = useRef<(() => void) | null>(null);
   const pageProperties = useRef<(() => void) | null>(null);
+  const readonlyAnnounced = useRef(false);
 
   const readonly = state.mode === "readonly";
 
@@ -159,12 +162,20 @@ function ShellBody({
     [state.snapshot],
   );
 
-  const createPage = useCallback(async () => {
-    const pageId = `p-${crypto.randomUUID()}`;
-    const title = nextAvailableEntityName("Untitled", pages.map(pageTitle));
-    await session.execute({ type: "ensure_page", page_id: pageId, title });
-    navigate(`/g/${graphId}/p/${pageId}`);
-  }, [graphId, navigate, pages, session]);
+  const createPage = useCallback(
+    async (title?: string) => {
+      const pageId = `p-${crypto.randomUUID()}`;
+      const pageName = title ?? nextAvailableEntityName("Untitled", pages.map(pageTitle));
+      try {
+        await session.execute({ type: "ensure_page", page_id: pageId, title: pageName });
+      } catch (error) {
+        notify.failure(`Couldn’t create “${pageName}”`, error);
+        return;
+      }
+      navigate(`/g/${graphId}/p/${pageId}`);
+    },
+    [graphId, navigate, notify, pages, session],
+  );
 
   const toggleRail = useCallback(() => {
     setRailCollapsed((collapsed) => {
@@ -205,11 +216,7 @@ function ShellBody({
   // exception and handles the document undo itself, because there its text edits
   // *are* the document.
   useEffect(() => {
-    const undo = (redo: boolean) => {
-      void session
-        .execute({ type: redo ? "redo" : "undo" })
-        .catch(() => undefined);
-    };
+    const undo = (redo: boolean) => void runHistory(session, notify, redo);
     const bindings: KeyBinding[] = [
       { key: "k", run: () => setPaletteOpen(true) },
       { key: "p", shift: true, run: () => bridge.requestProperties() },
@@ -237,7 +244,25 @@ function ShellBody({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, graphId, navigate, session, toggleRail]);
+  }, [bridge, graphId, navigate, notify, session, toggleRail]);
+
+  // Read-only is a state a second tab lands in without asking for it, and the
+  // 12px label beside the save slot is easy to miss when the first thing you do
+  // is start typing. Say it once, plainly, and leave it up until dismissed —
+  // the condition it describes does not expire on a timer either. Once really
+  // means once: a remount must not reopen a notice the user already closed.
+  useEffect(() => {
+    if (!readonly || readonlyAnnounced.current) return;
+    readonlyAnnounced.current = true;
+    notify.show({
+      tone: "info",
+      key: "readonly-lease",
+      duration: null,
+      title: "This graph is open in another tab",
+      detail:
+        "Editing is disabled here so the two tabs cannot overwrite each other. Close the other tab and reload to take over.",
+    });
+  }, [notify, readonly]);
 
   // The top bar earns its bottom edge and its condensed title only once the
   // content beneath has actually moved. `scroll` does not bubble, but it still
@@ -289,16 +314,12 @@ function ShellBody({
           label: `Create page “${query}”`,
           icon: <PlusIcon aria-hidden />,
           pointerRoute: "the ＋ beside Pages in the sidebar, then rename the page",
-          run: async () => {
-            const pageId = `p-${crypto.randomUUID()}`;
-            await session.execute({ type: "ensure_page", page_id: pageId, title: query });
-            navigate(`/g/${graphId}/p/${pageId}`);
-          },
+          run: () => createPage(query),
         });
       }
       return rows;
     },
-    [graphId, navigate, pages, readonly, session, today],
+    [createPage, graphId, navigate, pages, readonly, today],
   );
 
   const searchGraph = useCallback(
@@ -392,6 +413,7 @@ SELECT ?entity ?content ?page WHERE {
     createPage,
     onExit,
     session,
+    notify,
     bridge,
     toggleRail,
     railCollapsed,
@@ -508,7 +530,7 @@ SELECT ?entity ?content ?page WHERE {
                     aria-label="Undo"
                     aria-keyshortcuts="Meta+Z"
                     disabled={readonly}
-                    onClick={() => void session.execute({ type: "undo" }).catch(() => {})}
+                    onClick={() => void runHistory(session, notify, false)}
                     data-testid="undo"
                   >
                     <Undo2Icon aria-hidden />
@@ -523,7 +545,7 @@ SELECT ?entity ?content ?page WHERE {
                     aria-label="Redo"
                     aria-keyshortcuts="Meta+Shift+Z"
                     disabled={readonly}
-                    onClick={() => void session.execute({ type: "redo" }).catch(() => {})}
+                    onClick={() => void runHistory(session, notify, true)}
                     data-testid="redo"
                   >
                     <Redo2Icon aria-hidden />
@@ -644,12 +666,28 @@ interface CommandInputs {
   theme: Theme;
   railCollapsed: boolean;
   navigate: (to: string) => void;
-  createPage: () => Promise<void>;
+  createPage: (title?: string) => Promise<void>;
   onExit: () => void;
   session: GraphSession;
+  notify: Notifier;
   bridge: CommandBridge;
   toggleRail: () => void;
   applyTheme: (next: Theme) => void;
+}
+
+/**
+ * Undo and redo are the two verbs the interface offers with no visible result
+ * of their own when they fail: the graph simply does not move. Reporting is the
+ * only thing that separates "there was nothing to undo" from "the command was
+ * rejected", so neither path is allowed to swallow its error.
+ */
+function runHistory(session: GraphSession, notify: Notifier, redo: boolean): Promise<void> {
+  return session
+    .execute({ type: redo ? "redo" : "undo" })
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      notify.failure(redo ? "Couldn’t redo" : "Couldn’t undo", error);
+    });
 }
 
 const THEME_LABEL: Record<Theme, string> = {
@@ -675,6 +713,7 @@ function buildCommands(input: CommandInputs): Command[] {
     createPage,
     onExit,
     session,
+    notify,
     bridge,
     toggleRail,
     railCollapsed,
@@ -761,7 +800,7 @@ function buildCommands(input: CommandInputs): Command[] {
       icon: <Undo2Icon aria-hidden />,
       disabledReason: blocked,
       pointerRoute: "the undo arrow in the top bar",
-      run: () => void session.execute({ type: "undo" }).catch(() => undefined),
+      run: () => void runHistory(session, notify, false),
     },
     {
       id: "redo",
@@ -771,7 +810,7 @@ function buildCommands(input: CommandInputs): Command[] {
       icon: <Redo2Icon aria-hidden />,
       disabledReason: blocked,
       pointerRoute: "the redo arrow in the top bar",
-      run: () => void session.execute({ type: "redo" }).catch(() => undefined),
+      run: () => void runHistory(session, notify, true),
     },
   );
 

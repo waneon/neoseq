@@ -94,7 +94,8 @@ Text input follows this sequence:
 
 Structural commands such as indent, outdent, and move go directly to the core
 and render optimistically only when the inverse is known. A rejected command
-restores the authoritative subtree and retains focus where possible.
+restores the authoritative subtree, retains focus where possible, and is
+reported (§ Failure Reporting) rather than looking like a key that did nothing.
 
 The one optimistic structure is block insertion: Enter mounts a focused
 pending row immediately so fast typing lands in the new block, and the row
@@ -139,11 +140,10 @@ completion extend that operation rather than add graph-scan APIs.
 Persistent chrome is deliberately small (see [`DESIGN.md`](../DESIGN.md)
 § Disclosure), and the command layer is what makes that safe rather than merely
 sparse. `features/commands/` owns one registry, one window keydown listener, the
-`⌘K` palette, and the `⌘/` sheet generated from the same registry.
-
-Every registry entry carries a `pointerRoute` describing how a user who never
-learns a shortcut reaches that verb; the field is required by the type, so the
-palette can never become the only way to do something.
+`⌘K` palette, and the `⌘/` sheet generated from the same registry. Every registry
+entry carries a `pointerRoute` describing how a user who never learns a shortcut
+reaches that verb; the field is required by the type, so the palette can never
+become the only way to do something.
 
 Key arbitration order is fixed: an IME-composition guard first (a composition
 owns the keyboard outright — losing a keystroke corrupts CJK input), then any
@@ -156,6 +156,19 @@ Outliner and PageView fill while mounted, so `⌘⇧P` reaches a panel that live
 below the shell. Each of those panels also has a local pointer route that works
 with no shell present, which is what keeps them reachable in the component test
 harness.
+
+## Failure Reporting
+
+`features/notify/` owns one toast queue, provided above the router so reports
+survive navigation and reach the shell-less graph picker; consumers take a
+`Notifier` from context whose default is a no-op, so a feature still mounts bare
+in a test. **A failure is reported where the user is already looking, and reaches
+the toast layer only when it would otherwise leave no trace** —
+[`DESIGN.md`](../DESIGN.md) § Toasts says which side each one falls on. Durability
+is the exclusion the code enforces: `dirty_unsaved` and `storage_full` belong to
+the save slot, so the notifier returns `null` for them. `errors.ts` keeps
+`CorePortError` codes off the screen, rendering the core's message as a sentence
+under a title naming the verb the user tried.
 
 ## Navigation and Journals
 
@@ -230,6 +243,7 @@ or failed schema migration is.
 app/             composition, routing, lifecycle
 features/        editor and property-driven journal/query/task/graph views
 features/commands/  the command layer: registry, key arbitration, palette, sheet
+features/notify/    the notification layer: toast queue, failure copy, viewport
 entities/        page/block view models and renderers
 core-port/       session, commands, snapshot DTOs, graph directory, lease
 generated/       CorePort contract types (path fixed by the drift check)
@@ -238,52 +252,48 @@ ui/              design tokens, Tailwind v4 theme, appearance, shadcn/Radix prim
 ```
 
 The presentation layer is Tailwind CSS v4 with shadcn/ui primitives built on
-Radix, over the token set in `ui/app.css`. That file is the single owner of every
-design token; `ui/globals.css` declares the cascade order
-(`theme, base, neoseq, components, utilities`), imports `app.css` into the
-`neoseq` layer so a utility can still win, and maps the tokens onto shadcn's
-semantic variables — it declares no values of its own. [`DESIGN.md`](../DESIGN.md)
-is the design source of truth, including a committed ink-versus-surface contrast
-table that components are expected to consult rather than re-derive.
+Radix, over the token set in `ui/app.css` — the single owner of every design
+token. `ui/globals.css` declares the cascade order and maps those tokens onto
+shadcn's semantic variables, declaring no values of its own.
+[`DESIGN.md`](../DESIGN.md) is the design source of truth, including a committed
+contrast table that components consult rather than re-derive.
 
 Both colour modes ship from one declaration and resolution is **CSS-only**: an
-explicit `[data-theme]` on the root beats the `prefers-color-scheme` query in
-both directions, and a pre-paint inline script in `index.html` applies a stored
-choice. `ui/theme.ts` records the preference and never asks the browser what mode
-it is in, so a runtime without `matchMedia` still renders correctly.
+explicit `[data-theme]` beats `prefers-color-scheme` in both directions, and a
+pre-paint script in `index.html` applies the stored choice. `ui/theme.ts` records
+the preference and never asks the browser, so a runtime without `matchMedia`
+still renders correctly.
 
 Native form controls stay native (select, checkbox, date) for platform pickers
-and AT support. Overlays that must escape the virtualized outline's scroll
-container and stacking context — the block action menu and the page autocomplete
-— render in portals, on one shared `--z-*` scale. Motion is deliberately
-restrained: **every** entrance animates opacity only and nothing animates a
-transform, so a surface is never contrast-unsafe while an audit reads it and
-never moves while a pointer travels toward it.
+and AT support. Anything that must escape the virtualized outline's scroll
+container and stacking context — the block action menu, the page autocomplete,
+the notification viewport — renders in a portal, on one shared `--z-*` scale.
+Motion is restrained: nothing animates a transform, and a surface read the moment
+it appears animates nothing, so an audit never reads one mid-fade.
 
 The property registry the UI validates against is imported from the versioned
-core fixture (`fixtures/core/property-definitions-v3.json`), so client and
-core share one definition source.
-
-Feature modules may depend on `entities`, `core-port`, and `ui`; reverse imports
-are forbidden. Cross-feature actions are domain commands or app-level
-navigation, not shared mutable stores.
+core fixture (`fixtures/core/property-definitions-v3.json`), so client and core
+share one definition source. Feature modules may depend on `entities`,
+`core-port`, and `ui`; reverse imports are forbidden. Cross-feature actions are
+domain commands, app-level navigation, or a layer provided through context —
+never a shared mutable store.
 
 ## Accessibility and Testing
 
 - The outline exposes tree/treeitem semantics, depth, expansion, and keyboard
-  navigation, including `ArrowLeft`/`ArrowRight` collapse-and-step so no
-  affordance is pointer-only; query results use appropriate list/table semantics.
+  navigation, including `ArrowLeft`/`ArrowRight` collapse-and-step so nothing is
+  pointer-only; query results use appropriate list/table semantics.
 - Property editors are progressive: both page bags live in one disclosure between
   the title and the writing, reached from the property strip, the page menu, or
   `⌘⇧P`. System-owned keys are page *information* and surface in the page-info
-  dialog, not in the property list. Nothing is mounted below the outline.
-- Focus and selection survive virtualization and remote updates by stable IDs.
+  dialog. Nothing is mounted below the outline.
+- Focus and selection survive virtualization, remote updates, and reports by ID.
 - Component tests use a fake `CorePort`; they do not instantiate Loro.
 - Contract suites run against both native and worker adapters and verify that
   well-known, repeated, and unknown properties round-trip without loss.
-- Current end-to-end suites cover the local Web product and offline restart.
-  Later suites add reconnect/merge, Android lifecycle, and macOS navigation as
-  those deployment units are implemented.
+- End-to-end suites cover the local Web product, offline restart, and a real core
+  rejection reported live — audited while the toast is up, in both colour schemes.
+  Later suites add reconnect/merge, Android lifecycle, and macOS navigation.
 
 Tauri 2 is selected because its maintained architecture supports web frontends
 with Rust commands and packaging for both

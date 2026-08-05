@@ -30,6 +30,7 @@ interface Row {
 export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<Command[]>([]);
+  const [searchFailed, setSearchFailed] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -58,6 +59,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   useEffect(() => {
     let current = true;
     const trimmed = query.trim();
+    setSearchFailed(false);
     if (!search || trimmed.length === 0) {
       setSearchRows([]);
       return;
@@ -68,7 +70,13 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
           if (current) setSearchRows(rows);
         })
         .catch(() => {
-          if (current) setSearchRows([]);
+          // The palette is where the user is looking, so it says so itself
+          // rather than raising a toast over its own results. Reporting
+          // matters here: silence is indistinguishable from "no matches",
+          // and the difference is whether the graph was searched at all.
+          if (!current) return;
+          setSearchRows([]);
+          setSearchFailed(true);
         });
     }, 160);
     return () => {
@@ -226,8 +234,15 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
           aria-label="Results"
         >
           {flat.length === 0 && (
-            <li className="cmdk-empty" role="status">
-              Nothing matches “{query.trim()}”.
+            <li className="cmdk-empty" role="status" data-failed={searchFailed || undefined}>
+              {searchFailed
+                ? "The graph couldn’t be searched. Commands and pages below still match by name."
+                : `Nothing matches “${query.trim()}”.`}
+            </li>
+          )}
+          {flat.length > 0 && searchFailed && (
+            <li className="cmdk-empty" role="status" data-failed>
+              The graph couldn’t be searched — these match by name only.
             </li>
           )}
           {groups.map(({ group, rows }, groupIndex) => (

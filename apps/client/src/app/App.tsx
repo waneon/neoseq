@@ -1,5 +1,6 @@
 import { createHashRouter, Navigate, RouterProvider } from "react-router";
 import { testRoutes } from "virtual:neoseq-test-routes";
+import { NotifyProvider } from "../features/notify/context";
 import { GraphPicker } from "../features/graphs/GraphPicker";
 import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
@@ -25,6 +26,13 @@ const router = createHashRouter([
   { path: "*", element: <Navigate to="/" replace /> },
 ]);
 
+// The notification layer sits above the router: a failure raised while leaving a
+// page still has somewhere to land, and the graph picker — which has no shell —
+// reports through the same surface as everything else.
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <NotifyProvider>
+      <RouterProvider router={router} />
+    </NotifyProvider>
+  );
 }

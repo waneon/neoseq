@@ -150,6 +150,7 @@ components:
   bullet:      { dot: 5px, slot: 20px, target: 24px, rest: "{ink-3}", hover: "{ink-2}", focused: "{ink}", collapsed: "4px {halo} ring" }
   thread:      { width: 1px, colour: "{thread}", active: "{thread-active}", offset: "{slot}/2" }
   save-slot:   { saved: "nothing", saving: "5px {ink-3} dot after 600ms", unsaved: "5px {danger} dot + reason + Retry" }
+  toast:       { width: 360px, radius: "{r-3}", background: "{overlay}", elevation: "{e2}", layer: "{layers.toast}", anchor: "top-right, below the top bar", dot: "5px — {ink-3} / {ok} / {danger}", entrance: none }
 
 ---
 
@@ -483,6 +484,11 @@ Prefer no animation to one that has to finish before the surface is legible.
 `enter-fade` survives only for scrims, menus, tooltips and option lists — surfaces
 whose arrival is itself the message.
 
+> A toast looks like it belongs on that list and does not. Its arrival *is* the message,
+> but it is also read the instant it lands — by the user, by a live region, and by the
+> audit, which caught a 140ms `enter-fade` mid-flight and failed the toast's own text
+> against the page behind it. Toasts do not animate.
+
 **4. Hover-revealed chrome is instant.** A 120ms fade on a row `⋯` lags the pointer
 down a virtualized list and reads as lag, not polish.
 
@@ -562,6 +568,13 @@ always reach it.
 
 The command palette · the shortcut sheet · page properties · tagged-block defaults ·
 page info · block properties and tags · diagnostics · every confirm dialog.
+
+### Raised, not summoned
+
+Toasts are the one exception to this list, because the user does not ask for them: the
+interface does, when something failed where nothing on screen would have shown it. They
+are exempt from the permanence rule for the same reason they are allowed at all — they
+are not there. See § Toasts for what is allowed to raise one.
 
 ### Deleted outright
 
@@ -762,6 +775,44 @@ and assistive-technology support for free; a custom listbox brings none of it.
 
 The element stays mounted with its `data-save` attribute in every state. A transient
 toast would be wrong here: durability is ambient, and it is also the thing tests wait on.
+The notification layer knows this and **stays silent on `dirty_unsaved` and
+`storage_full`**, so one failure is never reported by two surfaces at once.
+
+### Toasts
+
+The one surface that is neither always visible nor summoned by the user: it arrives
+because something happened. That makes the routing rule the important half of the
+component.
+
+> **A toast is for a failure with no home on screen.** If the thing that failed has a
+> place the user is already looking — a field, a query block, the save slot, a
+> tombstone, a confirm dialog that is still open — the report belongs *there*. What
+> reaches the toast layer is what would otherwise be silent: a rejected undo, a
+> structural command that simply did not happen, an edit that reverted under the caret,
+> a page that failed to load, a `⋯ → Delete` whose dialog has already closed.
+
+- **Top-right, below the top bar** (`--topbar-h` + 8px), 360px, `--overlay` on `--e2`,
+  above every overlay on the `--z-*` scale — a failure raised while a dialog is open
+  still has to be seen. Inset 8px from both edges at or below 600px.
+- **The region is `pointer-events: none`; each toast is `auto`.** Almost always it is
+  empty, and an empty fixed region that eats clicks is worse than no region at all.
+- **Tone is a 5px dot**, the save slot's own language: `--ink-3` notice, `--ok`
+  affirmative, `--danger` failure. Tone is never the only signal — the title says what
+  happened — and there is no fourth tone and no warning colour.
+- **A failure has no timer.** Notices expire (6s); errors stay until dismissed. Timers
+  pause on hover, on focus inside the region, and while the tab is in the background.
+- **Repeats collapse** onto one toast with a `×N` counter rather than stacking. The
+  stack caps at four, and an unacknowledged error is the last thing evicted.
+- **`role="alert"` for a failure, `role="status"` for a notice**, `aria-atomic`, and a
+  dismiss `×` revealed on hover and `:focus-within`, pinned at or below 600px.
+- **An action on a toast is always a second route**, never the only one, and clicking it
+  closes the toast — whatever it starts reports its own outcome.
+- **No entrance animation.** This was a close call: a toast reads like a surface whose
+  arrival is the message, which is what `enter-fade` exists for. It is also read the
+  instant it appears, and the contrast audit caught it mid-fade compositing its text
+  against the page behind it. § Motion rule 3 decides it.
+- **Success is a tone the product almost never spends.** An outcome the user can already
+  see gets no toast: a removed chip, a vanished row and a `saved` state all stay silent.
 
 ### Overlays
 
@@ -788,7 +839,12 @@ and toast were tied at 50. All dismissible by outside click, `Escape`, and selec
   content column with its own gutter, filled with `--danger-soft` and no border — not a
   polite `role="status"` running edge-to-edge under the top bar.
 - **Read-only explains itself.** One unbordered `Read-only` label beside the save slot,
-  and every blocked command listed in the palette with its reason.
+  every blocked command listed in the palette with its reason, and — once per session,
+  because a 12px label is easy to miss while you are already typing — one persistent
+  notice saying the graph is open in another tab.
+- **A rejected command is never silent.** If it left no visible trace, it is reported;
+  see § Toasts for where. The error text is a sentence naming the verb the user tried
+  (`Couldn't indent that block`) over the core's own reason, never a raw error code.
 
 ---
 
@@ -807,7 +863,7 @@ both colour schemes):
 6. The tree exposes `aria-expanded` and `aria-activedescendant`; the textarea is the
    single tab stop; every collapse affordance is reachable by keyboard.
 7. Live regions match urgency: `off` when saved, `assertive` when unsaved, `alert` for
-   corruption.
+   corruption and for a reported failure, `status` for a notice.
 8. Hit targets are ≥ 24px, and ≥ 32px at or below 600px.
 9. IME composition is guarded before any key handler runs.
 10. `role="option"` rows are non-focusable `<div>`s, not buttons.
@@ -853,6 +909,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   text on screen.
 - Use mono only for identifiers: property keys, shortcut badges, ids.
 - Render nothing at all for `saved`, on-today, and an empty property bag.
+- Report a rejected command where the user is looking, and reach for a toast only when
+  the failure would otherwise leave no trace at all.
 - Give every verb a palette entry, a shortcut badge, and a pointer route.
 - Reveal chrome with `opacity`, instantly, and pin it visible on touch and on focus.
 - Animate `opacity` only, and never animate a container that is measured on mount.
@@ -878,5 +936,9 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Don't hover-gate a control that has no palette entry, no touch pin, and no focus reveal.
 - Don't communicate a state with a `title` attribute, a colour, or a spinner that
   appears for 40ms.
+- Don't swallow a rejected command, and don't report one twice — a failure the save slot
+  or a field error already owns does not also get a toast.
+- Don't toast an outcome the user can see, don't put a verb's only route on a toast, and
+  don't let a fixed notification region take a click while it is empty.
 - Don't hide a system property in the property list — it is page info, not page data.
 - Don't declare a design token in two files.

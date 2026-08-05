@@ -17,7 +17,8 @@
     10. settings
     11. autocomplete
     12. states (loading, tombstone, callout)
-    13. motion
+    13. toasts
+    14. motion
 */
 
 /* ─────────────────────────── 1. tokens ─────────────────────────── */
@@ -1879,6 +1880,12 @@ h2 {
   font-size: var(--text-sm);
 }
 
+/* A failed graph search says so where the user is looking, rather than raising
+   a toast over the palette's own results. */
+.cmdk-empty[data-failed] {
+  color: var(--danger);
+}
+
 @media (max-width: 600px) {
   .cmdk-scrim {
     padding: 0;
@@ -2306,7 +2313,126 @@ h2 {
   padding: 0 var(--gutter);
 }
 
-/* ─────────────────────────── 13. motion ─────────────────────────── */
+/* ─────────────────────────── 13. toasts ─────────────────────────── */
+
+/* Top-right, below the top bar rather than over it: the bar's own controls stay
+   clickable while a toast is up, and reports read as belonging to the content
+   region they describe. Above every overlay, because a failure raised while a
+   dialog is open still has to be seen. The region is `pointer-events: none` so
+   that while it is empty — which is almost always — it cannot swallow a click
+   aimed at whatever sits beneath it. */
+.toast-viewport {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--sp-2));
+  right: var(--sp-3);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: min(360px, calc(100vw - var(--sp-6)));
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+}
+
+/* The same 5px dot the save slot uses, carrying the same meanings. Tone is
+   never the only signal — the title always says what happened. */
+.toast-dot {
+  grid-column: 1;
+  width: 5px;
+  height: 5px;
+  margin-top: calc((var(--lh-sm) - 5px) / 2);
+  border-radius: var(--r-full);
+  background: var(--ink-3);
+}
+
+.toast[data-tone="success"] .toast-dot {
+  background: var(--ok);
+}
+
+.toast[data-tone="danger"] .toast-dot {
+  background: var(--danger);
+}
+
+.toast-title {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: 500;
+}
+
+.toast-count {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.toast-detail {
+  grid-column: 2;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  overflow-wrap: anywhere;
+}
+
+.toast-actions {
+  grid-column: 2 / 4;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--sp-1);
+}
+
+/* Summoned like every other row control: revealed by hover and by focus, never
+   removed from the layout, and pinned where there is no pointer to hover with. */
+.toast-close {
+  grid-column: 3;
+  grid-row: 1;
+  opacity: 0;
+  transition: opacity 0ms;
+}
+
+.toast:hover .toast-close,
+.toast:focus-within .toast-close {
+  opacity: 1;
+}
+
+@media (max-width: 600px), (hover: none) {
+  .toast-close {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .toast-viewport {
+    left: var(--sp-2);
+    right: var(--sp-2);
+    width: auto;
+  }
+
+  .toast-close {
+    width: var(--sp-6);
+    height: var(--sp-6);
+  }
+}
+
+/* ─────────────────────────── 14. motion ─────────────────────────── */
 
 @keyframes ns-fade-in {
   from {

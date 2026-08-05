@@ -40,6 +40,8 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { MOD } from "../commands/keys";
 import { useCommands } from "../commands/context";
+import { useNotify, type Notifier } from "../notify/context";
+import { failureReason } from "../notify/errors";
 import type { PageSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
@@ -78,6 +80,7 @@ interface PendingRow {
 
 interface EditorContext {
   session: GraphSession;
+  notify: Notifier;
   pageId: string;
   readonly: boolean;
   focusedId: string | null;
@@ -114,6 +117,7 @@ export function Outliner({
   const session = useSession();
   const state = useSessionState();
   const commands = useCommands();
+  const notify = useNotify();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [inspectedId, setInspectedId] = useState<string | null>(null);
@@ -168,14 +172,17 @@ export function Outliner({
           block_id: id,
           ...splice,
         })
-        .catch(() => {
-          // The core rejected the edit; fall back to authoritative text.
+        .catch((error: unknown) => {
+          // The core rejected the edit; fall back to authoritative text. The
+          // row silently changing back under the caret is exactly the kind of
+          // failure that has no home on screen, so it is reported.
           drafts.current.delete(id);
           baselines.current.delete(id);
           force();
+          notify.failure("Your last edit couldn’t be applied", error);
         });
     },
-    [session],
+    [notify, session],
   );
 
   const flushNow = useCallback(
@@ -228,7 +235,7 @@ export function Outliner({
     );
     if (!source) {
       // The anchor block disappeared (e.g. undo); pending edits cannot land.
-      abandonPending();
+      abandonPending("The block it would follow is gone.");
       return;
     }
     head.dispatched = true;
@@ -283,45 +290,72 @@ export function Outliner({
                 page_id: pageRef.current.id,
                 block_id: realId,
               })
-              .catch(() => undefined);
+              .catch((error: unknown) => {
+                notify.failure(
+                  kind === "indent" ? "Couldn’t indent that block" : "Couldn’t outdent that block",
+                  error,
+                );
+              });
           }
         } else {
           pendingRows.current.shift();
           drafts.current.delete(head.tempId);
           baselines.current.delete(head.tempId);
-          abandonPending();
+          abandonPending("The graph engine did not return a block id.");
         }
         pendingDispatching.current = false;
         force();
         dispatchPending();
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         pendingDispatching.current = false;
-        abandonPending();
+        abandonPending(failureReason(error));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, scheduleFlush, setFocus]);
+  }, [notify, session, scheduleFlush, setFocus]);
 
-  const abandonPending = useCallback(() => {
-    let fallback: string | null = null;
-    for (const entry of pendingRows.current) {
-      if (!isPendingId(entry.afterId)) fallback = entry.afterId;
-      drafts.current.delete(entry.tempId);
-      baselines.current.delete(entry.tempId);
-    }
-    pendingRows.current = [];
-    if (focusedRef.current && isPendingId(focusedRef.current)) setFocus(fallback);
-    force();
-  }, [setFocus]);
+  /**
+   * Drops the optimistic rows an insert never claimed. Whatever the user typed
+   * into them goes with them, so this is never allowed to happen quietly.
+   */
+  const abandonPending = useCallback(
+    (reason: string) => {
+      const lost = pendingRows.current.length;
+      const typed = pendingRows.current.some(
+        (entry) => (drafts.current.get(entry.tempId) ?? "").length > 0,
+      );
+      let fallback: string | null = null;
+      for (const entry of pendingRows.current) {
+        if (!isPendingId(entry.afterId)) fallback = entry.afterId;
+        drafts.current.delete(entry.tempId);
+        baselines.current.delete(entry.tempId);
+      }
+      pendingRows.current = [];
+      if (focusedRef.current && isPendingId(focusedRef.current)) setFocus(fallback);
+      force();
+      if (lost === 0) return;
+      notify.show({
+        tone: "danger",
+        key: "pending-insert-abandoned",
+        title: lost === 1 ? "That new block wasn’t created" : `${lost} new blocks weren’t created`,
+        detail: typed ? `${reason} Anything typed into them was not kept.` : reason,
+      });
+    },
+    [notify, setFocus],
+  );
 
   const run = useCallback(
-    (command: Parameters<GraphSession["execute"]>[0]) =>
-      session.execute(command).catch(() => undefined),
-    [session],
+    (command: Parameters<GraphSession["execute"]>[0], summary: string) =>
+      session.execute(command).catch((error: unknown) => {
+        notify.failure(summary, error);
+        return undefined;
+      }),
+    [notify, session],
   );
 
   const editor: EditorContext = {
     session,
+    notify,
     pageId: authoritativePage.id,
     readonly,
     focusedId,
@@ -395,7 +429,9 @@ export function Outliner({
         .then((result) => {
           if (result.created_block) setFocus(result.created_block, 0);
         })
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          notify.failure("Couldn’t add a block", error);
+        });
     },
     menu: {
       addChild: (row) => {
@@ -409,40 +445,52 @@ export function Outliner({
       },
       indent: (row) => {
         flushNow(row.block.id);
-        void run({
-          type: "indent_block",
-          page_id: authoritativePage.id,
-          block_id: row.block.id,
-        });
+        void run(
+          {
+            type: "indent_block",
+            page_id: authoritativePage.id,
+            block_id: row.block.id,
+          },
+          "Couldn’t indent that block",
+        );
       },
       outdent: (row) => {
         flushNow(row.block.id);
-        void run({
-          type: "outdent_block",
-          page_id: authoritativePage.id,
-          block_id: row.block.id,
-        });
+        void run(
+          {
+            type: "outdent_block",
+            page_id: authoritativePage.id,
+            block_id: row.block.id,
+          },
+          "Couldn’t outdent that block",
+        );
       },
       move: (row, delta) => {
         flushNow(row.block.id);
         const target = row.index + delta;
         if (target < 0 || target >= row.siblingCount) return;
-        void run({
-          type: "move_block",
-          block_id: row.block.id,
-          page_id: authoritativePage.id,
-          parent: row.parentId,
-          index: target,
-        });
+        void run(
+          {
+            type: "move_block",
+            block_id: row.block.id,
+            page_id: authoritativePage.id,
+            parent: row.parentId,
+            index: target,
+          },
+          delta < 0 ? "Couldn’t move that block up" : "Couldn’t move that block down",
+        );
       },
       remove: (row, allRows) => {
         const position = rowIndexOf(allRows, row.block.id);
         const previous = allRows[position - 1]?.block.id ?? null;
-        void run({
-          type: "delete_block",
-          page_id: authoritativePage.id,
-          block_id: row.block.id,
-        }).then(() => {
+        void run(
+          {
+            type: "delete_block",
+            page_id: authoritativePage.id,
+            block_id: row.block.id,
+          },
+          "Couldn’t delete that block",
+        ).then(() => {
           setFocus(previous);
         });
       },
@@ -622,16 +670,14 @@ function onKeyDown(
   const isRedo =
     ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "z") ||
     (event.ctrlKey && event.key.toLowerCase() === "y");
-  if (isRedo) {
+  if (isRedo || isUndo) {
     event.preventDefault();
     editor.flushNow(id);
-    void editor.session.execute({ type: "redo" }).catch(() => undefined);
-    return;
-  }
-  if (isUndo) {
-    event.preventDefault();
-    editor.flushNow(id);
-    void editor.session.execute({ type: "undo" }).catch(() => undefined);
+    void editor.session
+      .execute({ type: isRedo ? "redo" : "undo" })
+      .catch((error: unknown) => {
+        editor.notify.failure(isRedo ? "Couldn’t redo" : "Couldn’t undo", error);
+      });
     return;
   }
 
@@ -755,7 +801,9 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
           delete: codePointLength(draft) - caretPoint,
           insert: "",
         })
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          editor.notify.failure("Couldn’t split that block", error);
+        });
     }
   }
   editor.enqueuePendingInsert(row, tail, row.hasChildren && !row.collapsed);

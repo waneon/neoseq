@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import {
   InfoIcon,
@@ -20,18 +20,31 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { MOD } from "../commands/keys";
+import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const page = findPage(state.snapshot, pageId);
+
+  // A failed hydrate leaves a real page rendering as an empty one, which reads
+  // as data loss. Say so, and carry the retry inside the report — a failed
+  // retry reports again rather than falling silent the second time.
+  // The explicit type argument breaks the inference cycle created by the retry
+  // action referring back to this callback.
+  const load = useCallback<() => void>(() => {
+    void session.hydratePage(pageId).catch((error: unknown) => {
+      notify.failure("Couldn’t load this page", error, { label: "Try again", run: load });
+    });
+  }, [notify, pageId, session]);
 
   useEffect(() => {
     if (!page || state.status !== "ready" || state.hydratedPages.has(pageId)) return;
-    void session.hydratePage(pageId).catch(() => undefined);
-  }, [page, pageId, session, state.hydratedPages, state.status]);
+    load();
+  }, [load, page, pageId, state.hydratedPages, state.status]);
 
   if (!page) {
     // Deleted pages are soft-deleted and leave the snapshot, so a missing
@@ -201,6 +214,7 @@ export function PageMenu({
 }) {
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const readonly = state.mode === "readonly";
   const isJournal = pageKind(page) === "journal";
   const [info, setInfo] = useState(false);
@@ -260,7 +274,11 @@ export function PageMenu({
                 setConfirmDelete(false);
                 void session
                   .execute({ type: "delete_page", page_id: page.id })
-                  .catch(() => undefined);
+                  .catch((error: unknown) => {
+                    // The dialog is gone by now, so there is nowhere inline
+                    // left for this to be said.
+                    notify.failure(`Couldn’t delete “${pageTitle(page)}”`, error);
+                  });
               }}
             >
               Delete page
@@ -279,6 +297,7 @@ export function PageMenu({
  */
 function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => void }) {
   const { graphId = "" } = useParams();
+  const notify = useNotify();
   const created = stringValue(page.properties, "system.created-at");
   const updated = stringValue(page.properties, "system.updated-at");
   const journal = stringValue(page.properties, "journal.date");
@@ -313,9 +332,13 @@ function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => 
             type="button"
             aria-label="Copy page id"
             onClick={() => {
+              // The label swap is the acknowledgement; only its absence needs
+              // reporting, because a button that does nothing looks broken.
               void navigator.clipboard?.writeText(page.id).then(
                 () => setCopied(true),
-                () => undefined,
+                (error: unknown) => {
+                  notify.failure("Couldn’t copy the page id", error);
+                },
               );
             }}
           >

@@ -10,6 +10,7 @@
 import { useEffect, useRef } from "react";
 import { XIcon } from "lucide-react";
 import type { BlockSnapshot } from "../../core-port/snapshot";
+import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 import { PropertyBagEditor } from "./PropertyBagEditor";
@@ -26,6 +27,7 @@ export function BlockInspector({
 }) {
   const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const readonly = state.mode === "readonly";
   const panel = useRef<HTMLDivElement>(null);
 
@@ -65,7 +67,11 @@ export function BlockInspector({
                     entity: { kind: "block", page_id: pageId, id: block.id },
                     tag_id: tagId,
                   })
-                  .catch(() => undefined)
+                  // The chip simply never appears otherwise, which reads as an
+                  // autocomplete that lost the pick.
+                  .catch((error: unknown) => {
+                    notify.failure("Couldn’t add that tag", error);
+                  })
               }
             />
           </div>
