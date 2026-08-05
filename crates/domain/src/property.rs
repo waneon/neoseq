@@ -139,6 +139,13 @@ pub const REGISTRY: &[PropertyDefinition] = &[
         allowed_strings: NONE,
     },
     PropertyDefinition {
+        key: "system.updated-at",
+        value_type: PropertyType::String,
+        cardinality: Cardinality::Single,
+        defaultable: false,
+        allowed_strings: NONE,
+    },
+    PropertyDefinition {
         key: "system.deleted-at",
         value_type: PropertyType::String,
         cardinality: Cardinality::Single,

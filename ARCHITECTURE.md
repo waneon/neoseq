@@ -132,6 +132,8 @@ TypeScript, native, and WebAssembly adapters compatible.
   `BlockId` so reads and writes never scan other pages.
 - Property entries merge independently. Each value is an atomic tagged scalar:
   number, string, page reference, checkbox, or local date.
+- `system.updated-at` is written on every direct page/block mutation. A block
+  mutation also updates its owning page so page recency includes outline work.
 - Journal identity is deterministic from `(GraphId, local date)`, making journal
   creation idempotent across offline devices.
 - Adding a tag reference copies that tag's defaults into missing node properties

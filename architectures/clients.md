@@ -120,6 +120,7 @@ representation. Tag membership is the explicit structural exception:
 - `task.status` renders workflow controls;
 - `task.scheduled` and `task.deadline` render date controls;
 - `task.priority` renders priority controls;
+- `system.created-at` and `system.updated-at` render as read-only page info;
 - unknown keys fall back to the generic typed property editor.
 
 Removing a feature renderer never makes data unreadable: its values remain

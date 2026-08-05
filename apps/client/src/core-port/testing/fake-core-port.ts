@@ -89,6 +89,9 @@ export class FakeCorePort implements SessionPort {
     };
     this.apply(command, result);
     if (command.type !== "undo" && command.type !== "redo" && result.changed) {
+      this.touchCommand(command, result, `t${this.sequence + 1}`);
+    }
+    if (command.type !== "undo" && command.type !== "redo" && result.changed) {
       this.history.push(before);
       this.future = [];
     }
@@ -368,6 +371,84 @@ export class FakeCorePort implements SessionPort {
 
   private rawPage(id: string): PageSnapshot | undefined {
     return this.pages.find((page) => page.id === id);
+  }
+
+  private touchCommand(
+    command: Command,
+    result: { created_page: string | null; created_block: string | null },
+    timestamp: string,
+  ): void {
+    switch (command.type) {
+      case "ensure_page":
+      case "ensure_journal":
+        if (result.created_page) this.touchPage(result.created_page, timestamp);
+        break;
+      case "rename_page":
+      case "delete_page":
+      case "restore_page":
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "insert_block":
+        if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "edit_markdown":
+      case "splice_markdown":
+      case "move_block":
+      case "indent_block":
+      case "outdent_block":
+        this.touchBlock(command.page_id, command.block_id, timestamp);
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "delete_block":
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "set_property":
+      case "remove_property":
+      case "add_repeated_property":
+      case "remove_repeated_property":
+      case "add_tag":
+      case "remove_tag":
+        this.touchEntity(command.entity, timestamp);
+        break;
+      case "ensure_tag":
+      case "rename_tag":
+      case "delete_tag":
+      case "restore_tag":
+      case "set_tag_default":
+      case "remove_tag_default":
+      case "undo":
+      case "redo":
+        break;
+    }
+  }
+
+  private touchEntity(
+    entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string },
+    timestamp: string,
+  ): void {
+    if (entity.kind === "page") {
+      this.touchPage(entity.id, timestamp);
+    } else {
+      this.touchBlock(entity.page_id, entity.id, timestamp);
+      this.touchPage(entity.page_id, timestamp);
+    }
+  }
+
+  private touchPage(pageId: string, timestamp: string): void {
+    const page = this.rawPage(pageId);
+    if (!page) fail("internal", `page does not exist: ${pageId}`);
+    setSingle(page.properties, "system.updated-at", {
+      type: "string",
+      value: timestamp,
+    });
+  }
+
+  private touchBlock(pageId: string, blockId: string, timestamp: string): void {
+    setSingle(this.requireBlock(pageId, blockId).block.properties, "system.updated-at", {
+      type: "string",
+      value: timestamp,
+    });
   }
 
   private rawTag(id: string): TagSnapshot | undefined {

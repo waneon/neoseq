@@ -37,9 +37,12 @@ and `journal.date: Date`; their display title is derived from the date. Journal
 IDs are deterministically derived from `GraphId` and the date, so all replicas
 address the same page when creating that day's journal.
 
-Page creation/deletion metadata in the root node also uses well-known
-string properties such as `system.created-at` and `system.deleted-at` with
-canonical timestamp encodings. Concurrent initialization uses Loro's
+Page lifecycle metadata in the root node uses well-known string properties
+`system.created-at`, `system.updated-at`, and `system.deleted-at` with canonical
+timestamp encodings. Block nodes also carry `system.updated-at`. A block
+mutation updates both that block and its owning page, while changes below a
+block do not implicitly rewrite ancestor block timestamps. Concurrent
+initialization uses Loro's
 mergeable/get-or-create operation rather than replacing a child container under
 the same map key.
 

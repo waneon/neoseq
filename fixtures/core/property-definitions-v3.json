@@ -10,6 +10,7 @@
     {"key":"page.kind","type":"string","cardinality":"single","defaultable":false,"allowed_strings":["regular","journal"]},
     {"key":"journal.date","type":"date","cardinality":"single","defaultable":false,"allowed_strings":[]},
     {"key":"system.created-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]},
+    {"key":"system.updated-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]},
     {"key":"system.deleted-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[]}
   ]
 }

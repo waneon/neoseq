@@ -538,6 +538,7 @@ impl GraphCore {
             Command::IndentBlock { page_id, block_id } => self.indent(page_id, block_id)?,
             Command::OutdentBlock { page_id, block_id } => self.outdent(page_id, block_id)?,
             Command::DeleteBlock { page_id, block_id } => {
+                self.touch_block(page_id, block_id, now)?;
                 self.page_outline(page_id)?.delete(tree_id(block_id)?)?
             }
             Command::SetProperty { entity, key, value } => {
@@ -574,7 +575,95 @@ impl GraphCore {
             }
             Command::Undo | Command::Redo => unreachable!("handled before apply"),
         }
+        if result.changed {
+            self.touch_command(command, result, now)?;
+        }
         Ok(())
+    }
+
+    fn touch_command(
+        &self,
+        command: &Command,
+        result: &CommandResult,
+        now: &str,
+    ) -> Result<(), CoreError> {
+        match command {
+            Command::EnsurePage { .. } | Command::EnsureJournal { .. } => {
+                if let Some(page_id) = &result.created_page {
+                    self.touch_page(page_id, now)?;
+                }
+            }
+            Command::RenamePage { page_id, .. }
+            | Command::DeletePage { page_id }
+            | Command::RestorePage { page_id } => self.touch_page(page_id, now)?,
+            Command::InsertBlock { page_id, .. } => {
+                if let Some(block_id) = &result.created_block {
+                    self.touch_block(page_id, block_id, now)?;
+                }
+                self.touch_page(page_id, now)?;
+            }
+            Command::EditMarkdown {
+                page_id, block_id, ..
+            }
+            | Command::SpliceMarkdown {
+                page_id, block_id, ..
+            }
+            | Command::MoveBlock {
+                page_id, block_id, ..
+            }
+            | Command::IndentBlock { page_id, block_id }
+            | Command::OutdentBlock { page_id, block_id } => {
+                self.touch_block(page_id, block_id, now)?;
+                self.touch_page(page_id, now)?;
+            }
+            Command::DeleteBlock { page_id, .. } => self.touch_page(page_id, now)?,
+            Command::SetProperty { entity, .. }
+            | Command::RemoveProperty { entity, .. }
+            | Command::AddRepeatedProperty { entity, .. }
+            | Command::RemoveRepeatedProperty { entity, .. }
+            | Command::AddTag { entity, .. }
+            | Command::RemoveTag { entity, .. } => self.touch_entity(entity, now)?,
+            Command::EnsureTag { .. }
+            | Command::RenameTag { .. }
+            | Command::DeleteTag { .. }
+            | Command::RestoreTag { .. }
+            | Command::SetTagDefault { .. }
+            | Command::RemoveTagDefault { .. }
+            | Command::Undo
+            | Command::Redo => {}
+        }
+        Ok(())
+    }
+
+    fn touch_entity(&self, entity: &EntityId, now: &str) -> Result<(), CoreError> {
+        match entity {
+            EntityId::Page { id } => self.touch_page(id, now),
+            EntityId::Block { page_id, id } => {
+                self.touch_block(page_id, id, now)?;
+                self.touch_page(page_id, now)
+            }
+        }
+    }
+
+    fn touch_page(&self, page_id: &PageId, now: &str) -> Result<(), CoreError> {
+        set_single(
+            &self.page_properties(page_id)?,
+            &key("system.updated-at"),
+            &PropertyValue::String(now.to_owned()),
+        )
+    }
+
+    fn touch_block(
+        &self,
+        page_id: &PageId,
+        block_id: &BlockId,
+        now: &str,
+    ) -> Result<(), CoreError> {
+        set_single(
+            &self.block_bag(page_id, block_id)?,
+            &key("system.updated-at"),
+            &PropertyValue::String(now.to_owned()),
+        )
     }
 
     fn ensure_page(
@@ -888,9 +977,10 @@ fn valid_target_kind(page: bool, key: &PropertyKey) -> bool {
     if page {
         true
     } else {
-        !key.as_str().starts_with("page.")
-            && key.as_str() != "journal.date"
-            && !key.as_str().starts_with("system.")
+        key.as_str() == "system.updated-at"
+            || (!key.as_str().starts_with("page.")
+                && key.as_str() != "journal.date"
+                && !key.as_str().starts_with("system."))
     }
 }
 
@@ -1655,13 +1745,39 @@ mod tests {
         assert_eq!(snapshot.tags[0].id, tag);
         assert_eq!(snapshot.pages[0].tags.len(), 1);
         assert_eq!(snapshot.pages[0].blocks[0].tags.len(), 1);
-        assert!(snapshot.pages[0].blocks[0].properties.is_empty());
+        assert!(snapshot.pages[0].blocks[0].properties.iter().any(|entry| {
+            entry.key.as_str() == "system.updated-at"
+                && entry.value == PropertyValue::String("t3".into())
+        }));
         assert!(
             snapshot.pages[0].blocks[0]
                 .properties
                 .iter()
                 .all(|entry| entry.key.as_str() != "tag")
         );
+
+        core.execute(
+            envelope(
+                "edit-timestamp",
+                Command::EditMarkdown {
+                    page_id: page(),
+                    block_id: block,
+                    markdown: "updated child".into(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        for properties in [
+            &snapshot.pages[0].properties,
+            &snapshot.pages[0].blocks[0].properties,
+        ] {
+            assert!(properties.iter().any(|entry| {
+                entry.key.as_str() == "system.updated-at"
+                    && entry.value == PropertyValue::String("t4".into())
+            }));
+        }
     }
 
     #[test]

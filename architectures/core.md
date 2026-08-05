@@ -85,6 +85,9 @@ features use well-known properties rather than new persisted fields:
   drive task views and controls;
 - Node `content`, `page.kind: String`, and `journal.date: Date` define page and
   journal presentation; `content` is block Markdown for non-root nodes.
+- `system.updated-at: String` records the command timestamp for each directly
+  changed page or block. Any block mutation also touches its owning page;
+  descendant changes do not touch ancestor blocks.
 
 The versioned property-definition registry declares a well-known key's value
 type, cardinality, validation, and defaultability. Unknown keys remain valid

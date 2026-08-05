@@ -248,12 +248,13 @@ export function PageMenu({
 
 /**
  * Page metadata, read-only. These keys (`page.kind`, `journal.date`,
- * `system.created-at`) are facts *about* the page rather than data the user put
- * on it, so they are no longer mixed into the property list.
+ * `system.created-at`, `system.updated-at`) are facts *about* the page rather
+ * than data the user put on it, so they are not mixed into the property list.
  */
 function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => void }) {
   const { graphId = "" } = useParams();
   const created = stringValue(page.properties, "system.created-at");
+  const updated = stringValue(page.properties, "system.updated-at");
   const journal = stringValue(page.properties, "journal.date");
   const [copied, setCopied] = useState(false);
 
@@ -272,6 +273,12 @@ function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => 
           <>
             <dt>Created</dt>
             <dd>{formatInstant(created)}</dd>
+          </>
+        )}
+        {updated && (
+          <>
+            <dt>Updated</dt>
+            <dd>{formatInstant(updated)}</dd>
           </>
         )}
         <dt>Page id</dt>
