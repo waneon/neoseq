@@ -1,7 +1,7 @@
 // Component test harness: real GraphSession over the in-memory FakeCorePort,
 // mounted inside the app's route shape so router hooks resolve.
 
-import { fireEvent, render, screen, type RenderResult } from "@testing-library/react";
+import { act, fireEvent, render, screen, type RenderResult } from "@testing-library/react";
 import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import type { ReactElement } from "react";
@@ -33,6 +33,13 @@ export async function mountAt(
   // not leak it into the next mount.
   resetAppSettingsCache();
   const { session, port } = await openFakeSession(GRAPH_ID);
+  // GraphSession is an external store. Production receives its notifications
+  // from Worker promises; component tests must mark that same boundary as a
+  // React update instead of forcing every test to wrap domain setup commands.
+  const subscribe = session.subscribe;
+  session.subscribe = (listener) => subscribe(() => {
+    act(listener);
+  });
   const router = createMemoryRouter(
     [
       {
@@ -62,6 +69,7 @@ export async function mountAt(
       </NotifyProvider>
     </LocaleProvider>,
   );
+  await settle();
   return { session, port, view };
 }
 
@@ -102,6 +110,8 @@ export async function chooseFromMenu(
 
 /** Waits until the session queue settles and React flushed the state. */
 export async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }

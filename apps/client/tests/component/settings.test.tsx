@@ -48,14 +48,15 @@ describe("journal date format", () => {
 
   it("is what the journal title, not just this dialog, is written in", async () => {
     setJournalDateFormat("iso");
-    await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
+    const first = await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
     expect(await screen.findByTestId("journal-title")).toHaveTextContent("2026-01-15");
+    first.view.unmount();
 
     setJournalDateFormat("medium");
     resetAppSettingsCache();
     await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
     await waitFor(() =>
-      expect(screen.getAllByTestId("journal-title")[1]).toHaveTextContent("Jan 15, 2026"),
+      expect(screen.getByTestId("journal-title")).toHaveTextContent("Jan 15, 2026"),
     );
   });
 });
