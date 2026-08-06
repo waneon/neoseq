@@ -4,11 +4,6 @@
 - Prefer modern approaches and established best practices.
 - Favor a minimal architecture that meets the requirements while allowing room for future expansion.
 
-## Diagnostics Impact
-- For every new or materially changed feature, decide whether it adds a semantic user action, transient/optimistic/derived state, an asynchronous or retry boundary, a locally handled failure, environment-dependent behavior, or a performance-sensitive path.
-- When it does, extend the typed diagnostic action/checkpoint/span contract, privacy policy, architecture documentation, and artifact tests together. Record semantic boundaries rather than raw keystrokes, pointer movement, DOM content, or arbitrary logs.
-- When it does not, no diagnostic instrumentation is required. Keep diagnostic work off hot paths while recording is disabled and use lazy builders for feature checkpoints.
-
 ## Documents
 
 ### README.md / DEVELOPMENT.md
