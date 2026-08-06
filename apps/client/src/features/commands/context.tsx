@@ -1,7 +1,7 @@
 // The bridge between the shell-level command layer and the page-level surfaces
 // it needs to reach.
 //
-// `⌘⇧P` means "properties of whatever is in front of me": the focused block if
+// `Mod+P` means "properties of whatever is in front of me": the focused block if
 // there is one, otherwise the page. Those panels are owned by the Outliner and
 // PageView respectively, which mount below the shell — and, in the component
 // test harness, mount without a shell at all. So the shell publishes slots that
@@ -31,8 +31,8 @@ export interface CommandBridge {
   setPageProperties(handler: (() => void) | null): void;
   /** Set by PageView: the verbs its title-row context menu offers. */
   setPageActions(actions: PageActions | null): void;
-  /** ⌘⇧P: the block handler if one is registered, else the page handler. */
-  requestProperties(): void;
+  /** Mod+P: opens the contextual target and reports whether one existed. */
+  requestProperties(): boolean;
   requestPageInfo(): void;
   requestPageDelete(): void;
 }
@@ -44,7 +44,7 @@ const NOOP: CommandBridge = {
   setBlockProperties: () => {},
   setPageProperties: () => {},
   setPageActions: () => {},
-  requestProperties: () => {},
+  requestProperties: () => false,
   requestPageInfo: () => {},
   requestPageDelete: () => {},
 };

@@ -110,7 +110,7 @@ describe("editable bindings", () => {
 
   it("shows the modifier the way the running platform prints it", () => {
     // jsdom reports no platform, which is the non-Apple branch.
-    expect(formatBinding(DEFAULT_BINDINGS.properties)).toBe("Ctrl+Shift+P");
+    expect(formatBinding(DEFAULT_BINDINGS.properties)).toBe("Ctrl+P");
     expect(formatBinding({ key: "arrowup", shift: false, alt: true })).toBe("Ctrl+Alt+↑");
   });
 });

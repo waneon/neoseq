@@ -40,16 +40,16 @@ describe("first-class tags and tag defaults", () => {
     });
 
     await openBlockMenu();
-    await user.click(await screen.findByTestId("menu-properties"));
-    const inspector = await screen.findByTestId("block-inspector");
-    const autocomplete = within(inspector).getByTestId("tag-autocomplete");
+    await user.click(await screen.findByTestId("menu-tags"));
+    const picker = await screen.findByTestId("tag-picker");
+    const autocomplete = within(picker).getByTestId("tag-autocomplete");
     await user.type(autocomplete, "Proj");
     await user.click(await screen.findByRole("option", { name: "Project" }));
 
-    await waitFor(() => expect(within(inspector).getByTestId("tag-chip")).toHaveTextContent("#Project"));
+    await waitFor(() => expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"));
     // Existing value wins over the tag default.
     await waitFor(() =>
-      expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("doing"),
+      expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"),
     );
   });
 
@@ -63,28 +63,28 @@ describe("first-class tags and tag defaults", () => {
     });
 
     await openBlockMenu();
-    await user.click(await screen.findByTestId("menu-properties"));
-    const inspector = await screen.findByTestId("block-inspector");
+    await user.click(await screen.findByTestId("menu-tags"));
+    const picker = await screen.findByTestId("tag-picker");
     // The default was copied because the block had no task.status.
     await waitFor(() =>
-      expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("todo"),
+      expect(screen.getByTestId("prop-task.status")).toHaveTextContent("todo"),
     );
 
-    await user.click(within(inspector).getByRole("button", { name: "Remove tag Project" }));
+    await user.click(within(picker).getByRole("button", { name: "Remove tag Project" }));
     await waitFor(() =>
-      expect(within(inspector).queryByTestId("tag-chip")).not.toBeInTheDocument(),
+      expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument(),
     );
     // Copied properties are plain properties: removing the tag keeps them.
-    expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("todo");
+    expect(screen.getByTestId("prop-task.status")).toHaveTextContent("todo");
   });
 
   it("does not offer a duplicate tag create action", async () => {
     await mountTagged();
     const user = userEvent.setup();
     await openBlockMenu();
-    await user.click(await screen.findByTestId("menu-properties"));
-    const inspector = await screen.findByTestId("block-inspector");
-    await user.type(within(inspector).getByTestId("tag-autocomplete"), "  project  ");
+    await user.click(await screen.findByTestId("menu-tags"));
+    const picker = await screen.findByTestId("tag-picker");
+    await user.type(within(picker).getByTestId("tag-autocomplete"), "  project  ");
 
     expect(await screen.findByRole("option", { name: "Project" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Create tag/ })).not.toBeInTheDocument();

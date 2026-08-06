@@ -91,7 +91,7 @@ export async function openPageMenu(page: Page): Promise<void> {
 export async function openPageProperties(page: Page): Promise<void> {
   await openPageMenu(page);
   await page.getByTestId("menu-page-properties").click();
-  await expect(page.getByTestId("props-panel")).toBeVisible();
+  await expect(page.getByTestId("property-picker")).toBeVisible();
 }
 
 /** A block's verbs live on its bullet, which is also its drag handle. */
@@ -101,10 +101,16 @@ export async function openBlockMenu(page: Page, index = 0): Promise<void> {
 }
 
 /** The tagged-block defaults live one level deeper, behind Advanced. */
-export async function openBlockInspector(page: Page, index = 0): Promise<void> {
+export async function openBlockProperties(page: Page, index = 0): Promise<void> {
   await openBlockMenu(page, index);
   await page.getByTestId("menu-properties").click();
-  await expect(page.getByTestId("block-inspector")).toBeVisible();
+  await expect(page.getByTestId("property-picker")).toBeVisible();
+}
+
+export async function openBlockTags(page: Page, index = 0): Promise<void> {
+  await openBlockMenu(page, index);
+  await page.getByTestId("menu-tags").click();
+  await expect(page.getByTestId("tag-picker")).toBeVisible();
 }
 
 /**

@@ -440,7 +440,7 @@ h2 {
 
 /* A keyboard hint, laid out one part per key.
 
-   Two things were wrong with setting `⌘⇧P` as a single run of mono text. The
+   Two things were wrong with setting `⌘P` as a single run of mono text. The
    modifier glyphs and the letter come from different parts of a font — in a mono
    face ⌘ and ⇧ are drawn at a different cap height and weight than a capital P,
    so the badge read as three mismatched pieces sharing no baseline. And with no
@@ -592,11 +592,8 @@ h2 {
 .settings-group h3,
 .cmdk-group-title,
 .shortcuts section h3,
-.props-section > header h3,
-.inspector > header h2,
 .diagnostic-disclosure h3,
-.settings-details > summary,
-.props-advanced > summary {
+.settings-details > summary {
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
@@ -1898,6 +1895,291 @@ h2 {
 
 /* ─────────────────────── 7. properties ─────────────────────── */
 
+/* Property rows belong to the document they describe. Their shared two-column
+   rhythm makes metadata scannable without turning the outline into a table. */
+.page-inline-properties {
+  min-height: 0;
+}
+
+.inline-properties {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-0);
+  padding: 0 var(--sp-1) var(--sp-1);
+}
+
+.page-inline-properties > .inline-properties {
+  padding-inline: 0;
+}
+
+.inline-property-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 180px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--slot);
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.inline-property-row:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.inline-property-key {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-property-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker,
+.tag-picker,
+.slash-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  padding: var(--sp-2);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  color: var(--ink);
+  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
+}
+
+.property-picker {
+  display: flex;
+  max-height: min(420px, calc(100dvh - 24px));
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.property-picker-head {
+  display: flex;
+  min-height: var(--sp-6);
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.property-picker-head > div {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.property-picker-head strong {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-head span {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.property-picker-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-0);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.property-picker-option {
+  display: flex;
+  width: 100%;
+  min-height: var(--sp-6);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.property-picker-option:hover,
+.property-picker-option[data-active="true"],
+.property-picker-option[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.property-picker-option svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.property-picker-candidate {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.property-picker-candidate > span,
+.property-picker-candidate > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-candidate > small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.property-picker-value {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.property-current-value {
+  margin: 0;
+  padding: 0 var(--sp-2);
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-members {
+  display: flex;
+  max-height: 144px;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.property-picker-members > div {
+  display: flex;
+  min-height: var(--sp-6);
+  align-items: center;
+  gap: var(--sp-2);
+  padding-left: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.property-picker-members span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+}
+
+.property-picker-actions > :first-child:not(:last-child) {
+  margin-right: auto;
+}
+
+.property-date-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-1);
+}
+
+.tag-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.tag-picker > strong {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.slash-menu {
+  padding: var(--sp-1);
+}
+
+.slash-menu > button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.slash-menu > button > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.slash-menu strong {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.slash-menu small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+@media (max-width: 600px) {
+  .property-picker,
+  .tag-picker {
+    inset: auto 0 0 !important;
+    width: 100% !important;
+    max-height: 70dvh;
+    padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
+    border-radius: var(--r-4) var(--r-4) 0 0;
+  }
+
+  .property-picker-option,
+  .property-picker-members > div {
+    min-height: var(--sp-6);
+  }
+}
+
 /* At rest, a non-empty bag is a strip of chips. An empty bag renders nothing. */
 .prop-strip {
   display: flex;
@@ -1946,209 +2228,6 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.props-panel {
-  margin-top: var(--sp-3);
-  padding: var(--sp-3);
-  border-radius: var(--r-3);
-  background: var(--surface-1);
-}
-
-/* One panel, one subject. No entrance animation: it is read the instant it
-   opens, including by the automated contrast audit. */
-.inspector {
-  margin: var(--sp-1) 0 var(--sp-3);
-  padding: var(--sp-3);
-  border-radius: var(--r-3);
-  background: var(--surface-1);
-}
-
-.inspector > header {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-.inspector > header h2 {
-  flex: 1;
-  min-width: 0;
-}
-
-.inspector-tags {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-1);
-  margin-top: var(--sp-2);
-}
-
-.inspector-tag-input {
-  min-width: 180px;
-  max-width: 260px;
-  flex: 1;
-}
-
-.props-disclosure {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
-  gap: var(--sp-1);
-  height: 28px;
-  margin-left: calc(var(--sp-1) * -1);
-  padding: 0 var(--sp-2) 0 var(--sp-1);
-  border: none;
-  border-radius: var(--r-2);
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-
-.props-disclosure:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.props-disclosure svg {
-  width: 12px;
-  height: 12px;
-  color: var(--ink-3);
-}
-
-.props-section {
-  margin-top: var(--sp-3);
-}
-
-.props-section > header {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--sp-1) var(--sp-2);
-  margin-bottom: var(--sp-1);
-}
-
-.props-section > header p {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-}
-
-.props-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.props-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) auto;
-  gap: var(--sp-2);
-  align-items: center;
-  min-height: 28px;
-  padding: 0 var(--sp-1);
-  border-radius: var(--r-2);
-}
-
-.props-row:hover {
-  background: var(--surface-2);
-}
-
-.props-key {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-.props-key .flag {
-  margin-left: var(--sp-2);
-  color: var(--ink-3);
-  font-family: var(--font-sans);
-  font-style: italic;
-}
-
-.props-value {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  min-width: 0;
-  color: var(--ink);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-}
-
-.props-row .icon-btn {
-  opacity: 0;
-}
-
-.props-row:hover .icon-btn,
-.props-row:focus-within .icon-btn {
-  opacity: 1;
-}
-
-.props-add {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) 128px minmax(0, 1fr) auto;
-  gap: var(--sp-2);
-  align-items: center;
-  margin-top: var(--sp-3);
-}
-
-.props-add > * {
-  min-width: 0;
-}
-
-.props-advanced {
-  margin-top: var(--sp-4);
-}
-
-.props-advanced > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  height: 28px;
-  margin-left: calc(var(--sp-1) * -1);
-  padding: 0 var(--sp-2) 0 var(--sp-1);
-  border-radius: var(--r-2);
-  cursor: pointer;
-  list-style: none;
-}
-
-.props-advanced > summary svg {
-  width: 12px;
-  height: 12px;
-  transition: transform var(--dur-disclose) var(--ease-out);
-}
-
-.props-advanced[open] > summary svg {
-  transform: rotate(90deg);
-}
-
-.props-advanced > summary::-webkit-details-marker {
-  display: none;
-}
-
-.props-advanced > summary:hover {
-  background: var(--surface-2);
-  color: var(--ink-2);
-}
-
-.props-advanced[open] > summary {
-  color: var(--ink-2);
-}
-
-@media (max-width: 600px) {
-  .props-row,
-  .props-add {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 /* The two rules the design contract has always stated for narrow widths, and

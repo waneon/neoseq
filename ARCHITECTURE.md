@@ -111,6 +111,7 @@ Detailed contracts are in:
 - [CRDT data model and persistence](architectures/data.md)
 - [Query engine](architectures/query.md)
 - [Client applications](architectures/clients.md)
+- [Property command picker](architectures/property-command-picker.md)
 - [Internationalization](architectures/i18n.md)
 - [Diagnostic recording and bug artifacts](architectures/diagnostics.md)
 - [Design language and UI contract](DESIGN.md)

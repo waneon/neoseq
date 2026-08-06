@@ -149,7 +149,7 @@ function DropdownMenuSeparator({
  *
  * It holds a `<Kbd>`, which owns how a modifier and its key are set (app.css
  * § .kbd); this element contributes position only. It used to declare the mono
- * face and `--ink-3` itself, which is how a menu row ended up drawing `⌘⇧P` in a
+ * face and `--ink-3` itself, which is how a menu row ended up drawing `⌘P` in a
  * font that renders those three glyphs at three different sizes, in an ink that
  * fails contrast the moment the row takes its `--surface-2` highlight.
  */

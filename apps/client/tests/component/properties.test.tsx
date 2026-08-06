@@ -1,11 +1,9 @@
-// The generic property experience: five value types, unknown-key fallback,
-// removal and validation errors — all through the
-// same uniform editor.
+// Properties are visible inline and edited through one contextual picker.
 
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { chooseFromMenu, GRAPH_ID, mountAt, openBlockMenu, openPageMenu } from "./harness";
+import { GRAPH_ID, mountAt, openPageMenu } from "./harness";
 
 async function mountPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -14,29 +12,42 @@ async function mountPage() {
   return harness;
 }
 
-/**
- * Page properties are behind a disclosure now — the writing surface carries no
- * database chrome at rest — so the panel is opened the way a user opens it:
- * by right-clicking the page title.
- */
-async function openPageProperties(user: ReturnType<typeof userEvent.setup>) {
+async function openPagePicker(user: ReturnType<typeof userEvent.setup>) {
   await openPageMenu();
   await user.click(await screen.findByTestId("menu-page-properties"));
-  return screen.findByTestId("props-panel");
+  return screen.findByTestId("property-picker");
+}
+
+async function createCustomProperty(
+  user: ReturnType<typeof userEvent.setup>,
+  key: string,
+  type: "string" | "number" | "checkbox" | "date" | "page",
+  value: string,
+) {
+  const picker = await openPagePicker(user);
+  await user.type(within(picker).getByLabelText("Property key"), key);
+  await user.click(within(picker).getByRole("option", { name: `Create property “${key}”` }));
+  await user.click(within(picker).getByRole("option", { name: type }));
+  if (type === "checkbox") {
+    await user.click(within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }));
+  } else {
+    const input = within(picker).getByLabelText(`${key} value`);
+    await user.clear(input);
+    await user.type(input, value);
+    await user.click(within(picker).getByTestId("property-set"));
+  }
+  await waitFor(() => expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument());
 }
 
 describe("the page's own menu", () => {
   it("is named, even though its trigger is a coordinate rather than a control", async () => {
-    const { session } = await mountPage();
-    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await mountPage();
     const menu = await openPageMenu();
-    // Radix names the menu from its trigger, so the anchor has to carry the name:
-    // an aria-label on the menu itself would lose to that reference.
     expect(menu).toHaveAccessibleName("Page actions");
   });
 });
 
-describe("generic property editor", () => {
+describe("property picker", () => {
   it("edits all five value types and keeps unknown keys editable", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
@@ -47,88 +58,94 @@ describe("generic property editor", () => {
     await session.execute({ type: "set_property", entity, key: "custom.when", value: { type: "date", value: "2026-08-03" } });
     await session.execute({ type: "set_property", entity, key: "custom.link", value: { type: "page", value: "home" } });
 
-    await openPageProperties(user);
-    const section = await screen.findByTestId("props-page");
-    // Unknown keys are flagged but rendered through the same rows.
-    expect(within(section).getByTestId("prop-custom.text")).toHaveTextContent("custom");
-
-    const text = within(section).getByLabelText("custom.text value");
+    await user.click(await screen.findByTestId("prop-custom.text"));
+    let picker = await screen.findByTestId("property-picker");
+    const text = within(picker).getByLabelText("custom.text value");
     await user.clear(text);
-    await user.type(text, "updated");
-    await user.tab();
-    await waitFor(() => expect(within(section).getByLabelText("custom.text value")).toHaveValue("updated"));
+    await user.type(text, "updated{enter}");
+    await waitFor(() => expect(screen.getByTestId("prop-custom.text")).toHaveTextContent("updated"));
 
-    const flag = within(section).getByLabelText("custom.flag value");
-    await user.click(flag);
-    await waitFor(() => expect(within(section).getByLabelText("custom.flag value")).toBeChecked());
+    await user.click(screen.getByTestId("prop-custom.flag"));
+    picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: "Checked" }));
+    await waitFor(() => expect(screen.getByTestId("prop-custom.flag")).toHaveTextContent("yes"));
 
-    const count = within(section).getByLabelText("custom.count value");
+    await user.click(screen.getByTestId("prop-custom.count"));
+    picker = await screen.findByTestId("property-picker");
+    const count = within(picker).getByLabelText("custom.count value");
     await user.clear(count);
-    await user.type(count, "7{enter}");
-    await waitFor(() => expect(within(section).getByLabelText("custom.count value")).toHaveValue(7));
+    await user.type(count, "7");
+    await user.click(within(picker).getByTestId("property-set"));
+    await waitFor(() => expect(screen.getByTestId("prop-custom.count")).toHaveTextContent("7"));
 
-    const when = within(section).getByLabelText("custom.when value");
-    expect(when).toHaveValue("2026-08-03");
-
-    // Page-typed values resolve their reference title.
-    expect(within(section).getByTestId("prop-custom.link")).toHaveTextContent("Home");
+    await user.click(screen.getByTestId("prop-custom.when"));
+    expect(within(await screen.findByTestId("property-picker")).getByLabelText("custom.when value"))
+      .toHaveValue("2026-08-03");
+    await user.keyboard("{Escape}");
+    picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: /custom\.link/ }));
+    expect(within(picker).getByText("Home")).toBeInTheDocument();
   });
 
-  it("adds and removes an unknown property through the add row", async () => {
+  it("creates and removes a custom property through the picker", async () => {
     await mountPage();
     const user = userEvent.setup();
-    await openPageProperties(user);
-    const section = await screen.findByTestId("props-page");
-    await user.type(within(section).getByLabelText("New property key"), "future.metric");
-    await chooseFromMenu(user, within(section).getByLabelText("New property type"), "number");
-    await user.clear(within(section).getByLabelText("New property value"));
-    await user.type(within(section).getByLabelText("New property value"), "42");
-    await user.click(within(section).getByTestId("props-add-submit"));
-    await waitFor(() => expect(within(section).getByTestId("prop-future.metric")).toBeInTheDocument());
+    await createCustomProperty(user, "future.metric", "number", "42");
+    const row = await screen.findByTestId("prop-future.metric");
+    expect(row).toHaveTextContent("42");
 
-    await user.click(within(section).getByTestId("remove-future.metric"));
-    await waitFor(() =>
-      expect(within(section).queryByTestId("prop-future.metric")).not.toBeInTheDocument(),
-    );
+    await user.click(row);
+    const picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("button", { name: "Clear property" }));
+    await waitFor(() => expect(screen.queryByTestId("prop-future.metric")).not.toBeInTheDocument());
   });
 
   it("surfaces validation errors for structural property keys", async () => {
     await mountPage();
     const user = userEvent.setup();
-    await openPageProperties(user);
-    const section = await screen.findByTestId("props-page");
-    await user.type(within(section).getByLabelText("New property key"), "page.title");
-    await user.type(within(section).getByLabelText("New property value"), "nope");
-    await user.click(within(section).getByTestId("props-add-submit"));
-    expect(await within(section).findByTestId("props-error")).toHaveTextContent(
+    const picker = await openPagePicker(user);
+    await user.type(within(picker).getByLabelText("Property key"), "page.title");
+    expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
       "structural and cannot be a property",
     );
   });
 
-  it("edits well-known enum properties through allowed values", async () => {
+  it("opens from slash and removes the slash token before applying a value", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    await session.execute({ type: "ensure_page", page_id: "task-page", title: "Task" });
     await session.execute({
       type: "insert_block",
       page_id: "home",
       parent: null,
       index: 0,
-      markdown: "task",
+      markdown: "",
     });
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/pro");
+    expect(await screen.findByTestId("slash-menu")).toBeVisible();
+    await user.keyboard("{Enter}");
+    const picker = await screen.findByTestId("property-picker");
+    expect(textarea).toHaveValue("");
+    await user.click(within(picker).getByRole("option", { name: "task.status" }));
+    await user.click(within(picker).getByRole("option", { name: "doing" }));
+    await waitFor(() => expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"));
+  });
+
+  it("edits a well-known enum directly from its inline row", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({ type: "insert_block", page_id: "home", parent: null, index: 0, markdown: "task" });
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: "b-1" },
       key: "task.status",
       value: { type: "string", value: "todo" },
     });
-    await openBlockMenu();
-    await user.click(await screen.findByTestId("menu-properties"));
-    const inspector = await screen.findByTestId("block-inspector");
-    const chooser = within(inspector).getByLabelText("task.status value");
-    await chooseFromMenu(user, chooser, "doing");
-    await waitFor(() =>
-      expect(within(inspector).getByLabelText("task.status value")).toHaveTextContent("doing"),
-    );
+    await user.click(await screen.findByTestId("prop-task.status"));
+    const picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: "doing" }));
+    await waitFor(() => expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"));
+
   });
 });

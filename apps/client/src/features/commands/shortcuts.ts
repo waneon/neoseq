@@ -69,7 +69,7 @@ export interface Binding {
  */
 export const DEFAULT_BINDINGS: Record<ShortcutId, Binding> = {
   palette: { key: "k", shift: false, alt: false },
-  properties: { key: "p", shift: true, alt: false },
+  properties: { key: "p", shift: false, alt: false },
   shortcuts: { key: "/", shift: false, alt: false },
   sidebar: { key: "\\", shift: false, alt: false },
   settings: { key: ",", shift: false, alt: false },
@@ -170,7 +170,6 @@ const RESERVED = new Set([
   "mod+shift+i",
   "mod+alt+i",
   "mod+f",
-  "mod+p",
   "mod+s",
   "mod+o",
   // every text field's

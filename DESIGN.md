@@ -260,7 +260,7 @@ theme — the single most common tell of a web app that only pretends to have a 
 | Token | Role |
 |---|---|
 | `--canvas` | The writing surface. The page body, the top bar, the content column. |
-| `--surface-1` | A quiet inset panel on the canvas: the property panel, the block inspector, a graph card. |
+| `--surface-1` | A quiet inset panel on the canvas: a settings section or graph card. |
 | `--surface-2` | Hover wash, chips, shortcut badges, a shortcut's own key. The one hover colour. |
 | `--surface-3` | Active/pressed, and the current navigation row. |
 | `--rail` | Navigation. One step away from the canvas in both modes, in opposite directions. |
@@ -359,7 +359,7 @@ This is the interface admitting which of its strings are addresses and which are
 
 > **A shortcut badge left the mono voice**, and it is the one thing that has. `⌘`, `⇧`
 > and `⌥` are drawn in a mono face at a different cap height and weight than a capital
-> letter, so `⌘⇧P` set as one string was three mismatched pieces sharing no baseline —
+> letter, so `⌘P` set as one string was two mismatched pieces sharing no baseline —
 > and with no separator between them, `⌘K` read as a single four-stroke character. A
 > badge is now one element per key, in the UI face, at a 3px gap, each part at least
 > `1ch` wide so a glyph and a letter occupy the same column. SF Pro and Segoe UI draw
@@ -715,7 +715,7 @@ revealed on `:focus-within` — and revealed with `opacity`, never `display` or
 
 The command palette · the shortcut sheet · Settings · a block's menu (right-click its
 bullet, or `⇧F10` from its text) · the page's menu (right-click its title row) · page
-properties · tagged-block defaults · page info · block properties and tags ·
+the property picker · the tag picker · tagged-block defaults · page info ·
 diagnostics · every confirm dialog.
 
 A context menu is summoned *from an object*, which is what makes it different from a
@@ -776,7 +776,7 @@ type Command = {
   group: "Pages" | "Journal" | "Graph" | "Edit" | "Block" | "App"
   label: string
   keywords?: string[]
-  binding?: string           // display form, e.g. "⌘⇧P"
+  binding?: string           // display form, e.g. "⌘P"
   scope: "global" | "editor"
   when?(ctx): boolean
   disabledReason?(ctx): string | null
@@ -801,7 +801,7 @@ field.
 | Default | Verb |
 |---|---|
 | `⌘K` | Command palette |
-| `⌘⇧P` | Properties of the focused block, or of the page when none is focused |
+| `⌘P` | Properties of the focused block, or of the page when none is focused |
 | `⌘/` | Shortcut sheet |
 | `⌘\` | Toggle the rail |
 | `⌘,` | Settings |
@@ -819,11 +819,13 @@ Three rules keep the table honest, and each rejection says which one it hit:
    is not representable rather than merely discouraged.
 2. **No two actions may share a binding**, and the conflict names the other action.
 3. **Two sets of combinations are refused outright.** The ones the browser takes first
-   (`⌘W`, `⌘T`, `⌘N`, `⌘R`, `⌘L`, `⌘F`, `⌘P`, …), because storing one would record a
+   (`⌘W`, `⌘T`, `⌘N`, `⌘R`, `⌘L`, `⌘F`, …), because storing one would record a
    shortcut that can never fire — and the ones every *text field* owns (`⌘A`, `⌘C`,
    `⌘V`, `⌘X`), because those do reach the page and the global layer would happily
    `preventDefault` them. One bad rebinding must not be able to take copy and paste
-   away from every input in the product.
+   away from every input in the product. `⌘P` is the intentional exception: the
+   property command claims it only while a page or focused block has registered a
+   target; otherwise the browser keeps Print.
 
 Bindings are stored as `event.key`, not `event.code`. `code` is layout-stable; `key` is
 what is printed on the key the user actually pressed, and therefore the only thing that
@@ -955,7 +957,7 @@ scroll must not fade, or the whole list shimmers while you scroll it.
 **Block menu.** No button. Right-click the bullet or the gutter beside it; `⇧F10` from
 the row's text does the same. It anchors to the bullet rather than to the pointer,
 because it is *about* the bullet. Every item carries its shortcut: `Indent ⇥`,
-`Outdent ⇧⇥`, `Move up ⌥↑`, `Move down ⌥↓`, `Properties ⌘⇧P`, `Delete ⌫`. Closing it puts
+`Outdent ⇧⇥`, `Move up ⌥↑`, `Move down ⌥↓`, `Properties ⌘P`, `Tags`, `Delete ⌫`. Closing it puts
 the caret back in the row's text — Radix would otherwise park focus on the bullet, which
 is not a tab stop and cannot be typed into — **unless the verb that closed it has already
 moved the caret**. `Add child block` mounts a focused pending row synchronously and
@@ -1057,7 +1059,7 @@ cluster of 24px controls (`‹`, a calendar trigger that calls `showPicker()`, `
 `Today` pill that is always visible when the date is not today.
 
 **The row is the page's handle.** Right-clicking it — the title included — opens the
-page's menu: properties, info, and delete. There is no `⋯`. The keyboard routes are `⌘⇧P`
+page's menu: properties, info, and delete. There is no `⋯`. The keyboard routes are `⌘P`
 for properties and the palette's own `Page info` / `Delete page…` rows, which reach the
 same handlers, so nothing here is pointer-only. Radix needs something to position
 against, so the trigger is a zero-size anchor at the pointer, `aria-hidden` and
@@ -1081,26 +1083,28 @@ than falling back to the page id.
 
 ### Properties
 
-Both bags move out of the region below the outline into **one collapsed disclosure
-between the title row and the outline** — where Notion puts them, and on Logseq's
-on-demand model.
+Properties are document metadata, not a separate form. Non-system block entries render
+as quiet two-column rows directly under their Markdown; pages retain a compact strip of
+up to four `key: value` chips below the title. An empty bag renders nothing. Keys use the
+mono identifier voice, values truncate on one line, and clicking a row or chip opens the
+same contextual picker on that key.
 
-- **At rest, when the bag is empty: nothing renders.**
-- **At rest, when it is not:** a strip of up to four `key: value` chips (key in mono)
-  plus `+N more`. Clicking any chip expands the panel.
-- **Expanded:** the property rows, the add row, and an `Advanced` disclosure holding
-  the tagged-block defaults.
-- **Three routes in:** the strip, the title row's context menu, and `⌘⇧P`.
-- System keys are filtered out entirely and live in the page-info popover instead.
+The picker is the only property-writing surface:
 
-Value controls stay **native** where the platform brings something a menu cannot:
-`<input type="checkbox">` and `<input type="date">`, restyled, so the date picker and the
-mobile wheel come for free. **A list of choices does not** — see § Choice for why every
-`<select>` in the product became the same menu, and what that cost.
+- `/` in a block opens a one-row command menu. `Add property` removes the slash token,
+  persists a pending block if necessary, and opens the picker for that block.
+- `⌘P` opens it for the focused block, or the page when no block is focused. The title
+  and bullet context menus provide the pointer routes.
+- The first stage searches existing and registry keys and can create a validated custom
+  key. A custom key adds a type stage; the value stage is derived from that type.
+- Existing rows enter directly at the value stage. Repeated values stay individually
+  removable, while Clear removes the whole property.
+- System keys are omitted and live in page info. Tags keep a separate picker because
+  membership and property values are different domain commands.
 
-**Opening the disclosure animates.** It pushes the entire outline down, so the push is a
-`--dur-size` height transition rather than a reflow: the writing slides out of the way,
-which is the difference between "a panel opened above this" and "the page jumped".
+The picker is portaled and fixed to its invoking row or editor, so it does not resize the
+outline or get clipped by virtualization. `Escape` closes without changing slash text;
+a successful command closes and restores focus to the invoking document control.
 
 ### Save slot
 
@@ -1220,8 +1224,7 @@ column, `Delete this graph…` read as a sibling of `Language`.
 **Every list of choices in the product opens the same surface: the menu a right-click on a
 bullet opens.** One `MenuSelect`, one popup, one highlight, one radius, one set of metrics.
 
-This replaced three. On the property add row — the one screen most likely to be somebody's
-first encounter with the app — there were three popups side by side:
+This replaced three. On the removed property add row there were three popups side by side:
 
 1. a native `<select>`, whose menu the **operating system** draws, in the operating
    system's palette, metrics and corner radius, which no rule in this document can reach;
@@ -1242,9 +1245,10 @@ the most disorienting thing a form can do.
   is the selected one, so the text does not shift sideways as the selection moves down.
 - **A value the core holds that is not one of the offered options stays listed**, so
   opening the menu can never silently rewrite it.
-- **A field that accepts anything and also offers a list** — the property key — keeps its
-  text input and puts the list behind an explicit chevron. These are suggestions, not the
-  set of legal answers, and a menu that appears unbidden under the caret says the opposite.
+- **A field that accepts anything and also offers a list** — the property picker's key
+  combobox — filters existing and registry keys while keeping a final explicit create row
+  for a valid custom key. Its list is the expected result of summoning the picker, not an
+  unsolicited popup beneath document text.
 
 > **The cost, named.** A native `<select>` brings the platform's own picker, the mobile
 > wheel, and type-ahead for free. Radix returns type-ahead, roving focus, portalling,

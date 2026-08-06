@@ -81,10 +81,10 @@ describe("editable shortcuts", () => {
     await mountSettings("keyboard");
     const badge = screen.getByTestId("shortcut-palette");
     await user.click(badge);
-    fireEvent.keyDown(badge, { key: "p", metaKey: true, shiftKey: true });
+    fireEvent.keyDown(badge, { key: "p", metaKey: true });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Ctrl+Shift+P is already Properties of this block or page.",
+      "Ctrl+P is already Properties of this block or page.",
     );
     expect(resolveBindings().palette).toEqual(DEFAULT_BINDINGS.palette);
   });

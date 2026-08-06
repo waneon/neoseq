@@ -127,7 +127,7 @@ export function PageBody({
       page={page}
       at={menuAt}
       onClose={() => setMenuAt(null)}
-      onOpenProperties={() => setPropsOpen(true)}
+      onOpenProperties={() => requestAnimationFrame(() => setPropsOpen(true))}
     />
   );
 
@@ -257,7 +257,7 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
 
 /**
  * The page's verbs. It has no button of its own: the pointer route is a
- * right-click on the title row, and the keyboard route is `⌘⇧P` for properties
+ * right-click on the title row, and the keyboard route is `Mod+P` for properties
  * plus the palette's own `Page info` and `Delete page…` rows, which reach these
  * same handlers through the command bridge.
  *

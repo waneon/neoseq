@@ -77,6 +77,7 @@ import { isTextEntry } from "../commands/keys";
 import {
   formatBinding,
   formatBindingParts,
+  bindingMatches,
   matchShortcut,
   useShortcutBindings,
   type Binding,
@@ -284,7 +285,12 @@ function ShellBody({
       setPageActions: (actions) => {
         pageActions.current = actions;
       },
-      requestProperties: () => (blockProperties.current ?? pageProperties.current)?.(),
+      requestProperties: () => {
+        const handler = blockProperties.current ?? pageProperties.current;
+        if (!handler) return false;
+        handler();
+        return true;
+      },
       requestPageInfo: () => pageActions.current?.info(),
       requestPageDelete: () => pageActions.current?.remove(),
     }),
@@ -305,7 +311,6 @@ function ShellBody({
     const undo = (redo: boolean) => void runHistory(session, notify, message, redo);
     const handlers: ShortcutHandler[] = [
       { binding: bindings.palette, run: () => setPaletteOpen(true) },
-      { binding: bindings.properties, run: () => bridge.requestProperties() },
       { binding: bindings.shortcuts, run: () => setShortcutsOpen(true) },
       { binding: bindings.sidebar, run: toggleRail },
       { binding: bindings.settings, run: () => openSettings() },
@@ -323,6 +328,12 @@ function ShellBody({
             closing.run(event);
           }
         }
+        return;
+      }
+      // Printing is the browser's established Mod+P action. We only claim the
+      // chord when the current page or focused block has a real property target.
+      if (bindingMatches(event, bindings.properties)) {
+        if (bridge.requestProperties()) event.preventDefault();
         return;
       }
       const handler = matchShortcut(event, handlers);
@@ -1089,7 +1100,9 @@ function buildCommands(input: CommandInputs): Command[] {
     hint: message("commands.pagePropertiesHint"),
     icon: <Settings2Icon aria-hidden />,
     pointerRoute: message("shortcuts.blockActionsRoute"),
-    run: () => bridge.requestProperties(),
+    run: () => {
+      bridge.requestProperties();
+    },
   });
 
   commands.push(

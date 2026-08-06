@@ -57,7 +57,7 @@ export function validateKey(key: string): ValidationIssue | null {
   if (trimmed.length === 0) return { code: "empty_key", message: "Property key cannot be empty." };
   if (trimmed !== key) return { code: "whitespace_key", message: "Property key cannot have surrounding whitespace." };
   if (key.length > 128) return { code: "key_length", message: "Property key exceeds 128 bytes." };
-  if (RESERVED_KEYS.has(key)) return { code: "reserved_key", message: `“${key}” is structural and cannot be a property.`, values: { key } };
+  if (RESERVED_KEYS.has(key) || key.startsWith("system.")) return { code: "reserved_key", message: `“${key}” is structural and cannot be a property.`, values: { key } };
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(key)) return { code: "control_character", message: "Property key contains a control character." };
   return null;

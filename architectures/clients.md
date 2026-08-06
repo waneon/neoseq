@@ -158,7 +158,7 @@ layer. A modal surface stands the global layer down while it is up, so the palet
 never be summoned over a focus-trapping dialog that would take its input's focus back.
 
 The shell publishes slots the routed views fill while mounted — block properties, page
-properties, and the page's own info/delete verbs — so `⌘⇧P` and the palette reach panels
+properties, and the page's own info/delete verbs — so `Mod+P` and the palette reach pickers
 and menus that live below the shell. Each also has a local pointer route that works with
 no shell present, which is what keeps them reachable in the component test harness.
 
@@ -302,10 +302,10 @@ never a shared mutable store.
   collapse-and-step; query results use list/table semantics. Every verb on a
   context menu is also a documented key or a palette row, so no capability depends
   on a right-click.
-- Property editors are progressive: both page bags live in one disclosure between the
-  title and the writing, reached from the strip, the title row's menu, or `⌘⇧P`.
-  System-owned keys are page *information* and live in the page-info dialog, and nothing
-  is mounted below the outline.
+- Property entries render inline with their owning page or block and all writes converge
+  on one portaled picker, reached through `/`, `Mod+P`, an inline row, or the owner's
+  context menu. System-owned keys are page *information* and live in the page-info dialog;
+  tags use a separate membership picker, and nothing is mounted below the outline.
 - Focus and selection survive virtualization, remote updates and reports, by ID.
 - Component tests use a fake `CorePort` and never instantiate Loro; selection arithmetic
   and the binding table are pure and tested directly, while the marquee needs real layout

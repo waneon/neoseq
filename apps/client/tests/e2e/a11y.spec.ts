@@ -29,7 +29,7 @@ test("journal, outline, and property editors pass the basic audit", async ({ pag
   await typeInFocusedBlock(page, "audited block");
   await openBlockMenu(page);
   await page.getByTestId("menu-properties").click();
-  await expect(page.getByTestId("block-inspector")).toBeVisible();
+  await expect(page.getByTestId("property-picker")).toBeVisible();
   expect(await audit(page)).toEqual([]);
 });
 
