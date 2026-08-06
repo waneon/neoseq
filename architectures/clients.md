@@ -105,13 +105,14 @@ Structural commands go directly to the core and render optimistically only when 
 inverse is known. A rejected one restores the authoritative subtree, keeps focus where
 it can, and is reported (§ Failure Reporting) rather than looking like a dead key.
 
-The one optimistic structure is block insertion: Enter mounts a focused pending row
-so fast typing lands in the new block, and it swaps to its real `BlockId` in the
-same layout commit that the core's acknowledgement reconciles, so a render lag
-cannot expose an unfocused editor to the next keystroke. Pending rows chain —
-queued inserts, indent/outdent intents and raced keystrokes replay in order against
-real ids, one handoff at a time. A rejected insert applies the known inverse; text
-drafts are dropped only once the authoritative snapshot matches them.
+The one optimistic structure is block creation: Enter mounts a focused pending
+row so fast typing lands in the new block, then sends one atomic `split_block`
+command. At a leading caret the pending row appears before the unchanged source;
+at a middle or trailing caret it appears at the selected after/first-child
+placement. The row swaps to its real `BlockId` in the same layout commit that the
+Core acknowledgement reconciles. Pending rows chain, and queued structural
+intents and raced keystrokes replay in order against real IDs. A rejected split
+applies the known inverse; drafts are dropped only once authoritative state agrees.
 
 ## Property-Driven Features
 

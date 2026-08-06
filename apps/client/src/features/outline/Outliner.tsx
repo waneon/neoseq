@@ -39,6 +39,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import type { GraphSession } from "../../core-port/session";
+import type { Command, SplitPlacement } from "../../core-port/commands";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,7 +64,7 @@ import { TagPicker } from "../properties/TagPicker";
 import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
 import { TaskProjection } from "../tasks/TaskProjection";
-import { codePointIndex, codePointLength, diffSplice } from "./text-diff";
+import { codePointIndex, diffSplice } from "./text-diff";
 import {
   dropTarget,
   coveredMask,
@@ -109,11 +110,11 @@ const FLOATING_OVERLAY_SELECTOR =
 const AUTOSCROLL_BAND_PX = 56;
 const AUTOSCROLL_MAX_PX = 18;
 
-// Pending rows bridge the async gap between Enter and the core's
-// InsertBlock acknowledgement: each is focused synchronously so fast typing
+// Pending rows bridge the async gap between Enter and the core's block-creation
+// acknowledgement: each is focused synchronously so fast typing
 // lands in the new block, then swaps to its real BlockId. They may chain
-// (Enter pressed again before the previous insert resolves); commands are
-// dispatched in order once each predecessor id becomes real. They render
+// (Enter pressed again before the previous split resolves); commands are
+// dispatched in order once each anchor id becomes real. They render
 // optimistically only because the inverse (drop the row) is known.
 const PENDING_PREFIX = "pending-";
 
@@ -123,10 +124,12 @@ export function isPendingId(id: string): boolean {
 
 interface PendingRow {
   tempId: string;
-  /** Block this row follows — a real BlockId or an earlier tempId. */
-  afterId: string;
-  mode: "child" | "sibling";
-  /** Markdown submitted with the InsertBlock command. */
+  /** Block this row is positioned relative to — a real BlockId or earlier tempId. */
+  anchorId: string;
+  mode: "before" | "child" | "sibling";
+  /** Present when Enter atomically splits the anchor; absent for plain insertion. */
+  splitIndex?: number;
+  /** Authoritative Markdown expected on the newly created block. */
   baseline: string;
   dispatched: boolean;
   /** Indent/outdent keys typed before the real id arrived. */
@@ -190,6 +193,13 @@ interface EditorContext {
   insertRootBlock(index: number): void;
   enqueuePendingInsert(
     row: OutlineRow,
+    tail: string,
+    asChild: boolean,
+    inputMethod: DiagnosticInputMethod,
+  ): void;
+  enqueuePendingSplit(
+    row: OutlineRow,
+    index: number,
     tail: string,
     asChild: boolean,
     inputMethod: DiagnosticInputMethod,
@@ -505,11 +515,11 @@ export function Outliner({
     [],
   );
 
-  /** Dispatches the oldest pending insert whose predecessor id is real. */
+  /** Dispatches the oldest pending creation whose anchor id is real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
     const head = pendingRows.current[0];
-    if (!head || head.dispatched || isPendingId(head.afterId)) return;
+    if (!head || head.dispatched || isPendingId(head.anchorId)) return;
     // A preceding queued structural command may have reconciled after the
     // component's last render. Compute the next insert from GraphSession's
     // current snapshot, not the render-time page ref, so parent/index cannot
@@ -517,7 +527,7 @@ export function Outliner({
     const currentPage =
       findPage(session.getState().snapshot, pageRef.current.id) ?? pageRef.current;
     const source = flattenOutline(currentPage, collapsedRef.current).find(
-      (row) => row.block.id === head.afterId,
+      (row) => row.block.id === head.anchorId,
     );
     if (!source) {
       // The anchor block disappeared (e.g. undo); pending edits cannot land.
@@ -526,14 +536,28 @@ export function Outliner({
     }
     head.dispatched = true;
     pendingDispatching.current = true;
+    const placement: SplitPlacement = head.mode === "before"
+      ? "before"
+      : head.mode === "child"
+        ? "first_child"
+        : "after";
+    const command: Command = head.splitIndex === undefined
+      ? {
+          type: "insert_block",
+          page_id: currentPage.id,
+          parent: head.mode === "child" ? head.anchorId : source.parentId,
+          index: head.mode === "before" ? source.index : head.mode === "child" ? 0 : source.index + 1,
+          markdown: head.baseline,
+        }
+      : {
+          type: "split_block",
+          page_id: currentPage.id,
+          block_id: head.anchorId,
+          index: head.splitIndex,
+          placement,
+        };
     session
-      .execute({
-        type: "insert_block",
-        page_id: currentPage.id,
-        parent: head.mode === "child" ? head.afterId : source.parentId,
-        index: head.mode === "child" ? 0 : source.index + 1,
-        markdown: head.baseline,
-      }, head.diagnosticAction)
+      .execute(command, head.diagnosticAction)
       .then(async (result) => {
         const realId = result.created_block;
         const typed = drafts.current.get(head.tempId) ?? head.baseline;
@@ -543,7 +567,7 @@ export function Outliner({
           active instanceof HTMLTextAreaElement ? active.selectionStart : typed.length;
         if (realId) {
           for (const entry of pendingRows.current) {
-            if (entry.afterId === head.tempId) entry.afterId = realId;
+            if (entry.anchorId === head.tempId) entry.anchorId = realId;
           }
           if (typed !== head.baseline) {
             // Keystrokes that raced the acknowledgement move to the block
@@ -645,7 +669,7 @@ export function Outliner({
       );
       let fallback: string | null = null;
       for (const entry of pendingRows.current) {
-        if (!isPendingId(entry.afterId)) fallback = entry.afterId;
+        if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
         drafts.current.delete(entry.tempId);
         baselines.current.delete(entry.tempId);
       }
@@ -1279,9 +1303,32 @@ export function Outliner({
       flushSync(() => {
         pendingRows.current.push({
           tempId,
-          afterId: row.block.id,
+          anchorId: row.block.id,
           mode: asChild ? "child" : "sibling",
           baseline: tail,
+          dispatched: false,
+          structural: [],
+          diagnosticAction,
+        });
+        setFocus(tempId, 0);
+        force();
+      });
+      dispatchPending();
+    },
+    enqueuePendingSplit: (row, index, tail, asChild, inputMethod) => {
+      pendingSeq.current += 1;
+      const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
+      const diagnosticAction = startOutlineAction("split_block", inputMethod, new Set());
+      const leading = index === 0;
+      const baseline = leading ? "" : tail;
+      drafts.current.set(tempId, baseline);
+      flushSync(() => {
+        pendingRows.current.push({
+          tempId,
+          anchorId: row.block.id,
+          mode: leading ? "before" : asChild ? "child" : "sibling",
+          splitIndex: index,
+          baseline,
           dispatched: false,
           structural: [],
           diagnosticAction,
@@ -2054,41 +2101,33 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
   const id = row.block.id;
   const draft = editor.draftOf(row);
   const caretUtf16 = textarea.selectionStart;
+  const caretPoint = codePointIndex(draft, caretUtf16);
   const head = draft.slice(0, caretUtf16);
   const tail = draft.slice(caretUtf16);
   if (isPendingId(id)) {
-    // The pending block's tail moves locally; the eventual baseline diff
-    // flush reconciles its markdown with the core.
+    // The pending block's head moves locally; once its real id arrives the
+    // queued split follows the baseline reconciliation in session order.
     editor.onInput(row, head, textarea);
   } else {
     editor.flushNow(id);
-    if (tail.length > 0) {
-      const caretPoint = codePointIndex(draft, caretUtf16);
-      void editor.session
-        .execute({
-          type: "splice_markdown",
-          page_id: editor.pageId,
-          block_id: id,
-          index: caretPoint,
-          delete: codePointLength(draft) - caretPoint,
-          insert: "",
-        })
-        .catch((error: unknown) => {
-          editor.notify.failure(editor.message("failure.splitBlock"), error);
-        });
-    }
   }
-  editor.enqueuePendingInsert(row, tail, row.hasChildren && !row.collapsed, "keyboard");
+  editor.enqueuePendingSplit(
+    row,
+    caretPoint,
+    tail,
+    row.hasChildren && !row.collapsed,
+    "keyboard",
+  );
 }
 
 /** Injects the optimistic pending rows into the flattened outline. */
 function withPendingRows(rows: OutlineRow[], pending: PendingRow[]): OutlineRow[] {
   let result = rows;
   for (const entry of pending) {
-    const sourceIndex = result.findIndex((row) => row.block.id === entry.afterId);
+    const sourceIndex = result.findIndex((row) => row.block.id === entry.anchorId);
     if (sourceIndex < 0) continue;
     const source = result[sourceIndex];
-    let insertAt = sourceIndex + 1;
+    let insertAt = entry.mode === "before" ? sourceIndex : sourceIndex + 1;
     if (entry.mode === "sibling") {
       while (insertAt < result.length && result[insertAt].depth > source.depth) insertAt += 1;
     }
@@ -2096,7 +2135,7 @@ function withPendingRows(rows: OutlineRow[], pending: PendingRow[]): OutlineRow[
       block: { id: entry.tempId, markdown: "", properties: [], tags: [], children: [] },
       depth: entry.mode === "child" ? source.depth + 1 : source.depth,
       parentId: entry.mode === "child" ? source.block.id : source.parentId,
-      index: entry.mode === "child" ? 0 : source.index + 1,
+      index: entry.mode === "child" ? 0 : source.index + (entry.mode === "before" ? 0 : 1),
       siblingCount: entry.mode === "child" ? 1 : source.siblingCount + 1,
       hasChildren: false,
       collapsed: false,

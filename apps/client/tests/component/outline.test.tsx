@@ -76,13 +76,13 @@ describe("outliner keyboard commands", () => {
     });
     const frozenPage = findPage(session.getState().snapshot, "home");
     if (!frozenPage) throw new Error("test page was not created");
-    let releaseInsert = () => undefined;
-    const insertGate = new Promise<void>((resolve) => {
-      releaseInsert = resolve;
+    let releaseSplit = () => undefined;
+    const splitGate = new Promise<void>((resolve) => {
+      releaseSplit = resolve;
     });
-    let signalInsertStarted = () => undefined;
-    const insertStarted = new Promise<void>((resolve) => {
-      signalInsertStarted = resolve;
+    let signalSplitStarted = () => undefined;
+    const splitStarted = new Promise<void>((resolve) => {
+      signalSplitStarted = resolve;
     });
     let releaseIndent = () => undefined;
     const indentGate = new Promise<void>((resolve) => {
@@ -92,15 +92,15 @@ describe("outliner keyboard commands", () => {
     const indentStarted = new Promise<void>((resolve) => {
       signalIndentStarted = resolve;
     });
-    let pauseNextInsert = true;
+    let pauseNextSplit = true;
     let pauseNextIndent = true;
     const commandTypes: string[] = [];
     port.beforeExecute = async (command) => {
       commandTypes.push(command.type);
-      if (command.type === "insert_block" && pauseNextInsert) {
-        pauseNextInsert = false;
-        signalInsertStarted();
-        await insertGate;
+      if (command.type === "split_block" && pauseNextSplit) {
+        pauseNextSplit = false;
+        signalSplitStarted();
+        await splitGate;
       } else if (command.type === "indent_blocks" && pauseNextIndent) {
         pauseNextIndent = false;
         signalIndentStarted();
@@ -117,15 +117,15 @@ describe("outliner keyboard commands", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByLabelText("Block text"));
-    // Chain a second pending row while the first insert is still in flight.
+    // Chain a second pending row while the first split is still in flight.
     await user.keyboard("{Enter}{Tab}child{Enter}");
-    await insertStarted;
+    await splitStarted;
     await act(async () => {
-      releaseInsert();
+      releaseSplit();
       await indentStarted;
     });
     // Queue a third row while the first pending row is replaying its indent.
-    // The second insert must wait, then compute its parent from the new tree.
+    // The second split must wait, then resolve placement from the new tree.
     await user.keyboard("{Tab}grandchild{Enter}");
     await act(async () => {
       releaseIndent();
@@ -156,6 +156,50 @@ describe("outliner keyboard commands", () => {
     await waitFor(() => {
       const page = session.getState().snapshot.pages.find((p) => p.id === "home");
       expect(page?.blocks.map((b) => b.markdown)).toEqual(["head", "tail"]);
+    });
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((p) => p.id === "home");
+      expect(page?.blocks.map((b) => b.markdown)).toEqual(["headtail"]);
+    });
+  });
+
+  it("inserts before a leading caret and preserves the original block metadata", async () => {
+    const { session } = await mountOutline(["alpha"]);
+    const original = findPage(session.getState().snapshot, "home")!.blocks[0];
+    await session.execute({
+      type: "set_property",
+      entity: { kind: "block", page_id: "home", id: original.id },
+      key: "task.status",
+      value: { type: "string", value: "doing" },
+    });
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(textarea);
+    textarea.setSelectionRange(0, 0);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home")!;
+      expect(page.blocks.map((block) => block.markdown)).toEqual(["", "alpha"]);
+      expect(page.blocks[1].id).toBe(original.id);
+      expect(page.blocks[1].properties).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          key: "task.status",
+          value: { type: "string", value: "doing" },
+        }),
+      ]));
+    });
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home")!;
+      expect(page.blocks).toHaveLength(1);
+      expect(page.blocks[0].id).toBe(original.id);
+      expect(page.blocks[0].markdown).toBe("alpha");
+      expect(page.blocks[0].properties).toEqual(expect.arrayContaining([
+        expect.objectContaining({ key: "task.status" }),
+      ]));
     });
   });
 

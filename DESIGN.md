@@ -964,6 +964,12 @@ moved the caret**. `Add child block` mounts a focused pending row synchronously 
 `Delete` hands the caret to a neighbour; restoring it afterwards races them and wins,
 which sends the next thing typed into the row the menu was opened on.
 
+**Enter preserves the block, not merely its text.** At the first caret position it
+creates a blank line before the current block, leaving that block's identity,
+properties, tags, and children together as they move down. In the middle, the
+current block keeps the head and metadata while a new block receives the tail; at
+the end, a blank block follows. One press is one document undo item in every case.
+
 With more than one block selected the menu changes subject: `Indent`, `Outdent`, and
 `Delete N blocks`. It is the same menu on the same object, answering for the selection
 that object belongs to.

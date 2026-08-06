@@ -363,7 +363,7 @@ const COUNT_SCHEMA = { type: "integer", minimum: 0 };
 const ATTRIBUTE_PROPERTIES = {
   action_id: { type: "string", maxLength: 64 },
   feature: { enum: ["outline", "query", "command_layer", "navigation", "settings", "graph", "domain"] },
-  action: { enum: ["copy_selection", "delete_selection", "indent_selection", "outdent_selection", "move_selection", "insert_block", "paste_outline", "undo", "redo", "run_query", "execute_command"] },
+  action: { enum: ["copy_selection", "delete_selection", "indent_selection", "outdent_selection", "move_selection", "insert_block", "split_block", "paste_outline", "undo", "redo", "run_query", "execute_command"] },
   input_method: { enum: ["keyboard", "pointer", "context_menu", "palette", "automatic", "programmatic", "unknown"] },
   checkpoint_phase: { enum: ["before", "after", "failed"] },
   operation: { type: "string", maxLength: 80 },

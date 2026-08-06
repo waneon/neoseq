@@ -1,8 +1,8 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
     GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot, PageSummary, PropertyBag,
-    PropertyEntry, PropertyError, PropertyKey, PropertyValue, TagId, TagSnapshot, validate_default,
-    validate_property,
+    PropertyEntry, PropertyError, PropertyKey, PropertyValue, SplitPlacement, TagId, TagSnapshot,
+    validate_default, validate_property,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -604,6 +604,26 @@ impl GraphCore {
                     self.require_block(page_id, parent)?;
                 }
             }
+            Command::SplitBlock {
+                page_id,
+                block_id,
+                index,
+                placement,
+            } => {
+                self.require_live_page(page_id)?;
+                self.require_block(page_id, block_id)?;
+                let length = self.block_text(page_id, block_id)?.len_unicode();
+                if *index > length {
+                    return Err(CoreError::InvalidHierarchy(
+                        "block split is out of bounds".into(),
+                    ));
+                }
+                if (*index == 0) != (*placement == SplitPlacement::Before) {
+                    return Err(CoreError::InvalidHierarchy(
+                        "a leading split must create a block before the target".into(),
+                    ));
+                }
+            }
             Command::InsertOutline {
                 page_id,
                 parent,
@@ -822,6 +842,49 @@ impl GraphCore {
                 initialize_node(&meta, markdown)?;
                 result.created_block = Some(block_id(node));
             }
+            Command::SplitBlock {
+                page_id,
+                block_id: target_id,
+                index,
+                placement,
+            } => {
+                let outline = self.page_outline(page_id)?;
+                let target = require_block_in(&outline, target_id)?;
+                let (parent, position) = match placement {
+                    SplitPlacement::FirstChild => (Some(target), 0),
+                    SplitPlacement::Before | SplitPlacement::After => {
+                        let actual_parent = outline
+                            .parent(target)
+                            .ok_or_else(|| CoreError::BlockNotFound(target_id.clone()))?;
+                        let siblings = outline.children(actual_parent).unwrap_or_default();
+                        let target_position = siblings
+                            .iter()
+                            .position(|candidate| *candidate == target)
+                            .ok_or_else(|| CoreError::BlockNotFound(target_id.clone()))?;
+                        let parent = match actual_parent {
+                            TreeParentId::Node(parent) => Some(parent),
+                            TreeParentId::Root => None,
+                            TreeParentId::Deleted | TreeParentId::Unexist => {
+                                return Err(CoreError::BlockNotFound(target_id.clone()));
+                            }
+                        };
+                        let offset = usize::from(*placement == SplitPlacement::After);
+                        (parent, target_position + offset)
+                    }
+                };
+                let text = self.block_text(page_id, target_id)?;
+                let tail = if *index == 0 {
+                    String::new()
+                } else {
+                    text.to_string().chars().skip(*index).collect()
+                };
+                let node = outline.create_at(parent, position)?;
+                initialize_node(&outline.get_meta(node)?, &tail)?;
+                if *index > 0 && *index < text.len_unicode() {
+                    text.delete(*index, text.len_unicode() - *index)?;
+                }
+                result.created_block = Some(block_id(node));
+            }
             Command::InsertOutline {
                 page_id,
                 parent,
@@ -1024,6 +1087,20 @@ impl GraphCore {
             Command::InsertBlock { page_id, .. } => {
                 if let Some(block_id) = &result.created_block {
                     self.touch_block(page_id, block_id, now)?;
+                }
+                self.touch_page(page_id, now)?;
+            }
+            Command::SplitBlock {
+                page_id,
+                block_id,
+                index,
+                ..
+            } => {
+                if *index > 0 {
+                    self.touch_block(page_id, block_id, now)?;
+                }
+                if let Some(created) = &result.created_block {
+                    self.touch_block(page_id, created, now)?;
                 }
                 self.touch_page(page_id, now)?;
             }
@@ -1626,6 +1703,7 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::DeleteTag { .. } => "TagDeleted",
         Command::RestoreTag { .. } => "TagRestored",
         Command::InsertBlock { .. } | Command::InsertOutline { .. } => "BlockInserted",
+        Command::SplitBlock { .. } => "BlockSplit",
         Command::EditMarkdown { .. } | Command::SpliceMarkdown { .. } => "BlockTextChanged",
         Command::MoveBlocks { .. }
         | Command::IndentBlocks { .. }
@@ -2282,6 +2360,143 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["second 2", "second 1"]
         );
+    }
+
+    #[test]
+    fn leading_split_preserves_block_identity_metadata_and_subtree_in_one_undo() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let target = insert_root(&mut core, "target", &page(), 0, "asdf");
+        core.execute(
+            envelope(
+                "property",
+                Command::SetProperty {
+                    entity: EntityId::Block {
+                        page_id: page(),
+                        id: target.clone(),
+                    },
+                    key: key("task.status"),
+                    value: PropertyValue::String("doing".into()),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let project = TagId::new("project").unwrap();
+        core.execute(
+            envelope(
+                "ensure-tag",
+                Command::EnsureTag {
+                    tag_id: project.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "add-tag",
+                Command::AddTag {
+                    entity: EntityId::Block {
+                        page_id: page(),
+                        id: target.clone(),
+                    },
+                    tag_id: project.clone(),
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "child",
+                Command::InsertBlock {
+                    page_id: page(),
+                    parent: Some(target.clone()),
+                    index: 0,
+                    markdown: "child".into(),
+                },
+            ),
+            "t6",
+        )
+        .unwrap();
+
+        core.execute(
+            envelope(
+                "split-leading",
+                Command::SplitBlock {
+                    page_id: page(),
+                    block_id: target.clone(),
+                    index: 0,
+                    placement: SplitPlacement::Before,
+                },
+            ),
+            "t7",
+        )
+        .unwrap();
+        let split = core.page_snapshot(&page()).unwrap();
+        assert_eq!(split.blocks.len(), 2);
+        assert_eq!(split.blocks[0].markdown, "");
+        assert_eq!(split.blocks[1].id, target);
+        assert_eq!(split.blocks[1].markdown, "asdf");
+        assert_eq!(split.blocks[1].children[0].markdown, "child");
+        assert_eq!(split.blocks[1].tags, [project]);
+        assert!(split.blocks[1].properties.iter().any(|entry| {
+            entry.key.as_str() == "task.status"
+                && entry.value == PropertyValue::String("doing".into())
+        }));
+
+        core.execute(envelope("undo-split", Command::Undo), "t8")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(restored.blocks.len(), 1);
+        assert_eq!(restored.blocks[0].id, target);
+        assert_eq!(restored.blocks[0].markdown, "asdf");
+        assert_eq!(restored.blocks[0].children[0].markdown, "child");
+
+        core.execute(envelope("redo-split", Command::Redo), "t9")
+            .unwrap();
+        let redone = core.page_snapshot(&page()).unwrap();
+        assert_eq!(redone.blocks.len(), 2);
+        assert_eq!(redone.blocks[1].id, target);
+    }
+
+    #[test]
+    fn middle_split_uses_unicode_points_and_undoes_as_one_command() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let target = insert_root(&mut core, "target", &page(), 0, "한글tail");
+
+        core.execute(
+            envelope(
+                "split-middle",
+                Command::SplitBlock {
+                    page_id: page(),
+                    block_id: target.clone(),
+                    index: 2,
+                    placement: SplitPlacement::After,
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let split = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            split
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            vec!["한글", "tail"]
+        );
+
+        core.execute(envelope("undo-split", Command::Undo), "t4")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(restored.blocks.len(), 1);
+        assert_eq!(restored.blocks[0].id, target);
+        assert_eq!(restored.blocks[0].markdown, "한글tail");
     }
 
     #[test]

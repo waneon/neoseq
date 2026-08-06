@@ -72,6 +72,7 @@ export type DiagnosticActionName =
   | "outdent_selection"
   | "move_selection"
   | "insert_block"
+  | "split_block"
   | "paste_outline"
   | "undo"
   | "redo"

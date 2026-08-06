@@ -279,6 +279,35 @@ export class FakeCorePort implements SessionPort {
         result.created_block = id;
         break;
       }
+      case "split_block": {
+        const target = this.requireBlock(command.page_id, command.block_id);
+        const points = Array.from(target.block.markdown);
+        if (command.index > points.length) {
+          fail("internal", "block split is out of bounds");
+        }
+        if ((command.index === 0) !== (command.placement === "before")) {
+          fail("internal", "a leading split must create a block before the target");
+        }
+        const id = `b-${(this.blockCounter += 1)}`;
+        const block: BlockSnapshot = {
+          id,
+          markdown: command.index === 0 ? "" : points.slice(command.index).join(""),
+          properties: [],
+          tags: [],
+          children: [],
+        };
+        if (command.index > 0) {
+          target.block.markdown = points.slice(0, command.index).join("");
+        }
+        if (command.placement === "first_child") {
+          target.block.children.unshift(block);
+        } else {
+          const targetIndex = target.siblings.indexOf(target.block);
+          target.siblings.splice(targetIndex + (command.placement === "after" ? 1 : 0), 0, block);
+        }
+        result.created_block = id;
+        break;
+      }
       case "insert_outline": {
         if (command.items.length === 0 || command.items[0].depth !== 0) {
           fail("internal", "outline insert must start at depth zero");
@@ -515,6 +544,11 @@ export class FakeCorePort implements SessionPort {
         this.touchPage(command.page_id, timestamp);
         break;
       case "insert_block":
+        if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
+        this.touchPage(command.page_id, timestamp);
+        break;
+      case "split_block":
+        if (command.index > 0) this.touchBlock(command.page_id, command.block_id, timestamp);
         if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
         this.touchPage(command.page_id, timestamp);
         break;

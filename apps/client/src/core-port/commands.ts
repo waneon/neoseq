@@ -12,6 +12,8 @@ export interface OutlineItemInput {
   markdown: string;
 }
 
+export type SplitPlacement = "before" | "after" | "first_child";
+
 export type Command =
   | { type: "ensure_page"; page_id: string; title: string }
   | { type: "ensure_journal"; date: string }
@@ -23,6 +25,7 @@ export type Command =
   | { type: "delete_tag"; tag_id: string }
   | { type: "restore_tag"; tag_id: string }
   | { type: "insert_block"; page_id: string; parent: string | null; index: number; markdown: string }
+  | { type: "split_block"; page_id: string; block_id: string; index: number; placement: SplitPlacement }
   | {
       type: "insert_outline";
       page_id: string;

@@ -57,8 +57,8 @@ commands are:
 
 - ensure, rename a regular page, and soft-delete a page;
 - ensure a journal page for a local date;
-- insert and edit a block, and indent, outdent, move, or delete one or more
-  block subtrees;
+- insert, split, and edit a block, and indent, outdent, move, or delete one or
+  more block subtrees;
 - set/remove typed properties, including repeated entries;
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities;
@@ -76,6 +76,14 @@ carried by a selected ancestor, orders the remaining roots from authoritative
 outline state, and simulates the whole move, indent, or outdent plan. A rejected
 plan leaves no document change or undo item. The UI supplies targets and a move
 destination, but never operation order or undo-group controls.
+
+`split_block` is the Enter gesture's atomic boundary. A leading split creates
+an empty sibling before the target and leaves the target `BlockId`, content,
+properties, tags, and subtree unchanged. A middle split keeps identity and
+metadata on the head and creates a new block for the tail without copying source
+metadata. A trailing split creates an empty block after the target or as its first
+child. The Core resolves semantic placement against authoritative tree state; all
+text and tree operations belong to the command's single undo item.
 
 Live regular page names and live tag names are unique in separate graph-scoped
 namespaces. Comparison trims and collapses whitespace and applies Unicode

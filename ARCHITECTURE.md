@@ -128,8 +128,9 @@ DTOs; callers never receive Loro containers.
 
 The command boundary is also the local history boundary: one user intent is one
 domain command, one undo item, one persisted CRDT update, and one semantic event.
-Multi-block structural edits and parsed outline insertion therefore cross the boundary as one
-command carrying a normalized list; the UI never holds an undo group open across asynchronous calls.
+Multi-block edits, parsed outline insertion, and Enter-driven block splitting
+therefore cross the boundary as one command; the UI never holds an undo group
+open across asynchronous calls.
 
 The boundary is asynchronous and versioned:
 

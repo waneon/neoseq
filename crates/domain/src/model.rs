@@ -50,6 +50,12 @@ pub enum Command {
         index: usize,
         markdown: String,
     },
+    SplitBlock {
+        page_id: PageId,
+        block_id: BlockId,
+        index: usize,
+        placement: SplitPlacement,
+    },
     InsertOutline {
         page_id: PageId,
         parent: Option<BlockId>,
@@ -125,6 +131,14 @@ pub enum Command {
     },
     Undo,
     Redo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitPlacement {
+    Before,
+    After,
+    FirstChild,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

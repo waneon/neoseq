@@ -415,6 +415,7 @@ function commandPageId(command: Command, result?: CommandResult): string | undef
     case "delete_page":
     case "restore_page":
     case "insert_block":
+    case "split_block":
     case "insert_outline":
     case "edit_markdown":
     case "splice_markdown":

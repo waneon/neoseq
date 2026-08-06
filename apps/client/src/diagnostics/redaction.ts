@@ -44,6 +44,8 @@ export function commandAttributes(command: Command): DiagnosticAttributes {
     case "insert_block":
     case "edit_markdown":
       return { ...base, entity_kind: "block", text_length: lengthBucket(command.markdown.length) };
+    case "split_block":
+      return { ...base, entity_kind: "block" };
     case "insert_outline":
       return {
         ...base,

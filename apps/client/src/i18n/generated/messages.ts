@@ -170,7 +170,6 @@ export interface MessageArgumentMap {
   "failure.searchGraph": undefined;
   "failure.selectEntity": { readonly "name": string | number };
   "failure.setProperty": undefined;
-  "failure.splitBlock": undefined;
   "failure.undo": undefined;
   "graph.actionsFor": { readonly "name": string | number };
   "graph.allGraphs": undefined;

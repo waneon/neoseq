@@ -79,6 +79,13 @@ the block. Indent, outdent, reorder, and subtree moves operate only inside that
 tree. Moving content to another page is an explicit copy with new block IDs,
 not a cross-tree move.
 
+Enter preserves node identity at document boundaries. At the start of a block,
+it inserts an empty sibling before the existing node rather than moving content
+into a new node, so the original `BlockId`, properties, tags, and descendants
+move down together. A middle split retains that identity and metadata on the
+head; only the Markdown tail receives a new `BlockId`, without copied source
+metadata.
+
 The runtime enforces and repairs these projection invariants:
 
 - every visible block is reachable from exactly one live page outline;

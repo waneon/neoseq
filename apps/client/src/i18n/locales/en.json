@@ -152,7 +152,6 @@
   "failure.searchGraph": "The graph couldn’t be searched",
   "failure.selectEntity": "Couldn’t apply “{name}”",
   "failure.setProperty": "Couldn’t save that property",
-  "failure.splitBlock": "Couldn’t split that block",
   "failure.undo": "Couldn’t undo",
   "graph.actionsFor": "Actions for {name}",
   "graph.allGraphs": "All graphs",
