@@ -110,5 +110,6 @@ function describe(
       ? message("properties.deleted", { name: pageTitle(target) })
       : pageTitle(target);
   }
+  if (value.type === "query") return `${value.value.language}: ${value.value.source}`;
   return String(value.value);
 }

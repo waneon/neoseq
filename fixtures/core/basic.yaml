@@ -15,7 +15,7 @@ commands:
     as_id: journal
   - op: set_tag_default
     tag_id: project
-    key: task.status
+    key: builtin.task-status
     value: { type: string, value: todo }
   - op: set_tag_default
     tag_id: project
@@ -50,23 +50,19 @@ commands:
     index: 0
   - op: set_property
     entity: block:first
-    key: query.source
-    value: { type: string, value: "task.status = todo" }
+    key: builtin.query
+    value: { type: query, value: { language: sparql-1.1/neoseq-v1, source: "builtin.task-status = todo" } }
   - op: set_property
     entity: block:first
-    key: query.language
-    value: { type: string, value: sparql-1.1/neoseq-v1 }
-  - op: set_property
-    entity: block:first
-    key: task.priority
+    key: builtin.priority
     value: { type: string, value: high }
   - op: set_property
     entity: block:first
-    key: task.scheduled
+    key: builtin.scheduled
     value: { type: date, value: 2026-08-04 }
   - op: set_property
     entity: block:first
-    key: task.deadline
+    key: builtin.deadline
     value: { type: date, value: 2026-08-05 }
   - op: set_property
     entity: block:first
@@ -97,7 +93,7 @@ peers:
         index: 0
       - op: set_property
         entity: block:first
-        key: task.status
+        key: builtin.task-status
         value: { type: string, value: doing }
       - op: ensure_journal
         date: 2026-08-04
@@ -111,6 +107,6 @@ peers:
         block: second
       - op: remove_property
         entity: block:first
-        key: task.status
+        key: builtin.task-status
       - op: ensure_journal
         date: 2026-08-04

@@ -41,15 +41,15 @@ The root node's collaborative `content` is the regular page title. Live regular
 page names are unique within a graph after trimming, collapsing whitespace, and
 Unicode lowercasing. The stable `PageId`, not the normalized name, remains
 identity. Deletion releases a name; restore is rejected if another live page
-has claimed it. Regular pages have `page.kind: "regular"` in the root property
-bag. Journals have `page.kind: "journal"`
-and `journal.date: Date`; their display title is derived from the date. Journal
+has claimed it. Regular pages have `builtin.page-kind: "regular"` in the root property
+bag. Journals have `builtin.page-kind: "journal"`
+and `builtin.journal-date: Date`; their display title is derived from the date. Journal
 IDs are deterministically derived from `GraphId` and the date, so all replicas
 address the same page when creating that day's journal.
 
 Page lifecycle metadata in the root node uses well-known string properties
-`system.created-at`, `system.updated-at`, and `system.deleted-at` with canonical
-timestamp encodings. Block nodes also carry `system.updated-at`. A block
+`builtin.created-at`, `builtin.updated-at`, and `builtin.deleted-at` with canonical
+timestamp encodings. Block nodes also carry `builtin.updated-at`. A block
 mutation updates both that block and its owning page, while changes below a
 block do not implicitly rewrite ancestor block timestamps. Concurrent
 initialization uses Loro's
@@ -144,28 +144,29 @@ another. Its decoded form is:
 { type: "page",     value: PageId }
 { type: "checkbox", value: boolean }
 { type: "date",     value: YYYY-MM-DD }
+{ type: "query",    value: { language: stable-id, source: UTF-8 string } }
 ```
 
-The JSON representation is canonical and versioned with document schema 3. It
+The JSON representation is canonical and versioned with document schema 4. It
 is decoded into `PropertyEntry` and `PropertyValue` immediately; raw JSON does
 not escape the projection. A single slot is `s:<key>`. A repeated slot is
 `r:<key>:<sha256(canonical-value)>`, which makes equal member addition
 idempotent. Map semantics merge slots independently, and concurrent writes to
 one slot resolve as one complete value.
 
-Well-known entries include `query.source`, `query.language`, task fields,
-`page.kind`, and `journal.date`. They use exactly
-the same encoding and synchronization path as user-defined properties. The
-registry adds type/cardinality validation and feature projection but no extra
-storage.
+Official entries use registered two-level `builtin.*` keys; user-defined entries
+use two-level `custom.*` keys. `builtin.query` is one single-valued composite, so
+language and source cannot merge or undo independently. Registry metadata adds
+type, cardinality, write, visibility, and target validation without a second
+storage path.
 
 ## Deletion and Repair
 
 Deletion is initially logical:
 
 - block deletion uses the tree CRDT's deletion semantics;
-- page deletion writes `system.deleted-at` and hides its nested outline;
-- tag deletion writes `system.deleted-at` without rewriting node references;
+- page deletion writes `builtin.deleted-at` and hides its nested outline;
+- tag deletion writes `builtin.deleted-at` without rewriting node references;
 - references to deleted entities remain inspectable;
 - restoring a page removes that property and reveals its surviving outline.
 
@@ -263,14 +264,18 @@ when no valid checkpoint exists.
 
 ## Schema Evolution
 
-The current core opens document schema 3 only. Schema 1 used one graph-global
+The current core writes document schema 4. Schema 1 used one graph-global
 outline, while schema 2 used page-backed tags and lacked root `NodeData`.
 Converting a page that may simultaneously be note content and a tag definition
-requires an explicit user-facing identity policy, so older schemas are rejected
-rather than silently splitting or merging identities. Historical fixtures remain
-compatibility inputs, while schema-3 fixtures are loaded by native and Wasm
-tests. Future identity-preserving migrations are monotonic, idempotent functions
-recorded in `applied_migrations`. A remote graph
+requires an explicit user-facing identity policy, so schemas 1 and 2 are
+rejected rather than silently splitting or merging identities. Schema 3 is the
+supported upgrade input: startup deterministically renames official keys, moves
+legacy user keys under `custom.*`, and combines query source and language. A
+source-only query receives the historical default language; a language-only
+query becomes an empty-source, non-executing draft. Startup stores a v4
+checkpoint before advancing repository metadata. The monotonic migration is
+recorded in `applied_migrations`, and old keys are removed only after their
+replacement is stored. A remote graph
 migration also requires a server-advertised minimum client version so an older
 client cannot write an incompatible shape.
 

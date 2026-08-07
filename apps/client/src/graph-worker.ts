@@ -106,14 +106,14 @@ async function openGraph(request: OpenGraphRequest, collector?: WorkerDiagnostic
   const repository = new IndexedDbGraphRepository();
   const metadata = await measuredAsync(collector, "storage", "storage.open", () =>
     repository.openGraph(request.locator, now()));
-  if (metadata.schema_version !== 3) {
+  if (![3, 4].includes(metadata.schema_version)) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
   const recovery = await measuredAsync(
     collector,
     "storage",
     "storage.recover",
-    () => recover(repository, request.locator.graph_id, request.peer_id),
+    () => recover(repository, request.locator.graph_id, request.peer_id, metadata),
     ({ report }) => ({
       checkpoint_sequence: report.checkpoint_sequence,
       replayed_update_count: report.replayed_updates,
@@ -136,14 +136,19 @@ async function openGraph(request: OpenGraphRequest, collector?: WorkerDiagnostic
   };
 }
 
-async function recover(repository: IndexedDbGraphRepository, graphId: string, peerId: number) {
+async function recover(
+  repository: IndexedDbGraphRepository,
+  graphId: string,
+  peerId: number,
+  metadata: { schema_version: number; next_sequence: number },
+) {
   let core: WasmGraphCore | undefined;
   let checkpointSequence = 0;
   const quarantinedRecords: string[] = [];
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (checkpoint.schema_version !== 3) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
+    if (![3, 4].includes(checkpoint.schema_version)) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {
@@ -188,6 +193,12 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
       await repository.quarantine({ ...update, export_handle: exportHandle, record_kind: "update", reason } satisfies QuarantineRecord);
       quarantinedRecords.push(exportHandle);
     }
+  }
+  if (metadata.schema_version === 4) {
+    const sequence = Math.max(0, metadata.next_sequence - 1);
+    const snapshot = ownedBuffer(core.exportSnapshot());
+    await repository.saveCheckpoint(graphId, snapshot, sequence, now());
+    await repository.setSchemaVersion(graphId, 4);
   }
   return {
     core,

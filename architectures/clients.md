@@ -119,9 +119,9 @@ applies the known inverse; drafts are dropped only once authoritative state agre
 Extensible metadata controls use the property read/write contract; a versioned renderer
 registry maps well-known keys to richer UI without hiding their uniform representation.
 `tag_refs` renders tag-registry autocomplete and repeatable chips (tag membership being
-the explicit structural exception); `query.source` renders the SPARQL editor and result
-view; `task.*` keys render workflow, priority and date controls;
-`system.created-at`/`system.updated-at` render as read-only page info; unknown keys fall
+the explicit structural exception); `builtin.query` renders the language-aware query
+editor and result view; task builtins render workflow, priority and date controls;
+`builtin.created-at`/`builtin.updated-at` render as read-only page info; `custom.*` keys fall
 back to the generic typed editor.
 
 Removing a renderer never makes data unreadable — its values stay visible and
@@ -291,7 +291,7 @@ and transitions to what it found. Both trades are argued in
 [`DESIGN.md`](../DESIGN.md) §§ Choice, Motion.
 
 The property registry the UI validates against is imported from the versioned
-core fixture (`fixtures/core/property-definitions-v3.json`), so client and core
+core fixture (`fixtures/core/property-definitions-v4.json`), so client and core
 share one definition source. Features depend inward on `entities`, `core-port`,
 `i18n`, and `ui`; reverse imports are forbidden. Cross-feature actions are domain
 commands, app-level navigation, or a layer provided through context —

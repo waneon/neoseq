@@ -14,11 +14,16 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
-  const status = stringValue(block.properties, "task.status");
-  const priority = stringValue(block.properties, "task.priority");
-  const scheduled = dateValue(block.properties, "task.scheduled");
-  const deadline = dateValue(block.properties, "task.deadline");
-  const isTask = block.properties.some((entry) => entry.key.startsWith("task."));
+  const status = stringValue(block.properties, "builtin.task-status");
+  const priority = stringValue(block.properties, "builtin.priority");
+  const scheduled = dateValue(block.properties, "builtin.scheduled");
+  const deadline = dateValue(block.properties, "builtin.deadline");
+  const isTask = block.properties.some((entry) => [
+    "builtin.task-status",
+    "builtin.priority",
+    "builtin.scheduled",
+    "builtin.deadline",
+  ].includes(entry.key));
   if (!isTask) return null;
 
   // A rejected write leaves the control showing the authoritative value again,
@@ -43,9 +48,9 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
       data-testid="task-projection"
     >
       <label>
-        <span>{message("task.status")}</span>
+        <span>{message("builtin.task-status")}</span>
         <MenuSelect
-          label={message("task.statusLabel")}
+          label={message("builtin.task-statusLabel")}
           value={status ?? ""}
           disabled={readonly}
           placeholder={message("task.unset")}
@@ -58,20 +63,20 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
               : []),
             ...STATUSES.map((item) => ({
               value: item,
-              label: message(`task.status.${item}` as
-                | "task.status.todo"
-                | "task.status.doing"
-                | "task.status.done"),
+              label: message(`builtin.task-status.${item}` as
+                | "builtin.task-status.todo"
+                | "builtin.task-status.doing"
+                | "builtin.task-status.done"),
             })),
           ]}
-          onValueChange={(value) => void set("task.status", { type: "string", value })}
+          onValueChange={(value) => void set("builtin.task-status", { type: "string", value })}
         />
       </label>
       {(priority !== undefined || status !== undefined) && (
         <label>
-          <span>{message("task.priority")}</span>
+          <span>{message("builtin.priority")}</span>
           <MenuSelect
-            label={message("task.priorityLabel")}
+            label={message("builtin.priorityLabel")}
             value={priority ?? ""}
             disabled={readonly}
             placeholder={message("task.unset")}
@@ -81,37 +86,37 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
                 : []),
               ...PRIORITIES.map((item) => ({
                 value: item,
-                label: message(`task.priority.${item}` as
-                  | "task.priority.low"
-                  | "task.priority.medium"
-                  | "task.priority.high"),
+                label: message(`builtin.priority.${item}` as
+                  | "builtin.priority.low"
+                  | "builtin.priority.medium"
+                  | "builtin.priority.high"),
               })),
             ]}
-            onValueChange={(value) => void set("task.priority", { type: "string", value })}
+            onValueChange={(value) => void set("builtin.priority", { type: "string", value })}
           />
         </label>
       )}
       {scheduled !== undefined && (
         <label>
-          <span>{message("task.scheduled")}</span>
+          <span>{message("builtin.scheduled")}</span>
           <Input
             type="date"
-            aria-label={message("task.scheduledLabel")}
+            aria-label={message("builtin.scheduledLabel")}
             value={scheduled}
             disabled={readonly}
-            onChange={(event) => event.target.value && void set("task.scheduled", { type: "date", value: event.target.value })}
+            onChange={(event) => event.target.value && void set("builtin.scheduled", { type: "date", value: event.target.value })}
           />
         </label>
       )}
       {deadline !== undefined && (
         <label>
-          <span>{message("task.deadline")}</span>
+          <span>{message("builtin.deadline")}</span>
           <Input
             type="date"
-            aria-label={message("task.deadlineLabel")}
+            aria-label={message("builtin.deadlineLabel")}
             value={deadline}
             disabled={readonly}
-            onChange={(event) => event.target.value && void set("task.deadline", { type: "date", value: event.target.value })}
+            onChange={(event) => event.target.value && void set("builtin.deadline", { type: "date", value: event.target.value })}
           />
         </label>
       )}

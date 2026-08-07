@@ -77,7 +77,7 @@ export async function buildDiagnosticArtifact(
       version: appVersion(),
       build_id: buildId(),
       core_port_version: CORE_PORT_VERSION,
-      document_schema_version: 3,
+      document_schema_version: 4,
       adapter: "web-worker",
     },
     environment: safeEnvironment(),

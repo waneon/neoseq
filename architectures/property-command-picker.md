@@ -87,14 +87,18 @@ property search -> optional custom type -> value edit
 ```
 
 An existing row starts at value edit. A known registry key carries its declared
-type and cardinality. A valid unknown key requires an explicit value type and is
+type and cardinality. A valid new `custom.*` key requires an explicit value type and is
 single-valued under current client rules. Moving between stages writes nothing.
 
 Property candidates are bounded to:
 
-1. visible, non-system keys already present on the target;
-2. known, non-system registry definitions; and
-3. one validated custom-key creation result for the current query.
+1. visible keys already present on the target;
+2. picker-visible registry definitions targeting that entity kind; and
+3. one validated `custom.*` creation result for the current query.
+
+Typing a bare name creates `custom.<name>`; dots in a bare legacy-style name are
+normalized into the single local-name level. `builtin.*` can only be selected
+from registered, user-writable definitions and is never created ad hoc.
 
 Existing keys sort first. The picker does not scan the graph document or any
 adapter-owned state.
@@ -105,6 +109,7 @@ Value controls are selected from the property type and definition:
 - strings and numbers use text inputs with explicit commit;
 - dates use the native date input;
 - pages reuse `PageAutocomplete`; and
+- `builtin.query` edits language and source as one `QuerySpec`; and
 - repeated values show individually removable members plus whole-key clear.
 
 The picker is portaled to `document.body` and positioned in viewport space from
@@ -115,7 +120,7 @@ closes it. Closing restores focus to the invoking element when it still exists.
 ### Property and Tag Presentation
 
 `PropertyRows` is the stateless block projection. Pages retain their compact
-four-item `key: value` strip. Both filter system keys, format page references
+four-item `key: value` strip. Both filter non-picker builtins, format page references
 against the current snapshot, and invoke the picker for direct editing. Keys use
 the identifier voice; values truncate without changing stored data. An empty bag
 renders no rows or strip.
@@ -138,9 +143,9 @@ The picker maps user intent onto the existing domain commands:
 | Add a repeated member         | `add_repeated_property`    |
 | Remove a repeated member      | `remove_repeated_property` |
 
-The existing `query.source` orchestration remains: a successful source write
-also materializes the default `query.language` when absent. This still uses a
-second ordinary core command; no batch command or schema change is introduced.
+`builtin.query` maps to one `set_property` command containing the complete
+`QuerySpec`; neither the picker nor the query editor sends a follow-up command.
+Consequently partial query state and split undo history are unrepresentable.
 
 ## Snapshot and Lifecycle Rules
 
@@ -193,7 +198,7 @@ implementations.
 
 ## Verification Boundary
 
-- Component tests cover all five value types, custom keys, validation, direct
+- Component tests cover all generic value types plus the query composite, custom keys, validation, direct
   row editing, slash-token removal, known enums, and tag separation.
 - Outline tests continue to cover pending-row reconciliation, structure, undo,
   selection, and virtualization-sensitive focus behavior.

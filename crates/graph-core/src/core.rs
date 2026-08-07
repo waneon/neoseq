@@ -1,8 +1,9 @@
 use domain::{
-    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
-    GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot, PageSummary, PropertyBag,
-    PropertyEntry, PropertyError, PropertyKey, PropertyValue, SplitPlacement, TagId, TagSnapshot,
-    validate_default, validate_property,
+    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult,
+    DEFAULT_QUERY_LANGUAGE, EntityId, GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot,
+    PageSummary, PropertyBag, PropertyEntry, PropertyError, PropertyKey, PropertyTarget,
+    PropertyValue, QuerySpec, SplitPlacement, TagId, TagSnapshot, definition, validate_default,
+    validate_property, validate_user_write,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -12,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 const MAX_STRUCTURAL_TARGETS: usize = 10_000;
 
@@ -307,6 +308,7 @@ impl GraphCore {
     ) -> Result<Self, CoreError> {
         let doc = LoroDoc::from_snapshot(snapshot)?;
         doc.set_peer_id(peer_id)?;
+        migrate_document(&doc)?;
         verify_schema(&doc, &graph_id)?;
         validate_unique_entity_names(&doc)?;
         enable_page_outlines(&doc)?;
@@ -407,11 +409,13 @@ impl GraphCore {
         // partially enter the canonical document.
         let candidate = self.doc.fork();
         candidate.import(update)?;
+        migrate_document(&candidate)?;
         verify_schema(&candidate, &self.graph_id)?;
         validate_unique_entity_names(&candidate)?;
 
         self.doc.set_next_commit_origin("remote:import");
         self.doc.import(update)?;
+        migrate_document(&self.doc)?;
         Ok(())
     }
 
@@ -741,17 +745,20 @@ impl GraphCore {
             Command::SetProperty { entity, key, value } => {
                 self.validate_entity(entity)?;
                 validate_target(entity, key)?;
+                validate_user_write(key)?;
                 validate_property(key, value, Cardinality::Single)?;
             }
             Command::AddRepeatedProperty { entity, key, value }
             | Command::RemoveRepeatedProperty { entity, key, value } => {
                 self.validate_entity(entity)?;
                 validate_target(entity, key)?;
+                validate_user_write(key)?;
                 validate_property(key, value, Cardinality::Repeated)?;
             }
             Command::RemoveProperty { entity, key } => {
                 self.validate_entity(entity)?;
                 validate_target(entity, key)?;
+                validate_user_write(key)?;
             }
             Command::SetTagDefault { tag_id, key, value } => {
                 self.require_tag(tag_id)?;
@@ -798,13 +805,13 @@ impl GraphCore {
                 let bag = self.page_properties(page_id)?;
                 set_single(
                     &bag,
-                    &key("system.deleted-at"),
+                    &key("builtin.deleted-at"),
                     &PropertyValue::String(now.to_owned()),
                 )?;
             }
             Command::RestorePage { page_id } => {
                 self.page_properties(page_id)?
-                    .delete(&single_slot(&key("system.deleted-at")))?;
+                    .delete(&single_slot(&key("builtin.deleted-at")))?;
             }
             Command::EnsureTag { tag_id, name } => {
                 result.created_tag = self.ensure_tag(tag_id, name, now)?;
@@ -816,13 +823,13 @@ impl GraphCore {
             Command::DeleteTag { tag_id } => {
                 set_single(
                     &self.tag_bag(tag_id, "properties")?,
-                    &key("system.deleted-at"),
+                    &key("builtin.deleted-at"),
                     &PropertyValue::String(now.to_owned()),
                 )?;
             }
             Command::RestoreTag { tag_id } => {
                 self.tag_bag(tag_id, "properties")?
-                    .delete(&single_slot(&key("system.deleted-at")))?;
+                    .delete(&single_slot(&key("builtin.deleted-at")))?;
             }
             Command::InsertBlock {
                 page_id,
@@ -1156,7 +1163,7 @@ impl GraphCore {
     fn touch_page(&self, page_id: &PageId, now: &str) -> Result<(), CoreError> {
         set_single(
             &self.page_properties(page_id)?,
-            &key("system.updated-at"),
+            &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
     }
@@ -1169,7 +1176,7 @@ impl GraphCore {
     ) -> Result<(), CoreError> {
         set_single(
             &self.block_bag(page_id, block_id)?,
-            &key("system.updated-at"),
+            &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
     }
@@ -1197,19 +1204,19 @@ impl GraphCore {
             )?;
             set_single(
                 &properties,
-                &key("page.kind"),
+                &key("builtin.page-kind"),
                 &PropertyValue::String(kind.to_owned()),
             )?;
             if let Some(date) = date {
                 set_single(
                     &properties,
-                    &key("journal.date"),
+                    &key("builtin.journal-date"),
                     &PropertyValue::Date(date),
                 )?;
             }
             set_single(
                 &properties,
-                &key("system.created-at"),
+                &key("builtin.created-at"),
                 &PropertyValue::String(now.to_owned()),
             )?;
             Ok(Some(page_id.clone()))
@@ -1235,7 +1242,7 @@ impl GraphCore {
         tag.insert("name", name)?;
         set_single(
             &properties,
-            &key("system.created-at"),
+            &key("builtin.created-at"),
             &PropertyValue::String(now.to_owned()),
         )?;
         Ok(Some(tag_id.clone()))
@@ -1427,7 +1434,7 @@ impl GraphCore {
             &page
                 .ensure_mergeable_map("root")?
                 .ensure_mergeable_map("properties")?,
-            &key("system.deleted-at"),
+            &key("builtin.deleted-at"),
         ) {
             return Err(CoreError::PageDeleted(page_id.clone()));
         }
@@ -1474,7 +1481,7 @@ impl GraphCore {
         let tag = self.require_tag(tag_id)?;
         if bag_contains_key(
             &tag.ensure_mergeable_map("properties")?,
-            &key("system.deleted-at"),
+            &key("builtin.deleted-at"),
         ) {
             return Err(CoreError::TagDeleted(tag_id.clone()));
         }
@@ -1544,6 +1551,174 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     }
 }
 
+fn migrate_document(doc: &LoroDoc) -> Result<(), CoreError> {
+    let meta = doc.get_map("meta");
+    match map_i64(&meta, "schema_version") {
+        Some(value) if value == i64::from(SCHEMA_VERSION) => return Ok(()),
+        Some(3) => {}
+        Some(value) => return Err(CoreError::UnsupportedSchema(value)),
+        None => return Err(CoreError::UnsupportedSchema(0)),
+    }
+
+    doc.set_next_commit_origin("system:migration:v3-v4");
+    doc.set_next_commit_message("namespace properties and combine query fields");
+    let pages = doc.get_map("pages");
+    let mut page_maps = Vec::new();
+    pages.for_each(|_, value| {
+        if let Some(page) = value_into_map(value) {
+            page_maps.push(page);
+        }
+    });
+    for page in page_maps {
+        if let Some(root) = page.get("root").and_then(value_into_map) {
+            migrate_bag(&root.ensure_mergeable_map("properties")?)?;
+        }
+        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
+            for node in outline.roots() {
+                migrate_outline_bags(&outline, node)?;
+            }
+        }
+    }
+    let tags = doc.get_map("tags");
+    let mut tag_maps = Vec::new();
+    tags.for_each(|_, value| {
+        if let Some(tag) = value_into_map(value) {
+            tag_maps.push(tag);
+        }
+    });
+    for tag in tag_maps {
+        migrate_bag(&tag.ensure_mergeable_map("properties")?)?;
+        migrate_bag(&tag.ensure_mergeable_map("defaults")?)?;
+    }
+    meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
+    let migrations = meta.ensure_mergeable_map("applied_migrations")?;
+    migrations.insert("property-namespaces-v4", true)?;
+    doc.commit();
+    Ok(())
+}
+
+fn migrate_outline_bags(outline: &LoroTree, node: TreeID) -> Result<(), CoreError> {
+    migrate_bag(&outline.get_meta(node)?.ensure_mergeable_map("properties")?)?;
+    for child in outline.children(node).unwrap_or_default() {
+        migrate_outline_bags(outline, child)?;
+    }
+    Ok(())
+}
+
+fn migrate_bag(map: &LoroMap) -> Result<(), CoreError> {
+    let mut entries = Vec::<(String, PropertyEntry)>::new();
+    map.for_each(|slot, value| {
+        if let Some(encoded) = value_into_string(value)
+            && let Ok(entry) = serde_json::from_str::<PropertyEntry>(&encoded)
+        {
+            entries.push((slot.to_owned(), entry));
+        }
+    });
+
+    let legacy_source = entries
+        .iter()
+        .find_map(|(_, entry)| (entry.key.as_str() == "query.source").then_some(&entry.value));
+    let legacy_language = entries
+        .iter()
+        .find_map(|(_, entry)| (entry.key.as_str() == "query.language").then_some(&entry.value));
+    if legacy_source.is_some() || legacy_language.is_some() {
+        let source = match legacy_source {
+            Some(PropertyValue::String(value)) => value.clone(),
+            _ => String::new(),
+        };
+        let language = match legacy_language {
+            Some(PropertyValue::String(value)) if value != "neoseq" => value.clone(),
+            _ => DEFAULT_QUERY_LANGUAGE.to_owned(),
+        };
+        let query_key = key("builtin.query");
+        if !bag_contains_key(map, &query_key) {
+            set_single(
+                map,
+                &query_key,
+                &PropertyValue::Query(QuerySpec { language, source }),
+            )?;
+        }
+    }
+
+    for (slot, entry) in entries {
+        if matches!(entry.key.as_str(), "query.source" | "query.language") {
+            map.delete(&slot)?;
+            continue;
+        }
+        let Some(next) = migrated_key(entry.key.as_str()) else {
+            continue;
+        };
+        let next = PropertyKey::new(next).expect("migration emits valid property keys");
+        if !bag_contains_key(map, &next) {
+            match slot.as_bytes().first() {
+                Some(b's') => set_single(map, &next, &entry.value)?,
+                Some(b'r') => set_repeated(map, &next, &entry.value)?,
+                _ => continue,
+            }
+        }
+        map.delete(&slot)?;
+    }
+    Ok(())
+}
+
+fn migrated_key(value: &str) -> Option<String> {
+    let known = match value {
+        "task.status" => Some("builtin.task-status"),
+        "task.scheduled" => Some("builtin.scheduled"),
+        "task.deadline" => Some("builtin.deadline"),
+        "task.priority" => Some("builtin.priority"),
+        "page.kind" => Some("builtin.page-kind"),
+        "journal.date" => Some("builtin.journal-date"),
+        "system.created-at" => Some("builtin.created-at"),
+        "system.updated-at" => Some("builtin.updated-at"),
+        "system.deleted-at" => Some("builtin.deleted-at"),
+        _ => None,
+    };
+    if let Some(value) = known {
+        return Some(value.to_owned());
+    }
+    if value.starts_with("builtin.")
+        || value
+            .strip_prefix("custom.")
+            .is_some_and(|local| !local.is_empty() && !local.contains('.'))
+    {
+        return None;
+    }
+    Some(legacy_custom_key(value))
+}
+
+fn legacy_custom_key(value: &str) -> String {
+    let mut local = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while local.contains("--") {
+        local = local.replace("--", "-");
+    }
+    local = local.trim_matches('-').to_owned();
+    if local.is_empty() {
+        local = "property".to_owned();
+    }
+    if value
+        .chars()
+        .any(|character| !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_')))
+    {
+        let digest = hex::encode(Sha256::digest(value.as_bytes()));
+        local.truncate(108);
+        local.push('-');
+        local.push_str(&digest[..8]);
+    } else {
+        local.truncate(120);
+    }
+    format!("custom.{local}")
+}
+
 fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
     if value.len() > max {
         Err(CoreError::TextTooLong)
@@ -1582,7 +1757,7 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
             return;
         };
         let is_journal = snapshot.properties.iter().any(|entry| {
-            entry.key.as_str() == "page.kind"
+            entry.key.as_str() == "builtin.page-kind"
                 && entry.value == PropertyValue::String("journal".to_owned())
         });
         if !is_journal {
@@ -1681,14 +1856,16 @@ fn valid_target_kind(page: bool, key: &PropertyKey) -> bool {
     if matches!(key.as_str(), "block.page" | "page.title" | "tag") {
         return false;
     }
-    if page {
-        true
-    } else {
-        key.as_str() == "system.updated-at"
-            || (!key.as_str().starts_with("page.")
-                && key.as_str() != "journal.date"
-                && !key.as_str().starts_with("system."))
-    }
+    definition(key).map_or_else(
+        || key.as_str().starts_with("custom."),
+        |item| {
+            item.targets.contains(if page {
+                &PropertyTarget::Page
+            } else {
+                &PropertyTarget::Block
+            })
+        },
+    )
 }
 
 fn semantic_name(command: &Command) -> &'static str {
@@ -1878,7 +2055,7 @@ fn page_metadata(
             false
         }
     });
-    if bag_has_key(&properties, "system.deleted-at") {
+    if bag_has_key(&properties, "builtin.deleted-at") {
         return None;
     }
     let tags = decode_tag_refs(&root, &format!("page:{page_id}"), quarantined);
@@ -1909,10 +2086,15 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
         };
         let (mut properties, mut issues) = decode_bag_child(&tag, "properties");
         quarantined.append(&mut issues);
-        if bag_has_key(&properties, "system.deleted-at") {
+        if bag_has_key(&properties, "builtin.deleted-at") {
             return;
         }
-        properties.retain(|entry| entry.key.as_str().starts_with("system."));
+        properties.retain(|entry| {
+            matches!(
+                entry.key.as_str(),
+                "builtin.created-at" | "builtin.deleted-at"
+            )
+        });
         let (mut defaults, mut issues) = decode_bag_child(&tag, "defaults");
         quarantined.append(&mut issues);
         defaults.retain(|entry| validate_default(&entry.key, &entry.value).is_ok());
@@ -2133,7 +2315,7 @@ mod tests {
             .created_block
             .unwrap();
         let defaults = [
-            ("task.status", PropertyValue::String("todo".into())),
+            ("builtin.task-status", PropertyValue::String("todo".into())),
             ("custom.number", PropertyValue::Number(1.25)),
             ("custom.text", PropertyValue::String("value".into())),
             ("custom.flag", PropertyValue::Checkbox(true)),
@@ -2179,7 +2361,7 @@ mod tests {
                         page_id: page(),
                         id: block.clone(),
                     },
-                    key: key("task.status"),
+                    key: key("builtin.task-status"),
                     value: PropertyValue::String("doing".into()),
                 },
             ),
@@ -2254,7 +2436,7 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|entry| entry.key.as_str() == "task.status"
+                .any(|entry| entry.key.as_str() == "builtin.task-status"
                     && entry.value == PropertyValue::String("doing".into()))
         );
         assert_eq!(
@@ -2375,7 +2557,7 @@ mod tests {
                         page_id: page(),
                         id: target.clone(),
                     },
-                    key: key("task.status"),
+                    key: key("builtin.task-status"),
                     value: PropertyValue::String("doing".into()),
                 },
             ),
@@ -2443,7 +2625,7 @@ mod tests {
         assert_eq!(split.blocks[1].children[0].markdown, "child");
         assert_eq!(split.blocks[1].tags, [project]);
         assert!(split.blocks[1].properties.iter().any(|entry| {
-            entry.key.as_str() == "task.status"
+            entry.key.as_str() == "builtin.task-status"
                 && entry.value == PropertyValue::String("doing".into())
         }));
 
@@ -2835,7 +3017,7 @@ mod tests {
         assert_eq!(snapshot.pages[0].tags.len(), 1);
         assert_eq!(snapshot.pages[0].blocks[0].tags.len(), 1);
         assert!(snapshot.pages[0].blocks[0].properties.iter().any(|entry| {
-            entry.key.as_str() == "system.updated-at"
+            entry.key.as_str() == "builtin.updated-at"
                 && entry.value == PropertyValue::String("t3".into())
         }));
         assert!(
@@ -2863,7 +3045,7 @@ mod tests {
             &snapshot.pages[0].blocks[0].properties,
         ] {
             assert!(properties.iter().any(|entry| {
-                entry.key.as_str() == "system.updated-at"
+                entry.key.as_str() == "builtin.updated-at"
                     && entry.value == PropertyValue::String("t4".into())
             }));
         }
@@ -2998,5 +3180,112 @@ mod tests {
                 .all(|entry| entry.key.as_str() != "block.page")
         );
         assert_eq!(snapshot.quarantined.len(), 1);
+    }
+
+    #[test]
+    fn schema_three_properties_migrate_to_namespaced_atomic_values() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        core.execute(
+            envelope(
+                "page",
+                Command::EnsurePage {
+                    page_id: page(),
+                    title: "Home".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        let bag = core.block_bag(&page(), &block).unwrap();
+        set_single(
+            &bag,
+            &key("query.source"),
+            &PropertyValue::String("SELECT * WHERE {}".into()),
+        )
+        .unwrap();
+        set_single(
+            &bag,
+            &key("task.status"),
+            &PropertyValue::String("todo".into()),
+        )
+        .unwrap();
+        set_single(&bag, &key("owner"), &PropertyValue::String("Ada".into())).unwrap();
+        core.doc
+            .get_map("meta")
+            .insert("schema_version", 3)
+            .unwrap();
+        core.doc.commit();
+
+        let snapshot = core.export_snapshot().unwrap();
+        let migrated = GraphCore::from_snapshot(graph(), 2, &snapshot).unwrap();
+        let block = &migrated.snapshot().unwrap().pages[0].blocks[0];
+        assert!(block.properties.iter().any(|entry| {
+            entry.key.as_str() == "builtin.query"
+                && entry.value
+                    == PropertyValue::Query(QuerySpec {
+                        language: DEFAULT_QUERY_LANGUAGE.into(),
+                        source: "SELECT * WHERE {}".into(),
+                    })
+        }));
+        assert!(
+            block
+                .properties
+                .iter()
+                .any(|entry| entry.key.as_str() == "builtin.task-status")
+        );
+        assert!(
+            block
+                .properties
+                .iter()
+                .any(|entry| entry.key.as_str() == "custom.owner")
+        );
+        assert_eq!(migrated.snapshot().unwrap().schema_version, 4);
+    }
+
+    #[test]
+    fn query_language_and_source_write_and_undo_as_one_value() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        core.execute(
+            envelope(
+                "page",
+                Command::EnsurePage {
+                    page_id: page(),
+                    title: "Home".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        core.execute(
+            envelope(
+                "query",
+                Command::SetProperty {
+                    entity: EntityId::Block {
+                        page_id: page(),
+                        id: block,
+                    },
+                    key: key("builtin.query"),
+                    value: PropertyValue::Query(QuerySpec {
+                        language: DEFAULT_QUERY_LANGUAGE.into(),
+                        source: "ASK {}".into(),
+                    }),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+        assert!(bag_has_key(
+            &core.snapshot().unwrap().pages[0].blocks[0].properties,
+            "builtin.query"
+        ));
+
+        core.execute(envelope("undo-query", Command::Undo), "t3")
+            .unwrap();
+        assert!(!bag_has_key(
+            &core.snapshot().unwrap().pages[0].blocks[0].properties,
+            "builtin.query"
+        ));
     }
 }

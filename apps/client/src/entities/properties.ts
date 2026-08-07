@@ -3,8 +3,9 @@
 // against one definition source. Unknown keys are first-class: they render
 // and edit through the same generic path.
 
-import registryFixture from "../../../../fixtures/core/property-definitions-v3.json";
+import registryFixture from "../../../../fixtures/core/property-definitions-v4.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
+import { DEFAULT_QUERY_LANGUAGE_ID } from "./query-languages";
 
 export interface PropertyDefinition {
   key: string;
@@ -12,6 +13,9 @@ export interface PropertyDefinition {
   cardinality: "single" | "repeated";
   defaultable: boolean;
   allowed_strings: string[];
+  write_policy: "user" | "core" | "derived";
+  visibility: "picker" | "info" | "hidden";
+  targets: Array<"page" | "block" | "tag">;
 }
 
 export const REGISTRY: PropertyDefinition[] = registryFixture.properties as PropertyDefinition[];
@@ -19,14 +23,15 @@ export const REGISTRY: PropertyDefinition[] = registryFixture.properties as Prop
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 
 /** Keys the app writes through dedicated commands or system paths. */
-const RESERVED_KEYS = new Set(["tag", "page.title", "block.page", "page.kind", "journal.date"]);
+const RESERVED_KEYS = new Set(["tag", "page.title", "block.page"]);
 
 export function definition(key: string): PropertyDefinition | undefined {
   return REGISTRY.find((item) => item.key === key);
 }
 
 export function isSystemKey(key: string): boolean {
-  return key.startsWith("system.") || RESERVED_KEYS.has(key);
+  const item = definition(key);
+  return RESERVED_KEYS.has(key) || (item !== undefined && item.visibility !== "picker");
 }
 
 export function cardinalityOf(key: string): "single" | "repeated" {
@@ -57,7 +62,13 @@ export function validateKey(key: string): ValidationIssue | null {
   if (trimmed.length === 0) return { code: "empty_key", message: "Property key cannot be empty." };
   if (trimmed !== key) return { code: "whitespace_key", message: "Property key cannot have surrounding whitespace." };
   if (key.length > 128) return { code: "key_length", message: "Property key exceeds 128 bytes." };
-  if (RESERVED_KEYS.has(key) || key.startsWith("system.")) return { code: "reserved_key", message: `“${key}” is structural and cannot be a property.`, values: { key } };
+  if (RESERVED_KEYS.has(key)) return { code: "reserved_key", message: `“${key}” is structural and cannot be a property.`, values: { key } };
+  if (key.startsWith("builtin.")) {
+    const item = definition(key);
+    if (!item || item.write_policy !== "user") return { code: "reserved_key", message: `“${key}” is not a user-writable builtin property.`, values: { key } };
+  } else if (!/^custom\.[^.]+$/.test(key)) {
+    return { code: "reserved_key", message: `“${key}” must use the custom.* namespace.`, values: { key } };
+  }
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(key)) return { code: "control_character", message: "Property key contains a control character." };
   return null;
@@ -80,6 +91,14 @@ export function validateValue(
   if (value.type === "page" && value.value.trim().length === 0) {
     return { code: "empty_page", message: "Page reference cannot be empty." };
   }
+  if (value.type === "query") {
+    if (value.value.language.length === 0 || value.value.language.length > 128) {
+      return { code: "property_type", message: "Query language must be 1–128 bytes." };
+    }
+    if (new TextEncoder().encode(value.value.source).length > 65_536) {
+      return { code: "string_length", message: "Query source exceeds 65536 bytes." };
+    }
+  }
   const item = definition(key);
   if (!item) return null;
   if (item.type !== value.type) {
@@ -91,7 +110,7 @@ export function validateValue(
   if (
     item.allowed_strings.length > 0 &&
     value.type === "string" &&
-    !["task.status", "task.priority"].includes(key) &&
+    !["builtin.task-status", "builtin.priority"].includes(key) &&
     !item.allowed_strings.includes(value.value)
   ) {
     return { code: "property_strings", message: `“${key}” allows: ${item.allowed_strings.join(", ")}.`, values: { key, values: item.allowed_strings.join(", ") } };
@@ -100,9 +119,8 @@ export function validateValue(
 }
 
 export function validateDefault(key: string, value: PropertyValue): ValidationIssue | null {
-  if (key.startsWith("page.") || key.startsWith("system.")) {
-    return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
-  }
+  const keyIssue = validateKey(key);
+  if (keyIssue) return keyIssue;
   const item = definition(key);
   if (item && !item.defaultable) {
     return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
@@ -132,6 +150,8 @@ export function defaultValueFor(type: PropertyValueType, today: string): Propert
       return { type: "date", value: today };
     case "page":
       return { type: "page", value: "" };
+    case "query":
+      return { type: "query", value: { language: DEFAULT_QUERY_LANGUAGE_ID, source: "" } };
     default:
       return { type: "string", value: "" };
   }
@@ -143,11 +163,17 @@ export function formatValue(value: PropertyValue): string {
       return value.value ? "checked" : "unchecked";
     case "number":
       return String(value.value);
+    case "query":
+      return `${value.value.language}: ${value.value.source}`;
     default:
       return value.value;
   }
 }
 
 export function sameValue(left: PropertyValue, right: PropertyValue): boolean {
-  return left.type === right.type && left.value === right.value;
+  if (left.type !== right.type) return false;
+  if (left.type === "query" && right.type === "query") {
+    return left.value.language === right.value.language && left.value.source === right.value.source;
+  }
+  return left.value === right.value;
 }

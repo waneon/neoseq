@@ -3,17 +3,16 @@ import type { SparqlQueryRequest } from "../generated/core-port";
 import type { DiagnosticAttributes, LengthBucket } from "./types";
 
 const WELL_KNOWN_KEYS = new Set([
-  "journal.date",
-  "page.kind",
-  "query.language",
-  "query.source",
-  "system.created-at",
-  "system.deleted-at",
-  "system.updated-at",
-  "task.deadline",
-  "task.priority",
-  "task.scheduled",
-  "task.status",
+  "builtin.journal-date",
+  "builtin.page-kind",
+  "builtin.query",
+  "builtin.created-at",
+  "builtin.deleted-at",
+  "builtin.updated-at",
+  "builtin.deadline",
+  "builtin.priority",
+  "builtin.scheduled",
+  "builtin.task-status",
 ]);
 
 export function lengthBucket(length: number): LengthBucket {

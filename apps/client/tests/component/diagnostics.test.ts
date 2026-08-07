@@ -266,7 +266,7 @@ describe("diagnostic recording", () => {
       read: () => ({
         revision: 3,
         snapshot: {
-          schema_version: 3,
+          schema_version: 4,
           graph_id: "graph-private",
           tags: [],
           quarantined: [],
@@ -310,7 +310,7 @@ describe("diagnostic recording", () => {
   it("keeps full-graph intermediate capture command-based and reports scope omissions", async () => {
     const coordinator = new DiagnosticsCoordinator(new MemoryDiagnosticStore());
     const snapshot: GraphSnapshot = {
-      schema_version: 3,
+      schema_version: 4,
       graph_id: "graph-private",
       tags: [],
       quarantined: [],

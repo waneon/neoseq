@@ -175,10 +175,10 @@ export class FakeCorePort implements SessionPort {
 
   private snapshot(): GraphSnapshot {
     return clone({
-      schema_version: 3,
+      schema_version: 4,
       graph_id: this.graphId,
-      pages: this.pages.filter((page) => !hasKey(page.properties, "system.deleted-at")),
-      tags: this.tags.filter((tag) => !hasKey(tag.properties, "system.deleted-at")),
+      pages: this.pages.filter((page) => !hasKey(page.properties, "builtin.deleted-at")),
+      tags: this.tags.filter((tag) => !hasKey(tag.properties, "builtin.deleted-at")),
       quarantined: [],
     });
   }
@@ -223,7 +223,7 @@ export class FakeCorePort implements SessionPort {
         this.requirePage(command.page_id).title = command.title;
         break;
       case "delete_page":
-        setSingle(this.requirePage(command.page_id).properties, "system.deleted-at", {
+        setSingle(this.requirePage(command.page_id).properties, "builtin.deleted-at", {
           type: "string",
           value: "now",
         });
@@ -232,7 +232,7 @@ export class FakeCorePort implements SessionPort {
         const page = this.rawPage(command.page_id);
         if (!page) fail("internal", `page does not exist: ${command.page_id}`);
         this.assertPageNameAvailable(page.title, page.id);
-        page.properties = page.properties.filter((entry) => entry.key !== "system.deleted-at");
+        page.properties = page.properties.filter((entry) => entry.key !== "builtin.deleted-at");
         break;
       }
       case "ensure_tag": {
@@ -250,7 +250,7 @@ export class FakeCorePort implements SessionPort {
         this.requireTag(command.tag_id).name = command.name;
         break;
       case "delete_tag":
-        setSingle(this.requireTag(command.tag_id).properties, "system.deleted-at", {
+        setSingle(this.requireTag(command.tag_id).properties, "builtin.deleted-at", {
           type: "string",
           value: "now",
         });
@@ -259,7 +259,7 @@ export class FakeCorePort implements SessionPort {
         const tag = this.rawTag(command.tag_id);
         if (!tag) fail("internal", `tag does not exist: ${command.tag_id}`);
         this.assertTagNameAvailable(tag.name, tag.id);
-        tag.properties = tag.properties.filter((entry) => entry.key !== "system.deleted-at");
+        tag.properties = tag.properties.filter((entry) => entry.key !== "builtin.deleted-at");
         break;
       }
       case "insert_block": {
@@ -503,7 +503,7 @@ export class FakeCorePort implements SessionPort {
     if (!canonical) fail("invalid_request", "page name must not be empty");
     const existing = this.pages.find((page) =>
       page.id !== exceptId
-      && !hasKey(page.properties, "system.deleted-at")
+      && !hasKey(page.properties, "builtin.deleted-at")
       && canonicalEntityName(page.title) === canonical
     );
     if (existing) {
@@ -516,7 +516,7 @@ export class FakeCorePort implements SessionPort {
     if (!canonical) fail("invalid_request", "tag name must not be empty");
     const existing = this.tags.find((tag) =>
       tag.id !== exceptId
-      && !hasKey(tag.properties, "system.deleted-at")
+      && !hasKey(tag.properties, "builtin.deleted-at")
       && canonicalEntityName(tag.name) === canonical
     );
     if (existing) {
@@ -605,14 +605,14 @@ export class FakeCorePort implements SessionPort {
   private touchPage(pageId: string, timestamp: string): void {
     const page = this.rawPage(pageId);
     if (!page) fail("internal", `page does not exist: ${pageId}`);
-    setSingle(page.properties, "system.updated-at", {
+    setSingle(page.properties, "builtin.updated-at", {
       type: "string",
       value: timestamp,
     });
   }
 
   private touchBlock(pageId: string, blockId: string, timestamp: string): void {
-    setSingle(this.requireBlock(pageId, blockId).block.properties, "system.updated-at", {
+    setSingle(this.requireBlock(pageId, blockId).block.properties, "builtin.updated-at", {
       type: "string",
       value: timestamp,
     });
@@ -624,7 +624,7 @@ export class FakeCorePort implements SessionPort {
 
   private requireTag(id: string): TagSnapshot {
     const tag = this.rawTag(id);
-    if (!tag || hasKey(tag.properties, "system.deleted-at")) {
+    if (!tag || hasKey(tag.properties, "builtin.deleted-at")) {
       fail("internal", `tag does not exist or is deleted: ${id}`);
     }
     return tag;
@@ -633,7 +633,7 @@ export class FakeCorePort implements SessionPort {
   private requirePage(id: string): PageSnapshot {
     const page = this.rawPage(id);
     if (!page) fail("internal", `page does not exist: ${id}`);
-    if (hasKey(page.properties, "system.deleted-at")) {
+    if (hasKey(page.properties, "builtin.deleted-at")) {
       fail("internal", `page is deleted: ${id}`);
     }
     return page;
@@ -717,10 +717,10 @@ function newPage(
   date: string | null,
 ): PageSnapshot {
   const properties: PropertyEntry[] = [
-    { key: "page.kind", value: { type: "string", value: kind } },
-    { key: "system.created-at", value: { type: "string", value: "t0" } },
+    { key: "builtin.page-kind", value: { type: "string", value: kind } },
+    { key: "builtin.created-at", value: { type: "string", value: "t0" } },
   ];
-  if (date !== null) properties.push({ key: "journal.date", value: { type: "date", value: date } });
+  if (date !== null) properties.push({ key: "builtin.journal-date", value: { type: "date", value: date } });
   properties.sort((a, b) => a.key.localeCompare(b.key));
   return { id, title: title ?? "", properties, tags: [], blocks: [] };
 }

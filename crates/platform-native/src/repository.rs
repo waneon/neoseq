@@ -409,6 +409,10 @@ impl LocalGraphRepository for SqliteGraphRepository {
         Ok(())
     }
 
+    fn set_schema_version(&mut self, schema_version: u32) -> Result<(), Self::Error> {
+        SqliteGraphRepository::set_schema_version(self, schema_version)
+    }
+
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error> {
         self.connection
             .execute(

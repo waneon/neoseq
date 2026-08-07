@@ -166,9 +166,11 @@ TypeScript, native, and WebAssembly adapters compatible.
 - Block ownership is structural: a block belongs to the page whose nested tree
   contains it. Moves are page-local, and block commands carry both `PageId` and
   `BlockId` so reads and writes never scan other pages.
-- Property entries merge independently. Each value is an atomic tagged scalar:
-  number, string, page reference, checkbox, or local date.
-- `system.updated-at` is written on every direct page/block mutation. A block
+- Property entries merge independently. Keys have exactly two namespaces:
+  registered Neoseq-owned `builtin.*` keys and user-owned `custom.*` keys.
+  Each value is an atomic tagged number, string, page reference, checkbox,
+  local date, or the closed `QuerySpec { language, source }` composite.
+- `builtin.updated-at` is written on every direct page/block mutation. A block
   mutation also updates its owning page so page recency includes outline work.
 - Journal identity is deterministic from `(GraphId, local date)`, making journal
   creation idempotent across offline devices.

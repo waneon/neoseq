@@ -82,7 +82,7 @@ fn base_fixture(seed: u64) -> Fixture {
         10,
         Command::SetTagDefault {
             tag_id: tag_b.clone(),
-            key: key("task.priority"),
+            key: key("builtin.priority"),
             value: PropertyValue::String("high".into()),
         },
     );
@@ -120,7 +120,7 @@ fn base_fixture(seed: u64) -> Fixture {
                 page_id: page_a.clone(),
                 id: text.clone(),
             },
-            key: key("task.status"),
+            key: key("builtin.task-status"),
             value: PropertyValue::String("todo".into()),
         },
     );
@@ -252,7 +252,7 @@ fn run_seed(seed: u64) {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
-            key: key("task.status"),
+            key: key("builtin.task-status"),
             value: PropertyValue::String("doing".into()),
         },
     );
@@ -266,7 +266,7 @@ fn run_seed(seed: u64) {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
-            key: key("task.status"),
+            key: key("builtin.task-status"),
         },
     );
     execute(
@@ -336,7 +336,7 @@ fn run_seed(seed: u64) {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
-            key: key("task.priority"),
+            key: key("builtin.priority"),
             value: PropertyValue::String("low".into()),
         },
     );

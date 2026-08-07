@@ -353,7 +353,7 @@ alone, but the fact that chrome and content are typographically different kinds 
 ### The mono voice
 
 `ui-monospace, SFMono-Regular, "SF Mono", Menlo, …` at 12px/550 is reserved for things
-that are *identifiers rather than prose*: property keys (`task.status`), graph ids, and
+that are *identifiers rather than prose*: property keys (`builtin.task-status`), graph ids, and
 ISO dates in the page-info popover. It is never used for body copy, headings, or labels.
 This is the interface admitting which of its strings are addresses and which are language.
 
@@ -740,7 +740,7 @@ are not there. See § Toasts for what is allowed to raise one.
 - The `＋ Add a block` button — the region below the last block *is* the button.
 - All nine uppercase eyebrow pseudo-headings, promoted to real `<h2>`s.
 - The dashed empty-state box on the graph picker.
-- System property rows (`page.kind`, `journal.date`, `system.created-at`) from the
+- Core-managed property rows (`builtin.page-kind`, `builtin.journal-date`, `builtin.created-at`) from the
   property list; they are page *info*, not page *properties*.
 - The outline row's `⋯` and the title row's `⋯`. Both menus survive; their trigger is now
   the object they act on. Two permanent buttons for two menus that were always *about*
@@ -1105,7 +1105,7 @@ The picker is the only property-writing surface:
   key. A custom key adds a type stage; the value stage is derived from that type.
 - Existing rows enter directly at the value stage. Repeated values stay individually
   removable, while Clear removes the whole property.
-- System keys are omitted and live in page info. Tags keep a separate picker because
+- Core-managed builtins are omitted and live in page info. Tags keep a separate picker because
   membership and property values are different domain commands.
 
 The picker is portaled and fixed to its invoking row or editor, so it does not resize the

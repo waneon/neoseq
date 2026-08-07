@@ -31,11 +31,12 @@ into Loro operations and Loro changes back into domain DTOs.
   “today” using the user's configured IANA timezone before invoking the journal
   command.
 - `PropertyKey` is a non-empty normalized Unicode string with a configured
-  length limit. Keys are case-sensitive in schema v3.
+  length limit. Keys are case-sensitive in schema v4.
 - `PropertyEntry` pairs a key and typed value. A property bag supports both
   single-valued and repeated keys; every entry has a stable internal slot.
 - `PropertyValue` is exactly one of finite number, string, page reference,
-  checkbox/boolean, or local date. It never relies on heuristic string parsing.
+  checkbox/boolean, local date, or `QuerySpec { language, source }`. It never
+  relies on heuristic string parsing or arbitrary JSON.
 - `TagId` identifies a graph-scoped tag independently of pages. Page roots and
   blocks carry `TagId` sets outside their property bags.
 
@@ -43,12 +44,13 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The schema-v3 registry is a checked-in compatibility fixture. It defines query,
-task, page, journal, and system keys. The five
-value types are number, string, page reference, checkbox, and local date.
-Unknown keys accept any of those types and retain the command-selected single
-or repeated cardinality. ID and date deserialization passes through the same
-validation as direct construction.
+The schema-v4 registry is a checked-in compatibility fixture. Every stored key
+has one of two two-level namespaces: `builtin.<name>` is registered and owned by
+Neoseq; `custom.<name>` is user-defined. Unknown `builtin.*`, unnamespaced keys,
+and nested names are rejected. Custom values may use the five generic scalar
+types; the closed query composite is reserved for `builtin.query`. Registry
+metadata declares type, cardinality, defaultability, write policy, visibility,
+and entity targets.
 
 ## Command Model
 
@@ -103,25 +105,24 @@ Page/block content and tag membership are explicit node fields. Extensible
 features use well-known properties rather than new persisted fields:
 
 - `tag_refs: Set<TagId>` provides graph-scoped tagging outside properties;
-- `query.source: String` and `query.language: String` define an executable
-  query;
-- `task.status: String` represents states such as `todo`, `doing`, and `done`;
-- `task.scheduled: Date`, `task.deadline: Date`, and `task.priority: String`
+- `builtin.query: QuerySpec` atomically stores the query language identifier and
+  source;
+- `builtin.task-status: String` represents states such as `todo`, `doing`, and `done`;
+- `builtin.scheduled: Date`, `builtin.deadline: Date`, and `builtin.priority: String`
   drive task views and controls;
-- Node `content`, `page.kind: String`, and `journal.date: Date` define page and
+- Node `content`, `builtin.page-kind: String`, and `builtin.journal-date: Date` define page and
   journal presentation; `content` is block Markdown for non-root nodes.
-- `system.updated-at: String` records the command timestamp for each directly
+- `builtin.updated-at: String` records the command timestamp for each directly
   changed page or block. Any block mutation also touches its owning page;
   descendant changes do not touch ancestor blocks.
 
-The versioned property-definition registry declares a well-known key's value
-type, cardinality, validation, and defaultability. Unknown keys remain valid
-with any supported `PropertyValue`, so older clients preserve new properties
-without understanding their feature semantics. The registry does not create a
-second state model: task and query services read and write ordinary property
-entries, and every well-known property remains available to the generic property
-editor and query engine. New metadata features begin by defining keys; new
-identity or relationship semantics require an explicit architecture decision.
+The versioned registry separates ownership from behavior. Namespace does not
+imply editability: `builtin.deadline` is user-writable while
+`builtin.updated-at` is core-managed. Unknown builtin values remain encoded in
+the CRDT but are not projected by a client that lacks their definition. The
+registry does not create a second state model: task and query services read and
+write ordinary property entries, and picker-visible builtins remain available
+to the generic property editor and query engine.
 
 Entity IDs, tag membership, Loro tree parent/order, schema version, and
 tombstones are the explicit structural fields outside property bags.
@@ -134,12 +135,10 @@ tombstones are the explicit structural fields outside property bags.
 2. read the tag record's default property bag;
 3. copy each default only when that property key is absent on the node.
 
-The registry rejects non-defaultable keys such as `page.*`, `journal.date`,
-structural keys such as `tag` and `page.title`, and `system.*` from a default
-bag. Task
-properties and unknown user-defined keys are defaultable; other well-known
-feature keys declare the policy explicitly. A default bag has at most one value
-per key in schema v3.
+The registry rejects core-managed and non-defaultable builtins, structural keys,
+and `builtin.query` from a default bag. Task properties and `custom.*` keys are
+defaultable; other builtins declare the policy explicitly. A default bag has at
+most one value per key in schema v4.
 
 This is materialization, not inheritance. Removing a tag does not remove copied
 properties, values already visible to the tagging command are never overwritten,

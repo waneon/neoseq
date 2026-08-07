@@ -55,7 +55,7 @@ import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
+import { findBlock, findPage, queryValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PropertyPicker } from "../properties/PropertyPicker";
@@ -2457,7 +2457,7 @@ function BlockRow({
           />
         )}
         {!pending && <TaskProjection pageId={editor.pageId} block={row.block} />}
-        {!pending && stringValue(row.block.properties, "query.source") !== undefined && (
+        {!pending && queryValue(row.block.properties) !== undefined && (
           <QueryBlock pageId={editor.pageId} block={row.block} />
         )}
       </div>

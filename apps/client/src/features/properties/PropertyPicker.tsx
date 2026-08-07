@@ -32,6 +32,11 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 import { validationMessage } from "./property-validation";
+import {
+  DEFAULT_QUERY_LANGUAGE_ID,
+  QUERY_LANGUAGES,
+  queryLanguage,
+} from "../../entities/query-languages";
 
 export type PropertyTarget =
   | { kind: "page"; id: string; bag: PropertyEntry[] }
@@ -170,7 +175,7 @@ export function PropertyPicker({
     const normalized = query.trim().toLocaleLowerCase();
     const present = new Set(visibleEntries.map((entry) => entry.key));
     const known = REGISTRY
-      .filter((item) => !isSystemKey(item.key))
+      .filter((item) => item.visibility === "picker" && item.targets.includes(target.kind))
       .map((item) => item.key);
     const keys = [...new Set([...visibleEntries.map((entry) => entry.key), ...known])]
       .filter((item) => !normalized || item.toLocaleLowerCase().includes(normalized))
@@ -179,12 +184,14 @@ export function PropertyPicker({
         return existing || compare(left, right);
       });
     const result = keys.map((item) => ({ key: item, existing: present.has(item), create: false }));
-    const exact = keys.some((item) => item === query.trim());
-    if (normalized && !exact && !isSystemKey(query.trim()) && !validateKey(query.trim())) {
-      result.push({ key: query.trim(), existing: false, create: true });
+    const requested = query.trim();
+    const customKey = customKeyForInput(requested);
+    const exact = keys.some((item) => item === requested || item === customKey);
+    if (normalized && !exact && !validateKey(customKey)) {
+      result.push({ key: customKey, existing: false, create: true });
     }
     return result.slice(0, 12);
-  }, [compare, query, visibleEntries]);
+  }, [compare, query, target.kind, visibleEntries]);
 
   useEffect(() => setActive(0), [query, stage]);
 
@@ -237,15 +244,6 @@ export function PropertyPicker({
       ? { type: "add_repeated_property", entity, key, value }
       : { type: "set_property", entity, key, value });
     if (!saved) return;
-    if (key === "query.source" && !target.bag.some((entry) => entry.key === "query.language")) {
-      const languageSaved = await run({
-        type: "set_property",
-        entity,
-        key: "query.language",
-        value: { type: "string", value: "sparql-1.1/neoseq-v1" },
-      });
-      if (!languageSaved) return;
-    }
     onClose();
   };
 
@@ -290,7 +288,7 @@ export function PropertyPicker({
   const selectedEntries = key ? visibleEntries.filter((entry) => entry.key === key) : [];
   const known = key ? definition(key) : undefined;
   const queryIssue = stage === "property" && query.trim()
-    ? validateKey(query.trim())
+    ? validateKey(customKeyForInput(query.trim()))
     : null;
   const describeValue = (value: PropertyValue): string => {
     if (value.type === "checkbox") return value.value
@@ -303,6 +301,7 @@ export function PropertyPicker({
         ? message("properties.deleted", { name: pageTitle(page) })
         : pageTitle(page);
     }
+    if (value.type === "query") return `${value.value.language}: ${value.value.source}`;
     return String(value.value);
   };
 
@@ -489,6 +488,13 @@ export function PropertyPicker({
   );
 }
 
+function customKeyForInput(value: string): string {
+  if (value.startsWith("builtin.") || value.startsWith("custom.") || ["tag", "page.title", "block.page"].includes(value)) {
+    return value;
+  }
+  return `custom.${value.replaceAll(".", "-")}`;
+}
+
 function initialValue(key: string | null, bag: PropertyEntry[]): PropertyValue {
   if (!key) return { type: "string", value: "" };
   const existing = bag.find((entry) => entry.key === key)?.value;
@@ -525,6 +531,34 @@ function ValueInput({
         allowCreate
         onPick={(id) => onCommit({ type: "page", value: id })}
       />
+    );
+  }
+  if (type === "query") {
+    const query = value.type === "query"
+      ? value.value
+      : { language: DEFAULT_QUERY_LANGUAGE_ID, source: "" };
+    const queryReadonly = readonly || queryLanguage(query.language) === undefined;
+    return (
+      <div className="property-query-input">
+        <select
+          aria-label={message("query.language")}
+          value={query.language}
+          disabled={queryReadonly}
+          onChange={(event) => onChange({ type: "query", value: { ...query, language: event.target.value } })}
+        >
+          {QUERY_LANGUAGES.map((language) => (
+            <option key={language.id} value={language.id}>{language.label}</option>
+          ))}
+          {!QUERY_LANGUAGES.some((language) => language.id === query.language) && <option value={query.language}>{query.language}</option>}
+        </select>
+        <textarea
+          autoFocus
+          aria-label={label}
+          value={query.source}
+          readOnly={queryReadonly}
+          onChange={(event) => onChange({ type: "query", value: { ...query, source: event.target.value } })}
+        />
+      </div>
     );
   }
   if (allowed.length > 0) {

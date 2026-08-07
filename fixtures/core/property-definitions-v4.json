@@ -1,0 +1,15 @@
+{
+  "schema": 4,
+  "properties": [
+    {"key":"builtin.query","type":"query","cardinality":"single","defaultable":false,"allowed_strings":[],"write_policy":"user","visibility":"picker","targets":["block"]},
+    {"key":"builtin.task-status","type":"string","cardinality":"single","defaultable":true,"allowed_strings":["todo","doing","done","cancelled"],"write_policy":"user","visibility":"picker","targets":["block"]},
+    {"key":"builtin.scheduled","type":"date","cardinality":"single","defaultable":true,"allowed_strings":[],"write_policy":"user","visibility":"picker","targets":["block"]},
+    {"key":"builtin.deadline","type":"date","cardinality":"single","defaultable":true,"allowed_strings":[],"write_policy":"user","visibility":"picker","targets":["block"]},
+    {"key":"builtin.priority","type":"string","cardinality":"single","defaultable":true,"allowed_strings":["low","medium","high"],"write_policy":"user","visibility":"picker","targets":["block"]},
+    {"key":"builtin.page-kind","type":"string","cardinality":"single","defaultable":false,"allowed_strings":["regular","journal"],"write_policy":"core","visibility":"info","targets":["page"]},
+    {"key":"builtin.journal-date","type":"date","cardinality":"single","defaultable":false,"allowed_strings":[],"write_policy":"core","visibility":"info","targets":["page"]},
+    {"key":"builtin.created-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[],"write_policy":"core","visibility":"info","targets":["page","tag"]},
+    {"key":"builtin.updated-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[],"write_policy":"core","visibility":"info","targets":["page","block"]},
+    {"key":"builtin.deleted-at","type":"string","cardinality":"single","defaultable":false,"allowed_strings":[],"write_policy":"core","visibility":"hidden","targets":["page","tag"]}
+  ]
+}

@@ -89,7 +89,7 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 3, "worker read did not return schema v3");
+  assert((read.summary as Snapshot).schema_version === 4, "worker read did not return schema v4");
   const page = await worker.readPage({ graph_handle: opened.graph_handle, page_id: "home" });
   assert((page.page as { id: string }).id === "home", "worker page read returned the wrong page");
   const queried = await worker.query({
@@ -216,7 +216,7 @@ export async function runIndexedDbFaultCorpus() {
   const schemaWriter = new TestCoreWorker();
   const schemaOpen = await schemaWriter.openGraph(openRequest(schemaGraph, 261));
   await schemaWriter.closeGraph({ graph_handle: schemaOpen.graph_handle });
-  await schemaWriter.setSchemaVersion(schemaGraph, 4);
+  await schemaWriter.setSchemaVersion(schemaGraph, 5);
   await expectCode(schemaWriter.openGraph(openRequest(schemaGraph, 262)), "unsupported_schema");
   await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();

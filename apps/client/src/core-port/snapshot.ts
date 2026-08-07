@@ -1,14 +1,20 @@
 // Immutable DTO shapes produced by the Rust core (`domain::GraphSnapshot`).
 // The UI renders these views and never mutates them locally.
 
-export type PropertyValueType = "number" | "string" | "page" | "checkbox" | "date";
+export type PropertyValueType = "number" | "string" | "page" | "checkbox" | "date" | "query";
+
+export interface QuerySpec {
+  language: string;
+  source: string;
+}
 
 export type PropertyValue =
   | { type: "number"; value: number }
   | { type: "string"; value: string }
   | { type: "page"; value: string }
   | { type: "checkbox"; value: boolean }
-  | { type: "date"; value: string };
+  | { type: "date"; value: string }
+  | { type: "query"; value: QuerySpec };
 
 export interface PropertyEntry {
   key: string;
@@ -62,7 +68,7 @@ export interface GraphSnapshot {
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 3,
+  schema_version: 4,
   graph_id: "",
   pages: [],
   tags: [],
@@ -98,6 +104,11 @@ export function dateValue(bag: PropertyEntry[], key: string): string | undefined
   return value?.type === "date" ? value.value : undefined;
 }
 
+export function queryValue(bag: PropertyEntry[], key = "builtin.query"): QuerySpec | undefined {
+  const value = singleValue(bag, key);
+  return value?.type === "query" ? value.value : undefined;
+}
+
 export function repeatedValues(bag: PropertyEntry[], key: string): PropertyValue[] {
   return bag.filter((entry) => entry.key === key).map((entry) => entry.value);
 }
@@ -107,15 +118,15 @@ export function pageTitle(page: PageSnapshot): string {
 }
 
 export function pageKind(page: PageSnapshot): "regular" | "journal" {
-  return stringValue(page.properties, "page.kind") === "journal" ? "journal" : "regular";
+  return stringValue(page.properties, "builtin.page-kind") === "journal" ? "journal" : "regular";
 }
 
 export function journalDate(page: PageSnapshot): string | undefined {
-  return dateValue(page.properties, "journal.date");
+  return dateValue(page.properties, "builtin.journal-date");
 }
 
 export function isDeleted(page: PageSnapshot): boolean {
-  return singleValue(page.properties, "system.deleted-at") !== undefined;
+  return singleValue(page.properties, "builtin.deleted-at") !== undefined;
 }
 
 export function findPage(snapshot: GraphSnapshot, pageId: string): PageSnapshot | undefined {

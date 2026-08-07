@@ -99,9 +99,9 @@ test("slash, block properties, and tags share the same focused target", async ({
   await page.keyboard.press("Enter");
 
   let picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "task.status", exact: true }).click();
+  await picker.getByRole("option", { name: "builtin.task-status", exact: true }).click();
   await picker.getByRole("option", { name: "doing", exact: true }).click();
-  await expect(page.getByTestId("prop-task.status")).toContainText("doing");
+  await expect(page.getByTestId("prop-builtin.task-status")).toContainText("doing");
   await expect(page.getByLabel("Block text")).toHaveValue("");
 
   await openBlockTags(page);

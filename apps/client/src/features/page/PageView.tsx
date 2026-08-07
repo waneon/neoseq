@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router";
 import { InfoIcon, Settings2Icon, Trash2Icon } from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findPage, journalDate, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
+import { dateValue, findPage, journalDate, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
@@ -391,23 +391,23 @@ function PageMenu({
 }
 
 /**
- * Page metadata, read-only. These keys (`page.kind`, `journal.date`,
- * `system.created-at`, `system.updated-at`) are facts *about* the page rather
+ * Page metadata, read-only. These keys (`builtin.page-kind`, `builtin.journal-date`,
+ * `builtin.created-at`, `builtin.updated-at`) are facts *about* the page rather
  * than data the user put on it, so they are not mixed into the property list.
  */
 function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => void }) {
   const { graphId = "" } = useParams();
   const notify = useNotify();
   const { message, formatInstant } = useI18n();
-  const created = stringValue(page.properties, "system.created-at");
-  const updated = stringValue(page.properties, "system.updated-at");
-  const journal = stringValue(page.properties, "journal.date");
+  const created = stringValue(page.properties, "builtin.created-at");
+  const updated = stringValue(page.properties, "builtin.updated-at");
+  const journal = dateValue(page.properties, "builtin.journal-date");
   const [copied, setCopied] = useState(false);
 
   return (
     <Dialog title={message("page.info")} onClose={onClose}>
       <dl className="page-info">
-        <dt>{message("page.kind")}</dt>
+        <dt>{message("builtin.page-kind")}</dt>
         <dd>
           {pageKind(page) === "journal" ? message("page.journalDay") : message("common.page")}
         </dd>

@@ -524,6 +524,14 @@ fn add_properties(
             PropertyValue::Date(value) => {
                 Literal::new_typed_literal(value.as_str(), xsd::DATE).into()
             }
+            PropertyValue::Query(value) => {
+                triples.insert(Triple::new(
+                    subject.clone(),
+                    named(&format!("{namespace}builtin.query-language"))?,
+                    Literal::new_simple_literal(&value.language),
+                ));
+                Literal::new_simple_literal(&value.source).into()
+            }
         };
         triples.insert(Triple::new(subject.clone(), predicate, value));
     }
@@ -710,7 +718,7 @@ mod tests {
 
     fn snapshot() -> GraphSnapshot {
         GraphSnapshot {
-            schema_version: 3,
+            schema_version: 4,
             graph_id: GraphId::new("query graph").unwrap(),
             pages: vec![PageSnapshot {
                 id: PageId::new("today").unwrap(),
@@ -743,11 +751,11 @@ mod tests {
                     markdown: "Ship the Query Engine".into(),
                     properties: vec![
                         PropertyEntry {
-                            key: PropertyKey::new("task.status").unwrap(),
+                            key: PropertyKey::new("builtin.task-status").unwrap(),
                             value: PropertyValue::String("todo".into()),
                         },
                         PropertyEntry {
-                            key: PropertyKey::new("task.deadline").unwrap(),
+                            key: PropertyKey::new("builtin.deadline").unwrap(),
                             value: PropertyValue::Date(LocalDate::new("2026-08-05").unwrap()),
                         },
                     ],
@@ -760,7 +768,7 @@ mod tests {
                 name: "Project".into(),
                 properties: vec![],
                 defaults: vec![PropertyEntry {
-                    key: PropertyKey::new("task.priority").unwrap(),
+                    key: PropertyKey::new("builtin.priority").unwrap(),
                     value: PropertyValue::String("high".into()),
                 }],
             }],
@@ -782,8 +790,8 @@ mod tests {
         let index = GraphIndex::new(&snapshot()).unwrap();
         assert_eq!(index.triple_count(), 19);
         let triples = index.semantic_triples().join("\n");
-        assert!(triples.contains("urn:neoseq:property:task.status"));
-        assert!(triples.contains("urn:neoseq:default-property:task.priority"));
+        assert!(triples.contains("urn:neoseq:property:builtin.task-status"));
+        assert!(triples.contains("urn:neoseq:default-property:builtin.priority"));
         assert!(triples.contains("missing-page"));
         assert!(triples.contains(xsd::BOOLEAN.as_str()));
         assert!(triples.contains(xsd::DOUBLE.as_str()));
@@ -798,8 +806,8 @@ mod tests {
             "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
              PREFIX prop: <urn:neoseq:property:>\n\
              SELECT ?block ?deadline WHERE {\n\
-               ?block a neo:Block; prop:task.status \"todo\";\n\
-                 prop:task.deadline ?deadline; neo:content ?content.\n\
+               ?block a neo:Block; prop:builtin.task-status \"todo\";\n\
+                 prop:builtin.deadline ?deadline; neo:content ?content.\n\
                FILTER(?deadline <= ?today && neo:matchesText(?content, ?needle))\n\
              } ORDER BY ?block",
         );
@@ -867,7 +875,7 @@ mod tests {
         incremental.refresh(&source).unwrap();
         let rebuilt = GraphIndex::new(&source).unwrap();
         let query = request(
-            "PREFIX prop: <urn:neoseq:property:> SELECT ?task ?status WHERE { ?task prop:task.status ?status } ORDER BY ?task",
+            "PREFIX prop: <urn:neoseq:property:> SELECT ?task ?status WHERE { ?task prop:builtin.task-status ?status } ORDER BY ?task",
         );
         let QueryResult::Select {
             variables: incremental_variables,

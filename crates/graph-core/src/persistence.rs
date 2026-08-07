@@ -101,6 +101,7 @@ pub trait LocalGraphRepository: GraphRepository {
     fn mark_compacted(&mut self, through_sequence: u64) -> Result<(), Self::Error>;
     fn load_index_cache(&mut self, key: &str) -> Result<Option<Vec<u8>>, Self::Error>;
     fn store_index_cache(&mut self, key: &str, value: &[u8]) -> Result<(), Self::Error>;
+    fn set_schema_version(&mut self, schema_version: u32) -> Result<(), Self::Error>;
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error>;
     fn quarantined(&mut self) -> Result<Vec<QuarantineRecord>, Self::Error>;
     fn delete_local(self) -> Result<(), Self::Error>;
@@ -139,7 +140,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
     now: &str,
 ) -> Result<(GraphCore, RecoveryReport), RecoveryError> {
     let metadata = repository.metadata().map_err(repository_error)?;
-    if metadata.schema_version != SCHEMA_VERSION {
+    if !matches!(metadata.schema_version, 3 | SCHEMA_VERSION) {
         return Err(RecoveryError::Core(CoreError::UnsupportedSchema(
             i64::from(metadata.schema_version),
         )));
@@ -152,7 +153,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
         .map_err(repository_error)?;
     let had_checkpoints = !checkpoints.is_empty();
     for checkpoint in checkpoints {
-        let reason = if checkpoint.schema_version != SCHEMA_VERSION {
+        let reason = if !matches!(checkpoint.schema_version, 3 | SCHEMA_VERSION) {
             Some(format!(
                 "unsupported-checkpoint-schema:{}",
                 checkpoint.schema_version
@@ -228,6 +229,16 @@ pub fn recover_graph<R: LocalGraphRepository>(
                 .map_err(repository_error)?;
             quarantined.push(export_handle);
         }
+    }
+
+    if metadata.schema_version == 3 {
+        let sequence = metadata.next_sequence.saturating_sub(1);
+        repository
+            .save_checkpoint(&core.export_snapshot()?, sequence, now)
+            .map_err(repository_error)?;
+        repository
+            .set_schema_version(SCHEMA_VERSION)
+            .map_err(repository_error)?;
     }
 
     Ok((

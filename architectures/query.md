@@ -140,8 +140,8 @@ PREFIX prop: <urn:neoseq:property:>
 
 SELECT ?block ?deadline WHERE {
   ?block a neo:Block ;
-         prop:task.status "todo" ;
-         prop:task.deadline ?deadline ;
+         prop:builtin.task-status "todo" ;
+         prop:builtin.deadline ?deadline ;
          neo:content ?content .
   FILTER (?deadline < ?today && neo:matchesText(?content, ?needle))
 }
@@ -149,10 +149,15 @@ ORDER BY ?deadline ?block
 LIMIT 100
 ```
 
-A block is executable when it has `query.source: String`. New query blocks also write
-`query.language: "sparql-1.1/neoseq-v1"`; a missing language uses that value for
-v1 compatibility. Source and language synchronize as ordinary properties.
-Plans, results, parameters, and editor state do not.
+A block owns at most one `builtin.query: QuerySpec { language, source }` value.
+The whole value is written by one property command and therefore one CRDT slot
+and undo item. A non-empty source executes only when its stable language id is
+supported; an empty source is a stored draft, and an unknown language is
+preserved and shown read-only rather than coerced. The language registry maps
+stable ids to labels, editor modes, and executors so additional languages do not
+change the property shape. Plans, results, parameters, and editor state are not
+canonical state. RDF projection exposes source at `prop:builtin.query` and
+language at the derived `prop:builtin.query-language` predicate.
 
 ## Planning, Reactivity, and Budgets
 

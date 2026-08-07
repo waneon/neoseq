@@ -41,8 +41,8 @@ describe("query and task projections", () => {
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: "b-1" },
-      key: "query.source",
-      value: { type: "string", value: "SELECT ?block ?status WHERE { ?block ?p ?status }" },
+      key: "builtin.query",
+      value: { type: "query", value: { language: "sparql-1.1/neoseq-v1", source: "SELECT ?block ?status WHERE { ?block ?p ?status }" } },
     });
 
     expect(await screen.findByLabelText("SPARQL source")).toHaveValue(
@@ -57,7 +57,7 @@ describe("query and task projections", () => {
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: "b-1" },
-      key: "task.status",
+      key: "builtin.task-status",
       value: { type: "string", value: "blocked" },
     });
 
@@ -66,7 +66,7 @@ describe("query and task projections", () => {
     await chooseFromMenu(userEvent.setup(), status, "done");
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
-      expect(block && stringValue(block.properties, "task.status")).toBe("done");
+      expect(block && stringValue(block.properties, "builtin.task-status")).toBe("done");
     });
   });
 });

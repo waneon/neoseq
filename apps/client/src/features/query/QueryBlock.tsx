@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { LoaderCircleIcon, PlayIcon } from "lucide-react";
 import type { RdfTerm, SparqlQueryResult } from "../../generated/core-port";
 import type { BlockSnapshot } from "../../core-port/snapshot";
-import { stringValue } from "../../core-port/snapshot";
+import { queryValue } from "../../core-port/snapshot";
 import { Button } from "@/ui/shadcn/button";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -10,24 +10,28 @@ import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
 import { diagnostics } from "../../diagnostics/coordinator";
 import type { DiagnosticInputMethod } from "../../diagnostics/types";
+import {
+  DEFAULT_QUERY_LANGUAGE_ID,
+  QUERY_LANGUAGES,
+  queryLanguage,
+} from "../../entities/query-languages";
 
-const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
+const LANGUAGE = DEFAULT_QUERY_LANGUAGE_ID as "sparql-1.1/neoseq-v1";
 const RUN_DEBOUNCE_MS = 300;
 
 export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
-  const source = stringValue(block.properties, "query.source");
-  const storedLanguage = stringValue(block.properties, "query.language");
-  const [draft, setDraft] = useState(source ?? "");
+  const query = queryValue(block.properties);
+  const [draft, setDraft] = useState(query?.source ?? "");
   const [result, setResult] = useState<SparqlQueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const generation = useRef(0);
   const { message } = useI18n();
 
-  useEffect(() => setDraft(source ?? ""), [source]);
+  useEffect(() => setDraft(query?.source ?? ""), [query?.source]);
 
   const run = (inputMethod: DiagnosticInputMethod = "automatic") => {
     const current = ++generation.current;
@@ -70,32 +74,26 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   };
 
   useEffect(() => {
+    if (!draft.trim() || query?.language !== LANGUAGE) return;
     const timer = window.setTimeout(run, RUN_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // A canonical graph revision invalidates the previous derived result.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, state.revision, session]);
+  }, [draft, state.revision, session, query?.language]);
 
-  if (source === undefined) return null;
+  if (!query) return null;
+  const supported = queryLanguage(query.language) !== undefined;
 
   // The editor keeps the draft, so a refused write is invisible until the next
   // reload silently shows the old source again.
   const commit = async () => {
     const report = (error: unknown) => notify.failure(message("failure.setProperty"), error);
-    if (draft !== source) {
+    if (draft !== query.source) {
       await session.execute({
         type: "set_property",
         entity: { kind: "block", page_id: pageId, id: block.id },
-        key: "query.source",
-        value: { type: "string", value: draft },
-      }).catch(report);
-    }
-    if (storedLanguage !== LANGUAGE) {
-      await session.execute({
-        type: "set_property",
-        entity: { kind: "block", page_id: pageId, id: block.id },
-        key: "query.language",
-        value: { type: "string", value: LANGUAGE },
+        key: "builtin.query",
+        value: { type: "query", value: { language: query.language, source: draft } },
       }).catch(report);
     }
   };
@@ -107,7 +105,26 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       data-testid="query-block"
     >
       <div className="query-toolbar">
-        <span className="query-language">SPARQL</span>
+        <label className="query-language">
+          <span className="sr-only">{message("query.language")}</span>
+          <select
+            value={query.language}
+            disabled={state.mode === "readonly" || !supported}
+            onChange={(event) => {
+              void session.execute({
+                type: "set_property",
+                entity: { kind: "block", page_id: pageId, id: block.id },
+                key: "builtin.query",
+                value: { type: "query", value: { language: event.target.value, source: draft } },
+              }).catch((cause: unknown) => notify.failure(message("failure.setProperty"), cause));
+            }}
+          >
+            {QUERY_LANGUAGES.map((language) => (
+              <option key={language.id} value={language.id}>{language.label}</option>
+            ))}
+            {!supported && <option value={query.language}>{query.language}</option>}
+          </select>
+        </label>
         <span className="query-revision">
           {result
             ? message("query.revision", { revision: result.revision })
@@ -121,7 +138,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
           size="icon"
           onClick={() => run("pointer")}
           aria-label={message("query.run")}
-          disabled={loading}
+          disabled={loading || !supported || !draft.trim()}
         >
           {loading ? <LoaderCircleIcon className="query-spinner" /> : <PlayIcon />}
         </Button>
@@ -129,7 +146,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       <textarea
         className="query-source"
         value={draft}
-        readOnly={state.mode === "readonly"}
+        readOnly={state.mode === "readonly" || !supported}
         spellCheck={false}
         aria-label={message("query.source")}
         onChange={(event) => setDraft(event.target.value)}

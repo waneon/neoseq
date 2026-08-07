@@ -35,12 +35,12 @@ Logseq's presentation literally.
 
 ## Non-goals
 
-- No change to the canonical `PropertyBag`, property encoding, registry fixture,
-  or core commands.
+- No new property-specific command or second storage model. The canonical bag
+  gains the closed query value and registry v4, but keeps the same command path.
 - Tags remain first-class graph entities and are not turned into properties.
-- System-owned keys remain page information and cannot be added from the picker.
-- This work does not add schemas for user-defined repeated properties. An unknown
-  key remains single-valued, as it is today.
+- Core-managed builtins remain entity information and cannot be added from the picker.
+- This work does not add schemas for user-defined repeated properties. A
+  `custom.*` key remains single-valued in the current client.
 - The `/` menu is not a general macro, plugin, or template system in this change.
 
 ## Target resolution
@@ -109,22 +109,25 @@ at or below the existing mobile breakpoint.
 The header and accessible name are **Add or change property**. A combobox keeps
 focus while a listbox shows candidates in this order:
 
-1. properties already on the target, marked with their current value;
-2. well-known registry properties not yet present;
-3. **Create property “query”** when the query is a valid unknown key.
+1. picker-visible properties already on the target, marked with their current value;
+2. picker-visible registry properties targeting that entity kind;
+3. **Create property “custom.query”** when the query is a valid custom name.
 
 Matching is case-insensitive over the display key and localized feature aliases.
 Canonical property keys remain the stored value and use the mono typography role.
-System keys and structural reserved keys are never offered.
+Core-managed builtins and structural reserved keys are never offered. A bare
+user name is canonicalized to the two-level `custom.<name>` namespace; an
+unregistered `builtin.*` cannot be created.
 
 Choosing an existing single-valued property means “change this property,” not
 “add a duplicate.” Choosing a repeated property opens the value stage with both
 an **Add value** row and its existing members.
 
-An unknown key goes to a type stage before its first value is entered. Its default
+A new custom key goes to a type stage before its first value is entered. Its default
 type is `string`; available types are `string`, `number`, `checkbox`, `date`, and
-`page`. Choosing an unknown key always asks for its type; Neoseq does not infer
-a type from unrelated entities or coerce their data.
+`page`. Choosing a new custom key always asks for its type; Neoseq does not infer
+a type from unrelated entities or coerce their data. `builtin.query` instead
+opens its registered composite editor for language and source.
 
 ### 2. Enter or choose a value
 
@@ -138,6 +141,7 @@ The value control comes from the property definition or chosen custom type:
 | Checkbox | **Checked** / **Unchecked** choices | Select a row |
 | Date | Native date input plus **Today** | Choose a date |
 | Page | Existing page autocomplete | Select a page |
+| Query | Language selector plus source editor | Explicit **Set** of one `QuerySpec` |
 
 When changing an attached property, this stage also contains **Clear property**.
 For a repeated property, each current member has **Remove value** and the whole
@@ -166,7 +170,7 @@ attached data.
 
 ### Blocks
 
-- Non-system properties render as compact rows immediately below block Markdown
+- Picker-visible properties render as compact rows immediately below block Markdown
   and above child blocks, aligned to the block's text edge.
 - A row shows `key` and formatted value. Well-known task/query projections may
   replace the generic value rendering, but the property remains reachable.
@@ -200,10 +204,11 @@ The picker is presentation state. It dispatches the existing commands:
 - `remove_repeated_property`
 
 Known definitions continue to use the versioned core property registry. Client
-validation runs before dispatch and the core remains authoritative. The existing
-`query.source` behavior continues to materialize `query.language`. Each dispatched
-core property command retains its current document-history behavior; this UI change
-does not introduce a second undo model or change command grouping.
+validation runs before dispatch and the core remains authoritative.
+`builtin.query` stores `{ language, source }` in one `set_property` command, one
+CRDT slot, and one undo item; incomplete source/language pairs are not
+representable. An empty source is a non-executing draft, and an unsupported
+language is preserved read-only. This does not introduce a second undo model.
 
 No property draft is written to the block's Markdown. The slash trigger is editor
 syntax only and disappears when its command executes.
@@ -215,7 +220,7 @@ The picker state is explicit:
 ```text
 closed
   -> choose-property(target, return-focus)
-  -> choose-type(target, key, return-focus)       # new unknown key only
+  -> choose-type(target, key, return-focus)       # new custom key only
   -> edit-value(target, definition, current-value, return-focus)
   -> committing(command)
   -> closed                                       # success
@@ -297,10 +302,10 @@ this file describes the approved replacement.
 ### Property operations
 
 - [ ] Known single and repeated properties can be added, changed, and cleared.
-- [ ] Unknown string, number, checkbox, date, and page properties round-trip after
+- [ ] `custom.*` string, number, checkbox, date, and page properties round-trip after
       reload without coercion.
 - [ ] Allowed-string properties are limited to their registry choices.
-- [ ] Reserved/system keys are absent and a manually entered reserved key produces
+- [ ] Core-managed/unknown builtin keys are absent and a manually entered reserved key produces
       a visible validation error.
 - [ ] Page reference autocomplete preserves tombstones and does not create a page
       merely by displaying a missing reference.
@@ -324,5 +329,7 @@ Implementation removes the existing `AddPropertyRow`-driven workflow, block
 inspector's generic property section, expanded page property form, their obsolete
 messages/styles, and tests that exist only to drive those forms. The tag editor
 is extracted before the rest of the inspector is removed. Core commands, persisted
-data, property registry fixtures, tags, task/query projections, and
-unknown-property round-trip tests remain. Existing graph data requires no migration.
+tags and task/query projections remain. Schema-3 graphs migrate deterministically
+to registry/document schema 4: official keys become two-level `builtin.*`, legacy
+user keys move under `custom.*`, and query source/language combine into one
+`builtin.query` value before the old slots are removed.

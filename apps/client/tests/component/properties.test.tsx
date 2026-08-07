@@ -24,14 +24,15 @@ async function createCustomProperty(
   type: "string" | "number" | "checkbox" | "date" | "page",
   value: string,
 ) {
+  const canonicalKey = key.startsWith("custom.") ? key : `custom.${key.replaceAll(".", "-")}`;
   const picker = await openPagePicker(user);
   await user.type(within(picker).getByLabelText("Property key"), key);
-  await user.click(within(picker).getByRole("option", { name: `Create property “${key}”` }));
+  await user.click(within(picker).getByRole("option", { name: `Create property “${canonicalKey}”` }));
   await user.click(within(picker).getByRole("option", { name: type }));
   if (type === "checkbox") {
     await user.click(within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }));
   } else {
-    const input = within(picker).getByLabelText(`${key} value`);
+    const input = within(picker).getByLabelText(`${canonicalKey} value`);
     await user.clear(input);
     await user.type(input, value);
     await user.click(within(picker).getByTestId("property-set"));
@@ -91,13 +92,13 @@ describe("property picker", () => {
     await mountPage();
     const user = userEvent.setup();
     await createCustomProperty(user, "future.metric", "number", "42");
-    const row = await screen.findByTestId("prop-future.metric");
+    const row = await screen.findByTestId("prop-custom.future-metric");
     expect(row).toHaveTextContent("42");
 
     await user.click(row);
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("button", { name: "Clear property" }));
-    await waitFor(() => expect(screen.queryByTestId("prop-future.metric")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("prop-custom.future-metric")).not.toBeInTheDocument());
   });
 
   it("surfaces validation errors for structural property keys", async () => {
@@ -127,9 +128,9 @@ describe("property picker", () => {
     await user.keyboard("{Enter}");
     const picker = await screen.findByTestId("property-picker");
     expect(textarea).toHaveValue("");
-    await user.click(within(picker).getByRole("option", { name: "task.status" }));
+    await user.click(within(picker).getByRole("option", { name: "builtin.task-status" }));
     await user.click(within(picker).getByRole("option", { name: "doing" }));
-    await waitFor(() => expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"));
+    await waitFor(() => expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"));
   });
 
   it("edits a well-known enum directly from its inline row", async () => {
@@ -139,13 +140,13 @@ describe("property picker", () => {
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: "b-1" },
-      key: "task.status",
+      key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });
-    await user.click(await screen.findByTestId("prop-task.status"));
+    await user.click(await screen.findByTestId("prop-builtin.task-status"));
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: "doing" }));
-    await waitFor(() => expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"));
+    await waitFor(() => expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"));
 
   });
 });
