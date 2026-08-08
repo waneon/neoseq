@@ -42,7 +42,13 @@ drafts, carets, IME composition, and pending-block reconciliation.
 
 Detection is a pure scan of the current whitespace-delimited token at a
 collapsed caret. A token beginning with `/` opens the slash menu when its query
-reaches at least one declared item. Detection never changes Markdown.
+reaches at least one declared item. A token beginning with `#` opens the tag
+menu the same way: existing tags ranked by the palette's fuzzy scorer, plus one
+create row for a non-empty query with no exact canonical match. Accepting
+removes the token and issues `ensure_tag` (create row only) followed by
+`add_tag`; a tag the block already carries writes nothing. Pending blocks defer
+the choice until the real `BlockId` lands, exactly like a slash choice.
+Detection never changes Markdown.
 
 Slash items are declared in `features/outline/slash-commands.tsx`: task
 statuses and priorities as **direct** items carrying one `PropertyValue`, and
@@ -108,6 +114,12 @@ type and is single-valued under current client rules. Unknown `builtin.*` keys
 remain visible for forward compatibility but are read-only. Moving between
 stages writes nothing.
 
+The picker resolves three target kinds: a page, a block, or a tag. A tag
+target edits the tag's *defaults* — candidates are bounded by the
+`tag_default` placement, values validate as single-valued, and writes travel
+as `set_tag_default` / `remove_tag_default`. The routed tags view is the
+surface that opens this target.
+
 Property candidates are bounded to:
 
 1. generic-visible keys already present on the target;
@@ -162,8 +174,11 @@ including the explicit remove row. On pages the four task keys stay in the
 generic strip.
 
 The legacy `PropertyBagEditor` and block inspector are removed. Tag membership
-now lives in `TagPicker`, which reuses `TagChips` and `PageAutocomplete` while
-continuing to issue `add_tag` and `remove_tag` commands.
+lives in `TagPicker` — which reuses `TagChips` and `PageAutocomplete` while
+continuing to issue `add_tag` and `remove_tag` commands — and inline in the
+outline's `#` tag menu. `TagChips` renders as a right-aligned cluster on the
+block's own line. `features/tags/TagsView.tsx` is the routed tag index: it
+lists every live tag and opens the picker on a tag target for its defaults.
 
 The query projection remains a view over well-known properties with the
 generic chips as its edit route; the task facts' edit routes are their own
@@ -173,12 +188,14 @@ chips, which open the same picker.
 
 The picker maps user intent onto the existing domain commands:
 
-| User intent                   | Core command               |
-| ----------------------------- | -------------------------- |
-| Set or replace a single value | `set_property`             |
-| Clear a single key            | `remove_property`          |
-| Add a repeated member         | `add_repeated_property`    |
-| Remove a repeated member      | `remove_repeated_property` |
+| User intent                     | Core command               |
+| ------------------------------- | -------------------------- |
+| Set or replace a single value   | `set_property`             |
+| Clear a single key              | `remove_property`          |
+| Add a repeated member           | `add_repeated_property`    |
+| Remove a repeated member        | `remove_repeated_property` |
+| Set a tag default (tag target)  | `set_tag_default`          |
+| Clear a tag default (tag target)| `remove_tag_default`       |
 
 The existing `builtin.query-source` orchestration remains: a successful source write
 also materializes the default `builtin.query-language` when absent. This still uses a

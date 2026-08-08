@@ -2,8 +2,9 @@
 
 Neoseq is a local-first outliner. Its current product is an offline Web
 application with journals, a virtualized outline, Markdown blocks, typed
-properties, task controls, graph search, and read-only SPARQL queries. A shared
-Rust core runs through WebAssembly in a Worker and persists graphs to IndexedDB.
+properties, tags with per-tag default properties, task controls, graph search,
+and read-only SPARQL queries. A shared Rust core runs through WebAssembly in a
+Worker and persists graphs to IndexedDB.
 
 Remote synchronization, native packaging, data migration, and release
 provenance are planned work. The active implementation plan starts with

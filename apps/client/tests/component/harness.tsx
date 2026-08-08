@@ -16,6 +16,7 @@ import { LocaleProvider } from "../../src/i18n";
 import { SessionContext } from "../../src/features/shell/session-context";
 import { JournalView } from "../../src/features/journal/JournalView";
 import { PageView } from "../../src/features/page/PageView";
+import { TagsView } from "../../src/features/tags/TagsView";
 
 export const GRAPH_ID = "test-graph";
 
@@ -52,6 +53,7 @@ export async function mountAt(
         children: [
           { path: "journal", element: custom ?? <JournalView /> },
           { path: "journal/:date", element: custom ?? <JournalView /> },
+          { path: "tags", element: custom ?? <TagsView /> },
           { path: "p/:pageId", element: custom ?? <PageView /> },
           { path: "custom", element: custom ?? <div /> },
         ],

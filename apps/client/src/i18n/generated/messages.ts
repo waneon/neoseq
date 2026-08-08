@@ -48,6 +48,7 @@ export interface MessageArgumentMap {
   "commands.label.setStatus": undefined;
   "commands.label.settings": undefined;
   "commands.label.showSidebar": undefined;
+  "commands.label.tags": undefined;
   "commands.label.todayJournal": undefined;
   "commands.label.undo": undefined;
   "commands.pagePropertiesHint": undefined;
@@ -58,6 +59,7 @@ export interface MessageArgumentMap {
   "commands.searchLabel": undefined;
   "commands.searchPlaceholder": undefined;
   "commands.searchResultsEmpty": { readonly "query": string | number };
+  "commands.tagsHint": undefined;
   "common.add": undefined;
   "common.cancel": undefined;
   "common.close": undefined;
@@ -336,6 +338,7 @@ export interface MessageArgumentMap {
   "shell.settings": undefined;
   "shell.showSidebar": undefined;
   "shell.skipContent": undefined;
+  "shell.tags": undefined;
   "shortcuts.anywhere": undefined;
   "shortcuts.blockActions": undefined;
   "shortcuts.blockActionsRoute": undefined;
@@ -395,6 +398,13 @@ export interface MessageArgumentMap {
   "slash.menuLabel": undefined;
   "slash.noMatches": undefined;
   "slash.scheduledHint": undefined;
+  "tags.addDefault": undefined;
+  "tags.defaultsFor": { readonly "name": string | number };
+  "tags.empty": undefined;
+  "tags.hint": undefined;
+  "tags.menuLabel": undefined;
+  "tags.noDefaults": undefined;
+  "tags.title": undefined;
   "task.deadline": undefined;
   "task.deadlineLabel": undefined;
   "task.overdue": undefined;

@@ -400,7 +400,7 @@ invent its own.
 │            │                                                      │
 │  Search ⌘K │        ┌──────── 704px measure ────────┐             │
 │  Journal   │        │  Wednesday, August 5, 2026 ‹▦›│             │
-│            │        │                                │             │
+│  Tags      │        │                                │             │
 │  Pages   ＋│      ↕ │  • Kickoff meeting notes       │             │
 │  · Reading │      ↕ │  │ • Discussed the Q3 roadmap  │             │
 │  · Specs   │      ↕ │  │ • Follow up with platform   │             │
@@ -685,6 +685,7 @@ permanently visible.**
 | Graph switcher | Rail | Names where you are; the only route between graphs |
 | `Search` (`⌘K`) | Rail | The single affordance that licenses everything below |
 | `Journal` | Rail | The primary daily destination |
+| `Tags` | Rail | The graph's tag index, and the one place a tag's defaults are edited |
 | Page list + `＋` | Rail | Navigation, and the only pointer route to a new page |
 | `Settings` | Rail footer | Workspace-level, deliberately away from daily use |
 | Save slot | Top bar | **Renders nothing when saved.** Present only on deviation |
@@ -982,11 +983,22 @@ With more than one block selected the menu changes subject: `Indent`, `Outdent`,
 `Delete N blocks`. It is the same menu on the same object, answering for the selection
 that object belongs to.
 
-**Tags.** On their own 20px line beneath the text, left-aligned to the text edge, only
-when present. Borderless: 20px tall, `--surface-2`, `--ink-2`, `--r-1`, with the `#` at
-55% opacity but still inside `textContent`. A deleted target is `line-through` **and**
-says so in its accessible name — never colour alone. The remove `×` grows from v1's
-13×13 to a 24px box, revealed on chip hover.
+**Tags.** Gathered at the right edge of the block's own line, only when present: the
+writing keeps at least 60% of the measure, and when both cannot fit the cluster wraps
+under the text, still right-aligned. Borderless: 20px tall, `--surface-2`, `--ink-2`,
+`--r-1`, with the `#` at 55% opacity but still inside `textContent`. A deleted target
+is `line-through` **and** says so in its accessible name — never colour alone. The
+remove `×` grows from v1's 13×13 to a 24px box, revealed on chip hover.
+
+**`#` at the caret is the tag menu** — the slash menu's twin: the same
+whitespace-delimited token scan, the same row language and keys, tags instead of verbs.
+Existing tags rank by the same fuzzy matcher; a non-empty query with no exact match
+ends in a create row, so the menu — like the palette — always has a way forward.
+Accepting removes the token and writes structural membership, never text; a tag the
+block already carries says so with its check mark, and choosing it only removes the
+token. The rail's `Tags` row leads to the tag index, where each tag's *defaults* — the
+values copied onto a block when the tag is added — are edited through the same
+contextual property picker as everywhere else.
 
 **Empty and append.** An empty page renders a *fake first line*: one 40% bullet at the
 exact gutter position of row 1, no words, no button chrome, `cursor: text`, over a 200px

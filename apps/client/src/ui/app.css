@@ -1646,15 +1646,26 @@ h2 {
   background: var(--accent);
 }
 
+/* The text column is a wrapping flex row so a block's tags can gather at the
+   right edge of its own line. Everything below the line (chips, query output)
+   claims the full width and wraps under. */
 .outline-text {
+  display: flex;
   flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-start;
   min-width: 0;
   position: relative;
+  column-gap: var(--sp-2);
 }
 
 .outline-input {
   display: block;
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
+  /* Tags may take at most the trailing 40% of the line; the writing keeps
+     the rest. When both cannot fit, the tag cluster wraps under the text. */
+  min-width: 60%;
   margin: 0;
   padding: 0 var(--sp-1);
   border: none;
@@ -1672,11 +1683,17 @@ h2 {
   outline: none;
 }
 
+/* Gathered at the right of the block's own line, not a line beneath it: a
+   20px chip inside a 26px text line, top-padded so the two share a centre. */
 .outline-tags {
   display: flex;
+  flex: 0 1 auto;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--sp-1);
-  padding: 0 var(--sp-1) var(--sp-1);
+  min-width: 0;
+  margin-left: auto;
+  padding: 3px var(--sp-1) 3px 0;
 }
 
 /* ── The task lens ──
@@ -1726,12 +1743,18 @@ h2 {
 }
 
 /* One wrapping strip for every fact under the line — task chips and user
-   properties speak the same language, so metadata never has two dialects. */
+   properties speak the same language, so metadata never has two dialects.
+   Inside the block's flex row it always claims its own full-width line. */
 .block-chips {
   display: flex;
+  flex: 1 1 100%;
   flex-wrap: wrap;
   gap: var(--sp-1);
   margin: var(--sp-0) var(--sp-1) var(--sp-1);
+}
+
+.outline-text > .query-block {
+  flex: 1 1 100%;
 }
 
 /* A chip is a control (it opens the picker on its key), so it takes the
@@ -2232,6 +2255,116 @@ h2 {
   line-height: var(--lh-sm);
 }
 
+/* ── The tags screen ──
+   One quiet row per tag: the name in the tag's own `#` voice, its defaults in
+   the same chip language the outline speaks. Rows separate by spacing alone —
+   no borders (DESIGN.md § Depth), no cards. */
+
+.tags-hint {
+  max-width: 60ch;
+  margin: 0 0 var(--sp-4);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.tags-empty {
+  margin: var(--sp-2) 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.tag-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-1) 0;
+}
+
+.tag-row-name {
+  display: inline-flex;
+  flex: none;
+  width: 200px;
+  gap: 1px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  /* Chips beside it are 22px tall; matching the first line keeps the row's
+     name and its first chip on one optical baseline. */
+  line-height: 22px;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-row-name .hash {
+  opacity: 0.55;
+}
+
+.tag-row-defaults {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.tag-no-defaults {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 22px;
+}
+
+/* Quiet by default, a control on approach — same grammar as every icon
+   affordance: `--ink-3` rising, the one hover wash behind it. */
+.tag-add-default {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 22px;
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.tag-add-default:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.tag-add-default svg {
+  width: 12px;
+  height: 12px;
+}
+
+@media (max-width: 600px) {
+  .tag-row {
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+
+  .tag-row-name {
+    width: auto;
+  }
+}
+
 /* The slash menu is the editor's own command surface, so it borrows the
    palette's row language — same highlight, same accent rule, same group
    labels — at the caret instead of at 12vh. */
@@ -2320,6 +2453,13 @@ h2 {
   line-height: var(--lh-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A tag the block already carries: the check is the chosen-value mark, so it
+   takes the accent like the picker's own check — never a second wash. */
+.tag-menu .tag-opt-check {
+  margin-left: auto;
+  color: var(--accent);
 }
 
 @media (max-width: 600px) {

@@ -49,7 +49,10 @@ import { validationMessage } from "./property-validation";
 
 export type PropertyTarget =
   | { kind: "page"; id: string; bag: PropertyEntry[] }
-  | { kind: "block"; id: string; pageId: string; bag: PropertyEntry[] };
+  | { kind: "block"; id: string; pageId: string; bag: PropertyEntry[] }
+  // A tag's *defaults*: the values copied onto a block when the tag is added.
+  // Same picker, same stages — only the commands differ.
+  | { kind: "tag"; id: string; bag: PropertyEntry[] };
 
 type Stage = "property" | "type" | "value";
 
@@ -92,10 +95,15 @@ export function PropertyPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
 
-  const entity: EntityRef = target.kind === "page"
+  const entity: EntityRef | null = target.kind === "page"
     ? { kind: "page", id: target.id }
-    : { kind: "block", page_id: target.pageId, id: target.id };
-  const writeDisabled = readonly || (key !== null && !canUserWrite(key, target.kind));
+    : target.kind === "block"
+      ? { kind: "block", page_id: target.pageId, id: target.id }
+      : null;
+  // Placement checks speak the registry's language: a tag target writes the
+  // `tag_default` placement, never a bag of its own.
+  const writeTarget = target.kind === "tag" ? "tag_default" : target.kind;
+  const writeDisabled = readonly || (key !== null && !canUserWrite(key, writeTarget));
 
   const reposition = useCallback(() => {
     const rect = anchor?.getBoundingClientRect();
@@ -185,7 +193,7 @@ export function PropertyPicker({
     const normalized = query.trim().toLocaleLowerCase();
     const present = new Set(visibleEntries.map((entry) => entry.key));
     const known = Object.keys(REGISTRY)
-      .filter((key) => isGenericProperty(key) && canUserWrite(key, target.kind));
+      .filter((key) => isGenericProperty(key) && canUserWrite(key, writeTarget));
     // A query reaches a key through its storage name OR the name it goes by on
     // screen, so "예정" finds builtin.task-scheduled and "effort" finds
     // user.effort alike.
@@ -205,11 +213,11 @@ export function PropertyPicker({
     // user should have to type or read.
     const storageKey = storageKeyForQuery(query);
     const exact = keys.some((item) => item === storageKey);
-    if (normalized && !exact && !validateKey(storageKey) && !validateWriteTarget(storageKey, target.kind)) {
+    if (normalized && !exact && !validateKey(storageKey) && !validateWriteTarget(storageKey, writeTarget)) {
       result.push({ key: storageKey, existing: false, create: true });
     }
     return result.slice(0, 12);
-  }, [compare, message, query, target.kind, visibleEntries]);
+  }, [compare, message, query, writeTarget, visibleEntries]);
 
   useEffect(() => setActive(0), [query, stage]);
 
@@ -251,22 +259,29 @@ export function PropertyPicker({
   const commit = async (value: PropertyValue) => {
     if (!key || writeDisabled) return;
     const keyIssue = validateKey(key);
+    // Tag defaults are single-valued by contract, so the cardinality check
+    // runs against "single" — a set-shaped key fails before dispatch.
     const issue = keyIssue
-      ?? validateWriteTarget(key, target.kind)
-      ?? validateValue(key, value, cardinalityOf(key));
+      ?? validateWriteTarget(key, writeTarget)
+      ?? validateValue(key, value, target.kind === "tag" ? "single" : cardinalityOf(key));
     if (issue) {
       setError(validationMessage(issue, message));
       return;
     }
+    if (target.kind === "tag") {
+      const saved = await run({ type: "set_tag_default", tag_id: target.id, key, value });
+      if (saved) onClose();
+      return;
+    }
     const repeated = cardinalityOf(key) === "repeated";
     const saved = await run(repeated
-      ? { type: "add_repeated_property", entity, key, value }
-      : { type: "set_property", entity, key, value });
+      ? { type: "add_repeated_property", entity: entity!, key, value }
+      : { type: "set_property", entity: entity!, key, value });
     if (!saved) return;
     if (key === "builtin.query-source" && !target.bag.some((entry) => entry.key === "builtin.query-language")) {
       const languageSaved = await run({
         type: "set_property",
-        entity,
+        entity: entity!,
         key: "builtin.query-language",
         value: { type: "string", value: "sparql-1.1/neoseq-v1" },
       });
@@ -277,11 +292,16 @@ export function PropertyPicker({
 
   const remove = async (entry?: PropertyEntry) => {
     if (!key || writeDisabled) return;
+    if (target.kind === "tag") {
+      const removed = await run({ type: "remove_tag_default", tag_id: target.id, key });
+      if (removed) onClose();
+      return;
+    }
     if (!entry && cardinalityOf(key) === "repeated") {
       for (const member of selectedEntries) {
         const removed = await run({
           type: "remove_repeated_property",
-          entity,
+          entity: entity!,
           key,
           value: member.value,
         });
@@ -291,8 +311,8 @@ export function PropertyPicker({
       return;
     }
     const removed = await run(entry
-      ? { type: "remove_repeated_property", entity, key, value: entry.value }
-      : { type: "remove_property", entity, key });
+      ? { type: "remove_repeated_property", entity: entity!, key, value: entry.value }
+      : { type: "remove_property", entity: entity!, key });
     if (removed) onClose();
   };
 

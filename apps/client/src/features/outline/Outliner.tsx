@@ -29,12 +29,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CheckIcon,
   ChevronDownIcon,
   CopyIcon,
   CornerDownRightIcon,
   HashIcon,
   IndentDecreaseIcon,
   IndentIncreaseIcon,
+  PlusIcon,
   Settings2Icon,
   Trash2Icon,
 } from "lucide-react";
@@ -54,8 +56,9 @@ import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
-import type { PageSnapshot } from "../../core-port/snapshot";
+import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
+import { canonicalEntityName } from "../../entities/names";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { BlockChips } from "../properties/BlockChips";
@@ -80,6 +83,7 @@ import {
   type OutlineClipboardItem,
 } from "./clipboard";
 import { useI18n, type MessageFunction } from "../../i18n";
+import { fuzzyScore } from "../commands/registry";
 import {
   buildSlashItems,
   filterSlashItems,
@@ -156,6 +160,18 @@ interface SlashRequest {
   anchor: HTMLTextAreaElement;
 }
 
+/**
+ * One row of the `#` tag menu. Existing tags carry their id; the create row
+ * carries only the name it would create. A tag the block already has is
+ * listed with its check mark — choosing it just removes the token.
+ */
+interface TagOption {
+  id: string;
+  name: string;
+  create: boolean;
+  present: boolean;
+}
+
 interface EditorContext {
   session: GraphSession;
   notify: Notifier;
@@ -171,6 +187,10 @@ interface EditorContext {
   slashResults: SlashItem[];
   /** Index into `slashResults` the keyboard is on. */
   slashActive: number;
+  /** The `#` twin of the slash menu: same token scan, tags instead of verbs. */
+  hashRequest: SlashRequest | null;
+  hashResults: TagOption[];
+  hashActive: number;
   menuFor: string | null;
   /** Explicit roots plus the descendants their structural action carries. */
   covered: ReadonlySet<string>;
@@ -188,6 +208,9 @@ interface EditorContext {
   closeSlash(): void;
   setSlashActive(index: number): void;
   acceptSlash(row: OutlineRow, item?: SlashItem): void;
+  closeHash(): void;
+  setHashActive(index: number): void;
+  acceptHash(row: OutlineRow, option?: TagOption): void;
   toggleCollapse(id: string): void;
   draftOf(row: OutlineRow): string;
   onInput(row: OutlineRow, value: string, textarea: HTMLTextAreaElement): void;
@@ -246,13 +269,15 @@ export function Outliner({
   const commands = useCommands();
   const notify = useNotify();
   const bindings = useShortcutBindings();
-  const { message } = useI18n();
+  const { message, compare } = useI18n();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [propertyRequest, setPropertyRequest] = useState<PropertyRequest | null>(null);
   const [tagRequest, setTagRequest] = useState<TagRequest | null>(null);
   const [slashRequest, setSlashRequest] = useState<SlashRequest | null>(null);
   const [slashActive, setSlashActiveState] = useState(0);
+  const [hashRequest, setHashRequest] = useState<SlashRequest | null>(null);
+  const [hashActive, setHashActiveState] = useState(0);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
@@ -275,6 +300,8 @@ export function Outliner({
     /** A slash choice made on a pending row, replayed once the real id lands. */
     action?: SlashItem["action"];
   } | null>(null);
+  /** A `#` choice made on a pending row, replayed once the real id lands. */
+  const pendingTag = useRef<{ blockId: string; option: TagOption } | null>(null);
   const pageRef = useRef(page);
   const collapsedRef = useRef(collapsed);
   const rowsRef = useRef<OutlineRow[]>([]);
@@ -374,6 +401,27 @@ export function Outliner({
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [slashRequest]);
+
+  // The tag menu floats the same way and leaves the same way.
+  useEffect(() => {
+    if (!hashRequest) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      const node = event.target;
+      if (node instanceof Element && node.closest(".tag-menu")) return;
+      setHashRequest(null);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      setHashRequest(null);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePress, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [hashRequest]);
 
   const flush = useCallback(
     (id: string) => {
@@ -489,6 +537,33 @@ export function Outliner({
     [],
   );
 
+  /**
+   * Lands a `#` menu choice on a real block: creates the tag first when the
+   * choice was the create row, then adds the membership. A tag the block
+   * already carries writes nothing — removing the token was the whole gesture.
+   */
+  const applyTagOption = useCallback(
+    async (blockId: string, option: TagOption) => {
+      try {
+        let tagId = option.id;
+        if (option.create) {
+          tagId = `t-${crypto.randomUUID()}`;
+          await session.execute({ type: "ensure_tag", tag_id: tagId, name: option.name });
+        } else if (option.present) {
+          return;
+        }
+        await session.execute({
+          type: "add_tag",
+          entity: { kind: "block", page_id: pageRef.current.id, id: blockId },
+          tag_id: tagId,
+        });
+      } catch (error) {
+        notify.failure(message("failure.addTag"), error);
+      }
+    },
+    [message, notify, session],
+  );
+
   /** Dispatches the oldest pending creation whose anchor id is real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
@@ -566,6 +641,11 @@ export function Outliner({
                 ? { ...current, blockId: realId }
                 : current,
             );
+            setHashRequest((current) =>
+              current && current.blockId === head.tempId
+                ? { ...current, blockId: realId }
+                : current,
+            );
             force();
           });
           if (pendingProperty.current?.blockId === head.tempId) {
@@ -592,6 +672,11 @@ export function Outliner({
                 setPropertyRequest({ blockId: realId, key, anchor, selection: intent.selection });
               });
             }
+          }
+          if (pendingTag.current?.blockId === head.tempId) {
+            const intent = pendingTag.current;
+            pendingTag.current = null;
+            void applyTagOption(realId, intent.option);
           }
           if (typed !== head.baseline) {
             if (composing.current) scheduleFlush(realId);
@@ -631,7 +716,7 @@ export function Outliner({
         abandonPending(failureReason(error, message));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message, notify, session, scheduleFlush, setFocus]);
+  }, [applyTagOption, message, notify, session, scheduleFlush, setFocus]);
 
   /**
    * Drops the optimistic rows an insert never claimed. Whatever the user typed
@@ -1071,6 +1156,13 @@ export function Outliner({
   );
   const slashIndex = Math.min(slashActive, Math.max(slashResults.length - 1, 0));
 
+  const hashResults = useMemo<TagOption[]>(() => {
+    if (!hashRequest) return [];
+    const present = new Set(findBlock(authoritativePage, hashRequest.blockId)?.tags ?? []);
+    return filterTagOptions(state.snapshot.tags, hashRequest.query, present, readonly, compare);
+  }, [authoritativePage, compare, hashRequest, readonly, state.snapshot.tags]);
+  const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
+
   const editor: EditorContext = {
     session,
     notify,
@@ -1084,6 +1176,9 @@ export function Outliner({
     slashRequest,
     slashResults,
     slashActive: slashIndex,
+    hashRequest,
+    hashResults,
+    hashActive: hashIndex,
     menuFor,
     covered: selectionCovered,
     revealed,
@@ -1100,6 +1195,7 @@ export function Outliner({
     openProperties: (id, key, anchor = null) => {
       setTagRequest(null);
       setSlashRequest(null);
+      setHashRequest(null);
       setPropertyRequest({
         blockId: id,
         key,
@@ -1112,6 +1208,7 @@ export function Outliner({
     openTags: (id, anchor = null) => {
       setPropertyRequest(null);
       setSlashRequest(null);
+      setHashRequest(null);
       setTagRequest({ blockId: id, anchor });
     },
     closeSlash: () => setSlashRequest(null),
@@ -1172,6 +1269,39 @@ export function Outliner({
         selection: { start: caret, end: caret },
       });
     },
+    closeHash: () => setHashRequest(null),
+    setHashActive: setHashActiveState,
+    acceptHash: (row, option) => {
+      const request = hashRequest;
+      const chosen = option ?? hashResults[hashIndex];
+      if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
+      // The token leaves the Markdown exactly as a slash token does: the tag
+      // becomes structural membership, never text.
+      const value = drafts.current.get(row.block.id) ?? row.block.markdown;
+      let head = value.slice(0, request.start);
+      let tail = value.slice(request.end);
+      if (tail.trim().length === 0) {
+        head = head.replace(/\s+$/u, "");
+        tail = "";
+      }
+      const next = head + tail;
+      if (!baselines.current.has(row.block.id)) {
+        baselines.current.set(row.block.id, row.block.markdown);
+      }
+      drafts.current.set(row.block.id, next);
+      pendingCaret.current = head.length;
+      setHashRequest(null);
+      force();
+      if (isPendingId(row.block.id)) {
+        // The choice waits for the real BlockId; a temp id never crosses into
+        // a command.
+        pendingTag.current = { blockId: row.block.id, option: chosen };
+        dispatchPending();
+        return;
+      }
+      flushNow(row.block.id);
+      void applyTagOption(row.block.id, chosen);
+    },
     toggleCollapse: (id) => {
       const expanding = collapsedRef.current.has(id);
       const next = nextCollapsed(collapsedRef.current, id);
@@ -1219,6 +1349,14 @@ export function Outliner({
         setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
           ? { blockId: row.block.id, ...slash, anchor: textarea }
           : null);
+        const hash = slash ? null : detectHash(value, textarea.selectionStart, textarea.selectionEnd);
+        setHashActiveState(0);
+        setHashRequest(
+          hash &&
+            filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, readonly, compare).length > 0
+            ? { blockId: row.block.id, ...hash, anchor: textarea }
+            : null,
+        );
       }
     },
     onCompositionStart: (row) => {
@@ -1238,6 +1376,14 @@ export function Outliner({
       setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
         ? { blockId: row.block.id, ...slash, anchor: textarea }
         : null);
+      const hash = slash ? null : detectHash(value, textarea.selectionStart, textarea.selectionEnd);
+      setHashActiveState(0);
+      setHashRequest(
+        hash &&
+          filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, readonly, compare).length > 0
+          ? { blockId: row.block.id, ...hash, anchor: textarea }
+          : null,
+      );
     },
     onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event, bindings),
     flushNow,
@@ -1256,6 +1402,7 @@ export function Outliner({
     dismissTransient: () => {
       setMenuFor(null);
       setSlashRequest(null);
+      setHashRequest(null);
       if (selectedRef.current.size > 0) clearSelection();
     },
     pasteOutline,
@@ -1704,6 +1851,18 @@ export function Outliner({
           }}
         />
       )}
+      {hashRequest && (
+        <TagMenu
+          request={hashRequest}
+          results={hashResults}
+          active={hashIndex}
+          onHover={setHashActiveState}
+          onChoose={(option) => {
+            const row = rowsRef.current.find((entry) => entry.block.id === hashRequest.blockId);
+            if (row) editor.acceptHash(row, option);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -1719,6 +1878,139 @@ function detectSlash(
   const token = value.slice(start, selectionStart);
   if (!token.startsWith("/") || token.slice(1).includes("/")) return null;
   return { start, end: selectionStart, query: token.slice(1) };
+}
+
+/** The `#` twin of `detectSlash`: same whitespace-delimited token at a collapsed caret. */
+function detectHash(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number,
+): Omit<SlashRequest, "blockId" | "anchor"> | null {
+  if (selectionStart !== selectionEnd) return null;
+  let start = selectionStart;
+  while (start > 0 && !/\s/u.test(value[start - 1])) start -= 1;
+  const token = value.slice(start, selectionStart);
+  if (!token.startsWith("#") || token.slice(1).includes("#")) return null;
+  return { start, end: selectionStart, query: token.slice(1) };
+}
+
+/** No block resolved yet — the open/closed decision doesn't depend on presence. */
+const NO_TAGS: ReadonlySet<string> = new Set();
+
+/**
+ * Tags the `#` query reaches, best match first, capped like the autocomplete.
+ * A non-empty query with no exact canonical match adds one create row, so the
+ * menu — like the palette — always ends in a way forward.
+ */
+function filterTagOptions(
+  tags: readonly TagSnapshot[],
+  query: string,
+  present: ReadonlySet<string>,
+  readonly: boolean,
+  compare: (left: string, right: string) => number,
+): TagOption[] {
+  const needle = query.trim();
+  let matched: TagSnapshot[];
+  if (!needle) {
+    matched = [...tags].sort((left, right) => compare(left.name, right.name));
+  } else {
+    matched = tags
+      .map((tag) => ({ tag, score: fuzzyScore(tag.name, needle) }))
+      .filter((entry): entry is { tag: TagSnapshot; score: number } => entry.score !== null)
+      .sort((left, right) => right.score - left.score)
+      .map((entry) => entry.tag);
+  }
+  const options: TagOption[] = matched.slice(0, 8).map((tag) => ({
+    id: tag.id,
+    name: tag.name,
+    create: false,
+    present: present.has(tag.id),
+  }));
+  const canonical = canonicalEntityName(needle);
+  const exact = tags.some((tag) => canonicalEntityName(tag.name) === canonical);
+  if (needle && !exact && !readonly) {
+    options.push({ id: "", name: needle, create: true, present: false });
+  }
+  return options;
+}
+
+function TagMenu({
+  request,
+  results,
+  active,
+  onHover,
+  onChoose,
+}: {
+  request: SlashRequest;
+  results: TagOption[];
+  active: number;
+  onHover: (index: number) => void;
+  onChoose: (option: TagOption) => void;
+}) {
+  const { message } = useI18n();
+  const listRef = useRef<HTMLDivElement>(null);
+  // Same anchor fallback as the slash menu: a pending row adopting its real id
+  // remounts the textarea under the open menu.
+  const focusedInput = document.activeElement;
+  const anchor = request.anchor.isConnected
+    ? request.anchor
+    : focusedInput instanceof HTMLTextAreaElement &&
+        focusedInput.classList.contains("outline-input")
+      ? focusedInput
+      : request.anchor;
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(320, Math.max(260, window.innerWidth - 24));
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+  const maxHeight = 320;
+  const top = Math.max(12, Math.min(rect.bottom + 4, window.innerHeight - maxHeight - 12));
+
+  useEffect(() => {
+    listRef.current
+      ?.querySelector(`#tag-opt-${active}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active, results]);
+
+  return createPortal(
+    <div
+      id="tag-suggest-menu"
+      ref={listRef}
+      className="slash-menu tag-menu"
+      style={{ left, top, width, maxHeight }}
+      role="listbox"
+      aria-label={message("tags.menuLabel")}
+      data-testid="tag-menu"
+    >
+      {results.map((option, index) => (
+        <button
+          id={`tag-opt-${index}`}
+          key={option.create ? "__create" : option.id}
+          role="option"
+          aria-selected={index === active}
+          data-active={index === active}
+          tabIndex={-1}
+          onPointerMove={() => onHover(index)}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => onChoose(option)}
+        >
+          {option.create ? <PlusIcon aria-hidden /> : <HashIcon aria-hidden />}
+          <span className="slash-item-text">
+            <strong>
+              {option.create
+                ? message("properties.createEntity", {
+                    kind: message("common.tag"),
+                    name: option.name,
+                  })
+                : option.name}
+            </strong>
+          </span>
+          {/* The tag the block already carries says so with its check mark,
+              never a second wash (DESIGN.md § Interaction States). */}
+          {option.present && <CheckIcon className="tag-opt-check" aria-hidden />}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
 }
 
 function SlashMenu({
@@ -1995,6 +2287,28 @@ function onKeyDown(
       return;
     }
   }
+  if (editor.hashRequest?.blockId === row.block.id) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      editor.closeHash();
+      return;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      event.preventDefault();
+      editor.acceptHash(row);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      editor.setHashActive(Math.min(editor.hashActive + 1, editor.hashResults.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      editor.setHashActive(Math.max(editor.hashActive - 1, 0));
+      return;
+    }
+  }
   // Pending rows accept text and the core outline idioms (Enter, Tab)
   // until the insert is acknowledged; other structural keys are ignored.
   if (isPendingId(row.block.id)) {
@@ -2232,7 +2546,10 @@ function BlockRow({
     if (!textarea) return;
     textarea.style.height = "0";
     textarea.style.height = `${Math.max(textarea.scrollHeight, 28)}px`;
-  }, [value]);
+    // `tags.length` matters because the tag cluster shares the line: chips
+    // arriving or leaving change the textarea's width, and width changes what
+    // wraps.
+  }, [value, tags.length]);
 
   useLayoutEffect(() => {
     if (!isFocused) return;
@@ -2489,11 +2806,19 @@ function BlockRow({
           value={value}
           readOnly={editor.readonly}
           aria-label={message("outline.blockText")}
-          aria-controls={editor.slashRequest?.blockId === row.block.id ? "slash-command-menu" : undefined}
+          aria-controls={
+            editor.slashRequest?.blockId === row.block.id
+              ? "slash-command-menu"
+              : editor.hashRequest?.blockId === row.block.id
+                ? "tag-suggest-menu"
+                : undefined
+          }
           aria-activedescendant={
             editor.slashRequest?.blockId === row.block.id && editor.slashResults[editor.slashActive]
               ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
-              : undefined
+              : editor.hashRequest?.blockId === row.block.id && editor.hashResults[editor.hashActive]
+                ? `tag-opt-${editor.hashActive}`
+                : undefined
           }
           dir="auto"
           onFocus={() => {

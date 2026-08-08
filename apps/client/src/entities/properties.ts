@@ -92,7 +92,9 @@ export function isGenericProperty(key: string): boolean {
   return visibility === "generic" || visibility === "feature_and_generic";
 }
 
-export function canUserWrite(key: string, target: "page" | "block"): boolean {
+export type WritableTarget = "page" | "block" | "tag_default";
+
+export function canUserWrite(key: string, target: WritableTarget): boolean {
   const spec = definition(key);
   if (spec) return spec.placements[target] === "user";
   return PROPERTY_KEY_PATTERN.test(key) && key.startsWith("user.");
@@ -150,8 +152,11 @@ export function validateKey(key: string): ValidationIssue | null {
   return null;
 }
 
-export function validateWriteTarget(key: string, target: "page" | "block"): ValidationIssue | null {
+export function validateWriteTarget(key: string, target: WritableTarget): ValidationIssue | null {
   if (canUserWrite(key, target)) return null;
+  if (target === "tag_default") {
+    return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
+  }
   const spec = definition(key);
   if (spec?.placements[target] === "core" || key.startsWith("builtin.")) {
     return { code: "reserved_key", message: `“${key}” is managed by the core.`, values: { key } };

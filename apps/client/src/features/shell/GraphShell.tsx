@@ -23,6 +23,7 @@ import {
   CircleCheckIcon,
   FileTextIcon,
   FlagIcon,
+  HashIcon,
   InfoIcon,
   KeyboardIcon,
   LayoutGridIcon,
@@ -536,7 +537,9 @@ SELECT ?entity ?content ?page WHERE {
       ? (pages.find((page) => page.id === currentPage)
           ? pageTitle(pages.find((page) => page.id === currentPage)!)
           : message("common.page"))
-      : name;
+      : location.pathname.endsWith("/tags")
+        ? message("shell.tags")
+        : name;
 
   const commands = buildCommands({
     pages,
@@ -601,6 +604,15 @@ SELECT ?entity ?content ?page WHERE {
             <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
               <CalendarDaysIcon aria-hidden />
               <span className="nav-label">{message("shell.journal")}</span>
+            </NavLink>
+            <NavLink
+              className="shell-nav-item"
+              to={`/g/${graphId}/tags`}
+              end
+              data-testid="nav-tags"
+            >
+              <HashIcon aria-hidden />
+              <span className="nav-label">{message("shell.tags")}</span>
             </NavLink>
           </div>
           <div className="rail-group">
@@ -1132,6 +1144,17 @@ function buildCommands(input: CommandInputs): Command[] {
       run: () => void runHistory(session, notify, message, true),
     },
   );
+
+  commands.push({
+    id: "tags",
+    group: "Graph",
+    label: message("commands.label.tags"),
+    keywords: ["tags", "tag", "defaults", "태그"],
+    hint: message("commands.tagsHint"),
+    icon: <HashIcon aria-hidden />,
+    pointerRoute: message("shell.tags"),
+    run: () => navigate(`/g/${graphId}/tags`),
+  });
 
   commands.push(
     {
