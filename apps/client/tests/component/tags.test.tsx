@@ -49,7 +49,7 @@ describe("first-class tags and tag defaults", () => {
     await waitFor(() => expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"));
     // Existing value wins over the tag default.
     await waitFor(() =>
-      expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"),
+      expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing"),
     );
   });
 
@@ -67,7 +67,7 @@ describe("first-class tags and tag defaults", () => {
     const picker = await screen.findByTestId("tag-picker");
     // The default was copied because the block had no builtin.task-status.
     await waitFor(() =>
-      expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("todo"),
+      expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do"),
     );
 
     await user.click(within(picker).getByRole("button", { name: "Remove tag Project" }));
@@ -75,7 +75,7 @@ describe("first-class tags and tag defaults", () => {
       expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument(),
     );
     // Copied properties are plain properties: removing the tag keeps them.
-    expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("todo");
+    expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do");
   });
 
   it("does not offer a duplicate tag create action", async () => {

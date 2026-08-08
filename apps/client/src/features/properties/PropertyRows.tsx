@@ -1,6 +1,7 @@
 import type { PropertyEntry, PropertyValue } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import { cardinalityOf, isGenericProperty } from "../../entities/properties";
+import { isTaskKey } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
 import { useSessionState } from "../shell/session-context";
 
@@ -13,7 +14,10 @@ export function PropertyRows({
 }) {
   const state = useSessionState();
   const { message } = useI18n();
-  const visible = bag.filter((entry) => isGenericProperty(entry.key));
+  // Task keys have positioned renderers on the block — the status glyph at the
+  // head of the line and the chips underneath — so the generic rows would state
+  // the same facts twice. The chips remain the edit route to the same picker.
+  const visible = bag.filter((entry) => isGenericProperty(entry.key) && !isTaskKey(entry.key));
   if (visible.length === 0) return null;
 
   return (

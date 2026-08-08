@@ -16,9 +16,13 @@ import {
   useSearchParams,
 } from "react-router";
 import {
+  AlarmClockIcon,
   CalendarDaysIcon,
+  CalendarIcon,
   ChevronsUpDownIcon,
+  CircleCheckIcon,
   FileTextIcon,
+  FlagIcon,
   InfoIcon,
   KeyboardIcon,
   LayoutGridIcon,
@@ -198,8 +202,8 @@ function ShellBody({
     }
   });
   const [scrolled, setScrolled] = useState(false);
-  const blockProperties = useRef<(() => void) | null>(null);
-  const pageProperties = useRef<(() => void) | null>(null);
+  const blockProperties = useRef<((key?: string) => void) | null>(null);
+  const pageProperties = useRef<((key?: string) => void) | null>(null);
   const pageActions = useRef<PageActions | null>(null);
   const readonlyAnnounced = useRef(false);
   const recoveryAnnounced = useRef(false);
@@ -279,10 +283,10 @@ function ShellBody({
       setPageActions: (actions) => {
         pageActions.current = actions;
       },
-      requestProperties: () => {
+      requestProperties: (key?: string) => {
         const handler = blockProperties.current ?? pageProperties.current;
         if (!handler) return false;
-        handler();
+        handler(key);
         return true;
       },
       requestPageInfo: () => pageActions.current?.info(),
@@ -1051,6 +1055,60 @@ function buildCommands(input: CommandInputs): Command[] {
       bridge.requestProperties();
     },
   });
+
+  // The task verbs the slash menu offers in the editor, as palette rows: every
+  // capability keeps one canonical command (DESIGN.md, Principle 5). Each opens
+  // the same picker already on its key, for the focused block or the page.
+  commands.push(
+    {
+      id: "set-status",
+      group: "Block",
+      label: message("commands.label.setStatus"),
+      keywords: ["task", "status", "todo", "done", "상태"],
+      hint: message("commands.pagePropertiesHint"),
+      icon: <CircleCheckIcon aria-hidden />,
+      pointerRoute: message("shortcuts.slashRoute"),
+      run: () => {
+        bridge.requestProperties("builtin.task-status");
+      },
+    },
+    {
+      id: "set-priority",
+      group: "Block",
+      label: message("commands.label.setPriority"),
+      keywords: ["task", "priority", "우선순위"],
+      hint: message("commands.pagePropertiesHint"),
+      icon: <FlagIcon aria-hidden />,
+      pointerRoute: message("shortcuts.slashRoute"),
+      run: () => {
+        bridge.requestProperties("builtin.task-priority");
+      },
+    },
+    {
+      id: "set-scheduled",
+      group: "Block",
+      label: message("commands.label.setScheduled"),
+      keywords: ["task", "scheduled", "schedule", "date", "예정"],
+      hint: message("commands.pagePropertiesHint"),
+      icon: <CalendarIcon aria-hidden />,
+      pointerRoute: message("shortcuts.slashRoute"),
+      run: () => {
+        bridge.requestProperties("builtin.task-scheduled");
+      },
+    },
+    {
+      id: "set-deadline",
+      group: "Block",
+      label: message("commands.label.setDeadline"),
+      keywords: ["task", "deadline", "due", "마감"],
+      hint: message("commands.pagePropertiesHint"),
+      icon: <AlarmClockIcon aria-hidden />,
+      pointerRoute: message("shortcuts.slashRoute"),
+      run: () => {
+        bridge.requestProperties("builtin.task-deadline");
+      },
+    },
+  );
 
   commands.push(
     {

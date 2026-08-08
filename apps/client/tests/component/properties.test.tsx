@@ -3,7 +3,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { GRAPH_ID, mountAt, openPageMenu } from "./harness";
+import { chooseFromMenu, GRAPH_ID, mountAt, openPageMenu } from "./harness";
 
 async function mountPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -79,7 +79,7 @@ describe("property picker", () => {
     await waitFor(() => expect(screen.getByTestId("prop-user.count")).toHaveTextContent("7"));
 
     await user.click(screen.getByTestId("prop-user.when"));
-    expect(within(await screen.findByTestId("property-picker")).getByLabelText("user.when value"))
+    expect(within(await screen.findByTestId("property-picker")).getByLabelText("Pick a date"))
       .toHaveValue("2026-08-03");
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
@@ -98,6 +98,27 @@ describe("property picker", () => {
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("button", { name: "Clear property" }));
     await waitFor(() => expect(screen.queryByTestId("prop-user.metric")).not.toBeInTheDocument());
+  });
+
+  it("resolves a typed date phrase and commits it from the preview row", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "set_property",
+      entity: { kind: "page", id: "home" },
+      key: "user.when",
+      value: { type: "date", value: "2026-08-03" },
+    });
+
+    await user.click(await screen.findByTestId("prop-user.when"));
+    const picker = await screen.findByTestId("property-picker");
+    // An empty query offers the three most common answers.
+    expect(within(picker).getByRole("option", { name: /Today/ })).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: /Tomorrow/ })).toBeInTheDocument();
+
+    await user.type(within(picker).getByLabelText("Type a date"), "2026-12-24");
+    await user.click(await within(picker).findByTestId("date-parsed"));
+    await waitFor(() => expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"));
   });
 
   it("surfaces validation errors for property keys outside the owned namespaces", async () => {
@@ -139,17 +160,70 @@ describe("property picker", () => {
     });
     const textarea = await screen.findByLabelText("Block text");
     await user.click(textarea);
-    await user.type(textarea, "/pro");
+    await user.type(textarea, "/prop");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
     await user.keyboard("{Enter}");
     const picker = await screen.findByTestId("property-picker");
     expect(textarea).toHaveValue("");
-    await user.click(within(picker).getByRole("option", { name: "builtin.task-status" }));
-    await user.click(within(picker).getByRole("option", { name: "doing" }));
-    await waitFor(() => expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"));
+    await user.click(within(picker).getByRole("option", { name: /builtin\.task-status/ }));
+    await user.click(within(picker).getByRole("option", { name: "Doing" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing"),
+    );
   });
 
-  it("edits a well-known enum directly from its inline row", async () => {
+  it("sets a status straight from the slash menu, in one keystroke", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "ship it ",
+    });
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/done");
+    const menu = await screen.findByTestId("slash-menu");
+    expect(within(menu).getByRole("option", { name: /Done/ })).toBeVisible();
+    await user.keyboard("{Enter}");
+    // The token never reaches the Markdown, and no picker opens for a direct item.
+    await waitFor(() => expect(textarea).toHaveValue("ship it "));
+    expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done"),
+    );
+    // Settled text reads as settled.
+    expect(textarea.closest(".outline-text")).toHaveAttribute("data-task-status", "done");
+  });
+
+  it("offers grouped commands for an empty slash query", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "",
+    });
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/");
+    const menu = await screen.findByTestId("slash-menu");
+    expect(within(menu).getByText("Task status")).toBeInTheDocument();
+    expect(within(menu).getByText("Priority")).toBeInTheDocument();
+    expect(within(menu).getByText("Date")).toBeInTheDocument();
+    expect(within(menu).getByRole("option", { name: /Scheduled/ })).toBeInTheDocument();
+    expect(within(menu).getByRole("option", { name: /Add property/ })).toBeInTheDocument();
+    // Escape closes the menu without touching the draft.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument();
+    expect(textarea).toHaveValue("/");
+  });
+
+  it("changes and removes a status from the inline control's own menu", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
     await session.execute({ type: "insert_block", page_id: "home", parent: null, index: 0, markdown: "task" });
@@ -159,10 +233,17 @@ describe("property picker", () => {
       key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });
-    await user.click(await screen.findByTestId("prop-builtin.task-status"));
-    const picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: "doing" }));
-    await waitFor(() => expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"));
+    const toggle = await screen.findByTestId("task-status-toggle");
+    await chooseFromMenu(user, toggle, "Doing");
+    await waitFor(() =>
+      expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing"),
+    );
 
+    // Removing the status is an explicit menu row, and it takes the control with it.
+    await user.click(screen.getByTestId("task-status-toggle"));
+    await user.click(await screen.findByTestId("remove-status"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("task-status-toggle")).not.toBeInTheDocument(),
+    );
   });
 });

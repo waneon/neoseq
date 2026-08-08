@@ -13,6 +13,7 @@ async function setKnownProperty(page: Page, key: string, value: string): Promise
   await picker.getByLabel("Property key").fill(key);
   await picker.getByRole("option", { name: key, exact: true }).click();
   if (key === "builtin.task-status") {
+    // Status choices carry their localized labels and shape glyphs.
     await picker.getByRole("option", { name: value, exact: true }).click();
   } else {
     await picker.getByLabel(`${key} value`).fill(value);
@@ -27,13 +28,13 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await typeInFocusedBlock(page, "Ship the query engine");
 
   await openBlockProperties(page);
-  await setKnownProperty(page, "builtin.task-status", "todo");
+  await setKnownProperty(page, "builtin.task-status", "To-do");
 
-  const status = page.getByLabel("Task status");
-  await expect(status).toContainText("todo");
-  await chooseFromMenu(page, status, "done");
+  const status = page.getByTestId("task-status-toggle");
+  await expect(status).toHaveAccessibleName("Task status: To-do");
+  await chooseFromMenu(page, status, "Done");
   await awaitSaved(page);
-  await expect(page.getByTestId("prop-builtin.task-status")).toContainText("done");
+  await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done");
 
   const taskText = page.locator(".outline-input").first();
   await taskText.click();

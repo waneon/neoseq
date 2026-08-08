@@ -9,7 +9,17 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftIcon, CheckIcon, Trash2Icon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  CalendarIcon,
+  CheckIcon,
+  FileTextIcon,
+  HashIcon,
+  PlusIcon,
+  SquareCheckIcon,
+  Trash2Icon,
+  TypeIcon,
+} from "lucide-react";
 import type { Command, EntityRef } from "../../core-port/commands";
 import type { PropertyEntry, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
@@ -27,14 +37,36 @@ import {
   valueTypeOf,
   VALUE_TYPES,
 } from "../../entities/properties";
-import { todayLocalDate } from "../../entities/journal";
+import { addDays, todayLocalDate } from "../../entities/journal";
+import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { useI18n } from "../../i18n";
+import { parseDateQuery } from "../commands/dates";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
+import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
+import { priorityLabel, statusLabel } from "../tasks/labels";
 import { PageAutocomplete } from "./PageAutocomplete";
 import { validationMessage } from "./property-validation";
+
+/** One glyph per value type, so a key reads as its kind before its name. */
+function TypeGlyph({ type }: { type: PropertyValueType | undefined }) {
+  switch (type) {
+    case "number":
+      return <HashIcon data-type-glyph aria-hidden />;
+    case "checkbox":
+      return <SquareCheckIcon data-type-glyph aria-hidden />;
+    case "date":
+      return <CalendarIcon data-type-glyph aria-hidden />;
+    case "page":
+      return <FileTextIcon data-type-glyph aria-hidden />;
+    case "string":
+      return <TypeIcon data-type-glyph aria-hidden />;
+    default:
+      return <PlusIcon data-type-glyph aria-hidden />;
+  }
+}
 
 export type PropertyTarget =
   | { kind: "page"; id: string; bag: PropertyEntry[] }
@@ -400,6 +432,12 @@ export function PropertyPicker({
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={() => chooseKey(candidate)}
               >
+                <TypeGlyph
+                  type={candidate.create
+                    ? undefined
+                    : valueTypeOf(candidate.key)
+                      ?? target.bag.find((entry) => entry.key === candidate.key)?.value.type}
+                />
                 <span className="property-picker-candidate">
                   <span className="mono">
                     {candidate.create
@@ -433,7 +471,10 @@ export function PropertyPicker({
               disabled={readonly}
               onClick={() => chooseType(valueType)}
             >
-              {message(`properties.type.${valueType}`)}
+              <TypeGlyph type={valueType} />
+              <span className="property-picker-candidate">
+                <span>{message(`properties.type.${valueType}`)}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -478,7 +519,7 @@ export function PropertyPicker({
                 {message("properties.clear")}
               </Button>
             )}
-            {type !== "page" && choices.length === 0 && (
+            {type !== "page" && type !== "date" && choices.length === 0 && (
               <Button onClick={() => void commit(draft)} disabled={writeDisabled || committing} data-testid="property-set">
                 {message("properties.set")}
               </Button>
@@ -532,9 +573,25 @@ function ValueInput({
     );
   }
   if (allowed.length > 0) {
+    // A stored value outside the offered set stays listed — opening the editor
+    // can never silently rewrite it.
+    const current = value.type === "string" ? value.value : "";
+    const options = !current || allowed.includes(current) ? allowed : [current, ...allowed];
+    const glyphFor = (option: string) =>
+      entryKey === TASK_STATUS_KEY
+        ? <TaskStatusGlyph status={option} />
+        : entryKey === TASK_PRIORITY_KEY
+          ? <PriorityGlyph priority={option} />
+          : null;
+    const labelFor = (option: string) =>
+      entryKey === TASK_STATUS_KEY
+        ? statusLabel(option, message)
+        : entryKey === TASK_PRIORITY_KEY
+          ? priorityLabel(option, message)
+          : option;
     return (
       <div className="property-picker-list" role="listbox" aria-label={label}>
-        {allowed.map((option) => (
+        {options.map((option) => (
           <button
             key={option}
             role="option"
@@ -543,7 +600,11 @@ function ValueInput({
             disabled={readonly}
             onClick={() => onCommit({ type: "string", value: option })}
           >
-            {option}
+            {glyphFor(option)}
+            <span className="property-picker-candidate">
+              <span>{labelFor(option)}</span>
+            </span>
+            {value.type === "string" && value.value === option && <CheckIcon data-icon aria-hidden />}
           </button>
         ))}
       </div>
@@ -567,10 +628,21 @@ function ValueInput({
       </div>
     );
   }
-  const input = (
+  if (type === "date") {
+    return (
+      <DateValueInput
+        label={label}
+        value={value}
+        readonly={readonly}
+        onChange={onChange}
+        onCommit={onCommit}
+      />
+    );
+  }
+  return (
     <Input
       autoFocus
-      type={type === "number" ? "number" : type === "date" ? "date" : "text"}
+      type={type === "number" ? "number" : "text"}
       aria-label={label}
       value={String(value.value)}
       readOnly={readonly}
@@ -578,30 +650,115 @@ function ValueInput({
         const next = event.target.value;
         onChange(type === "number"
           ? { type: "number", value: Number(next) }
-          : type === "date"
-            ? { type: "date", value: next }
-            : { type: "string", value: next });
+          : { type: "string", value: next });
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing) onCommit(value);
       }}
     />
   );
-  if (type !== "date") return input;
+}
+
+/**
+ * Dates commit the way the palette navigates to them: the same words. The text
+ * field accepts natural language ("tomorrow", "aug 15", "다음 월요일") and
+ * shows the day it resolved to as a pressable row; quick rows cover the three
+ * most common answers, and a native date input stays at the bottom because the
+ * platform's own picker is the better precision tool (DESIGN.md
+ * § Implementation, "native where native is better").
+ */
+function DateValueInput({
+  label,
+  value,
+  readonly,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: PropertyValue;
+  readonly: boolean;
+  onChange: (value: PropertyValue) => void;
+  onCommit: (value: PropertyValue) => void;
+}) {
+  const { message, locale, formatJournalDate } = useI18n();
+  const [text, setText] = useState("");
+  const today = todayLocalDate();
+  const parsed = text.trim() ? parseDateQuery(text, today, locale) : null;
+  const commitDate = (date: string) => onCommit({ type: "date", value: date });
+  const quick: { id: string; label: string; date: string }[] = [
+    { id: "today", label: message("properties.today"), date: today },
+    { id: "tomorrow", label: message("properties.tomorrow"), date: addDays(today, 1) },
+    { id: "next-week", label: message("properties.nextWeek"), date: addDays(today, 7) },
+  ];
+
   return (
-    <div className="property-date-input">
-      {input}
-      <Button
-        variant="secondary"
-        disabled={readonly}
-        onClick={() => {
-          const today = { type: "date", value: todayLocalDate() } as const;
-          onChange(today);
-          onCommit(today);
+    <div className="property-date-editor">
+      <Input
+        autoFocus
+        aria-label={message("properties.dateText")}
+        placeholder={message("properties.datePlaceholder")}
+        value={text}
+        readOnly={readonly}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing && parsed) {
+            event.preventDefault();
+            commitDate(parsed);
+          }
         }}
-      >
-        {message("properties.today")}
-      </Button>
+      />
+      <div className="property-picker-list" role="listbox" aria-label={label}>
+        {text.trim().length > 0
+          ? parsed
+            ? (
+                <button
+                  role="option"
+                  aria-selected
+                  className="property-picker-option"
+                  data-active="true"
+                  data-testid="date-parsed"
+                  disabled={readonly}
+                  onClick={() => commitDate(parsed)}
+                >
+                  <CalendarIcon data-type-glyph aria-hidden />
+                  <span className="property-picker-candidate">
+                    <span>{message("properties.dateOn", { date: formatJournalDate(parsed) })}</span>
+                    <small>{parsed}</small>
+                  </span>
+                </button>
+              )
+            : <p className="ac-hint">{message("properties.noKeys")}</p>
+          : quick.map((option) => (
+              <button
+                key={option.id}
+                role="option"
+                aria-selected={value.type === "date" && value.value === option.date}
+                className="property-picker-option"
+                disabled={readonly}
+                onClick={() => commitDate(option.date)}
+              >
+                <CalendarIcon data-type-glyph aria-hidden />
+                <span className="property-picker-candidate">
+                  <span>{option.label}</span>
+                  <small>{formatJournalDate(option.date)}</small>
+                </span>
+              </button>
+            ))}
+      </div>
+      <div className="property-date-native">
+        <Input
+          type="date"
+          aria-label={message("properties.pickDate")}
+          value={value.type === "date" ? value.value : ""}
+          readOnly={readonly}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (!next) return;
+            onChange({ type: "date", value: next });
+            onCommit({ type: "date", value: next });
+          }}
+        />
+      </div>
     </div>
   );
 }

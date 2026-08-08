@@ -28,6 +28,9 @@ async function addCustom(
   } else if (type === "page") {
     await picker.getByTestId("page-autocomplete").fill(value);
     await page.getByRole("option", { name: "Everything", exact: true }).click();
+  } else if (type === "date") {
+    // The platform's own date input commits the moment it holds a full date.
+    await picker.getByLabel("Pick a date").fill(value);
   } else {
     await picker.getByLabel(`${key} value`).fill(value);
     await picker.getByTestId("property-set").click();
@@ -100,8 +103,8 @@ test("slash, block properties, and tags share the same focused target", async ({
 
   let picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "builtin.task-status", exact: true }).click();
-  await picker.getByRole("option", { name: "doing", exact: true }).click();
-  await expect(page.getByTestId("prop-builtin.task-status")).toContainText("doing");
+  await picker.getByRole("option", { name: "Doing", exact: true }).click();
+  await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
   await expect(page.getByLabel("Block text")).toHaveValue("");
 
   await openBlockTags(page);

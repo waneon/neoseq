@@ -53,7 +53,7 @@ export function PageProperties({
   };
 
   useEffect(() => {
-    commands.setPageProperties(() => show());
+    commands.setPageProperties((key?: string) => show(key));
     return () => commands.setPageProperties(null);
   }, [commands, show]);
 

@@ -1093,20 +1093,76 @@ same contextual picker on that key.
 
 The picker is the only property-writing surface:
 
-- `/` in a block opens a one-row command menu. `Add property` removes the slash token,
-  persists a pending block if necessary, and opens the picker for that block.
+- `/` in a block opens the slash menu (below). Its indirect items — `Scheduled`,
+  `Deadline`, `Add property` — remove the slash token, persist a pending block if
+  necessary, and open the picker for that block, already on their key when they have one.
 - `⌘P` opens it for the focused block, or the page when no block is focused. The title
-  and bullet context menus provide the pointer routes.
+  and bullet context menus provide the pointer routes, and the palette's task rows
+  (`Set task status…`, `Set priority…`, `Set scheduled date…`, `Set deadline…`) open the
+  same picker on the named key.
 - The first stage searches existing and registry keys and can create a validated custom
-  key. A custom key adds a type stage; the value stage is derived from that type.
+  key. Every candidate row leads with its value-type glyph, so a key reads as its kind
+  before its name. A custom key adds a type stage; the value stage is derived from that
+  type.
 - Existing rows enter directly at the value stage. Repeated values stay individually
   removable, while Clear removes the whole property.
+- A suggested-string key renders its choices as glyph-led rows — task status and
+  priority use their own shape glyphs (§ Tasks) — and a stored value outside the
+  suggested set stays listed, so opening the editor can never silently rewrite it.
+- A date value is one field that reads words. The same parser behind the palette's date
+  rows resolves `tomorrow`, `aug 15`, `2026-08-15`, `다음 월요일` into a pressable
+  preview row; an empty query offers `Today`, `Tomorrow`, `Next week`; and the
+  platform's own date input stays at the bottom as the precision tool, per
+  § Implementation's "native where native is better". Choosing any of them commits —
+  a date editor has no separate Set button.
 - System keys are omitted and live in page info. Tags keep a separate picker because
   membership and property values are different domain commands.
 
 The picker is portaled and fixed to its invoking row or editor, so it does not resize the
 outline or get clipped by virtualization. `Escape` closes without changing slash text;
 a successful command closes and restores focus to the invoking document control.
+
+### The slash menu
+
+`/` at the caret opens the editor's own command surface, and it borrows the palette's
+row language — one highlight shared by pointer and keyboard, a 2px accent rule on the
+active row, § The group label for its dividers — at the caret instead of at 12vh.
+
+- **Grouped when browsing, ranked when searching.** An empty query shows every item
+  under `Task status` / `Priority` / `Date` / `Property` labels; typing filters across
+  all groups with the palette's own fuzzy matcher and English and Korean aliases, and a
+  ranked list is deliberately not re-grouped.
+- **Direct items write in one keystroke.** A status or priority row removes the token
+  and issues one `set_property` — no picker, no intermediate surface. Indirect items
+  (`Scheduled…`, `Deadline…`, `Add property…`) open the picker instead.
+- `⏎` and `⇥` take the highlighted item, `↑`/`↓` move it, `Escape` closes without
+  touching the draft, and the whole surface stands down during IME composition.
+- On a pending block the choice waits for the real block id — a temp id never crosses
+  into a command or the picker.
+
+### Tasks
+
+A task is any block whose bag carries a `builtin.task-*` key; there is no task storage
+shape. The presentation is positioned, not generic — the four keys never appear as
+generic property rows on a block, because they would state the same facts twice. Every
+positioned control still routes to the same picker.
+
+- **Status is a shape at the head of the line** — the position a checkbox has held in
+  every list tool. One circle language carries the set: empty (`todo`), half-filled
+  (`doing`), checked (`done`), crossed (`cancelled`), dashed for a value outside the
+  suggested four. Shape, never colour: DESIGN.md permits one chroma, so the traffic-light
+  status palette other outliners use is not available, and the glyphs must survive
+  monochrome. Clicking the glyph opens the one dropdown (§ Choice) with `menuitemradio`
+  rows and an explicit `Remove status` item.
+- **Done and cancelled are settled**: the block's text strikes through and steps back
+  one ink level. The glyph and the strike agree; neither is the only signal.
+- **Priority, scheduled, and deadline are quiet chips** under the text, in the chip
+  metrics, each led by its glyph — priority is one to three filled bars — and each a
+  pointer route into the picker on its own key. Dates are written in the user's own
+  journal date format.
+- **A missed deadline says so in words.** When a deadline has passed and the status is
+  not settled, the chip carries the word `Overdue` in `--danger` ink — a deviation is
+  plain, never colour-only, and it falls silent the moment the task settles.
 
 ### Save slot
 

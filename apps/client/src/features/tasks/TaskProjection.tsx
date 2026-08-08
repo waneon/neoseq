@@ -1,119 +1,86 @@
-import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
+// The task lens under a block: quiet chips, not a form.
+//
+// Status lives at the head of the line (`TaskStatusControl`); what remains here
+// are the schedule facts — priority, scheduled, deadline — each rendered as one
+// chip that reads as metadata and opens the property picker on its own key when
+// pressed. A deadline in the past on an unsettled task says so in words
+// ("Overdue"), because a colour alone is not a signal and silence here would be
+// false. An empty set renders nothing at all.
+
+import type { BlockSnapshot } from "../../core-port/snapshot";
 import { dateValue, stringValue } from "../../core-port/snapshot";
-import { Input } from "@/ui/shadcn/input";
-import { MenuSelect } from "@/ui/menu-select";
-import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { AlarmClockIcon, CalendarIcon } from "lucide-react";
+import { todayLocalDate } from "../../entities/journal";
+import {
+  isSettledStatus,
+  TASK_DEADLINE_KEY,
+  TASK_PRIORITY_KEY,
+  TASK_SCHEDULED_KEY,
+  TASK_STATUS_KEY,
+} from "../../entities/tasks";
 import { useI18n } from "../../i18n";
+import { PriorityGlyph } from "./glyphs";
+import { priorityLabel } from "./labels";
 
-const STATUSES = ["todo", "doing", "done"];
-const PRIORITIES = ["low", "medium", "high"];
+export function TaskProjection({
+  block,
+  onEdit,
+}: {
+  block: BlockSnapshot;
+  onEdit: (key: string, anchor: HTMLElement) => void;
+}) {
+  const { message, formatJournalDate } = useI18n();
+  const status = stringValue(block.properties, TASK_STATUS_KEY);
+  const priority = stringValue(block.properties, TASK_PRIORITY_KEY);
+  const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
+  const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
+  if (priority === undefined && scheduled === undefined && deadline === undefined) return null;
 
-export function TaskProjection({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
-  const { message } = useI18n();
-  const session = useSession();
-  const state = useSessionState();
-  const notify = useNotify();
-  const status = stringValue(block.properties, "builtin.task-status");
-  const priority = stringValue(block.properties, "builtin.task-priority");
-  const scheduled = dateValue(block.properties, "builtin.task-scheduled");
-  const deadline = dateValue(block.properties, "builtin.task-deadline");
-  const isTask = block.properties.some((entry) => entry.key.startsWith("builtin.task-"));
-  if (!isTask) return null;
-
-  // A rejected write leaves the control showing the authoritative value again,
-  // which on its own reads as a control that did not register the change.
-  const set = (key: string, value: PropertyValue) =>
-    session
-      .execute({
-        type: "set_property",
-        entity: { kind: "block", page_id: pageId, id: block.id },
-        key,
-        value,
-      })
-      .catch((error: unknown) => {
-        notify.failure(message("failure.setProperty"), error);
-      });
-  const readonly = state.mode === "readonly";
+  const formatDay = formatJournalDate;
+  const overdue =
+    deadline !== undefined &&
+    deadline < todayLocalDate() &&
+    (status === undefined || !isSettledStatus(status));
 
   return (
-    <div
-      className="task-projection"
-      aria-label={message("task.section")}
-      data-testid="task-projection"
-    >
-      <label>
-        <span>{message("task.status")}</span>
-        <MenuSelect
-          label={message("task.statusLabel")}
-          value={status ?? ""}
-          disabled={readonly}
-          placeholder={message("task.unset")}
-          options={[
-            // A value the core holds that is not one of the three is still a
-            // value: it stays listed, so opening the menu cannot silently
-            // rewrite it.
-            ...(status && !STATUSES.includes(status)
-              ? [{ value: status, label: status }]
-              : []),
-            ...STATUSES.map((item) => ({
-              value: item,
-              label: message(`task.status.${item}` as
-                | "task.status.todo"
-                | "task.status.doing"
-                | "task.status.done"),
-            })),
-          ]}
-          onValueChange={(value) => void set("builtin.task-status", { type: "string", value })}
-        />
-      </label>
-      {(priority !== undefined || status !== undefined) && (
-        <label>
-          <span>{message("task.priority")}</span>
-          <MenuSelect
-            label={message("task.priorityLabel")}
-            value={priority ?? ""}
-            disabled={readonly}
-            placeholder={message("task.unset")}
-            options={[
-              ...(priority && !PRIORITIES.includes(priority)
-                ? [{ value: priority, label: priority }]
-                : []),
-              ...PRIORITIES.map((item) => ({
-                value: item,
-                label: message(`task.priority.${item}` as
-                  | "task.priority.low"
-                  | "task.priority.medium"
-                  | "task.priority.high"),
-              })),
-            ]}
-            onValueChange={(value) => void set("builtin.task-priority", { type: "string", value })}
-          />
-        </label>
+    <div className="task-chips" aria-label={message("task.section")} data-testid="task-projection">
+      {priority !== undefined && (
+        <button
+          type="button"
+          className="task-chip"
+          data-testid="task-chip-priority"
+          onClick={(event) => onEdit(TASK_PRIORITY_KEY, event.currentTarget)}
+        >
+          <PriorityGlyph priority={priority} />
+          <span className="task-chip-name">{message("task.priority")}</span>
+          <span className="task-chip-value">{priorityLabel(priority, message)}</span>
+        </button>
       )}
       {scheduled !== undefined && (
-        <label>
-          <span>{message("task.scheduled")}</span>
-          <Input
-            type="date"
-            aria-label={message("task.scheduledLabel")}
-            value={scheduled}
-            disabled={readonly}
-            onChange={(event) => event.target.value && void set("builtin.task-scheduled", { type: "date", value: event.target.value })}
-          />
-        </label>
+        <button
+          type="button"
+          className="task-chip"
+          data-testid="task-chip-scheduled"
+          onClick={(event) => onEdit(TASK_SCHEDULED_KEY, event.currentTarget)}
+        >
+          <CalendarIcon aria-hidden />
+          <span className="task-chip-name">{message("task.scheduled")}</span>
+          <span className="task-chip-value">{formatDay(scheduled)}</span>
+        </button>
       )}
       {deadline !== undefined && (
-        <label>
-          <span>{message("task.deadline")}</span>
-          <Input
-            type="date"
-            aria-label={message("task.deadlineLabel")}
-            value={deadline}
-            disabled={readonly}
-            onChange={(event) => event.target.value && void set("builtin.task-deadline", { type: "date", value: event.target.value })}
-          />
-        </label>
+        <button
+          type="button"
+          className="task-chip"
+          data-overdue={overdue || undefined}
+          data-testid="task-chip-deadline"
+          onClick={(event) => onEdit(TASK_DEADLINE_KEY, event.currentTarget)}
+        >
+          <AlarmClockIcon aria-hidden />
+          <span className="task-chip-name">{message("task.deadline")}</span>
+          <span className="task-chip-value">{formatDay(deadline)}</span>
+          {overdue && <span className="task-chip-overdue">{message("task.overdue")}</span>}
+        </button>
       )}
     </div>
   );

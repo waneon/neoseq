@@ -1635,32 +1635,107 @@ h2 {
   padding: 0 var(--sp-1) var(--sp-1);
 }
 
-/* Property-driven projections stay inside the block's text column. They are
-   lenses over the graph, not detached cards or a second document surface. */
-.task-projection {
+/* ── The task lens ──
+   Property-driven projections stay inside the block's text column: lenses over
+   the graph, not detached cards or a second document surface. Status sits at
+   the head of the line as a shape (never a colour — DESIGN.md § Color); the
+   remaining task facts are quiet chips underneath, each a pointer route into
+   the property picker on its own key. */
+
+.task-status-toggle {
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.task-status-toggle:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.task-status-toggle:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.outline-text[data-task-status] > .outline-input {
+  padding-left: 28px;
+}
+
+/* A settled task reads as settled: the strike is the signal, the ink only
+   steps back one level so the text stays comfortably legible. */
+.outline-text[data-task-status="done"] > .outline-input,
+.outline-text[data-task-status="cancelled"] > .outline-input {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+.task-chips {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  gap: var(--sp-2);
-  margin: var(--sp-1) var(--sp-1) var(--sp-2);
-  padding: var(--sp-2);
-  border-radius: var(--r-2);
-  background: var(--surface-1);
+  gap: var(--sp-1);
+  margin: var(--sp-0) var(--sp-1) var(--sp-1);
 }
 
-.task-projection label {
-  display: grid;
-  gap: var(--sp-0);
-  min-width: 112px;
-  color: var(--ink-3);
+.task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
 }
 
-.task-projection label > div,
-.task-projection label > .menu-select,
-.task-projection input {
-  min-width: 132px;
+.task-chip:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.task-chip svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.task-chip-name {
+  font-weight: var(--weight-medium);
+}
+
+.task-chip-value {
+  font-weight: var(--weight-normal);
+}
+
+/* A missed deadline on an unsettled task is a deviation, and deviations are
+   plain: the word says it, the colour only underlines it. */
+.task-chip[data-overdue] {
+  color: var(--danger);
+}
+
+.task-chip[data-overdue]:hover {
+  color: var(--danger);
+}
+
+.task-chip-overdue {
+  font-weight: 600;
 }
 
 .query-block {
@@ -2018,9 +2093,20 @@ h2 {
   color: var(--accent);
 }
 
+/* Type and value glyphs are metadata marks, not actions: they rest at the
+   glyph ink, never the accent (that stays with the existing-value check). */
+.property-picker-option svg[data-type-glyph],
+.property-picker-option svg[data-status-glyph],
+.property-picker-option svg[data-priority-glyph] {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-2);
+}
+
 .property-picker-candidate {
   display: flex;
   min-width: 0;
+  flex: 1;
   flex-direction: column;
 }
 
@@ -2090,10 +2176,17 @@ h2 {
   margin-right: auto;
 }
 
-.property-date-input {
+/* The date editor: one field that reads words, the day it resolved to as a
+   pressable row, and the platform's own date input for precision. */
+.property-date-editor {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.property-date-native {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--sp-1);
 }
 
 .tag-picker {
@@ -2107,40 +2200,94 @@ h2 {
   line-height: var(--lh-sm);
 }
 
+/* The slash menu is the editor's own command surface, so it borrows the
+   palette's row language — same highlight, same accent rule, same group
+   labels — at the caret instead of at 12vh. */
 .slash-menu {
+  display: flex;
+  flex-direction: column;
   padding: var(--sp-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.slash-menu > button {
+.slash-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-0);
+}
+
+.slash-group + .slash-group {
+  margin-top: var(--sp-1);
+}
+
+.slash-group > .group-label {
+  padding: var(--sp-1) var(--sp-2) var(--sp-0);
+}
+
+.slash-menu [role="option"] {
+  position: relative;
   display: flex;
   width: 100%;
+  min-height: 30px;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2);
+  padding: var(--sp-0) var(--sp-2);
   border: 0;
   border-radius: var(--r-2);
-  background: var(--accent-soft);
+  background: transparent;
   color: var(--ink);
   font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
   text-align: left;
   cursor: pointer;
 }
 
-.slash-menu > button > span {
+.slash-menu [role="option"] svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+.slash-menu [role="option"][data-active="true"] {
+  background: var(--surface-2);
+}
+
+.slash-menu [role="option"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+.slash-item-text {
   display: flex;
   min-width: 0;
-  flex-direction: column;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--sp-2);
 }
 
-.slash-menu strong {
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
+.slash-item-text strong {
+  overflow: hidden;
+  font-weight: var(--weight-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.slash-menu small {
-  color: var(--ink-3);
+.slash-item-text small {
+  overflow: hidden;
+  color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 600px) {

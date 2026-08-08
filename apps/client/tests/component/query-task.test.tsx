@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { stringValue } from "../../src/core-port/snapshot";
@@ -52,7 +52,7 @@ describe("query and task projections", () => {
     expect(screen.getByTestId("query-block")).toHaveTextContent("revision 3");
   });
 
-  it("preserves unknown task values and writes controls through ordinary properties", async () => {
+  it("preserves unknown task values and writes the status through the inline control", async () => {
     const { session } = await mountProjection();
     await session.execute({
       type: "set_property",
@@ -61,12 +61,49 @@ describe("query and task projections", () => {
       value: { type: "string", value: "blocked" },
     });
 
-    const status = await screen.findByLabelText("Task status");
-    expect(status).toHaveTextContent("blocked");
-    await chooseFromMenu(userEvent.setup(), status, "done");
+    // A value outside the suggested set stays legible and stays listed — the
+    // control never silently rewrites it.
+    const toggle = await screen.findByTestId("task-status-toggle");
+    expect(toggle).toHaveAccessibleName("Task status: blocked");
+    await chooseFromMenu(userEvent.setup(), toggle, "Done");
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && stringValue(block.properties, "builtin.task-status")).toBe("done");
+    });
+    expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done");
+  });
+
+  it("shows priority and dates as chips that open the picker on their key", async () => {
+    const { session } = await mountProjection();
+    const entity = { kind: "block", page_id: "home", id: "b-1" } as const;
+    await session.execute({
+      type: "set_property",
+      entity,
+      key: "builtin.task-priority",
+      value: { type: "string", value: "high" },
+    });
+    await session.execute({
+      type: "set_property",
+      entity,
+      key: "builtin.task-deadline",
+      value: { type: "date", value: "2001-01-01" },
+    });
+
+    const priority = await screen.findByTestId("task-chip-priority");
+    expect(priority).toHaveTextContent("High");
+    // A deadline in the past on an unsettled task says so in words.
+    expect(await screen.findByTestId("task-chip-deadline")).toHaveTextContent("Overdue");
+    // Task facts are positioned renderers, not generic rows: the same fact is
+    // never stated twice under one block.
+    expect(screen.queryByTestId("prop-builtin.task-priority")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(priority);
+    const picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: "Low" }));
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && stringValue(block.properties, "builtin.task-priority")).toBe("low");
     });
   });
 });

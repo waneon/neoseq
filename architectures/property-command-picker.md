@@ -42,19 +42,29 @@ drafts, carets, IME composition, and pending-block reconciliation.
 
 Detection is a pure scan of the current whitespace-delimited token at a
 collapsed caret. A token beginning with `/` opens the slash menu when its query
-matches the localized property command or its stable aliases. Detection never
-changes Markdown.
+reaches at least one declared item. Detection never changes Markdown.
 
-The slash menu keeps focus in the textarea and offers `Add property` in this
-release. `Escape` dismisses it without changing the draft. `Enter` removes the
-recognized token and opens the property picker. A persisted block flushes
-through the normal Markdown draft path first.
+Slash items are declared in `features/outline/slash-commands.tsx`: task
+statuses and priorities as **direct** items carrying one `PropertyValue`, and
+`Scheduled` / `Deadline` / `Add property` as **picker** items carrying an
+optional initial key. Labels are localized; matching runs the palette's fuzzy
+scorer over labels plus English and Korean aliases. An empty query renders the
+declared groups in order; a non-empty query renders one ranked list.
 
-Pending blocks do not cross into the picker under temporary IDs. The outliner
-remembers the property intent, waits for `insert_block` to return the real
-`BlockId`, transfers raced text through the existing pending-row path, and only
-then opens the picker. Insert failure uses the existing pending-insert report
-and never opens a picker for a missing target.
+The menu keeps focus in the textarea. `↑`/`↓` move the active row, `Enter` and
+`Tab` accept it, `Escape` dismisses without changing the draft, and detection
+stands down during IME composition. Accepting always removes the recognized
+token first; a direct item then issues a single `set_property` through the
+session, while a picker item opens `PropertyPicker`, already on its key when it
+has one. A persisted block flushes through the normal Markdown draft path
+first.
+
+Pending blocks do not cross into the picker or a command under temporary IDs.
+The outliner remembers the chosen action, waits for `insert_block` to return
+the real `BlockId`, transfers raced text through the existing pending-row path,
+and only then replays it — a direct write executes, a picker intent opens.
+Insert failure uses the existing pending-insert report and never opens a picker
+for a missing target.
 
 ### Command Bridge and `Mod+P`
 
@@ -63,6 +73,12 @@ removes it from the general browser-reserved set but claims it only if
 `CommandBridge.requestProperties()` reports an available target. Without a
 registered page or block handler the event is not prevented, so the browser
 retains Print.
+
+`requestProperties(key?)` also accepts an initial property key. The palette's
+task rows (`set-status`, `set-priority`, `set-scheduled`, `set-deadline`) ride
+this to open the same picker directly on a `builtin.task-*` key for the focused
+block or the mounted page; their pointer routes are the slash menu and the task
+chips.
 
 The outliner registers the focused persisted block. `PageProperties` registers
 the mounted page. The bridge gives a block handler precedence and otherwise
@@ -103,11 +119,19 @@ adapter-owned state.
 
 Value controls are selected from the property type and definition:
 
-- allowed strings and checkboxes use explicit choice rows;
+- allowed strings and checkboxes use explicit choice rows; the task status and
+  priority keys lead their rows with the shared shape glyphs and localized
+  labels, and a stored value outside the offered set stays listed;
 - strings and numbers use text inputs with explicit commit;
-- dates use the native date input;
+- dates use one natural-language field (the palette's `parseDateQuery`) whose
+  resolved day is a pressable preview row, quick rows for today / tomorrow /
+  next week, and the native date input as the precision fallback — every route
+  commits directly;
 - pages reuse `PageAutocomplete`; and
 - repeated values show individually removable members plus whole-key clear.
+
+Candidate and type rows lead with a per-value-type glyph. Key identity stays in
+the mono voice.
 
 The picker is portaled to `document.body` and positioned in viewport space from
 the invoking element. This avoids clipping by the scroll container and the
@@ -124,12 +148,21 @@ and hidden lifecycle fields never enter the generic route. Keys use the
 identifier voice; values truncate without changing stored data. An empty bag
 renders no rows or strip.
 
+Task keys are **positioned renderers on blocks** and are excluded from the
+block's generic rows (`entities/tasks.ts` names the set). `TaskStatusControl`
+renders the status glyph at the head of the line and owns its `menuitemradio`
+menu, including the explicit remove row; `TaskProjection` renders the
+priority / scheduled / deadline chips, derives the overdue state from the
+journal's own today, and calls back into the outliner's `openProperties` with
+its key and anchor. On pages the four keys stay in the generic strip.
+
 The legacy `PropertyBagEditor` and block inspector are removed. Tag membership
 now lives in `TagPicker`, which reuses `TagChips` and `PageAutocomplete` while
 continuing to issue `add_tag` and `remove_tag` commands.
 
-Task and query projections remain views over well-known properties. Generic
-property rows stay available as their consistent edit route.
+The query projection remains a view over well-known properties with generic
+rows as its edit route; the task projection's edit routes are its own
+positioned controls, which open the same picker.
 
 ## Command Mapping
 
@@ -204,7 +237,9 @@ implementations.
 ## Verification Boundary
 
 - Component tests cover all five value types, custom keys, validation, direct
-  row editing, slash-token removal, known enums, and tag separation.
+  row editing, slash-token removal, slash grouping and one-keystroke status
+  writes, the inline status control and task chips, the natural-language date
+  editor, known enums, and tag separation.
 - Outline tests continue to cover pending-row reconciliation, structure, undo,
   selection, and virtualization-sensitive focus behavior.
 - Shortcut tests cover the new default, conflicts, formatting, and browser-key

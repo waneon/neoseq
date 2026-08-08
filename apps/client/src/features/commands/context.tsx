@@ -26,13 +26,17 @@ export interface CommandBridge {
   /** Opens settings at a section. The section is reflected in the URL. */
   openSettings(section?: SettingsSection): void;
   /** Set by the Outliner while a block is focused; cleared when none is. */
-  setBlockProperties(handler: (() => void) | null): void;
+  setBlockProperties(handler: ((key?: string) => void) | null): void;
   /** Set by PageView for as long as a page is on screen. */
-  setPageProperties(handler: (() => void) | null): void;
+  setPageProperties(handler: ((key?: string) => void) | null): void;
   /** Set by PageView: the verbs its title-row context menu offers. */
   setPageActions(actions: PageActions | null): void;
-  /** Mod+P: opens the contextual target and reports whether one existed. */
-  requestProperties(): boolean;
+  /**
+   * Mod+P: opens the contextual target and reports whether one existed. A key
+   * opens the picker already on that property — the palette's task commands
+   * ride this.
+   */
+  requestProperties(key?: string): boolean;
   requestPageInfo(): void;
   requestPageDelete(): void;
 }

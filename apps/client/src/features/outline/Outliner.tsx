@@ -64,6 +64,8 @@ import { TagPicker } from "../properties/TagPicker";
 import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
 import { TaskProjection } from "../tasks/TaskProjection";
+import { TaskStatusControl } from "../tasks/StatusControl";
+import { TASK_STATUS_KEY } from "../../entities/tasks";
 import { codePointIndex, diffSplice } from "./text-diff";
 import {
   dropTarget,
@@ -79,6 +81,12 @@ import {
   type OutlineClipboardItem,
 } from "./clipboard";
 import { useI18n, type MessageFunction } from "../../i18n";
+import {
+  buildSlashItems,
+  filterSlashItems,
+  SLASH_GROUP_ORDER,
+  type SlashItem,
+} from "./slash-commands";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -160,6 +168,10 @@ interface EditorContext {
   propertyRequest: PropertyRequest | null;
   tagRequest: TagRequest | null;
   slashRequest: SlashRequest | null;
+  /** Items the current slash query reaches, best match first. */
+  slashResults: SlashItem[];
+  /** Index into `slashResults` the keyboard is on. */
+  slashActive: number;
   menuFor: string | null;
   /** Explicit roots plus the descendants their structural action carries. */
   covered: ReadonlySet<string>;
@@ -173,7 +185,8 @@ interface EditorContext {
   openProperties(id: string, key?: string, anchor?: HTMLElement | null): void;
   openTags(id: string, anchor?: HTMLElement | null): void;
   closeSlash(): void;
-  acceptSlash(row: OutlineRow): void;
+  setSlashActive(index: number): void;
+  acceptSlash(row: OutlineRow, item?: SlashItem): void;
   toggleCollapse(id: string): void;
   draftOf(row: OutlineRow): string;
   onInput(row: OutlineRow, value: string, textarea: HTMLTextAreaElement): void;
@@ -238,6 +251,7 @@ export function Outliner({
   const [propertyRequest, setPropertyRequest] = useState<PropertyRequest | null>(null);
   const [tagRequest, setTagRequest] = useState<TagRequest | null>(null);
   const [slashRequest, setSlashRequest] = useState<SlashRequest | null>(null);
+  const [slashActive, setSlashActiveState] = useState(0);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
@@ -257,6 +271,8 @@ export function Outliner({
   const pendingProperty = useRef<{
     blockId: string;
     selection?: { start: number; end: number };
+    /** A slash choice made on a pending row, replayed once the real id lands. */
+    action?: SlashItem["action"];
   } | null>(null);
   const pageRef = useRef(page);
   const collapsedRef = useRef(collapsed);
@@ -523,12 +539,27 @@ export function Outliner({
           if (pendingProperty.current?.blockId === head.tempId) {
             const intent = pendingProperty.current;
             pendingProperty.current = null;
-            requestAnimationFrame(() => {
-              const anchor = document.querySelector<HTMLTextAreaElement>(
-                `[data-block-id="${cssEscape(realId)}"] textarea`,
-              );
-              setPropertyRequest({ blockId: realId, anchor, selection: intent.selection });
-            });
+            if (intent.action?.kind === "set") {
+              const action = intent.action;
+              void session
+                .execute({
+                  type: "set_property",
+                  entity: { kind: "block", page_id: pageRef.current.id, id: realId },
+                  key: action.key,
+                  value: action.value,
+                })
+                .catch((error: unknown) => {
+                  notify.failure(message("failure.setProperty"), error);
+                });
+            } else {
+              const key = intent.action?.kind === "picker" ? intent.action.key : undefined;
+              requestAnimationFrame(() => {
+                const anchor = document.querySelector<HTMLTextAreaElement>(
+                  `[data-block-id="${cssEscape(realId)}"] textarea`,
+                );
+                setPropertyRequest({ blockId: realId, key, anchor, selection: intent.selection });
+              });
+            }
           }
           if (typed !== head.baseline) {
             if (composing.current) scheduleFlush(realId);
@@ -971,6 +1002,13 @@ export function Outliner({
     [authoritativePage.id, flushNow, message, notify, readonly, session, setFocus],
   );
 
+  const slashItems = useMemo(() => buildSlashItems(message), [message]);
+  const slashResults = useMemo(
+    () => (slashRequest ? filterSlashItems(slashItems, slashRequest.query) : []),
+    [slashItems, slashRequest],
+  );
+  const slashIndex = Math.min(slashActive, Math.max(slashResults.length - 1, 0));
+
   const editor: EditorContext = {
     session,
     notify,
@@ -982,6 +1020,8 @@ export function Outliner({
     propertyRequest,
     tagRequest,
     slashRequest,
+    slashResults,
+    slashActive: slashIndex,
     menuFor,
     covered: selectionCovered,
     revealed,
@@ -1007,9 +1047,11 @@ export function Outliner({
       setTagRequest({ blockId: id, anchor });
     },
     closeSlash: () => setSlashRequest(null),
-    acceptSlash: (row) => {
+    setSlashActive: setSlashActiveState,
+    acceptSlash: (row, item) => {
       const request = slashRequest;
-      if (!request || request.blockId !== row.block.id || readonly) return;
+      const chosen = item ?? slashResults[slashIndex];
+      if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       const value = drafts.current.get(row.block.id) ?? row.block.markdown;
       const next = `${value.slice(0, request.start)}${value.slice(request.end)}`;
       if (!baselines.current.has(row.block.id)) {
@@ -1020,19 +1062,37 @@ export function Outliner({
       setSlashRequest(null);
       force();
       if (isPendingId(row.block.id)) {
+        // The choice waits for the real BlockId; a temp id never crosses into
+        // the picker or a command.
         pendingProperty.current = {
           blockId: row.block.id,
           selection: { start: request.start, end: request.start },
+          action: chosen.action,
         };
         dispatchPending();
-      } else {
-        flushNow(row.block.id);
-        setPropertyRequest({
-          blockId: row.block.id,
-          anchor: request.anchor,
-          selection: { start: request.start, end: request.start },
-        });
+        return;
       }
+      flushNow(row.block.id);
+      if (chosen.action.kind === "set") {
+        // A direct item is one keystroke to one property write — no picker.
+        void session
+          .execute({
+            type: "set_property",
+            entity: { kind: "block", page_id: authoritativePage.id, id: row.block.id },
+            key: chosen.action.key,
+            value: chosen.action.value,
+          })
+          .catch((error: unknown) => {
+            notify.failure(message("failure.setProperty"), error);
+          });
+        return;
+      }
+      setPropertyRequest({
+        blockId: row.block.id,
+        key: chosen.action.key,
+        anchor: request.anchor,
+        selection: { start: request.start, end: request.start },
+      });
     },
     toggleCollapse: (id) => {
       const expanding = collapsedRef.current.has(id);
@@ -1077,7 +1137,8 @@ export function Outliner({
       if (!composing.current) {
         scheduleFlush(row.block.id);
         const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
-        setSlashRequest(slash && slashMatches(slash.query, message)
+        setSlashActiveState(0);
+        setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
           ? { blockId: row.block.id, ...slash, anchor: textarea }
           : null);
       }
@@ -1095,7 +1156,8 @@ export function Outliner({
       scheduleFlush(row.block.id);
       const value = drafts.current.get(row.block.id) ?? row.block.markdown;
       const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
-      setSlashRequest(slash && slashMatches(slash.query, message)
+      setSlashActiveState(0);
+      setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
         ? { blockId: row.block.id, ...slash, anchor: textarea }
         : null);
     },
@@ -1309,13 +1371,14 @@ export function Outliner({
   // that is the block; the shell falls back to the page when this slot is empty.
   useEffect(() => {
     if (focusedId && isPendingId(focusedId)) {
-      commands.setBlockProperties(() => {
+      commands.setBlockProperties((key?: string) => {
         const active = document.activeElement;
         pendingProperty.current = {
           blockId: focusedId,
           selection: active instanceof HTMLTextAreaElement
             ? { start: active.selectionStart, end: active.selectionEnd }
             : undefined,
+          action: key ? { kind: "picker", key } : undefined,
         };
         dispatchPending();
       });
@@ -1335,12 +1398,13 @@ export function Outliner({
       commands.setBlockProperties(null);
       return;
     }
-    commands.setBlockProperties(() => {
+    commands.setBlockProperties((key?: string) => {
       const anchor = document.querySelector<HTMLTextAreaElement>(
         `[data-block-id="${cssEscape(targetId)}"] textarea`,
       );
       setPropertyRequest({
         blockId: targetId,
+        key,
         anchor,
         selection: anchor
           ? { start: anchor.selectionStart, end: anchor.selectionEnd }
@@ -1550,9 +1614,12 @@ export function Outliner({
       {slashRequest && (
         <SlashMenu
           request={slashRequest}
-          onChoose={() => {
+          results={slashResults}
+          active={slashIndex}
+          onHover={setSlashActiveState}
+          onChoose={(item) => {
             const row = rowsRef.current.find((entry) => entry.block.id === slashRequest.blockId);
-            if (row) editor.acceptSlash(row);
+            if (row) editor.acceptSlash(row, item);
           }}
         />
       )}
@@ -1573,35 +1640,91 @@ function detectSlash(
   return { start, end: selectionStart, query: token.slice(1) };
 }
 
-function slashMatches(query: string, message: MessageFunction): boolean {
-  const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return true;
-  return [message("properties.slashLabel"), "property", "properties", "metadata", "속성"]
-    .some((label) => label.toLocaleLowerCase().includes(needle));
-}
-
-function SlashMenu({ request, onChoose }: { request: SlashRequest; onChoose: () => void }) {
+function SlashMenu({
+  request,
+  results,
+  active,
+  onHover,
+  onChoose,
+}: {
+  request: SlashRequest;
+  results: SlashItem[];
+  active: number;
+  onHover: (index: number) => void;
+  onChoose: (item: SlashItem) => void;
+}) {
   const { message } = useI18n();
+  const listRef = useRef<HTMLDivElement>(null);
   const rect = request.anchor.getBoundingClientRect();
   const width = Math.min(320, Math.max(260, window.innerWidth - 24));
   const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
-  const top = Math.max(12, Math.min(rect.bottom + 4, window.innerHeight - 100));
-  return createPortal(
-    <div id="slash-command-menu" className="slash-menu" style={{ left, top, width }} role="listbox" data-testid="slash-menu">
+  const maxHeight = 320;
+  const top = Math.max(12, Math.min(rect.bottom + 4, window.innerHeight - maxHeight - 12));
+
+  // The keyboard moves the highlight while the list scrolls to keep it in view;
+  // the pointer moves it directly. Same one-highlight rule as the palette.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector(`#slash-opt-${cssEscape(results[active]?.id ?? "")}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active, results]);
+
+  // Group labels only order an unfiltered menu; a query ranks across groups
+  // and grouping a ranked list would un-rank it.
+  const grouped = request.query.trim().length === 0;
+  const sections = grouped
+    ? SLASH_GROUP_ORDER
+        .map((group) => ({ group, items: results.filter((item) => item.group === group) }))
+        .filter((section) => section.items.length > 0)
+    : [{ group: null, items: results }];
+
+  const renderItem = (item: SlashItem) => {
+    const index = results.indexOf(item);
+    return (
       <button
-        id="slash-add-property"
+        id={`slash-opt-${item.id}`}
+        key={item.id}
         role="option"
-        aria-selected
+        aria-selected={index === active}
+        data-active={index === active}
         tabIndex={-1}
+        onPointerMove={() => onHover(index)}
         onPointerDown={(event) => event.preventDefault()}
-        onClick={onChoose}
+        onClick={() => onChoose(item)}
       >
-        <Settings2Icon data-icon aria-hidden />
-        <span>
-          <strong>{message("properties.slashLabel")}</strong>
-          <small>{message("properties.slashHint")}</small>
+        {item.glyph}
+        <span className="slash-item-text">
+          <strong>{item.label}</strong>
+          {item.hint && <small>{item.hint}</small>}
         </span>
       </button>
+    );
+  };
+
+  return createPortal(
+    <div
+      id="slash-command-menu"
+      ref={listRef}
+      className="slash-menu"
+      style={{ left, top, width, maxHeight }}
+      role="listbox"
+      aria-label={message("slash.menuLabel")}
+      data-testid="slash-menu"
+    >
+      {sections.map((section) => (
+        <div key={section.group ?? "ranked"} className="slash-group" role="presentation">
+          {section.group && (
+            <div className="group-label" role="presentation">
+              {message(`slash.group.${section.group}` as
+                | "slash.group.status"
+                | "slash.group.priority"
+                | "slash.group.date"
+                | "slash.group.property")}
+            </div>
+          )}
+          {section.items.map(renderItem)}
+        </div>
+      ))}
     </div>,
     document.body,
   );
@@ -1762,8 +1885,21 @@ function onKeyDown(
       editor.acceptSlash(row);
       return;
     }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
+      editor.setSlashActive(Math.min(editor.slashActive + 1, editor.slashResults.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      editor.setSlashActive(Math.max(editor.slashActive - 1, 0));
+      return;
+    }
+    if (event.key === "Tab") {
+      // ⇥ means "take the highlighted command", as it does in the palette; it
+      // must not also restructure the outline underneath the open menu.
+      event.preventDefault();
+      editor.acceptSlash(row);
       return;
     }
   }
@@ -1967,6 +2103,7 @@ function BlockRow({
   const isFocused = editor.focusedId === row.block.id;
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
+  const taskStatus = stringValue(row.block.properties, TASK_STATUS_KEY);
   const tags = row.block.tags;
   const selected = editor.covered.has(row.block.id);
   const selectionCount = editor.selectionCount;
@@ -2223,7 +2360,10 @@ function BlockRow({
           )}
         </DropdownMenu>
       </span>
-      <div className="outline-text">
+      <div className="outline-text" data-task-status={taskStatus}>
+        {taskStatus !== undefined && !pending && (
+          <TaskStatusControl pageId={editor.pageId} block={row.block} status={taskStatus} />
+        )}
         <textarea
           ref={textareaRef}
           className="outline-input"
@@ -2232,7 +2372,11 @@ function BlockRow({
           readOnly={editor.readonly}
           aria-label={message("outline.blockText")}
           aria-controls={editor.slashRequest?.blockId === row.block.id ? "slash-command-menu" : undefined}
-          aria-activedescendant={editor.slashRequest?.blockId === row.block.id ? "slash-add-property" : undefined}
+          aria-activedescendant={
+            editor.slashRequest?.blockId === row.block.id && editor.slashResults[editor.slashActive]
+              ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
+              : undefined
+          }
           dir="auto"
           onFocus={() => {
             if (!isFocused) editor.setFocus(row.block.id, -1);
@@ -2260,7 +2404,12 @@ function BlockRow({
             onEdit={(key, anchor) => editor.openProperties(row.block.id, key, anchor)}
           />
         )}
-        {!pending && <TaskProjection pageId={editor.pageId} block={row.block} />}
+        {!pending && (
+          <TaskProjection
+            block={row.block}
+            onEdit={(key, anchor) => editor.openProperties(row.block.id, key, anchor)}
+          />
+        )}
         {!pending && stringValue(row.block.properties, "builtin.query-source") !== undefined && (
           <QueryBlock pageId={editor.pageId} block={row.block} />
         )}
