@@ -209,6 +209,8 @@ export interface MessageArgumentMap {
   "properties.addTag": undefined;
   "properties.back": undefined;
   "properties.block": undefined;
+  "properties.builtin.queryLanguage": undefined;
+  "properties.builtin.querySource": undefined;
   "properties.checked": undefined;
   "properties.choose": undefined;
   "properties.clear": undefined;

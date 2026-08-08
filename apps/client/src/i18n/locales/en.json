@@ -191,6 +191,8 @@
   "properties.addProperty": "Add property",
   "properties.back": "Back to properties",
   "properties.block": "Block",
+  "properties.builtin.queryLanguage": "Query language",
+  "properties.builtin.querySource": "Query",
   "properties.choose": "choose…",
   "properties.checked": "Checked",
   "properties.clear": "Clear property",

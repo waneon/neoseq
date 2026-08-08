@@ -18,7 +18,6 @@ import { createPortal } from "react-dom";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
 import { Input } from "@/ui/shadcn/input";
-import { cn } from "@/lib/utils";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
@@ -198,23 +197,25 @@ export function PageAutocomplete({
                       role="option"
                       aria-selected={index === active}
                       data-active={index === active}
-                      className={cn(
-                        "flex w-full items-center gap-1.5 truncate rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors",
-                        "hover:bg-accent data-[active=true]:bg-accent",
-                      )}
-                      onMouseEnter={() => setActive(index)}
+                      className="property-picker-option"
+                      tabIndex={-1}
+                      onPointerMove={() => setActive(index)}
                       onMouseDown={(event) => {
                         event.preventDefault();
                         if (blurTimer.current) clearTimeout(blurTimer.current);
                         void pick(option);
                       }}
                     >
-                      {option.create
-                        ? message("properties.createEntity", {
-                            kind: message(kind === "tag" ? "common.tag" : "common.page"),
-                            name: option.label,
-                          })
-                        : option.label}
+                      <span className="property-picker-candidate">
+                        <span>
+                          {option.create
+                            ? message("properties.createEntity", {
+                                kind: message(kind === "tag" ? "common.tag" : "common.page"),
+                                name: option.label,
+                              })
+                            : option.label}
+                        </span>
+                      </span>
                     </button>
                   </li>
                 ))}

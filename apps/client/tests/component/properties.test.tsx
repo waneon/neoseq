@@ -1,6 +1,6 @@
 // Properties are visible inline and edited through one contextual picker.
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { chooseFromMenu, GRAPH_ID, mountAt, openPageMenu } from "./harness";
@@ -18,20 +18,24 @@ async function openPagePicker(user: ReturnType<typeof userEvent.setup>) {
   return screen.findByTestId("property-picker");
 }
 
+/**
+ * Drives the picker the way a user now does: a bare name (no `user.` prefix)
+ * both searches and creates, and every surface shows the display name.
+ */
 async function createCustomProperty(
   user: ReturnType<typeof userEvent.setup>,
-  key: string,
+  name: string,
   type: "string" | "number" | "checkbox" | "date" | "page",
   value: string,
 ) {
   const picker = await openPagePicker(user);
-  await user.type(within(picker).getByLabelText("Property key"), key);
-  await user.click(within(picker).getByRole("option", { name: `Create property “${key}”` }));
+  await user.type(within(picker).getByLabelText("Property key"), name);
+  await user.click(within(picker).getByRole("option", { name: `Create property “${name}”` }));
   await user.click(within(picker).getByRole("option", { name: type }));
   if (type === "checkbox") {
     await user.click(within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }));
   } else {
-    const input = within(picker).getByLabelText(`${key} value`);
+    const input = within(picker).getByLabelText(`${name} value`);
     await user.clear(input);
     await user.type(input, value);
     await user.click(within(picker).getByTestId("property-set"));
@@ -60,7 +64,8 @@ describe("property picker", () => {
 
     await user.click(await screen.findByTestId("prop-user.text"));
     let picker = await screen.findByTestId("property-picker");
-    const text = within(picker).getByLabelText("user.text value");
+    // Every surface speaks the display name: `user.text` reads as "text".
+    const text = within(picker).getByLabelText("text value");
     await user.clear(text);
     await user.type(text, "updated{enter}");
     await waitFor(() => expect(screen.getByTestId("prop-user.text")).toHaveTextContent("updated"));
@@ -72,7 +77,7 @@ describe("property picker", () => {
 
     await user.click(screen.getByTestId("prop-user.count"));
     picker = await screen.findByTestId("property-picker");
-    const count = within(picker).getByLabelText("user.count value");
+    const count = within(picker).getByLabelText("count value");
     await user.clear(count);
     await user.type(count, "7");
     await user.click(within(picker).getByTestId("property-set"));
@@ -83,14 +88,15 @@ describe("property picker", () => {
       .toHaveValue("2026-08-03");
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: /user\.link/ }));
+    await user.click(within(picker).getByRole("option", { name: /link/ }));
     expect(within(picker).getByText("Home")).toBeInTheDocument();
   });
 
   it("creates and removes a custom property through the picker", async () => {
     await mountPage();
     const user = userEvent.setup();
-    await createCustomProperty(user, "user.metric", "number", "42");
+    // A bare name is enough; storage adds the user. prefix on its own.
+    await createCustomProperty(user, "metric", "number", "42");
     const row = await screen.findByTestId("prop-user.metric");
     expect(row).toHaveTextContent("42");
 
@@ -121,11 +127,13 @@ describe("property picker", () => {
     await waitFor(() => expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"));
   });
 
-  it("surfaces validation errors for property keys outside the owned namespaces", async () => {
+  it("surfaces validation errors for property keys that cannot exist", async () => {
     await mountPage();
     const user = userEvent.setup();
     const picker = await openPagePicker(user);
-    await user.type(within(picker).getByLabelText("Property key"), "rating");
+    // A dotted key is taken literally, so a malformed one is a dead end and
+    // says so; a bare name would instead have become user.<name>.
+    await user.type(within(picker).getByLabelText("Property key"), "user.Bad!");
     expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
       "must use builtin.* or user.*",
     );
@@ -165,7 +173,7 @@ describe("property picker", () => {
     await user.keyboard("{Enter}");
     const picker = await screen.findByTestId("property-picker");
     expect(textarea).toHaveValue("");
-    await user.click(within(picker).getByRole("option", { name: /builtin\.task-status/ }));
+    await user.click(within(picker).getByRole("option", { name: "Status" }));
     await user.click(within(picker).getByRole("option", { name: "Doing" }));
     await waitFor(() =>
       expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing"),
@@ -188,8 +196,9 @@ describe("property picker", () => {
     const menu = await screen.findByTestId("slash-menu");
     expect(within(menu).getByRole("option", { name: /Done/ })).toBeVisible();
     await user.keyboard("{Enter}");
-    // The token never reaches the Markdown, and no picker opens for a direct item.
-    await waitFor(() => expect(textarea).toHaveValue("ship it "));
+    // The token never reaches the Markdown — nor does the gap it sat behind —
+    // and no picker opens for a direct item.
+    await waitFor(() => expect(textarea).toHaveValue("ship it"));
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done"),
@@ -220,6 +229,26 @@ describe("property picker", () => {
     // Escape closes the menu without touching the draft.
     await user.keyboard("{Escape}");
     expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument();
+    expect(textarea).toHaveValue("/");
+  });
+
+  it("closes the slash menu on a press anywhere past it", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "",
+    });
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/");
+    expect(await screen.findByTestId("slash-menu")).toBeVisible();
+
+    fireEvent.pointerDown(document.body, { button: 0 });
+    await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
     expect(textarea).toHaveValue("/");
   });
 

@@ -147,6 +147,36 @@ describe("block selection", () => {
     });
   });
 
+  it("select-all past the text selects the block itself", async () => {
+    const user = userEvent.setup();
+    await mountRows(["words", ""]);
+
+    // In an empty block the first ⌘A already means the block.
+    const empty = screen.getAllByLabelText("Block text")[1];
+    await user.click(empty);
+    await user.keyboard("{Meta>}a{/Meta}");
+    expect(selectedTexts()).toEqual([""]);
+
+    // With text, ⌘A widens: first the whole text (native), then the block.
+    const full = screen.getAllByLabelText("Block text")[0] as HTMLTextAreaElement;
+    await user.click(full);
+    full.setSelectionRange(0, full.value.length);
+    fireEvent.keyDown(full, { key: "a", metaKey: true });
+    expect(selectedTexts()).toEqual(["words"]);
+  });
+
+  it("drops the selection when quiet row space is clicked without dragging", async () => {
+    await mountRows(["one", "two"]);
+    pressBullet(0);
+    pressBullet(1, { shiftKey: true });
+    expect(selectedTexts()).toHaveLength(2);
+
+    const row = screen.getAllByRole("treeitem")[0];
+    fireEvent.pointerDown(row, { button: 0, clientX: 200, clientY: 10 });
+    fireEvent.pointerUp(window, { button: 0, clientX: 200, clientY: 10 });
+    expect(selectedTexts()).toEqual([]);
+  });
+
   it("clears on Escape and deletes on Backspace", async () => {
     const { session } = await mountRows(["one", "two"]);
     pressBullet(0);

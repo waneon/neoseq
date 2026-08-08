@@ -191,6 +191,8 @@
   "properties.addProperty": "속성 추가",
   "properties.back": "속성 목록으로",
   "properties.block": "블록",
+  "properties.builtin.queryLanguage": "쿼리 언어",
+  "properties.builtin.querySource": "쿼리",
   "properties.choose": "선택…",
   "properties.checked": "체크됨",
   "properties.clear": "속성 지우기",

@@ -18,10 +18,12 @@ async function addCustom(
   type: "string" | "number" | "checkbox" | "date" | "page",
   value: string,
 ): Promise<void> {
+  // A user property is typed and read by its bare name; user. is storage routing.
+  const name = key.replace(/^user\./u, "");
   await openPageProperties(page);
   const picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Property key").fill(key);
-  await picker.getByRole("option", { name: `Create property “${key}”` }).click();
+  await picker.getByLabel("Property key").fill(name);
+  await picker.getByRole("option", { name: `Create property “${name}”` }).click();
   await picker.getByRole("option", { name: type, exact: true }).click();
   if (type === "checkbox") {
     await picker.getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked", exact: true }).click();
@@ -32,7 +34,7 @@ async function addCustom(
     // The platform's own date input commits the moment it holds a full date.
     await picker.getByLabel("Pick a date").fill(value);
   } else {
-    await picker.getByLabel(`${key} value`).fill(value);
+    await picker.getByLabel(`${name} value`).fill(value);
     await picker.getByTestId("property-set").click();
   }
   await expect(picker).toHaveCount(0);
@@ -51,7 +53,7 @@ test("edits every value type plus unknown keys in the contextual picker", async 
 
   await page.getByTestId("prop-user.text").click();
   let picker = page.getByTestId("property-picker");
-  await picker.getByLabel("user.text value").fill("updated");
+  await picker.getByLabel("text value").fill("updated");
   await picker.getByTestId("property-set").click();
   await awaitSaved(page);
   await page.reload();
@@ -62,23 +64,23 @@ test("edits every value type plus unknown keys in the contextual picker", async 
   // The compact strip deliberately exposes only four entries and storage does
   // not promise insertion order. Verify persisted values through the canonical
   // picker, which lists every existing property first.
-  await picker.getByRole("option", { name: /user\.count/ }).click();
+  await picker.getByRole("option", { name: /count/ }).click();
   await expect(picker).toContainText("42");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /user\.done/ }).click();
+  await picker.getByRole("option", { name: /done/ }).click();
   await expect(picker).toContainText("Checked");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /user\.when/ }).click();
+  await picker.getByRole("option", { name: /when/ }).click();
   await expect(picker).toContainText("2026-08-03");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /user\.ref/ }).click();
+  await picker.getByRole("option", { name: /ref/ }).click();
   await expect(picker).toContainText("Everything");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /user\.count/ }).click();
+  await picker.getByRole("option", { name: /count/ }).click();
   await picker.getByRole("button", { name: "Clear property" }).click();
   await openPageProperties(page);
   await page.getByTestId("property-picker").getByLabel("Property key").fill("user.count");
-  await expect(page.getByRole("option", { name: "Create property “user.count”" })).toBeVisible();
+  await expect(page.getByRole("option", { name: "Create property “count”" })).toBeVisible();
 });
 
 test("rejects property keys outside the owned namespaces with a visible validation error", async ({ page }) => {
@@ -86,7 +88,8 @@ test("rejects property keys outside the owned namespaces with a visible validati
   await createPage(page, "Rules");
   await openPageProperties(page);
   const picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Property key").fill("tag");
+  // A bare name would become user.tag; only a malformed dotted key is a dead end.
+  await picker.getByLabel("Property key").fill("user.Bad!");
   await expect(picker.getByTestId("props-error")).toContainText(
     "must use builtin.* or user.*",
   );
@@ -102,7 +105,7 @@ test("slash, block properties, and tags share the same focused target", async ({
   await page.keyboard.press("Enter");
 
   let picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "builtin.task-status", exact: true }).click();
+  await picker.getByRole("option", { name: "Status", exact: true }).click();
   await picker.getByRole("option", { name: "Doing", exact: true }).click();
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
   await expect(page.getByLabel("Block text")).toHaveValue("");

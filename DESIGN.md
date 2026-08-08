@@ -153,8 +153,8 @@ components:
   overlay:     { background: "{overlay}", radius: "{r-3}", elevation: "{e2}", layer: "{layers.menu}" }
   dialog:      { background: "{overlay}", radius: "{r-4}", elevation: "{e3}", layer: "{layers.dialog}" }
   palette:     { width: 640px, top: 12vh, radius: "{r-4}", elevation: "{e3}", layer: "{layers.palette}" }
-  menu-item:   { height: 30px, radius: "{r-2}", typography: "{sm}", highlight: "{surface-2}", shortcut: "{kbd} plain" }
-  chip:        { height: 20px, padding: "0 6px", radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs}", border: none }
+  menu-item:   { height: 30px, radius: "{r-2}", typography: "{sm}", highlight: "{surface-2} + 2px {accent} rule at the left edge", shortcut: "{kbd} plain" }
+  chip:        { height: 22px, padding: "0 {sp-2}", radius: "{r-2}", background: transparent, ring: "{e1} — {line-strong} + {surface-2} fill on hover", text: "{ink-2}", typography: "{xs}", role: "control — opens the picker on its key" }
   # Sans, not mono, and one element per key: a mono face draws ⌘ ⇧ ⌥ at a different
   # cap height than a letter, and with no separator `⌘K` reads as one glyph.
   kbd:         { min-width: 20px, height: 18px, radius: "{r-1}", background: "{surface-2}", text: "{ink-2}", typography: "{xs} sans", gap: 3px, part-min-width: 1ch, plain: "no fill — menus and tables", border: none }
@@ -470,7 +470,7 @@ Depth is **lightness**, not shadow and not outline.
 | Level | Treatment | Use |
 |---|---|---|
 | 0 — Flat | A 3–5% lightness step from the surface beneath | Rail vs canvas, panel vs canvas, chip vs panel |
-| 1 — Ringed | `--e1` (inset 1px `--line`) | Inputs, the resting edge of a form control |
+| 1 — Ringed | `--e1` (inset 1px `--line`) | Inputs, chips, the resting edge of a form control |
 | 2 — Floating | `--e2` | Menus, popovers, the page-info popover |
 | 3 — Modal | `--e3` | Dialogs, the command palette |
 
@@ -488,8 +488,10 @@ A 1px line may exist in exactly three places, and each is the thread language:
 3. `--line-strong` as an inset ring on an overlay floating over content, where a
    shadow alone cannot resolve the edge.
 
-Every other border in the product is deleted: no bordered cards, no bordered chips, no
-bordered status pills, and — emphatically — no dashed empty states.
+Every other border in the product is deleted: no bordered cards, no bordered status
+pills, and — emphatically — no dashed empty states. A chip is not a card: it is a
+control (it opens the picker on its key), so it wears the control's `--e1` resting
+ring, not a drawn box.
 
 ---
 
@@ -657,7 +659,15 @@ state is unfinished.
 Hover and keyboard focus share one highlight in menus, option lists and the palette, so
 "where am I" never has two answers. v1 had six hard-coded hover greys
 (`rgba(0,0,0,0.05)`, `0.06`, `0.08`) and an active nav row 1% away from its own hover
-state; there is now one token.
+state; there is now one token, and the highlight is one shape everywhere: the
+`--surface-2` wash plus a 2px `--accent` rule at the row's left edge. Every option list
+is also keyboard-reachable — `↑`/`↓` move the single highlight, `Enter` chooses,
+`Escape` leaves — whether the list stands behind an input (the palette, the property
+search, the date editor) or is the surface itself (the type chooser, an enum's values).
+The chosen value in a list is never marked by a second wash; it says so with its check
+mark. Finally, everything pressable invites the press: `cursor: pointer` is declared
+once, globally, for buttons and option rows — never per control, which is how
+individual buttons kept shipping without it.
 
 ---
 

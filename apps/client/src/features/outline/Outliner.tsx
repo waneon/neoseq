@@ -58,12 +58,11 @@ import type { PageSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
+import { BlockChips } from "../properties/BlockChips";
 import { PropertyPicker } from "../properties/PropertyPicker";
-import { PropertyRows } from "../properties/PropertyRows";
 import { TagPicker } from "../properties/TagPicker";
 import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
-import { TaskProjection } from "../tasks/TaskProjection";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_STATUS_KEY } from "../../entities/tasks";
 import { codePointIndex, diffSplice } from "./text-diff";
@@ -181,6 +180,8 @@ interface EditorContext {
   selectionCount: number;
   setFocus(id: string | null, caret?: number): void;
   takeTreeFocus(): void;
+  /** Drops the caret and selects exactly this block (⌘A past the text). */
+  selectOnly(row: OutlineRow): void;
   openMenu(id: string | null): void;
   openProperties(id: string, key?: string, anchor?: HTMLElement | null): void;
   openTags(id: string, anchor?: HTMLElement | null): void;
@@ -350,6 +351,29 @@ export function Outliner({
     },
     [],
   );
+
+  // The slash menu floats over the outline but never takes focus, so it needs
+  // its own way out: a press anywhere past it, or Escape from wherever the
+  // keyboard happens to be, closes it and only it.
+  useEffect(() => {
+    if (!slashRequest) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      const node = event.target;
+      if (node instanceof Element && node.closest(".slash-menu")) return;
+      setSlashRequest(null);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      setSlashRequest(null);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePress, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [slashRequest]);
 
   const flush = useCallback(
     (id: string) => {
@@ -534,6 +558,14 @@ export function Outliner({
             drafts.current.delete(head.tempId);
             baselines.current.delete(head.tempId);
             if (wasFocused) setFocus(realId, caret);
+            // A slash menu opened on the pending row must follow the block to
+            // its real identity, or Enter stops meaning "take the highlighted
+            // command" the moment the acknowledgement lands.
+            setSlashRequest((current) =>
+              current && current.blockId === head.tempId
+                ? { ...current, blockId: realId }
+                : current,
+            );
             force();
           });
           if (pendingProperty.current?.blockId === head.tempId) {
@@ -729,6 +761,15 @@ export function Outliner({
       start: number,
       point: { clientX: number; clientY: number; shiftKey: boolean; preventDefault(): void },
       immediate: boolean,
+      options?: {
+        /**
+         * Activate only once the pointer reaches a *different* row. This is how
+         * a drag that starts inside the focused textarea stays a text selection
+         * until it visibly leaves the block — at which point it becomes what
+         * crossing a block boundary has to mean: a block selection.
+         */
+        requireRowChange?: boolean;
+      },
     ) => {
       if (start < 0) return;
       const extend = point.shiftKey ? anchorRowIndex(rowsRef.current) : -1;
@@ -739,6 +780,9 @@ export function Outliner({
       anchorId.current = rowsRef.current[anchor]?.block.id ?? null;
 
       const activate = () => {
+        // A native text selection may already be underway (the drag began in a
+        // focused textarea); it must not survive next to a block selection.
+        window.getSelection()?.removeAllRanges();
         takeTreeFocus();
         setMarqueeing(true);
         setSelected(selectableIds(rowsRef.current, anchor, start));
@@ -751,7 +795,12 @@ export function Outliner({
       listen(
         (move) => {
           if (!active) {
-            if (Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX) {
+            if (options?.requireRowChange) {
+              const under = rowIndexAtPoint(viewportRef.current, move.clientY, rowsRef.current);
+              if (under === null || under === start) return;
+            } else if (
+              Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX
+            ) {
               return;
             }
             active = true;
@@ -765,13 +814,18 @@ export function Outliner({
           setSelected((current) => (sameIds(current, next) ? current : next));
         },
         () => {
-          if (!active) return;
+          if (!active) {
+            // The press never became a drag: a plain click on quiet space, which
+            // is first of all the way *out* of an existing selection.
+            if (!point.shiftKey && selectedRef.current.size > 0) clearSelection();
+            return;
+          }
           setMarqueeing(false);
           takeTreeFocus();
         },
       );
     },
-    [anchorRowIndex, listen, takeTreeFocus, updateAutoScroll],
+    [anchorRowIndex, clearSelection, listen, takeTreeFocus, updateAutoScroll],
   );
 
   const onGripPointerDown = useCallback(
@@ -787,11 +841,19 @@ export function Outliner({
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest("button, a, select, input, [contenteditable='true'], .outline-tags, .task-projection, .query-block")) {
+      if (target.closest("button, a, select, input, [contenteditable='true'], .outline-tags, .block-chips, .query-block")) {
         return;
       }
       if (target instanceof HTMLTextAreaElement) {
-        if (!target.classList.contains("outline-input") || document.activeElement === target) return;
+        if (!target.classList.contains("outline-input")) return;
+        if (document.activeElement === target) {
+          // A drag inside the block being written is a text selection until it
+          // crosses into another row; then it is a block selection starting here.
+          beginRangeSelection(rowIndexOf(rowsRef.current, row.block.id), event, false, {
+            requireRowChange: true,
+          });
+          return;
+        }
       }
       beginRangeSelection(rowIndexOf(rowsRef.current, row.block.id), event, false);
     },
@@ -1028,6 +1090,12 @@ export function Outliner({
     selectionCount,
     setFocus,
     takeTreeFocus,
+    selectOnly: (row) => {
+      if (isPendingId(row.block.id)) return;
+      anchorId.current = row.block.id;
+      takeTreeFocus();
+      setSelected(new Set([row.block.id]));
+    },
     openMenu: setMenuFor,
     openProperties: (id, key, anchor = null) => {
       setTagRequest(null);
@@ -1053,12 +1121,22 @@ export function Outliner({
       const chosen = item ?? slashResults[slashIndex];
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       const value = drafts.current.get(row.block.id) ?? row.block.markdown;
-      const next = `${value.slice(0, request.start)}${value.slice(request.end)}`;
+      let head = value.slice(0, request.start);
+      let tail = value.slice(request.end);
+      // The token rarely leaves cleanly: accepting "text /due" would keep the
+      // separator space as a permanent trailing gap under the caret. When
+      // nothing meaningful follows the token, the leftover whitespace goes too.
+      if (tail.trim().length === 0) {
+        head = head.replace(/\s+$/u, "");
+        tail = "";
+      }
+      const next = head + tail;
+      const caret = head.length;
       if (!baselines.current.has(row.block.id)) {
         baselines.current.set(row.block.id, row.block.markdown);
       }
       drafts.current.set(row.block.id, next);
-      pendingCaret.current = request.start;
+      pendingCaret.current = caret;
       setSlashRequest(null);
       force();
       if (isPendingId(row.block.id)) {
@@ -1066,7 +1144,7 @@ export function Outliner({
         // the picker or a command.
         pendingProperty.current = {
           blockId: row.block.id,
-          selection: { start: request.start, end: request.start },
+          selection: { start: caret, end: caret },
           action: chosen.action,
         };
         dispatchPending();
@@ -1091,7 +1169,7 @@ export function Outliner({
         blockId: row.block.id,
         key: chosen.action.key,
         anchor: request.anchor,
-        selection: { start: request.start, end: request.start },
+        selection: { start: caret, end: caret },
       });
     },
     toggleCollapse: (id) => {
@@ -1177,6 +1255,7 @@ export function Outliner({
     // share of the same gesture.
     dismissTransient: () => {
       setMenuFor(null);
+      setSlashRequest(null);
       if (selectedRef.current.size > 0) clearSelection();
     },
     pasteOutline,
@@ -1579,7 +1658,9 @@ export function Outliner({
             // that is both "make a block" and "the nearest place with nothing on
             // it", and the second reading has to win: dismissing a menu by
             // clicking past it must not also append a row nobody asked for.
-            if (editor.pressStartedOverOverlay()) {
+            if (editor.pressStartedOverOverlay() || selectionCount > 0) {
+              // With rows selected, the first click on empty space is the way
+              // out of the selection — never also a new block.
               editor.dismissTransient();
               return;
             }
@@ -1655,7 +1736,18 @@ function SlashMenu({
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const rect = request.anchor.getBoundingClientRect();
+  // The anchor textarea can be remounted under the menu (a pending row adopting
+  // its real block id swaps textareas); a detached node measures as 0×0 at the
+  // origin, which put the menu in the top-left corner. The caret's current
+  // textarea is the truth the anchor was standing in for.
+  const focusedInput = document.activeElement;
+  const anchor = request.anchor.isConnected
+    ? request.anchor
+    : focusedInput instanceof HTMLTextAreaElement &&
+        focusedInput.classList.contains("outline-input")
+      ? focusedInput
+      : request.anchor;
+  const rect = anchor.getBoundingClientRect();
   const width = Math.min(320, Math.max(260, window.innerWidth - 24));
   const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
   const maxHeight = 320;
@@ -1940,6 +2032,24 @@ function onKeyDown(
     return;
   }
 
+  // ⌘A/^A widens with each press: first the text, then the block. In an empty
+  // block there is no text to take, so the first press already selects the block.
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === "a"
+  ) {
+    const value = editor.draftOf(row);
+    const wholeTextSelected =
+      textarea.selectionStart === 0 && textarea.selectionEnd === value.length;
+    if (value.length === 0 || wholeTextSelected) {
+      event.preventDefault();
+      editor.selectOnly(row);
+    }
+    return;
+  }
+
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     if (editor.readonly) return;
@@ -2040,6 +2150,14 @@ function onKeyDown(
 function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextAreaElement) {
   const id = row.block.id;
   const draft = editor.draftOf(row);
+  if (draft.length === 0) {
+    // An empty block has nothing to split. Enter here means "next line": the
+    // new block goes below and takes the caret, exactly as it would have had
+    // there been text. (A split at index 0 would instead insert *above* and
+    // strand the caret on the wrong row.)
+    editor.enqueuePendingInsert(row, "", row.hasChildren && !row.collapsed, "keyboard");
+    return;
+  }
   const caretUtf16 = textarea.selectionStart;
   const caretPoint = codePointIndex(draft, caretUtf16);
   const head = draft.slice(0, caretUtf16);
@@ -2399,13 +2517,7 @@ function BlockRow({
           </div>
         )}
         {!pending && (
-          <PropertyRows
-            bag={row.block.properties}
-            onEdit={(key, anchor) => editor.openProperties(row.block.id, key, anchor)}
-          />
-        )}
-        {!pending && (
-          <TaskProjection
+          <BlockChips
             block={row.block}
             onEdit={(key, anchor) => editor.openProperties(row.block.id, key, anchor)}
           />

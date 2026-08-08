@@ -130,8 +130,12 @@ Value controls are selected from the property type and definition:
 - pages reuse `PageAutocomplete`; and
 - repeated values show individually removable members plus whole-key clear.
 
-Candidate and type rows lead with a per-value-type glyph. Key identity stays in
-the mono voice.
+Candidate and type rows lead with a glyph — the feature's own mark for a
+builtin key, the value-type glyph otherwise. Keys present through
+`property-display.tsx`: a builtin key shows its localized product name, a user
+key shows its bare name in the mono voice, and a bare query creates
+`user.<name>` so the storage prefix is never typed or read. Every surface that
+prints a key (picker, block chips, page strip) goes through the same module.
 
 The picker is portaled to `document.body` and positioned in viewport space from
 the invoking element. This avoids clipping by the scroll container and the
@@ -140,29 +144,30 @@ closes it. Closing restores focus to the invoking element when it still exists.
 
 ### Property and Tag Presentation
 
-`PropertyRows` is the stateless block projection. Pages retain their compact
-four-item `key: value` strip. Both use the client presentation registry to show
-generic and feature-enhanced properties, format page references against the
-current snapshot, and invoke the picker for direct editing. Read-only metadata
-and hidden lifecycle fields never enter the generic route. Keys use the
-identifier voice; values truncate without changing stored data. An empty bag
-renders no rows or strip.
+`BlockChips` is the stateless block projection: one wrapping strip of chips
+under the line carrying the task facts (priority, scheduled, deadline —
+deriving the overdue state from the journal's own today) followed by every
+generic property in the same chip language. Pages retain their compact
+four-item strip. Both use the client presentation registry to show generic and
+feature-enhanced properties, format page references against the current
+snapshot, and invoke the picker for direct editing via `openProperties` with
+the chip's key and anchor. Read-only metadata and hidden lifecycle fields never
+enter the generic route. Values truncate without changing stored data. An
+empty bag renders no strip.
 
-Task keys are **positioned renderers on blocks** and are excluded from the
-block's generic rows (`entities/tasks.ts` names the set). `TaskStatusControl`
-renders the status glyph at the head of the line and owns its `menuitemradio`
-menu, including the explicit remove row; `TaskProjection` renders the
-priority / scheduled / deadline chips, derives the overdue state from the
-journal's own today, and calls back into the outliner's `openProperties` with
-its key and anchor. On pages the four keys stay in the generic strip.
+Task status stays a **positioned renderer** at the head of the line
+(`entities/tasks.ts` names the task-key set excluded from the generic chips):
+`TaskStatusControl` renders the status glyph and owns its `menuitemradio` menu,
+including the explicit remove row. On pages the four task keys stay in the
+generic strip.
 
 The legacy `PropertyBagEditor` and block inspector are removed. Tag membership
 now lives in `TagPicker`, which reuses `TagChips` and `PageAutocomplete` while
 continuing to issue `add_tag` and `remove_tag` commands.
 
-The query projection remains a view over well-known properties with generic
-rows as its edit route; the task projection's edit routes are its own
-positioned controls, which open the same picker.
+The query projection remains a view over well-known properties with the
+generic chips as its edit route; the task facts' edit routes are their own
+chips, which open the same picker.
 
 ## Command Mapping
 

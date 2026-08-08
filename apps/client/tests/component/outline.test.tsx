@@ -146,6 +146,21 @@ describe("outliner keyboard commands", () => {
     });
   });
 
+  it("Enter on an empty block inserts below and moves the caret there", async () => {
+    const { session } = await mountOutline(["alpha", "", "omega"]);
+    const user = userEvent.setup();
+    const empty = screen.getAllByLabelText("Block text")[1];
+    await user.click(empty);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(4));
+    // The new block sits under the one Enter was pressed in, never above it.
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((p) => p.id === "home");
+      expect(page?.blocks.map((b) => b.markdown)).toEqual(["alpha", "", "", "omega"]);
+    });
+    expect(document.activeElement).toBe(screen.getAllByLabelText("Block text")[2]);
+  });
+
   it("splits the block when Enter is pressed mid-text", async () => {
     const { session } = await mountOutline(["headtail"]);
     const user = userEvent.setup();

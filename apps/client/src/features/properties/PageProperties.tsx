@@ -5,6 +5,7 @@ import { isGenericProperty } from "../../entities/properties";
 import { useI18n } from "../../i18n";
 import { useCommands } from "../commands/context";
 import { useSessionState } from "../shell/session-context";
+import { propertyDisplayName, propertyGlyph } from "./property-display";
 import { PropertyPicker } from "./PropertyPicker";
 
 const STRIP_LIMIT = 4;
@@ -69,9 +70,11 @@ export function PageProperties({
                 key={`${entry.key}:${index}`}
                 className="prop-strip-chip"
                 data-testid={`prop-${entry.key}`}
+                title={`${entry.key}: ${describe(entry.value, state, message)}`}
                 onClick={(event) => show(entry.key, event.currentTarget)}
               >
-                <span className="key">{entry.key}</span>
+                {propertyGlyph(entry.key, entry.value.type)}
+                <span className="key">{propertyDisplayName(entry.key, message)}</span>
                 <span className="value">{describe(entry.value, state, message)}</span>
               </button>
             ))}

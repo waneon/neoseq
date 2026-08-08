@@ -256,6 +256,27 @@ a:hover {
   background: var(--accent-soft);
 }
 
+/* Everything pressable invites the press. Tailwind's preflight leaves buttons
+   at the platform `default` cursor, which is how individual controls kept
+   shipping without a pointer; declared once here, low-specificity so a control
+   with a *reason* to differ (a drag handle, a text surface) can still say so. */
+:where(
+  button,
+  [role="button"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemradio"],
+  [role="menuitemcheckbox"],
+  [role="tab"],
+  select,
+  summary,
+  label[for],
+  input[type="checkbox"],
+  input[type="radio"]
+):not(:disabled, [aria-disabled="true"], [data-disabled]) {
+  cursor: pointer;
+}
+
 /* Focus appearance belongs to each Neoseq component. Suppress the browser's
    native offset outline globally so controls use their own luminance, caret,
    glyph, thread, or selection treatment instead of acquiring a foreign frame. */
@@ -597,11 +618,13 @@ h2 {
   line-height: var(--lh-xs);
 }
 
+/* The dialog grid already spaces its children (`gap-4`); the action row needs
+   only a hair more separation, not a second full blank band. */
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2);
-  margin-top: var(--sp-5);
+  margin-top: var(--sp-1);
 }
 
 /* ── The one dropdown ──
@@ -684,6 +707,33 @@ h2 {
   max-height: min(320px, 60vh);
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* Radix menu rows speak the same highlight language as every option list: their
+   own focus classes paint the `--surface-2` wash; the 2px accent rule at the
+   left edge is added here so a block menu, a select's menu, the palette and the
+   slash menu all mark "where am I" identically. */
+[data-slot="dropdown-menu-item"],
+[data-slot="dropdown-menu-radio-item"] {
+  position: relative;
+}
+
+[data-slot="dropdown-menu-item"][data-highlighted]::before,
+[data-slot="dropdown-menu-radio-item"][data-highlighted]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+/* A destructive verb's rule matches its ink, so the edge never promises the
+   accent while the row promises deletion. */
+[data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted]::before {
+  background: var(--danger);
 }
 
 /* A field that accepts anything and also offers a list — the property key. The
@@ -1160,6 +1210,10 @@ h2 {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The gutter is reserved on both edges whether or not a scrollbar is drawn,
+     so the centred page cannot lurch sideways the moment the outline grows
+     past one viewport. */
+  scrollbar-gutter: stable both-edges;
 }
 
 .page-body {
@@ -1671,32 +1725,43 @@ h2 {
   text-decoration: line-through;
 }
 
-.task-chips {
+/* One wrapping strip for every fact under the line — task chips and user
+   properties speak the same language, so metadata never has two dialects. */
+.block-chips {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-1);
   margin: var(--sp-0) var(--sp-1) var(--sp-1);
 }
 
+/* A chip is a control (it opens the picker on its key), so it takes the
+   control treatment: the `--e1` resting ring on a quiet ground, filling with
+   the hover wash when the pointer arrives. See DESIGN.md § Components / chip. */
 .task-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  height: 20px;
-  padding: 0 6px;
+  height: 22px;
+  max-width: 100%;
+  padding: 0 var(--sp-2);
   border: 0;
-  border-radius: var(--r-1);
-  background: var(--surface-2);
+  border-radius: var(--r-2);
+  background: transparent;
+  box-shadow: var(--e1);
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
   font-weight: var(--weight-medium);
   cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
 }
 
 .task-chip:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
   color: var(--ink);
 }
 
@@ -1708,9 +1773,18 @@ h2 {
 
 .task-chip-name {
   font-weight: var(--weight-medium);
+  white-space: nowrap;
 }
 
 .task-chip-value {
+  overflow: hidden;
+  font-weight: var(--weight-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-chip .flag {
+  color: var(--ink-2);
   font-weight: var(--weight-normal);
 }
 
@@ -1945,55 +2019,6 @@ h2 {
   min-height: 0;
 }
 
-.inline-properties {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-0);
-  padding: 0 var(--sp-1) var(--sp-1);
-}
-
-.page-inline-properties > .inline-properties {
-  padding-inline: 0;
-}
-
-.inline-property-row {
-  display: grid;
-  grid-template-columns: minmax(112px, 180px) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--sp-2);
-  width: 100%;
-  min-height: var(--slot);
-  padding: 0 var(--sp-1);
-  border: 0;
-  border-radius: var(--r-1);
-  background: transparent;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  text-align: left;
-  cursor: pointer;
-}
-
-.inline-property-row:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.inline-property-key {
-  overflow: hidden;
-  color: var(--ink-2);
-  font-family: var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.inline-property-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .property-picker,
 .tag-picker,
 .slash-menu {
@@ -2054,6 +2079,7 @@ h2 {
 }
 
 .property-picker-option {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: var(--sp-6);
@@ -2072,10 +2098,26 @@ h2 {
   cursor: pointer;
 }
 
-.property-picker-option:hover,
+/* One highlight for every option list in the product — the palette's row
+   language: a `--surface-2` wash and a 2px accent rule at the left edge.
+   Pointer hover, a keyboard's active index, and roving focus all land on this
+   same state, so "where am I" never has two answers. The *chosen* value is not
+   a position: it says so with its check mark, never a second wash. */
 .property-picker-option[data-active="true"],
-.property-picker-option[aria-selected="true"] {
-  background: var(--accent-soft);
+.property-picker-option:focus {
+  background: var(--surface-2);
+}
+
+.property-picker-option[data-active="true"]::before,
+.property-picker-option:focus::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: var(--r-full);
+  background: var(--accent);
 }
 
 .property-picker-option svg {
@@ -2305,43 +2347,52 @@ h2 {
   margin-top: var(--sp-2);
 }
 
+/* The page strip speaks the block chip's exact language: same ring, same
+   hover wash, same name/value voices. */
 .prop-strip-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  height: var(--slot);
+  height: 22px;
   max-width: 260px;
-  padding: 0 6px;
+  padding: 0 var(--sp-2);
   border: none;
-  border-radius: var(--r-1);
-  background: var(--surface-2);
+  border-radius: var(--r-2);
+  background: transparent;
+  box-shadow: var(--e1);
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
   font-weight: var(--weight-medium);
   cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
 }
 
 .prop-strip-chip:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
   color: var(--ink);
 }
 
-/* --ink-3 fails AA on --surface-2 (DESIGN.md § Contrast, the one hard rule), and a
-   chip is surface-2. The mono voice is what separates the key from its value here,
-   not a step down in ink. */
-.prop-strip-chip .key {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
+.prop-strip-chip svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
-.prop-strip-chip:hover .key {
-  color: var(--ink-2);
+/* --ink-3 fails AA on --surface-2 (DESIGN.md § Contrast, the one hard rule), and a
+   chip fills with surface-2 on hover. The name keeps the chip's medium voice; the
+   value answers in the normal weight, exactly as under a block. */
+.prop-strip-chip .key {
+  white-space: nowrap;
 }
 
 .prop-strip-chip .value {
   overflow: hidden;
+  font-weight: var(--weight-normal);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2763,6 +2814,15 @@ h2 {
 
 .settings-tab:hover {
   background: var(--surface-2);
+}
+
+/* The tab list is navigated with the keyboard across a quiet pane where no
+   caret or wash marks the roving position, so keyboard focus keeps a drawn
+   indicator here: a neutral hairline, not the accent (moving between tabs is
+   wayfinding, not a pending action). */
+.settings-tab:focus-visible {
+  outline: 1px solid var(--ink-3);
+  outline-offset: -1px;
 }
 
 .settings-tab[aria-current="true"] {

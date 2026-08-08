@@ -9,17 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-  ArrowLeftIcon,
-  CalendarIcon,
-  CheckIcon,
-  FileTextIcon,
-  HashIcon,
-  PlusIcon,
-  SquareCheckIcon,
-  Trash2Icon,
-  TypeIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
 import type { Command, EntityRef } from "../../core-port/commands";
 import type { PropertyEntry, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
@@ -41,6 +31,7 @@ import { addDays, todayLocalDate } from "../../entities/journal";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
+import { moveOptionFocus } from "@/ui/listbox";
 import { useI18n } from "../../i18n";
 import { parseDateQuery } from "../commands/dates";
 import { useNotify } from "../notify/context";
@@ -48,25 +39,13 @@ import { useSession, useSessionState } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 import { PageAutocomplete } from "./PageAutocomplete";
+import {
+  propertyDisplayName,
+  propertyGlyph,
+  storageKeyForQuery,
+  TypeGlyph,
+} from "./property-display";
 import { validationMessage } from "./property-validation";
-
-/** One glyph per value type, so a key reads as its kind before its name. */
-function TypeGlyph({ type }: { type: PropertyValueType | undefined }) {
-  switch (type) {
-    case "number":
-      return <HashIcon data-type-glyph aria-hidden />;
-    case "checkbox":
-      return <SquareCheckIcon data-type-glyph aria-hidden />;
-    case "date":
-      return <CalendarIcon data-type-glyph aria-hidden />;
-    case "page":
-      return <FileTextIcon data-type-glyph aria-hidden />;
-    case "string":
-      return <TypeIcon data-type-glyph aria-hidden />;
-    default:
-      return <PlusIcon data-type-glyph aria-hidden />;
-  }
-}
 
 export type PropertyTarget =
   | { kind: "page"; id: string; bag: PropertyEntry[] }
@@ -207,19 +186,30 @@ export function PropertyPicker({
     const present = new Set(visibleEntries.map((entry) => entry.key));
     const known = Object.keys(REGISTRY)
       .filter((key) => isGenericProperty(key) && canUserWrite(key, target.kind));
+    // A query reaches a key through its storage name OR the name it goes by on
+    // screen, so "예정" finds builtin.task-scheduled and "effort" finds
+    // user.effort alike.
     const keys = [...new Set([...visibleEntries.map((entry) => entry.key), ...known])]
-      .filter((item) => !normalized || item.toLocaleLowerCase().includes(normalized))
+      .filter((item) =>
+        !normalized ||
+        item.toLocaleLowerCase().includes(normalized) ||
+        propertyDisplayName(item, message).toLocaleLowerCase().includes(normalized))
       .sort((left, right) => {
         const existing = Number(present.has(right)) - Number(present.has(left));
-        return existing || compare(left, right);
+        return existing
+          || compare(propertyDisplayName(left, message), propertyDisplayName(right, message));
       });
     const result = keys.map((item) => ({ key: item, existing: present.has(item), create: false }));
-    const exact = keys.some((item) => item === query.trim());
-    if (normalized && !exact && !validateKey(query.trim()) && !validateWriteTarget(query.trim(), target.kind)) {
-      result.push({ key: query.trim(), existing: false, create: true });
+    // A bare name is a user property waiting to exist: typing `effort` offers
+    // to create `user.effort`. The prefix is storage routing, not something the
+    // user should have to type or read.
+    const storageKey = storageKeyForQuery(query);
+    const exact = keys.some((item) => item === storageKey);
+    if (normalized && !exact && !validateKey(storageKey) && !validateWriteTarget(storageKey, target.kind)) {
+      result.push({ key: storageKey, existing: false, create: true });
     }
     return result.slice(0, 12);
-  }, [compare, query, target.kind, visibleEntries]);
+  }, [compare, message, query, target.kind, visibleEntries]);
 
   useEffect(() => setActive(0), [query, stage]);
 
@@ -325,8 +315,10 @@ export function PropertyPicker({
 
   const selectedEntries = key ? visibleEntries.filter((entry) => entry.key === key) : [];
   const choices = key ? stringChoicesOf(key) : [];
-  const queryIssue = stage === "property" && query.trim()
-    ? validateKey(query.trim())
+  // Report a bad key only when it is a dead end — while matches are still on
+  // screen the query is a search, not a mistake.
+  const queryIssue = stage === "property" && query.trim() && candidates.length === 0
+    ? validateKey(storageKeyForQuery(query))
     : null;
   const describeValue = (value: PropertyValue): string => {
     if (value.type === "checkbox") return value.value
@@ -395,7 +387,13 @@ export function PropertyPicker({
           </Button>
         )}
         <div>
-          <strong>{stage === "property" ? message("properties.addOrChange") : key}</strong>
+          <strong title={key ?? undefined}>
+            {stage === "property"
+              ? message("properties.addOrChange")
+              : key
+                ? propertyDisplayName(key, message)
+                : ""}
+          </strong>
           {stage === "value" && (
             <span>{message(`properties.type.${type}`)}</span>
           )}
@@ -431,18 +429,22 @@ export function PropertyPicker({
                 onPointerMove={() => setActive(index)}
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={() => chooseKey(candidate)}
+                title={candidate.key}
               >
-                <TypeGlyph
-                  type={candidate.create
-                    ? undefined
-                    : valueTypeOf(candidate.key)
-                      ?? target.bag.find((entry) => entry.key === candidate.key)?.value.type}
-                />
+                {candidate.create
+                  ? <TypeGlyph type={undefined} />
+                  : propertyGlyph(
+                      candidate.key,
+                      valueTypeOf(candidate.key)
+                        ?? target.bag.find((entry) => entry.key === candidate.key)?.value.type,
+                    )}
                 <span className="property-picker-candidate">
-                  <span className="mono">
+                  <span className={candidate.key.startsWith("builtin.") ? undefined : "mono"}>
                     {candidate.create
-                      ? message("properties.createProperty", { key: candidate.key })
-                      : candidate.key}
+                      ? message("properties.createProperty", {
+                          key: propertyDisplayName(candidate.key, message),
+                        })
+                      : propertyDisplayName(candidate.key, message)}
                   </span>
                   {candidate.existing && (
                     <small>{describeValue(visibleEntries.find((entry) => entry.key === candidate.key)!.value)}</small>
@@ -461,7 +463,14 @@ export function PropertyPicker({
       )}
 
       {stage === "type" && (
-        <div className="property-picker-list" role="listbox" aria-label={message("properties.newType")}>
+        <div
+          className="property-picker-list"
+          role="listbox"
+          aria-label={message("properties.newType")}
+          onKeyDown={(event) => {
+            if (moveOptionFocus(event.currentTarget, event.key)) event.preventDefault();
+          }}
+        >
           {VALUE_TYPES.map((valueType) => (
             <button
               key={valueType}
@@ -469,6 +478,7 @@ export function PropertyPicker({
               aria-selected={false}
               className="property-picker-option"
               disabled={readonly}
+              onPointerMove={(event) => event.currentTarget.focus({ preventScroll: true })}
               onClick={() => chooseType(valueType)}
             >
               <TypeGlyph type={valueType} />
@@ -491,7 +501,9 @@ export function PropertyPicker({
                     variant="ghost"
                     size="icon"
                     disabled={writeDisabled || committing}
-                    aria-label={message("properties.removeValue", { key })}
+                    aria-label={message("properties.removeValue", {
+                      key: propertyDisplayName(key, message),
+                    })}
                     onClick={() => void remove(entry)}
                   >
                     <Trash2Icon data-icon aria-hidden />
@@ -559,7 +571,12 @@ function ValueInput({
   onCommit: (value: PropertyValue) => void;
 }) {
   const { message } = useI18n();
-  const label = message("properties.value", { key: entryKey });
+  const label = message("properties.value", { key: propertyDisplayName(entryKey, message) });
+  const listNav = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (moveOptionFocus(event.currentTarget, event.key)) event.preventDefault();
+  };
+  const hoverFocus = (event: { currentTarget: HTMLElement }) =>
+    event.currentTarget.focus({ preventScroll: true });
 
   if (type === "page") {
     if (readonly) return <Input aria-label={label} value={String(value.value)} readOnly />;
@@ -590,7 +607,7 @@ function ValueInput({
           ? priorityLabel(option, message)
           : option;
     return (
-      <div className="property-picker-list" role="listbox" aria-label={label}>
+      <div className="property-picker-list" role="listbox" aria-label={label} onKeyDown={listNav}>
         {options.map((option) => (
           <button
             key={option}
@@ -598,6 +615,7 @@ function ValueInput({
             aria-selected={value.type === "string" && value.value === option}
             className="property-picker-option"
             disabled={readonly}
+            onPointerMove={hoverFocus}
             onClick={() => onCommit({ type: "string", value: option })}
           >
             {glyphFor(option)}
@@ -612,7 +630,7 @@ function ValueInput({
   }
   if (type === "checkbox") {
     return (
-      <div className="property-picker-list" role="listbox" aria-label={label}>
+      <div className="property-picker-list" role="listbox" aria-label={label} onKeyDown={listNav}>
         {[true, false].map((checked) => (
           <button
             key={String(checked)}
@@ -620,6 +638,7 @@ function ValueInput({
             aria-selected={value.type === "checkbox" && value.value === checked}
             className="property-picker-option"
             disabled={readonly}
+            onPointerMove={hoverFocus}
             onClick={() => onCommit({ type: "checkbox", value: checked })}
           >
             {checked ? message("properties.checked") : message("properties.unchecked")}
@@ -682,6 +701,8 @@ function DateValueInput({
 }) {
   const { message, locale, formatJournalDate } = useI18n();
   const [text, setText] = useState("");
+  const [active, setActive] = useState(0);
+  const listId = useId();
   const today = todayLocalDate();
   const parsed = text.trim() ? parseDateQuery(text, today, locale) : null;
   const commitDate = (date: string) => onCommit({ type: "date", value: date });
@@ -690,34 +711,57 @@ function DateValueInput({
     { id: "tomorrow", label: message("properties.tomorrow"), date: addDays(today, 1) },
     { id: "next-week", label: message("properties.nextWeek"), date: addDays(today, 7) },
   ];
+  // What the keyboard walks: the parsed day while there is text, else the
+  // quick answers. Same combobox contract as the property search above it.
+  const rows: { id: string; date: string }[] = text.trim().length > 0
+    ? (parsed ? [{ id: "parsed", date: parsed }] : [])
+    : quick.map(({ id, date }) => ({ id, date }));
+  const activeRow = Math.min(active, Math.max(rows.length - 1, 0));
 
   return (
     <div className="property-date-editor">
       <Input
         autoFocus
+        role="combobox"
+        aria-expanded={rows.length > 0}
+        aria-controls={listId}
+        aria-activedescendant={rows[activeRow] ? `${listId}-${rows[activeRow].id}` : undefined}
         aria-label={message("properties.dateText")}
         placeholder={message("properties.datePlaceholder")}
         value={text}
         readOnly={readonly}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value);
+          setActive(0);
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.nativeEvent.isComposing && parsed) {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "ArrowDown") {
             event.preventDefault();
-            commitDate(parsed);
+            setActive((index) => Math.min(index + 1, Math.max(rows.length - 1, 0)));
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActive((index) => Math.max(index - 1, 0));
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            const row = rows[activeRow];
+            if (row) commitDate(row.date);
           }
         }}
       />
-      <div className="property-picker-list" role="listbox" aria-label={label}>
+      <div id={listId} className="property-picker-list" role="listbox" aria-label={label}>
         {text.trim().length > 0
           ? parsed
             ? (
                 <button
+                  id={`${listId}-parsed`}
                   role="option"
                   aria-selected
                   className="property-picker-option"
                   data-active="true"
                   data-testid="date-parsed"
                   disabled={readonly}
+                  onPointerDown={(event) => event.preventDefault()}
                   onClick={() => commitDate(parsed)}
                 >
                   <CalendarIcon data-type-glyph aria-hidden />
@@ -728,13 +772,17 @@ function DateValueInput({
                 </button>
               )
             : <p className="ac-hint">{message("properties.noKeys")}</p>
-          : quick.map((option) => (
+          : quick.map((option, index) => (
               <button
+                id={`${listId}-${option.id}`}
                 key={option.id}
                 role="option"
                 aria-selected={value.type === "date" && value.value === option.date}
+                data-active={index === activeRow}
                 className="property-picker-option"
                 disabled={readonly}
+                onPointerMove={() => setActive(index)}
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => commitDate(option.date)}
               >
                 <CalendarIcon data-type-glyph aria-hidden />

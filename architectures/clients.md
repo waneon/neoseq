@@ -64,9 +64,10 @@ the authoritative core event while preserving the selection. Structural commands
 cross CorePort immediately and may render optimistically only when the inverse
 is known.
 
-Enter is one atomic `split_block` command. A pending row mounts immediately so
-fast typing has a focus target, then swaps to the real block ID during
-reconciliation. Pending rows may chain; queued structural intents replay in
+Enter is one atomic `split_block` command; on an empty block it is instead an
+insert below, so the caret always lands on the new line. A pending row mounts
+immediately so fast typing has a focus target, then swaps to the real block ID
+during reconciliation. Pending rows may chain; queued structural intents replay in
 order after IDs resolve. Rejection applies the known inverse and retains a draft
 until authoritative state agrees.
 

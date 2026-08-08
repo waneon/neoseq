@@ -110,7 +110,7 @@ test("leading Enter keeps block properties with the original identity and undoes
 
   await page.keyboard.press("ControlOrMeta+P");
   const picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "builtin.task-status", exact: true }).click();
+  await picker.getByRole("option", { name: "Status", exact: true }).click();
   await picker.getByRole("option", { name: "Doing", exact: true }).click();
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
 

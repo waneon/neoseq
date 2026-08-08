@@ -8,15 +8,22 @@ import {
   typeInFocusedBlock,
 } from "./helpers";
 
+/** Builtin keys are searched by storage name but read by their product names. */
+const DISPLAY_NAME: Record<string, string> = {
+  "builtin.task-status": "Status",
+  "builtin.query-source": "Query",
+};
+
 async function setKnownProperty(page: Page, key: string, value: string): Promise<void> {
+  const name = DISPLAY_NAME[key] ?? key;
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Property key").fill(key);
-  await picker.getByRole("option", { name: key, exact: true }).click();
+  await picker.getByRole("option", { name, exact: true }).click();
   if (key === "builtin.task-status") {
     // Status choices carry their localized labels and shape glyphs.
     await picker.getByRole("option", { name: value, exact: true }).click();
   } else {
-    await picker.getByLabel(`${key} value`).fill(value);
+    await picker.getByLabel(`${name} value`).fill(value);
     await picker.getByTestId("property-set").click();
   }
   await expect(picker).toHaveCount(0);
