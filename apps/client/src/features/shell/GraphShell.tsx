@@ -99,6 +99,12 @@ import {
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
 import { useI18n, type MessageFunction } from "../../i18n";
+import {
+  HistoryProvider,
+  useHistoryActions,
+  type HistoryActions,
+  type HistoryInvocation,
+} from "../history/context";
 
 declare global {
   interface Window {
@@ -153,14 +159,16 @@ export function GraphShell() {
   if (!session) return <ShellLoading />;
   return (
     <SessionContext.Provider value={session}>
-      <ShellBody
-        key={graphId}
-        session={session}
-        graphId={graphId}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((open) => !open)}
-        onExit={() => navigate("/")}
-      />
+      <HistoryProvider session={session} graphId={graphId}>
+        <ShellBody
+          key={graphId}
+          session={session}
+          graphId={graphId}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          onExit={() => navigate("/")}
+        />
+      </HistoryProvider>
     </SessionContext.Provider>
   );
 }
@@ -185,6 +193,7 @@ function ShellBody({
   const notify = useNotify();
   const { message, locale, formatJournalDate, compare } = useI18n();
   const bindings = useShortcutBindings();
+  const history = useHistoryActions();
   // Renaming happens in the settings dialog, which sits over this rail; both have
   // to say the same thing while they are on screen together.
   const name = useSyncExternalStore(
@@ -307,7 +316,13 @@ function ShellBody({
   // focus, so the global layer stands down instead of racing it.
   const overlayOpen = settingsSection !== null || shortcutsOpen;
   useEffect(() => {
-    const undo = (redo: boolean) => void runHistory(session, notify, message, redo);
+    const undo = (redo: boolean) => void runHistory(
+      history,
+      notify,
+      message,
+      redo,
+      { kind: "global-shortcut" },
+    );
     const handlers: ShortcutHandler[] = [
       { binding: bindings.palette, run: () => setPaletteOpen(true) },
       { binding: bindings.shortcuts, run: () => setShortcutsOpen(true) },
@@ -368,6 +383,7 @@ function ShellBody({
     session,
     settingsSection,
     toggleRail,
+    history,
   ]);
 
   // Read-only is a state a second tab lands in without asking for it, and the
@@ -560,6 +576,7 @@ SELECT ?entity ?content ?page WHERE {
     message,
     formatJournalDate,
     bindings,
+    history,
   });
 
   return (
@@ -916,6 +933,7 @@ interface CommandInputs {
   message: MessageFunction;
   formatJournalDate: (date: string) => string;
   bindings: Record<ShortcutId, Binding>;
+  history: HistoryActions;
 }
 
 /**
@@ -925,13 +943,14 @@ interface CommandInputs {
  * rejected", so neither path is allowed to swallow its error.
  */
 function runHistory(
-  session: GraphSession,
+  history: HistoryActions,
   notify: Notifier,
   message: MessageFunction,
   redo: boolean,
+  invocation: HistoryInvocation,
 ): Promise<void> {
-  return session
-    .execute({ type: redo ? "redo" : "undo" })
+  return history
+    .run(redo ? "redo" : "undo", invocation)
     .then(() => undefined)
     .catch((error: unknown) => {
       notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
@@ -969,6 +988,7 @@ function buildCommands(input: CommandInputs): Command[] {
     message,
     formatJournalDate,
     bindings,
+    history,
   } = input;
   const blocked = readonly ? message("commands.readonlyReason") : null;
   const commands: Command[] = [];
@@ -1131,7 +1151,13 @@ function buildCommands(input: CommandInputs): Command[] {
       icon: <Undo2Icon aria-hidden />,
       disabledReason: blocked,
       pointerRoute: message("commands.paletteRoute"),
-      run: () => void runHistory(session, notify, message, false),
+      run: () => void runHistory(
+        history,
+        notify,
+        message,
+        false,
+        { kind: "palette" },
+      ),
     },
     {
       id: "redo",
@@ -1141,7 +1167,13 @@ function buildCommands(input: CommandInputs): Command[] {
       icon: <Redo2Icon aria-hidden />,
       disabledReason: blocked,
       pointerRoute: message("commands.paletteRoute"),
-      run: () => void runHistory(session, notify, message, true),
+      run: () => void runHistory(
+        history,
+        notify,
+        message,
+        true,
+        { kind: "palette" },
+      ),
     },
   );
 

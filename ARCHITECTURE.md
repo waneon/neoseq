@@ -72,6 +72,7 @@ Detailed contracts:
 - [CRDT data and local persistence](architectures/data.md)
 - [Query and derived index](architectures/query.md)
 - [Client application](architectures/clients.md)
+- [Undo/redo navigation](architectures/history-navigation.md)
 - [Property command picker](architectures/property-command-picker.md)
 - [Internationalization](architectures/i18n.md)
 - [Build and verification](architectures/build.md)

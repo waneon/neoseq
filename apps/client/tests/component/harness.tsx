@@ -12,6 +12,7 @@ import {
 } from "../../src/core-port/testing/fake-core-port";
 import { resetAppSettingsCache } from "../../src/entities/settings";
 import { NotifyProvider } from "../../src/features/notify/context";
+import { HistoryProvider } from "../../src/features/history/context";
 import { LocaleProvider } from "../../src/i18n";
 import { SessionContext } from "../../src/features/shell/session-context";
 import { JournalView } from "../../src/features/journal/JournalView";
@@ -24,6 +25,7 @@ export interface Harness {
   session: GraphSession;
   port: FakeCorePort;
   view: RenderResult;
+  router: ReturnType<typeof createMemoryRouter>;
 }
 
 export async function mountAt(
@@ -47,7 +49,9 @@ export async function mountAt(
         path: "/g/:graphId",
         element: (
           <SessionContext.Provider value={session}>
-            <Outlet />
+            <HistoryProvider session={session} graphId={GRAPH_ID}>
+              <Outlet />
+            </HistoryProvider>
           </SessionContext.Provider>
         ),
         children: [
@@ -72,7 +76,7 @@ export async function mountAt(
     </LocaleProvider>,
   );
   await settle();
-  return { session, port, view };
+  return { session, port, view, router };
 }
 
 /**

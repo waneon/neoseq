@@ -3,10 +3,12 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 import { findPage } from "../../src/core-port/snapshot";
 import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
 import { Outliner } from "../../src/features/outline/Outliner";
 import { SessionContext } from "../../src/features/shell/session-context";
+import { HistoryProvider } from "../../src/features/history/context";
 import { GRAPH_ID, mountAt, openBlockMenu } from "./harness";
 
 async function mountOutline(markdowns: string[] = ["alpha"]) {
@@ -111,9 +113,13 @@ describe("outliner keyboard commands", () => {
     // Model the real handoff race: GraphSession has reconciled the insert,
     // while the parent still holds the page object from the previous render.
     render(
-      <SessionContext.Provider value={session}>
-        <Outliner page={frozenPage} scrollElement={null} />
-      </SessionContext.Provider>,
+      <MemoryRouter>
+        <SessionContext.Provider value={session}>
+          <HistoryProvider session={session} graphId="pending-handoff">
+            <Outliner page={frozenPage} scrollElement={null} />
+          </HistoryProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>,
     );
     const user = userEvent.setup();
     await user.click(screen.getByLabelText("Block text"));

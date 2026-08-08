@@ -63,6 +63,13 @@ export interface CommandResult {
   created_block: string | null;
   created_tag: string | null;
   changed: boolean;
+  history_effect: HistoryEffect | null;
+}
+
+export interface HistoryEffect {
+  scope: "entity" | "page" | "graph";
+  affected_pages: string[];
+  reveal: EntityRef | null;
 }
 
 export function envelope(graphId: string, command: Command): CommandEnvelope {

@@ -161,6 +161,22 @@ pub struct CommandResult {
     pub created_block: Option<BlockId>,
     pub created_tag: Option<TagId>,
     pub changed: bool,
+    pub history_effect: Option<HistoryEffect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryScope {
+    Entity,
+    Page,
+    Graph,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryEffect {
+    pub scope: HistoryScope,
+    pub affected_pages: Vec<PageId>,
+    pub reveal: Option<EntityId>,
 }
 
 impl CommandResult {
@@ -171,6 +187,7 @@ impl CommandResult {
             created_block: None,
             created_tag: None,
             changed: false,
+            history_effect: None,
         }
     }
 }

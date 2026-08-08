@@ -112,6 +112,13 @@ a query parameter, so browser Back closes it without losing editor context.
 Journal navigation resolves the user's configured timezone to a `LocalDate` and
 asks the core to ensure that deterministic journal.
 
+`features/history/` is the single client coordinator for undo/redo. It consumes
+the core's semantic history effect, chooses a regular-page or journal route, and
+hands block reveal to the mounted outliner. The outliner expands ancestors and
+scrolls its virtual list; only an undo/redo invoked from an active block editor
+may transfer editor focus. Graph-scoped effects leave the current route intact.
+The complete policy is in [`history-navigation.md`](history-navigation.md).
+
 `features/notify/` owns one toast queue. Rejected actions without a persistent
 home report there; durability stays in the save slot, field validation stays by
 the field, and query errors stay in the query block. Stable CorePort errors map
@@ -136,6 +143,7 @@ lost local work.
 app/                composition, routing, lifecycle
 features/           graph, outline, query, task, settings, and navigation UI
 features/commands/  registry, bindings, arbitration, palette, shortcut sheet
+features/history/   semantic undo/redo routing and reveal coordination
 features/notify/    transient failure reporting
 entities/           view models and browser-local settings
 core-port/          session, command builders, DTO mapping, graph lease/directory

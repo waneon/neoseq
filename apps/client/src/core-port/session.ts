@@ -50,6 +50,7 @@ export interface SessionPort extends CorePort {
 type ReconcileScope =
   | { kind: "summary" }
   | { kind: "page"; pageId: string }
+  | { kind: "pages"; pageIds: readonly string[] }
   | { kind: "all-hydrated-pages" };
 
 export class GraphSession {
@@ -270,6 +271,8 @@ export class GraphSession {
     let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
     const pageIdsToRead = scope.kind === "all-hydrated-pages"
       ? [...this.state.hydratedPages]
+      : scope.kind === "pages"
+        ? scope.pageIds.filter((id) => this.state.hydratedPages.has(id))
       : scope.kind === "page"
         ? [scope.pageId]
         : [];
@@ -333,9 +336,12 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
         ? { kind: "page", pageId: result.created_page }
         : { kind: "summary" };
     case "delete_tag":
+      return { kind: "all-hydrated-pages" };
     case "undo":
     case "redo":
-      return { kind: "all-hydrated-pages" };
+      return result?.history_effect
+        ? { kind: "pages", pageIds: result.history_effect.affected_pages }
+        : { kind: "all-hydrated-pages" };
     case "ensure_tag":
     case "rename_tag":
     case "restore_tag":

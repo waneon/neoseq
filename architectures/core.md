@@ -197,6 +197,13 @@ remote changes are never undone by another user's local undo action. Loro does
 not provide transactional rollback, so every user-rejectable structural
 condition is checked by the read-only plan before the first CRDT mutation.
 
+The runtime keeps ephemeral semantic metadata beside each local Loro undo item.
+An undo or redo result includes its scope, affected page IDs, and at most one
+currently live page/block reveal target. This metadata is presentation-neutral:
+the core never chooses a route, scrolls, or focuses UI. See
+[`history-navigation.md`](history-navigation.md) for the contract and fallback
+rules.
+
 The implementation expresses the actor boundary as the single-owner
 `GraphRuntime<R, C>` message loop. Its mutable receiver serializes execute,
 remote import, snapshot read, and subscription work on native and Wasm without

@@ -1,9 +1,9 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
-    GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot, PageSummary, PropertyBag,
-    PropertyEntry, PropertyError, PropertyKey, PropertyTarget, PropertyValue, SplitPlacement,
-    TagId, TagSnapshot, validate_default, validate_property, validate_property_target,
-    validate_property_write,
+    GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, PageId, PageSnapshot,
+    PageSummary, PropertyBag, PropertyEntry, PropertyError, PropertyKey, PropertyTarget,
+    PropertyValue, SplitPlacement, TagId, TagSnapshot, validate_default, validate_property,
+    validate_property_target, validate_property_write,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -32,6 +32,37 @@ struct TagDetachPage {
 #[derive(Debug, Clone)]
 struct TagDetachPlan {
     pages: Vec<TagDetachPage>,
+}
+
+#[derive(Debug, Clone)]
+struct HistoryEntry {
+    scope: HistoryScope,
+    affected_pages: Vec<PageId>,
+    undo_candidates: Vec<HistoryTarget>,
+    redo_candidates: Vec<HistoryTarget>,
+}
+
+#[derive(Debug, Clone)]
+enum HistoryTarget {
+    Entity(EntityId),
+    BlockPosition {
+        page_id: PageId,
+        parent: Option<BlockId>,
+        index: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct HistoryPlan {
+    entry: HistoryEntry,
+    redo_created_block: bool,
+    redo_created_page: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum HistoryDirection {
+    Undo,
+    Redo,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +108,8 @@ pub enum CoreError {
     SnapshotGraphMismatch,
     #[error("unsupported schema version {0}")]
     UnsupportedSchema(i64),
+    #[error("local history metadata is not aligned with the undo manager")]
+    HistoryMetadataMismatch,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +126,52 @@ pub struct GraphCore {
     undo: UndoManager,
     command_results: BTreeMap<String, CommandResult>,
     command_order: VecDeque<String>,
+    undo_history: Vec<HistoryEntry>,
+    redo_history: Vec<HistoryEntry>,
+}
+
+impl HistoryPlan {
+    fn finish(mut self, result: &CommandResult, core: &GraphCore) -> HistoryEntry {
+        if self.redo_created_block
+            && let Some(block_id) = &result.created_block
+            && let Some(page_id) = self.entry.affected_pages.first()
+        {
+            let target = core
+                .outline_state(page_id)
+                .ok()
+                .and_then(|state| {
+                    let parent = state.parents.get(block_id)?.clone();
+                    let index = state
+                        .children
+                        .get(&parent)?
+                        .iter()
+                        .position(|item| item == block_id)?;
+                    Some(HistoryTarget::BlockPosition {
+                        page_id: page_id.clone(),
+                        parent,
+                        index,
+                    })
+                })
+                .unwrap_or_else(|| {
+                    HistoryTarget::Entity(EntityId::Block {
+                        page_id: page_id.clone(),
+                        id: block_id.clone(),
+                    })
+                });
+            self.entry.redo_candidates.insert(0, target);
+        }
+        if self.redo_created_page
+            && let Some(page_id) = &result.created_page
+        {
+            self.entry.redo_candidates.insert(
+                0,
+                HistoryTarget::Entity(EntityId::Page {
+                    id: page_id.clone(),
+                }),
+            );
+        }
+        self.entry
+    }
 }
 
 impl OutlineState {
@@ -307,6 +386,8 @@ impl GraphCore {
             undo,
             command_results: BTreeMap::new(),
             command_order: VecDeque::new(),
+            undo_history: Vec::new(),
+            redo_history: Vec::new(),
         })
     }
 
@@ -327,6 +408,8 @@ impl GraphCore {
             undo,
             command_results: BTreeMap::new(),
             command_order: VecDeque::new(),
+            undo_history: Vec::new(),
+            redo_history: Vec::new(),
         })
     }
 
@@ -356,12 +439,14 @@ impl GraphCore {
 
         let before = self.doc.oplog_vv();
         let semantic = semantic_name(&envelope.command).to_owned();
+        let mut history_plan = None;
         let mut result = CommandResult {
             command_id: envelope.command_id.clone(),
             created_page: None,
             created_block: None,
             created_tag: None,
             changed: true,
+            history_effect: None,
         };
 
         match &envelope.command {
@@ -374,6 +459,16 @@ impl GraphCore {
                     self.doc.commit();
                     return Err(error);
                 }
+                if result.changed {
+                    let Some(entry) = self.undo_history.pop() else {
+                        self.undo.redo()?;
+                        self.doc.commit();
+                        return Err(CoreError::HistoryMetadataMismatch);
+                    };
+                    result.history_effect =
+                        Some(self.history_effect(&entry, HistoryDirection::Undo));
+                    self.redo_history.push(entry);
+                }
                 self.doc.commit();
             }
             Command::Redo => {
@@ -385,10 +480,21 @@ impl GraphCore {
                     self.doc.commit();
                     return Err(error);
                 }
+                if result.changed {
+                    let Some(entry) = self.redo_history.pop() else {
+                        self.undo.undo()?;
+                        self.doc.commit();
+                        return Err(CoreError::HistoryMetadataMismatch);
+                    };
+                    result.history_effect =
+                        Some(self.history_effect(&entry, HistoryDirection::Redo));
+                    self.undo_history.push(entry);
+                }
                 self.doc.commit();
             }
             command => {
                 self.validate(command)?;
+                history_plan = self.plan_history(command)?;
                 self.undo.group_start()?;
                 self.doc.set_next_commit_origin("local:command");
                 self.doc
@@ -403,6 +509,13 @@ impl GraphCore {
         }
 
         let update = self.doc.export(ExportMode::updates(&before))?;
+        if !update.is_empty()
+            && let Some(plan) = history_plan
+        {
+            let entry = plan.finish(&result, self);
+            self.undo_history.push(entry);
+            self.redo_history.clear();
+        }
         self.remember(envelope.command_id.as_str(), result.clone());
         Ok(CoreExecution {
             result,
@@ -1326,6 +1439,326 @@ impl GraphCore {
         Ok(OutlinePlan {
             roots: state.roots(block_ids)?,
         })
+    }
+
+    fn plan_history(&self, command: &Command) -> Result<Option<HistoryPlan>, CoreError> {
+        let plan = |scope,
+                    mut affected_pages: Vec<PageId>,
+                    undo_candidates,
+                    redo_candidates,
+                    redo_created_block,
+                    redo_created_page| {
+            affected_pages.sort();
+            affected_pages.dedup();
+            Some(HistoryPlan {
+                entry: HistoryEntry {
+                    scope,
+                    affected_pages,
+                    undo_candidates,
+                    redo_candidates,
+                },
+                redo_created_block,
+                redo_created_page,
+            })
+        };
+        let page = |page_id: &PageId| {
+            HistoryTarget::Entity(EntityId::Page {
+                id: page_id.clone(),
+            })
+        };
+        let block = |page_id: &PageId, block_id: &BlockId| {
+            HistoryTarget::Entity(EntityId::Block {
+                page_id: page_id.clone(),
+                id: block_id.clone(),
+            })
+        };
+        let entity_plan = |entity: &EntityId| {
+            let (scope, page_id) = match entity {
+                EntityId::Page { id } => (HistoryScope::Page, id.clone()),
+                EntityId::Block { page_id, .. } => (HistoryScope::Entity, page_id.clone()),
+            };
+            plan(
+                scope,
+                vec![page_id],
+                vec![HistoryTarget::Entity(entity.clone())],
+                vec![HistoryTarget::Entity(entity.clone())],
+                false,
+                false,
+            )
+        };
+
+        Ok(match command {
+            Command::EnsurePage { page_id, .. } => plan(
+                HistoryScope::Page,
+                vec![page_id.clone()],
+                Vec::new(),
+                Vec::new(),
+                false,
+                true,
+            ),
+            Command::EnsureJournal { date } => {
+                let page_id = PageId::journal(&self.graph_id, date);
+                plan(
+                    HistoryScope::Page,
+                    vec![page_id.clone()],
+                    Vec::new(),
+                    vec![page(&page_id)],
+                    false,
+                    false,
+                )
+            }
+            Command::RenamePage { page_id, .. } => plan(
+                HistoryScope::Page,
+                vec![page_id.clone()],
+                vec![page(page_id)],
+                vec![page(page_id)],
+                false,
+                false,
+            ),
+            Command::DeletePage { page_id } => plan(
+                HistoryScope::Page,
+                vec![page_id.clone()],
+                vec![page(page_id)],
+                Vec::new(),
+                false,
+                false,
+            ),
+            Command::RestorePage { page_id } => plan(
+                HistoryScope::Page,
+                vec![page_id.clone()],
+                Vec::new(),
+                vec![page(page_id)],
+                false,
+                false,
+            ),
+            Command::EnsureTag { .. }
+            | Command::RenameTag { .. }
+            | Command::RestoreTag { .. }
+            | Command::SetTagDefault { .. }
+            | Command::RemoveTagDefault { .. } => plan(
+                HistoryScope::Graph,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+            ),
+            Command::DeleteTag { tag_id } => plan(
+                HistoryScope::Graph,
+                self.plan_delete_tag(tag_id)?
+                    .pages
+                    .into_iter()
+                    .map(|entry| entry.page_id)
+                    .collect(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+            ),
+            Command::InsertBlock {
+                page_id, parent, ..
+            } => plan(
+                HistoryScope::Entity,
+                vec![page_id.clone()],
+                parent
+                    .as_ref()
+                    .map(|id| block(page_id, id))
+                    .into_iter()
+                    .chain([page(page_id)])
+                    .collect(),
+                Vec::new(),
+                true,
+                false,
+            ),
+            Command::SplitBlock {
+                page_id, block_id, ..
+            } => plan(
+                HistoryScope::Entity,
+                vec![page_id.clone()],
+                vec![block(page_id, block_id), page(page_id)],
+                vec![block(page_id, block_id)],
+                true,
+                false,
+            ),
+            Command::InsertOutline {
+                page_id, parent, ..
+            } => plan(
+                HistoryScope::Entity,
+                vec![page_id.clone()],
+                parent
+                    .as_ref()
+                    .map(|id| block(page_id, id))
+                    .into_iter()
+                    .chain([page(page_id)])
+                    .collect(),
+                Vec::new(),
+                true,
+                false,
+            ),
+            Command::EditMarkdown {
+                page_id, block_id, ..
+            }
+            | Command::SpliceMarkdown {
+                page_id, block_id, ..
+            } => plan(
+                HistoryScope::Entity,
+                vec![page_id.clone()],
+                vec![block(page_id, block_id)],
+                vec![block(page_id, block_id)],
+                false,
+                false,
+            ),
+            Command::MoveBlocks {
+                page_id,
+                block_ids,
+                parent,
+                index,
+            } => {
+                let roots = self
+                    .plan_move_blocks(page_id, block_ids, parent.as_ref(), *index)?
+                    .roots;
+                let candidates = roots
+                    .iter()
+                    .map(|id| block(page_id, id))
+                    .chain([page(page_id)])
+                    .collect::<Vec<_>>();
+                plan(
+                    HistoryScope::Entity,
+                    vec![page_id.clone()],
+                    candidates.clone(),
+                    candidates,
+                    false,
+                    false,
+                )
+            }
+            Command::IndentBlocks { page_id, block_ids } => {
+                let roots = self.plan_indent_blocks(page_id, block_ids)?.roots;
+                let candidates = roots
+                    .iter()
+                    .map(|id| block(page_id, id))
+                    .chain([page(page_id)])
+                    .collect::<Vec<_>>();
+                plan(
+                    HistoryScope::Entity,
+                    vec![page_id.clone()],
+                    candidates.clone(),
+                    candidates,
+                    false,
+                    false,
+                )
+            }
+            Command::OutdentBlocks { page_id, block_ids } => {
+                let roots = self.plan_outdent_blocks(page_id, block_ids)?.roots;
+                let candidates = roots
+                    .iter()
+                    .map(|id| block(page_id, id))
+                    .chain([page(page_id)])
+                    .collect::<Vec<_>>();
+                plan(
+                    HistoryScope::Entity,
+                    vec![page_id.clone()],
+                    candidates.clone(),
+                    candidates,
+                    false,
+                    false,
+                )
+            }
+            Command::DeleteBlocks { page_id, block_ids } => {
+                let state = self.outline_state(page_id)?;
+                let roots = state.roots(block_ids)?;
+                let undo_candidates = roots
+                    .iter()
+                    .filter_map(|id| {
+                        let parent = state.parents.get(id)?.clone();
+                        let index = state
+                            .children
+                            .get(&parent)?
+                            .iter()
+                            .position(|item| item == id)?;
+                        Some(HistoryTarget::BlockPosition {
+                            page_id: page_id.clone(),
+                            parent,
+                            index,
+                        })
+                    })
+                    .chain([page(page_id)])
+                    .collect::<Vec<_>>();
+                let mut redo_candidates = Vec::new();
+                if let Some(first) = roots.first()
+                    && let Some(parent) = state.parents.get(first).cloned()
+                {
+                    if let Some(previous) = state.children.get(&parent).and_then(|siblings| {
+                        siblings
+                            .iter()
+                            .position(|id| id == first)
+                            .and_then(|position| position.checked_sub(1))
+                            .map(|position| siblings[position].clone())
+                    }) {
+                        redo_candidates.push(block(page_id, &previous));
+                    }
+                    if let Some(parent) = parent {
+                        redo_candidates.push(block(page_id, &parent));
+                    }
+                }
+                redo_candidates.push(page(page_id));
+                plan(
+                    HistoryScope::Entity,
+                    vec![page_id.clone()],
+                    undo_candidates,
+                    redo_candidates,
+                    false,
+                    false,
+                )
+            }
+            Command::SetProperty { entity, .. }
+            | Command::RemoveProperty { entity, .. }
+            | Command::AddRepeatedProperty { entity, .. }
+            | Command::RemoveRepeatedProperty { entity, .. }
+            | Command::AddTag { entity, .. }
+            | Command::RemoveTag { entity, .. } => entity_plan(entity),
+            Command::Undo | Command::Redo => None,
+        })
+    }
+
+    fn history_effect(&self, entry: &HistoryEntry, direction: HistoryDirection) -> HistoryEffect {
+        let candidates = match direction {
+            HistoryDirection::Undo => &entry.undo_candidates,
+            HistoryDirection::Redo => &entry.redo_candidates,
+        };
+        HistoryEffect {
+            scope: entry.scope,
+            affected_pages: entry.affected_pages.clone(),
+            reveal: candidates
+                .iter()
+                .find_map(|target| self.resolve_history_target(target)),
+        }
+    }
+
+    fn resolve_history_target(&self, target: &HistoryTarget) -> Option<EntityId> {
+        match target {
+            HistoryTarget::Entity(entity) => self.entity_is_live(entity).then(|| entity.clone()),
+            HistoryTarget::BlockPosition {
+                page_id,
+                parent,
+                index,
+            } => {
+                let state = self.outline_state(page_id).ok()?;
+                let id = state.children.get(parent)?.get(*index)?.clone();
+                Some(EntityId::Block {
+                    page_id: page_id.clone(),
+                    id,
+                })
+            }
+        }
+    }
+
+    fn entity_is_live(&self, entity: &EntityId) -> bool {
+        match entity {
+            EntityId::Page { id } => self.require_live_page(id).is_ok(),
+            EntityId::Block { page_id, id } => {
+                self.require_live_page(page_id).is_ok() && self.require_block(page_id, id).is_ok()
+            }
+        }
     }
 
     fn plan_delete_tag(&self, tag_id: &TagId) -> Result<TagDetachPlan, CoreError> {
@@ -3181,8 +3614,16 @@ mod tests {
             &tag,
         ));
 
-        core.execute(envelope("undo-delete-tag", Command::Undo), "t8")
+        let undo = core
+            .execute(envelope("undo-delete-tag", Command::Undo), "t8")
             .unwrap();
+        let effect = undo.result.history_effect.unwrap();
+        assert_eq!(effect.scope, HistoryScope::Graph);
+        assert_eq!(
+            effect.affected_pages,
+            [deleted_page.clone(), live_page.clone()]
+        );
+        assert_eq!(effect.reveal, None);
         let snapshot = core.snapshot().unwrap();
         assert_eq!(snapshot.tags[0].id, tag);
         assert_eq!(snapshot.pages[0].tags, [tag.clone()]);
@@ -3222,6 +3663,91 @@ mod tests {
                 .unwrap(),
             &tag,
         ));
+    }
+
+    #[test]
+    fn model_history_effect_tracks_cross_page_targets_and_delete_fallbacks() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let first_page = PageId::new("first").unwrap();
+        let second_page = PageId::new("second").unwrap();
+        ensure_regular_page(&mut core, "first-page", &first_page);
+        ensure_regular_page(&mut core, "second-page", &second_page);
+        let previous = insert_root(&mut core, "previous", &first_page, 0, "previous");
+        let deleted = insert_root(&mut core, "deleted", &first_page, 1, "deleted");
+        let second = insert_root(&mut core, "second-block", &second_page, 0, "second");
+
+        core.execute(
+            envelope(
+                "edit-second",
+                Command::EditMarkdown {
+                    page_id: second_page.clone(),
+                    block_id: second.clone(),
+                    markdown: "changed".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let undo = core
+            .execute(envelope("undo-edit", Command::Undo), "t4")
+            .unwrap();
+        assert_eq!(
+            undo.result.history_effect.unwrap().reveal,
+            Some(EntityId::Block {
+                page_id: second_page.clone(),
+                id: second,
+            })
+        );
+
+        core.execute(
+            envelope(
+                "delete-block",
+                Command::DeleteBlocks {
+                    page_id: first_page.clone(),
+                    block_ids: vec![deleted.clone()],
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        let undo = core
+            .execute(envelope("undo-delete", Command::Undo), "t6")
+            .unwrap();
+        let restored = core.page_snapshot(&first_page).unwrap().blocks[1].clone();
+        assert_eq!(restored.markdown, "deleted");
+        assert_eq!(
+            undo.result.history_effect.unwrap().reveal,
+            Some(EntityId::Block {
+                page_id: first_page.clone(),
+                id: restored.id,
+            })
+        );
+        let redo = core
+            .execute(envelope("redo-delete", Command::Redo), "t7")
+            .unwrap();
+        assert_eq!(
+            redo.result.history_effect.unwrap().reveal,
+            Some(EntityId::Block {
+                page_id: first_page.clone(),
+                id: previous,
+            })
+        );
+
+        insert_root(&mut core, "insert-for-redo", &first_page, 1, "created");
+        core.execute(envelope("undo-insert", Command::Undo), "t8")
+            .unwrap();
+        let redo = core
+            .execute(envelope("redo-insert", Command::Redo), "t9")
+            .unwrap();
+        let recreated = core.page_snapshot(&first_page).unwrap().blocks[1].clone();
+        assert_eq!(recreated.markdown, "created");
+        assert_eq!(
+            redo.result.history_effect.unwrap().reveal,
+            Some(EntityId::Block {
+                page_id: first_page,
+                id: recreated.id,
+            })
+        );
     }
 
     #[test]

@@ -59,6 +59,7 @@ import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
+import { useHistoryActions, type HistoryRevealRequest } from "../history/context";
 import { BlockChips } from "../properties/BlockChips";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { TagPicker } from "../properties/TagPicker";
@@ -264,10 +265,15 @@ export function Outliner({
   const session = useSession();
   const state = useSessionState();
   const commands = useCommands();
+  const history = useHistoryActions();
   const notify = useNotify();
   const bindings = useShortcutBindings();
   const { message, compare } = useI18n();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
+  const [historyRevealRevision, bumpHistoryReveal] = useReducer(
+    (revision: number) => revision + 1,
+    0,
+  );
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [propertyRequest, setPropertyRequest] = useState<PropertyRequest | null>(null);
   const [tagRequest, setTagRequest] = useState<TagRequest | null>(null);
@@ -309,6 +315,7 @@ export function Outliner({
   const releasePointer = useRef<(() => void) | null>(null);
   const autoScroll = useRef<{ speed: number; frame: number } | null>(null);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHistoryReveal = useRef<HistoryRevealRequest | null>(null);
   const overlayAtPressStart = useRef(false);
   // GraphSession resolves commands only after reconciling its snapshot. Read
   // that snapshot directly during the temp-id handoff so a parent render that
@@ -480,8 +487,12 @@ export function Outliner({
     (id: string, redo: boolean) => {
       flushNow(id);
       const inputRevision = draftInputRevision.current;
-      void session
-        .execute({ type: redo ? "redo" : "undo" })
+      void history
+        .run(redo ? "redo" : "undo", {
+          kind: "outline",
+          pageId: pageRef.current.id,
+          blockId: id,
+        })
         .then(() => {
           // GraphSession resolves only after its snapshot is authoritative. A
           // focused clean draft must stand down now or it masks the history
@@ -497,7 +508,7 @@ export function Outliner({
           notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
         });
     },
-    [flushNow, message, notify, session],
+    [flushNow, history, message, notify],
   );
 
   const focusedRef = useRef<string | null>(null);
@@ -1573,6 +1584,61 @@ export function Outliner({
     initialRect: { width: 800, height: 600 },
     getItemKey: (index) => rows[index].block.id,
   });
+
+  const revealHistoryTarget = useCallback((request: HistoryRevealRequest) => {
+    const allRows = flattenOutline(pageRef.current, new Set());
+    const target = allRows.find((row) => row.block.id === request.blockId);
+    if (!target) return false;
+
+    const parents = new Map(allRows.map((row) => [row.block.id, row.parentId]));
+    const ancestors = new Set<string>();
+    let parentId = target.parentId;
+    while (parentId) {
+      ancestors.add(parentId);
+      parentId = parents.get(parentId) ?? null;
+    }
+    if (ancestors.size > 0) {
+      setCollapsed((current) => {
+        const next = new Set(current);
+        let changed = false;
+        for (const id of ancestors) changed = next.delete(id) || changed;
+        return changed ? next : current;
+      });
+    }
+
+    setRevealed(new Set([request.blockId]));
+    if (revealTimer.current) clearTimeout(revealTimer.current);
+    revealTimer.current = setTimeout(() => {
+      revealTimer.current = null;
+      setRevealed(NOTHING_REVEALED);
+    }, REVEAL_MS);
+    pendingHistoryReveal.current = request;
+    bumpHistoryReveal();
+    return true;
+  }, []);
+
+  // History owns *what* should be revealed; the mounted outliner owns *how*.
+  // Re-register after reconciliation so a cross-page request can be retried as
+  // soon as the destination page is present in the authoritative snapshot.
+  useEffect(
+    () => history.registerRevealer(authoritativePage.id, revealHistoryTarget),
+    [authoritativePage.id, history, revealHistoryTarget, state.revision],
+  );
+
+  useEffect(() => {
+    const request = pendingHistoryReveal.current;
+    if (!request) return;
+    const index = rowIndexOf(rows, request.blockId);
+    if (index < 0) return;
+    virtualizer.scrollToIndex(index);
+    if (request.focus && focusedRef.current !== request.blockId) {
+      setFocus(request.blockId);
+    }
+    pendingHistoryReveal.current = null;
+    // The virtualizer is intentionally omitted: row visibility and a new
+    // request are the only events that should repeat this one-shot reveal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyRevealRevision, rows, setFocus]);
 
   // Keep keyboard-focused rows visible even when virtualization would have
   // recycled them.

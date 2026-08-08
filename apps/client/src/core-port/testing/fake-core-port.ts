@@ -21,7 +21,7 @@ import type {
   SubscribeResponse,
 } from "../../generated/core-port";
 import { CorePortFailure, type SavedReceipt } from "../../core-worker";
-import type { Command, CommandEnvelope } from "../commands";
+import type { Command, CommandEnvelope, EntityRef, HistoryEffect } from "../commands";
 import type {
   BlockSnapshot,
   GraphSnapshot,
@@ -46,6 +46,15 @@ interface GraphEventRecord {
   kind: Record<string, unknown>;
 }
 
+interface FakeHistoryEntry {
+  scope: HistoryEffect["scope"];
+  affectedPages: string[];
+  undoCandidates: EntityRef[];
+  redoCandidates: EntityRef[];
+  redoCreatedBlock?: boolean;
+  redoCreatedPage?: boolean;
+}
+
 function fail(code: CorePortError["code"], message: string, retryable = false): never {
   throw new CorePortFailure({ code, message, retryable });
 }
@@ -59,6 +68,8 @@ export class FakeCorePort implements SessionPort {
   private tags: TagSnapshot[] = [];
   private history: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[] }> = [];
   private future: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[] }> = [];
+  private historyEntries: FakeHistoryEntry[] = [];
+  private futureEntries: FakeHistoryEntry[] = [];
   private events: GraphEventRecord[] = [];
   private nextCursor = 1;
   private sequence = 0;
@@ -97,8 +108,12 @@ export class FakeCorePort implements SessionPort {
       created_block: null as string | null,
       created_tag: null as string | null,
       changed: true,
+      history_effect: null as HistoryEffect | null,
     };
     const timestamp = `t${this.sequence + 1}`;
+    const historyEntry = command.type === "undo" || command.type === "redo"
+      ? null
+      : this.planHistory(command);
     try {
       this.apply(command, result, timestamp);
       if (command.type !== "undo" && command.type !== "redo" && result.changed) {
@@ -110,7 +125,9 @@ export class FakeCorePort implements SessionPort {
     }
     if (command.type !== "undo" && command.type !== "redo" && result.changed) {
       this.history.push(before);
+      if (historyEntry) this.historyEntries.push(this.finishHistory(historyEntry, result));
       this.future = [];
+      this.futureEntries = [];
     }
     if (this.failNextSave) {
       const error = this.failNextSave;
@@ -211,7 +228,13 @@ export class FakeCorePort implements SessionPort {
 
   private apply(
     command: Command,
-    result: { created_page: string | null; created_block: string | null; created_tag: string | null; changed: boolean },
+    result: {
+      created_page: string | null;
+      created_block: string | null;
+      created_tag: string | null;
+      changed: boolean;
+      history_effect: HistoryEffect | null;
+    },
     timestamp: string,
   ): void {
     switch (command.type) {
@@ -516,9 +539,12 @@ export class FakeCorePort implements SessionPort {
       }
       case "undo": {
         const previous = this.history.pop();
-        if (previous) {
+        const entry = this.historyEntries.pop();
+        if (previous && entry) {
           this.future.push(this.capture());
+          this.futureEntries.push(entry);
           this.restore(previous);
+          result.history_effect = this.resolveHistory(entry, "undo");
         } else {
           result.changed = false;
         }
@@ -526,15 +552,185 @@ export class FakeCorePort implements SessionPort {
       }
       case "redo": {
         const next = this.future.pop();
-        if (next) {
+        const entry = this.futureEntries.pop();
+        if (next && entry) {
           this.history.push(this.capture());
+          this.historyEntries.push(entry);
           this.restore(next);
+          result.history_effect = this.resolveHistory(entry, "redo");
         } else {
           result.changed = false;
         }
         break;
       }
     }
+  }
+
+  private planHistory(command: Exclude<Command, { type: "undo" } | { type: "redo" }>): FakeHistoryEntry {
+    const page = (id: string): EntityRef => ({ kind: "page", id });
+    const block = (pageId: string, id: string): EntityRef => ({ kind: "block", page_id: pageId, id });
+    const entity = (target: EntityRef): FakeHistoryEntry => ({
+      scope: target.kind === "page" ? "page" : "entity",
+      affectedPages: [target.kind === "page" ? target.id : target.page_id],
+      undoCandidates: [clone(target)],
+      redoCandidates: [clone(target)],
+    });
+    const pageEntry = (
+      pageId: string,
+      undoCandidates: EntityRef[],
+      redoCandidates: EntityRef[],
+    ): FakeHistoryEntry => ({
+      scope: "page",
+      affectedPages: [pageId],
+      undoCandidates,
+      redoCandidates,
+    });
+    const blockEntry = (
+      pageId: string,
+      undoCandidates: EntityRef[],
+      redoCandidates: EntityRef[],
+    ): FakeHistoryEntry => ({
+      scope: "entity",
+      affectedPages: [pageId],
+      undoCandidates,
+      redoCandidates,
+    });
+
+    switch (command.type) {
+      case "ensure_page":
+        return { ...pageEntry(command.page_id, [], []), redoCreatedPage: true };
+      case "ensure_journal": {
+        const pageId = `journal-${command.date}`;
+        return pageEntry(pageId, [], [page(pageId)]);
+      }
+      case "rename_page":
+        return pageEntry(command.page_id, [page(command.page_id)], [page(command.page_id)]);
+      case "delete_page":
+        return pageEntry(command.page_id, [page(command.page_id)], []);
+      case "restore_page":
+        return pageEntry(command.page_id, [], [page(command.page_id)]);
+      case "ensure_tag":
+      case "rename_tag":
+      case "restore_tag":
+      case "set_tag_default":
+      case "remove_tag_default":
+        return {
+          scope: "graph",
+          affectedPages: [],
+          undoCandidates: [],
+          redoCandidates: [],
+        };
+      case "delete_tag": {
+        const affectedPages = this.pages
+          .filter((candidate) => pageHasTag(candidate, command.tag_id))
+          .map((candidate) => candidate.id)
+          .sort();
+        return {
+          scope: "graph",
+          affectedPages,
+          undoCandidates: [],
+          redoCandidates: [],
+        };
+      }
+      case "insert_block":
+        return {
+          ...blockEntry(
+            command.page_id,
+            command.parent
+              ? [block(command.page_id, command.parent), page(command.page_id)]
+              : [page(command.page_id)],
+            [],
+          ),
+          redoCreatedBlock: true,
+        };
+      case "split_block":
+        return {
+          ...blockEntry(
+            command.page_id,
+            [block(command.page_id, command.block_id), page(command.page_id)],
+            [block(command.page_id, command.block_id)],
+          ),
+          redoCreatedBlock: true,
+        };
+      case "insert_outline":
+        return {
+          ...blockEntry(
+            command.page_id,
+            command.parent
+              ? [block(command.page_id, command.parent), page(command.page_id)]
+              : [page(command.page_id)],
+            [],
+          ),
+          redoCreatedBlock: true,
+        };
+      case "edit_markdown":
+      case "splice_markdown":
+        return blockEntry(
+          command.page_id,
+          [block(command.page_id, command.block_id)],
+          [block(command.page_id, command.block_id)],
+        );
+      case "move_blocks":
+      case "indent_blocks":
+      case "outdent_blocks": {
+        const candidates = this.structuralRoots(command.page_id, command.block_ids)
+          .map((id) => block(command.page_id, id));
+        candidates.push(page(command.page_id));
+        return blockEntry(command.page_id, candidates, clone(candidates));
+      }
+      case "delete_blocks": {
+        const roots = this.structuralRoots(command.page_id, command.block_ids);
+        const undoCandidates = roots.map((id) => block(command.page_id, id));
+        undoCandidates.push(page(command.page_id));
+        const first = this.requireBlock(command.page_id, roots[0]);
+        const position = first.siblings.indexOf(first.block);
+        const redoCandidates: EntityRef[] = [];
+        if (position > 0) redoCandidates.push(block(command.page_id, first.siblings[position - 1].id));
+        if (first.parent) redoCandidates.push(block(command.page_id, first.parent.id));
+        redoCandidates.push(page(command.page_id));
+        return blockEntry(command.page_id, undoCandidates, redoCandidates);
+      }
+      case "set_property":
+      case "remove_property":
+      case "add_repeated_property":
+      case "remove_repeated_property":
+      case "add_tag":
+      case "remove_tag":
+        return entity(command.entity);
+    }
+  }
+
+  private finishHistory(
+    entry: FakeHistoryEntry,
+    result: { created_page: string | null; created_block: string | null },
+  ): FakeHistoryEntry {
+    const finished = clone(entry);
+    if (finished.redoCreatedBlock && result.created_block && finished.affectedPages[0]) {
+      finished.redoCandidates.unshift({
+        kind: "block",
+        page_id: finished.affectedPages[0],
+        id: result.created_block,
+      });
+    }
+    if (finished.redoCreatedPage && result.created_page) {
+      finished.redoCandidates.unshift({ kind: "page", id: result.created_page });
+    }
+    return finished;
+  }
+
+  private resolveHistory(entry: FakeHistoryEntry, direction: "undo" | "redo"): HistoryEffect {
+    const candidates = direction === "undo" ? entry.undoCandidates : entry.redoCandidates;
+    return {
+      scope: entry.scope,
+      affected_pages: clone(entry.affectedPages),
+      reveal: clone(candidates.find((candidate) => this.isLiveEntity(candidate)) ?? null),
+    };
+  }
+
+  private isLiveEntity(entity: EntityRef): boolean {
+    const page = this.rawPage(entity.kind === "page" ? entity.id : entity.page_id);
+    if (!page || hasKey(page.properties, "builtin.deleted-at")) return false;
+    return entity.kind === "page" || findIn(page.blocks, null, entity.id, page) !== null;
   }
 
   private assertPageNameAvailable(name: string, exceptId: string): void {
@@ -804,6 +1000,13 @@ function projectLiveTags(page: PageSnapshot, liveTags: ReadonlySet<string>): Pag
     tags: page.tags.filter((tag) => liveTags.has(tag)),
     blocks: projectBlocks(page.blocks),
   };
+}
+
+function pageHasTag(page: PageSnapshot, tagId: string): boolean {
+  const blocksHaveTag = (blocks: BlockSnapshot[]): boolean => blocks.some(
+    (block) => block.tags.includes(tagId) || blocksHaveTag(block.children),
+  );
+  return page.tags.includes(tagId) || blocksHaveTag(page.blocks);
 }
 
 function newPage(
