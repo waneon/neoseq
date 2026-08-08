@@ -2261,7 +2261,7 @@ function BlockRow({
           />
         )}
         {!pending && <TaskProjection pageId={editor.pageId} block={row.block} />}
-        {!pending && stringValue(row.block.properties, "query.source") !== undefined && (
+        {!pending && stringValue(row.block.properties, "builtin.query-source") !== undefined && (
           <QueryBlock pageId={editor.pageId} block={row.block} />
         )}
       </div>

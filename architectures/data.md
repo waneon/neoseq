@@ -34,7 +34,7 @@ NodeData
 ```
 
 The page root's content is a regular page title. Journal display titles derive
-from `journal.date`; journal IDs derive deterministically from graph ID and date.
+from `builtin.journal-date`; journal IDs derive deterministically from graph ID and date.
 Regular page names are unique after whitespace normalization and Unicode
 lowercasing. Stable IDs, not names, are identity.
 
@@ -66,16 +66,18 @@ stable slots. Each slot contains one tagged scalar:
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
 the v1 authority for built-in shapes, placements, and `user` versus `core`
-access. Unknown user keys are retained under namespace rules so newer data does
-not disappear in an older generic renderer.
+access. Every key is `builtin.<lowercase-kebab-name>` or
+`user.<lowercase-kebab-name>`. Unknown built-ins are retained read-only so newer
+data does not disappear in an older client; unknown user keys remain generic
+graph-level properties rather than private per-user metadata.
 
 Adding a tag copies its declared defaults into properties that are absent in
 the same transaction. Existing values win, removing a tag does not remove
 copied values, and later default changes are not retroactive.
 
-Pages, blocks, and tags initialize `system.created-at` and
-`system.updated-at` together. Direct mutation advances `updated-at`; a block
-mutation also touches its page. Page and tag deletion sets `system.deleted-at`,
+Pages, blocks, and tags initialize `builtin.created-at` and
+`builtin.updated-at` together. Direct mutation advances `updated-at`; a block
+mutation also touches its page. Page and tag deletion sets `builtin.deleted-at`,
 and restore clears it. `created-at` never changes.
 
 ## Validation and Merge

@@ -84,6 +84,7 @@ export function PropertyPicker({
   const entity: EntityRef = target.kind === "page"
     ? { kind: "page", id: target.id }
     : { kind: "block", page_id: target.pageId, id: target.id };
+  const writeDisabled = readonly || (key !== null && !canUserWrite(key, target.kind));
 
   const reposition = useCallback(() => {
     const rect = anchor?.getBoundingClientRect();
@@ -226,7 +227,7 @@ export function PropertyPicker({
   };
 
   const commit = async (value: PropertyValue) => {
-    if (!key || readonly) return;
+    if (!key || writeDisabled) return;
     const keyIssue = validateKey(key);
     const issue = keyIssue
       ?? validateWriteTarget(key, target.kind)
@@ -240,11 +241,11 @@ export function PropertyPicker({
       ? { type: "add_repeated_property", entity, key, value }
       : { type: "set_property", entity, key, value });
     if (!saved) return;
-    if (key === "query.source" && !target.bag.some((entry) => entry.key === "query.language")) {
+    if (key === "builtin.query-source" && !target.bag.some((entry) => entry.key === "builtin.query-language")) {
       const languageSaved = await run({
         type: "set_property",
         entity,
-        key: "query.language",
+        key: "builtin.query-language",
         value: { type: "string", value: "sparql-1.1/neoseq-v1" },
       });
       if (!languageSaved) return;
@@ -253,7 +254,7 @@ export function PropertyPicker({
   };
 
   const remove = async (entry?: PropertyEntry) => {
-    if (!key || readonly) return;
+    if (!key || writeDisabled) return;
     if (!entry && cardinalityOf(key) === "repeated") {
       for (const member of selectedEntries) {
         const removed = await run({
@@ -448,7 +449,7 @@ export function PropertyPicker({
                   <Button
                     variant="ghost"
                     size="icon"
-                    disabled={committing}
+                    disabled={writeDisabled || committing}
                     aria-label={message("properties.removeValue", { key })}
                     onClick={() => void remove(entry)}
                   >
@@ -466,19 +467,19 @@ export function PropertyPicker({
             type={type}
             value={draft}
             allowed={choices}
-            readonly={readonly || committing}
+            readonly={writeDisabled || committing}
             onChange={setDraft}
             onCommit={(value) => void commit(value)}
           />
           <div className="property-picker-actions">
             {selectedEntries.length > 0 && (
-              <Button variant="destructive" onClick={() => void remove()} disabled={readonly || committing}>
+              <Button variant="destructive" onClick={() => void remove()} disabled={writeDisabled || committing}>
                 <Trash2Icon data-icon aria-hidden />
                 {message("properties.clear")}
               </Button>
             )}
             {type !== "page" && choices.length === 0 && (
-              <Button onClick={() => void commit(draft)} disabled={readonly || committing} data-testid="property-set">
+              <Button onClick={() => void commit(draft)} disabled={writeDisabled || committing} data-testid="property-set">
                 {message("properties.set")}
               </Button>
             )}

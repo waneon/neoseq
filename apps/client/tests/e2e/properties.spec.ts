@@ -40,52 +40,52 @@ test("edits every value type plus unknown keys in the contextual picker", async 
   await createGraph(page, "Props Graph");
   await createPage(page, "Everything");
 
-  await addCustom(page, "custom.text", "string", "hello");
-  await addCustom(page, "custom.count", "number", "42");
-  await addCustom(page, "custom.done", "checkbox", "yes");
-  await addCustom(page, "custom.when", "date", "2026-08-03");
-  await addCustom(page, "custom.ref", "page", "Every");
+  await addCustom(page, "user.text", "string", "hello");
+  await addCustom(page, "user.count", "number", "42");
+  await addCustom(page, "user.done", "checkbox", "yes");
+  await addCustom(page, "user.when", "date", "2026-08-03");
+  await addCustom(page, "user.ref", "page", "Every");
 
-  await page.getByTestId("prop-custom.text").click();
+  await page.getByTestId("prop-user.text").click();
   let picker = page.getByTestId("property-picker");
-  await picker.getByLabel("custom.text value").fill("updated");
+  await picker.getByLabel("user.text value").fill("updated");
   await picker.getByTestId("property-set").click();
   await awaitSaved(page);
   await page.reload();
-  await expect(page.getByTestId("prop-custom.text")).toContainText("updated");
+  await expect(page.getByTestId("prop-user.text")).toContainText("updated");
   await page.getByRole("button", { name: "+1 more" }).click();
   picker = page.getByTestId("property-picker");
 
   // The compact strip deliberately exposes only four entries and storage does
   // not promise insertion order. Verify persisted values through the canonical
   // picker, which lists every existing property first.
-  await picker.getByRole("option", { name: /custom\.count/ }).click();
+  await picker.getByRole("option", { name: /user\.count/ }).click();
   await expect(picker).toContainText("42");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /custom\.done/ }).click();
+  await picker.getByRole("option", { name: /user\.done/ }).click();
   await expect(picker).toContainText("Checked");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /custom\.when/ }).click();
+  await picker.getByRole("option", { name: /user\.when/ }).click();
   await expect(picker).toContainText("2026-08-03");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /custom\.ref/ }).click();
+  await picker.getByRole("option", { name: /user\.ref/ }).click();
   await expect(picker).toContainText("Everything");
   await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /custom\.count/ }).click();
+  await picker.getByRole("option", { name: /user\.count/ }).click();
   await picker.getByRole("button", { name: "Clear property" }).click();
   await openPageProperties(page);
-  await page.getByTestId("property-picker").getByLabel("Property key").fill("custom.count");
-  await expect(page.getByRole("option", { name: "Create property “custom.count”" })).toBeVisible();
+  await page.getByTestId("property-picker").getByLabel("Property key").fill("user.count");
+  await expect(page.getByRole("option", { name: "Create property “user.count”" })).toBeVisible();
 });
 
-test("rejects structural property keys with a visible validation error", async ({ page }) => {
+test("rejects property keys outside the owned namespaces with a visible validation error", async ({ page }) => {
   await createGraph(page, "Validation Graph");
   await createPage(page, "Rules");
   await openPageProperties(page);
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Property key").fill("tag");
   await expect(picker.getByTestId("props-error")).toContainText(
-    "reserved and cannot be edited as a property",
+    "must use builtin.* or user.*",
   );
 });
 
@@ -99,9 +99,9 @@ test("slash, block properties, and tags share the same focused target", async ({
   await page.keyboard.press("Enter");
 
   let picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "task.status", exact: true }).click();
+  await picker.getByRole("option", { name: "builtin.task-status", exact: true }).click();
   await picker.getByRole("option", { name: "doing", exact: true }).click();
-  await expect(page.getByTestId("prop-task.status")).toContainText("doing");
+  await expect(page.getByTestId("prop-builtin.task-status")).toContainText("doing");
   await expect(page.getByLabel("Block text")).toHaveValue("");
 
   await openBlockTags(page);

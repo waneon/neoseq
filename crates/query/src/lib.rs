@@ -717,23 +717,23 @@ mod tests {
                 title: "Today".into(),
                 properties: vec![
                     PropertyEntry {
-                        key: PropertyKey::new("custom.count").unwrap(),
+                        key: PropertyKey::new("user.count").unwrap(),
                         value: PropertyValue::Number(3.5),
                     },
                     PropertyEntry {
-                        key: PropertyKey::new("custom.flag").unwrap(),
+                        key: PropertyKey::new("user.flag").unwrap(),
                         value: PropertyValue::Checkbox(true),
                     },
                     PropertyEntry {
-                        key: PropertyKey::new("custom.link").unwrap(),
+                        key: PropertyKey::new("user.link").unwrap(),
                         value: PropertyValue::Page(PageId::new("missing-page").unwrap()),
                     },
                     PropertyEntry {
-                        key: PropertyKey::new("custom.alias").unwrap(),
+                        key: PropertyKey::new("user.alias").unwrap(),
                         value: PropertyValue::String("one".into()),
                     },
                     PropertyEntry {
-                        key: PropertyKey::new("custom.alias").unwrap(),
+                        key: PropertyKey::new("user.alias").unwrap(),
                         value: PropertyValue::String("two".into()),
                     },
                 ],
@@ -743,11 +743,11 @@ mod tests {
                     markdown: "Ship the Query Engine".into(),
                     properties: vec![
                         PropertyEntry {
-                            key: PropertyKey::new("task.status").unwrap(),
+                            key: PropertyKey::new("builtin.task-status").unwrap(),
                             value: PropertyValue::String("todo".into()),
                         },
                         PropertyEntry {
-                            key: PropertyKey::new("task.deadline").unwrap(),
+                            key: PropertyKey::new("builtin.task-deadline").unwrap(),
                             value: PropertyValue::Date(LocalDate::new("2026-08-05").unwrap()),
                         },
                     ],
@@ -760,7 +760,7 @@ mod tests {
                 name: "Project".into(),
                 properties: vec![],
                 defaults: vec![PropertyEntry {
-                    key: PropertyKey::new("task.priority").unwrap(),
+                    key: PropertyKey::new("builtin.task-priority").unwrap(),
                     value: PropertyValue::String("high".into()),
                 }],
             }],
@@ -782,8 +782,8 @@ mod tests {
         let index = GraphIndex::new(&snapshot()).unwrap();
         assert_eq!(index.triple_count(), 19);
         let triples = index.semantic_triples().join("\n");
-        assert!(triples.contains("urn:neoseq:property:task.status"));
-        assert!(triples.contains("urn:neoseq:default-property:task.priority"));
+        assert!(triples.contains("urn:neoseq:property:builtin.task-status"));
+        assert!(triples.contains("urn:neoseq:default-property:builtin.task-priority"));
         assert!(triples.contains("missing-page"));
         assert!(triples.contains(xsd::BOOLEAN.as_str()));
         assert!(triples.contains(xsd::DOUBLE.as_str()));
@@ -798,8 +798,8 @@ mod tests {
             "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
              PREFIX prop: <urn:neoseq:property:>\n\
              SELECT ?block ?deadline WHERE {\n\
-               ?block a neo:Block; prop:task.status \"todo\";\n\
-                 prop:task.deadline ?deadline; neo:content ?content.\n\
+               ?block a neo:Block; prop:builtin.task-status \"todo\";\n\
+                 prop:builtin.task-deadline ?deadline; neo:content ?content.\n\
                FILTER(?deadline <= ?today && neo:matchesText(?content, ?needle))\n\
              } ORDER BY ?block",
         );
@@ -867,7 +867,7 @@ mod tests {
         incremental.refresh(&source).unwrap();
         let rebuilt = GraphIndex::new(&source).unwrap();
         let query = request(
-            "PREFIX prop: <urn:neoseq:property:> SELECT ?task ?status WHERE { ?task prop:task.status ?status } ORDER BY ?task",
+            "PREFIX prop: <urn:neoseq:property:> SELECT ?task ?status WHERE { ?task prop:builtin.task-status ?status } ORDER BY ?task",
         );
         let QueryResult::Select {
             variables: incremental_variables,

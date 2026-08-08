@@ -1,6 +1,6 @@
 // Daily journal. "Today" is computed in the configured timezone; the idempotent
 // EnsureJournal command creates the page on first visit. The page is then located
-// by its journal.date property, so identity stays with the core (deterministic
+// by its builtin.journal-date property, so identity stays with the core (deterministic
 // PageId), not with the client.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";

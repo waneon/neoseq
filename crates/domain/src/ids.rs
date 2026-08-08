@@ -16,6 +16,8 @@ pub enum IdError {
     Control { kind: &'static str },
     #[error("invalid local date: {0}")]
     InvalidDate(String),
+    #[error("property key must match `(builtin|user).<lowercase-kebab-name>`: {0}")]
+    InvalidPropertyKey(String),
 }
 
 fn validate(value: &str, kind: &'static str, max: usize) -> Result<(), IdError> {
@@ -112,12 +114,44 @@ impl PropertyKey {
                 kind: "property key with surrounding whitespace",
             });
         }
+        if !valid_property_key(&value) {
+            return Err(IdError::InvalidPropertyKey(value));
+        }
         Ok(Self(value))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+fn valid_property_key(value: &str) -> bool {
+    let Some((namespace, name)) = value.split_once('.') else {
+        return false;
+    };
+    matches!(namespace, "builtin" | "user") && valid_property_name(name)
+}
+
+fn valid_property_name(name: &str) -> bool {
+    let mut segments = name.split('-');
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    if !first.starts_with(|character: char| character.is_ascii_lowercase()) {
+        return false;
+    }
+    if !first
+        .chars()
+        .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+    {
+        return false;
+    }
+    segments.all(|segment| {
+        !segment.is_empty()
+            && segment
+                .chars()
+                .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+    })
 }
 
 impl fmt::Display for PropertyKey {
@@ -221,5 +255,25 @@ mod tests {
         let one = PageId::journal(&GraphId::new("one").unwrap(), &date);
         assert_eq!(one, PageId::journal(&GraphId::new("one").unwrap(), &date));
         assert_ne!(one, PageId::journal(&GraphId::new("two").unwrap(), &date));
+    }
+
+    #[test]
+    fn property_keys_use_one_owned_namespace_and_a_kebab_name() {
+        for valid in ["builtin.task-status", "user.rating", "user.crm-id2"] {
+            assert!(PropertyKey::new(valid).is_ok(), "{valid}");
+        }
+        for invalid in [
+            "tag",
+            "task.status",
+            "custom.rating",
+            "user.task.status",
+            "user.Task",
+            "user.-rating",
+            "user.rating-",
+            "user.two--words",
+            "user.2rating",
+        ] {
+            assert!(PropertyKey::new(invalid).is_err(), "{invalid}");
+        }
     }
 }

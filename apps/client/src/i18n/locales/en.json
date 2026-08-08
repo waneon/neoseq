@@ -382,6 +382,7 @@
   "validation.emptyPage": "Page reference cannot be empty.",
   "validation.finiteNumber": "Number must be finite.",
   "validation.keyLength": "Property key exceeds 128 bytes.",
+  "validation.keyFormat": "Property keys must use builtin.* or user.* followed by a lowercase kebab-case name.",
   "validation.propertyCardinality": "“{key}” is a {cardinality} property.",
   "validation.propertyStrings": "“{key}” allows: {values}.",
   "validation.propertyTarget": "“{key}” cannot be written on a {target}.",

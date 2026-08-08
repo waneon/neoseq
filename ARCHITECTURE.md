@@ -108,8 +108,10 @@ deletion, retry, and test controls are deliberately outside CorePort.
 - Property values are atomic tagged scalars: number, string, page reference,
   checkbox, or local date. Repeated values have stable slots.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
-  current v1 registry shared by core and client. Unknown user properties remain
-  readable and editable according to namespace rules.
+  current v1 registry shared by core and client. Property keys have exactly two
+  levels: application-defined `builtin.<name>` and graph-level user-defined
+  `user.<name>`. Unknown built-ins remain readable but core-managed; unknown user
+  properties remain readable and editable.
 - Deleting a page or tag is a soft delete. References remain resolvable as
   tombstones until a later lifecycle policy removes them.
 - RDF triples, text caches, query plans, UI selection, and connection state are

@@ -14,11 +14,11 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
-  const status = stringValue(block.properties, "task.status");
-  const priority = stringValue(block.properties, "task.priority");
-  const scheduled = dateValue(block.properties, "task.scheduled");
-  const deadline = dateValue(block.properties, "task.deadline");
-  const isTask = block.properties.some((entry) => entry.key.startsWith("task."));
+  const status = stringValue(block.properties, "builtin.task-status");
+  const priority = stringValue(block.properties, "builtin.task-priority");
+  const scheduled = dateValue(block.properties, "builtin.task-scheduled");
+  const deadline = dateValue(block.properties, "builtin.task-deadline");
+  const isTask = block.properties.some((entry) => entry.key.startsWith("builtin.task-"));
   if (!isTask) return null;
 
   // A rejected write leaves the control showing the authoritative value again,
@@ -64,7 +64,7 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
                 | "task.status.done"),
             })),
           ]}
-          onValueChange={(value) => void set("task.status", { type: "string", value })}
+          onValueChange={(value) => void set("builtin.task-status", { type: "string", value })}
         />
       </label>
       {(priority !== undefined || status !== undefined) && (
@@ -87,7 +87,7 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
                   | "task.priority.high"),
               })),
             ]}
-            onValueChange={(value) => void set("task.priority", { type: "string", value })}
+            onValueChange={(value) => void set("builtin.task-priority", { type: "string", value })}
           />
         </label>
       )}
@@ -99,7 +99,7 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
             aria-label={message("task.scheduledLabel")}
             value={scheduled}
             disabled={readonly}
-            onChange={(event) => event.target.value && void set("task.scheduled", { type: "date", value: event.target.value })}
+            onChange={(event) => event.target.value && void set("builtin.task-scheduled", { type: "date", value: event.target.value })}
           />
         </label>
       )}
@@ -111,7 +111,7 @@ export function TaskProjection({ pageId, block }: { pageId: string; block: Block
             aria-label={message("task.deadlineLabel")}
             value={deadline}
             disabled={readonly}
-            onChange={(event) => event.target.value && void set("task.deadline", { type: "date", value: event.target.value })}
+            onChange={(event) => event.target.value && void set("builtin.task-deadline", { type: "date", value: event.target.value })}
           />
         </label>
       )}

@@ -170,7 +170,7 @@ describe("outliner keyboard commands", () => {
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: original.id },
-      key: "task.status",
+      key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });
     const user = userEvent.setup();
@@ -185,7 +185,7 @@ describe("outliner keyboard commands", () => {
       expect(page.blocks[1].id).toBe(original.id);
       expect(page.blocks[1].properties).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          key: "task.status",
+          key: "builtin.task-status",
           value: { type: "string", value: "doing" },
         }),
       ]));
@@ -198,7 +198,7 @@ describe("outliner keyboard commands", () => {
       expect(page.blocks[0].id).toBe(original.id);
       expect(page.blocks[0].markdown).toBe("alpha");
       expect(page.blocks[0].properties).toEqual(expect.arrayContaining([
-        expect.objectContaining({ key: "task.status" }),
+        expect.objectContaining({ key: "builtin.task-status" }),
       ]));
     });
   });

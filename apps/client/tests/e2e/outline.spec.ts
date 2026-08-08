@@ -110,9 +110,9 @@ test("leading Enter keeps block properties with the original identity and undoes
 
   await page.keyboard.press("ControlOrMeta+P");
   const picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "task.status", exact: true }).click();
+  await picker.getByRole("option", { name: "builtin.task-status", exact: true }).click();
   await picker.getByRole("option", { name: "doing", exact: true }).click();
-  await expect(page.getByTestId("prop-task.status")).toContainText("doing");
+  await expect(page.getByTestId("prop-builtin.task-status")).toContainText("doing");
 
   const textarea = page.getByLabel("Block text");
   await textarea.evaluate((element) => {
@@ -121,12 +121,12 @@ test("leading Enter keeps block properties with the original identity and undoes
   await page.keyboard.press("Enter");
   await expect.poll(() => blockTexts(page)).toEqual(["", "alpha"]);
   const rows = page.getByTestId("outline-row");
-  await expect(rows.nth(0).getByTestId("prop-task.status")).toHaveCount(0);
-  await expect(rows.nth(1).getByTestId("prop-task.status")).toContainText("doing");
+  await expect(rows.nth(0).getByTestId("prop-builtin.task-status")).toHaveCount(0);
+  await expect(rows.nth(1).getByTestId("prop-builtin.task-status")).toContainText("doing");
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => blockTexts(page)).toEqual(["alpha"]);
-  await expect(rows.nth(0).getByTestId("prop-task.status")).toContainText("doing");
+  await expect(rows.nth(0).getByTestId("prop-builtin.task-status")).toContainText("doing");
 });
 
 test("undo and redo reconcile text in the focused block", async ({ page }) => {

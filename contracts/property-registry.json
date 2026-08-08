@@ -1,47 +1,47 @@
 {
   "schema": 1,
   "properties": {
-    "query.source": {
+    "builtin.query-source": {
       "shape": {"single": {"string": "any"}},
       "placements": {"page": "user", "block": "user"}
     },
-    "query.language": {
+    "builtin.query-language": {
       "shape": {"single": {"string": {"one_of": ["sparql-1.1/neoseq-v1"]}}},
       "placements": {"page": "user", "block": "user"}
     },
-    "task.status": {
+    "builtin.task-status": {
       "shape": {"single": {"string": {"suggested": ["todo", "doing", "done", "cancelled"]}}},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
-    "task.scheduled": {
+    "builtin.task-scheduled": {
       "shape": {"single": "date"},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
-    "task.deadline": {
+    "builtin.task-deadline": {
       "shape": {"single": "date"},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
-    "task.priority": {
+    "builtin.task-priority": {
       "shape": {"single": {"string": {"suggested": ["low", "medium", "high"]}}},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
-    "page.kind": {
+    "builtin.page-kind": {
       "shape": {"single": {"string": {"one_of": ["regular", "journal"]}}},
       "placements": {"page": "core"}
     },
-    "journal.date": {
+    "builtin.journal-date": {
       "shape": {"single": "date"},
       "placements": {"page": "core"}
     },
-    "system.created-at": {
+    "builtin.created-at": {
       "shape": {"single": {"string": "any"}},
       "placements": {"page": "core", "block": "core", "tag_metadata": "core"}
     },
-    "system.updated-at": {
+    "builtin.updated-at": {
       "shape": {"single": {"string": "any"}},
       "placements": {"page": "core", "block": "core", "tag_metadata": "core"}
     },
-    "system.deleted-at": {
+    "builtin.deleted-at": {
       "shape": {"single": {"string": "any"}},
       "placements": {"page": "core", "tag_metadata": "core"}
     }

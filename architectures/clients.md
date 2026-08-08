@@ -83,10 +83,11 @@ imported directly by the client and Rust domain. Placement access determines
 whether a property is hidden, read-only, or editable. Sparse renderer maps add
 specialized controls without becoming a schema authority:
 
-- `query.source` provides a SPARQL editor and result view;
-- `task.*` provides workflow, priority, and date controls;
-- `system.*` appears as read-only page information;
-- unknown keys use the generic typed editor;
+- `builtin.query-source` provides a SPARQL editor and result view;
+- `builtin.task-*` provides workflow, priority, and date controls;
+- registered lifecycle and page built-ins appear as read-only page information;
+- unknown `user.*` keys use the generic typed editor, while unknown
+  `builtin.*` keys are rendered generically but remain read-only;
 - tag membership remains a separate structural picker.
 
 Removing a specialized renderer never hides or destroys its values. New

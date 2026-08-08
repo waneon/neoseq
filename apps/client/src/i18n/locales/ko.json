@@ -382,6 +382,7 @@
   "validation.emptyPage": "페이지 참조를 입력하세요.",
   "validation.finiteNumber": "숫자는 유한한 값이어야 합니다.",
   "validation.keyLength": "속성 키가 128바이트를 초과합니다.",
+  "validation.keyFormat": "속성 키는 builtin.* 또는 user.* 뒤에 영문 소문자 케밥 표기 이름을 사용해야 합니다.",
   "validation.propertyCardinality": "“{key}”은(는) {cardinality} 속성입니다.",
   "validation.propertyStrings": "“{key}”에 허용되는 값: {values}.",
   "validation.propertyTarget": "“{key}”은(는) {target}에 쓸 수 없습니다.",

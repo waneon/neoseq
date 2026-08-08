@@ -140,8 +140,8 @@ PREFIX prop: <urn:neoseq:property:>
 
 SELECT ?block ?deadline WHERE {
   ?block a neo:Block ;
-         prop:task.status "todo" ;
-         prop:task.deadline ?deadline ;
+         prop:builtin.task-status "todo" ;
+         prop:builtin.task-deadline ?deadline ;
          neo:content ?content .
   FILTER (?deadline < ?today && neo:matchesText(?content, ?needle))
 }
@@ -149,8 +149,8 @@ ORDER BY ?deadline ?block
 LIMIT 100
 ```
 
-A block is executable when it has `query.source: String`. New query blocks also write
-`query.language: "sparql-1.1/neoseq-v1"`; a missing language uses that default.
+A block is executable when it has `builtin.query-source: String`. New query blocks also write
+`builtin.query-language: "sparql-1.1/neoseq-v1"`; a missing language uses that default.
 Source and language synchronize as ordinary properties.
 Plans, results, parameters, and editor state do not.
 

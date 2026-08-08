@@ -107,15 +107,15 @@ export function pageTitle(page: PageSnapshot): string {
 }
 
 export function pageKind(page: PageSnapshot): "regular" | "journal" {
-  return stringValue(page.properties, "page.kind") === "journal" ? "journal" : "regular";
+  return stringValue(page.properties, "builtin.page-kind") === "journal" ? "journal" : "regular";
 }
 
 export function journalDate(page: PageSnapshot): string | undefined {
-  return dateValue(page.properties, "journal.date");
+  return dateValue(page.properties, "builtin.journal-date");
 }
 
 export function isDeleted(page: PageSnapshot): boolean {
-  return singleValue(page.properties, "system.deleted-at") !== undefined;
+  return singleValue(page.properties, "builtin.deleted-at") !== undefined;
 }
 
 export function findPage(snapshot: GraphSnapshot, pageId: string): PageSnapshot | undefined {

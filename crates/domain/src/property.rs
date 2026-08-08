@@ -190,14 +190,14 @@ const QUERY_LANGUAGES: &[&str] = &["sparql-1.1/neoseq-v1"];
 
 pub const REGISTRY: &[(&str, PropertySpec)] = &[
     (
-        "query.source",
+        "builtin.query-source",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             placements: USER_PAGE_BLOCK,
         },
     ),
     (
-        "query.language",
+        "builtin.query-language",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::OneOf(
                 QUERY_LANGUAGES,
@@ -206,7 +206,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         },
     ),
     (
-        "task.status",
+        "builtin.task-status",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
                 TASK_STATUSES,
@@ -215,21 +215,21 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         },
     ),
     (
-        "task.scheduled",
+        "builtin.task-scheduled",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
     (
-        "task.deadline",
+        "builtin.task-deadline",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
     (
-        "task.priority",
+        "builtin.task-priority",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
                 TASK_PRIORITIES,
@@ -238,35 +238,35 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         },
     ),
     (
-        "page.kind",
+        "builtin.page-kind",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::OneOf(PAGE_KINDS))),
             placements: CORE_PAGE,
         },
     ),
     (
-        "journal.date",
+        "builtin.journal-date",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
             placements: CORE_PAGE,
         },
     ),
     (
-        "system.created-at",
+        "builtin.created-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             placements: CORE_PAGE_BLOCK_TAG,
         },
     ),
     (
-        "system.updated-at",
+        "builtin.updated-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             placements: CORE_PAGE_BLOCK_TAG,
         },
     ),
     (
-        "system.deleted-at",
+        "builtin.deleted-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             placements: CORE_PAGE_TAG,
@@ -307,8 +307,6 @@ pub enum PropertyError {
     NonFiniteNumber,
     #[error("property string exceeds 65536 bytes")]
     StringTooLong,
-    #[error("{0} is structural and cannot be stored as a property")]
-    StructuralKey(String),
     #[error("property {key} is not valid on {target:?}")]
     InvalidTarget { key: String, target: PropertyTarget },
     #[error("property {0} is managed by the core")]
@@ -321,9 +319,6 @@ pub fn validate_property(
     cardinality: Cardinality,
 ) -> Result<(), PropertyError> {
     value.validate_shape()?;
-    if matches!(key.as_str(), "tag" | "page.title" | "block.page") {
-        return Err(PropertyError::StructuralKey(key.to_string()));
-    }
     let Some(item) = definition(key) else {
         return Ok(());
     };
@@ -360,22 +355,8 @@ pub fn validate_property_target(
     key: &PropertyKey,
     target: PropertyTarget,
 ) -> Result<(), PropertyError> {
-    if matches!(key.as_str(), "tag" | "page.title" | "block.page") {
-        return Err(PropertyError::StructuralKey(key.to_string()));
-    }
     let valid = definition(key).map_or_else(
-        || match target {
-            // Unknown page and system keys remain readable for forward
-            // compatibility; the write policy below still reserves system.*.
-            PropertyTarget::Page => true,
-            PropertyTarget::Block => {
-                !key.as_str().starts_with("page.") && !key.as_str().starts_with("system.")
-            }
-            PropertyTarget::TagMetadata => key.as_str().starts_with("system."),
-            PropertyTarget::TagDefault => {
-                !key.as_str().starts_with("page.") && !key.as_str().starts_with("system.")
-            }
-        },
+        || key.as_str().starts_with("builtin.") || target != PropertyTarget::TagMetadata,
         |item| item.access(target).is_some(),
     );
     if valid {
@@ -397,7 +378,7 @@ pub fn validate_property_write(
         if item.access(target) == Some(PropertyAccess::Core) {
             return Err(PropertyError::CoreManaged(key.to_string()));
         }
-    } else if key.as_str().starts_with("system.") {
+    } else if key.as_str().starts_with("builtin.") {
         return Err(PropertyError::CoreManaged(key.to_string()));
     }
     Ok(())
@@ -449,7 +430,7 @@ mod tests {
     fn validates_well_known_contracts_and_preserves_unknown_types() {
         assert!(
             validate_property(
-                &key("task.status"),
+                &key("builtin.task-status"),
                 &PropertyValue::String("done".into()),
                 Cardinality::Single
             )
@@ -457,7 +438,7 @@ mod tests {
         );
         assert!(
             validate_property(
-                &key("task.status"),
+                &key("builtin.task-status"),
                 &PropertyValue::String("later".into()),
                 Cardinality::Single
             )
@@ -465,15 +446,7 @@ mod tests {
         );
         assert!(
             validate_property(
-                &key("tag"),
-                &PropertyValue::Page(PageId::new("p").unwrap()),
-                Cardinality::Set
-            )
-            .is_err()
-        );
-        assert!(
-            validate_property(
-                &key("future.number"),
+                &key("user.number"),
                 &PropertyValue::Number(3.5),
                 Cardinality::Set
             )
@@ -484,51 +457,70 @@ mod tests {
     #[test]
     fn only_declared_feature_and_unknown_defaults_are_allowed() {
         assert!(
-            validate_default(&key("task.priority"), &PropertyValue::String("high".into())).is_ok()
+            validate_default(
+                &key("builtin.task-priority"),
+                &PropertyValue::String("high".into())
+            )
+            .is_ok()
         );
         assert!(
-            validate_default(&key("query.source"), &PropertyValue::String("query".into())).is_err()
+            validate_default(
+                &key("builtin.query-source"),
+                &PropertyValue::String("query".into())
+            )
+            .is_err()
         );
-        assert!(validate_default(&key("custom.flag"), &PropertyValue::Checkbox(true)).is_ok());
+        assert!(validate_default(&key("user.flag"), &PropertyValue::Checkbox(true)).is_ok());
         assert!(
-            validate_default(&key("tag"), &PropertyValue::Page(PageId::new("p").unwrap())).is_err()
+            validate_default(&key("builtin.future"), &PropertyValue::String("x".into())).is_err()
         );
-        assert!(validate_default(&key("page.title"), &PropertyValue::String("x".into())).is_err());
     }
 
     #[test]
     fn registry_placements_own_target_and_access_policy() {
-        assert!(validate_property_write(&key("task.status"), PropertyTarget::Page).is_ok());
-        assert!(validate_property_write(&key("task.status"), PropertyTarget::Block).is_ok());
-        assert!(validate_property_write(&key("task.status"), PropertyTarget::TagDefault).is_ok());
+        assert!(validate_property_write(&key("builtin.task-status"), PropertyTarget::Page).is_ok());
         assert!(
-            validate_property_target(&key("query.source"), PropertyTarget::TagDefault).is_err()
+            validate_property_write(&key("builtin.task-status"), PropertyTarget::Block).is_ok()
         );
         assert!(
-            validate_property_target(&key("system.created-at"), PropertyTarget::TagMetadata)
-                .is_ok()
-        );
-        assert!(validate_property_target(&key("system.created-at"), PropertyTarget::Block).is_ok());
-        assert!(
-            validate_property_target(&key("system.updated-at"), PropertyTarget::TagMetadata)
+            validate_property_write(&key("builtin.task-status"), PropertyTarget::TagDefault)
                 .is_ok()
         );
         assert!(
-            validate_property_target(&key("system.deleted-at"), PropertyTarget::Block).is_err()
+            validate_property_target(&key("builtin.query-source"), PropertyTarget::TagDefault)
+                .is_err()
         );
-        assert!(validate_property_write(&key("page.kind"), PropertyTarget::Page).is_err());
-        assert!(validate_property_write(&key("system.deleted-at"), PropertyTarget::Page).is_err());
-        assert!(validate_property_target(&key("page.custom"), PropertyTarget::Block).is_err());
-        assert!(validate_property_write(&key("custom.value"), PropertyTarget::Block).is_ok());
-        assert!(validate_property_target(&key("system.future"), PropertyTarget::Page).is_ok());
-        assert!(validate_property_write(&key("system.future"), PropertyTarget::Page).is_err());
+        assert!(
+            validate_property_target(&key("builtin.created-at"), PropertyTarget::TagMetadata)
+                .is_ok()
+        );
+        assert!(
+            validate_property_target(&key("builtin.created-at"), PropertyTarget::Block).is_ok()
+        );
+        assert!(
+            validate_property_target(&key("builtin.updated-at"), PropertyTarget::TagMetadata)
+                .is_ok()
+        );
+        assert!(
+            validate_property_target(&key("builtin.deleted-at"), PropertyTarget::Block).is_err()
+        );
+        assert!(validate_property_write(&key("builtin.page-kind"), PropertyTarget::Page).is_err());
+        assert!(validate_property_write(&key("builtin.deleted-at"), PropertyTarget::Page).is_err());
+        assert!(validate_property_write(&key("user.value"), PropertyTarget::Block).is_ok());
+        assert!(validate_property_target(&key("user.value"), PropertyTarget::TagMetadata).is_err());
+        assert!(validate_property_target(&key("builtin.future"), PropertyTarget::Page).is_ok());
+        assert!(validate_property_target(&key("builtin.future"), PropertyTarget::Block).is_ok());
+        assert!(
+            validate_property_target(&key("builtin.future"), PropertyTarget::TagMetadata).is_ok()
+        );
+        assert!(validate_property_write(&key("builtin.future"), PropertyTarget::Page).is_err());
     }
 
     #[test]
     fn string_policy_distinguishes_suggestions_from_restrictions() {
         assert!(
             validate_property(
-                &key("task.status"),
+                &key("builtin.task-status"),
                 &PropertyValue::String("waiting".into()),
                 Cardinality::Single,
             )
@@ -536,7 +528,7 @@ mod tests {
         );
         assert!(
             validate_property(
-                &key("query.language"),
+                &key("builtin.query-language"),
                 &PropertyValue::String("future-query-language".into()),
                 Cardinality::Single,
             )

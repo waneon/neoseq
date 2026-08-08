@@ -33,20 +33,20 @@ export const REGISTRY = registryContract.properties as Record<string, PropertySp
 
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 
-const STRUCTURAL_KEYS = new Set(["tag", "page.title", "block.page"]);
+const PROPERTY_KEY_PATTERN = /^(?:builtin|user)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const FEATURE_RENDERERS = new Set([
-  "query.source",
-  "query.language",
-  "task.status",
-  "task.scheduled",
-  "task.deadline",
-  "task.priority",
+  "builtin.query-source",
+  "builtin.query-language",
+  "builtin.task-status",
+  "builtin.task-scheduled",
+  "builtin.task-deadline",
+  "builtin.task-priority",
 ]);
 const METADATA_RENDERERS = new Set([
-  "page.kind",
-  "journal.date",
-  "system.created-at",
-  "system.updated-at",
+  "builtin.page-kind",
+  "builtin.journal-date",
+  "builtin.created-at",
+  "builtin.updated-at",
 ]);
 
 export function definition(key: string): PropertySpec | undefined {
@@ -84,7 +84,6 @@ export function visibilityOf(key: string): PropertyVisibility {
   if (FEATURE_RENDERERS.has(key)) return "feature_and_generic";
   const spec = definition(key);
   if (spec && !hasUserPlacement(spec)) return "hidden";
-  if (!spec && key.startsWith("system.")) return "hidden";
   return "generic";
 }
 
@@ -96,8 +95,7 @@ export function isGenericProperty(key: string): boolean {
 export function canUserWrite(key: string, target: "page" | "block"): boolean {
   const spec = definition(key);
   if (spec) return spec.placements[target] === "user";
-  if (STRUCTURAL_KEYS.has(key) || key.startsWith("system.")) return false;
-  return target === "page" || !key.startsWith("page.");
+  return PROPERTY_KEY_PATTERN.test(key) && key.startsWith("user.");
 }
 
 export function cardinalityOf(key: string): "single" | "repeated" {
@@ -114,6 +112,7 @@ export interface ValidationIssue {
     | "empty_page"
     | "finite_number"
     | "key_length"
+    | "key_format"
     | "property_cardinality"
     | "property_strings"
     | "property_target"
@@ -132,23 +131,29 @@ export function validateKey(key: string): ValidationIssue | null {
   if (new TextEncoder().encode(key).length > 128) {
     return { code: "key_length", message: "Property key exceeds 128 bytes." };
   }
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(key)) return { code: "control_character", message: "Property key contains a control character." };
+  if (!PROPERTY_KEY_PATTERN.test(key)) {
+    return {
+      code: "key_format",
+      message: "Property key must use builtin.* or user.* with a lowercase kebab-case name.",
+    };
+  }
   const spec = definition(key);
-  if (STRUCTURAL_KEYS.has(key) || (spec && !hasUserPlacement(spec)) || key.startsWith("system.")) {
+  if ((spec && !hasUserPlacement(spec)) || (!spec && key.startsWith("builtin."))) {
     return {
       code: "reserved_key",
       message: `“${key}” is managed by the core.`,
       values: { key },
     };
   }
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(key)) return { code: "control_character", message: "Property key contains a control character." };
   return null;
 }
 
 export function validateWriteTarget(key: string, target: "page" | "block"): ValidationIssue | null {
   if (canUserWrite(key, target)) return null;
   const spec = definition(key);
-  if (STRUCTURAL_KEYS.has(key) || spec?.placements[target] === "core" || key.startsWith("system.")) {
+  if (spec?.placements[target] === "core" || key.startsWith("builtin.")) {
     return { code: "reserved_key", message: `“${key}” is managed by the core.`, values: { key } };
   }
   return {
@@ -203,7 +208,7 @@ export function validateDefault(key: string, value: PropertyValue): ValidationIs
   const spec = definition(key);
   const canDefault = spec
     ? spec.placements.tag_default === "user"
-    : !STRUCTURAL_KEYS.has(key) && !key.startsWith("page.") && !key.startsWith("system.");
+    : PROPERTY_KEY_PATTERN.test(key) && key.startsWith("user.");
   if (!canDefault) {
     return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
   }

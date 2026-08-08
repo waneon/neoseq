@@ -52,61 +52,61 @@ describe("property picker", () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
     const entity = { kind: "page", id: "home" } as const;
-    await session.execute({ type: "set_property", entity, key: "custom.text", value: { type: "string", value: "hello" } });
-    await session.execute({ type: "set_property", entity, key: "custom.count", value: { type: "number", value: 4 } });
-    await session.execute({ type: "set_property", entity, key: "custom.flag", value: { type: "checkbox", value: false } });
-    await session.execute({ type: "set_property", entity, key: "custom.when", value: { type: "date", value: "2026-08-03" } });
-    await session.execute({ type: "set_property", entity, key: "custom.link", value: { type: "page", value: "home" } });
+    await session.execute({ type: "set_property", entity, key: "user.text", value: { type: "string", value: "hello" } });
+    await session.execute({ type: "set_property", entity, key: "user.count", value: { type: "number", value: 4 } });
+    await session.execute({ type: "set_property", entity, key: "user.flag", value: { type: "checkbox", value: false } });
+    await session.execute({ type: "set_property", entity, key: "user.when", value: { type: "date", value: "2026-08-03" } });
+    await session.execute({ type: "set_property", entity, key: "user.link", value: { type: "page", value: "home" } });
 
-    await user.click(await screen.findByTestId("prop-custom.text"));
+    await user.click(await screen.findByTestId("prop-user.text"));
     let picker = await screen.findByTestId("property-picker");
-    const text = within(picker).getByLabelText("custom.text value");
+    const text = within(picker).getByLabelText("user.text value");
     await user.clear(text);
     await user.type(text, "updated{enter}");
-    await waitFor(() => expect(screen.getByTestId("prop-custom.text")).toHaveTextContent("updated"));
+    await waitFor(() => expect(screen.getByTestId("prop-user.text")).toHaveTextContent("updated"));
 
-    await user.click(screen.getByTestId("prop-custom.flag"));
+    await user.click(screen.getByTestId("prop-user.flag"));
     picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: "Checked" }));
-    await waitFor(() => expect(screen.getByTestId("prop-custom.flag")).toHaveTextContent("yes"));
+    await waitFor(() => expect(screen.getByTestId("prop-user.flag")).toHaveTextContent("yes"));
 
-    await user.click(screen.getByTestId("prop-custom.count"));
+    await user.click(screen.getByTestId("prop-user.count"));
     picker = await screen.findByTestId("property-picker");
-    const count = within(picker).getByLabelText("custom.count value");
+    const count = within(picker).getByLabelText("user.count value");
     await user.clear(count);
     await user.type(count, "7");
     await user.click(within(picker).getByTestId("property-set"));
-    await waitFor(() => expect(screen.getByTestId("prop-custom.count")).toHaveTextContent("7"));
+    await waitFor(() => expect(screen.getByTestId("prop-user.count")).toHaveTextContent("7"));
 
-    await user.click(screen.getByTestId("prop-custom.when"));
-    expect(within(await screen.findByTestId("property-picker")).getByLabelText("custom.when value"))
+    await user.click(screen.getByTestId("prop-user.when"));
+    expect(within(await screen.findByTestId("property-picker")).getByLabelText("user.when value"))
       .toHaveValue("2026-08-03");
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: /custom\.link/ }));
+    await user.click(within(picker).getByRole("option", { name: /user\.link/ }));
     expect(within(picker).getByText("Home")).toBeInTheDocument();
   });
 
   it("creates and removes a custom property through the picker", async () => {
     await mountPage();
     const user = userEvent.setup();
-    await createCustomProperty(user, "future.metric", "number", "42");
-    const row = await screen.findByTestId("prop-future.metric");
+    await createCustomProperty(user, "user.metric", "number", "42");
+    const row = await screen.findByTestId("prop-user.metric");
     expect(row).toHaveTextContent("42");
 
     await user.click(row);
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("button", { name: "Clear property" }));
-    await waitFor(() => expect(screen.queryByTestId("prop-future.metric")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("prop-user.metric")).not.toBeInTheDocument());
   });
 
-  it("surfaces validation errors for structural property keys", async () => {
+  it("surfaces validation errors for property keys outside the owned namespaces", async () => {
     await mountPage();
     const user = userEvent.setup();
     const picker = await openPagePicker(user);
-    await user.type(within(picker).getByLabelText("Property key"), "page.title");
+    await user.type(within(picker).getByLabelText("Property key"), "rating");
     expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
-      "reserved and cannot be edited as a property",
+      "must use builtin.* or user.*",
     );
   });
 
@@ -114,7 +114,7 @@ describe("property picker", () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
     const picker = await openPagePicker(user);
-    await user.type(within(picker).getByLabelText("Property key"), "system.deleted-at");
+    await user.type(within(picker).getByLabelText("Property key"), "builtin.future-field");
     expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
       "reserved and cannot be edited as a property",
     );
@@ -122,7 +122,7 @@ describe("property picker", () => {
     await expect(session.execute({
       type: "set_property",
       entity: { kind: "page", id: "home" },
-      key: "page.kind",
+      key: "builtin.page-kind",
       value: { type: "string", value: "journal" },
     })).rejects.toThrow("managed by the core");
   });
@@ -144,9 +144,9 @@ describe("property picker", () => {
     await user.keyboard("{Enter}");
     const picker = await screen.findByTestId("property-picker");
     expect(textarea).toHaveValue("");
-    await user.click(within(picker).getByRole("option", { name: "task.status" }));
+    await user.click(within(picker).getByRole("option", { name: "builtin.task-status" }));
     await user.click(within(picker).getByRole("option", { name: "doing" }));
-    await waitFor(() => expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"));
+    await waitFor(() => expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"));
   });
 
   it("edits a well-known enum directly from its inline row", async () => {
@@ -156,13 +156,13 @@ describe("property picker", () => {
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: "b-1" },
-      key: "task.status",
+      key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });
-    await user.click(await screen.findByTestId("prop-task.status"));
+    await user.click(await screen.findByTestId("prop-builtin.task-status"));
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: "doing" }));
-    await waitFor(() => expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"));
+    await waitFor(() => expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"));
 
   });
 });

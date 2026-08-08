@@ -399,6 +399,7 @@ export interface MessageArgumentMap {
   "validation.emptyKey": undefined;
   "validation.emptyPage": undefined;
   "validation.finiteNumber": undefined;
+  "validation.keyFormat": undefined;
   "validation.keyLength": undefined;
   "validation.propertyCardinality": { readonly "cardinality": string | number; readonly "key": string | number };
   "validation.propertyStrings": { readonly "key": string | number; readonly "values": string | number };

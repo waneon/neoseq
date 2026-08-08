@@ -87,8 +87,10 @@ property search -> optional custom type -> value edit
 ```
 
 An existing row starts at value edit. A known registry key carries its declared
-type and cardinality. A valid unknown key requires an explicit value type and is
-single-valued under current client rules. Moving between stages writes nothing.
+type and cardinality. A valid unknown `user.*` key requires an explicit value
+type and is single-valued under current client rules. Unknown `builtin.*` keys
+remain visible for forward compatibility but are read-only. Moving between
+stages writes nothing.
 
 Property candidates are bounded to:
 
@@ -140,8 +142,8 @@ The picker maps user intent onto the existing domain commands:
 | Add a repeated member         | `add_repeated_property`    |
 | Remove a repeated member      | `remove_repeated_property` |
 
-The existing `query.source` orchestration remains: a successful source write
-also materializes the default `query.language` when absent. This still uses a
+The existing `builtin.query-source` orchestration remains: a successful source write
+also materializes the default `builtin.query-language` when absent. This still uses a
 second ordinary core command; no batch command or schema change is introduced.
 
 ## Snapshot and Lifecycle Rules
@@ -161,9 +163,10 @@ placements to `entities/properties.ts`; all type, cardinality, string-choice,
 write, and default checks are derived from them. Generic/hidden presentation is
 also derived from placements, while sparse client-owned feature and metadata
 renderer sets provide the exceptional rendering paths.
-Structural and core-managed keys fail in the active stage; target, date, number,
-length, restricted-string, and cardinality checks run before dispatch. The core
-repeats all semantic checks and remains authoritative.
+Keys outside `builtin.*` and `user.*`, malformed two-level keys, and core-managed
+built-ins fail in the active stage; target, date, number, length,
+restricted-string, and cardinality checks run before dispatch. The core repeats
+all semantic checks and remains authoritative.
 
 A rejected session command keeps the active picker state and reports once
 through `features/notify/`. No failed mutation creates a row. Local durability,
@@ -176,8 +179,9 @@ retry, and save-state behavior remain owned by `GraphSession` and its adapter.
 - The picker has a localized dialog name, inputs have key-specific labels, and
   destructive clear/remove actions have explicit accessible names.
 - Slash and shortcut matching stand down during IME composition.
-- User property keys and values are never translated; all chrome comes from the
-  typed English and Korean catalogs.
+- User property keys and values are never translated. Here `user.*` means a
+  user-defined graph property, not private metadata owned by one account. All
+  chrome comes from the typed English and Korean catalogs.
 - Focus returns to the invoking row, textarea, or page subject after close.
 
 ## Dependency Direction

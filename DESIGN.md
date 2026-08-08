@@ -353,7 +353,7 @@ alone, but the fact that chrome and content are typographically different kinds 
 ### The mono voice
 
 `ui-monospace, SFMono-Regular, "SF Mono", Menlo, …` at 12px/550 is reserved for things
-that are *identifiers rather than prose*: property keys (`task.status`), graph ids, and
+that are *identifiers rather than prose*: property keys (`builtin.task-status`), graph ids, and
 ISO dates in the page-info popover. It is never used for body copy, headings, or labels.
 This is the interface admitting which of its strings are addresses and which are language.
 
@@ -738,7 +738,7 @@ are not there. See § Toasts for what is allowed to raise one.
 - The `＋ Add a block` button — the region below the last block *is* the button.
 - All nine uppercase eyebrow pseudo-headings, promoted to real `<h2>`s.
 - The dashed empty-state box on the graph picker.
-- System property rows (`page.kind`, `journal.date`, `system.created-at`) from the
+- System property rows (`builtin.page-kind`, `builtin.journal-date`, `builtin.created-at`) from the
   property list; they are page *info*, not page *properties*.
 - The outline row's `⋯` and the title row's `⋯`. Both menus survive; their trigger is now
   the object they act on. Two permanent buttons for two menus that were always *about*

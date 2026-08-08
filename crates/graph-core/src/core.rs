@@ -796,13 +796,13 @@ impl GraphCore {
                 let bag = self.page_properties(page_id)?;
                 set_single(
                     &bag,
-                    &key("system.deleted-at"),
+                    &key("builtin.deleted-at"),
                     &PropertyValue::String(now.to_owned()),
                 )?;
             }
             Command::RestorePage { page_id } => {
                 self.page_properties(page_id)?
-                    .delete(&single_slot(&key("system.deleted-at")))?;
+                    .delete(&single_slot(&key("builtin.deleted-at")))?;
             }
             Command::EnsureTag { tag_id, name } => {
                 result.created_tag = self.ensure_tag(tag_id, name, now)?;
@@ -814,13 +814,13 @@ impl GraphCore {
             Command::DeleteTag { tag_id } => {
                 set_single(
                     &self.tag_bag(tag_id, "properties")?,
-                    &key("system.deleted-at"),
+                    &key("builtin.deleted-at"),
                     &PropertyValue::String(now.to_owned()),
                 )?;
             }
             Command::RestoreTag { tag_id } => {
                 self.tag_bag(tag_id, "properties")?
-                    .delete(&single_slot(&key("system.deleted-at")))?;
+                    .delete(&single_slot(&key("builtin.deleted-at")))?;
             }
             Command::InsertBlock {
                 page_id,
@@ -1161,7 +1161,7 @@ impl GraphCore {
     fn touch_page(&self, page_id: &PageId, now: &str) -> Result<(), CoreError> {
         set_single(
             &self.page_properties(page_id)?,
-            &key("system.updated-at"),
+            &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
     }
@@ -1174,7 +1174,7 @@ impl GraphCore {
     ) -> Result<(), CoreError> {
         set_single(
             &self.block_bag(page_id, block_id)?,
-            &key("system.updated-at"),
+            &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
     }
@@ -1182,7 +1182,7 @@ impl GraphCore {
     fn touch_tag(&self, tag_id: &TagId, now: &str) -> Result<(), CoreError> {
         set_single(
             &self.tag_bag(tag_id, "properties")?,
-            &key("system.updated-at"),
+            &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
     }
@@ -1210,13 +1210,13 @@ impl GraphCore {
             )?;
             set_single(
                 &properties,
-                &key("page.kind"),
+                &key("builtin.page-kind"),
                 &PropertyValue::String(kind.to_owned()),
             )?;
             if let Some(date) = date {
                 set_single(
                     &properties,
-                    &key("journal.date"),
+                    &key("builtin.journal-date"),
                     &PropertyValue::Date(date),
                 )?;
             }
@@ -1432,7 +1432,7 @@ impl GraphCore {
             &page
                 .ensure_mergeable_map("root")?
                 .ensure_mergeable_map("properties")?,
-            &key("system.deleted-at"),
+            &key("builtin.deleted-at"),
         ) {
             return Err(CoreError::PageDeleted(page_id.clone()));
         }
@@ -1479,7 +1479,7 @@ impl GraphCore {
         let tag = self.require_tag(tag_id)?;
         if bag_contains_key(
             &tag.ensure_mergeable_map("properties")?,
-            &key("system.deleted-at"),
+            &key("builtin.deleted-at"),
         ) {
             return Err(CoreError::TagDeleted(tag_id.clone()));
         }
@@ -1587,7 +1587,7 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
             return;
         };
         let is_journal = snapshot.properties.iter().any(|entry| {
-            entry.key.as_str() == "page.kind"
+            entry.key.as_str() == "builtin.page-kind"
                 && entry.value == PropertyValue::String("journal".to_owned())
         });
         if !is_journal {
@@ -1752,8 +1752,8 @@ fn initialize_created_node(node: &LoroMap, content: &str, now: &str) -> Result<(
 
 fn initialize_lifecycle(properties: &LoroMap, now: &str) -> Result<(), CoreError> {
     let value = PropertyValue::String(now.to_owned());
-    set_single(properties, &key("system.created-at"), &value)?;
-    set_single(properties, &key("system.updated-at"), &value)
+    set_single(properties, &key("builtin.created-at"), &value)?;
+    set_single(properties, &key("builtin.updated-at"), &value)
 }
 
 fn replace_text(text: &LoroText, content: &str) -> Result<(), CoreError> {
@@ -1872,7 +1872,7 @@ fn page_metadata(
             false
         }
     });
-    if bag_has_key(&properties, "system.deleted-at") {
+    if bag_has_key(&properties, "builtin.deleted-at") {
         return None;
     }
     let tags = decode_tag_refs(&root, &format!("page:{page_id}"), quarantined);
@@ -1903,7 +1903,7 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
         };
         let (mut properties, mut issues) = decode_bag_child(&tag, "properties");
         quarantined.append(&mut issues);
-        if bag_has_key(&properties, "system.deleted-at") {
+        if bag_has_key(&properties, "builtin.deleted-at") {
             return;
         }
         properties.retain(|entry| {
@@ -2103,11 +2103,15 @@ mod tests {
         ensure_regular_page(&mut core, "page", &page());
         let before = core.snapshot().unwrap();
 
-        for (index, raw_key) in ["page.kind", "journal.date", "system.deleted-at"]
-            .into_iter()
-            .enumerate()
+        for (index, raw_key) in [
+            "builtin.page-kind",
+            "builtin.journal-date",
+            "builtin.deleted-at",
+        ]
+        .into_iter()
+        .enumerate()
         {
-            let value = if raw_key == "journal.date" {
+            let value = if raw_key == "builtin.journal-date" {
                 PropertyValue::Date(LocalDate::new("2026-08-08").unwrap())
             } else {
                 PropertyValue::String("user-value".into())
@@ -2178,15 +2182,15 @@ mod tests {
             .created_block
             .unwrap();
         let defaults = [
-            ("task.status", PropertyValue::String("todo".into())),
-            ("custom.number", PropertyValue::Number(1.25)),
-            ("custom.text", PropertyValue::String("value".into())),
-            ("custom.flag", PropertyValue::Checkbox(true)),
+            ("builtin.task-status", PropertyValue::String("todo".into())),
+            ("user.number", PropertyValue::Number(1.25)),
+            ("user.text", PropertyValue::String("value".into())),
+            ("user.flag", PropertyValue::Checkbox(true)),
             (
-                "custom.date",
+                "user.date",
                 PropertyValue::Date(LocalDate::new("2026-08-03").unwrap()),
             ),
-            ("custom.page", PropertyValue::Page(page())),
+            ("user.page", PropertyValue::Page(page())),
         ];
         for (index, (raw_key, value)) in defaults.into_iter().enumerate() {
             core.execute(
@@ -2224,7 +2228,7 @@ mod tests {
                         page_id: page(),
                         id: block.clone(),
                     },
-                    key: key("task.status"),
+                    key: key("builtin.task-status"),
                     value: PropertyValue::String("doing".into()),
                 },
             ),
@@ -2250,7 +2254,7 @@ mod tests {
                 "change-default",
                 Command::SetTagDefault {
                     tag_id: tag,
-                    key: key("custom.number"),
+                    key: key("user.number"),
                     value: PropertyValue::Number(9.0),
                 },
             ),
@@ -2266,7 +2270,7 @@ mod tests {
                             page_id: page(),
                             id: block.clone(),
                         },
-                        key: key("custom.labels"),
+                        key: key("user.labels"),
                         value: PropertyValue::String(label.into()),
                     },
                 ),
@@ -2282,7 +2286,7 @@ mod tests {
                         page_id: page(),
                         id: block,
                     },
-                    key: key("custom.labels"),
+                    key: key("user.labels"),
                     value: PropertyValue::String("one".into()),
                 },
             ),
@@ -2294,12 +2298,12 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|entry| entry.key.as_str() == "custom.number")
+                .any(|entry| entry.key.as_str() == "user.number")
         );
         assert!(
             entries
                 .iter()
-                .any(|entry| entry.key.as_str() == "task.status"
+                .any(|entry| entry.key.as_str() == "builtin.task-status"
                     && entry.value == PropertyValue::String("doing".into()))
         );
         assert_eq!(
@@ -2307,12 +2311,12 @@ mod tests {
             [TagId::new("project").unwrap()]
         );
         assert!(entries.iter().any(|entry| {
-            entry.key.as_str() == "custom.number" && entry.value == PropertyValue::Number(1.25)
+            entry.key.as_str() == "user.number" && entry.value == PropertyValue::Number(1.25)
         }));
         assert_eq!(
             entries
                 .iter()
-                .filter(|entry| entry.key.as_str() == "custom.labels")
+                .filter(|entry| entry.key.as_str() == "user.labels")
                 .map(|entry| &entry.value)
                 .collect::<Vec<_>>(),
             vec![&PropertyValue::String("two".into())]
@@ -2420,7 +2424,7 @@ mod tests {
                         page_id: page(),
                         id: target.clone(),
                     },
-                    key: key("task.status"),
+                    key: key("builtin.task-status"),
                     value: PropertyValue::String("doing".into()),
                 },
             ),
@@ -2488,7 +2492,7 @@ mod tests {
         assert_eq!(split.blocks[1].children[0].markdown, "child");
         assert_eq!(split.blocks[1].tags, [project]);
         assert!(split.blocks[1].properties.iter().any(|entry| {
-            entry.key.as_str() == "task.status"
+            entry.key.as_str() == "builtin.task-status"
                 && entry.value == PropertyValue::String("doing".into())
         }));
 
@@ -2880,7 +2884,7 @@ mod tests {
         assert_eq!(snapshot.pages[0].tags.len(), 1);
         assert_eq!(snapshot.pages[0].blocks[0].tags.len(), 1);
         assert!(snapshot.pages[0].blocks[0].properties.iter().any(|entry| {
-            entry.key.as_str() == "system.updated-at"
+            entry.key.as_str() == "builtin.updated-at"
                 && entry.value == PropertyValue::String("t3".into())
         }));
         assert!(
@@ -2908,7 +2912,7 @@ mod tests {
             &snapshot.pages[0].blocks[0].properties,
         ] {
             assert!(properties.iter().any(|entry| {
-                entry.key.as_str() == "system.updated-at"
+                entry.key.as_str() == "builtin.updated-at"
                     && entry.value == PropertyValue::String("t4".into())
             }));
         }
@@ -2934,28 +2938,34 @@ mod tests {
 
         let snapshot = core.snapshot().unwrap();
         assert_eq!(
-            property_string(&snapshot.pages[0].properties, "system.created-at"),
+            property_string(&snapshot.pages[0].properties, "builtin.created-at"),
             Some("t1")
         );
         assert_eq!(
-            property_string(&snapshot.pages[0].properties, "system.updated-at"),
+            property_string(&snapshot.pages[0].properties, "builtin.updated-at"),
             Some("t2")
         );
         assert_eq!(
-            property_string(&snapshot.pages[0].blocks[0].properties, "system.created-at"),
+            property_string(
+                &snapshot.pages[0].blocks[0].properties,
+                "builtin.created-at"
+            ),
             Some("t2")
         );
         assert_eq!(
-            property_string(&snapshot.pages[0].blocks[0].properties, "system.updated-at"),
+            property_string(
+                &snapshot.pages[0].blocks[0].properties,
+                "builtin.updated-at"
+            ),
             Some("t2")
         );
         assert_eq!(snapshot.pages[0].blocks[0].id, block);
         assert_eq!(
-            property_string(&snapshot.tags[0].properties, "system.created-at"),
+            property_string(&snapshot.tags[0].properties, "builtin.created-at"),
             Some("t3")
         );
         assert_eq!(
-            property_string(&snapshot.tags[0].properties, "system.updated-at"),
+            property_string(&snapshot.tags[0].properties, "builtin.updated-at"),
             Some("t3")
         );
 
@@ -2972,11 +2982,11 @@ mod tests {
         .unwrap();
         let snapshot = core.snapshot().unwrap();
         assert_eq!(
-            property_string(&snapshot.tags[0].properties, "system.created-at"),
+            property_string(&snapshot.tags[0].properties, "builtin.created-at"),
             Some("t3")
         );
         assert_eq!(
-            property_string(&snapshot.tags[0].properties, "system.updated-at"),
+            property_string(&snapshot.tags[0].properties, "builtin.updated-at"),
             Some("t4")
         );
 
@@ -2992,15 +3002,15 @@ mod tests {
         .unwrap();
         let deleted_tag = decode_bag(&core.tag_bag(&tag, "properties").unwrap()).0;
         assert_eq!(
-            property_string(&deleted_tag, "system.created-at"),
+            property_string(&deleted_tag, "builtin.created-at"),
             Some("t3")
         );
         assert_eq!(
-            property_string(&deleted_tag, "system.updated-at"),
+            property_string(&deleted_tag, "builtin.updated-at"),
             Some("t5")
         );
         assert_eq!(
-            property_string(&deleted_tag, "system.deleted-at"),
+            property_string(&deleted_tag, "builtin.deleted-at"),
             Some("t5")
         );
 
@@ -3017,14 +3027,14 @@ mod tests {
         let snapshot = core.snapshot().unwrap();
         let restored_tag = &snapshot.tags[0].properties;
         assert_eq!(
-            property_string(restored_tag, "system.created-at"),
+            property_string(restored_tag, "builtin.created-at"),
             Some("t3")
         );
         assert_eq!(
-            property_string(restored_tag, "system.updated-at"),
+            property_string(restored_tag, "builtin.updated-at"),
             Some("t6")
         );
-        assert_eq!(property_string(restored_tag, "system.deleted-at"), None);
+        assert_eq!(property_string(restored_tag, "builtin.deleted-at"), None);
 
         core.execute(
             envelope("delete-page", Command::DeletePage { page_id: page() }),
@@ -3033,15 +3043,15 @@ mod tests {
         .unwrap();
         let deleted_page = decode_bag(&core.page_properties(&page()).unwrap()).0;
         assert_eq!(
-            property_string(&deleted_page, "system.created-at"),
+            property_string(&deleted_page, "builtin.created-at"),
             Some("t1")
         );
         assert_eq!(
-            property_string(&deleted_page, "system.updated-at"),
+            property_string(&deleted_page, "builtin.updated-at"),
             Some("t7")
         );
         assert_eq!(
-            property_string(&deleted_page, "system.deleted-at"),
+            property_string(&deleted_page, "builtin.deleted-at"),
             Some("t7")
         );
 
@@ -3053,14 +3063,14 @@ mod tests {
         let snapshot = core.page_snapshot(&page()).unwrap();
         let restored_page = &snapshot.properties;
         assert_eq!(
-            property_string(restored_page, "system.created-at"),
+            property_string(restored_page, "builtin.created-at"),
             Some("t1")
         );
         assert_eq!(
-            property_string(restored_page, "system.updated-at"),
+            property_string(restored_page, "builtin.updated-at"),
             Some("t8")
         );
-        assert_eq!(property_string(restored_page, "system.deleted-at"), None);
+        assert_eq!(property_string(restored_page, "builtin.deleted-at"), None);
     }
 
     #[test]
@@ -3177,7 +3187,7 @@ mod tests {
             .unwrap();
         set_single(
             &core.block_bag(&page(), &child).unwrap(),
-            &key("block.page"),
+            &key("builtin.page-kind"),
             &PropertyValue::Page(page()),
         )
         .unwrap();
@@ -3189,7 +3199,7 @@ mod tests {
             snapshot.pages[0].blocks[0].children[0]
                 .properties
                 .iter()
-                .all(|entry| entry.key.as_str() != "block.page")
+                .all(|entry| entry.key.as_str() != "builtin.page-kind")
         );
         assert_eq!(snapshot.quarantined.len(), 1);
     }

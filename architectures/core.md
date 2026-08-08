@@ -30,8 +30,8 @@ into Loro operations and Loro changes back into domain DTOs.
 - `LocalDate` is an ISO calendar date without a timezone. The caller resolves
   “today” using the user's configured IANA timezone before invoking the journal
   command.
-- `PropertyKey` is a non-empty normalized Unicode string with a configured
-  length limit. Keys are case-sensitive in schema v1.
+- `PropertyKey` has exactly two levels: `builtin.<name>` or `user.<name>`. Names
+  use lowercase ASCII kebab-case and the complete key is limited to 128 bytes.
 - `PropertyEntry` pairs a key and typed value. A property bag supports both
   single-valued and repeated keys; every entry has a stable internal slot.
 - `PropertyValue` is exactly one of finite number, string, page reference,
@@ -50,11 +50,12 @@ for strings, any/suggested/closed choices. Placements map page, block, tag
 metadata, and tag default targets directly to `user` or `core` access. Their
 absence means the property is invalid there; therefore no separate valid-target,
 write-policy, or defaultability fields exist.
-Unknown user keys accept any of those types on pages and blocks and retain the
-command-selected single or repeated cardinality. `page.*` unknown keys are
-page-only, the `system.*` namespace is core-managed, and structural keys remain
-invalid. ID and date deserialization passes through the same validation as
-direct construction.
+Unknown `user.*` keys accept any supported type on pages and blocks and retain
+the command-selected single or repeated cardinality. Unknown `builtin.*` keys
+remain readable on every property target for forward compatibility but generic
+commands cannot write them. Structural fields cannot be represented as property
+keys. ID, property-key, and date deserialization passes through the same
+validation as direct construction.
 
 ## Command Model
 
@@ -114,25 +115,26 @@ Page/block content and tag membership are explicit node fields. Extensible
 features use well-known properties rather than new persisted fields:
 
 - `tag_refs: Set<TagId>` provides graph-scoped tagging outside properties;
-- `query.source: String` and `query.language: String` define an executable
+- `builtin.query-source: String` and `builtin.query-language: String` define an executable
   query;
-- `task.status: String` represents states such as `todo`, `doing`, and `done`;
-- `task.scheduled: Date`, `task.deadline: Date`, and `task.priority: String`
+- `builtin.task-status: String` represents states such as `todo`, `doing`, and `done`;
+- `builtin.task-scheduled: Date`, `builtin.task-deadline: Date`, and `builtin.task-priority: String`
   drive task views and controls;
-- Node `content`, `page.kind: String`, and `journal.date: Date` define page and
+- Node `content`, `builtin.page-kind: String`, and `builtin.journal-date: Date` define page and
   journal presentation; `content` is block Markdown for non-root nodes.
-- `system.created-at: String` and `system.updated-at: String` are initialized to
+- `builtin.created-at: String` and `builtin.updated-at: String` are initialized to
   the same command timestamp for every page, block, and tag. Direct mutation
   advances `updated-at`; block mutation also touches its owning page, while
   descendant changes do not touch ancestor blocks. Page and tag deletion sets
-  `system.deleted-at` and advances `updated-at`; restore clears `deleted-at` and
+  `builtin.deleted-at` and advances `updated-at`; restore clears `deleted-at` and
   advances `updated-at`. `created-at` is immutable.
 
 The versioned property-definition registry is the semantic authority for value
-shape and placement access. `task.status` and `task.priority` use suggested open
-choices; `page.kind` and `query.language` use closed choices without key-specific
-validation branches. Unknown keys remain valid with any supported
-`PropertyValue`. The registry does not create a second state model: task and
+shape and placement access. `builtin.task-status` and `builtin.task-priority` use suggested open
+choices; `builtin.page-kind` and `builtin.query-language` use closed choices without key-specific
+validation branches. Unknown namespaced keys remain valid with any supported
+`PropertyValue`; their namespace determines whether generic commands may write
+them. The registry does not create a second state model: task and
 query services read and write ordinary entries. Client presentation derives its
 generic and hidden cases from placements, with sparse feature and metadata
 renderer overrides. New identity or relationship semantics still require an
@@ -151,8 +153,8 @@ tombstones are the explicit structural fields outside property bags.
 
 Only properties with a user-accessible `tag_default` placement may enter a
 default bag. Task properties declare that placement; unknown user-defined keys
-receive the same fallback. `page.*`, `journal.date`, structural keys, and
-`system.*` do not. A default bag has at most one value per key in schema v1.
+receive the same fallback. All other `builtin.*` keys and structural fields do
+not. A default bag has at most one value per key in schema v1.
 
 This is materialization, not inheritance. Removing a tag does not remove copied
 properties, values already visible to the tagging command are never overwritten,

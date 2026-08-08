@@ -16,8 +16,8 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
-  const source = stringValue(block.properties, "query.source");
-  const storedLanguage = stringValue(block.properties, "query.language");
+  const source = stringValue(block.properties, "builtin.query-source");
+  const storedLanguage = stringValue(block.properties, "builtin.query-language");
   const [draft, setDraft] = useState(source ?? "");
   const [result, setResult] = useState<SparqlQueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       await session.execute({
         type: "set_property",
         entity: { kind: "block", page_id: pageId, id: block.id },
-        key: "query.source",
+        key: "builtin.query-source",
         value: { type: "string", value: draft },
       }).catch(report);
     }
@@ -73,7 +73,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       await session.execute({
         type: "set_property",
         entity: { kind: "block", page_id: pageId, id: block.id },
-        key: "query.language",
+        key: "builtin.query-language",
         value: { type: "string", value: LANGUAGE },
       }).catch(report);
     }

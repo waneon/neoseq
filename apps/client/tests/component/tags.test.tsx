@@ -13,7 +13,7 @@ async function mountTagged() {
   await session.execute({
     type: "set_tag_default",
     tag_id: "project",
-    key: "task.status",
+    key: "builtin.task-status",
     value: { type: "string", value: "todo" },
   });
   await session.execute({
@@ -35,7 +35,7 @@ describe("first-class tags and tag defaults", () => {
     await session.execute({
       type: "set_property",
       entity: { kind: "block", page_id: "home", id: "b-1" },
-      key: "task.status",
+      key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });
 
@@ -49,7 +49,7 @@ describe("first-class tags and tag defaults", () => {
     await waitFor(() => expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"));
     // Existing value wins over the tag default.
     await waitFor(() =>
-      expect(screen.getByTestId("prop-task.status")).toHaveTextContent("doing"),
+      expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("doing"),
     );
   });
 
@@ -65,9 +65,9 @@ describe("first-class tags and tag defaults", () => {
     await openBlockMenu();
     await user.click(await screen.findByTestId("menu-tags"));
     const picker = await screen.findByTestId("tag-picker");
-    // The default was copied because the block had no task.status.
+    // The default was copied because the block had no builtin.task-status.
     await waitFor(() =>
-      expect(screen.getByTestId("prop-task.status")).toHaveTextContent("todo"),
+      expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("todo"),
     );
 
     await user.click(within(picker).getByRole("button", { name: "Remove tag Project" }));
@@ -75,7 +75,7 @@ describe("first-class tags and tag defaults", () => {
       expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument(),
     );
     // Copied properties are plain properties: removing the tag keeps them.
-    expect(screen.getByTestId("prop-task.status")).toHaveTextContent("todo");
+    expect(screen.getByTestId("prop-builtin.task-status")).toHaveTextContent("todo");
   });
 
   it("does not offer a duplicate tag create action", async () => {

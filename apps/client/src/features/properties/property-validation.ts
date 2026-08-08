@@ -31,6 +31,8 @@ export function validationMessage(issue: ValidationIssue, message: MessageFuncti
       return message("validation.finiteNumber");
     case "key_length":
       return message("validation.keyLength");
+    case "key_format":
+      return message("validation.keyFormat");
     case "string_length":
       return message("validation.stringLength");
     case "whitespace_key":
