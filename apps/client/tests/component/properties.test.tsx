@@ -55,12 +55,12 @@ describe("property picker", () => {
   it("edits all five value types and keeps unknown keys editable", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    const entity = { kind: "page", id: "home" } as const;
-    await session.execute({ type: "set_property", entity, key: "user.text", value: { type: "string", value: "hello" } });
-    await session.execute({ type: "set_property", entity, key: "user.count", value: { type: "number", value: 4 } });
-    await session.execute({ type: "set_property", entity, key: "user.flag", value: { type: "checkbox", value: false } });
-    await session.execute({ type: "set_property", entity, key: "user.when", value: { type: "date", value: "2026-08-03" } });
-    await session.execute({ type: "set_property", entity, key: "user.link", value: { type: "page", value: "home" } });
+    const owner = { kind: "page", id: "home" } as const;
+    await session.execute({ type: "set_property", owner, key: "user.text", value: { type: "string", value: "hello" } });
+    await session.execute({ type: "set_property", owner, key: "user.count", value: { type: "number", value: 4 } });
+    await session.execute({ type: "set_property", owner, key: "user.flag", value: { type: "checkbox", value: false } });
+    await session.execute({ type: "set_property", owner, key: "user.when", value: { type: "date", value: "2026-08-03" } });
+    await session.execute({ type: "set_property", owner, key: "user.link", value: { type: "page", value: "home" } });
 
     await user.click(await screen.findByTestId("prop-user.text"));
     let picker = await screen.findByTestId("property-picker");
@@ -102,8 +102,33 @@ describe("property picker", () => {
 
     await user.click(row);
     const picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("button", { name: "Clear property" }));
+    await user.click(within(picker).getByRole("button", { name: "Remove property" }));
     await waitFor(() => expect(screen.queryByTestId("prop-user.metric")).not.toBeInTheDocument());
+  });
+
+  it("creates an empty field and clears a value without removing its field", async () => {
+    await mountPage();
+    const user = userEvent.setup();
+    let picker = await openPagePicker(user);
+    await user.type(within(picker).getByLabelText("Property key"), "estimate");
+    await user.click(within(picker).getByRole("option", { name: "Create property “estimate”" }));
+    await user.click(within(picker).getByRole("option", { name: "number" }));
+    await user.click(within(picker).getByRole("button", { name: "Add without a value" }));
+
+    const row = await screen.findByTestId("prop-user.estimate");
+    expect(row).toHaveTextContent("No value");
+    await user.click(row);
+    picker = await screen.findByTestId("property-picker");
+    const input = within(picker).getByLabelText("estimate value");
+    await user.clear(input);
+    await user.type(input, "8");
+    await user.click(within(picker).getByTestId("property-set"));
+    await waitFor(() => expect(row).toHaveTextContent("8"));
+
+    await user.click(row);
+    picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("button", { name: "Clear value" }));
+    await waitFor(() => expect(row).toHaveTextContent("No value"));
   });
 
   it("resolves a typed date phrase and commits it from the preview row", async () => {
@@ -111,7 +136,7 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "set_property",
-      entity: { kind: "page", id: "home" },
+      owner: { kind: "page", id: "home" },
       key: "user.when",
       value: { type: "date", value: "2026-08-03" },
     });
@@ -150,7 +175,7 @@ describe("property picker", () => {
 
     await expect(session.execute({
       type: "set_property",
-      entity: { kind: "page", id: "home" },
+      owner: { kind: "page", id: "home" },
       key: "builtin.page-kind",
       value: { type: "string", value: "journal" },
     })).rejects.toThrow("managed by the core");
@@ -258,7 +283,7 @@ describe("property picker", () => {
     await session.execute({ type: "insert_block", page_id: "home", parent: null, index: 0, markdown: "task" });
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", page_id: "home", id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });

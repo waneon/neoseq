@@ -70,6 +70,7 @@ Detailed contracts:
 
 - [Core and domain](architectures/core.md)
 - [CRDT data and local persistence](architectures/data.md)
+- [Property fields](architectures/properties.md)
 - [Query and derived index](architectures/query.md)
 - [Client application](architectures/clients.md)
 - [Undo/redo navigation](architectures/history-navigation.md)
@@ -106,8 +107,8 @@ deletion, retry, and test controls are deliberately outside CorePort.
   explicit tag references.
 - Page and tag names are unique in separate normalized graph-wide namespaces.
 - Journal IDs derive deterministically from graph ID and local date.
-- Property values are atomic tagged scalars: number, string, page reference,
-  checkbox, or local date. Repeated values have stable slots.
+- A property field owns a key, value type, cardinality, and zero or more atomic
+  tagged values. Empty fields are first-class; repeated values have stable slots.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
   current v1 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined

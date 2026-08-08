@@ -209,15 +209,22 @@ export function validateValue(
   return null;
 }
 
-export function validateDefault(key: string, value: PropertyValue): ValidationIssue | null {
+export function validateFieldShape(
+  key: string,
+  valueType: PropertyValueType,
+  cardinality: "single" | "repeated",
+): ValidationIssue | null {
   const spec = definition(key);
-  const canDefault = spec
-    ? spec.placements.tag_default === "user"
-    : PROPERTY_KEY_PATTERN.test(key) && key.startsWith("user.");
-  if (!canDefault) {
-    return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
+  if (!spec) return null;
+  const expectedType = specValueType(spec);
+  if (expectedType !== valueType) {
+    return { code: "property_type", message: `“${key}” expects a ${expectedType} value.`, values: { key, type: expectedType } };
   }
-  return validateValue(key, value, "single");
+  const expectedCardinality = "set" in spec.shape ? "repeated" : "single";
+  if (expectedCardinality !== cardinality) {
+    return { code: "property_cardinality", message: `“${key}” is a ${expectedCardinality} property.`, values: { key, cardinality: expectedCardinality } };
+  }
+  return null;
 }
 
 export function isValidLocalDate(value: string): boolean {

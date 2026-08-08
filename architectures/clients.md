@@ -92,8 +92,11 @@ specialized controls without becoming a schema authority:
 - tag membership remains structural: the block `Tags` picker and the outline's
   inline `#` menu attach existing tags (`add_tag`/`remove_tag`), while the
   routed tags view owns the tag lifecycle — creation, deletion, and each tag's
-  `defaults` through the shared property picker
-  (`set_tag_default`/`remove_tag_default`).
+  `defaults` through the shared owner-based property commands.
+
+The shared picker distinguishes a present empty field from an absent property.
+It can ensure an empty field, clear only its values, or remove the field, and
+renders empty fields as “No value” on every owner surface.
 
 Removing a specialized renderer never hides or destroys its values. New
 non-structural features add registry entries and projections, not frontend data

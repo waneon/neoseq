@@ -57,8 +57,10 @@ deletion keeps the tag record as a tombstone but removes its ID from every node
 in the same transaction. Snapshot projection exposes only references to live
 tags, quarantining stale or concurrently merged dangling IDs.
 
-A property bag maps a validated key to one stable slot or an ordered set of
-stable slots. Each slot contains one tagged scalar:
+A property bag maps each validated key to a stable field marker plus zero or
+more stable value slots. The marker records type and cardinality, so clearing
+values preserves an empty field. Removing the property removes both marker and
+values. Each value is one tagged scalar:
 
 - finite number;
 - string;
@@ -73,9 +75,10 @@ access. Every key is `builtin.<lowercase-kebab-name>` or
 data does not disappear in an older client; unknown user keys remain generic
 graph-level properties rather than private per-user metadata.
 
-Adding a tag copies its declared defaults into properties that are absent in
-the same transaction. Existing values win, removing a tag does not remove
-copied values, and later default changes are not retroactive.
+Adding a tag copies each declared default field, including an empty field, into
+properties whose key is absent in the same transaction. Existing fields win,
+removing a tag does not remove copied fields, and later default changes are not
+retroactive. See [Property fields](properties.md).
 
 Pages, blocks, and tags initialize `builtin.created-at` and
 `builtin.updated-at` together. Direct mutation advances `updated-at`; a block
@@ -170,7 +173,9 @@ outboxes, acknowledgements, and transport state enter with remote collaboration,
 not as inactive local-storage columns. The RDF index is rebuilt on open and has
 no persisted cache.
 
-The first real document-schema change must define its supported input range,
+Pre-release v1 may replace an undeployed encoding destructively without a schema
+version bump; superseded snapshots are then unsupported and recreated rather
+than migrated. The first post-release document-schema change must define its supported input range,
 identity-preserving migration, fixtures captured from deployed data, minimum
 writer policy, and rollback behavior in this document. Until then, v1 is the
 only accepted schema and unsupported values fail explicitly.

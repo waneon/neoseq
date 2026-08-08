@@ -40,7 +40,7 @@ describe("query and task projections", () => {
     };
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", page_id: "home", id: "b-1" },
       key: "builtin.query-source",
       value: { type: "string", value: "SELECT ?block ?status WHERE { ?block ?p ?status }" },
     });
@@ -56,7 +56,7 @@ describe("query and task projections", () => {
     const { session } = await mountProjection();
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", page_id: "home", id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "blocked" },
     });
@@ -75,16 +75,16 @@ describe("query and task projections", () => {
 
   it("shows priority and dates as chips that open the picker on their key", async () => {
     const { session } = await mountProjection();
-    const entity = { kind: "block", page_id: "home", id: "b-1" } as const;
+    const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
     await session.execute({
       type: "set_property",
-      entity,
+      owner,
       key: "builtin.task-priority",
       value: { type: "string", value: "high" },
     });
     await session.execute({
       type: "set_property",
-      entity,
+      owner,
       key: "builtin.task-deadline",
       value: { type: "date", value: "2001-01-01" },
     });

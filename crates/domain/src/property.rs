@@ -142,12 +142,14 @@ impl PropertyValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PropertyEntry {
+pub struct PropertyField {
     pub key: PropertyKey,
-    pub value: PropertyValue,
+    pub value_type: PropertyType,
+    pub cardinality: Cardinality,
+    pub values: Vec<PropertyValue>,
 }
 
-pub type PropertyBag = Vec<PropertyEntry>;
+pub type PropertyBag = Vec<PropertyField>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PropertySpec {
@@ -301,8 +303,6 @@ pub enum PropertyError {
     },
     #[error("property {key} does not allow string value {value:?}")]
     InvalidString { key: String, value: String },
-    #[error("property {0} cannot be a tag default")]
-    NotDefaultable(String),
     #[error("property number must be finite")]
     NonFiniteNumber,
     #[error("property string exceeds 65536 bytes")]
@@ -311,6 +311,8 @@ pub enum PropertyError {
     InvalidTarget { key: String, target: PropertyTarget },
     #[error("property {0} is managed by the core")]
     CoreManaged(String),
+    #[error("single-valued property {0} contains more than one value")]
+    TooManySingleValues(String),
 }
 
 pub fn validate_property(
@@ -351,6 +353,51 @@ pub fn validate_property(
     Ok(())
 }
 
+pub fn validate_property_shape(
+    key: &PropertyKey,
+    value_type: PropertyType,
+    cardinality: Cardinality,
+) -> Result<(), PropertyError> {
+    let Some(item) = definition(key) else {
+        return Ok(());
+    };
+    let expected_type = item.shape.value().property_type();
+    if value_type != expected_type {
+        return Err(PropertyError::WrongType {
+            key: key.to_string(),
+            expected: expected_type,
+            actual: value_type,
+        });
+    }
+    let expected_cardinality = item.shape.cardinality();
+    if cardinality != expected_cardinality {
+        return Err(PropertyError::WrongCardinality {
+            key: key.to_string(),
+            expected: expected_cardinality,
+            actual: cardinality,
+        });
+    }
+    Ok(())
+}
+
+pub fn validate_property_field(field: &PropertyField) -> Result<(), PropertyError> {
+    validate_property_shape(&field.key, field.value_type, field.cardinality)?;
+    if field.cardinality == Cardinality::Single && field.values.len() > 1 {
+        return Err(PropertyError::TooManySingleValues(field.key.to_string()));
+    }
+    for value in &field.values {
+        if value.property_type() != field.value_type {
+            return Err(PropertyError::WrongType {
+                key: field.key.to_string(),
+                expected: field.value_type,
+                actual: value.property_type(),
+            });
+        }
+        validate_property(&field.key, value, field.cardinality)?;
+    }
+    Ok(())
+}
+
 pub fn validate_property_target(
     key: &PropertyKey,
     target: PropertyTarget,
@@ -382,14 +429,6 @@ pub fn validate_property_write(
         return Err(PropertyError::CoreManaged(key.to_string()));
     }
     Ok(())
-}
-
-pub fn validate_default(key: &PropertyKey, value: &PropertyValue) -> Result<(), PropertyError> {
-    value.validate_shape()?;
-    if validate_property_write(key, PropertyTarget::TagDefault).is_err() {
-        return Err(PropertyError::NotDefaultable(key.to_string()));
-    }
-    validate_property(key, value, Cardinality::Single)
 }
 
 pub fn registry_fixture() -> serde_json::Value {
@@ -451,28 +490,6 @@ mod tests {
                 Cardinality::Set
             )
             .is_ok()
-        );
-    }
-
-    #[test]
-    fn only_declared_feature_and_unknown_defaults_are_allowed() {
-        assert!(
-            validate_default(
-                &key("builtin.task-priority"),
-                &PropertyValue::String("high".into())
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_default(
-                &key("builtin.query-source"),
-                &PropertyValue::String("query".into())
-            )
-            .is_err()
-        );
-        assert!(validate_default(&key("user.flag"), &PropertyValue::Checkbox(true)).is_ok());
-        assert!(
-            validate_default(&key("builtin.future"), &PropertyValue::String("x".into())).is_err()
         );
     }
 

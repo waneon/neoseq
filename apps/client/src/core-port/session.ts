@@ -323,14 +323,18 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
         kind: "page",
         pageId: command.entity.kind === "block" ? command.entity.page_id : command.entity.id,
       };
+    case "ensure_property":
     case "set_property":
+    case "clear_property_values":
     case "remove_property":
     case "add_repeated_property":
     case "remove_repeated_property":
-      return {
-        kind: "page",
-        pageId: command.entity.kind === "block" ? command.entity.page_id : command.entity.id,
-      };
+      return command.owner.kind === "tag_default"
+        ? { kind: "summary" }
+        : {
+            kind: "page",
+            pageId: command.owner.kind === "block" ? command.owner.page_id : command.owner.id,
+          };
     case "ensure_journal":
       return result?.created_page
         ? { kind: "page", pageId: result.created_page }
@@ -345,8 +349,6 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "ensure_tag":
     case "rename_tag":
     case "restore_tag":
-    case "set_tag_default":
-    case "remove_tag_default":
       return { kind: "summary" };
   }
 }

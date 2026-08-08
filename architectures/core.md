@@ -32,8 +32,8 @@ into Loro operations and Loro changes back into domain DTOs.
   command.
 - `PropertyKey` has exactly two levels: `builtin.<name>` or `user.<name>`. Names
   use lowercase ASCII kebab-case and the complete key is limited to 128 bytes.
-- `PropertyEntry` pairs a key and typed value. A property bag supports both
-  single-valued and repeated keys; every entry has a stable internal slot.
+- `PropertyField` pairs a key and stable shape with zero or more typed values.
+  A present field may be empty; see [Property fields](properties.md).
 - `PropertyValue` is exactly one of finite number, string, page reference,
   checkbox/boolean, or local date. It never relies on heuristic string parsing.
 - `TagId` identifies a graph-scoped tag independently of pages. Page roots and
@@ -66,7 +66,8 @@ commands are:
 - ensure a journal page for a local date;
 - insert, split, and edit a block, and indent, outdent, move, or delete one or
   more block subtrees;
-- set/remove typed properties, including repeated entries;
+- ensure, set, clear, or remove typed fields and mutate repeated members through
+  the same owner-based command family;
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities, with tag deletion
   detaching its membership from every page and block;
@@ -137,7 +138,7 @@ choices; `builtin.page-kind` and `builtin.query-language` use closed choices wit
 validation branches. Unknown namespaced keys remain valid with any supported
 `PropertyValue`; their namespace determines whether generic commands may write
 them. The registry does not create a second state model: task and
-query services read and write ordinary entries. Client presentation derives its
+query services read and write ordinary fields. Client presentation derives its
 generic and hidden cases from placements, with sparse feature and metadata
 renderer overrides. New identity or relationship semantics still require an
 explicit architecture decision.
@@ -151,12 +152,13 @@ tombstones are the explicit structural fields outside property bags.
 
 1. add `tag.id` to the node's `tag_refs` CRDT set;
 2. read the tag record's default property bag;
-3. copy each default only when that property key is absent on the node.
+3. copy each complete field, including an empty value list, only when that key
+   is absent on the node.
 
 Only properties with a user-accessible `tag_default` placement may enter a
 default bag. Task properties declare that placement; unknown user-defined keys
 receive the same fallback. All other `builtin.*` keys and structural fields do
-not. A default bag has at most one value per key in schema v1.
+not. Defaults use the same field shape and cardinality contract as other bags.
 
 This is materialization, not inheritance. Removing a tag does not remove copied
 properties, values already visible to the tagging command are never overwritten,

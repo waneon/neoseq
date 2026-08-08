@@ -25,6 +25,7 @@ pub const ANALYZER_VERSION: u32 = 1;
 pub const NEO_NS: &str = "urn:neoseq:vocab:v1:";
 pub const PROPERTY_NS: &str = "urn:neoseq:property:";
 pub const DEFAULT_PROPERTY_NS: &str = "urn:neoseq:default-property:";
+pub const PROPERTY_KEY_NS: &str = "urn:neoseq:property-key:";
 pub const ENTITY_NS: &str = "urn:neoseq:entity:";
 pub const MATCHES_TEXT: &str = "urn:neoseq:vocab:v1:matchesText";
 
@@ -511,21 +512,38 @@ fn add_properties(
     namespace: &str,
     graph_id: &GraphId,
 ) -> Result<(), QueryError> {
-    for entry in bag {
+    let presence = if namespace == DEFAULT_PROPERTY_NS {
+        named_ref("hasDefaultProperty")?
+    } else {
+        named_ref("hasProperty")?
+    };
+    for field in bag {
+        triples.insert(Triple::new(
+            subject.clone(),
+            presence.clone(),
+            named(&format!(
+                "{PROPERTY_KEY_NS}{}",
+                encode_component(field.key.as_str())
+            ))?,
+        ));
         let predicate = named(&format!(
             "{namespace}{}",
-            encode_component(entry.key.as_str())
+            encode_component(field.key.as_str())
         ))?;
-        let value: Term = match &entry.value {
-            PropertyValue::Number(value) => Literal::from(*value).into(),
-            PropertyValue::String(value) => Literal::new_simple_literal(value).into(),
-            PropertyValue::Page(page_id) => entity_iri(graph_id, "page", page_id.as_str())?.into(),
-            PropertyValue::Checkbox(value) => Literal::from(*value).into(),
-            PropertyValue::Date(value) => {
-                Literal::new_typed_literal(value.as_str(), xsd::DATE).into()
-            }
-        };
-        triples.insert(Triple::new(subject.clone(), predicate, value));
+        for property_value in &field.values {
+            let value: Term = match property_value {
+                PropertyValue::Number(value) => Literal::from(*value).into(),
+                PropertyValue::String(value) => Literal::new_simple_literal(value).into(),
+                PropertyValue::Page(page_id) => {
+                    entity_iri(graph_id, "page", page_id.as_str())?.into()
+                }
+                PropertyValue::Checkbox(value) => Literal::from(*value).into(),
+                PropertyValue::Date(value) => {
+                    Literal::new_typed_literal(value.as_str(), xsd::DATE).into()
+                }
+            };
+            triples.insert(Triple::new(subject.clone(), predicate.clone(), value));
+        }
     }
     Ok(())
 }
@@ -706,7 +724,19 @@ fn term_error(error: impl std::fmt::Display) -> QueryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::{BlockId, LocalDate, PageSnapshot, PropertyEntry, PropertyKey, TagSnapshot};
+    use domain::{
+        BlockId, Cardinality, LocalDate, PageSnapshot, PropertyField, PropertyKey, PropertyType,
+        TagSnapshot,
+    };
+
+    fn single(key: &str, value: PropertyValue) -> PropertyField {
+        PropertyField {
+            key: PropertyKey::new(key).unwrap(),
+            value_type: value.property_type(),
+            cardinality: Cardinality::Single,
+            values: vec![value],
+        }
+    }
 
     fn snapshot() -> GraphSnapshot {
         GraphSnapshot {
@@ -716,25 +746,26 @@ mod tests {
                 id: PageId::new("today").unwrap(),
                 title: "Today".into(),
                 properties: vec![
-                    PropertyEntry {
-                        key: PropertyKey::new("user.count").unwrap(),
-                        value: PropertyValue::Number(3.5),
-                    },
-                    PropertyEntry {
-                        key: PropertyKey::new("user.flag").unwrap(),
-                        value: PropertyValue::Checkbox(true),
-                    },
-                    PropertyEntry {
-                        key: PropertyKey::new("user.link").unwrap(),
-                        value: PropertyValue::Page(PageId::new("missing-page").unwrap()),
-                    },
-                    PropertyEntry {
+                    single("user.count", PropertyValue::Number(3.5)),
+                    single("user.flag", PropertyValue::Checkbox(true)),
+                    single(
+                        "user.link",
+                        PropertyValue::Page(PageId::new("missing-page").unwrap()),
+                    ),
+                    PropertyField {
                         key: PropertyKey::new("user.alias").unwrap(),
-                        value: PropertyValue::String("one".into()),
+                        value_type: PropertyType::String,
+                        cardinality: Cardinality::Set,
+                        values: vec![
+                            PropertyValue::String("one".into()),
+                            PropertyValue::String("two".into()),
+                        ],
                     },
-                    PropertyEntry {
-                        key: PropertyKey::new("user.alias").unwrap(),
-                        value: PropertyValue::String("two".into()),
+                    PropertyField {
+                        key: PropertyKey::new("user.empty").unwrap(),
+                        value_type: PropertyType::String,
+                        cardinality: Cardinality::Single,
+                        values: vec![],
                     },
                 ],
                 tags: vec![TagId::new("project").unwrap()],
@@ -742,14 +773,11 @@ mod tests {
                     id: BlockId::new("todo-1").unwrap(),
                     markdown: "Ship the Query Engine".into(),
                     properties: vec![
-                        PropertyEntry {
-                            key: PropertyKey::new("builtin.task-status").unwrap(),
-                            value: PropertyValue::String("todo".into()),
-                        },
-                        PropertyEntry {
-                            key: PropertyKey::new("builtin.task-deadline").unwrap(),
-                            value: PropertyValue::Date(LocalDate::new("2026-08-05").unwrap()),
-                        },
+                        single("builtin.task-status", PropertyValue::String("todo".into())),
+                        single(
+                            "builtin.task-deadline",
+                            PropertyValue::Date(LocalDate::new("2026-08-05").unwrap()),
+                        ),
                     ],
                     tags: vec![TagId::new("project").unwrap()],
                     children: vec![],
@@ -759,10 +787,10 @@ mod tests {
                 id: TagId::new("project").unwrap(),
                 name: "Project".into(),
                 properties: vec![],
-                defaults: vec![PropertyEntry {
-                    key: PropertyKey::new("builtin.task-priority").unwrap(),
-                    value: PropertyValue::String("high".into()),
-                }],
+                defaults: vec![single(
+                    "builtin.task-priority",
+                    PropertyValue::String("high".into()),
+                )],
             }],
             quarantined: vec![],
         }
@@ -780,7 +808,7 @@ mod tests {
     #[test]
     fn projects_entities_properties_tags_and_hierarchy() {
         let index = GraphIndex::new(&snapshot()).unwrap();
-        assert_eq!(index.triple_count(), 19);
+        assert_eq!(index.triple_count(), 27);
         let triples = index.semantic_triples().join("\n");
         assert!(triples.contains("urn:neoseq:property:builtin.task-status"));
         assert!(triples.contains("urn:neoseq:default-property:builtin.task-priority"));
@@ -789,6 +817,8 @@ mod tests {
         assert!(triples.contains(xsd::DOUBLE.as_str()));
         assert!(triples.contains("urn:neoseq:vocab:v1:parent"));
         assert!(triples.contains("query%20graph"));
+        assert!(triples.contains("<urn:neoseq:property-key:user.empty>"));
+        assert!(!triples.contains("<urn:neoseq:property:user.empty>"));
     }
 
     #[test]
@@ -863,7 +893,7 @@ mod tests {
     fn differential_incremental_and_rebuilt_results_match() {
         let mut source = snapshot();
         let mut incremental = GraphIndex::new(&source).unwrap();
-        source.pages[0].blocks[0].properties[0].value = PropertyValue::String("done".into());
+        source.pages[0].blocks[0].properties[0].values = vec![PropertyValue::String("done".into())];
         incremental.refresh(&source).unwrap();
         let rebuilt = GraphIndex::new(&source).unwrap();
         let query = request(

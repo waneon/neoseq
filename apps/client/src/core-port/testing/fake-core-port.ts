@@ -21,19 +21,25 @@ import type {
   SubscribeResponse,
 } from "../../generated/core-port";
 import { CorePortFailure, type SavedReceipt } from "../../core-worker";
-import type { Command, CommandEnvelope, EntityRef, HistoryEffect } from "../commands";
+import type {
+  Command,
+  CommandEnvelope,
+  EntityRef,
+  HistoryEffect,
+  PropertyOwnerRef,
+} from "../commands";
 import type {
   BlockSnapshot,
   GraphSnapshot,
   GraphSummary,
   PageSnapshot,
-  PropertyEntry,
+  PropertyField,
   PropertyValue,
   TagSnapshot,
 } from "../snapshot";
 import {
   sameValue,
-  validateDefault,
+  validateFieldShape,
   validateValue,
   validateWriteTarget,
 } from "../../entities/properties";
@@ -476,49 +482,63 @@ export class FakeCorePort implements SessionPort {
           this.detach(command.page_id, blockId);
         }
         break;
+      case "ensure_property": {
+        const target = propertyOwnerTarget(command.owner);
+        const cardinality = command.cardinality === "set" ? "repeated" : "single";
+        const issue = validateWriteTarget(command.key, target)
+          ?? validateFieldShape(command.key, command.value_type, cardinality);
+        if (issue) fail("internal", issue.message);
+        ensureField(
+          this.propertyOwnerBag(command.owner),
+          command.key,
+          command.value_type,
+          command.cardinality,
+        );
+        break;
+      }
       case "set_property": {
-        const issue = validateWriteTarget(command.key, command.entity.kind)
+        const target = propertyOwnerTarget(command.owner);
+        const issue = validateWriteTarget(command.key, target)
           ?? validateValue(command.key, command.value, "single");
         if (issue) fail("internal", issue.message);
-        setSingle(this.entityBag(command.entity), command.key, command.value);
+        setSingle(this.propertyOwnerBag(command.owner), command.key, command.value);
+        break;
+      }
+      case "clear_property_values": {
+        const issue = validateWriteTarget(command.key, propertyOwnerTarget(command.owner));
+        if (issue) fail("internal", issue.message);
+        const field = this.propertyOwnerBag(command.owner).find((item) => item.key === command.key);
+        if (field) field.values = [];
         break;
       }
       case "remove_property": {
-        const issue = validateWriteTarget(command.key, command.entity.kind);
+        const issue = validateWriteTarget(command.key, propertyOwnerTarget(command.owner));
         if (issue) fail("internal", issue.message);
-        const bag = this.entityBag(command.entity);
+        const bag = this.propertyOwnerBag(command.owner);
         removeAll(bag, command.key);
         break;
       }
       case "add_repeated_property": {
-        const issue = validateWriteTarget(command.key, command.entity.kind)
+        const issue = validateWriteTarget(command.key, propertyOwnerTarget(command.owner))
           ?? validateValue(command.key, command.value, "repeated");
         if (issue) fail("internal", issue.message);
-        const bag = this.entityBag(command.entity);
-        if (!bag.some((e) => e.key === command.key && sameValue(e.value, command.value))) {
-          bag.push({ key: command.key, value: command.value });
+        const bag = this.propertyOwnerBag(command.owner);
+        const field = ensureField(bag, command.key, command.value.type, "set");
+        if (!field.values.some((value) => sameValue(value, command.value))) {
+          field.values.push(command.value);
         }
         break;
       }
       case "remove_repeated_property": {
-        const issue = validateWriteTarget(command.key, command.entity.kind);
+        const issue = validateWriteTarget(command.key, propertyOwnerTarget(command.owner));
         if (issue) fail("internal", issue.message);
-        const bag = this.entityBag(command.entity);
-        const index = bag.findIndex(
-          (e) => e.key === command.key && sameValue(e.value, command.value),
-        );
-        if (index >= 0) bag.splice(index, 1);
+        const field = this.propertyOwnerBag(command.owner).find((item) => item.key === command.key);
+        if (field) {
+          const index = field.values.findIndex((value) => sameValue(value, command.value));
+          if (index >= 0) field.values.splice(index, 1);
+        }
         break;
       }
-      case "set_tag_default": {
-        const issue = validateDefault(command.key, command.value);
-        if (issue) fail("internal", issue.message);
-        setSingle(this.requireTag(command.tag_id).defaults, command.key, command.value);
-        break;
-      }
-      case "remove_tag_default":
-        removeAll(this.requireTag(command.tag_id).defaults, command.key);
-        break;
       case "add_tag": {
         const tags = this.entityTags(command.entity);
         const tag = this.requireTag(command.tag_id);
@@ -595,6 +615,9 @@ export class FakeCorePort implements SessionPort {
       undoCandidates,
       redoCandidates,
     });
+    const ownerEntry = (owner: PropertyOwnerRef): FakeHistoryEntry => owner.kind === "tag_default"
+      ? { scope: "graph", affectedPages: [], undoCandidates: [], redoCandidates: [] }
+      : entity(owner);
 
     switch (command.type) {
       case "ensure_page":
@@ -612,8 +635,6 @@ export class FakeCorePort implements SessionPort {
       case "ensure_tag":
       case "rename_tag":
       case "restore_tag":
-      case "set_tag_default":
-      case "remove_tag_default":
         return {
           scope: "graph",
           affectedPages: [],
@@ -690,10 +711,13 @@ export class FakeCorePort implements SessionPort {
         redoCandidates.push(page(command.page_id));
         return blockEntry(command.page_id, undoCandidates, redoCandidates);
       }
+      case "ensure_property":
       case "set_property":
+      case "clear_property_values":
       case "remove_property":
       case "add_repeated_property":
       case "remove_repeated_property":
+        return ownerEntry(command.owner);
       case "add_tag":
       case "remove_tag":
         return entity(command.entity);
@@ -805,10 +829,14 @@ export class FakeCorePort implements SessionPort {
       case "delete_blocks":
         this.touchPage(command.page_id, timestamp);
         break;
+      case "ensure_property":
       case "set_property":
+      case "clear_property_values":
       case "remove_property":
       case "add_repeated_property":
       case "remove_repeated_property":
+        this.touchPropertyOwner(command.owner, timestamp);
+        break;
       case "add_tag":
       case "remove_tag":
         this.touchEntity(command.entity, timestamp);
@@ -819,8 +847,6 @@ export class FakeCorePort implements SessionPort {
       case "rename_tag":
       case "delete_tag":
       case "restore_tag":
-      case "set_tag_default":
-      case "remove_tag_default":
         this.touchTag(command.tag_id, timestamp);
         break;
       case "undo":
@@ -838,6 +864,14 @@ export class FakeCorePort implements SessionPort {
     } else {
       this.touchBlock(entity.page_id, entity.id, timestamp);
       this.touchPage(entity.page_id, timestamp);
+    }
+  }
+
+  private touchPropertyOwner(owner: PropertyOwnerRef, timestamp: string): void {
+    if (owner.kind === "tag_default") {
+      this.touchTag(owner.tag_id, timestamp);
+    } else {
+      this.touchEntity(owner, timestamp);
     }
   }
 
@@ -953,10 +987,15 @@ export class FakeCorePort implements SessionPort {
     found.siblings.splice(found.siblings.indexOf(found.block), 1);
   }
 
-  private entityBag(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): PropertyEntry[] {
+  private entityBag(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): PropertyField[] {
     return entity.kind === "page"
       ? this.requirePage(entity.id).properties
       : this.requireBlock(entity.page_id, entity.id).block.properties;
+  }
+
+  private propertyOwnerBag(owner: PropertyOwnerRef): PropertyField[] {
+    if (owner.kind === "tag_default") return this.requireTag(owner.tag_id).defaults;
+    return this.entityBag(owner);
   }
 
   private entityTags(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): string[] {
@@ -1016,36 +1055,66 @@ function newPage(
   date: string | null,
   timestamp: string,
 ): PageSnapshot {
-  const properties: PropertyEntry[] = [
-    { key: "builtin.page-kind", value: { type: "string", value: kind } },
+  const properties: PropertyField[] = [
+    field("builtin.page-kind", "string", "single", [{ type: "string", value: kind }]),
     ...lifecycle(timestamp),
   ];
-  if (date !== null) properties.push({ key: "builtin.journal-date", value: { type: "date", value: date } });
+  if (date !== null) {
+    properties.push(field("builtin.journal-date", "date", "single", [{ type: "date", value: date }]));
+  }
   properties.sort((a, b) => a.key.localeCompare(b.key));
   return { id, title: title ?? "", properties, tags: [], blocks: [] };
 }
 
-function lifecycle(timestamp: string): PropertyEntry[] {
-  return ["builtin.created-at", "builtin.updated-at"].map((key) => ({
-    key,
-    value: { type: "string", value: timestamp },
-  }));
+function lifecycle(timestamp: string): PropertyField[] {
+  return ["builtin.created-at", "builtin.updated-at"].map((key) =>
+    field(key, "string", "single", [{ type: "string", value: timestamp }]),
+  );
 }
 
-function hasKey(bag: PropertyEntry[], key: string): boolean {
-  return bag.some((entry) => entry.key === key);
+function field(
+  key: string,
+  valueType: PropertyField["value_type"],
+  cardinality: PropertyField["cardinality"],
+  values: PropertyValue[] = [],
+): PropertyField {
+  return { key, value_type: valueType, cardinality, values };
 }
 
-function setSingle(bag: PropertyEntry[], key: string, value: PropertyValue): void {
-  const existing = bag.find((entry) => entry.key === key);
-  if (existing) existing.value = value;
-  else bag.push({ key, value });
+function hasKey(bag: PropertyField[], key: string): boolean {
+  return bag.some((item) => item.key === key);
 }
 
-function removeAll(bag: PropertyEntry[], key: string): void {
+function ensureField(
+  bag: PropertyField[],
+  key: string,
+  valueType: PropertyField["value_type"],
+  cardinality: PropertyField["cardinality"],
+): PropertyField {
+  const existing = bag.find((item) => item.key === key);
+  if (existing) {
+    if (existing.value_type !== valueType || existing.cardinality !== cardinality) {
+      fail("internal", `property shape does not match: ${key}`);
+    }
+    return existing;
+  }
+  const created = field(key, valueType, cardinality);
+  bag.push(created);
+  return created;
+}
+
+function setSingle(bag: PropertyField[], key: string, value: PropertyValue): void {
+  ensureField(bag, key, value.type, "single").values = [value];
+}
+
+function removeAll(bag: PropertyField[], key: string): void {
   for (let index = bag.length - 1; index >= 0; index -= 1) {
     if (bag[index].key === key) bag.splice(index, 1);
   }
+}
+
+function propertyOwnerTarget(owner: PropertyOwnerRef): "page" | "block" | "tag_default" {
+  return owner.kind;
 }
 
 /** Convenience: an already-open session backed by the fake port. */

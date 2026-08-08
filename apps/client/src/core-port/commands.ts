@@ -1,11 +1,16 @@
 // Typed builders for `domain::Command` JSON. Shapes mirror the serde
 // representation (`type` tag + snake_case fields) used by `executeJson`.
 
-import type { PropertyValue } from "./snapshot";
+import type { PropertyValue, PropertyValueType } from "./snapshot";
 
 export type EntityRef =
   | { kind: "page"; id: string }
   | { kind: "block"; page_id: string; id: string };
+
+export type PropertyOwnerRef =
+  | { kind: "page"; id: string }
+  | { kind: "block"; page_id: string; id: string }
+  | { kind: "tag_default"; tag_id: string };
 
 export interface OutlineItemInput {
   depth: number;
@@ -40,12 +45,18 @@ export type Command =
   | { type: "indent_blocks"; page_id: string; block_ids: string[] }
   | { type: "outdent_blocks"; page_id: string; block_ids: string[] }
   | { type: "delete_blocks"; page_id: string; block_ids: string[] }
-  | { type: "set_property"; entity: EntityRef; key: string; value: PropertyValue }
-  | { type: "remove_property"; entity: EntityRef; key: string }
-  | { type: "add_repeated_property"; entity: EntityRef; key: string; value: PropertyValue }
-  | { type: "remove_repeated_property"; entity: EntityRef; key: string; value: PropertyValue }
-  | { type: "set_tag_default"; tag_id: string; key: string; value: PropertyValue }
-  | { type: "remove_tag_default"; tag_id: string; key: string }
+  | {
+      type: "ensure_property";
+      owner: PropertyOwnerRef;
+      key: string;
+      value_type: PropertyValueType;
+      cardinality: "single" | "set";
+    }
+  | { type: "set_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
+  | { type: "clear_property_values"; owner: PropertyOwnerRef; key: string }
+  | { type: "remove_property"; owner: PropertyOwnerRef; key: string }
+  | { type: "add_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
+  | { type: "remove_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
   | { type: "add_tag"; entity: EntityRef; tag_id: string }
   | { type: "remove_tag"; entity: EntityRef; tag_id: string }
   | { type: "undo" }

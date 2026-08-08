@@ -77,7 +77,7 @@ test("edits every value type plus unknown keys in the contextual picker", async 
   await expect(picker).toContainText("Everything");
   await page.keyboard.press("Escape");
   await picker.getByRole("option", { name: /count/ }).click();
-  await picker.getByRole("button", { name: "Clear property" }).click();
+  await picker.getByRole("button", { name: "Remove property" }).click();
   await openPageProperties(page);
   await page.getByTestId("property-picker").getByLabel("Property key").fill("user.count");
   await expect(page.getByRole("option", { name: "Create property “count”" })).toBeVisible();
@@ -98,6 +98,12 @@ test("rejects property keys outside the owned namespaces with a visible validati
 test("slash, block properties, and tags share the same focused target", async ({ page }) => {
   await createGraph(page, "Tag Graph");
   await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag-name").fill("Project");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await expect(page.getByTestId("tag-card")).toContainText("#Project");
+  await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
   await startOutline(page);
   await page.getByLabel("Block text").pressSequentially("/pro");
@@ -113,7 +119,7 @@ test("slash, block properties, and tags share the same focused target", async ({
   await openBlockTags(page);
   let tags = page.getByTestId("tag-picker");
   await tags.getByTestId("tag-autocomplete").fill("Project");
-  await page.getByRole("option", { name: "Create tag “Project”" }).click();
+  await page.getByRole("option", { name: "Project", exact: true }).click();
   await expect(tags.getByTestId("tag-chip")).toContainText("#Project");
   await page.keyboard.press("Escape");
   await expect(tags).toHaveCount(0);

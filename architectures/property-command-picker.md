@@ -7,12 +7,13 @@ This document describes the shipped Web-client architecture for the
 It replaces the expanded page and block property forms with inline snapshot
 projections and one contextual picker.
 
-The change is client-side only. It does not change the graph schema, property
-registry, CorePort contract, CRDT encoding, or domain command set.
+The picker uses the shared field and owner contracts described in
+[Property fields](properties.md). Its presentation remains client-owned while
+all persistence and validation stay in the domain and graph core.
 
 ## Architectural Decision
 
-Every property entry route resolves one stable page or block target and opens
+Every property-field route resolves one stable owner and opens
 the same `PropertyPicker`. The picker owns only transient navigation and input
 state. Canonical properties remain in immutable session snapshots, and every
 mutation travels through `GraphSession.execute`.
@@ -113,11 +114,10 @@ type and is single-valued under current client rules. Unknown `builtin.*` keys
 remain visible for forward compatibility but are read-only. Moving between
 stages writes nothing.
 
-The picker resolves three target kinds: a page, a block, or a tag. A tag
-target edits the tag's *defaults* — candidates are bounded by the
-`tag_default` placement, values validate as single-valued, and writes travel
-as `set_tag_default` / `remove_tag_default`. The routed tags view is the
-surface that opens this target.
+The picker resolves three target kinds: a page, a block, or a tag default. A
+tag-default target uses the same `PropertyOwner` and command family as other
+targets; candidates remain bounded by the `tag_default` placement. The routed
+tags view is the surface that opens this target.
 
 Property candidates are bounded to:
 
@@ -192,12 +192,12 @@ The picker maps user intent onto the existing domain commands:
 
 | User intent                     | Core command               |
 | ------------------------------- | -------------------------- |
+| Create an empty field           | `ensure_property`          |
 | Set or replace a single value   | `set_property`             |
-| Clear a single key              | `remove_property`          |
+| Clear values but keep the field | `clear_property_values`    |
+| Remove the complete field       | `remove_property`          |
 | Add a repeated member           | `add_repeated_property`    |
 | Remove a repeated member        | `remove_repeated_property` |
-| Set a tag default (tag target)  | `set_tag_default`          |
-| Clear a tag default (tag target)| `remove_tag_default`       |
 
 The existing `builtin.query-source` orchestration remains: a successful source write
 also materializes the default `builtin.query-language` when absent. This still uses a

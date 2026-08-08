@@ -190,7 +190,7 @@ describe("outliner keyboard commands", () => {
     const original = findPage(session.getState().snapshot, "home")!.blocks[0];
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", page_id: "home", id: original.id },
+      owner: { kind: "block", page_id: "home", id: original.id },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });
@@ -207,7 +207,7 @@ describe("outliner keyboard commands", () => {
       expect(page.blocks[1].properties).toEqual(expect.arrayContaining([
         expect.objectContaining({
           key: "builtin.task-status",
-          value: { type: "string", value: "doing" },
+          values: [{ type: "string", value: "doing" }],
         }),
       ]));
     });

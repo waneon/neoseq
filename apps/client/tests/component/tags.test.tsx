@@ -11,8 +11,8 @@ async function mountTagged() {
   await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
   await session.execute({
-    type: "set_tag_default",
-    tag_id: "project",
+    type: "set_property",
+    owner: { kind: "tag_default", tag_id: "project" },
     key: "builtin.task-status",
     value: { type: "string", value: "todo" },
   });
@@ -34,7 +34,7 @@ describe("first-class tags and tag defaults", () => {
     // The block already tracks its own status.
     await session.execute({
       type: "set_property",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", page_id: "home", id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });
@@ -210,8 +210,8 @@ describe("the tags screen", () => {
     const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
     await session.execute({
-      type: "set_tag_default",
-      tag_id: "project",
+      type: "set_property",
+      owner: { kind: "tag_default", tag_id: "project" },
       key: "builtin.task-priority",
       value: { type: "string", value: "high" },
     });
@@ -231,15 +231,49 @@ describe("the tags screen", () => {
       await screen.findByTestId("tag-default-builtin.task-status"),
     ).toHaveTextContent("To-do");
 
-    // Clearing from the value stage issues remove_tag_default.
+    // Removing from the value stage uses the same property command as every owner.
     await user.click(screen.getByTestId("tag-default-builtin.task-priority"));
     const editor = await screen.findByTestId("property-picker");
-    await user.click(within(editor).getByRole("button", { name: "Clear property" }));
+    await user.click(within(editor).getByRole("button", { name: "Remove property" }));
     await waitFor(() =>
       expect(
         screen.queryByTestId("tag-default-builtin.task-priority"),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps an empty default visible and materializes its empty field", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    await session.execute({
+      type: "ensure_property",
+      owner: { kind: "tag_default", tag_id: "project" },
+      key: "builtin.task-priority",
+      value_type: "string",
+      cardinality: "single",
+    });
+
+    expect(
+      await screen.findByTestId("tag-default-builtin.task-priority"),
+    ).toHaveTextContent("No value");
+
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "work",
+    });
+    await session.execute({
+      type: "add_tag",
+      entity: { kind: "block", page_id: "home", id: "b-1" },
+      tag_id: "project",
+    });
+
+    const inherited = session.getState().snapshot.pages[0].blocks[0].properties
+      .find((field) => field.key === "builtin.task-priority");
+    expect(inherited?.values).toEqual([]);
   });
 
   it("deletes a tag after confirmation", async () => {

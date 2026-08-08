@@ -10,8 +10,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
-import type { Command, EntityRef } from "../../core-port/commands";
-import type { PropertyEntry, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
+import type { Command, PropertyOwnerRef } from "../../core-port/commands";
+import type { PropertyField, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import {
   canUserWrite,
@@ -48,11 +48,11 @@ import {
 import { validationMessage } from "./property-validation";
 
 export type PropertyTarget =
-  | { kind: "page"; id: string; bag: PropertyEntry[] }
-  | { kind: "block"; id: string; pageId: string; bag: PropertyEntry[] }
+  | { kind: "page"; id: string; bag: PropertyField[] }
+  | { kind: "block"; id: string; pageId: string; bag: PropertyField[] }
   // A tag's *defaults*: the values copied onto a block when the tag is added.
-  // Same picker, same stages — only the commands differ.
-  | { kind: "tag"; id: string; bag: PropertyEntry[] };
+  // Same picker, stages, and owner-based property commands.
+  | { kind: "tag"; id: string; bag: PropertyField[] };
 
 type Stage = "property" | "type" | "value";
 
@@ -84,7 +84,7 @@ export function PropertyPicker({
   const [key, setKey] = useState<string | null>(initial);
   const [type, setType] = useState<PropertyValueType>(() => {
     if (!initial) return "string";
-    return valueTypeOf(initial) ?? target.bag.find((entry) => entry.key === initial)?.value.type ?? "string";
+    return valueTypeOf(initial) ?? target.bag.find((field) => field.key === initial)?.value_type ?? "string";
   });
   const [draft, setDraft] = useState<PropertyValue>(() => initialValue(initial, target.bag));
   const [active, setActive] = useState(0);
@@ -95,11 +95,11 @@ export function PropertyPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
 
-  const entity: EntityRef | null = target.kind === "page"
+  const owner: PropertyOwnerRef = target.kind === "page"
     ? { kind: "page", id: target.id }
     : target.kind === "block"
       ? { kind: "block", page_id: target.pageId, id: target.id }
-      : null;
+      : { kind: "tag_default", tag_id: target.id };
   // Placement checks speak the registry's language: a tag target writes the
   // `tag_default` placement, never a bag of its own.
   const writeTarget = target.kind === "tag" ? "tag_default" : target.kind;
@@ -237,8 +237,8 @@ export function PropertyPicker({
   };
 
   const chooseKey = (candidate: Candidate) => {
-    const found = target.bag.find((entry) => entry.key === candidate.key);
-    const nextType = valueTypeOf(candidate.key) ?? found?.value.type;
+    const found = target.bag.find((field) => field.key === candidate.key);
+    const nextType = valueTypeOf(candidate.key) ?? found?.value_type;
     setKey(candidate.key);
     setQuery("");
     if (!nextType) {
@@ -246,7 +246,7 @@ export function PropertyPicker({
       return;
     }
     setType(nextType);
-    setDraft(found?.value ?? defaultValueFor(nextType, todayLocalDate()));
+    setDraft(found?.values[0] ?? defaultValueFor(nextType, todayLocalDate()));
     setStage("value");
   };
 
@@ -259,29 +259,24 @@ export function PropertyPicker({
   const commit = async (value: PropertyValue) => {
     if (!key || writeDisabled) return;
     const keyIssue = validateKey(key);
-    // Tag defaults are single-valued by contract, so the cardinality check
-    // runs against "single" — a set-shaped key fails before dispatch.
+    const existing = target.bag.find((field) => field.key === key);
+    const cardinality = existing?.cardinality === "set" ? "repeated" : cardinalityOf(key);
     const issue = keyIssue
       ?? validateWriteTarget(key, writeTarget)
-      ?? validateValue(key, value, target.kind === "tag" ? "single" : cardinalityOf(key));
+      ?? validateValue(key, value, cardinality);
     if (issue) {
       setError(validationMessage(issue, message));
       return;
     }
-    if (target.kind === "tag") {
-      const saved = await run({ type: "set_tag_default", tag_id: target.id, key, value });
-      if (saved) onClose();
-      return;
-    }
-    const repeated = cardinalityOf(key) === "repeated";
+    const repeated = cardinality === "repeated";
     const saved = await run(repeated
-      ? { type: "add_repeated_property", entity: entity!, key, value }
-      : { type: "set_property", entity: entity!, key, value });
+      ? { type: "add_repeated_property", owner, key, value }
+      : { type: "set_property", owner, key, value });
     if (!saved) return;
-    if (key === "builtin.query-source" && !target.bag.some((entry) => entry.key === "builtin.query-language")) {
+    if (target.kind !== "tag" && key === "builtin.query-source" && !target.bag.some((entry) => entry.key === "builtin.query-language")) {
       const languageSaved = await run({
         type: "set_property",
-        entity: entity!,
+        owner,
         key: "builtin.query-language",
         value: { type: "string", value: "sparql-1.1/neoseq-v1" },
       });
@@ -290,29 +285,34 @@ export function PropertyPicker({
     onClose();
   };
 
-  const remove = async (entry?: PropertyEntry) => {
+  const ensureEmpty = async () => {
     if (!key || writeDisabled) return;
-    if (target.kind === "tag") {
-      const removed = await run({ type: "remove_tag_default", tag_id: target.id, key });
-      if (removed) onClose();
-      return;
-    }
-    if (!entry && cardinalityOf(key) === "repeated") {
-      for (const member of selectedEntries) {
-        const removed = await run({
-          type: "remove_repeated_property",
-          entity: entity!,
-          key,
-          value: member.value,
-        });
-        if (!removed) return;
-      }
-      onClose();
-      return;
-    }
-    const removed = await run(entry
-      ? { type: "remove_repeated_property", entity: entity!, key, value: entry.value }
-      : { type: "remove_property", entity: entity!, key });
+    const cardinality = cardinalityOf(key) === "repeated" ? "set" : "single";
+    const saved = await run({
+      type: "ensure_property",
+      owner,
+      key,
+      value_type: type,
+      cardinality,
+    });
+    if (saved) onClose();
+  };
+
+  const removeValue = async (value: PropertyValue) => {
+    if (!key || writeDisabled) return;
+    const removed = await run({ type: "remove_repeated_property", owner, key, value });
+    if (removed) onClose();
+  };
+
+  const clearValues = async () => {
+    if (!key || writeDisabled) return;
+    const cleared = await run({ type: "clear_property_values", owner, key });
+    if (cleared) onClose();
+  };
+
+  const removeField = async () => {
+    if (!key || writeDisabled) return;
+    const removed = await run({ type: "remove_property", owner, key });
     if (removed) onClose();
   };
 
@@ -333,7 +333,8 @@ export function PropertyPicker({
     }
   };
 
-  const selectedEntries = key ? visibleEntries.filter((entry) => entry.key === key) : [];
+  const selectedField = key ? visibleEntries.find((field) => field.key === key) : undefined;
+  const selectedValues = selectedField?.values ?? [];
   const choices = key ? stringChoicesOf(key) : [];
   // Report a bad key only when it is a dead end — while matches are still on
   // screen the query is a search, not a mistake.
@@ -353,6 +354,9 @@ export function PropertyPicker({
     }
     return String(value.value);
   };
+  const describeField = (field: PropertyField): string => field.values.length === 0
+    ? message("properties.noValue")
+    : field.values.map(describeValue).join(", ");
 
   return createPortal(
     <div
@@ -456,7 +460,7 @@ export function PropertyPicker({
                   : propertyGlyph(
                       candidate.key,
                       valueTypeOf(candidate.key)
-                        ?? target.bag.find((entry) => entry.key === candidate.key)?.value.type,
+                        ?? target.bag.find((field) => field.key === candidate.key)?.value_type,
                     )}
                 <span className="property-picker-candidate">
                   <span className={candidate.key.startsWith("builtin.") ? undefined : "mono"}>
@@ -467,7 +471,7 @@ export function PropertyPicker({
                       : propertyDisplayName(candidate.key, message)}
                   </span>
                   {candidate.existing && (
-                    <small>{describeValue(visibleEntries.find((entry) => entry.key === candidate.key)!.value)}</small>
+                    <small>{describeField(visibleEntries.find((field) => field.key === candidate.key)!)}</small>
                   )}
                 </span>
                 {candidate.existing && <CheckIcon data-icon aria-hidden />}
@@ -512,11 +516,11 @@ export function PropertyPicker({
 
       {stage === "value" && key && (
         <div className="property-picker-value">
-          {cardinalityOf(key) === "repeated" && selectedEntries.length > 0 && (
+          {(selectedField?.cardinality === "set" || cardinalityOf(key) === "repeated") && selectedValues.length > 0 && (
             <div className="property-picker-members">
-              {selectedEntries.map((entry, index) => (
-                <div key={`${entry.key}:${index}`}>
-                  <span>{formatValue(entry.value)}</span>
+              {selectedValues.map((value, index) => (
+                <div key={`${key}:${index}`}>
+                  <span>{formatValue(value)}</span>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -524,7 +528,7 @@ export function PropertyPicker({
                     aria-label={message("properties.removeValue", {
                       key: propertyDisplayName(key, message),
                     })}
-                    onClick={() => void remove(entry)}
+                    onClick={() => void removeValue(value)}
                   >
                     <Trash2Icon data-icon aria-hidden />
                   </Button>
@@ -532,8 +536,11 @@ export function PropertyPicker({
               ))}
             </div>
           )}
-          {cardinalityOf(key) === "single" && selectedEntries[0] && (
-            <p className="property-current-value">{describeValue(selectedEntries[0].value)}</p>
+          {(selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single")) === "single" && selectedValues[0] && (
+            <p className="property-current-value">{describeValue(selectedValues[0])}</p>
+          )}
+          {selectedField && selectedValues.length === 0 && (
+            <p className="property-current-value">{message("properties.noValue")}</p>
           )}
           <ValueInput
             entryKey={key}
@@ -545,10 +552,20 @@ export function PropertyPicker({
             onCommit={(value) => void commit(value)}
           />
           <div className="property-picker-actions">
-            {selectedEntries.length > 0 && (
-              <Button variant="destructive" onClick={() => void remove()} disabled={writeDisabled || committing}>
-                <Trash2Icon data-icon aria-hidden />
+            {!selectedField && (
+              <Button variant="secondary" onClick={() => void ensureEmpty()} disabled={writeDisabled || committing}>
+                {message("properties.addEmpty")}
+              </Button>
+            )}
+            {selectedField && selectedValues.length > 0 && (
+              <Button variant="secondary" onClick={() => void clearValues()} disabled={writeDisabled || committing}>
                 {message("properties.clear")}
+              </Button>
+            )}
+            {selectedField && (
+              <Button variant="destructive" onClick={() => void removeField()} disabled={writeDisabled || committing}>
+                <Trash2Icon data-icon aria-hidden />
+                {message("properties.removeProperty")}
               </Button>
             )}
             {type !== "page" && type !== "date" && choices.length === 0 && (
@@ -566,9 +583,9 @@ export function PropertyPicker({
   );
 }
 
-function initialValue(key: string | null, bag: PropertyEntry[]): PropertyValue {
+function initialValue(key: string | null, bag: PropertyField[]): PropertyValue {
   if (!key) return { type: "string", value: "" };
-  const existing = bag.find((entry) => entry.key === key)?.value;
+  const existing = bag.find((field) => field.key === key)?.values[0];
   if (existing) return existing;
   return defaultValueFor(valueTypeOf(key) ?? "string", todayLocalDate());
 }

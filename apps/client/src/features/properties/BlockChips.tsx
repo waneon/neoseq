@@ -18,7 +18,7 @@ import {
   stringValue,
 } from "../../core-port/snapshot";
 import { todayLocalDate } from "../../entities/journal";
-import { cardinalityOf, isGenericProperty } from "../../entities/properties";
+import { isGenericProperty } from "../../entities/properties";
 import {
   isSettledStatus,
   isTaskKey,
@@ -49,7 +49,7 @@ export function BlockChips({
   // Task keys have their own positioned chips above; the generic rows carry
   // everything else the block states, in the same chip language.
   const generic = block.properties.filter(
-    (entry) => isGenericProperty(entry.key) && !isTaskKey(entry.key),
+    (field) => isGenericProperty(field.key) && (!isTaskKey(field.key) || field.values.length === 0),
   );
   const hasTaskFacts =
     priority !== undefined || scheduled !== undefined || deadline !== undefined;
@@ -74,6 +74,10 @@ export function BlockChips({
     }
     return String(value.value);
   };
+  const describeField = (field: BlockSnapshot["properties"][number]): string =>
+    field.values.length === 0
+      ? message("properties.noValue")
+      : field.values.map(describe).join(", ");
 
   return (
     <div className="block-chips" aria-label={message("task.section")} data-testid="block-chips">
@@ -115,19 +119,19 @@ export function BlockChips({
           {overdue && <span className="task-chip-overdue">{message("task.overdue")}</span>}
         </button>
       )}
-      {generic.map((entry, index) => (
+      {generic.map((field) => (
         <button
-          key={`${entry.key}:${index}`}
+          key={field.key}
           type="button"
           className="task-chip"
-          data-testid={`prop-${entry.key}`}
-          title={`${entry.key}: ${describe(entry.value)}`}
-          onClick={(event) => onEdit(entry.key, event.currentTarget)}
+          data-testid={`prop-${field.key}`}
+          title={`${field.key}: ${describeField(field)}`}
+          onClick={(event) => onEdit(field.key, event.currentTarget)}
         >
-          {propertyGlyph(entry.key, entry.value.type)}
-          <span className="task-chip-name">{propertyDisplayName(entry.key, message)}</span>
-          <span className="task-chip-value">{describe(entry.value)}</span>
-          {cardinalityOf(entry.key) === "repeated" && (
+          {propertyGlyph(field.key, field.value_type)}
+          <span className="task-chip-name">{propertyDisplayName(field.key, message)}</span>
+          <span className="task-chip-value">{describeField(field)}</span>
+          {field.cardinality === "set" && (
             <span className="flag">{message("common.repeated")}</span>
           )}
         </button>

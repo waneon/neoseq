@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PageSnapshot, PropertyValue } from "../../core-port/snapshot";
+import type { PageSnapshot, PropertyField, PropertyValue } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import { isGenericProperty } from "../../entities/properties";
 import { useI18n } from "../../i18n";
@@ -65,17 +65,17 @@ export function PageProperties({
           {page.properties
             .filter((entry) => isGenericProperty(entry.key))
             .slice(0, STRIP_LIMIT)
-            .map((entry, index) => (
+            .map((field) => (
               <button
-                key={`${entry.key}:${index}`}
+                key={field.key}
                 className="prop-strip-chip"
-                data-testid={`prop-${entry.key}`}
-                title={`${entry.key}: ${describe(entry.value, state, message)}`}
-                onClick={(event) => show(entry.key, event.currentTarget)}
+                data-testid={`prop-${field.key}`}
+                title={`${field.key}: ${describeField(field, state, message)}`}
+                onClick={(event) => show(field.key, event.currentTarget)}
               >
-                {propertyGlyph(entry.key, entry.value.type)}
-                <span className="key">{propertyDisplayName(entry.key, message)}</span>
-                <span className="value">{describe(entry.value, state, message)}</span>
+                {propertyGlyph(field.key, field.value_type)}
+                <span className="key">{propertyDisplayName(field.key, message)}</span>
+                <span className="value">{describeField(field, state, message)}</span>
               </button>
             ))}
           {page.properties.filter((entry) => isGenericProperty(entry.key)).length > STRIP_LIMIT && (
@@ -114,4 +114,14 @@ function describe(
       : pageTitle(target);
   }
   return String(value.value);
+}
+
+function describeField(
+  field: PropertyField,
+  state: ReturnType<typeof useSessionState>,
+  message: ReturnType<typeof useI18n>["message"],
+): string {
+  return field.values.length === 0
+    ? message("properties.noValue")
+    : field.values.map((value) => describe(value, state, message)).join(", ");
 }

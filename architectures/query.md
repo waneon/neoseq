@@ -33,8 +33,10 @@ The projection emits no blank nodes. Its principal triples are:
 | live block | `rdf:type neo:Block`, `neo:content`, `neo:page`, `neo:parent`, `neo:siblingIndex` |
 | live tag | `rdf:type neo:Tag`, `neo:name` |
 | node tag reference | `neo:tag <tag-entity-IRI>` |
+| entity property field `k` | `<subject> neo:hasProperty <property-key-IRI>` |
 | page/block property `k = v` | `<subject> prop:<encoded-k> <typed-v>` |
 | tag metadata property `k = v` | `<tag> prop:<encoded-k> <typed-v>` |
+| tag default field `k` | `<tag> neo:hasDefaultProperty <property-key-IRI>` |
 | tag default `k = v` | `<tag> def:<encoded-k> <typed-v>` |
 
 A root block's parent is its page IRI; other blocks point to their parent block.
@@ -49,6 +51,7 @@ references to page entity IRIs. Repeated values emit repeated predicates; equal
 values naturally collapse under RDF set semantics, matching the source model's
 idempotent member identity. A dangling page or tag reference remains an object
 IRI even when no live subject describes it.
+An empty field emits only its presence relation and no value predicate.
 
 Soft-deleted entities and blocks hidden by a deleted page are absent from the
 default projection. Tombstone resolution remains a core read concern rather

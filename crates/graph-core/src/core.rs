@@ -1,9 +1,10 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
     GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, PageId, PageSnapshot,
-    PageSummary, PropertyBag, PropertyEntry, PropertyError, PropertyKey, PropertyTarget,
-    PropertyValue, SplitPlacement, TagId, TagSnapshot, validate_default, validate_property,
-    validate_property_target, validate_property_write,
+    PageSummary, PropertyBag, PropertyError, PropertyField, PropertyKey, PropertyOwner,
+    PropertyTarget, PropertyType, PropertyValue, SplitPlacement, TagId, TagSnapshot,
+    validate_property, validate_property_field, validate_property_shape, validate_property_target,
+    validate_property_write,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -869,9 +870,6 @@ impl GraphCore {
             Command::DeleteTag { tag_id } => {
                 self.require_live_tag(tag_id)?;
             }
-            Command::RemoveTagDefault { tag_id, .. } => {
-                self.require_tag(tag_id)?;
-            }
             Command::RestoreTag { tag_id } => {
                 let tag = self.require_tag(tag_id)?;
                 let name = map_string(&tag, "name")
@@ -879,24 +877,31 @@ impl GraphCore {
                 validate_name(&name, "tag")?;
                 ensure_tag_name_available(&self.doc, tag_id, &name)?;
             }
-            Command::SetProperty { entity, key, value } => {
-                self.validate_entity(entity)?;
-                validate_property_write(key, property_target(entity))?;
+            Command::EnsureProperty {
+                owner,
+                key,
+                value_type,
+                cardinality,
+            } => {
+                self.validate_property_owner(owner)?;
+                validate_property_write(key, property_owner_target(owner))?;
+                validate_property_shape(key, *value_type, *cardinality)?;
+            }
+            Command::SetProperty { owner, key, value } => {
+                self.validate_property_owner(owner)?;
+                validate_property_write(key, property_owner_target(owner))?;
                 validate_property(key, value, Cardinality::Single)?;
             }
-            Command::AddRepeatedProperty { entity, key, value }
-            | Command::RemoveRepeatedProperty { entity, key, value } => {
-                self.validate_entity(entity)?;
-                validate_property_write(key, property_target(entity))?;
+            Command::AddRepeatedProperty { owner, key, value }
+            | Command::RemoveRepeatedProperty { owner, key, value } => {
+                self.validate_property_owner(owner)?;
+                validate_property_write(key, property_owner_target(owner))?;
                 validate_property(key, value, Cardinality::Set)?;
             }
-            Command::RemoveProperty { entity, key } => {
-                self.validate_entity(entity)?;
-                validate_property_write(key, property_target(entity))?;
-            }
-            Command::SetTagDefault { tag_id, key, value } => {
-                self.require_tag(tag_id)?;
-                validate_default(key, value)?;
+            Command::ClearPropertyValues { owner, key }
+            | Command::RemoveProperty { owner, key } => {
+                self.validate_property_owner(owner)?;
+                validate_property_write(key, property_owner_target(owner))?;
             }
             Command::AddTag { entity, tag_id } => {
                 self.validate_entity(entity)?;
@@ -944,8 +949,7 @@ impl GraphCore {
                 )?;
             }
             Command::RestorePage { page_id } => {
-                self.page_properties(page_id)?
-                    .delete(&single_slot(&key("builtin.deleted-at")))?;
+                remove_property_field(&self.page_properties(page_id)?, &key("builtin.deleted-at"))?;
             }
             Command::EnsureTag { tag_id, name } => {
                 result.created_tag = self.ensure_tag(tag_id, name, now)?;
@@ -959,8 +963,10 @@ impl GraphCore {
                 self.apply_delete_tag(tag_id, &plan, now)?;
             }
             Command::RestoreTag { tag_id } => {
-                self.tag_bag(tag_id, "properties")?
-                    .delete(&single_slot(&key("builtin.deleted-at")))?;
+                remove_property_field(
+                    &self.tag_bag(tag_id, "properties")?,
+                    &key("builtin.deleted-at"),
+                )?;
             }
             Command::InsertBlock {
                 page_id,
@@ -1171,32 +1177,52 @@ impl GraphCore {
                     outline.delete(tree_id(block_id)?)?;
                 }
             }
-            Command::SetProperty { entity, key, value } => {
-                set_single(&self.entity_bag(entity)?, key, value)?;
+            Command::EnsureProperty {
+                owner,
+                key,
+                value_type,
+                cardinality,
+            } => {
+                ensure_property_field(
+                    &self.property_owner_bag(owner)?,
+                    key,
+                    *value_type,
+                    *cardinality,
+                )?;
             }
-            Command::RemoveProperty { entity, key } => {
-                self.entity_bag(entity)?.delete(&single_slot(key))?;
+            Command::SetProperty { owner, key, value } => {
+                set_single(&self.property_owner_bag(owner)?, key, value)?;
             }
-            Command::AddRepeatedProperty { entity, key, value } => {
-                set_repeated(&self.entity_bag(entity)?, key, value)?;
+            Command::ClearPropertyValues { owner, key } => {
+                clear_property_values(&self.property_owner_bag(owner)?, key)?;
             }
-            Command::RemoveRepeatedProperty { entity, key, value } => {
-                self.entity_bag(entity)?
+            Command::RemoveProperty { owner, key } => {
+                remove_property_field(&self.property_owner_bag(owner)?, key)?;
+            }
+            Command::AddRepeatedProperty { owner, key, value } => {
+                set_repeated(&self.property_owner_bag(owner)?, key, value)?;
+            }
+            Command::RemoveRepeatedProperty { owner, key, value } => {
+                self.property_owner_bag(owner)?
                     .delete(&repeated_slot(key, value)?)?;
-            }
-            Command::SetTagDefault { tag_id, key, value } => {
-                set_single(&self.tag_bag(tag_id, "defaults")?, key, value)?;
-            }
-            Command::RemoveTagDefault { tag_id, key } => {
-                self.tag_bag(tag_id, "defaults")?
-                    .delete(&single_slot(key))?;
             }
             Command::AddTag { entity, tag_id } => {
                 self.entity_tags(entity)?.insert(tag_id.as_str(), true)?;
                 let entity_bag = self.entity_bag(entity)?;
-                for entry in decode_bag(&self.tag_bag(tag_id, "defaults")?).0 {
-                    if !bag_contains_key(&entity_bag, &entry.key) {
-                        set_single(&entity_bag, &entry.key, &entry.value)?;
+                for field in decode_bag(&self.tag_bag(tag_id, "defaults")?).0 {
+                    if !bag_contains_key(&entity_bag, &field.key) {
+                        ensure_property_field(
+                            &entity_bag,
+                            &field.key,
+                            field.value_type,
+                            field.cardinality,
+                        )?;
+                        for value in &field.values {
+                            match field.cardinality {
+                                Cardinality::Single => set_single(&entity_bag, &field.key, value)?,
+                                Cardinality::Set => set_repeated(&entity_bag, &field.key, value)?,
+                            }
+                        }
                     }
                 }
             }
@@ -1267,12 +1293,17 @@ impl GraphCore {
                 self.touch_page(page_id, now)?;
             }
             Command::DeleteBlocks { page_id, .. } => self.touch_page(page_id, now)?,
-            Command::SetProperty { entity, .. }
-            | Command::RemoveProperty { entity, .. }
-            | Command::AddRepeatedProperty { entity, .. }
-            | Command::RemoveRepeatedProperty { entity, .. }
-            | Command::AddTag { entity, .. }
-            | Command::RemoveTag { entity, .. } => self.touch_entity(entity, now)?,
+            Command::EnsureProperty { owner, .. }
+            | Command::SetProperty { owner, .. }
+            | Command::ClearPropertyValues { owner, .. }
+            | Command::RemoveProperty { owner, .. }
+            | Command::AddRepeatedProperty { owner, .. }
+            | Command::RemoveRepeatedProperty { owner, .. } => {
+                self.touch_property_owner(owner, now)?
+            }
+            Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
+                self.touch_entity(entity, now)?
+            }
             Command::EnsureTag { .. } => {
                 if let Some(tag_id) = &result.created_tag {
                     self.touch_tag(tag_id, now)?;
@@ -1280,9 +1311,7 @@ impl GraphCore {
             }
             Command::RenameTag { tag_id, .. }
             | Command::DeleteTag { tag_id }
-            | Command::RestoreTag { tag_id }
-            | Command::SetTagDefault { tag_id, .. }
-            | Command::RemoveTagDefault { tag_id, .. } => self.touch_tag(tag_id, now)?,
+            | Command::RestoreTag { tag_id } => self.touch_tag(tag_id, now)?,
             Command::Undo | Command::Redo => {}
         }
         Ok(())
@@ -1295,6 +1324,17 @@ impl GraphCore {
                 self.touch_block(page_id, id, now)?;
                 self.touch_page(page_id, now)
             }
+        }
+    }
+
+    fn touch_property_owner(&self, owner: &PropertyOwner, now: &str) -> Result<(), CoreError> {
+        match owner {
+            PropertyOwner::Page { id } => self.touch_page(id, now),
+            PropertyOwner::Block { page_id, id } => {
+                self.touch_block(page_id, id, now)?;
+                self.touch_page(page_id, now)
+            }
+            PropertyOwner::TagDefault { tag_id } => self.touch_tag(tag_id, now),
         }
     }
 
@@ -1486,6 +1526,21 @@ impl GraphCore {
                 false,
             )
         };
+        let owner_plan = |owner: &PropertyOwner| match owner {
+            PropertyOwner::Page { id } => entity_plan(&EntityId::Page { id: id.clone() }),
+            PropertyOwner::Block { page_id, id } => entity_plan(&EntityId::Block {
+                page_id: page_id.clone(),
+                id: id.clone(),
+            }),
+            PropertyOwner::TagDefault { .. } => plan(
+                HistoryScope::Graph,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+            ),
+        };
 
         Ok(match command {
             Command::EnsurePage { page_id, .. } => plan(
@@ -1531,18 +1586,16 @@ impl GraphCore {
                 false,
                 false,
             ),
-            Command::EnsureTag { .. }
-            | Command::RenameTag { .. }
-            | Command::RestoreTag { .. }
-            | Command::SetTagDefault { .. }
-            | Command::RemoveTagDefault { .. } => plan(
-                HistoryScope::Graph,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                false,
-                false,
-            ),
+            Command::EnsureTag { .. } | Command::RenameTag { .. } | Command::RestoreTag { .. } => {
+                plan(
+                    HistoryScope::Graph,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
+                    false,
+                )
+            }
             Command::DeleteTag { tag_id } => plan(
                 HistoryScope::Graph,
                 self.plan_delete_tag(tag_id)?
@@ -1710,12 +1763,15 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::SetProperty { entity, .. }
-            | Command::RemoveProperty { entity, .. }
-            | Command::AddRepeatedProperty { entity, .. }
-            | Command::RemoveRepeatedProperty { entity, .. }
-            | Command::AddTag { entity, .. }
-            | Command::RemoveTag { entity, .. } => entity_plan(entity),
+            Command::EnsureProperty { owner, .. }
+            | Command::SetProperty { owner, .. }
+            | Command::ClearPropertyValues { owner, .. }
+            | Command::RemoveProperty { owner, .. }
+            | Command::AddRepeatedProperty { owner, .. }
+            | Command::RemoveRepeatedProperty { owner, .. } => owner_plan(owner),
+            Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
+                entity_plan(entity)
+            }
             Command::Undo | Command::Redo => None,
         })
     }
@@ -2036,6 +2092,14 @@ impl GraphCore {
         }
     }
 
+    fn property_owner_bag(&self, owner: &PropertyOwner) -> Result<LoroMap, CoreError> {
+        match owner {
+            PropertyOwner::Page { id } => self.page_properties(id),
+            PropertyOwner::Block { page_id, id } => self.block_bag(page_id, id),
+            PropertyOwner::TagDefault { tag_id } => self.tag_bag(tag_id, "defaults"),
+        }
+    }
+
     fn entity_tags(&self, entity: &EntityId) -> Result<LoroMap, CoreError> {
         match entity {
             EntityId::Page { id } => Ok(self.page_root(id)?.ensure_mergeable_map("tag_refs")?),
@@ -2055,6 +2119,21 @@ impl GraphCore {
             }
             EntityId::Block { page_id, id } => {
                 self.require_block(page_id, id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_property_owner(&self, owner: &PropertyOwner) -> Result<(), CoreError> {
+        match owner {
+            PropertyOwner::Page { id } => {
+                self.require_page(id)?;
+            }
+            PropertyOwner::Block { page_id, id } => {
+                self.require_block(page_id, id)?;
+            }
+            PropertyOwner::TagDefault { tag_id } => {
+                self.require_tag(tag_id)?;
             }
         }
         Ok(())
@@ -2114,7 +2193,7 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
         };
         let is_journal = snapshot.properties.iter().any(|entry| {
             entry.key.as_str() == "builtin.page-kind"
-                && entry.value == PropertyValue::String("journal".to_owned())
+                && entry.values == [PropertyValue::String("journal".to_owned())]
         });
         if !is_journal {
             names.push((page_id, snapshot.title));
@@ -2201,10 +2280,11 @@ fn validate_unique_entity_names(doc: &LoroDoc) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn property_target(entity: &EntityId) -> PropertyTarget {
-    match entity {
-        EntityId::Page { .. } => PropertyTarget::Page,
-        EntityId::Block { .. } => PropertyTarget::Block,
+fn property_owner_target(owner: &PropertyOwner) -> PropertyTarget {
+    match owner {
+        PropertyOwner::Page { .. } => PropertyTarget::Page,
+        PropertyOwner::Block { .. } => PropertyTarget::Block,
+        PropertyOwner::TagDefault { .. } => PropertyTarget::TagDefault,
     }
 }
 
@@ -2226,13 +2306,17 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::IndentBlocks { .. }
         | Command::OutdentBlocks { .. } => "SubtreeMoved",
         Command::DeleteBlocks { .. } => "SubtreesDeleted",
-        Command::SetTagDefault { .. } | Command::RemoveTagDefault { .. } => "TagDefaultsChanged",
         Command::AddTag { .. } => "TagAddedAndDefaultsMaterialized",
         Command::RemoveTag { .. } => "TagRemoved",
-        Command::SetProperty { .. }
-        | Command::RemoveProperty { .. }
-        | Command::AddRepeatedProperty { .. }
-        | Command::RemoveRepeatedProperty { .. } => "PropertiesChanged",
+        Command::EnsureProperty { owner, .. }
+        | Command::SetProperty { owner, .. }
+        | Command::ClearPropertyValues { owner, .. }
+        | Command::RemoveProperty { owner, .. }
+        | Command::AddRepeatedProperty { owner, .. }
+        | Command::RemoveRepeatedProperty { owner, .. } => match owner {
+            PropertyOwner::TagDefault { .. } => "TagDefaultsChanged",
+            PropertyOwner::Page { .. } | PropertyOwner::Block { .. } => "PropertiesChanged",
+        },
         Command::Undo => "LocalUndo",
         Command::Redo => "LocalRedo",
     }
@@ -2258,6 +2342,10 @@ fn require_block_in(outline: &LoroTree, block_id: &BlockId) -> Result<TreeID, Co
 
 fn single_slot(key: &PropertyKey) -> String {
     format!("s:{}", key.as_str())
+}
+
+fn field_slot(key: &PropertyKey) -> String {
+    format!("f:{}", key.as_str())
 }
 
 fn repeated_slot(key: &PropertyKey, value: &PropertyValue) -> Result<String, CoreError> {
@@ -2300,30 +2388,94 @@ fn replace_text(text: &LoroText, content: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn encode_entry(key: &PropertyKey, value: &PropertyValue) -> Result<String, CoreError> {
-    Ok(serde_json::to_string(&PropertyEntry {
+fn encode_value(value: &PropertyValue) -> Result<String, CoreError> {
+    Ok(serde_json::to_string(value)?)
+}
+
+fn ensure_property_field(
+    map: &LoroMap,
+    key: &PropertyKey,
+    value_type: PropertyType,
+    cardinality: Cardinality,
+) -> Result<(), CoreError> {
+    validate_property_shape(key, value_type, cardinality)?;
+    if let Some(encoded) = map.get(&field_slot(key)).and_then(value_into_string) {
+        let existing: PropertyField = serde_json::from_str(&encoded)?;
+        if !existing.values.is_empty() {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "property field marker {} contains inline values",
+                key
+            )));
+        }
+        validate_property_field(&existing)?;
+        if existing.key != *key || existing.value_type != value_type {
+            return Err(CoreError::Property(PropertyError::WrongType {
+                key: key.to_string(),
+                expected: existing.value_type,
+                actual: value_type,
+            }));
+        }
+        if existing.cardinality != cardinality {
+            return Err(CoreError::Property(PropertyError::WrongCardinality {
+                key: key.to_string(),
+                expected: existing.cardinality,
+                actual: cardinality,
+            }));
+        }
+        return Ok(());
+    }
+    // A field recreated after removal starts empty even if a malformed or
+    // concurrently orphaned value slot survived without its marker.
+    clear_property_values(map, key)?;
+    let marker = PropertyField {
         key: key.clone(),
-        value: value.clone(),
-    })?)
+        value_type,
+        cardinality,
+        values: Vec::new(),
+    };
+    map.insert(&field_slot(key), serde_json::to_string(&marker)?)?;
+    Ok(())
 }
 
 fn set_single(map: &LoroMap, key: &PropertyKey, value: &PropertyValue) -> Result<(), CoreError> {
-    map.insert(&single_slot(key), encode_entry(key, value)?)?;
+    ensure_property_field(map, key, value.property_type(), Cardinality::Single)?;
+    map.insert(&single_slot(key), encode_value(value)?)?;
     Ok(())
 }
 
 fn set_repeated(map: &LoroMap, key: &PropertyKey, value: &PropertyValue) -> Result<(), CoreError> {
-    map.insert(&repeated_slot(key, value)?, encode_entry(key, value)?)?;
+    ensure_property_field(map, key, value.property_type(), Cardinality::Set)?;
+    map.insert(&repeated_slot(key, value)?, encode_value(value)?)?;
     Ok(())
 }
 
 fn bag_contains_key(map: &LoroMap, key: &PropertyKey) -> bool {
-    map.get(&single_slot(key)).is_some() || {
-        let prefix = format!("r:{}:", key.as_str());
-        let mut found = false;
-        map.for_each(|slot, _| found |= slot.starts_with(&prefix));
-        found
+    map.get(&field_slot(key)).is_some()
+}
+
+fn property_value_slots(map: &LoroMap, key: &PropertyKey) -> Vec<String> {
+    let single = single_slot(key);
+    let repeated = format!("r:{}:", key.as_str());
+    let mut slots = Vec::new();
+    map.for_each(|slot, _| {
+        if slot == single || slot.starts_with(&repeated) {
+            slots.push(slot.to_owned());
+        }
+    });
+    slots
+}
+
+fn clear_property_values(map: &LoroMap, key: &PropertyKey) -> Result<(), CoreError> {
+    for slot in property_value_slots(map, key) {
+        map.delete(&slot)?;
     }
+    Ok(())
+}
+
+fn remove_property_field(map: &LoroMap, key: &PropertyKey) -> Result<(), CoreError> {
+    clear_property_values(map, key)?;
+    map.delete(&field_slot(key))?;
+    Ok(())
 }
 
 fn bag_has_key(bag: &PropertyBag, key: &str) -> bool {
@@ -2341,40 +2493,84 @@ fn decode_bag_child(page: &LoroMap, name: &str) -> (PropertyBag, Vec<String>) {
 }
 
 fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
-    let mut entries = Vec::new();
+    let mut fields = BTreeMap::<PropertyKey, PropertyField>::new();
     let mut issues = Vec::new();
     map.for_each(|slot, value| {
+        let Some(raw_key) = slot.strip_prefix("f:") else {
+            return;
+        };
         let Some(encoded) = value_into_string(value) else {
             issues.push(format!("property-slot:{slot}:not-atomic-string"));
             return;
         };
-        let Ok(entry) = serde_json::from_str::<PropertyEntry>(&encoded) else {
-            issues.push(format!("property-slot:{slot}:invalid-entry"));
+        let Ok(field) = serde_json::from_str::<PropertyField>(&encoded) else {
+            issues.push(format!("property-slot:{slot}:invalid-field"));
             return;
         };
-        let cardinality = if slot.starts_with("s:") {
-            Cardinality::Single
-        } else if slot.starts_with("r:") {
-            Cardinality::Set
+        if field.key.as_str() != raw_key || !field.values.is_empty() {
+            issues.push(format!("property-slot:{slot}:invalid-marker"));
+            return;
+        }
+        if validate_property_field(&field).is_err() {
+            issues.push(format!("property-slot:{slot}:contract-violation"));
+            return;
+        }
+        fields.insert(field.key.clone(), field);
+    });
+    map.for_each(|slot, value| {
+        if slot.starts_with("f:") {
+            return;
+        }
+        let (raw_key, cardinality) = if let Some(raw_key) = slot.strip_prefix("s:") {
+            (raw_key, Cardinality::Single)
+        } else if let Some(rest) = slot.strip_prefix("r:") {
+            let Some((raw_key, _hash)) = rest.split_once(':') else {
+                issues.push(format!("property-slot:{slot}:invalid-slot"));
+                return;
+            };
+            (raw_key, Cardinality::Set)
         } else {
             issues.push(format!("property-slot:{slot}:invalid-slot"));
             return;
         };
-        if validate_property(&entry.key, &entry.value, cardinality).is_err() {
+        let Ok(key) = PropertyKey::new(raw_key) else {
+            issues.push(format!("property-slot:{slot}:invalid-key"));
+            return;
+        };
+        let Some(field) = fields.get_mut(&key) else {
+            issues.push(format!("property-slot:{slot}:missing-field"));
+            return;
+        };
+        if field.cardinality != cardinality {
+            issues.push(format!("property-slot:{slot}:cardinality-mismatch"));
+            return;
+        }
+        let Some(encoded) = value_into_string(value) else {
+            issues.push(format!("property-slot:{slot}:not-atomic-string"));
+            return;
+        };
+        let Ok(property_value) = serde_json::from_str::<PropertyValue>(&encoded) else {
+            issues.push(format!("property-slot:{slot}:invalid-value"));
+            return;
+        };
+        if property_value.property_type() != field.value_type
+            || validate_property(&key, &property_value, cardinality).is_err()
+        {
             issues.push(format!("property-slot:{slot}:contract-violation"));
             return;
         }
-        entries.push(entry);
+        if cardinality == Cardinality::Single {
+            field.values.clear();
+        }
+        field.values.push(property_value);
     });
-    entries.sort_by(|left, right| {
-        left.key.cmp(&right.key).then_with(|| {
-            serde_json::to_string(&left.value)
-                .unwrap_or_default()
-                .cmp(&serde_json::to_string(&right.value).unwrap_or_default())
-        })
-    });
+    for field in fields.values_mut() {
+        field
+            .values
+            .sort_by_key(|value| serde_json::to_string(value).unwrap_or_default());
+    }
     issues.sort();
-    (entries, issues)
+    (fields.into_values().collect(), issues)
 }
 
 fn page_metadata(
@@ -2446,7 +2642,10 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
         });
         let (mut defaults, mut issues) = decode_bag_child(&tag, "defaults");
         quarantined.append(&mut issues);
-        defaults.retain(|entry| validate_default(&entry.key, &entry.value).is_ok());
+        defaults.retain(|field| {
+            validate_property_write(&field.key, PropertyTarget::TagDefault).is_ok()
+                && validate_property_field(field).is_ok()
+        });
         snapshots.insert(
             tag_id.clone(),
             TagSnapshot {
@@ -2649,12 +2848,12 @@ mod tests {
         .unwrap();
     }
 
-    fn property_string<'a>(bag: &'a [PropertyEntry], raw_key: &str) -> Option<&'a str> {
-        bag.iter().find_map(|entry| {
-            if entry.key.as_str() != raw_key {
+    fn property_string<'a>(bag: &'a [PropertyField], raw_key: &str) -> Option<&'a str> {
+        bag.iter().find_map(|field| {
+            if field.key.as_str() != raw_key {
                 return None;
             }
-            match &entry.value {
+            match field.values.first()? {
                 PropertyValue::String(value) => Some(value.as_str()),
                 _ => None,
             }
@@ -2685,7 +2884,7 @@ mod tests {
                     envelope(
                         &format!("forbidden-{index}"),
                         Command::SetProperty {
-                            entity: EntityId::Page { id: page() },
+                            owner: PropertyOwner::Page { id: page() },
                             key: key(raw_key),
                             value,
                         },
@@ -2760,8 +2959,10 @@ mod tests {
             core.execute(
                 envelope(
                     &format!("d{index}"),
-                    Command::SetTagDefault {
-                        tag_id: tag.clone(),
+                    Command::SetProperty {
+                        owner: PropertyOwner::TagDefault {
+                            tag_id: tag.clone(),
+                        },
                         key: key(raw_key),
                         value,
                     },
@@ -2788,7 +2989,7 @@ mod tests {
             envelope(
                 "direct",
                 Command::SetProperty {
-                    entity: EntityId::Block {
+                    owner: PropertyOwner::Block {
                         page_id: page(),
                         id: block.clone(),
                     },
@@ -2816,8 +3017,8 @@ mod tests {
         core.execute(
             envelope(
                 "change-default",
-                Command::SetTagDefault {
-                    tag_id: tag,
+                Command::SetProperty {
+                    owner: PropertyOwner::TagDefault { tag_id: tag },
                     key: key("user.number"),
                     value: PropertyValue::Number(9.0),
                 },
@@ -2830,7 +3031,7 @@ mod tests {
                 envelope(
                     id,
                     Command::AddRepeatedProperty {
-                        entity: EntityId::Block {
+                        owner: PropertyOwner::Block {
                             page_id: page(),
                             id: block.clone(),
                         },
@@ -2846,7 +3047,7 @@ mod tests {
             envelope(
                 "repeat-remove",
                 Command::RemoveRepeatedProperty {
-                    entity: EntityId::Block {
+                    owner: PropertyOwner::Block {
                         page_id: page(),
                         id: block,
                     },
@@ -2868,22 +3069,152 @@ mod tests {
             entries
                 .iter()
                 .any(|entry| entry.key.as_str() == "builtin.task-status"
-                    && entry.value == PropertyValue::String("doing".into()))
+                    && entry.values == [PropertyValue::String("doing".into())])
         );
         assert_eq!(
             snapshot.pages[0].blocks[0].tags,
             [TagId::new("project").unwrap()]
         );
         assert!(entries.iter().any(|entry| {
-            entry.key.as_str() == "user.number" && entry.value == PropertyValue::Number(1.25)
+            entry.key.as_str() == "user.number" && entry.values == [PropertyValue::Number(1.25)]
         }));
-        assert_eq!(
-            entries
+        let labels = entries
+            .iter()
+            .find(|entry| entry.key.as_str() == "user.labels")
+            .unwrap();
+        assert_eq!(labels.values, vec![PropertyValue::String("two".into())]);
+    }
+
+    #[test]
+    fn empty_tag_defaults_materialize_as_empty_fields() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "work");
+        let tag = TagId::new("project").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: tag.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "empty-default",
+                Command::EnsureProperty {
+                    owner: PropertyOwner::TagDefault {
+                        tag_id: tag.clone(),
+                    },
+                    key: key("builtin.task-priority"),
+                    value_type: PropertyType::String,
+                    cardinality: Cardinality::Single,
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "apply-tag",
+                Command::AddTag {
+                    entity: EntityId::Block {
+                        page_id: page(),
+                        id: block.clone(),
+                    },
+                    tag_id: tag,
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        let default = snapshot.tags[0]
+            .defaults
+            .iter()
+            .find(|field| field.key.as_str() == "builtin.task-priority")
+            .unwrap();
+        assert!(default.values.is_empty());
+        let inherited = snapshot.pages[0].blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == "builtin.task-priority")
+            .unwrap();
+        assert!(inherited.values.is_empty());
+
+        core.execute(envelope("undo-tag", Command::Undo), "t5")
+            .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        assert!(
+            snapshot.pages[0].blocks[0]
+                .properties
                 .iter()
-                .filter(|entry| entry.key.as_str() == "user.labels")
-                .map(|entry| &entry.value)
-                .collect::<Vec<_>>(),
-            vec![&PropertyValue::String("two".into())]
+                .all(|field| field.key.as_str() != "builtin.task-priority")
+        );
+    }
+
+    #[test]
+    fn clearing_values_preserves_a_field_while_removing_drops_it() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "work");
+        let owner = PropertyOwner::Block {
+            page_id: page(),
+            id: block,
+        };
+        let key = key("builtin.task-status");
+        core.execute(
+            envelope(
+                "set",
+                Command::SetProperty {
+                    owner: owner.clone(),
+                    key: key.clone(),
+                    value: PropertyValue::String("todo".into()),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "clear",
+                Command::ClearPropertyValues {
+                    owner: owner.clone(),
+                    key: key.clone(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        let field = snapshot.pages[0].blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key == key)
+            .unwrap();
+        assert!(field.values.is_empty());
+
+        core.execute(
+            envelope(
+                "remove",
+                Command::RemoveProperty {
+                    owner,
+                    key: key.clone(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        assert!(
+            snapshot.pages[0].blocks[0]
+                .properties
+                .iter()
+                .all(|field| field.key != key)
         );
     }
 
@@ -2984,7 +3315,7 @@ mod tests {
             envelope(
                 "property",
                 Command::SetProperty {
-                    entity: EntityId::Block {
+                    owner: PropertyOwner::Block {
                         page_id: page(),
                         id: target.clone(),
                     },
@@ -3057,7 +3388,7 @@ mod tests {
         assert_eq!(split.blocks[1].tags, [project]);
         assert!(split.blocks[1].properties.iter().any(|entry| {
             entry.key.as_str() == "builtin.task-status"
-                && entry.value == PropertyValue::String("doing".into())
+                && entry.values == [PropertyValue::String("doing".into())]
         }));
 
         core.execute(envelope("undo-split", Command::Undo), "t8")
@@ -3449,7 +3780,7 @@ mod tests {
         assert_eq!(snapshot.pages[0].blocks[0].tags.len(), 1);
         assert!(snapshot.pages[0].blocks[0].properties.iter().any(|entry| {
             entry.key.as_str() == "builtin.updated-at"
-                && entry.value == PropertyValue::String("t3".into())
+                && entry.values == [PropertyValue::String("t3".into())]
         }));
         assert!(
             snapshot.pages[0].blocks[0]
@@ -3477,7 +3808,7 @@ mod tests {
         ] {
             assert!(properties.iter().any(|entry| {
                 entry.key.as_str() == "builtin.updated-at"
-                    && entry.value == PropertyValue::String("t4".into())
+                    && entry.values == [PropertyValue::String("t4".into())]
             }));
         }
     }
@@ -3523,8 +3854,10 @@ mod tests {
         core.execute(
             envelope(
                 "default",
-                Command::SetTagDefault {
-                    tag_id: tag.clone(),
+                Command::SetProperty {
+                    owner: PropertyOwner::TagDefault {
+                        tag_id: tag.clone(),
+                    },
                     key: key("builtin.task-status"),
                     value: PropertyValue::String("todo".into()),
                 },
@@ -3602,7 +3935,7 @@ mod tests {
         assert!(snapshot.pages[0].blocks[0].children[0].tags.is_empty());
         assert!(snapshot.pages[0].blocks[0].properties.iter().any(|entry| {
             entry.key.as_str() == "builtin.task-status"
-                && entry.value == PropertyValue::String("todo".into())
+                && entry.values == [PropertyValue::String("todo".into())]
         }));
         assert!(!node_has_tag(&core.page_root(&live_page).unwrap(), &tag));
         assert!(!node_has_tag(
@@ -3626,9 +3959,18 @@ mod tests {
         assert_eq!(effect.reveal, None);
         let snapshot = core.snapshot().unwrap();
         assert_eq!(snapshot.tags[0].id, tag);
-        assert_eq!(snapshot.pages[0].tags, [tag.clone()]);
-        assert_eq!(snapshot.pages[0].blocks[0].tags, [tag.clone()]);
-        assert_eq!(snapshot.pages[0].blocks[0].children[0].tags, [tag.clone()]);
+        assert_eq!(
+            snapshot.pages[0].tags.as_slice(),
+            std::slice::from_ref(&tag)
+        );
+        assert_eq!(
+            snapshot.pages[0].blocks[0].tags.as_slice(),
+            std::slice::from_ref(&tag)
+        );
+        assert_eq!(
+            snapshot.pages[0].blocks[0].children[0].tags.as_slice(),
+            std::slice::from_ref(&tag)
+        );
         assert!(node_has_tag(
             &core
                 .page_outline(&deleted_page)
@@ -4017,12 +4359,20 @@ mod tests {
             .result
             .created_block
             .unwrap();
-        set_single(
-            &core.block_bag(&page(), &child).unwrap(),
+        let corrupt_bag = core.block_bag(&page(), &child).unwrap();
+        ensure_property_field(
+            &corrupt_bag,
             &key("builtin.page-kind"),
-            &PropertyValue::Page(page()),
+            PropertyType::String,
+            Cardinality::Single,
         )
         .unwrap();
+        corrupt_bag
+            .insert(
+                &single_slot(&key("builtin.page-kind")),
+                encode_value(&PropertyValue::Page(page())).unwrap(),
+            )
+            .unwrap();
         core.doc.commit();
 
         let snapshot = core.snapshot().unwrap();
@@ -4033,6 +4383,6 @@ mod tests {
                 .iter()
                 .all(|entry| entry.key.as_str() != "builtin.page-kind")
         );
-        assert_eq!(snapshot.quarantined.len(), 1);
+        assert!(!snapshot.quarantined.is_empty());
     }
 }

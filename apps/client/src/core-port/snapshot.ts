@@ -10,15 +10,17 @@ export type PropertyValue =
   | { type: "checkbox"; value: boolean }
   | { type: "date"; value: string };
 
-export interface PropertyEntry {
+export interface PropertyField {
   key: string;
-  value: PropertyValue;
+  value_type: PropertyValueType;
+  cardinality: "single" | "set";
+  values: PropertyValue[];
 }
 
 export interface BlockSnapshot {
   id: string;
   markdown: string;
-  properties: PropertyEntry[];
+  properties: PropertyField[];
   tags: string[];
   children: BlockSnapshot[];
 }
@@ -26,7 +28,7 @@ export interface BlockSnapshot {
 export interface PageSnapshot {
   id: string;
   title: string;
-  properties: PropertyEntry[];
+  properties: PropertyField[];
   tags: string[];
   blocks: BlockSnapshot[];
 }
@@ -34,15 +36,15 @@ export interface PageSnapshot {
 export interface PageSummary {
   id: string;
   title: string;
-  properties: PropertyEntry[];
+  properties: PropertyField[];
   tags: string[];
 }
 
 export interface TagSnapshot {
   id: string;
   name: string;
-  properties: PropertyEntry[];
-  defaults: PropertyEntry[];
+  properties: PropertyField[];
+  defaults: PropertyField[];
 }
 
 export interface GraphSummary {
@@ -84,22 +86,26 @@ export function mergePage(snapshot: GraphSnapshot, page: PageSnapshot): GraphSna
   };
 }
 
-export function singleValue(bag: PropertyEntry[], key: string): PropertyValue | undefined {
-  return bag.find((entry) => entry.key === key)?.value;
+export function propertyField(bag: PropertyField[], key: string): PropertyField | undefined {
+  return bag.find((field) => field.key === key);
 }
 
-export function stringValue(bag: PropertyEntry[], key: string): string | undefined {
+export function singleValue(bag: PropertyField[], key: string): PropertyValue | undefined {
+  return propertyField(bag, key)?.values[0];
+}
+
+export function stringValue(bag: PropertyField[], key: string): string | undefined {
   const value = singleValue(bag, key);
   return value?.type === "string" ? value.value : undefined;
 }
 
-export function dateValue(bag: PropertyEntry[], key: string): string | undefined {
+export function dateValue(bag: PropertyField[], key: string): string | undefined {
   const value = singleValue(bag, key);
   return value?.type === "date" ? value.value : undefined;
 }
 
-export function repeatedValues(bag: PropertyEntry[], key: string): PropertyValue[] {
-  return bag.filter((entry) => entry.key === key).map((entry) => entry.value);
+export function repeatedValues(bag: PropertyField[], key: string): PropertyValue[] {
+  return propertyField(bag, key)?.values ?? [];
 }
 
 export function pageTitle(page: PageSnapshot): string {

@@ -207,6 +207,7 @@ export interface MessageArgumentMap {
   "page.title": undefined;
   "page.untitled": undefined;
   "page.updated": undefined;
+  "properties.addEmpty": undefined;
   "properties.addOrChange": undefined;
   "properties.addProperty": undefined;
   "properties.addTag": undefined;
@@ -233,10 +234,12 @@ export interface MessageArgumentMap {
   "properties.noKeys": undefined;
   "properties.noPages": undefined;
   "properties.noTags": undefined;
+  "properties.noValue": undefined;
   "properties.pickDate": undefined;
   "properties.pickPage": undefined;
   "properties.propertyKey": undefined;
   "properties.remove": { readonly "key": string | number };
+  "properties.removeProperty": undefined;
   "properties.removeTag": { readonly "name": string | number };
   "properties.removeValue": { readonly "key": string | number };
   "properties.replacePage": undefined;

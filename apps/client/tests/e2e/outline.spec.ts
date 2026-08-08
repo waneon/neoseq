@@ -113,6 +113,7 @@ test("leading Enter keeps block properties with the original identity and undoes
   await picker.getByRole("option", { name: "Status", exact: true }).click();
   await picker.getByRole("option", { name: "Doing", exact: true }).click();
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
+  await awaitSaved(page);
 
   const textarea = page.getByLabel("Block text");
   await textarea.evaluate((element) => {
@@ -125,6 +126,7 @@ test("leading Enter keeps block properties with the original identity and undoes
   await expect(rows.nth(1).getByTestId("task-status-toggle")).toHaveAccessibleName(
     "Task status: Doing",
   );
+  await awaitSaved(page);
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => blockTexts(page)).toEqual(["alpha"]);

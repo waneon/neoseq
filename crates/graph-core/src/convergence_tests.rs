@@ -1,7 +1,7 @@
 use crate::GraphCore;
 use domain::{
     BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, PageId,
-    PropertyKey, PropertyValue, TagId,
+    PropertyKey, PropertyOwner, PropertyValue, TagId,
 };
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
@@ -80,8 +80,10 @@ fn base_fixture(seed: u64) -> Fixture {
         &graph,
         1,
         10,
-        Command::SetTagDefault {
-            tag_id: tag_b.clone(),
+        Command::SetProperty {
+            owner: PropertyOwner::TagDefault {
+                tag_id: tag_b.clone(),
+            },
             key: key("builtin.task-priority"),
             value: PropertyValue::String("high".into()),
         },
@@ -116,7 +118,7 @@ fn base_fixture(seed: u64) -> Fixture {
         1,
         20,
         Command::SetProperty {
-            entity: EntityId::Block {
+            owner: PropertyOwner::Block {
                 page_id: page_a.clone(),
                 id: text.clone(),
             },
@@ -248,7 +250,7 @@ fn run_seed(seed: u64) {
         left_peer,
         3,
         Command::SetProperty {
-            entity: EntityId::Block {
+            owner: PropertyOwner::Block {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
@@ -262,7 +264,7 @@ fn run_seed(seed: u64) {
         right_peer,
         3,
         Command::RemoveProperty {
-            entity: EntityId::Block {
+            owner: PropertyOwner::Block {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
@@ -332,7 +334,7 @@ fn run_seed(seed: u64) {
         right_peer,
         6,
         Command::SetProperty {
-            entity: EntityId::Block {
+            owner: PropertyOwner::Block {
                 page_id: fixture.page_a.clone(),
                 id: fixture.text.clone(),
             },
@@ -418,7 +420,7 @@ fn convergence_deleted_tag_is_not_published_after_concurrent_add() {
         assert!(block.tags.iter().all(|tag| tag != &fixture.tag_b));
         assert!(block.properties.iter().any(|entry| {
             entry.key.as_str() == "builtin.task-priority"
-                && entry.value == PropertyValue::String("high".into())
+                && entry.values == [PropertyValue::String("high".into())]
         }));
     }
     assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());

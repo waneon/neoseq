@@ -1,5 +1,6 @@
 use crate::{
-    BlockId, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey, PropertyValue, TagId,
+    BlockId, Cardinality, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey,
+    PropertyType, PropertyValue, TagId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +9,14 @@ use serde::{Deserialize, Serialize};
 pub enum EntityId {
     Page { id: PageId },
     Block { page_id: PageId, id: BlockId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PropertyOwner {
+    Page { id: PageId },
+    Block { page_id: PageId, id: BlockId },
+    TagDefault { tag_id: TagId },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -93,33 +102,34 @@ pub enum Command {
         page_id: PageId,
         block_ids: Vec<BlockId>,
     },
+    EnsureProperty {
+        owner: PropertyOwner,
+        key: PropertyKey,
+        value_type: PropertyType,
+        cardinality: Cardinality,
+    },
     SetProperty {
-        entity: EntityId,
+        owner: PropertyOwner,
         key: PropertyKey,
         value: PropertyValue,
     },
+    ClearPropertyValues {
+        owner: PropertyOwner,
+        key: PropertyKey,
+    },
     RemoveProperty {
-        entity: EntityId,
+        owner: PropertyOwner,
         key: PropertyKey,
     },
     AddRepeatedProperty {
-        entity: EntityId,
+        owner: PropertyOwner,
         key: PropertyKey,
         value: PropertyValue,
     },
     RemoveRepeatedProperty {
-        entity: EntityId,
+        owner: PropertyOwner,
         key: PropertyKey,
         value: PropertyValue,
-    },
-    SetTagDefault {
-        tag_id: TagId,
-        key: PropertyKey,
-        value: PropertyValue,
-    },
-    RemoveTagDefault {
-        tag_id: TagId,
-        key: PropertyKey,
     },
     AddTag {
         entity: EntityId,

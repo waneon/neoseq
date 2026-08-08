@@ -6,8 +6,8 @@
 // or deleted; the outline's `#` menu and the block tag picker only attach
 // tags that already exist. One card per tag: the name in the tag's own `#`
 // voice, its defaults in the same chip language the outline speaks, and the
-// same contextual PropertyPicker as everywhere else, opened on a `tag` target
-// so writes travel as `set_tag_default` / `remove_tag_default`.
+// same contextual PropertyPicker as everywhere else, opened on a tag-default
+// owner so writes travel through the common property command family.
 
 import { useEffect, useRef, useState } from "react";
 import { PlusIcon, Trash2Icon } from "lucide-react";
@@ -136,6 +136,10 @@ function TagCard({
     if (key === TASK_PRIORITY_KEY) return priorityLabel(String(value.value), message);
     return String(value.value);
   };
+  const describeField = (field: TagSnapshot["defaults"][number]): string =>
+    field.values.length === 0
+      ? message("properties.noValue")
+      : field.values.map((value) => describe(field.key, value)).join(", ");
 
   return (
     <li className="tag-card" data-testid="tag-card">
@@ -162,18 +166,18 @@ function TagCard({
         className="tag-card-defaults"
         aria-label={message("tags.defaultsFor", { name: tag.name })}
       >
-        {tag.defaults.map((entry) => (
+        {tag.defaults.map((field) => (
           <button
-            key={entry.key}
+            key={field.key}
             type="button"
             className="task-chip"
-            data-testid={`tag-default-${entry.key}`}
-            title={`${entry.key}: ${describe(entry.key, entry.value)}`}
-            onClick={(event) => onEdit(entry.key, event.currentTarget)}
+            data-testid={`tag-default-${field.key}`}
+            title={`${field.key}: ${describeField(field)}`}
+            onClick={(event) => onEdit(field.key, event.currentTarget)}
           >
-            {propertyGlyph(entry.key, entry.value.type)}
-            <span className="task-chip-name">{propertyDisplayName(entry.key, message)}</span>
-            <span className="task-chip-value">{describe(entry.key, entry.value)}</span>
+            {propertyGlyph(field.key, field.value_type)}
+            <span className="task-chip-name">{propertyDisplayName(field.key, message)}</span>
+            <span className="task-chip-value">{describeField(field)}</span>
           </button>
         ))}
         {readonly && tag.defaults.length === 0 && (

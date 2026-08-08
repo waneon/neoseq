@@ -69,7 +69,7 @@ export function TaskStatusControl({
         <DropdownMenuRadioGroup
           value={status}
           onValueChange={(value) =>
-            void run({ type: "set_property", entity, key: TASK_STATUS_KEY, value: { type: "string", value } })}
+            void run({ type: "set_property", owner: entity, key: TASK_STATUS_KEY, value: { type: "string", value } })}
         >
           {options.map((option) => (
             <DropdownMenuRadioItem key={option} value={option}>
@@ -81,7 +81,7 @@ export function TaskStatusControl({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           data-testid="remove-status"
-          onSelect={() => void run({ type: "remove_property", entity, key: TASK_STATUS_KEY })}
+          onSelect={() => void run({ type: "remove_property", owner: entity, key: TASK_STATUS_KEY })}
         >
           <MinusIcon aria-hidden />
           {message("task.removeStatus")}

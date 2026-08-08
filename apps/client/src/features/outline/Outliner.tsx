@@ -657,7 +657,7 @@ export function Outliner({
               void session
                 .execute({
                   type: "set_property",
-                  entity: { kind: "block", page_id: pageRef.current.id, id: realId },
+                  owner: { kind: "block", page_id: pageRef.current.id, id: realId },
                   key: action.key,
                   value: action.value,
                 })
@@ -1254,7 +1254,7 @@ export function Outliner({
         void session
           .execute({
             type: "set_property",
-            entity: { kind: "block", page_id: authoritativePage.id, id: row.block.id },
+            owner: { kind: "block", page_id: authoritativePage.id, id: row.block.id },
             key: chosen.action.key,
             value: chosen.action.value,
           })

@@ -64,7 +64,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     if (draft !== source) {
       await session.execute({
         type: "set_property",
-        entity: { kind: "block", page_id: pageId, id: block.id },
+        owner: { kind: "block", page_id: pageId, id: block.id },
         key: "builtin.query-source",
         value: { type: "string", value: draft },
       }).catch(report);
@@ -72,7 +72,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     if (storedLanguage !== LANGUAGE) {
       await session.execute({
         type: "set_property",
-        entity: { kind: "block", page_id: pageId, id: block.id },
+        owner: { kind: "block", page_id: pageId, id: block.id },
         key: "builtin.query-language",
         value: { type: "string", value: LANGUAGE },
       }).catch(report);
