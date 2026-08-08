@@ -716,7 +716,8 @@ rail (`Search`) or gave up its button for a keyboard binding and a palette row (
 
 ### Revealed on hover, focus, or `[data-focused]`
 
-Date stepper and calendar trigger · collapse chevron · tag remove `×` · graph card `⋯` ·
+Date stepper and calendar trigger · collapse chevron · a tag chip's remove state (the
+`#` swaps to `×`) · a tag card's delete · graph card `⋯` ·
 the rail's `⌘K` badge · the append zone's faint bullet · a shortcut row's reset. Every
 one of these is also in the palette or in Settings, pinned visible at or below 600px, and
 revealed on `:focus-within` — and revealed with `opacity`, never `display` or
@@ -985,20 +986,28 @@ that object belongs to.
 
 **Tags.** Gathered at the right edge of the block's own line, only when present: the
 writing keeps at least 60% of the measure, and when both cannot fit the cluster wraps
-under the text, still right-aligned. Borderless: 20px tall, `--surface-2`, `--ink-2`,
-`--r-1`, with the `#` at 55% opacity but still inside `textContent`. A deleted target
-is `line-through` **and** says so in its accessible name — never colour alone. The
-remove `×` grows from v1's 13×13 to a 24px box, revealed on chip hover.
+under the text, still right-aligned. A chip is bare text — no fill, no drawn box, no
+reserved remove slot: `--ink-2` at 12px with the `#` at 55% opacity, still inside
+`textContent`. The whole chip is one button whose only verb is removal, and it says so
+in place — hover or focus swaps the `#` for a `--danger` `×` inside the same glyph
+column, so nothing shifts and no space waits empty. A deleted target is `line-through`
+**and** says so in its accessible name — never colour alone.
 
 **`#` at the caret is the tag menu** — the slash menu's twin: the same
 whitespace-delimited token scan, the same row language and keys, tags instead of verbs.
-Existing tags rank by the same fuzzy matcher; a non-empty query with no exact match
-ends in a create row, so the menu — like the palette — always has a way forward.
-Accepting removes the token and writes structural membership, never text; a tag the
-block already carries says so with its check mark, and choosing it only removes the
-token. The rail's `Tags` row leads to the tag index, where each tag's *defaults* — the
-values copied onto a block when the tag is added — are edited through the same
-contextual property picker as everywhere else.
+It attaches *existing* tags only — bringing a tag into existence is the tags screen's
+verb — so a query nothing matches simply closes the menu and the token stays ordinary
+text. Accepting removes the token and writes structural membership, never text; a tag
+the block already carries says so with its check mark, and choosing it only removes
+the token.
+
+**The tags screen** (the rail's `Tags` row) owns the tag lifecycle. One `--surface-1`
+card per tag — the name in the tag's own `#` voice, its *defaults* (the values copied
+onto a block when the tag is added) in the outline's chip language, each chip opening
+the same contextual property picker. Deletion is a hover-revealed trash control on the
+card behind a confirm dialog. The create card is the one ringed card in the grid,
+because it is a control, not content: pressed, it becomes an inline name field — `⏎`
+creates and stays for the next name, `Esc` or leaving closes it.
 
 **Empty and append.** An empty page renders a *fake first line*: one 40% bullet at the
 exact gutter position of row 1, no words, no button chrome, `cursor: text`, over a 200px

@@ -107,6 +107,7 @@ export interface MessageArgumentMap {
   "failure.deleteBlocks": { readonly "count": number };
   "failure.deleteGraph": { readonly "name": string | number };
   "failure.deletePage": { readonly "name": string | number };
+  "failure.deleteTag": { readonly "name": string | number };
   "failure.indentBlock": undefined;
   "failure.lastEdit": undefined;
   "failure.loadJournal": undefined;
@@ -400,9 +401,16 @@ export interface MessageArgumentMap {
   "slash.scheduledHint": undefined;
   "tags.addDefault": undefined;
   "tags.defaultsFor": { readonly "name": string | number };
+  "tags.deleteAction": undefined;
+  "tags.deleteConfirm": { readonly "name": string | number };
+  "tags.deleteNamed": { readonly "name": string | number };
+  "tags.deleteTitle": undefined;
+  "tags.duplicate": { readonly "name": string | number };
   "tags.empty": undefined;
   "tags.hint": undefined;
   "tags.menuLabel": undefined;
+  "tags.namePlaceholder": undefined;
+  "tags.new": undefined;
   "tags.noDefaults": undefined;
   "tags.title": undefined;
   "task.deadline": undefined;

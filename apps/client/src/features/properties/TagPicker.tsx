@@ -87,7 +87,6 @@ export function TagPicker({
           kind="tag"
           autoFocus
           placeholder={message("properties.addTag")}
-          allowCreate
           onPick={async (tagId) => {
             try {
               await session.execute({

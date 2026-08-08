@@ -43,12 +43,11 @@ drafts, carets, IME composition, and pending-block reconciliation.
 Detection is a pure scan of the current whitespace-delimited token at a
 collapsed caret. A token beginning with `/` opens the slash menu when its query
 reaches at least one declared item. A token beginning with `#` opens the tag
-menu the same way: existing tags ranked by the palette's fuzzy scorer, plus one
-create row for a non-empty query with no exact canonical match. Accepting
-removes the token and issues `ensure_tag` (create row only) followed by
-`add_tag`; a tag the block already carries writes nothing. Pending blocks defer
-the choice until the real `BlockId` lands, exactly like a slash choice.
-Detection never changes Markdown.
+menu the same way: *existing* tags ranked by the palette's fuzzy scorer — tag
+creation belongs to the tags view, so a query nothing matches closes the menu.
+Accepting removes the token and issues `add_tag`; a tag the block already
+carries writes nothing. Pending blocks defer the choice until the real
+`BlockId` lands, exactly like a slash choice. Detection never changes Markdown.
 
 Slash items are declared in `features/outline/slash-commands.tsx`: task
 statuses and priorities as **direct** items carrying one `PropertyValue`, and
@@ -176,9 +175,11 @@ generic strip.
 The legacy `PropertyBagEditor` and block inspector are removed. Tag membership
 lives in `TagPicker` — which reuses `TagChips` and `PageAutocomplete` while
 continuing to issue `add_tag` and `remove_tag` commands — and inline in the
-outline's `#` tag menu. `TagChips` renders as a right-aligned cluster on the
-block's own line. `features/tags/TagsView.tsx` is the routed tag index: it
-lists every live tag and opens the picker on a tag target for its defaults.
+outline's `#` tag menu; both attach existing tags only. `TagChips` renders as
+a right-aligned cluster on the block's own line, each chip a single remove
+button. `features/tags/TagsView.tsx` owns the tag lifecycle: a card per live
+tag, inline creation (`ensure_tag`), confirmed deletion (`delete_tag`), and
+the picker on a tag target for defaults.
 
 The query projection remains a view over well-known properties with the
 generic chips as its edit route; the task facts' edit routes are their own

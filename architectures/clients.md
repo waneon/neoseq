@@ -90,8 +90,9 @@ specialized controls without becoming a schema authority:
 - unknown `user.*` keys use the generic typed editor, while unknown
   `builtin.*` keys are rendered generically but remain read-only;
 - tag membership remains structural: the block `Tags` picker and the outline's
-  inline `#` menu issue `add_tag`/`remove_tag`, and the routed tags view edits
-  each tag's `defaults` through the shared property picker
+  inline `#` menu attach existing tags (`add_tag`/`remove_tag`), while the
+  routed tags view owns the tag lifecycle — creation, deletion, and each tag's
+  `defaults` through the shared property picker
   (`set_tag_default`/`remove_tag_default`).
 
 Removing a specialized renderer never hides or destroys its values. New

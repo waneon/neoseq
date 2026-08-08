@@ -114,20 +114,18 @@ describe("the # tag menu in a block", () => {
     );
   });
 
-  it("creates a missing tag from the menu's create row", async () => {
+  it("never offers to create a tag — a query nothing matches closes the menu", async () => {
     await mountTagged();
     const user = userEvent.setup();
     const textarea = await screen.findByLabelText("Block text");
     await user.click(textarea);
-    await user.type(textarea, " #urgent");
-    const menu = await screen.findByTestId("tag-menu");
-    await user.click(within(menu).getByRole("option", { name: /Create tag/ }));
-
-    await waitFor(() => expect(textarea).toHaveValue("existing status"));
-    const text = textarea.closest(".outline-text") as HTMLElement;
-    await waitFor(() =>
-      expect(within(text).getByTestId("tag-chip")).toHaveTextContent("#urgent"),
-    );
+    await user.type(textarea, " #p");
+    expect(await screen.findByTestId("tag-menu")).toBeVisible();
+    await user.type(textarea, "zzz");
+    await waitFor(() => expect(screen.queryByTestId("tag-menu")).not.toBeInTheDocument());
+    expect(screen.queryByRole("option", { name: /Create/ })).not.toBeInTheDocument();
+    // The token stays ordinary text; nothing was created or attached.
+    expect(textarea).toHaveValue("existing status #pzzz");
   });
 
   it("closes on Escape without touching the draft", async () => {
@@ -164,9 +162,32 @@ describe("the # tag menu in a block", () => {
 });
 
 describe("the tags screen", () => {
-  it("says how to start when the graph has no tags", async () => {
+  it("offers only the create card when the graph has no tags", async () => {
     await mountAt(`/g/${GRAPH_ID}/tags`);
-    expect(await screen.findByTestId("tags-empty")).toBeVisible();
+    expect(await screen.findByTestId("tag-card-new")).toBeVisible();
+    expect(screen.queryByTestId("tag-card")).not.toBeInTheDocument();
+  });
+
+  it("creates a tag from the create card", async () => {
+    await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("tag-card-new"));
+    const input = await screen.findByTestId("new-tag-name");
+    await user.type(input, "Research{enter}");
+    const card = await screen.findByTestId("tag-card");
+    expect(card).toHaveTextContent("#Research");
+    // The field stays open and clear for the next name.
+    expect(screen.getByTestId("new-tag-name")).toHaveValue("");
+  });
+
+  it("refuses a duplicate name without creating anything", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    await user.click(await screen.findByTestId("tag-card-new"));
+    await user.type(screen.getByTestId("new-tag-name"), "  PROJECT {enter}");
+    expect(await screen.findByText("Tag “PROJECT” already exists")).toBeVisible();
+    expect(screen.getAllByTestId("tag-card")).toHaveLength(1);
   });
 
   it("lists tags with their defaults and edits them through the picker", async () => {
@@ -180,8 +201,8 @@ describe("the tags screen", () => {
       value: { type: "string", value: "high" },
     });
 
-    const row = await screen.findByTestId("tag-row");
-    expect(row).toHaveTextContent("#Project");
+    const card = await screen.findByTestId("tag-card");
+    expect(card).toHaveTextContent("#Project");
     expect(
       await screen.findByTestId("tag-default-builtin.task-priority"),
     ).toHaveTextContent("High");
@@ -204,5 +225,16 @@ describe("the tags screen", () => {
         screen.queryByTestId("tag-default-builtin.task-priority"),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("deletes a tag after confirmation", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    await screen.findByTestId("tag-card");
+
+    await user.click(screen.getByRole("button", { name: "Delete tag Project" }));
+    await user.click(await screen.findByTestId("confirm-delete-tag"));
+    await waitFor(() => expect(screen.queryByTestId("tag-card")).not.toBeInTheDocument());
   });
 });

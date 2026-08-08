@@ -36,7 +36,6 @@ import {
   HashIcon,
   IndentDecreaseIcon,
   IndentIncreaseIcon,
-  PlusIcon,
   Settings2Icon,
   Trash2Icon,
 } from "lucide-react";
@@ -58,7 +57,6 @@ import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
-import { canonicalEntityName } from "../../entities/names";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { BlockChips } from "../properties/BlockChips";
@@ -161,14 +159,13 @@ interface SlashRequest {
 }
 
 /**
- * One row of the `#` tag menu. Existing tags carry their id; the create row
- * carries only the name it would create. A tag the block already has is
+ * One row of the `#` tag menu. The menu attaches *existing* tags only —
+ * creating a tag is the tags screen's job. A tag the block already has is
  * listed with its check mark — choosing it just removes the token.
  */
 interface TagOption {
   id: string;
   name: string;
-  create: boolean;
   present: boolean;
 }
 
@@ -538,24 +535,17 @@ export function Outliner({
   );
 
   /**
-   * Lands a `#` menu choice on a real block: creates the tag first when the
-   * choice was the create row, then adds the membership. A tag the block
-   * already carries writes nothing — removing the token was the whole gesture.
+   * Lands a `#` menu choice on a real block. A tag the block already carries
+   * writes nothing — removing the token was the whole gesture.
    */
   const applyTagOption = useCallback(
     async (blockId: string, option: TagOption) => {
+      if (option.present) return;
       try {
-        let tagId = option.id;
-        if (option.create) {
-          tagId = `t-${crypto.randomUUID()}`;
-          await session.execute({ type: "ensure_tag", tag_id: tagId, name: option.name });
-        } else if (option.present) {
-          return;
-        }
         await session.execute({
           type: "add_tag",
           entity: { kind: "block", page_id: pageRef.current.id, id: blockId },
-          tag_id: tagId,
+          tag_id: option.id,
         });
       } catch (error) {
         notify.failure(message("failure.addTag"), error);
@@ -1159,8 +1149,8 @@ export function Outliner({
   const hashResults = useMemo<TagOption[]>(() => {
     if (!hashRequest) return [];
     const present = new Set(findBlock(authoritativePage, hashRequest.blockId)?.tags ?? []);
-    return filterTagOptions(state.snapshot.tags, hashRequest.query, present, readonly, compare);
-  }, [authoritativePage, compare, hashRequest, readonly, state.snapshot.tags]);
+    return filterTagOptions(state.snapshot.tags, hashRequest.query, present, compare);
+  }, [authoritativePage, compare, hashRequest, state.snapshot.tags]);
   const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
 
   const editor: EditorContext = {
@@ -1353,7 +1343,7 @@ export function Outliner({
         setHashActiveState(0);
         setHashRequest(
           hash &&
-            filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, readonly, compare).length > 0
+            filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
             ? { blockId: row.block.id, ...hash, anchor: textarea }
             : null,
         );
@@ -1380,7 +1370,7 @@ export function Outliner({
       setHashActiveState(0);
       setHashRequest(
         hash &&
-          filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, readonly, compare).length > 0
+          filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
           ? { blockId: row.block.id, ...hash, anchor: textarea }
           : null,
       );
@@ -1899,14 +1889,13 @@ const NO_TAGS: ReadonlySet<string> = new Set();
 
 /**
  * Tags the `#` query reaches, best match first, capped like the autocomplete.
- * A non-empty query with no exact canonical match adds one create row, so the
- * menu — like the palette — always ends in a way forward.
+ * Existing tags only: creating a tag is the tags screen's verb, so a query
+ * nothing matches simply closes the menu and the token stays ordinary text.
  */
 function filterTagOptions(
   tags: readonly TagSnapshot[],
   query: string,
   present: ReadonlySet<string>,
-  readonly: boolean,
   compare: (left: string, right: string) => number,
 ): TagOption[] {
   const needle = query.trim();
@@ -1920,18 +1909,11 @@ function filterTagOptions(
       .sort((left, right) => right.score - left.score)
       .map((entry) => entry.tag);
   }
-  const options: TagOption[] = matched.slice(0, 8).map((tag) => ({
+  return matched.slice(0, 8).map((tag) => ({
     id: tag.id,
     name: tag.name,
-    create: false,
     present: present.has(tag.id),
   }));
-  const canonical = canonicalEntityName(needle);
-  const exact = tags.some((tag) => canonicalEntityName(tag.name) === canonical);
-  if (needle && !exact && !readonly) {
-    options.push({ id: "", name: needle, create: true, present: false });
-  }
-  return options;
 }
 
 function TagMenu({
@@ -1983,7 +1965,7 @@ function TagMenu({
       {results.map((option, index) => (
         <button
           id={`tag-opt-${index}`}
-          key={option.create ? "__create" : option.id}
+          key={option.id}
           role="option"
           aria-selected={index === active}
           data-active={index === active}
@@ -1992,16 +1974,9 @@ function TagMenu({
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => onChoose(option)}
         >
-          {option.create ? <PlusIcon aria-hidden /> : <HashIcon aria-hidden />}
+          <HashIcon aria-hidden />
           <span className="slash-item-text">
-            <strong>
-              {option.create
-                ? message("properties.createEntity", {
-                    kind: message("common.tag"),
-                    name: option.name,
-                  })
-                : option.name}
-            </strong>
+            <strong>{option.name}</strong>
           </span>
           {/* The tag the block already carries says so with its check mark,
               never a second wash (DESIGN.md § Interaction States). */}
