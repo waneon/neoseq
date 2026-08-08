@@ -156,9 +156,11 @@ second ordinary core command; no batch command or schema change is introduced.
 
 ## Validation and Failure Reporting
 
-The versioned domain fixture supplies target, writer, type, cardinality,
-defaultability, and string-value policy to `entities/properties.ts`. A separate
-client presentation registry owns only visibility and renderer selection.
+The versioned domain fixture supplies only composed value shapes and target
+placements to `entities/properties.ts`; all type, cardinality, string-choice,
+write, and default checks are derived from them. Generic/hidden presentation is
+also derived from placements, while sparse client-owned feature and metadata
+renderer sets provide the exceptional rendering paths.
 Structural and core-managed keys fail in the active stage; target, date, number,
 length, restricted-string, and cardinality checks run before dispatch. The core
 repeats all semantic checks and remains authoritative.

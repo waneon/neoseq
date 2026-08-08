@@ -1,59 +1,91 @@
-// Client-side view of the uniform property model. The registry is loaded
-// from the versioned core fixture so the UI and the Rust core validate
-// against one definition source. Unknown keys are first-class: they render
-// and edit through the same generic path.
+// Client-side view of the uniform property model. The versioned fixture is
+// generated from the domain registry, so shape and placement policy have one
+// source. Presentation remains a sparse client concern.
 
-import registryFixture from "../../../../fixtures/core/property-definitions-v4.json";
+import registryFixture from "../../../../fixtures/core/property-definitions-v5.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
 
-export type PropertyTarget = "page" | "block" | "tag_metadata";
+export type PropertyTarget = "page" | "block" | "tag_metadata" | "tag_default";
+export type PropertyAccess = "user" | "core";
 export type PropertyVisibility =
   | "generic"
   | "feature_and_generic"
   | "read_only_metadata"
   | "hidden";
 
-export interface PropertyDefinition {
-  key: string;
-  type: PropertyValueType;
-  cardinality: "single" | "repeated";
-  valid_targets: PropertyTarget[];
-  user_writable_targets: PropertyTarget[];
-  write_policy: "user" | "core";
-  defaultable: boolean;
-  string_value_policy: "any" | "suggested" | "restricted";
-  allowed_strings: string[];
+export type StringSpec = "any" | { suggested: string[] } | { one_of: string[] };
+export type PropertyValueSpec =
+  | "number"
+  | "page"
+  | "checkbox"
+  | "date"
+  | { string: StringSpec };
+export type PropertyShape =
+  | { single: PropertyValueSpec }
+  | { set: PropertyValueSpec };
+
+export interface PropertySpec {
+  shape: PropertyShape;
+  placements: Partial<Record<PropertyTarget, PropertyAccess>>;
 }
 
-export const REGISTRY: PropertyDefinition[] = registryFixture.properties as PropertyDefinition[];
+export const REGISTRY = registryFixture.properties as Record<string, PropertySpec>;
 
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 
 const STRUCTURAL_KEYS = new Set(["tag", "page.title", "block.page"]);
+const FEATURE_RENDERERS = new Set([
+  "query.source",
+  "query.language",
+  "task.status",
+  "task.scheduled",
+  "task.deadline",
+  "task.priority",
+]);
+const METADATA_RENDERERS = new Set([
+  "page.kind",
+  "journal.date",
+  "system.created-at",
+  "system.updated-at",
+]);
 
-// Presentation stays client-owned. Domain write and target policy comes from
-// the versioned registry above; this map only decides how canonical values are
-// exposed in this React client.
-const PRESENTATION: Record<string, PropertyVisibility> = {
-  "query.source": "feature_and_generic",
-  "query.language": "feature_and_generic",
-  "task.status": "feature_and_generic",
-  "task.scheduled": "feature_and_generic",
-  "task.deadline": "feature_and_generic",
-  "task.priority": "feature_and_generic",
-  "page.kind": "read_only_metadata",
-  "journal.date": "read_only_metadata",
-  "system.created-at": "read_only_metadata",
-  "system.updated-at": "read_only_metadata",
-  "system.deleted-at": "hidden",
-};
+export function definition(key: string): PropertySpec | undefined {
+  return REGISTRY[key];
+}
 
-export function definition(key: string): PropertyDefinition | undefined {
-  return REGISTRY.find((item) => item.key === key);
+function shapeValue(shape: PropertyShape): PropertyValueSpec {
+  return "single" in shape ? shape.single : shape.set;
+}
+
+function specValueType(spec: PropertySpec): PropertyValueType {
+  const value = shapeValue(spec.shape);
+  return typeof value === "string" ? value : "string";
+}
+
+function hasUserPlacement(spec: PropertySpec): boolean {
+  return Object.values(spec.placements).some((access) => access === "user");
+}
+
+export function valueTypeOf(key: string): PropertyValueType | undefined {
+  const spec = definition(key);
+  return spec && specValueType(spec);
+}
+
+export function stringChoicesOf(key: string): string[] {
+  const spec = definition(key);
+  if (!spec) return [];
+  const value = shapeValue(spec.shape);
+  if (typeof value === "string" || value.string === "any") return [];
+  return "suggested" in value.string ? value.string.suggested : value.string.one_of;
 }
 
 export function visibilityOf(key: string): PropertyVisibility {
-  return PRESENTATION[key] ?? "generic";
+  if (METADATA_RENDERERS.has(key)) return "read_only_metadata";
+  if (FEATURE_RENDERERS.has(key)) return "feature_and_generic";
+  const spec = definition(key);
+  if (spec && !hasUserPlacement(spec)) return "hidden";
+  if (!spec && key.startsWith("system.")) return "hidden";
+  return "generic";
 }
 
 export function isGenericProperty(key: string): boolean {
@@ -61,15 +93,16 @@ export function isGenericProperty(key: string): boolean {
   return visibility === "generic" || visibility === "feature_and_generic";
 }
 
-export function canUserWrite(key: string, target: Exclude<PropertyTarget, "tag_metadata">): boolean {
-  const item = definition(key);
-  if (item) return item.write_policy === "user" && item.user_writable_targets.includes(target);
+export function canUserWrite(key: string, target: "page" | "block"): boolean {
+  const spec = definition(key);
+  if (spec) return spec.placements[target] === "user";
   if (STRUCTURAL_KEYS.has(key) || key.startsWith("system.")) return false;
   return target === "page" || !key.startsWith("page.");
 }
 
 export function cardinalityOf(key: string): "single" | "repeated" {
-  return definition(key)?.cardinality ?? "single";
+  const spec = definition(key);
+  return spec && "set" in spec.shape ? "repeated" : "single";
 }
 
 export interface ValidationIssue {
@@ -99,11 +132,8 @@ export function validateKey(key: string): ValidationIssue | null {
   if (new TextEncoder().encode(key).length > 128) {
     return { code: "key_length", message: "Property key exceeds 128 bytes." };
   }
-  if (
-    STRUCTURAL_KEYS.has(key)
-    || definition(key)?.write_policy === "core"
-    || key.startsWith("system.")
-  ) {
+  const spec = definition(key);
+  if (STRUCTURAL_KEYS.has(key) || (spec && !hasUserPlacement(spec)) || key.startsWith("system.")) {
     return {
       code: "reserved_key",
       message: `“${key}” is managed by the core.`,
@@ -115,16 +145,10 @@ export function validateKey(key: string): ValidationIssue | null {
   return null;
 }
 
-export function validateWriteTarget(
-  key: string,
-  target: Exclude<PropertyTarget, "tag_metadata">,
-): ValidationIssue | null {
+export function validateWriteTarget(key: string, target: "page" | "block"): ValidationIssue | null {
   if (canUserWrite(key, target)) return null;
-  if (
-    STRUCTURAL_KEYS.has(key)
-    || definition(key)?.write_policy === "core"
-    || key.startsWith("system.")
-  ) {
+  const spec = definition(key);
+  if (STRUCTURAL_KEYS.has(key) || spec?.placements[target] === "core" || key.startsWith("system.")) {
     return { code: "reserved_key", message: `“${key}” is managed by the core.`, values: { key } };
   }
   return {
@@ -151,30 +175,36 @@ export function validateValue(
   if (value.type === "page" && value.value.trim().length === 0) {
     return { code: "empty_page", message: "Page reference cannot be empty." };
   }
-  const item = definition(key);
-  if (!item) return null;
-  if (item.type !== value.type) {
-    return { code: "property_type", message: `“${key}” expects a ${item.type} value.`, values: { key, type: item.type } };
+  const spec = definition(key);
+  if (!spec) return null;
+  const expectedType = specValueType(spec);
+  if (expectedType !== value.type) {
+    return { code: "property_type", message: `“${key}” expects a ${expectedType} value.`, values: { key, type: expectedType } };
   }
-  if (item.cardinality !== cardinality) {
-    return { code: "property_cardinality", message: `“${key}” is a ${item.cardinality} property.`, values: { key, cardinality: item.cardinality } };
+  const expectedCardinality = "set" in spec.shape ? "repeated" : "single";
+  if (expectedCardinality !== cardinality) {
+    return { code: "property_cardinality", message: `“${key}” is a ${expectedCardinality} property.`, values: { key, cardinality: expectedCardinality } };
   }
+  const valueSpec = shapeValue(spec.shape);
   if (
-    item.string_value_policy === "restricted" &&
-    value.type === "string" &&
-    !item.allowed_strings.includes(value.value)
+    typeof valueSpec !== "string"
+    && typeof valueSpec.string !== "string"
+    && "one_of" in valueSpec.string
+    && value.type === "string"
+    && !valueSpec.string.one_of.includes(value.value)
   ) {
-    return { code: "property_strings", message: `“${key}” allows: ${item.allowed_strings.join(", ")}.`, values: { key, values: item.allowed_strings.join(", ") } };
+    const allowed = valueSpec.string.one_of;
+    return { code: "property_strings", message: `“${key}” allows: ${allowed.join(", ")}.`, values: { key, values: allowed.join(", ") } };
   }
   return null;
 }
 
 export function validateDefault(key: string, value: PropertyValue): ValidationIssue | null {
-  if (key.startsWith("page.") || key.startsWith("system.")) {
-    return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
-  }
-  const item = definition(key);
-  if (item && !item.defaultable) {
+  const spec = definition(key);
+  const canDefault = spec
+    ? spec.placements.tag_default === "user"
+    : !STRUCTURAL_KEYS.has(key) && !key.startsWith("page.") && !key.startsWith("system.");
+  if (!canDefault) {
     return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
   }
   return validateValue(key, value, "single");

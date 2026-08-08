@@ -14,15 +14,17 @@ import type { Command, EntityRef } from "../../core-port/commands";
 import type { PropertyEntry, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import {
+  canUserWrite,
   cardinalityOf,
   defaultValueFor,
-  definition,
   formatValue,
   isGenericProperty,
   REGISTRY,
+  stringChoicesOf,
   validateKey,
   validateValue,
   validateWriteTarget,
+  valueTypeOf,
   VALUE_TYPES,
 } from "../../entities/properties";
 import { todayLocalDate } from "../../entities/journal";
@@ -68,7 +70,7 @@ export function PropertyPicker({
   const [key, setKey] = useState<string | null>(initial);
   const [type, setType] = useState<PropertyValueType>(() => {
     if (!initial) return "string";
-    return definition(initial)?.type ?? target.bag.find((entry) => entry.key === initial)?.value.type ?? "string";
+    return valueTypeOf(initial) ?? target.bag.find((entry) => entry.key === initial)?.value.type ?? "string";
   });
   const [draft, setDraft] = useState<PropertyValue>(() => initialValue(initial, target.bag));
   const [active, setActive] = useState(0);
@@ -170,13 +172,8 @@ export function PropertyPicker({
   const candidates = useMemo<Candidate[]>(() => {
     const normalized = query.trim().toLocaleLowerCase();
     const present = new Set(visibleEntries.map((entry) => entry.key));
-    const known = REGISTRY
-      .filter((item) => (
-        isGenericProperty(item.key)
-        && item.write_policy === "user"
-        && item.user_writable_targets.includes(target.kind)
-      ))
-      .map((item) => item.key);
+    const known = Object.keys(REGISTRY)
+      .filter((key) => isGenericProperty(key) && canUserWrite(key, target.kind));
     const keys = [...new Set([...visibleEntries.map((entry) => entry.key), ...known])]
       .filter((item) => !normalized || item.toLocaleLowerCase().includes(normalized))
       .sort((left, right) => {
@@ -210,8 +207,7 @@ export function PropertyPicker({
 
   const chooseKey = (candidate: Candidate) => {
     const found = target.bag.find((entry) => entry.key === candidate.key);
-    const known = definition(candidate.key);
-    const nextType = known?.type ?? found?.value.type;
+    const nextType = valueTypeOf(candidate.key) ?? found?.value.type;
     setKey(candidate.key);
     setQuery("");
     if (!nextType) {
@@ -295,7 +291,7 @@ export function PropertyPicker({
   };
 
   const selectedEntries = key ? visibleEntries.filter((entry) => entry.key === key) : [];
-  const known = key ? definition(key) : undefined;
+  const choices = key ? stringChoicesOf(key) : [];
   const queryIssue = stage === "property" && query.trim()
     ? validateKey(query.trim())
     : null;
@@ -469,7 +465,7 @@ export function PropertyPicker({
             entryKey={key}
             type={type}
             value={draft}
-            allowed={known?.allowed_strings ?? []}
+            allowed={choices}
             readonly={readonly || committing}
             onChange={setDraft}
             onCommit={(value) => void commit(value)}
@@ -481,7 +477,7 @@ export function PropertyPicker({
                 {message("properties.clear")}
               </Button>
             )}
-            {type !== "page" && (known?.allowed_strings.length ?? 0) === 0 && (
+            {type !== "page" && choices.length === 0 && (
               <Button onClick={() => void commit(draft)} disabled={readonly || committing} data-testid="property-set">
                 {message("properties.set")}
               </Button>
@@ -500,7 +496,7 @@ function initialValue(key: string | null, bag: PropertyEntry[]): PropertyValue {
   if (!key) return { type: "string", value: "" };
   const existing = bag.find((entry) => entry.key === key)?.value;
   if (existing) return existing;
-  return defaultValueFor(definition(key)?.type ?? "string", todayLocalDate());
+  return defaultValueFor(valueTypeOf(key) ?? "string", todayLocalDate());
 }
 
 function ValueInput({

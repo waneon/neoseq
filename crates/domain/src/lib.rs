@@ -14,8 +14,8 @@ pub use model::{
     OutlineItem, PageSnapshot, PageSummary, SplitPlacement, TagSnapshot,
 };
 pub use property::{
-    Cardinality, PropertyBag, PropertyDefinition, PropertyEntry, PropertyError, PropertyTarget,
-    PropertyType, PropertyValue, PropertyWritePolicy, REGISTRY_VERSION, StringValuePolicy,
-    definition, registry, registry_fixture, validate_default, validate_property,
-    validate_property_target, validate_property_write,
+    Cardinality, PropertyAccess, PropertyBag, PropertyEntry, PropertyError, PropertyPlacement,
+    PropertyShape, PropertySpec, PropertyTarget, PropertyType, PropertyValue, PropertyValueSpec,
+    REGISTRY_VERSION, StringSpec, definition, registry, registry_fixture, validate_default,
+    validate_property, validate_property_target, validate_property_write,
 };

@@ -2,7 +2,7 @@ use crate::{LocalDate, PageId, PropertyKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 4;
+pub const REGISTRY_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,7 +18,7 @@ pub enum PropertyType {
 #[serde(rename_all = "snake_case")]
 pub enum Cardinality {
     Single,
-    Repeated,
+    Set,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -27,21 +27,88 @@ pub enum PropertyTarget {
     Page,
     Block,
     TagMetadata,
+    TagDefault,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PropertyWritePolicy {
+pub enum PropertyAccess {
     User,
     Core,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PropertyPlacement {
+    pub target: PropertyTarget,
+    pub access: PropertyAccess,
+}
+
+impl PropertyPlacement {
+    const fn user(target: PropertyTarget) -> Self {
+        Self {
+            target,
+            access: PropertyAccess::User,
+        }
+    }
+
+    const fn core(target: PropertyTarget) -> Self {
+        Self {
+            target,
+            access: PropertyAccess::Core,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum StringValuePolicy {
+pub enum StringSpec {
     Any,
-    Suggested,
-    Restricted,
+    Suggested(&'static [&'static str]),
+    OneOf(&'static [&'static str]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyValueSpec {
+    Number,
+    String(StringSpec),
+    Page,
+    Checkbox,
+    Date,
+}
+
+impl PropertyValueSpec {
+    pub const fn property_type(self) -> PropertyType {
+        match self {
+            Self::Number => PropertyType::Number,
+            Self::String(_) => PropertyType::String,
+            Self::Page => PropertyType::Page,
+            Self::Checkbox => PropertyType::Checkbox,
+            Self::Date => PropertyType::Date,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyShape {
+    Single(PropertyValueSpec),
+    Set(PropertyValueSpec),
+}
+
+impl PropertyShape {
+    pub const fn cardinality(self) -> Cardinality {
+        match self {
+            Self::Single(_) => Cardinality::Single,
+            Self::Set(_) => Cardinality::Set,
+        }
+    }
+
+    pub const fn value(self) -> PropertyValueSpec {
+        match self {
+            Self::Single(value) | Self::Set(value) => value,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -83,158 +150,138 @@ pub struct PropertyEntry {
 pub type PropertyBag = Vec<PropertyEntry>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct PropertyDefinition {
-    pub key: &'static str,
-    pub value_type: PropertyType,
-    pub cardinality: Cardinality,
-    pub valid_targets: &'static [PropertyTarget],
-    pub user_writable_targets: &'static [PropertyTarget],
-    pub write_policy: PropertyWritePolicy,
-    pub defaultable: bool,
-    pub string_value_policy: StringValuePolicy,
-    pub allowed_strings: &'static [&'static str],
+pub struct PropertySpec {
+    pub shape: PropertyShape,
+    pub placements: &'static [PropertyPlacement],
 }
 
-const NONE: &[&str] = &[];
-const PAGE: &[PropertyTarget] = &[PropertyTarget::Page];
-const PAGE_BLOCK: &[PropertyTarget] = &[PropertyTarget::Page, PropertyTarget::Block];
-const PAGE_TAG: &[PropertyTarget] = &[PropertyTarget::Page, PropertyTarget::TagMetadata];
-const NO_TARGETS: &[PropertyTarget] = &[];
+impl PropertySpec {
+    pub fn access(&self, target: PropertyTarget) -> Option<PropertyAccess> {
+        self.placements
+            .iter()
+            .find(|placement| placement.target == target)
+            .map(|placement| placement.access)
+    }
+}
+
+const USER_PAGE_BLOCK: &[PropertyPlacement] = &[
+    PropertyPlacement::user(PropertyTarget::Page),
+    PropertyPlacement::user(PropertyTarget::Block),
+];
+const USER_PAGE_BLOCK_DEFAULT: &[PropertyPlacement] = &[
+    PropertyPlacement::user(PropertyTarget::Page),
+    PropertyPlacement::user(PropertyTarget::Block),
+    PropertyPlacement::user(PropertyTarget::TagDefault),
+];
+const CORE_PAGE: &[PropertyPlacement] = &[PropertyPlacement::core(PropertyTarget::Page)];
+const CORE_PAGE_BLOCK: &[PropertyPlacement] = &[
+    PropertyPlacement::core(PropertyTarget::Page),
+    PropertyPlacement::core(PropertyTarget::Block),
+];
+const CORE_PAGE_TAG: &[PropertyPlacement] = &[
+    PropertyPlacement::core(PropertyTarget::Page),
+    PropertyPlacement::core(PropertyTarget::TagMetadata),
+];
 const PAGE_KINDS: &[&str] = &["regular", "journal"];
 const TASK_STATUSES: &[&str] = &["todo", "doing", "done", "cancelled"];
 const TASK_PRIORITIES: &[&str] = &["low", "medium", "high"];
 const QUERY_LANGUAGES: &[&str] = &["sparql-1.1/neoseq-v1"];
 
-pub const REGISTRY: &[PropertyDefinition] = &[
-    PropertyDefinition {
-        key: "query.source",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: PAGE_BLOCK,
-        write_policy: PropertyWritePolicy::User,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "query.language",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: PAGE_BLOCK,
-        write_policy: PropertyWritePolicy::User,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Restricted,
-        allowed_strings: QUERY_LANGUAGES,
-    },
-    PropertyDefinition {
-        key: "task.status",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: PAGE_BLOCK,
-        write_policy: PropertyWritePolicy::User,
-        defaultable: true,
-        string_value_policy: StringValuePolicy::Suggested,
-        allowed_strings: TASK_STATUSES,
-    },
-    PropertyDefinition {
-        key: "task.scheduled",
-        value_type: PropertyType::Date,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: PAGE_BLOCK,
-        write_policy: PropertyWritePolicy::User,
-        defaultable: true,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "task.deadline",
-        value_type: PropertyType::Date,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: PAGE_BLOCK,
-        write_policy: PropertyWritePolicy::User,
-        defaultable: true,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "task.priority",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: PAGE_BLOCK,
-        write_policy: PropertyWritePolicy::User,
-        defaultable: true,
-        string_value_policy: StringValuePolicy::Suggested,
-        allowed_strings: TASK_PRIORITIES,
-    },
-    PropertyDefinition {
-        key: "page.kind",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE,
-        user_writable_targets: NO_TARGETS,
-        write_policy: PropertyWritePolicy::Core,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Restricted,
-        allowed_strings: PAGE_KINDS,
-    },
-    PropertyDefinition {
-        key: "journal.date",
-        value_type: PropertyType::Date,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE,
-        user_writable_targets: NO_TARGETS,
-        write_policy: PropertyWritePolicy::Core,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "system.created-at",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_TAG,
-        user_writable_targets: NO_TARGETS,
-        write_policy: PropertyWritePolicy::Core,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "system.updated-at",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_BLOCK,
-        user_writable_targets: NO_TARGETS,
-        write_policy: PropertyWritePolicy::Core,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
-    PropertyDefinition {
-        key: "system.deleted-at",
-        value_type: PropertyType::String,
-        cardinality: Cardinality::Single,
-        valid_targets: PAGE_TAG,
-        user_writable_targets: NO_TARGETS,
-        write_policy: PropertyWritePolicy::Core,
-        defaultable: false,
-        string_value_policy: StringValuePolicy::Any,
-        allowed_strings: NONE,
-    },
+pub const REGISTRY: &[(&str, PropertySpec)] = &[
+    (
+        "query.source",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            placements: USER_PAGE_BLOCK,
+        },
+    ),
+    (
+        "query.language",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::OneOf(
+                QUERY_LANGUAGES,
+            ))),
+            placements: USER_PAGE_BLOCK,
+        },
+    ),
+    (
+        "task.status",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
+                TASK_STATUSES,
+            ))),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
+        "task.scheduled",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::Date),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
+        "task.deadline",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::Date),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
+        "task.priority",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
+                TASK_PRIORITIES,
+            ))),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
+        "page.kind",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::OneOf(PAGE_KINDS))),
+            placements: CORE_PAGE,
+        },
+    ),
+    (
+        "journal.date",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::Date),
+            placements: CORE_PAGE,
+        },
+    ),
+    (
+        "system.created-at",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            placements: CORE_PAGE_TAG,
+        },
+    ),
+    (
+        "system.updated-at",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            placements: CORE_PAGE_BLOCK,
+        },
+    ),
+    (
+        "system.deleted-at",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            placements: CORE_PAGE_TAG,
+        },
+    ),
 ];
 
-pub fn registry() -> &'static [PropertyDefinition] {
+pub fn registry() -> &'static [(&'static str, PropertySpec)] {
     REGISTRY
 }
 
-pub fn definition(key: &PropertyKey) -> Option<&'static PropertyDefinition> {
-    REGISTRY.iter().find(|item| item.key == key.as_str())
+pub fn definition(key: &PropertyKey) -> Option<&'static PropertySpec> {
+    REGISTRY
+        .iter()
+        .find(|(name, _)| *name == key.as_str())
+        .map(|(_, spec)| spec)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -279,25 +326,26 @@ pub fn validate_property(
     let Some(item) = definition(key) else {
         return Ok(());
     };
-    if value.property_type() != item.value_type {
+    let value_spec = item.shape.value();
+    if value.property_type() != value_spec.property_type() {
         return Err(PropertyError::WrongType {
             key: key.to_string(),
-            expected: item.value_type,
+            expected: value_spec.property_type(),
             actual: value.property_type(),
         });
     }
-    if cardinality != item.cardinality {
+    if cardinality != item.shape.cardinality() {
         return Err(PropertyError::WrongCardinality {
             key: key.to_string(),
-            expected: item.cardinality,
+            expected: item.shape.cardinality(),
             actual: cardinality,
         });
     }
-    if item.string_value_policy == StringValuePolicy::Restricted {
+    if let PropertyValueSpec::String(StringSpec::OneOf(allowed)) = value_spec {
         let PropertyValue::String(value) = value else {
             unreachable!("registry type was checked")
         };
-        if !item.allowed_strings.contains(&value.as_str()) {
+        if !allowed.contains(&value.as_str()) {
             return Err(PropertyError::InvalidString {
                 key: key.to_string(),
                 value: value.clone(),
@@ -323,8 +371,11 @@ pub fn validate_property_target(
                 !key.as_str().starts_with("page.") && !key.as_str().starts_with("system.")
             }
             PropertyTarget::TagMetadata => key.as_str().starts_with("system."),
+            PropertyTarget::TagDefault => {
+                !key.as_str().starts_with("page.") && !key.as_str().starts_with("system.")
+            }
         },
-        |item| item.valid_targets.contains(&target),
+        |item| item.access(target).is_some(),
     );
     if valid {
         Ok(())
@@ -342,9 +393,7 @@ pub fn validate_property_write(
 ) -> Result<(), PropertyError> {
     validate_property_target(key, target)?;
     if let Some(item) = definition(key) {
-        if item.write_policy == PropertyWritePolicy::Core
-            || !item.user_writable_targets.contains(&target)
-        {
+        if item.access(target) == Some(PropertyAccess::Core) {
             return Err(PropertyError::CoreManaged(key.to_string()));
         }
     } else if key.as_str().starts_with("system.") {
@@ -355,36 +404,33 @@ pub fn validate_property_write(
 
 pub fn validate_default(key: &PropertyKey, value: &PropertyValue) -> Result<(), PropertyError> {
     value.validate_shape()?;
-    if key.as_str().starts_with("page.")
-        || key.as_str().starts_with("system.")
-        || matches!(key.as_str(), "tag" | "block.page")
-    {
+    if validate_property_write(key, PropertyTarget::TagDefault).is_err() {
         return Err(PropertyError::NotDefaultable(key.to_string()));
     }
-    if let Some(item) = definition(key) {
-        if !item.defaultable {
-            return Err(PropertyError::NotDefaultable(key.to_string()));
-        }
-        validate_property(key, value, Cardinality::Single)?;
-    }
-    Ok(())
+    validate_property(key, value, Cardinality::Single)
 }
 
 pub fn registry_fixture() -> serde_json::Value {
-    let properties: Vec<_> = REGISTRY
+    let properties: serde_json::Map<_, _> = REGISTRY
         .iter()
-        .map(|item| {
-            serde_json::json!({
-                "key": item.key,
-                "type": item.value_type,
-                "cardinality": item.cardinality,
-                "valid_targets": item.valid_targets,
-                "user_writable_targets": item.user_writable_targets,
-                "write_policy": item.write_policy,
-                "defaultable": item.defaultable,
-                "string_value_policy": item.string_value_policy,
-                "allowed_strings": item.allowed_strings,
-            })
+        .map(|(key, spec)| {
+            let placements: serde_json::Map<_, _> = spec
+                .placements
+                .iter()
+                .map(|placement| {
+                    let target = match placement.target {
+                        PropertyTarget::Page => "page",
+                        PropertyTarget::Block => "block",
+                        PropertyTarget::TagMetadata => "tag_metadata",
+                        PropertyTarget::TagDefault => "tag_default",
+                    };
+                    (target.to_owned(), serde_json::json!(placement.access))
+                })
+                .collect();
+            (
+                (*key).to_owned(),
+                serde_json::json!({"shape": spec.shape, "placements": placements}),
+            )
         })
         .collect();
     serde_json::json!({"schema": REGISTRY_VERSION, "properties": properties})
@@ -420,7 +466,7 @@ mod tests {
             validate_property(
                 &key("tag"),
                 &PropertyValue::Page(PageId::new("p").unwrap()),
-                Cardinality::Repeated
+                Cardinality::Set
             )
             .is_err()
         );
@@ -428,7 +474,7 @@ mod tests {
             validate_property(
                 &key("future.number"),
                 &PropertyValue::Number(3.5),
-                Cardinality::Repeated
+                Cardinality::Set
             )
             .is_ok()
         );
@@ -439,6 +485,9 @@ mod tests {
         assert!(
             validate_default(&key("task.priority"), &PropertyValue::String("high".into())).is_ok()
         );
+        assert!(
+            validate_default(&key("query.source"), &PropertyValue::String("query".into())).is_err()
+        );
         assert!(validate_default(&key("custom.flag"), &PropertyValue::Checkbox(true)).is_ok());
         assert!(
             validate_default(&key("tag"), &PropertyValue::Page(PageId::new("p").unwrap())).is_err()
@@ -447,9 +496,13 @@ mod tests {
     }
 
     #[test]
-    fn registry_owns_target_and_write_policy() {
+    fn registry_placements_own_target_and_access_policy() {
         assert!(validate_property_write(&key("task.status"), PropertyTarget::Page).is_ok());
         assert!(validate_property_write(&key("task.status"), PropertyTarget::Block).is_ok());
+        assert!(validate_property_write(&key("task.status"), PropertyTarget::TagDefault).is_ok());
+        assert!(
+            validate_property_target(&key("query.source"), PropertyTarget::TagDefault).is_err()
+        );
         assert!(
             validate_property_target(&key("system.created-at"), PropertyTarget::TagMetadata)
                 .is_ok()
@@ -485,7 +538,7 @@ mod tests {
     #[test]
     fn registry_matches_the_versioned_fixture() {
         let expected: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../fixtures/core/property-definitions-v4.json"
+            "../../../fixtures/core/property-definitions-v5.json"
         ))
         .unwrap();
         assert_eq!(registry_fixture(), expected);

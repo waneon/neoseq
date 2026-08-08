@@ -43,11 +43,13 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The property registry is a separately versioned domain contract; registry v4 is
-the checked-in current fixture. For every built-in key it declares value type,
-cardinality, valid storage targets, user-writable targets, write ownership, tag
-defaultability, and whether string choices are suggestions or restrictions. The
-five value types are number, string, page reference, checkbox, and local date.
+The property registry is a separately versioned domain contract; registry v5 is
+the checked-in current fixture. Each built-in key maps to `shape` and
+`placements`. Shape composes cardinality with one of the five value types and,
+for strings, any/suggested/closed choices. Placements map page, block, tag
+metadata, and tag default targets directly to `user` or `core` access. Their
+absence means the property is invalid there; therefore no separate valid-target,
+write-policy, or defaultability fields exist.
 Unknown user keys accept any of those types on pages and blocks and retain the
 command-selected single or repeated cardinality. `page.*` unknown keys are
 page-only, the `system.*` namespace is core-managed, and structural keys remain
@@ -123,16 +125,15 @@ features use well-known properties rather than new persisted fields:
   changed page or block. Any block mutation also touches its owning page;
   descendant changes do not touch ancestor blocks.
 
-The versioned property-definition registry is the semantic authority for
-well-known targets and writers as well as value validation. `task.status` and
-`task.priority` declare suggested open choices; `page.kind` and
-`query.language` declare restricted choices without key-specific validation
-branches. Unknown keys remain valid with any supported `PropertyValue`. The
-registry does not create a second state model: task and query services read and
-write ordinary entries. Client presentation metadata separately decides whether
-a property is generic, feature-enhanced, read-only metadata, or hidden. New
-metadata features begin by defining domain policy plus an optional renderer; new
-identity or relationship semantics require an explicit architecture decision.
+The versioned property-definition registry is the semantic authority for value
+shape and placement access. `task.status` and `task.priority` use suggested open
+choices; `page.kind` and `query.language` use closed choices without key-specific
+validation branches. Unknown keys remain valid with any supported
+`PropertyValue`. The registry does not create a second state model: task and
+query services read and write ordinary entries. Client presentation derives its
+generic and hidden cases from placements, with sparse feature and metadata
+renderer overrides. New identity or relationship semantics still require an
+explicit architecture decision.
 
 Entity IDs, tag membership, Loro tree parent/order, schema version, and
 tombstones are the explicit structural fields outside property bags.
@@ -145,12 +146,10 @@ tombstones are the explicit structural fields outside property bags.
 2. read the tag record's default property bag;
 3. copy each default only when that property key is absent on the node.
 
-The registry rejects non-defaultable keys such as `page.*`, `journal.date`,
-structural keys such as `tag` and `page.title`, and `system.*` from a default
-bag. Task
-properties and unknown user-defined keys are defaultable; other well-known
-feature keys declare the policy explicitly. A default bag has at most one value
-per key in schema v3.
+Only properties with a user-accessible `tag_default` placement may enter a
+default bag. Task properties declare that placement; unknown user-defined keys
+receive the same fallback. `page.*`, `journal.date`, structural keys, and
+`system.*` do not. A default bag has at most one value per key in schema v3.
 
 This is materialization, not inheritance. Removing a tag does not remove copied
 properties, values already visible to the tagging command are never overwritten,

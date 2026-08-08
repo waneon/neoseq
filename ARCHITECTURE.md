@@ -168,10 +168,11 @@ TypeScript, native, and WebAssembly adapters compatible.
   `BlockId` so reads and writes never scan other pages.
 - Property entries merge independently. Each value is an atomic tagged scalar:
   number, string, page reference, checkbox, or local date.
-- The versioned domain property registry is the authority for built-in value,
-  target, writer, tag-default, and string-choice policy. Generic commands cannot
-  write core-managed page, journal, or lifecycle properties; client visibility
-  and rich renderers remain a separate presentation registry.
+- The versioned domain property registry maps each built-in key to only a value
+  `shape` and target `placements`. Shape composes cardinality, value type, and
+  optional string choices; each placement names a target and its `user` or
+  `core` access. A `tag_default` placement replaces a separate defaultability
+  flag. Client visibility is derived from access plus sparse renderer overrides.
 - `system.updated-at` is written on every direct page/block mutation. A block
   mutation also updates its owning page so page recency includes outline work.
 - Journal identity is deterministic from `(GraphId, local date)`, making journal

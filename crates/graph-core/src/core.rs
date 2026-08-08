@@ -746,7 +746,7 @@ impl GraphCore {
             | Command::RemoveRepeatedProperty { entity, key, value } => {
                 self.validate_entity(entity)?;
                 validate_property_write(key, property_target(entity))?;
-                validate_property(key, value, Cardinality::Repeated)?;
+                validate_property(key, value, Cardinality::Set)?;
             }
             Command::RemoveProperty { entity, key } => {
                 self.validate_entity(entity)?;
@@ -1804,7 +1804,7 @@ fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
         let cardinality = if slot.starts_with("s:") {
             Cardinality::Single
         } else if slot.starts_with("r:") {
-            Cardinality::Repeated
+            Cardinality::Set
         } else {
             issues.push(format!("property-slot:{slot}:invalid-slot"));
             return;
