@@ -156,7 +156,7 @@ second ordinary core command; no batch command or schema change is introduced.
 
 ## Validation and Failure Reporting
 
-The versioned domain fixture supplies only composed value shapes and target
+The current domain contract supplies only composed value shapes and target
 placements to `entities/properties.ts`; all type, cardinality, string-choice,
 write, and default checks are derived from them. Generic/hidden presentation is
 also derived from placements, while sparse client-owned feature and metadata
@@ -207,5 +207,5 @@ implementations.
   reservation rules.
 - Browser tests cover property persistence, slash invocation, tag membership,
   query/task projections, accessibility, and reload.
-- Existing native/Wasm contract suites continue to cover property round-trip,
-  persistence, rejection, and undo with no new CorePort fixture.
+- Native/Wasm contract suites cover property round-trip, persistence, rejection,
+  and undo through the current CorePort corpus.

@@ -1,4 +1,4 @@
-name: Step 4 gates
+name: CI
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  local-web:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -17,7 +17,7 @@ jobs:
       - name: Run Nix flake checks
         run: nix flake check --print-build-logs --keep-failed
 
-      - name: Collect Playwright failure diagnostics
+      - name: Collect Playwright failure artifacts
         if: ${{ failure() }}
         run: |
           mkdir -p artifacts/playwright
@@ -36,11 +36,11 @@ jobs:
               done
           sudo chmod -R a+rX artifacts/playwright
           if ! compgen -G 'artifacts/playwright/*' > /dev/null; then
-            echo '::error::Playwright diagnostics were not found in any retained Nix build directory.'
+            echo '::error::Playwright artifacts were not found in any retained Nix build directory.'
             exit 1
           fi
 
-      - name: Upload Playwright failure diagnostics
+      - name: Upload Playwright failure artifacts
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
         with:

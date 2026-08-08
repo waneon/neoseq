@@ -1,6 +1,6 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
-import golden from "../../../fixtures/core-port/v5.json";
+import golden from "../../../fixtures/core-port/current.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
 
@@ -17,7 +17,7 @@ function graphId(prefix: string): string {
 function openRequest(graph: string, peer: number): OpenGraphRequest {
   return {
     contract_version: CORE_PORT_VERSION,
-    locator: { graph_id: graph, location: "local", remote_graph_id: null },
+    locator: { graph_id: graph },
     peer_id: peer,
   };
 }
@@ -89,7 +89,7 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 3, "worker read did not return schema v3");
+  assert((read.summary as Snapshot).schema_version === 1, "worker read did not return schema v1");
   const page = await worker.readPage({ graph_handle: opened.graph_handle, page_id: "home" });
   assert((page.page as { id: string }).id === "home", "worker page read returned the wrong page");
   const queried = await worker.query({

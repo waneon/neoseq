@@ -5,7 +5,6 @@
   "scripts": {
     "build": "pnpm --filter @neoseq/client build",
     "check": "pnpm --filter @neoseq/client check",
-    "diagnostics:inspect": "node scripts/inspect-diagnostic.mjs",
     "test:indexeddb": "pnpm --filter @neoseq/client test:indexeddb"
   },
   "devDependencies": {

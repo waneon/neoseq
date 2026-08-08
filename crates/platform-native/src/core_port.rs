@@ -1,14 +1,14 @@
 use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CommandEnvelope, CorePortError,
-    CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, GraphLocationDto,
-    OpenGraphRequest, OpenGraphResponse, PageId, QueryRequestDto, QueryResponseDto,
-    ReadPageRequest, ReadPageResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
+    CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, OpenGraphRequest,
+    OpenGraphResponse, PageId, QueryRequestDto, QueryResponseDto, ReadPageRequest,
+    ReadPageResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
     StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
 };
 use graph_core::{
-    EventBatch, GraphLocation, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository,
-    RuntimeError, recover_graph,
+    EventBatch, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository, RuntimeError,
+    recover_graph,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -47,13 +47,6 @@ impl NativeCorePort {
                 false,
             ));
         }
-        if !matches!(request.locator.location, GraphLocationDto::Local) {
-            return Err(port_error(
-                CorePortErrorCode::InvalidRequest,
-                "only local graph locators are supported",
-                false,
-            ));
-        }
         let graph_id = GraphId::new(&request.locator.graph_id).map_err(|error| {
             port_error(CorePortErrorCode::InvalidRequest, &error.to_string(), false)
         })?;
@@ -70,7 +63,6 @@ impl NativeCorePort {
             &self.database_path,
             GraphLocator {
                 graph_id: graph_id.clone(),
-                location: GraphLocation::Local,
             },
             &opened_at,
         )
@@ -344,7 +336,6 @@ fn map_storage_error(error: SqliteRepositoryError) -> CorePortError {
         SqliteRepositoryError::Busy => (CorePortErrorCode::StorageBusy, true),
         SqliteRepositoryError::DiskFull => (CorePortErrorCode::StorageFull, true),
         SqliteRepositoryError::Corrupt(_) => (CorePortErrorCode::StorageCorrupt, false),
-        SqliteRepositoryError::RemoteUnavailable => (CorePortErrorCode::InvalidRequest, false),
         SqliteRepositoryError::NotFound => (CorePortErrorCode::GraphNotOpen, false),
         SqliteRepositoryError::Injected(_) | SqliteRepositoryError::Sqlite(_) => {
             (CorePortErrorCode::Internal, true)

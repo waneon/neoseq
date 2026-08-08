@@ -28,16 +28,10 @@
 
 ## 단계 요약
 
-- [01. 기반과 스파이크](01-foundation-and-spikes.md): Nix에서
-  native/Wasm/Tauri/sync 위험을 재현한다. 기술 타당성 확인 지점이다.
-- [02. Domain과 CRDT core](02-domain-and-crdt-core.md): 메모리에서 완전한 graph
-  명령과 CRDT 수렴을 실행한다. Core alpha 지점이다.
-- [03. Local persistence와 port](03-local-persistence-and-ports.md): SQLite와
-  IndexedDB에서 같은 graph를 저장·재시작·복구한다. Local data alpha 지점이다.
-- [04. Local Web app](04-local-web-app.md): browser에서 journal, outliner,
-  Markdown, property를 offline으로 사용한다. Local Web alpha 지점이다.
-- [05. Query와 property feature](05-query-and-property-features.md): property
-  기반 query와 task UI가 반응형으로 동작한다. **Local MVP** 지점이다.
+Step 1–5의 결과는 현재 코드와 아키텍처 문서에 반영되어 있으며, 완료 당시의
+계획과 검증 기록은 버전 관리 이력에서 확인한다. 저장소에는 아직 의사결정과
+구현에 영향을 주는 단계만 유지한다.
+
 - [06. Sync server](06-sync-server.md): PostgreSQL에 update를 durable-ack하는
   synchronization server를 제공한다. Server alpha 지점이다.
 - [07. Remote collaboration](07-remote-collaboration.md): 두 Web client가
@@ -55,21 +49,14 @@
 
 ```mermaid
 flowchart LR
-    S1[01 기반/스파이크] --> S2[02 도메인/CRDT core]
-    S2 --> S3[03 로컬 영속성/port]
-    S3 --> S4[04 Local Web]
-    S4 --> S5[05 Query/Task]
-    S3 --> S6[06 Sync server]
-    S5 --> S7[07 Remote collaboration]
-    S6 --> S7
+    S6[06 Sync server] --> S7[07 Remote collaboration]
     S7 --> S8[08 Native clients]
     S8 --> S9[09 Data lifecycle]
     S9 --> S10[10 Production hardening]
     S10 --> S11[11 Release]
 ```
 
-문서상 순서는 선형이지만, 05와 06은 03의 계약이 고정된 뒤 병렬 개발할 수 있다.
-단, 07의 통합 gate는 두 단계가 모두 끝난 뒤에만 연다.
+Step 7 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한다.
 
 ## 공통 완료 정의
 
@@ -77,7 +64,8 @@ flowchart LR
 
 - [ ] 단계 문서의 자동 gate가 깨끗한 checkout에서 Nix만으로 재현된다.
 - [ ] 단계의 수동 데모 시나리오를 처음 보는 검증자가 문서만 보고 수행할 수 있다.
-- [ ] 새 공개 계약에는 정상/오류/호환성 fixture가 있다.
+- [ ] 새 공개 계약에는 정상/오류 fixture가 있다. 실제 지원 버전이 둘 이상일
+      때만 호환성 fixture를 추가한다.
 - [ ] native와 Wasm에 공통인 로직은 동일한 corpus로 검증된다.
 - [ ] canonical data 변경은 재시작 후에도 유지되고 실패 시 의미가 문서화되어
       있다.
@@ -127,21 +115,19 @@ credential, runner image를 출력 manifest에 기록해야 한다.
 
 ## 요구사항 추적성
 
-| 요구사항                               | 최초 구현 | 최종 gate      |
-| -------------------------------------- | --------- | -------------- |
-| Outliner/page/graph                    | 02        | 04, 10         |
-| Daily journal                          | 02        | 04, 08         |
-| Markdown block text                    | 02        | 04, 08         |
-| Uniform property                       | 02        | 05, 09         |
-| Page-backed tag/default 복사           | 02        | 04, 07         |
-| Query property/SPARQL                  | 05        | 10             |
-| Task status/schedule/deadline/priority | 05        | 08, 10         |
-| Local graph                            | 03        | 04, 09         |
-| Remote graph/Loro realtime sync        | 06        | 07, 10         |
-| Web                                    | 04        | 10, 11         |
-| macOS/Android                          | 08        | 10, 11         |
-| Rust core                              | 02        | 모든 후속 단계 |
-| Nix 재현성                             | 01        | 모든 후속 단계 |
+| 요구사항                               | 후속 gate      |
+| -------------------------------------- | -------------- |
+| Outliner/page/graph                    | 10             |
+| Daily journal, Markdown block text     | 08             |
+| Uniform property                       | 09             |
+| Page-backed tag/default 복사           | 07             |
+| Query property/SPARQL                  | 10             |
+| Task status/schedule/deadline/priority | 08, 10         |
+| Local graph                            | 09             |
+| Remote graph/Loro realtime sync        | 07, 10         |
+| Web                                    | 10, 11         |
+| macOS/Android                          | 08, 10, 11     |
+| Rust core, Nix reproducibility         | 모든 후속 단계 |
 
 ## 상태 관리
 

@@ -383,8 +383,8 @@ them can. **This is the only place in the type system where tracking goes positi
 and that is deliberate: it is what makes a label unmistakable for body copy.
 
 Every group divider in the product uses this one rule — rail groups, settings scopes,
-palette groups, shortcut sections, property sections, the diagnostic ledger. None of
-them is allowed to invent its own.
+palette groups, shortcut sections, and property sections. None of them is allowed to
+invent its own.
 
 ---
 
@@ -541,10 +541,9 @@ background-colour change, not a `scale(0.97)`.
 > **Two properties besides `opacity` may animate, and they are both named here.**
 >
 > **A box's own size** — `height`, and the rail's `grid-template-columns` — because
-> animating it is what *prevents* a moving target rather than what creates one. When the
-> diagnostic recorder switched from Standard to Enhanced it resized the dialog by ~200px
-> in a single frame: the panel re-centred in the viewport and `Start recording` left from
-> under a pointer already travelling toward it. When `⌘\` collapsed the rail, the entire
+> animating it is what *prevents* a moving target rather than what creates one. When a
+> dialog swaps between bodies of different lengths, it must not re-centre and move a
+> control away from a pointer already travelling toward it. When `⌘\` collapsed the rail, the entire
 > writing surface jumped a quarter of the window sideways. In both cases the content does
 > not move *relative to its box* — the box grows or shrinks to meet it, and everything
 > inside stays exactly where it was in the box's own coordinates. A `transform` would have
@@ -677,7 +676,6 @@ permanently visible.**
 | Page list + `＋` | Rail | Navigation, and the only pointer route to a new page |
 | `Settings` | Rail footer | Workspace-level, deliberately away from daily use |
 | Save slot | Top bar | **Renders nothing when saved.** Present only on deviation |
-| Diagnostic recording | Top bar; picker upper-right | **Renders only while recording.** Privacy-sensitive state must remain visible |
 | Read-only label | Top bar | Only in read-only mode |
 | Bullet | Every outline row | The block's own handle: caret, drag, and its menu |
 | `Today` pill | Journal title row | Only when the date is not today |
@@ -715,8 +713,8 @@ revealed on `:focus-within` — and revealed with `opacity`, never `display` or
 
 The command palette · the shortcut sheet · Settings · a block's menu (right-click its
 bullet, or `⇧F10` from its text) · the page's menu (right-click its title row) · page
-the property picker · the tag picker · tagged-block defaults · page info ·
-diagnostics · every confirm dialog.
+the property picker · the tag picker · tagged-block defaults · page info · every
+confirm dialog.
 
 A context menu is summoned *from an object*, which is what makes it different from a
 hidden button: the bullet and the title are permanently visible and permanently the
@@ -874,10 +872,8 @@ and a right-aligned shortcut badge.
 3. A shortcut column on every dropdown item.
 4. The `⌘/` sheet — generated *from the registry*, so it cannot drift, and listing the
    verbs that have no binding along with their pointer route.
-5. **No first-run hint.** v2 put a 12px `⌘K to search · ⌘/ for shortcuts` line under a
-   one-block outline — directly under the empty first line of every new page, which is
-   the one place the user's attention is already committed. The rail's permanent
-   `Search` row and its `⌘K` badge teach the same thing without standing in the writing.
+5. **No first-run hint.** The rail's permanent `Search` row and its `⌘K` badge teach
+   discovery without placing instructions inside the writing surface.
 
 ---
 
@@ -885,9 +881,9 @@ and a right-aligned shortcut badge.
 
 ### The outline
 
-**Row.** 30px at one line: 16px/26px text with 2px of vertical padding — one notch
-tighter than v2, which is what makes a screen of short lines read as a list rather than a
-column of paragraphs. `padding-left: calc(var(--gutter) + var(--depth) * var(--indent))`
+**Row.** 30px at one line: 16px/26px text with 2px of vertical padding, making a screen
+of short lines read as a list rather than a column of paragraphs.
+`padding-left: calc(var(--gutter) + var(--depth) * var(--indent))`
 from CSS custom properties, not an inline style that silently overrides the row's own
 padding shorthand, and a matching negative `margin-left` so the row reaches one gutter
 further left than its text: that strip is the selection gutter. `cursor: text` across the
@@ -1059,8 +1055,8 @@ blocks a structural command acts on. *They never coexist:* taking one drops the 
 
 ### Title row (journal and page, one shape)
 
-44px. `<h1>` at 33px/600 — one step up from v2, so the page's name reads as the largest
-thing on the surface rather than merely the boldest. On the right: a hover-revealed
+44px. `<h1>` at 33px/600, so the page's name reads as the largest thing on the surface
+rather than merely the boldest. On the right: a hover-revealed
 cluster of 24px controls (`‹`, a calendar trigger that calls `showPicker()`, `›`) and a
 `Today` pill that is always visible when the date is not today.
 
@@ -1125,18 +1121,6 @@ toast would be wrong here: durability is ambient, and it is also the thing tests
 The notification layer knows this and **stays silent on `dirty_unsaved` and
 `storage_full`**, so one failure is never reported by two surfaces at once.
 
-### Diagnostic recorder
-
-Diagnostic recording is summoned from the command palette or Settings. Its modal
-starts with a two-choice Standard/Enhanced ledger. Standard is the default;
-Enhanced discloses a danger-toned inset with scope and category controls and is
-never remembered. While active, the top bar shows one 5px `--danger` dot, the
-capture level, and tabular elapsed time; the whole status stops and opens review.
-Below 600px the label hides, but dot and time remain. Review uses a wide dialog
-with a four-value summary, content policy, annotation, and Save/Discard actions.
-Enhanced review inventories the sensitive stream, permits excluding it, and
-requires a second confirmation to include it. Nothing is uploaded by the app.
-
 ### Toasts
 
 The one surface that is neither always visible nor summoned by the user: it arrives
@@ -1191,28 +1175,23 @@ component.
 
 ### Settings
 
-Two scopes, and saying which is which is the section's whole job. Half of what used to be
-one flat page belongs to the **browser** — appearance, language, how a date is written,
-which keys do what, whether storage is persistent — and holds for every graph the user
-opens. The other half belongs to **this graph** and travels with it. Presented as one
-column, `Delete this graph…` read as a sibling of `Language`.
+Two scopes, and saying which is which is the section's whole job. Appearance, language,
+date presentation, keyboard bindings, and storage persistence belong to the
+**browser** and apply to every graph. Graph identity and deletion belong to
+**this graph** and travel with it.
 
 - **A dialog, not a route.** Settings are an aside: you open them from wherever you are,
   change one thing, and come back to the same block with the same caret. 820px, a 168px
   scope nav on the left, the pane scrolling on the right.
 - **Two named groups, each with a real `<h3>`.** `Application` — Appearance, Language,
-  Journal, Keyboard, Storage. `This graph` — Graph, Danger zone. Each heading used to
-  carry a sentence under its rows explaining how far the scope reached ("These apply to
-  Neoseq in this browser, on every graph."); both are gone. Two paragraphs of prose inside
-  a 168px navigation column, restating what `Application` and `This graph` already say, in
-  a column whose job is to be scanned rather than read. The distinction now rests on the
-  two headings and on § The group label's typography, which is where it belonged.
+  Journal, Keyboard, Storage. `This graph` — Graph, Danger zone. The headings and
+  § The group label's typography carry the scope distinction without explanatory copy
+  inside the navigation column.
 - **Switching sections fades** at `--dur-view`. The pane is a box that is already on
   screen and already the right size; without it, changing sections read as the dialog's
   contents glitching rather than as one section replacing another.
 - **The open section is in the URL** (`?settings=keyboard`). The browser's own Back closes
-  the dialog, a link can point at one section, and a reload comes back to it. The old
-  `/settings` path still resolves, to the journal with the dialog open.
+  the dialog, a link can point at one section, and a reload comes back to it.
 - **The dialog title is the largest thing on the surface**, so a section heading steps
   down to 14px/600 rather than tying with it at 19px.
 - **Journal date format carries a live example per option** (`Abbreviated month — Aug 5,

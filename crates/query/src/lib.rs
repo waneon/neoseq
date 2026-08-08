@@ -710,7 +710,7 @@ mod tests {
 
     fn snapshot() -> GraphSnapshot {
         GraphSnapshot {
-            schema_version: 3,
+            schema_version: 1,
             graph_id: GraphId::new("query graph").unwrap(),
             pages: vec![PageSnapshot {
                 id: PageId::new("today").unwrap(),

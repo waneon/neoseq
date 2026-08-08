@@ -21,8 +21,6 @@ import { envelope } from "./commands";
 import type { GraphSnapshot, GraphSummary, PageSnapshot } from "./snapshot";
 import { EMPTY_SNAPSHOT, mergePage, mergeSummary } from "./snapshot";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
-import { diagnostics } from "../diagnostics/coordinator";
-import type { DiagnosticActionContext } from "../diagnostics/types";
 
 const COMMAND_TIMEOUT_MS = 10_000;
 
@@ -57,7 +55,6 @@ export class GraphSession {
   private opening: Promise<void> | null = null;
   private closeRequested = false;
   private queue: Promise<unknown> = Promise.resolve();
-  private pendingCommandCount = 0;
   private listeners = new Set<() => void>();
 
   constructor(
@@ -90,24 +87,16 @@ export class GraphSession {
   }
 
   private async openNow(): Promise<void> {
-    const span = diagnostics.startSpan("session", "session.open");
     try {
       this.lease = await acquireLease(this.graphId);
-      if (this.closeRequested) {
-        span.end("cancelled");
-        return;
-      }
-      const opened = await diagnostics.withContext(span.context, () =>
-        this.port.openGraph({
-          contract_version: CORE_PORT_VERSION,
-          locator: { graph_id: this.graphId, location: "local", remote_graph_id: null },
-          peer_id: randomPeerId(),
-        }));
+      if (this.closeRequested) return;
+      const opened = await this.port.openGraph({
+        contract_version: CORE_PORT_VERSION,
+        locator: { graph_id: this.graphId },
+        peer_id: randomPeerId(),
+      });
       this.handle = opened.graph_handle;
-      if (this.closeRequested) {
-        span.end("cancelled");
-        return;
-      }
+      if (this.closeRequested) return;
       this.patch({
         status: "ready",
         mode: this.lease.mode,
@@ -115,14 +104,7 @@ export class GraphSession {
         capabilities: opened.capabilities,
         recovery: opened.recovery,
       });
-      span.end("ok", {
-        lease_mode: this.lease.mode,
-        checkpoint_sequence: opened.recovery.checkpoint_sequence,
-        replayed_update_count: opened.recovery.replayed_updates,
-        quarantined_count: opened.recovery.quarantined_records.length,
-      });
     } catch (error) {
-      span.fail(error);
       if (!this.closeRequested) {
         this.lease?.release();
         this.lease = null;
@@ -135,20 +117,10 @@ export class GraphSession {
    * Executes a domain command. Commands are serialized; the returned promise
    * resolves after the authoritative summary/page state has been reconciled.
    */
-  execute(
-    command: Command,
-    action?: DiagnosticActionContext | null,
-  ): Promise<CommandResult> {
-    this.pendingCommandCount += 1;
-    const diagnosticAction = diagnostics.recordCommand(command, action);
-    const run = this.queue.then(() => this.executeNow(command, diagnosticAction));
-    const tracked = run.finally(() => {
-      this.pendingCommandCount = Math.max(0, this.pendingCommandCount - 1);
-      this.recordDiagnosticState();
-    });
+  execute(command: Command): Promise<CommandResult> {
+    const tracked = this.queue.then(() => this.executeNow(command));
     // Keep the queue alive after failures so later commands still run.
     this.queue = tracked.catch(() => undefined);
-    this.recordDiagnosticState();
     return tracked;
   }
 
@@ -166,50 +138,28 @@ export class GraphSession {
   }
 
   /** Executes against the published derived index after prior mutations settle. */
-  query(
-    query: SparqlQueryRequest,
-    action?: DiagnosticActionContext | null,
-  ): Promise<SparqlQueryResult> {
-    const diagnosticAction = diagnostics.recordQuery(query, action);
+  query(query: SparqlQueryRequest): Promise<SparqlQueryResult> {
     return this.queue.then(async () => {
-      const span = diagnostics.startSpan("session", "session.query", {}, diagnosticAction);
       if (this.state.status !== "ready") {
-        const error = new CorePortFailure({
+        throw new CorePortFailure({
           code: "graph_not_open",
           message: "graph is not open",
           retryable: false,
         });
-        span.fail(error);
-        throw error;
       }
-      try {
-        const response = await diagnostics.withContext(span.context, () =>
-          this.port.query({ graph_handle: this.handle, query }));
-        span.end("ok", {
-          result_kind: response.result.kind,
-          result_row_count: response.result.kind === "select" ? response.result.rows.length : 1,
-          result_column_count: response.result.kind === "select" ? response.result.variables.length : 1,
-          result_revision: response.result.revision,
-        });
-        return response.result;
-      } catch (error) {
-        span.fail(error);
-        throw error;
-      }
+      const response = await this.port.query({ graph_handle: this.handle, query });
+      return response.result;
     });
   }
 
   async close(): Promise<void> {
-    const span = diagnostics.startSpan("session", "session.close");
     this.closeRequested = true;
     await this.opening?.catch(() => undefined);
     await this.queue.catch(() => undefined);
     if (this.handle && this.state.save.kind !== "unsaved") {
       try {
-        await diagnostics.withContext(span.context, () =>
-          this.port.closeGraph({ graph_handle: this.handle }));
-      } catch (error) {
-        span.fail(error);
+        await this.port.closeGraph({ graph_handle: this.handle });
+      } catch {
         // Closing is best-effort; recovery replays the update log on reopen.
       }
     }
@@ -217,19 +167,11 @@ export class GraphSession {
     this.lease = null;
     this.port.terminate?.();
     this.patch({ status: "closed" });
-    span.end("ok");
   }
 
-  private async executeNow(
-    command: Command,
-    action: DiagnosticActionContext | null,
-  ): Promise<CommandResult> {
-    const span = diagnostics.startSpan("session", "session.execute", {
-      command_type: command.type,
-    }, action);
+  private async executeNow(command: Command): Promise<CommandResult> {
     if (this.state.status !== "ready") {
       const error = new CorePortFailure({ code: "graph_not_open", message: "graph is not open", retryable: false });
-      span.fail(error);
       throw error;
     }
     if (this.state.mode === "readonly") {
@@ -238,34 +180,26 @@ export class GraphSession {
         message: "this graph is opened read-only in this tab",
         retryable: false,
       });
-      span.fail(error);
       throw error;
     }
     this.patch({ save: { kind: "saving" } });
     try {
-      const response = await diagnostics.withContext(span.context, () =>
-        this.port.execute({
-          graph_handle: this.handle,
-          command: envelope(this.graphId, command),
-          timeout_ms: COMMAND_TIMEOUT_MS,
-        }));
+      const response = await this.port.execute({
+        graph_handle: this.handle,
+        command: envelope(this.graphId, command),
+        timeout_ms: COMMAND_TIMEOUT_MS,
+      });
       const save: SaveState =
         response.save_status.status === "saved_locally"
           ? { kind: "saved", sequence: response.save_status.local_sequence }
           : { kind: "unsaved", code: "dirty_unsaved", message: "the last change is not durable yet", retryable: true };
-      await diagnostics.withContext(span.context, () =>
-        this.reconcile(
-          save,
-          commandPageId(command, response.result as CommandResult),
-          command.type === "undo" || command.type === "redo",
-        ));
-      span.end("ok", {
-        result_kind: "command_result",
-        changed: (response.result as CommandResult).changed,
-      });
+      await this.reconcile(
+        save,
+        commandPageId(command, response.result as CommandResult),
+        command.type === "undo" || command.type === "redo",
+      );
       return response.result as CommandResult;
     } catch (error) {
-      span.fail(error);
       const detail = toPortError(error);
       if (detail.code === "dirty_unsaved" || detail.code === "storage_full") {
         // The command applied in memory but is not durable. Show the state
@@ -287,16 +221,11 @@ export class GraphSession {
 
   private async retryNow(): Promise<void> {
     if (this.state.status !== "ready" || this.state.save.kind !== "unsaved") return;
-    const span = diagnostics.startSpan("session", "session.retry");
     this.patch({ save: { kind: "saving" } });
     try {
-      const receipt = await diagnostics.withContext(span.context, () =>
-        this.port.retryPending(this.handle));
-      await diagnostics.withContext(span.context, () =>
-        this.reconcile({ kind: "saved", sequence: receipt.local_sequence }));
-      span.end("ok");
+      const receipt = await this.port.retryPending(this.handle);
+      await this.reconcile({ kind: "saved", sequence: receipt.local_sequence });
     } catch (error) {
-      span.fail(error);
       const detail = toPortError(error);
       this.patch({
         save: { kind: "unsaved", code: detail.code, message: detail.message, retryable: detail.retryable },
@@ -306,16 +235,7 @@ export class GraphSession {
 
   private async hydratePageNow(pageId: string): Promise<void> {
     if (this.state.status !== "ready") return;
-    const span = diagnostics.startSpan("session", "session.hydrate_page");
-    let response;
-    try {
-      response = await diagnostics.withContext(span.context, () =>
-        this.port.readPage({ graph_handle: this.handle, page_id: pageId }));
-      span.end("ok");
-    } catch (error) {
-      span.fail(error);
-      throw error;
-    }
+    const response = await this.port.readPage({ graph_handle: this.handle, page_id: pageId });
     const hydratedPages = new Set(this.state.hydratedPages);
     hydratedPages.add(pageId);
     this.patch({
@@ -331,59 +251,35 @@ export class GraphSession {
     pageId?: string,
     refreshHydrated = false,
   ): Promise<void> {
-    const span = diagnostics.startSpan("session", "session.reconcile");
-    const cursorBefore = this.cursor;
-    let eventCount = 0;
-    let resyncRequired = false;
-    let reconcileFallback = false;
-    let pageReadCount = 0;
     try {
-      try {
-        const batch = await diagnostics.withContext(span.context, () =>
-          this.port.subscribe({ graph_handle: this.handle, after_cursor: this.cursor }));
-        eventCount = batch.events.length;
-        resyncRequired = batch.resync_required;
-        reconcileFallback = batch.resync_required;
-        this.cursor = batch.next_cursor;
-      } catch {
-        // A failed event poll falls through to the full re-read below.
-        reconcileFallback = true;
-      }
-      const read = await diagnostics.withContext(span.context, () =>
-        this.port.read({ graph_handle: this.handle }));
-      let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
-      const pageIdsToRead = refreshHydrated
-        ? [...this.state.hydratedPages]
-        : pageId
-          ? [pageId]
-          : [];
-      for (const id of pageIdsToRead) {
-        if (!snapshot.pages.some((page) => page.id === id)) continue;
-        const response = await diagnostics.withContext(span.context, () =>
-          this.port.readPage({ graph_handle: this.handle, page_id: id }));
-        snapshot = mergePage(snapshot, response.page as PageSnapshot);
-        pageReadCount += 1;
-      }
-      const pageIds = new Set(snapshot.pages.map((page) => page.id));
-      const hydratedPages = new Set(
-        [...this.state.hydratedPages].filter((id) => pageIds.has(id)),
-      );
-      for (const id of pageIdsToRead) {
-        if (pageIds.has(id)) hydratedPages.add(id);
-      }
-      this.patch({ snapshot, hydratedPages, save, revision: this.state.revision + 1 });
-      span.end("ok", {
-        event_count: eventCount,
-        page_read_count: pageReadCount,
-        cursor_before: cursorBefore,
-        cursor_after: this.cursor,
-        resync_required: resyncRequired,
-        reconcile_fallback: reconcileFallback,
+      const batch = await this.port.subscribe({
+        graph_handle: this.handle,
+        after_cursor: this.cursor,
       });
-    } catch (error) {
-      span.fail(error);
-      throw error;
+      this.cursor = batch.next_cursor;
+    } catch {
+      // A failed event poll falls through to the authoritative re-read below.
     }
+    const read = await this.port.read({ graph_handle: this.handle });
+    let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
+    const pageIdsToRead = refreshHydrated
+      ? [...this.state.hydratedPages]
+      : pageId
+        ? [pageId]
+        : [];
+    for (const id of pageIdsToRead) {
+      if (!snapshot.pages.some((page) => page.id === id)) continue;
+      const response = await this.port.readPage({ graph_handle: this.handle, page_id: id });
+      snapshot = mergePage(snapshot, response.page as PageSnapshot);
+    }
+    const pageIds = new Set(snapshot.pages.map((page) => page.id));
+    const hydratedPages = new Set(
+      [...this.state.hydratedPages].filter((id) => pageIds.has(id)),
+    );
+    for (const id of pageIdsToRead) {
+      if (pageIds.has(id)) hydratedPages.add(id);
+    }
+    this.patch({ snapshot, hydratedPages, save, revision: this.state.revision + 1 });
   }
 
   private previousStableSave(): SaveState {
@@ -392,19 +288,7 @@ export class GraphSession {
 
   private patch(partial: Partial<SessionState>): void {
     this.state = { ...this.state, ...partial };
-    this.recordDiagnosticState();
     for (const listener of this.listeners) listener();
-  }
-
-  private recordDiagnosticState(): void {
-    diagnostics.recordSessionState(this.state.snapshot, {
-      session_status: this.state.status,
-      lease_mode: this.state.mode,
-      save_state: this.state.save.kind,
-      hydrated_page_count: this.state.hydratedPages.size,
-      pending_command_count: this.pendingCommandCount,
-      snapshot_revision: this.state.revision,
-    });
   }
 }
 

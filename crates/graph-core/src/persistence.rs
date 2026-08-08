@@ -5,24 +5,13 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GraphLocation {
-    Local,
-    Remote { remote_graph_id: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphLocator {
     pub graph_id: GraphId,
-    pub location: GraphLocation,
 }
 
 impl GraphLocator {
     pub fn local(graph_id: GraphId) -> Self {
-        Self {
-            graph_id,
-            location: GraphLocation::Local,
-        }
+        Self { graph_id }
     }
 }
 
@@ -99,8 +88,6 @@ pub trait LocalGraphRepository: GraphRepository {
         created_at: &str,
     ) -> Result<String, Self::Error>;
     fn mark_compacted(&mut self, through_sequence: u64) -> Result<(), Self::Error>;
-    fn load_index_cache(&mut self, key: &str) -> Result<Option<Vec<u8>>, Self::Error>;
-    fn store_index_cache(&mut self, key: &str, value: &[u8]) -> Result<(), Self::Error>;
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error>;
     fn quarantined(&mut self) -> Result<Vec<QuarantineRecord>, Self::Error>;
     fn delete_local(self) -> Result<(), Self::Error>;

@@ -1,295 +1,179 @@
 # CRDT Data and Local Persistence Architecture
 
-## Graph Document Boundary
+## Canonical Graph
 
-Each graph maps to exactly one Loro document. This makes graph export, access
-control, synchronization, and deletion independent. A peer/session ID is
-generated for every simultaneously active graph runtime and is never shared
-between tabs, processes, or devices.
-
-The document has three stable root containers:
+Each graph maps to one Loro document and is an independent storage, export, and
+future synchronization unit. The document schema is v1 and has three roots:
 
 ```text
 meta: Map
   graph_id: string
-  schema_version: integer
-  applied_migrations: Map<migration_id, true>
+  schema_version: 1
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
 ```
 
-Root names and container types are permanent protocol. New root fields may be
-added, but an existing name cannot change type.
+The Loro document plus its verified update/checkpoint history is the only
+canonical representation. RDF triples, text caches, query plans, and UI state
+are disposable projections. There is no migration ledger in the current
+document; Step 9 introduces migration metadata alongside the first real schema
+transition.
 
-The Loro document and its durable update/checkpoint history are the only
-canonical graph representation. RDF triples, term dictionaries, full-text
-postings, hierarchy accelerators, query plans, and query results are derived
-state outside these roots. The query projector must be able to reproduce their
-complete semantic contents from any validated document snapshot; import/export
-never treats an index as graph data.
+## Pages, Nodes, and Ordering
 
-## Pages
-
-`pages` is keyed by stable `PageId`. A page map contains:
+`pages` is keyed by stable `PageId`. Each page contains:
 
 ```text
 root: NodeData
 outline: MovableTree<NodeData>
-```
 
-The root node's collaborative `content` is the regular page title. Live regular
-page names are unique within a graph after trimming, collapsing whitespace, and
-Unicode lowercasing. The stable `PageId`, not the normalized name, remains
-identity. Deletion releases a name; restore is rejected if another live page
-has claimed it. Regular pages have `page.kind: "regular"` in the root property
-bag. Journals have `page.kind: "journal"`
-and `journal.date: Date`; their display title is derived from the date. Journal
-IDs are deterministically derived from `GraphId` and the date, so all replicas
-address the same page when creating that day's journal.
-
-Pages, blocks, and tags initialize `system.created-at` and `system.updated-at`
-to the same canonical command timestamp. Direct mutation advances
-`system.updated-at`; a block mutation updates both that block and its owning
-page, while changes below a block do not implicitly rewrite ancestor block
-timestamps. Soft-deletable pages and tags set `system.deleted-at` on deletion,
-clear it on restore, and advance `updated-at` for both transitions.
-`created-at` is immutable. Concurrent initialization uses Loro's
-mergeable/get-or-create operation rather than replacing a child container under
-the same map key.
-
-Timestamps are user-facing metadata, not conflict-order authorities. CRDT
-ordering determines merge results.
-
-## Nodes and Ordering
-
-Page roots and outline blocks share exactly one persisted payload:
-
-```text
 NodeData
   content: Text
   properties: PropertyBag
   tag_refs: Map<TagId, true>
 ```
 
-Every page owns one nested `outline` movable tree. Every tree node is a block
-and its Loro tree ID is wrapped as the stable external `BlockId`. Node data
-uses `content` as block Markdown; the page root uses the same field as its
-title. Page membership is structural and immutable: the containing
-`PageMap.outline` owns
-the block. Indent, outdent, reorder, and subtree moves operate only inside that
-tree. Moving content to another page is an explicit copy with new block IDs,
-not a cross-tree move.
+The page root's content is a regular page title. Journal display titles derive
+from `journal.date`; journal IDs derive deterministically from graph ID and date.
+Regular page names are unique after whitespace normalization and Unicode
+lowercasing. Stable IDs, not names, are identity.
 
-Enter preserves node identity at document boundaries. At the start of a block,
-it inserts an empty sibling before the existing node rather than moving content
-into a new node, so the original `BlockId`, properties, tags, and descendants
-move down together. A middle split retains that identity and metadata on the
-head; only the Markdown tail receives a new `BlockId`, without copied source
-metadata.
+Every outline node is a block. Its Loro tree ID is the external `BlockId`, and
+the containing page tree determines ownership. Indent, outdent, reorder, and
+move stay within a page. Moving content between pages is an explicit copy with
+new block IDs.
 
-The runtime enforces and repairs these projection invariants:
+An Enter split preserves the source block's identity. A leading split inserts
+an empty sibling before it; a middle split retains metadata on the head and
+creates an unadorned tail; a trailing split creates an empty block after it or
+as its first child. Structural commands validate the entire proposed change
+before mutation.
 
-- every visible block is reachable from exactly one live page outline;
-- no visible cycle exists;
-- tag references contain valid `TagId`s, though deleted/missing targets remain
-  as dangling refs;
-- invalid property encodings are quarantined instead of coerced.
+## Tags and Properties
 
-Loro provides conflict-free hierarchy moves and sibling ordering. A block
-command carries its owning `PageId` as a locality hint, and the core rejects a
-page/block mismatch without searching other page trees.
+Tags are independent graph entities keyed by `TagId` and have a unique live
+name namespace. Page and block `tag_refs` carry membership explicitly. Missing
+or deleted targets remain resolvable as dangling references.
 
-## Tags
+A property bag maps a validated key to one stable slot or an ordered set of
+stable slots. Each slot contains one tagged scalar:
 
-`tags` is keyed by stable `TagId`. A tag record contains an atomic `name`, a
-property bag with the same creation/update lifecycle metadata as nodes, and a
-default property bag. Node
-membership is a CRDT set encoded as `tag_refs: Map<TagId, true>`; it is not a
-property and never points to a page. Renaming a tag therefore does not rewrite
-members. Reverse membership is a derived local query index, not a second
-authoritative CRDT relation.
+- finite number;
+- string;
+- page reference;
+- checkbox/boolean;
+- local date.
 
-Live tag names use the same normalization and uniqueness rule as page names,
-in an independent namespace. Deleted tag names are reusable, and a restore
-that would collide is rejected. The original spelling and spacing remain the
-stored display name; normalization is lookup identity only.
+[`../contracts/property-registry.json`](../contracts/property-registry.json) is
+the v1 authority for built-in shapes, placements, and `user` versus `core`
+access. Unknown user keys are retained under namespace rules so newer data does
+not disappear in an older generic renderer.
 
-Adding a tag and materializing its missing defaults is one transaction.
-Removing it leaves materialized properties intact. Deleting a tag is logical;
-node references remain as inspectable dangling references until explicit
-cleanup.
+Adding a tag copies its declared defaults into properties that are absent in
+the same transaction. Existing values win, removing a tag does not remove
+copied values, and later default changes are not retroactive.
 
-Tag defaults are copied when a tag is attached. They are materialized ordinary
-properties, not inherited or retroactive values.
+Pages, blocks, and tags initialize `system.created-at` and
+`system.updated-at` together. Direct mutation advances `updated-at`; a block
+mutation also touches its page. Page and tag deletion sets `system.deleted-at`,
+and restore clears it. `created-at` never changes.
 
-## Uniform Property Bag and Encoding
+## Validation and Merge
 
-Every page and block has the same logical `PropertyBag`:
+The runtime validates these invariants before publishing state:
 
-```text
-PropertyBag = Map<PropertySlot, PropertyEntry>
-PropertyEntry = { key: PropertyKey, value: EncodedPropertyValue }
-```
+- the stored graph ID and schema version match the opened graph;
+- every visible block is reachable exactly once from its page tree;
+- no visible hierarchy cycle exists;
+- regular page and tag names are unique in their separate namespaces;
+- properties and tag records have valid encodings.
 
-`PropertySlot` is internal identity. A single-valued key uses one deterministic
-slot. A repeated key uses a deterministic logical member identity. The public
-model remains a collection of string key/typed value pairs and does not expose
-slot encoding.
+Local commands are preflighted against current state. Remote updates are first
+applied to a fork and are published only if the merged snapshot passes the same
+validation. Loro determines concurrent text, map, and tree merge outcomes;
+timestamps are user metadata, not ordering authorities.
 
-Each entry value is one canonical JSON UTF-8 string in the Loro map, so a
-concurrent write cannot combine a type from one write with a payload from
-another. Its decoded form is:
+## Repository Contract
+
+The core persistence port stores:
 
 ```text
-{ type: "number",   value: finite f64 }
-{ type: "string",   value: UTF-8 string }
-{ type: "page",     value: PageId }
-{ type: "checkbox", value: boolean }
-{ type: "date",     value: YYYY-MM-DD }
+GraphMetadata
+  graph_id, schema_version, next_sequence, compacted_through, timestamps
+UpdateRecord
+  local_sequence, checksum, bytes, created_at
+CheckpointRecord
+  local_sequence, schema_version, checksum, bytes, created_at
+QuarantineRecord
+  export_handle, kind, sequence, checksum, reason, bytes, created_at
 ```
 
-The JSON representation is canonical and versioned with document schema 3. It
-is decoded into `PropertyEntry` and `PropertyValue` immediately; raw JSON does
-not escape the projection. A single slot is `s:<key>`. A repeated slot is
-`r:<key>:<sha256(canonical-value)>`, which makes equal member addition
-idempotent. Map semantics merge slots independently, and concurrent writes to
-one slot resolve as one complete value.
+Appending an update and advancing `next_sequence` is one storage transaction.
+The SHA-256 checksum is also an idempotency key: retrying exact bytes after an
+ambiguous after-commit failure returns the prior sequence instead of duplicating
+the update.
 
-Well-known entries include `query.source`, `query.language`, task fields,
-`page.kind`, and `journal.date`. They use exactly
-the same encoding and synchronization path as user-defined properties. The
-separately versioned domain registry maps each key to a composed value `shape`
-and target `placements`, but adds no graph storage. Shape carries cardinality,
-type, and optional string choices; placements carry target access, including
-tag-default eligibility. Registry v5 does not change the document's schema-3
-slot encoding.
+A successful core mutation remains pending until append commits. While pending,
+the runtime rejects another mutation and clean close; retry uses the same bytes.
+Only after commit does it publish semantic and saved events.
 
-## Deletion and Repair
+## Recovery and Compaction
 
-Deletion is initially logical:
+Open chooses the newest checkpoint with the current schema and a valid checksum,
+then replays the verified update tail in sequence order. Invalid checkpoints are
+quarantined and the next older checkpoint is considered. Once an update tail is
+invalid, that record and the remaining tail are quarantined rather than partly
+applied. If checkpoints exist but none are valid, open fails explicitly.
 
-- block deletion uses the tree CRDT's deletion semantics;
-- page deletion writes `system.deleted-at` and hides its nested outline;
-- tag deletion writes `system.deleted-at` without rewriting node references;
-- references to deleted entities remain inspectable;
-- restoring a page removes that property and reveals its surviving outline.
+Checkpoint creation stores a full Loro snapshot at a local sequence. Compaction
+keeps the selected checkpoint, removes covered updates and older checkpoints,
+and advances `compacted_through`. Crash safety comes from transaction boundaries:
+either the pre-compaction history or the compacted history remains readable.
 
-Validation after import is deterministic. Unsafe remote encodings, invalid
-property targets/defaults, and malformed page outline containers are omitted
-from the domain projection and reported in a sorted quarantine list; supported
-dangling tag references remain lossless. Local commands prevent these states
-before mutation. Future physical repair uses normal CRDT operations and is
-separate from checkpoint/retention trimming.
+Quarantine records are not silently deleted or re-imported. The storage UI may
+export their opaque bytes by handle without treating them as graph data.
 
-## Local Repository Port
+## IndexedDB Adapter
 
-The core depends on this logical repository contract:
+The browser uses database `neoseq-local`, version 1, with four stores:
 
 ```text
-create/open graph metadata
-load latest checkpoint
-stream update records after checkpoint
-append update atomically
-save checkpoint atomically
-compact an update prefix after a durable checkpoint
-delete local replica explicitly
+metadata      key graph_id
+updates       key [graph_id, local_sequence], indexes by_graph/by_checksum
+checkpoints   key [graph_id, local_sequence], index by_graph
+quarantine    key [graph_id, export_handle], index by_graph
 ```
 
-Update records include a local sequence, checksum, Loro bytes, creation time,
-and optional remote acknowledgement metadata. The Loro version vector/frontiers
-remain the synchronization truth; repository sequences only address local
-records.
+The Worker owns database access. Each graph append updates metadata and inserts
+the update in one transaction. Browser storage capabilities expose persistence
+permission and quota estimates without changing graph semantics. A Web Lock
+allows only one writable tab per graph; another tab opens read-only.
 
-`LocalGraphRepository` fixes these DTOs and operations in
-`graph-core`. SHA-256 covers the exact stored bytes. Append returns the assigned
-local sequence and checksum; identical bytes are idempotent so an adapter can
-report an after-commit failure and safely retry. Graph locators distinguish
-local and remote metadata, while the current local Web boundary rejects remote opens.
+## SQLite Adapter
 
-### Native Storage
+The headless native adapter uses one WAL-mode profile database. Schema version 1
+contains graph metadata, update, checkpoint, and quarantine tables with the same
+transaction and checksum behavior as IndexedDB. Its purpose is native parity,
+restart, compaction, corruption, and injected-failure testing until a Tauri shell
+is implemented.
 
-macOS and Android use SQLite in WAL mode. Metadata, update blobs, checkpoints,
-and outbox acknowledgements are tables in one database per application profile.
-Large graph blobs may move to content-addressed files later without changing the
-port. OS-provided app storage and backup policies are used; no graph is placed
-in a user-visible directory without an explicit export.
+## Current Scope and Evolution
 
-SQLite migration version 1 creates metadata, update, checkpoint, outbox-ready,
-index-cache, and quarantine tables. The index-cache table is an optional
-performance cache keyed by the full Loro-frontier/projection/query-profile/text-
-analyzer fingerprint; no recovery path depends on it. Update append atomically
-inserts the update and outbox row and advances `next_sequence`. Checkpoint
-insertion precedes the compaction marker; neither operation deletes recovery
-evidence. Busy, locked, full, and corrupt SQLite results map to stable storage
-errors.
+All graph locators are local and contain only `graph_id`. Remote identity,
+outboxes, acknowledgements, and transport state enter with remote collaboration,
+not as inactive local-storage columns. The RDF index is rebuilt on open and has
+no persisted cache.
 
-### Browser Storage
+The first real document-schema change must define its supported input range,
+identity-preserving migration, fixtures captured from deployed data, minimum
+writer policy, and rollback behavior in this document. Until then, v1 is the
+only accepted schema and unsupported values fail explicitly.
 
-The web client uses IndexedDB with the same logical records. Transactions
-atomically append an update and advance local metadata. Storage
-quota/persistence status is surfaced to the UI. A Service Worker caches
-application assets, but never acts as the graph's sole persistence layer.
+## Verification
 
-IndexedDB version 2 stores metadata, updates, checkpoints, and quarantine
-records. Upgrade removes the obsolete feasibility outbox and derived-index cache
-stores. A unique `(graph_id, checksum)` index makes update retry idempotence an
-indexed lookup instead of an O(n) payload scan. Clean close writes a checkpoint,
-deletes the included update prefix and older checkpoints, and advances the
-compaction marker in one transaction. The Worker owns
-both Wasm core and repository, so update/checkpoint buffers normally never
-cross the main-thread boundary. Binary diagnostic exports use transferable
-`ArrayBuffer`s. Browser persistence and quota estimates populate the storage
-capability DTO.
-
-The current browser runtime rebuilds the RDF index in Worker memory after open;
-native adapters may restore the optional SQLite cache. This platform difference
-changes startup cost only, never SPARQL results or consistency.
-
-## Checkpointing and Recovery
-
-- Append-only updates are the immediate durability path.
-- A checkpoint contains an exported Loro snapshot, its version information,
-  schema version, checksum, and last included local sequence.
-- Checkpoint creation writes a new record before marking older updates
-  compactable.
-- Startup chooses the newest valid checkpoint and replays checksum-valid
-  updates.
-- A corrupt tail is quarantined and exportable for support; valid history is not
-  overwritten.
-- Compaction is triggered by update bytes/count and idle time, never on every
-  edit.
-
-`CheckpointTracker` implements count, byte, and idle thresholds; adapters also
-checkpoint on a clean close. Startup validates repository schema metadata,
-tries checkpoints newest-first, and replays the contiguous checksum-valid tail.
-After a corrupt tail member, it and all later records remain quarantined under
-stable export handles. Stored graphs never silently reopen as an empty graph
-when no valid checkpoint exists.
-
-## Schema Evolution
-
-The current core opens document schema 3 only. Schema 1 used one graph-global
-outline, while schema 2 used page-backed tags and lacked root `NodeData`.
-Converting a page that may simultaneously be note content and a tag definition
-requires an explicit user-facing identity policy, so older schemas are rejected
-rather than silently splitting or merging identities. Historical fixtures remain
-compatibility inputs, while schema-3 fixtures are loaded by native and Wasm
-tests. Future identity-preserving migrations are monotonic, idempotent functions
-recorded in `applied_migrations`. A remote graph
-migration also requires a server-advertised minimum client version so an older
-client cannot write an incompatible shape.
-
-## Export and Import
-
-A portable graph archive contains a manifest, one verified Loro snapshot/update
-bundle, and optional attachments in a versioned container. Import always creates
-or explicitly replaces a target graph; it never merges merely because titles
-match. Archive parsing applies decompression, path, size, and checksum limits
-before content reaches Loro.
-
-## Upstream Basis
-
-The model relies on Loro's documented
-[movable tree](https://loro.dev/docs/tutorial/tree),
-[typed containers](https://loro.dev/docs/concepts/container), and
-[version-vector update exchange](https://www.loro.dev/docs/tutorial/sync).
+- native and browser persistence suites exercise the shared current CorePort corpus;
+- restart tests compare semantic graph state after checkpoint plus tail replay;
+- fault tests cover before-commit, after-commit, busy/quota, and corrupt records;
+- convergence tests exchange binary updates in different and duplicate orders;
+- compaction tests reopen from the retained checkpoint and remaining tail;
+- generated contract drift and schema constants are checked in CI.

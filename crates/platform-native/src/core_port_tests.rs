@@ -1,8 +1,8 @@
 use crate::{FaultPoint, NativeCorePort, SqliteGraphRepository};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, Command, CommandEnvelope, CommandId, CorePortErrorCode,
-    ExecuteRequest, GraphId, GraphLocationDto, GraphLocatorDto, OpenGraphRequest, PageId,
-    QueryRequestDto, ReadPageRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
+    ExecuteRequest, GraphId, GraphLocatorDto, OpenGraphRequest, PageId, QueryRequestDto,
+    ReadPageRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
 };
 use graph_core::GraphLocator;
 use serde_json::{Value, json};
@@ -36,8 +36,6 @@ fn open_request(graph: &str, peer_id: u64) -> OpenGraphRequest {
         contract_version: CORE_PORT_VERSION,
         locator: GraphLocatorDto {
             graph_id: graph.to_owned(),
-            location: GraphLocationDto::Local,
-            remote_graph_id: None,
         },
         peer_id,
     }
@@ -56,9 +54,9 @@ fn command(graph: &str, id: &str, page: &str) -> Value {
 }
 
 #[test]
-fn core_port_native_contract_suite_matches_v5_golden() {
+fn core_port_native_contract_suite_matches_current_golden() {
     let golden: Value =
-        serde_json::from_str(include_str!("../../../fixtures/core-port/v5.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/core-port/current.json")).unwrap();
     let schema: Value =
         serde_json::from_str(include_str!("../../../contracts/core-port.json")).unwrap();
     assert_eq!(golden["contract_version"], schema["contractVersion"]);
@@ -82,7 +80,7 @@ fn core_port_native_contract_suite_matches_v5_golden() {
     );
 
     let opened = port.open_graph(open_request("port-native", 91)).unwrap();
-    assert_eq!(opened.summary["schema_version"], 3);
+    assert_eq!(opened.summary["schema_version"], 1);
     assert!(opened.capabilities.durable);
     assert_eq!(golden["transcript"]["open"], "summary_available");
     assert_eq!(
@@ -115,9 +113,9 @@ fn core_port_native_contract_suite_matches_v5_golden() {
             graph_handle: opened.graph_handle.clone(),
         })
         .unwrap();
-    assert_eq!(read.summary["schema_version"], 3);
+    assert_eq!(read.summary["schema_version"], 1);
     assert_eq!(read.summary["pages"].as_array().unwrap().len(), 1);
-    assert_eq!(golden["transcript"]["read"], "schema_v3_summary");
+    assert_eq!(golden["transcript"]["read"], "schema_v1_summary");
     let page = port
         .read_page(ReadPageRequest {
             graph_handle: opened.graph_handle.clone(),

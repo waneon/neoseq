@@ -64,18 +64,6 @@ nix run .#test-query-differential
 nix run .#test-query-budget
 ```
 
-Inspect a user-provided diagnostic artifact without importing its graph data or
-writing outside the terminal:
-
-```sh
-pnpm diagnostics:inspect -- report.neoseq-bug
-pnpm diagnostics:inspect -- report.neoseq-bug --json
-pnpm diagnostics:inspect -- --allow-sensitive report.neoseq-bug
-```
-
-The inspector refuses Enhanced artifacts that contain user content unless
-`--allow-sensitive` is supplied explicitly.
-
 For another crate or a single Rust test, run Cargo in the development shell:
 
 ```sh
@@ -147,7 +135,8 @@ check.
 - `crates/platform-*`: native/SQLite and WebAssembly adapters.
 - `apps/client`: React UI, i18n catalogs/runtime, Web Worker, IndexedDB adapter,
   and browser tests.
-- `contracts` and `fixtures`: versioned boundaries and compatibility data.
+- `contracts`: current generated-code and property-registry boundaries.
+- `fixtures`: current cross-adapter contract corpus.
 
 Keep changes within these boundaries and prefer the smallest architecture that
 meets the current requirement. Use `nix flake check` as the final CI-equivalent

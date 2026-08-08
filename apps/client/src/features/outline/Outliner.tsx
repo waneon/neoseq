@@ -79,14 +79,6 @@ import {
   type OutlineClipboardItem,
 } from "./clipboard";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { diagnostics } from "../../diagnostics/coordinator";
-import { lengthBucket } from "../../diagnostics/redaction";
-import type {
-  DiagnosticActionContext,
-  DiagnosticActionName,
-  DiagnosticAttributes,
-  DiagnosticInputMethod,
-} from "../../diagnostics/types";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -117,6 +109,7 @@ const AUTOSCROLL_MAX_PX = 18;
 // dispatched in order once each anchor id becomes real. They render
 // optimistically only because the inverse (drop the row) is known.
 const PENDING_PREFIX = "pending-";
+type InputMethod = "keyboard" | "pointer" | "context_menu";
 
 export function isPendingId(id: string): boolean {
   return id.startsWith(PENDING_PREFIX);
@@ -134,7 +127,6 @@ interface PendingRow {
   dispatched: boolean;
   /** Indent/outdent keys typed before the real id arrived. */
   structural: ("indent" | "outdent")[];
-  diagnosticAction: DiagnosticActionContext | null;
 }
 
 interface PropertyRequest {
@@ -195,14 +187,14 @@ interface EditorContext {
     row: OutlineRow,
     tail: string,
     asChild: boolean,
-    inputMethod: DiagnosticInputMethod,
+    inputMethod: InputMethod,
   ): void;
   enqueuePendingSplit(
     row: OutlineRow,
     index: number,
     tail: string,
     asChild: boolean,
-    inputMethod: DiagnosticInputMethod,
+    inputMethod: InputMethod,
   ): void;
   queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
   /** Pointer entry points for the selection strip and the bullet handle. */
@@ -221,10 +213,10 @@ interface EditorContext {
     outdent(row: OutlineRow): void;
     move(row: OutlineRow, delta: number): void;
     remove(row: OutlineRow, rows: OutlineRow[]): void;
-    indentSelection(inputMethod: DiagnosticInputMethod): void;
-    outdentSelection(inputMethod: DiagnosticInputMethod): void;
-    removeSelection(inputMethod: DiagnosticInputMethod): void;
-    copySelection(inputMethod: DiagnosticInputMethod): void;
+    indentSelection(inputMethod: InputMethod): void;
+    outdentSelection(inputMethod: InputMethod): void;
+    removeSelection(inputMethod: InputMethod): void;
+    copySelection(inputMethod: InputMethod): void;
   };
 }
 
@@ -297,32 +289,6 @@ export function Outliner({
     return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
   }, [rows, selected]);
 
-  const recordEditorDiagnostic = useCallback((id: string, checkpoint: "flush" | "reconcile") => {
-    if (!diagnostics.isRecording() || isPendingId(id)) return;
-    const draft = drafts.current.get(id);
-    const baseline = baselines.current.get(id);
-    const authoritative = findBlock(pageRef.current, id)?.markdown;
-    diagnostics.recordEditorState(id, {
-      checkpoint,
-      snapshot_revision: state.revision,
-      focused: focusedId === id,
-      composing: focusedId === id && composing.current,
-      draft_state: draft === undefined ? "absent" : draft === baseline ? "clean" : "dirty",
-      draft_length: draft === undefined ? undefined : lengthBucket(draft.length),
-      authoritative_length: authoritative === undefined ? undefined : lengthBucket(authoritative.length),
-      draft_baseline_relation: valueRelation(draft, baseline),
-      draft_authoritative_relation: valueRelation(draft, authoritative),
-    });
-  }, [focusedId, state.revision]);
-
-  useEffect(() => {
-    const ids = new Set(drafts.current.keys());
-    if (focusedId) ids.add(focusedId);
-    for (const id of ids) recordEditorDiagnostic(id, "reconcile");
-    // This checkpoint deliberately follows authoritative session revisions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.revision]);
-
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
   // and in-flight typing are never clobbered.
@@ -375,7 +341,6 @@ export function Outliner({
       const draft = drafts.current.get(id);
       const baseline = baselines.current.get(id);
       if (draft === undefined || baseline === undefined) return;
-      recordEditorDiagnostic(id, "flush");
       const splice = diffSplice(baseline, draft);
       if (!splice) return;
       baselines.current.set(id, draft);
@@ -396,7 +361,7 @@ export function Outliner({
           notify.failure(message("failure.lastEdit"), error);
         });
     },
-    [message, notify, recordEditorDiagnostic, session],
+    [message, notify, session],
   );
 
   const flushNow = useCallback(
@@ -430,51 +395,20 @@ export function Outliner({
     (id: string, redo: boolean) => {
       flushNow(id);
       const inputRevision = draftInputRevision.current;
-      const action = diagnostics.startAction({
-        feature: "outline",
-        action: redo ? "redo" : "undo",
-        input_method: "keyboard",
-      });
-      diagnostics.recordCheckpointLazy(action, "before", () => ({
-        feature: "outline",
-        pending_row_count: pendingRows.current.length,
-        focus_kind: isPendingId(id) ? "pending_editor" : "editor",
-        draft_state: !drafts.current.has(id)
-          ? "absent"
-          : drafts.current.get(id) === baselines.current.get(id)
-            ? "clean"
-            : "dirty",
-      }));
       void session
-        .execute({ type: redo ? "redo" : "undo" }, action)
+        .execute({ type: redo ? "redo" : "undo" })
         .then(() => {
           // GraphSession resolves only after its snapshot is authoritative. A
           // focused clean draft must stand down now or it masks the history
           // result; preserve it only if the user typed again while we waited.
           if (draftInputRevision.current !== inputRevision) {
-            diagnostics.recordCheckpointLazy(action, "after", () => ({
-              feature: "outline",
-              pending_row_count: pendingRows.current.length,
-              focus_kind: isPendingId(id) ? "pending_editor" : "editor",
-              draft_state: "dirty",
-            }));
             return;
           }
           drafts.current.delete(id);
           baselines.current.delete(id);
           force();
-          diagnostics.recordCheckpointLazy(action, "after", () => ({
-            feature: "outline",
-            pending_row_count: pendingRows.current.length,
-            focus_kind: isPendingId(id) ? "pending_editor" : "editor",
-            draft_state: drafts.current.has(id) ? "dirty" : "absent",
-          }));
         })
         .catch((error: unknown) => {
-          diagnostics.recordCheckpointLazy(action, "failed", () => ({
-            feature: "outline",
-            pending_row_count: pendingRows.current.length,
-          }));
           notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
         });
     },
@@ -557,7 +491,7 @@ export function Outliner({
           placement,
         };
     session
-      .execute(command, head.diagnosticAction)
+      .execute(command)
       .then(async (result) => {
         const realId = result.created_block;
         const typed = drafts.current.get(head.tempId) ?? head.baseline;
@@ -627,31 +561,10 @@ export function Outliner({
         }
         pendingDispatching.current = false;
         force();
-        diagnostics.recordCheckpointLazy(head.diagnosticAction, realId ? "after" : "failed", () => ({
-          feature: "outline",
-          pending_row_count: pendingRows.current.length,
-          pending_intent_count: pendingRows.current.reduce(
-            (total, entry) => total + entry.structural.length,
-            0,
-          ),
-          focus_kind: focusedRef.current && isPendingId(focusedRef.current)
-            ? "pending_editor"
-            : focusedRef.current
-              ? "editor"
-              : "none",
-        }));
         dispatchPending();
       })
       .catch((error: unknown) => {
         pendingDispatching.current = false;
-        diagnostics.recordCheckpointLazy(head.diagnosticAction, "failed", () => ({
-          feature: "outline",
-          pending_row_count: pendingRows.current.length,
-          pending_intent_count: pendingRows.current.reduce(
-            (total, entry) => total + entry.structural.length,
-            0,
-          ),
-        }));
         abandonPending(failureReason(error, message));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -687,87 +600,16 @@ export function Outliner({
     [message, notify, setFocus],
   );
 
-  const outlineDiagnosticAttributes = useCallback(
-    (selection: ReadonlySet<string> = selectedRef.current): DiagnosticAttributes => {
-      const currentRows = rowsRef.current;
-      const roots = selectionRoots(currentRows, selection);
-      const covered = selection.size === 0 ? 0 : selectionSize(currentRows, selection);
-      const focused = focusedRef.current;
-      return {
-        feature: "outline",
-        explicit_selection_count: selection.size,
-        covered_selection_count: covered,
-        selection_root_count: roots.length,
-        normalized_root_count: roots.length,
-        affected_block_count: covered,
-        visible_row_count: currentRows.length,
-        collapsed_count: collapsedRef.current.size,
-        pending_row_count: pendingRows.current.length,
-        pending_intent_count: pendingRows.current.reduce(
-          (total, entry) => total + entry.structural.length,
-          0,
-        ),
-        focus_kind: selection.size > 0
-          ? "selection"
-          : focused === null
-            ? "none"
-            : isPendingId(focused)
-              ? "pending_editor"
-              : "editor",
-      };
-    },
-    [],
-  );
-
-  const startOutlineAction = useCallback(
-    (
-      action: DiagnosticActionName,
-      inputMethod: DiagnosticInputMethod,
-      selection: ReadonlySet<string> = selectedRef.current,
-      extra: DiagnosticAttributes = {},
-    ) => {
-      const context = diagnostics.startAction({ feature: "outline", action, input_method: inputMethod });
-      diagnostics.recordCheckpointLazy(
-        context,
-        "before",
-        () => ({ ...outlineDiagnosticAttributes(selection), ...extra }),
-      );
-      return context;
-    },
-    [outlineDiagnosticAttributes],
-  );
-
-  const finishOutlineAction = useCallback(
-    (
-      context: DiagnosticActionContext | null,
-      phase: "after" | "failed",
-      extra: DiagnosticAttributes = {},
-    ) => {
-      diagnostics.recordCheckpointLazy(
-        context,
-        phase,
-        () => ({ ...outlineDiagnosticAttributes(), ...extra }),
-      );
-    },
-    [outlineDiagnosticAttributes],
-  );
-
   const run = useCallback(
     (
       command: Parameters<GraphSession["execute"]>[0],
       summary: string,
-      action?: DiagnosticActionContext | null,
-    ) => session.execute(command, action)
-      .then((result) => {
-        if (action) finishOutlineAction(action, "after");
-        return result;
-      })
+    ) => session.execute(command)
       .catch((error: unknown) => {
-        if (action) finishOutlineAction(action, "failed");
         notify.failure(summary, error);
         return undefined;
       }),
-    [finishOutlineAction, notify, session],
+    [notify, session],
   );
 
   // ── pointer plumbing ────────────────────────────────────────────────────
@@ -956,7 +798,6 @@ export function Outliner({
         ? -1
         : stationary.findIndex((row) => row.block.id === target.afterId);
       if (target.afterId !== null && anchor < 0) return;
-      const action = startOutlineAction("move_selection", "pointer", moving);
       void run(
         {
           type: "move_blocks",
@@ -966,10 +807,9 @@ export function Outliner({
           index: anchor + 1,
         },
         message("failure.moveBlocks", { count: roots.length }),
-        action,
       );
     },
-    [message, run, startOutlineAction],
+    [message, run],
   );
 
   /** The bullet is the block's handle: press, move, and the subtree travels. */
@@ -1079,25 +919,19 @@ export function Outliner({
   );
 
   const copySelection = useCallback(
-    (inputMethod: DiagnosticInputMethod) => {
+    (_inputMethod: InputMethod) => {
       const markdown = serializeOutlineSelection(rowsRef.current, selectedRef.current);
       if (!markdown) return;
-      const action = startOutlineAction("copy_selection", inputMethod);
       const write = navigator.clipboard?.writeText?.bind(navigator.clipboard);
       if (!write) {
-        finishOutlineAction(action, "failed");
         notify.failure(message("failure.copyBlocks"), new Error("Clipboard API unavailable"));
         return;
       }
-      void write(markdown).then(
-        () => finishOutlineAction(action, "after"),
-        (error: unknown) => {
-          finishOutlineAction(action, "failed");
-          notify.failure(message("failure.copyBlocks"), error);
-        },
-      );
+      void write(markdown).catch((error: unknown) => {
+        notify.failure(message("failure.copyBlocks"), error);
+      });
     },
-    [finishOutlineAction, message, notify, startOutlineAction],
+    [message, notify],
   );
 
   const onCopySelection = useCallback(
@@ -1105,12 +939,10 @@ export function Outliner({
       if (selectedRef.current.size === 0) return;
       const markdown = serializeOutlineSelection(rowsRef.current, selectedRef.current);
       if (!markdown) return;
-      const action = startOutlineAction("copy_selection", "keyboard");
       event.preventDefault();
       event.clipboardData.setData("text/plain", markdown);
-      finishOutlineAction(action, "after");
     },
-    [finishOutlineAction, startOutlineAction],
+    [],
   );
 
   const pasteOutline = useCallback(
@@ -1120,11 +952,6 @@ export function Outliner({
       const replace = (drafts.current.get(row.block.id) ?? row.block.markdown).length === 0
         ? row.block.id
         : null;
-      const shape = {
-        requested_target_count: items.length,
-        affected_block_count: items.length,
-      } satisfies DiagnosticAttributes;
-      const action = startOutlineAction("paste_outline", "keyboard", new Set(), shape);
       void session.execute({
         type: "insert_outline",
         page_id: authoritativePage.id,
@@ -1132,18 +959,16 @@ export function Outliner({
         index: replace ? row.index : row.index + 1,
         replace,
         items,
-      }, action).then(
+      }).then(
         (result) => {
-          finishOutlineAction(action, "after", shape);
           if (result.created_block) setFocus(result.created_block);
         },
         (error: unknown) => {
-          finishOutlineAction(action, "failed", shape);
           notify.failure(message("failure.pasteBlocks"), error);
         },
       );
     },
-    [authoritativePage.id, finishOutlineAction, flushNow, message, notify, readonly, session, setFocus, startOutlineAction],
+    [authoritativePage.id, flushNow, message, notify, readonly, session, setFocus],
   );
 
   const editor: EditorContext = {
@@ -1293,10 +1118,9 @@ export function Outliner({
       if (selectedRef.current.size > 0) clearSelection();
     },
     pasteOutline,
-    enqueuePendingInsert: (row, tail, asChild, inputMethod) => {
+    enqueuePendingInsert: (row, tail, asChild, _inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
-      const diagnosticAction = startOutlineAction("insert_block", inputMethod, new Set());
       drafts.current.set(tempId, tail);
       // Enter must return with the new textarea already mounted and focused;
       // the following key may arrive in the next browser task with no delay.
@@ -1308,17 +1132,15 @@ export function Outliner({
           baseline: tail,
           dispatched: false,
           structural: [],
-          diagnosticAction,
         });
         setFocus(tempId, 0);
         force();
       });
       dispatchPending();
     },
-    enqueuePendingSplit: (row, index, tail, asChild, inputMethod) => {
+    enqueuePendingSplit: (row, index, tail, asChild, _inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
-      const diagnosticAction = startOutlineAction("split_block", inputMethod, new Set());
       const leading = index === 0;
       const baseline = leading ? "" : tail;
       drafts.current.set(tempId, baseline);
@@ -1331,7 +1153,6 @@ export function Outliner({
           baseline,
           dispatched: false,
           structural: [],
-          diagnosticAction,
         });
         setFocus(tempId, 0);
         force();
@@ -1343,7 +1164,6 @@ export function Outliner({
       pending?.structural.push(kind);
     },
     insertRootBlock: (index) => {
-      const action = startOutlineAction("insert_block", "pointer", new Set());
       void session
         .execute({
           type: "insert_block",
@@ -1351,13 +1171,11 @@ export function Outliner({
           parent: null,
           index,
           markdown: "",
-        }, action)
+        })
         .then((result) => {
           if (result.created_block) setFocus(result.created_block, 0);
-          finishOutlineAction(action, "after");
         })
         .catch((error: unknown) => {
-          finishOutlineAction(action, "failed");
           notify.failure(message("failure.addBlock"), error);
         });
     },
@@ -1424,10 +1242,9 @@ export function Outliner({
       },
       // One user gesture crosses the core boundary as one command. The core
       // owns root normalization, ordering, validation, and the undo group.
-      indentSelection: (inputMethod) => {
+      indentSelection: (_inputMethod) => {
         const roots = selectionRoots(rowsRef.current, selectedRef.current);
         if (roots.length === 0) return;
-        const action = startOutlineAction("indent_selection", inputMethod);
         void run(
           {
             type: "indent_blocks",
@@ -1435,13 +1252,11 @@ export function Outliner({
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.indentBlock"),
-          action,
         );
       },
-      outdentSelection: (inputMethod) => {
+      outdentSelection: (_inputMethod) => {
         const roots = selectionRoots(rowsRef.current, selectedRef.current);
         if (roots.length === 0) return;
-        const action = startOutlineAction("outdent_selection", inputMethod);
         void run(
           {
             type: "outdent_blocks",
@@ -1449,13 +1264,11 @@ export function Outliner({
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.outdentBlock"),
-          action,
         );
       },
-      removeSelection: (inputMethod) => {
+      removeSelection: (_inputMethod) => {
         const roots = selectionRoots(rowsRef.current, selectedRef.current);
         if (roots.length === 0) return;
-        const action = startOutlineAction("delete_selection", inputMethod);
         const first = rowIndexOf(rowsRef.current, roots[0].block.id);
         const fallback = rowsRef.current[first - 1]?.block.id ?? null;
         clearSelection();
@@ -1466,7 +1279,6 @@ export function Outliner({
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.deleteBlocks", { count: roots.length }),
-          action,
         ).then(() => setFocus(fallback));
       },
       copySelection,
@@ -1746,14 +1558,6 @@ export function Outliner({
       )}
     </section>
   );
-}
-
-function valueRelation(
-  left: string | undefined,
-  right: string | undefined,
-): "equal" | "different" | "missing" {
-  if (left === undefined || right === undefined) return "missing";
-  return left === right ? "equal" : "different";
 }
 
 function detectSlash(

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Neoseq CorePort v5",
-  "contractVersion": 5,
+  "title": "Neoseq CorePort v1",
+  "contractVersion": 1,
   "operations": [
     "open_graph",
     "execute",
@@ -28,6 +28,5 @@
     "storage_corrupt",
     "internal"
   ],
-  "binaryTransport": "transferable_array_buffer",
-  "graphLocations": ["local", "remote"]
+  "binaryTransport": "transferable_array_buffer"
 }

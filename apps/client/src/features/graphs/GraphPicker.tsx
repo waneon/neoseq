@@ -22,8 +22,6 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
-import { useDiagnostics } from "../diagnostics/context";
-import { RecordingStatus } from "../diagnostics/RecordingStatus";
 
 type LoadState =
   | { status: "loading" }
@@ -43,7 +41,6 @@ const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
  */
 export function GraphPicker() {
   const { message, formatInstant } = useI18n();
-  const diagnostics = useDiagnostics();
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [newName, setNewName] = useState("");
@@ -66,10 +63,6 @@ export function GraphPicker() {
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    diagnostics.recordRoute("graph_picker");
-  }, [diagnostics]);
-
   const create = (event: FormEvent) => {
     event.preventDefault();
     const name = newName.trim() || message("graph.defaultName");
@@ -79,9 +72,6 @@ export function GraphPicker() {
 
   return (
     <main className="picker">
-      <div className="picker-recording-status">
-        <RecordingStatus />
-      </div>
       <div className="picker-inner">
         <p className="picker-wordmark">
           <Wordmark name={message("app.title")} />

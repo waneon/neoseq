@@ -1,23 +1,7 @@
-// Settings, as a dialog with two scopes.
-//
-// The split is the point. Half of what used to be on this page belongs to the
-// browser — appearance, language, how a date is written, which keys do what —
-// and applies to every graph the user opens. The other half belongs to *this*
-// graph and travels with it. Presenting them in one flat column made "Delete
-// this graph" look like a sibling of "Language", so each scope is a named group.
-//
-// The group headings used to carry a sentence each explaining how far the scope
-// reached ("These apply to Neoseq in this browser, on every graph."). They are
-// gone: two paragraphs of explanation inside a 168px navigation column, restating
-// what `Application` and `This graph` already say, in a column whose job is to be
-// scanned rather than read. The distinction now rests on the two headings and on
-// the typography that separates a heading from a row (app.css § The group label),
-// which is where it belonged.
-//
-// It is a dialog rather than a route because settings are an aside: you open
-// them from wherever you are, change one thing, and come back to the same block
-// with the same caret. The open section still lives in the URL, so the browser's
-// own Back closes it and a link can point at one section.
+// Settings is a dialog with two explicit scopes. Browser preferences apply to
+// every graph; graph settings travel with the current graph. Keeping the active
+// section in the URL makes sections linkable and lets Back close the dialog
+// without losing editor context.
 
 import { useEffect, useId, useState } from "react";
 import { useNavigate } from "react-router";
@@ -35,7 +19,6 @@ import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
 import { MenuSelect } from "@/ui/menu-select";
 import { Button } from "@/ui/shadcn/button";
-import { useDiagnostics, useDiagnosticsState } from "../diagnostics/context";
 import { useNotify } from "../notify/context";
 import { useSessionState } from "../shell/session-context";
 import { ShortcutEditor } from "./ShortcutEditor";
@@ -136,7 +119,7 @@ export function SettingsDialog({
           {section === "language" && <LanguageSection />}
           {section === "journal" && <JournalSection />}
           {section === "keyboard" && <ShortcutEditor />}
-          {section === "storage" && <StorageSection onClose={onClose} />}
+          {section === "storage" && <StorageSection />}
           {section === "graph" && <GraphSection graphId={graphId} />}
           {section === "danger" && <DangerSection graphId={graphId} onClose={onClose} />}
         </div>
@@ -290,11 +273,9 @@ function JournalSection() {
  * permission and the origin's usage are the same numbers whichever graph is
  * open, which is why they sit in the application scope.
  */
-function StorageSection({ onClose }: { onClose: () => void }) {
+function StorageSection() {
   const state = useSessionState();
   const notify = useNotify();
-  const diagnostics = useDiagnostics();
-  const diagnosticsState = useDiagnosticsState();
   const { message, formatBytes } = useI18n();
   const [persisted, setPersisted] = useState<boolean | null>(
     state.capabilities?.persisted ?? null,
@@ -355,54 +336,14 @@ function StorageSection({ onClose }: { onClose: () => void }) {
           </button>
         </Callout>
       )}
-      <details className="settings-details">
-        <summary>{message("settings.diagnostics")}</summary>
-        <p className="settings-detail-description">
-          {message("diagnostics.settingsDescription")}
-        </p>
-        <div className="settings-diagnostic-actions">
-          {diagnosticsState.phase === "recording" ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                onClose();
-                void diagnostics.stop();
-              }}
-            >
-              {message("diagnostics.stopAndReview")}
-            </Button>
-          ) : diagnosticsState.phase === "review" ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                onClose();
-                diagnostics.showReview();
-              }}
-            >
-              {message("diagnostics.review")}
-            </Button>
-          ) : (
-            <Button
-              disabled={diagnosticsState.phase !== "idle"}
-              onClick={() => {
-                onClose();
-                diagnostics.requestStart();
-              }}
-              data-testid="settings-start-diagnostics"
-            >
-              {message("diagnostics.start")}
-            </Button>
-          )}
-        </div>
-        <dl className="settings-grid">
-          <dt>{message("settings.backend")}</dt>
-          <dd>{capabilities?.durable ? "IndexedDB" : message("common.unavailable")}</dd>
-          <dt>{message("settings.usage")}</dt>
-          <dd>{bytes(capabilities?.usage_bytes)}</dd>
-          <dt>{message("settings.quota")}</dt>
-          <dd>{bytes(capabilities?.quota_bytes)}</dd>
-        </dl>
-      </details>
+      <dl className="settings-grid">
+        <dt>{message("settings.backend")}</dt>
+        <dd>{capabilities?.durable ? "IndexedDB" : message("common.unavailable")}</dd>
+        <dt>{message("settings.usage")}</dt>
+        <dd>{bytes(capabilities?.usage_bytes)}</dd>
+        <dt>{message("settings.quota")}</dt>
+        <dd>{bytes(capabilities?.quota_bytes)}</dd>
+      </dl>
     </section>
   );
 }

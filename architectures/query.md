@@ -55,8 +55,8 @@ default projection. Tombstone resolution remains a core read concern rather
 than implicit SPARQL filtering. Quarantined values never enter the index.
 
 The RDF mapping, vocabulary, property-IRI encoding, Unicode normalization, and
-text analyzer are checked-in compatibility fixtures. Changing any observable
-mapping increments the query-profile or projection version.
+text analyzer are covered by checked-in conformance fixtures. Changing an
+observable mapping requires a corresponding profile or projection version.
 
 ## Physical Index
 
@@ -75,7 +75,7 @@ query contract.
 Every runtime revision records the graph ID and sorted Loro state frontier and
 exposes projection/profile/analyzer version constants. Standalone projection
 tests use the validated snapshot fingerprint as a deterministic frontier.
-Step 5 does not persist the index: every open deterministically rebuilds it. A
+The current client does not persist the index: every open deterministically rebuilds it. A
 future persisted cache must key all those versions and the Loro frontier and
 fall back to this same rebuild path on any mismatch.
 
@@ -84,8 +84,8 @@ fall back to this same rebuild path on any mismatch.
 After each validated local or remote Loro change, `GraphRuntime` obtains one
 immutable domain snapshot and reprojects it. The entity ledger computes the
 semantic triple difference, and one store transaction retracts and inserts that
-difference before the revision is published. This deliberately simple Step 5
-path fixes correctness first; field-level change sets can later avoid
+difference before the revision is published. This deliberately simple path
+prioritizes correctness; field-level change sets can later avoid
 reprojecting unchanged entities without changing query results.
 
 A query sees exactly one published revision. It may continue on the prior
@@ -150,8 +150,8 @@ LIMIT 100
 ```
 
 A block is executable when it has `query.source: String`. New query blocks also write
-`query.language: "sparql-1.1/neoseq-v1"`; a missing language uses that value for
-v1 compatibility. Source and language synchronize as ordinary properties.
+`query.language: "sparql-1.1/neoseq-v1"`; a missing language uses that default.
+Source and language synchronize as ordinary properties.
 Plans, results, parameters, and editor state do not.
 
 ## Planning, Reactivity, and Budgets
@@ -160,7 +160,7 @@ Parsing produces diagnostics and SPARQL algebra. Oxigraph plans that algebra
 over the RDF store. Typed bindings are injected as an algebraic `VALUES` row,
 not source text. Execution never falls back to scanning Loro containers.
 
-The Step 5 client debounces query blocks and graph search. A canonical session
+The client debounces query blocks and graph search. A canonical session
 revision invalidates every visible query block; generation tokens discard stale
 responses. Predicate-level dependency tracking is a future optimization and
 must preserve this conservative invalidation behavior.

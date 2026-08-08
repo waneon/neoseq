@@ -31,7 +31,7 @@ into Loro operations and Loro changes back into domain DTOs.
   “today” using the user's configured IANA timezone before invoking the journal
   command.
 - `PropertyKey` is a non-empty normalized Unicode string with a configured
-  length limit. Keys are case-sensitive in schema v3.
+  length limit. Keys are case-sensitive in schema v1.
 - `PropertyEntry` pairs a key and typed value. A property bag supports both
   single-valued and repeated keys; every entry has a stable internal slot.
 - `PropertyValue` is exactly one of finite number, string, page reference,
@@ -43,8 +43,8 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The property registry is a separately versioned domain contract; registry v5 is
-the checked-in current fixture. Each built-in key maps to `shape` and
+The property registry is a separately versioned domain contract; registry v1 is
+the checked-in current contract. Each built-in key maps to `shape` and
 `placements`. Shape composes cardinality with one of the five value types and,
 for strings, any/suggested/closed choices. Placements map page, block, tag
 metadata, and tag default targets directly to `user` or `core` access. Their
@@ -152,7 +152,7 @@ tombstones are the explicit structural fields outside property bags.
 Only properties with a user-accessible `tag_default` placement may enter a
 default bag. Task properties declare that placement; unknown user-defined keys
 receive the same fallback. `page.*`, `journal.date`, structural keys, and
-`system.*` do not. A default bag has at most one value per key in schema v3.
+`system.*` do not. A default bag has at most one value per key in schema v1.
 
 This is materialization, not inheritance. Removing a tag does not remove copied
 properties, values already visible to the tagging command are never overwritten,
@@ -171,9 +171,8 @@ updates one ordered integration point.
 Its lifecycle is:
 
 1. load the latest valid checkpoint and update tail;
-2. validate/migrate the document schema;
-3. restore a fingerprint-matching RDF index or rebuild it from the validated
-   Loro snapshot, then emit the initial view;
+2. validate the document schema;
+3. rebuild the RDF index from the validated Loro snapshot, then emit the initial view;
 4. accept local commands and remote imports;
 5. periodically checkpoint and compact local update storage;
 6. flush pending persistence work on suspension/close.
@@ -206,7 +205,7 @@ Callers receive immutable DTOs:
 - block detail and typed property values;
 - SPARQL `SELECT` rows or `ASK` booleans with RDF terms, typed entity references,
   and the projected Loro frontier;
-- save, sync, migration, and recoverable error status.
+- local save and recoverable error status.
 
 Events identify semantic impact (`BlockTextChanged`, `SubtreeMoved`,
 `TagDefaultsChanged`) rather than leaking raw Loro diffs. Every subscription
@@ -225,8 +224,7 @@ types remain private to `graph-core`.
   succeeds or a future explicit discard workflow is selected.
 - Invalid remote bytes are quarantined and reported; the last valid local state
   remains usable.
-- A future unsupported schema opens read-only to permit export, never silent
-  downgrade.
+- An unsupported schema is rejected explicitly; it is never silently downgraded.
 - Panics do not cross FFI/Wasm boundaries; errors expose stable typed codes and a
   safe diagnostic fallback. The UI owns localized presentation; new errors that
   need user-visible values add structured context through the versioned contract.

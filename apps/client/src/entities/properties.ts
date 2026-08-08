@@ -1,8 +1,8 @@
-// Client-side view of the uniform property model. The versioned fixture is
-// generated from the domain registry, so shape and placement policy have one
-// source. Presentation remains a sparse client concern.
+// Client-side view of the uniform property model. The checked-in contract is
+// shared with the domain registry, so shape and placement policy stay aligned.
+// Presentation remains a sparse client concern.
 
-import registryFixture from "../../../../fixtures/core/property-definitions-v5.json";
+import registryContract from "../../../../contracts/property-registry.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
 
 export type PropertyTarget = "page" | "block" | "tag_metadata" | "tag_default";
@@ -29,7 +29,7 @@ export interface PropertySpec {
   placements: Partial<Record<PropertyTarget, PropertyAccess>>;
 }
 
-export const REGISTRY = registryFixture.properties as Record<string, PropertySpec>;
+export const REGISTRY = registryContract.properties as Record<string, PropertySpec>;
 
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 

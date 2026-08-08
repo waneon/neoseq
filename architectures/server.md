@@ -2,9 +2,9 @@
 
 ## Status and Responsibilities
 
-This is the Step 6 target architecture. There is no sync server or wire-protocol
-crate in the Step 4 workspace; the disposable feasibility relay was removed so
-it cannot be mistaken for a production service.
+This is the Step 6 target architecture. There is currently no sync server or
+wire-protocol crate, so implementation begins with these production constraints
+instead of inheriting a placeholder transport.
 
 The server makes a remote graph available to authorized replicas. It owns:
 
@@ -115,7 +115,7 @@ are verified against the pinned Loro version.
 - Per-user, connection, message, update, graph-size, and decompressed-size
   limits are enforced before expensive processing.
 - CRDT import is treated as untrusted parsing: malformed updates fail
-  atomically, are sampled for diagnostics, and are never broadcast.
+  atomically, are counted in aggregate operational metrics, and are never broadcast.
 - Presence is rate-limited, size-limited, non-durable, and visible only to
   current graph members.
 - PostgreSQL backups and storage encryption protect data at rest. V1 is

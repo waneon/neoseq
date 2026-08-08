@@ -2,20 +2,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CORE_PORT_VERSION: u32 = 5;
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GraphLocationDto {
-    Local,
-    Remote,
-}
+pub const CORE_PORT_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphLocatorDto {
     pub graph_id: String,
-    pub location: GraphLocationDto,
-    pub remote_graph_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

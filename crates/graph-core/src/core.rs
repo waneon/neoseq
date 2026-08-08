@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 1;
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 const MAX_STRUCTURAL_TARGETS: usize = 10_000;
 
@@ -283,7 +283,6 @@ impl GraphCore {
         let meta = doc.get_map("meta");
         meta.insert("graph_id", graph_id.as_str())?;
         meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
-        let _ = meta.ensure_mergeable_map("applied_migrations")?;
         let _ = doc.get_map("pages");
         let _ = doc.get_map("tags");
         doc.set_next_commit_origin("system:init");

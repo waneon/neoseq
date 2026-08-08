@@ -1,7 +1,7 @@
 import type { CorePortErrorCode, GraphLocatorDto, StorageCapabilitiesDto } from "./generated/core-port";
 
-const DATABASE = "neoseq-local-v1";
-const VERSION = 2;
+const DATABASE = "neoseq-local";
+const VERSION = 1;
 const STORES = {
   metadata: "metadata",
   updates: "updates",
@@ -63,9 +63,6 @@ export class IndexedDbGraphRepository {
   }
 
   async openGraph(locator: GraphLocatorDto, now: string): Promise<MetadataRecord> {
-    if (locator.location !== "local") {
-      throw new StorageError("invalid_request", "only local graphs are supported", false);
-    }
     const database = await openDatabase();
     const transaction = database.transaction(STORES.metadata, "readwrite");
     const store = transaction.objectStore(STORES.metadata);
@@ -73,7 +70,7 @@ export class IndexedDbGraphRepository {
     const metadata = existing ?? {
       graph_id: locator.graph_id,
       locator,
-      schema_version: 3,
+      schema_version: 1,
       next_sequence: 1,
       compacted_through: 0,
       created_at: now,
@@ -164,7 +161,7 @@ export class IndexedDbGraphRepository {
     transaction.objectStore(STORES.checkpoints).put({
       graph_id: graphId,
       local_sequence: sequence,
-      schema_version: 3,
+      schema_version: 1,
       checksum: digest,
       payload,
       created_at: now,
@@ -285,7 +282,6 @@ async function openDatabase(): Promise<IDBDatabase> {
     const open = indexedDB.open(DATABASE, VERSION);
     open.onupgradeneeded = () => {
       const database = open.result;
-      const transaction = open.transaction;
       if (!database.objectStoreNames.contains(STORES.metadata)) {
         database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
       }
@@ -299,12 +295,8 @@ async function openDatabase(): Promise<IDBDatabase> {
         const quarantine = database.createObjectStore(STORES.quarantine, { keyPath: ["graph_id", "export_handle"] });
         quarantine.createIndex("by_graph", "graph_id", { unique: false });
       }
-      if (database.objectStoreNames.contains("outbox")) database.deleteObjectStore("outbox");
-      if (database.objectStoreNames.contains("index_cache")) database.deleteObjectStore("index_cache");
-      const updates = transaction?.objectStore(STORES.updates);
-      if (updates && !updates.indexNames.contains("by_checksum")) {
-        updates.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
-      }
+      const updates = open.transaction?.objectStore(STORES.updates);
+      updates?.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
     };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(mapDomError(open.error));

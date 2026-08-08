@@ -85,7 +85,7 @@ test("rejects structural property keys with a visible validation error", async (
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Property key").fill("tag");
   await expect(picker.getByTestId("props-error")).toContainText(
-    "structural and cannot be a property",
+    "reserved and cannot be edited as a property",
   );
 });
 

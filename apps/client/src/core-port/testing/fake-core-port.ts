@@ -181,7 +181,7 @@ export class FakeCorePort implements SessionPort {
 
   private snapshot(): GraphSnapshot {
     return clone({
-      schema_version: 3,
+      schema_version: 1,
       graph_id: this.graphId,
       pages: this.pages.filter((page) => !hasKey(page.properties, "system.deleted-at")),
       tags: this.tags.filter((tag) => !hasKey(tag.properties, "system.deleted-at")),

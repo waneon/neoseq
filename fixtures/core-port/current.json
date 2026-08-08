@@ -1,10 +1,11 @@
 {
-  "contract_version": 2,
+  "contract_version": 1,
   "operations": [
     "open_graph",
     "execute",
     "read",
     "read_page",
+    "query",
     "subscribe",
     "close_graph"
   ],
@@ -15,6 +16,8 @@
     "graph_already_open",
     "wrong_graph",
     "command_timeout",
+    "invalid_query",
+    "query_budget_exceeded",
     "dirty_unsaved",
     "resync_required",
     "unsupported_schema",
@@ -26,11 +29,13 @@
   "transcript": {
     "open": "summary_available",
     "execute": "saved_locally",
-    "read": "schema_v2_summary",
+    "read": "schema_v1_summary",
     "read_page": "page_snapshot",
+    "query": "select_result",
     "subscribe": ["semantic", "saved_locally"],
     "close": "closed",
     "timeout_error": "command_timeout",
+    "query_error": "invalid_query",
     "dirty_error": "dirty_unsaved"
   }
 }

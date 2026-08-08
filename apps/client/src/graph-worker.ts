@@ -17,18 +17,11 @@ import {
   type FaultPoint,
   type QuarantineRecord,
 } from "./persistence";
-import { WorkerDiagnosticCollector } from "./diagnostics/worker";
-import type {
-  DiagnosticAttributes,
-  LengthBucket,
-  WorkerDiagnosticContext,
-} from "./diagnostics/types";
 
 interface Message {
   id: number;
   operation: string;
   payload: unknown;
-  diagnostic?: WorkerDiagnosticContext;
 }
 interface EventRecord { cursor: number; source: "local" | "remote"; kind: Record<string, unknown>; }
 interface PendingWrite {
@@ -57,8 +50,7 @@ function ensureWasm(): Promise<unknown> {
 }
 
 self.onmessage = async (event: MessageEvent<Message>) => {
-  const { id, operation, payload, diagnostic } = event.data;
-  const collector = diagnostic ? new WorkerDiagnosticCollector(diagnostic, operation) : undefined;
+  const { id, operation, payload } = event.data;
   try {
     let value: unknown;
     if (import.meta.env.MODE === "test" && operation === "test_control") {
@@ -66,60 +58,45 @@ self.onmessage = async (event: MessageEvent<Message>) => {
       value = await testControl(payload as Record<string, unknown>);
     } else {
       switch (operation) {
-        case "open_graph": await ensureWasm(); value = await openGraph(payload as OpenGraphRequest, collector); break;
-        case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest, collector); break;
-        case "read": await ensureWasm(); value = read(payload as ReadRequest, collector); break;
-        case "read_page": await ensureWasm(); value = readPage(payload as ReadPageRequest, collector); break;
-        case "query": await ensureWasm(); value = query(payload as QueryRequest, collector); break;
-        case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest, collector); break;
-        case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest, collector); break;
-        case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }, collector); break;
-        case "list_graphs": value = await measuredAsync(collector, "storage", "storage.open", () => new IndexedDbGraphRepository().allMetadata()); break;
-        case "delete_graph": value = await deleteGraph(payload as { graph_id: string }, collector); break;
+        case "open_graph": await ensureWasm(); value = await openGraph(payload as OpenGraphRequest); break;
+        case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest); break;
+        case "read": await ensureWasm(); value = read(payload as ReadRequest); break;
+        case "read_page": await ensureWasm(); value = readPage(payload as ReadPageRequest); break;
+        case "query": await ensureWasm(); value = query(payload as QueryRequest); break;
+        case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
+        case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
+        case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
+        case "list_graphs": value = await new IndexedDbGraphRepository().allMetadata(); break;
+        case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
         default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
       }
     }
     if (value instanceof ArrayBuffer) {
-      self.postMessage({ id, ok: true, value, diagnostic_spans: collector?.finish("ok") }, { transfer: [value] });
+      self.postMessage({ id, ok: true, value }, { transfer: [value] });
     } else {
-      self.postMessage({ id, ok: true, value, diagnostic_spans: collector?.finish("ok") });
+      self.postMessage({ id, ok: true, value });
     }
   } catch (error) {
     self.postMessage({
       id,
       ok: false,
       error: normalizeError(error),
-      diagnostic_spans: collector?.finish("error"),
     });
   }
 };
 
-async function openGraph(request: OpenGraphRequest, collector?: WorkerDiagnosticCollector) {
+async function openGraph(request: OpenGraphRequest) {
   if (request.contract_version !== CORE_PORT_VERSION) {
     throw failure("unsupported_contract", "unsupported CorePort contract version", false);
-  }
-  if (request.locator.location !== "local") {
-    throw failure("invalid_request", "only local graph locators are supported", false);
   }
   const handle = `local:${request.locator.graph_id}`;
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = new IndexedDbGraphRepository();
-  const metadata = await measuredAsync(collector, "storage", "storage.open", () =>
-    repository.openGraph(request.locator, now()));
-  if (metadata.schema_version !== 3) {
+  const metadata = await repository.openGraph(request.locator, now());
+  if (metadata.schema_version !== 1) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
-  const recovery = await measuredAsync(
-    collector,
-    "storage",
-    "storage.recover",
-    () => recover(repository, request.locator.graph_id, request.peer_id),
-    ({ report }) => ({
-      checkpoint_sequence: report.checkpoint_sequence,
-      replayed_update_count: report.replayed_updates,
-      quarantined_count: report.quarantined_records.length,
-    }),
-  );
+  const recovery = await recover(repository, request.locator.graph_id, request.peer_id);
   const state: OpenState = {
     graphId: request.locator.graph_id,
     core: recovery.core,
@@ -130,8 +107,8 @@ async function openGraph(request: OpenGraphRequest, collector?: WorkerDiagnostic
   states.set(handle, state);
   return {
     graph_handle: handle,
-    summary: measured(collector, "core", "core.read", () => JSON.parse(state.core.summaryJson())),
-    capabilities: await measuredAsync(collector, "storage", "storage.capabilities", () => repository.capabilities()),
+    summary: JSON.parse(state.core.summaryJson()),
+    capabilities: await repository.capabilities(),
     recovery: recovery.report,
   };
 }
@@ -143,7 +120,7 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (checkpoint.schema_version !== 3) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
+    if (checkpoint.schema_version !== 1) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {
@@ -199,27 +176,17 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
   };
 }
 
-async function execute(request: ExecuteRequest, collector?: WorkerDiagnosticCollector) {
+async function execute(request: ExecuteRequest) {
   if (request.timeout_ms === 0) throw failure("command_timeout", "command deadline elapsed before dispatch", true);
   const state = requireState(request.graph_handle);
   if (state.pending) throw failure("dirty_unsaved", "retry pending update before another mutation", true);
-  const { execution, update } = measured(
-    collector,
-    "core",
-    "core.execute",
-    () => {
-      const raw = state.core.executeJson(JSON.stringify(request.command), now());
-      return {
-        execution: JSON.parse(raw) as { result: unknown; semantic: string; duplicate: boolean },
-        update: ownedBuffer(state.core.takeUpdate()),
-      };
-    },
-    ({ execution: completed, update: completedUpdate }) => ({
-      semantic_kind: completed.semantic,
-      duplicate: completed.duplicate,
-      payload_size: sizeBucket(completedUpdate.byteLength),
-    }),
-  );
+  const raw = state.core.executeJson(JSON.stringify(request.command), now());
+  const execution = JSON.parse(raw) as {
+    result: unknown;
+    semantic: string;
+    duplicate: boolean;
+  };
+  const update = ownedBuffer(state.core.takeUpdate());
   if (execution.duplicate || update.byteLength === 0) {
     const metadata = await state.repository.metadata(state.graphId);
     return {
@@ -237,7 +204,7 @@ async function execute(request: ExecuteRequest, collector?: WorkerDiagnosticColl
   };
   state.pending = pending;
   try {
-    const receipt = await persistPending(state, collector);
+    const receipt = await persistPending(state);
     return { result: execution.result, save_status: { status: "saved_locally", ...receipt } };
   } catch (error) {
     if (error instanceof StorageError && error.code === "storage_full") throw error;
@@ -245,15 +212,13 @@ async function execute(request: ExecuteRequest, collector?: WorkerDiagnosticColl
   }
 }
 
-async function persistPending(state: OpenState, collector?: WorkerDiagnosticCollector) {
+async function persistPending(state: OpenState) {
   const pending = state.pending;
   if (!pending) return { local_sequence: 0, checksum: "" };
-  const receipt = await measuredAsync(
-    collector,
-    "storage",
-    "storage.append",
-    () => state.repository.appendUpdate(state.graphId, pending.payload, pending.createdAt),
-    { payload_size: sizeBucket(pending.payload.byteLength) },
+  const receipt = await state.repository.appendUpdate(
+    state.graphId,
+    pending.payload,
+    pending.createdAt,
   );
   push(state, "local", { type: "semantic", name: pending.semantic, command_id: pending.commandId });
   push(state, "local", { type: "saved_locally", ...receipt });
@@ -261,26 +226,23 @@ async function persistPending(state: OpenState, collector?: WorkerDiagnosticColl
   return receipt;
 }
 
-function read(request: ReadRequest, collector?: WorkerDiagnosticCollector) {
-  return { summary: measured(collector, "core", "core.read", () =>
-    JSON.parse(requireState(request.graph_handle).core.summaryJson())) };
+function read(request: ReadRequest) {
+  return { summary: JSON.parse(requireState(request.graph_handle).core.summaryJson()) };
 }
 
-function readPage(request: ReadPageRequest, collector?: WorkerDiagnosticCollector) {
+function readPage(request: ReadPageRequest) {
   return {
-    page: measured(collector, "core", "core.read_page", () =>
-      JSON.parse(requireState(request.graph_handle).core.pageSnapshotJson(request.page_id))),
+    page: JSON.parse(requireState(request.graph_handle).core.pageSnapshotJson(request.page_id)),
   };
 }
 
-function query(request: QueryRequest, collector?: WorkerDiagnosticCollector) {
+function query(request: QueryRequest) {
   const state = requireState(request.graph_handle);
   if (state.pending) {
     throw failure("dirty_unsaved", "retry pending update before querying", true);
   }
   try {
-    return { result: measured(collector, "query", "core.query", () =>
-      JSON.parse(state.core.queryJson(JSON.stringify(request.query)))) };
+    return { result: JSON.parse(state.core.queryJson(JSON.stringify(request.query))) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const budget = message.toLowerCase().includes("budget");
@@ -288,8 +250,7 @@ function query(request: QueryRequest, collector?: WorkerDiagnosticCollector) {
   }
 }
 
-function subscribe(request: SubscribeRequest, collector?: WorkerDiagnosticCollector) {
-  return measured(collector, "core", "core.subscribe", () => {
+function subscribe(request: SubscribeRequest) {
   const state = requireState(request.graph_handle);
   const latest = state.nextCursor - 1;
   const oldest = state.events[0]?.cursor ?? state.nextCursor;
@@ -301,66 +262,33 @@ function subscribe(request: SubscribeRequest, collector?: WorkerDiagnosticCollec
     next_cursor: latest,
     resync_required: false,
   };
-  });
 }
 
-async function closeGraph(request: CloseGraphRequest, collector?: WorkerDiagnosticCollector) {
+async function closeGraph(request: CloseGraphRequest) {
   const state = requireState(request.graph_handle);
   if (state.pending) throw failure("dirty_unsaved", "close rejected while an update is not durable", true);
   const metadata = await state.repository.metadata(state.graphId);
   const through = metadata.next_sequence - 1;
-  const snapshot = measured(collector, "core", "core.snapshot", () => ownedBuffer(state.core.exportSnapshot()));
-  await measuredAsync(collector, "storage", "storage.checkpoint", () =>
-    state.repository.saveCheckpoint(state.graphId, snapshot, through, now()));
-  await measuredAsync(collector, "storage", "storage.compact", () =>
-    state.repository.compact(state.graphId, through));
+  const snapshot = ownedBuffer(state.core.exportSnapshot());
+  await state.repository.saveCheckpoint(state.graphId, snapshot, through, now());
+  await state.repository.compact(state.graphId, through);
   states.delete(request.graph_handle);
   return { closed: true };
 }
 
-async function retryPending(payload: { graph_handle: string }, collector?: WorkerDiagnosticCollector) {
-  const receipt = await persistPending(requireState(payload.graph_handle), collector);
+async function retryPending(payload: { graph_handle: string }) {
+  const receipt = await persistPending(requireState(payload.graph_handle));
   return { status: "saved_locally", ...receipt };
 }
 
-async function deleteGraph(payload: { graph_id: string }, collector?: WorkerDiagnosticCollector) {
+async function deleteGraph(payload: { graph_id: string }) {
   for (const state of states.values()) {
     if (state.graphId === payload.graph_id) {
       throw failure("invalid_request", "close the graph before deleting it", false);
     }
   }
-  await measuredAsync(collector, "storage", "storage.delete", () =>
-    new IndexedDbGraphRepository().deleteLocal(payload.graph_id));
+  await new IndexedDbGraphRepository().deleteLocal(payload.graph_id);
   return { deleted: true };
-}
-
-function measured<T>(
-  collector: WorkerDiagnosticCollector | undefined,
-  source: "worker" | "core" | "query" | "storage",
-  name: Parameters<WorkerDiagnosticCollector["measure"]>[1],
-  run: () => T,
-  attributes: DiagnosticAttributes | ((result: T) => DiagnosticAttributes) = {},
-): T {
-  return collector ? collector.measure(source, name, run, attributes) : run();
-}
-
-function measuredAsync<T>(
-  collector: WorkerDiagnosticCollector | undefined,
-  source: "worker" | "core" | "query" | "storage",
-  name: Parameters<WorkerDiagnosticCollector["measureAsync"]>[1],
-  run: () => Promise<T>,
-  attributes: DiagnosticAttributes | ((result: T) => DiagnosticAttributes) = {},
-): Promise<T> {
-  return collector ? collector.measureAsync(source, name, run, attributes) : run();
-}
-
-function sizeBucket(size: number): LengthBucket {
-  if (size <= 0) return "0";
-  if (size <= 16) return "1-16";
-  if (size <= 64) return "17-64";
-  if (size <= 256) return "65-256";
-  if (size <= 1_024) return "257-1024";
-  return "1025+";
 }
 
 async function testControl(payload: Record<string, unknown>) {

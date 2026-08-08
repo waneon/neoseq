@@ -17,7 +17,6 @@ import {
 } from "react-router";
 import {
   CalendarDaysIcon,
-  BugIcon,
   ChevronsUpDownIcon,
   FileTextIcon,
   InfoIcon,
@@ -95,9 +94,6 @@ import {
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { useDiagnostics, useDiagnosticsState } from "../diagnostics/context";
-import { RecordingStatus } from "../diagnostics/RecordingStatus";
-import type { DiagnosticsPhase } from "../../diagnostics/types";
 
 declare global {
   interface Window {
@@ -184,8 +180,6 @@ function ShellBody({
   const notify = useNotify();
   const { message, locale, formatJournalDate, compare } = useI18n();
   const bindings = useShortcutBindings();
-  const diagnostics = useDiagnostics();
-  const diagnosticsState = useDiagnosticsState();
   // Renaming happens in the settings dialog, which sits over this rail; both have
   // to say the same thing while they are on screen together.
   const name = useSyncExternalStore(
@@ -427,39 +421,10 @@ function ShellBody({
     setScrolled(false);
   }, [location.pathname]);
 
-  useEffect(() => {
-    const path = location.pathname;
-    diagnostics.recordRoute(
-      settingsSection
-        ? "settings"
-        : path.includes("/journal")
-          ? "journal"
-          : path.includes("/p/")
-            ? "page"
-            : "other",
-    );
-  }, [diagnostics, location.pathname, settingsSection]);
-
   const today = todayLocalDate();
   const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
   const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
-  const diagnosticPageId = currentPage ?? (
-    currentDate ? findJournalPage(state.snapshot, currentDate)?.id : undefined
-  );
-
-  useEffect(
-    () => diagnostics.registerGraphContext({
-      graph_id: graphId,
-      active_page_id: diagnosticPageId ?? null,
-      read: () => {
-        const current = session.getState();
-        return { snapshot: current.snapshot, revision: current.revision };
-      },
-    }),
-    [diagnosticPageId, graphId, session],
-  );
-
   // Query-dependent rows: a date the user typed, and — when nothing matches — a
   // page to create, so the list is never a dead end.
   const dynamic = useCallback(
@@ -546,9 +511,6 @@ SELECT ?entity ?content ?page WHERE {
   if (state.status === "error") {
     return (
       <main className="picker">
-        <div className="picker-recording-status">
-          <RecordingStatus />
-        </div>
         <div className="picker-inner">
           <div className="tombstone" data-testid="graph-error">
             <h1>{message("graph.loadError")}</h1>
@@ -591,10 +553,6 @@ SELECT ?entity ?content ?page WHERE {
     message,
     formatJournalDate,
     bindings,
-    diagnosticsPhase: diagnosticsState.phase,
-    requestDiagnostics: () => diagnostics.requestStart(),
-    stopDiagnostics: () => void diagnostics.stop(),
-    reviewDiagnostics: () => diagnostics.showReview(),
   });
 
   return (
@@ -709,13 +667,11 @@ SELECT ?entity ?content ?page WHERE {
             <span className="topbar-title" aria-hidden>
               {contextTitle}
             </span>
-            {/* State, then the one verb. Durability, the read-only lease and
-                active diagnostic recording each render nothing when there is
-                nothing to say; the overflow menu is always the last thing on the
+            {/* State, then the one verb. Durability and the read-only lease each
+                render nothing when there is nothing to say; the overflow menu is always the last thing on the
                 bar, which is where every application this one resembles puts
                 "everything else". */}
             <div className="topbar-right">
-              <RecordingStatus />
               <SaveStatus state={state} onRetry={() => void session.retry()} />
               {readonly && (
                 <span className="readonly-label" data-testid="readonly-pill">
@@ -783,7 +739,6 @@ const OVERFLOW_ROWS: readonly (string | null)[] = [
   null,
   "theme",
   "toggle-rail",
-  "diagnostics",
   null,
   "settings",
   "all-graphs",
@@ -945,10 +900,6 @@ interface CommandInputs {
   message: MessageFunction;
   formatJournalDate: (date: string) => string;
   bindings: Record<ShortcutId, Binding>;
-  diagnosticsPhase: DiagnosticsPhase;
-  requestDiagnostics: () => void;
-  stopDiagnostics: () => void;
-  reviewDiagnostics: () => void;
 }
 
 /**
@@ -1002,10 +953,6 @@ function buildCommands(input: CommandInputs): Command[] {
     message,
     formatJournalDate,
     bindings,
-    diagnosticsPhase,
-    requestDiagnostics,
-    stopDiagnostics,
-    reviewDiagnostics,
   } = input;
   const blocked = readonly ? message("commands.readonlyReason") : null;
   const commands: Command[] = [];
@@ -1182,26 +1129,6 @@ function buildCommands(input: CommandInputs): Command[] {
       pointerRoute: message("shortcuts.customiseRoute"),
       run: () => bridge.openShortcuts(),
     },
-    {
-      id: "diagnostics",
-      group: "App",
-      label: diagnosticsPhase === "recording"
-        ? message("diagnostics.stopAndReview")
-        : diagnosticsPhase === "review"
-          ? message("diagnostics.review")
-          : message("diagnostics.start"),
-      keywords: ["bug", "performance", "trace", "report"],
-      icon: <BugIcon aria-hidden />,
-      disabledReason: diagnosticsPhase === "consent" || diagnosticsPhase === "finalizing"
-        ? message("diagnostics.preparing")
-        : null,
-      pointerRoute: message("diagnostics.pointerRoute"),
-      run: diagnosticsPhase === "recording"
-        ? stopDiagnostics
-        : diagnosticsPhase === "review"
-          ? reviewDiagnostics
-          : requestDiagnostics,
-    },
   );
 
   return commands;
@@ -1221,18 +1148,13 @@ function ShellLoading() {
   }, []);
 
   return (
-    <>
-      <div className="picker-recording-status">
-        <RecordingStatus />
-      </div>
-      <div className="shell-loading" role="status" aria-busy="true">
+    <div className="shell-loading" role="status" aria-busy="true">
         {show && (
           <>
           <Loader2Icon className="spinner" aria-hidden />
           <p>{message("graph.loading")}</p>
           </>
         )}
-      </div>
-    </>
+    </div>
   );
 }

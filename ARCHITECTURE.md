@@ -1,138 +1,85 @@
 # Neoseq Architecture
 
-## Purpose
+## Purpose and Current Boundary
 
-Neoseq is a local-first, outliner-based note-taking application. A graph
-contains pages; a page contains ordered root blocks; and every block may contain
-ordered child blocks. Daily journal pages are the primary capture surface. Each
-block has collaborative Markdown text. Tags are graph-scoped entities; queries,
-task fields, and extensible metadata use typed properties. Users can query
-blocks and pages through a safe, read-only SPARQL profile.
+Neoseq is a local-first outliner. A graph contains pages, each page owns an
+ordered tree of Markdown blocks, and journals provide the primary daily capture
+surface. Typed properties add task and query behavior without introducing
+feature-specific storage shapes.
 
-This document is the architectural source of truth. Component-level detail lives
-under [`architectures/`](architectures/).
+The implemented product is a local Web client: React calls a Rust/Wasm core in
+a Web Worker, IndexedDB stores the canonical Loro update history, and an
+in-memory RDF index serves graph search and read-only SPARQL. A headless native
+adapter verifies the same contracts with SQLite. Remote synchronization, Tauri
+shells, and release infrastructure are planned in [`steps/`](steps/).
 
-The implemented Step 5 boundary is the local Web client, shared domain/core,
-reproducible RDF index and SPARQL query engine, Wasm adapter, IndexedDB
-repository, and a headless SQLite parity adapter. Native application shells,
-remote synchronization, and release provenance shown below are target
-architecture for later steps and are not current build artifacts.
+This document is the repository-wide architectural source of truth.
+Component-level detail lives under [`architectures/`](architectures/), and
+[`DESIGN.md`](DESIGN.md) is the frontend design source of truth.
 
-## Architectural Drivers
+## Drivers
 
-- The product must work offline and support local-only graphs.
-- Remote graphs must converge through Loro CRDT updates and synchronize in real
-  time when connected.
-- One Rust core must own domain rules, graph mutation, indexing, and query
-  semantics on web, macOS, and Android.
-- The UI should be shared across platforms without making the domain depend on a
-  webview or JavaScript runtime.
-- Product localization and user preference must remain presentation concerns:
-  changing UI language, how a date is written, or what a key is bound to cannot
-  mutate graph data or alter domain, query, and synchronization semantics.
-- Development and builds must be reproducible through Nix, subject to Apple
-  signing and SDK constraints.
-- Nix dependency caches must be invalidated by dependency-manifest content, not
-  by machine-local store history or host-platform assumptions.
-- User-authored queries must be expressive without gaining filesystem, network,
-  or process capabilities.
-- Graph-wide query, search, and projection reads must use a reproducible RDF
-  index rather than traverse the canonical Loro document; deleting the index
-  must never delete user data.
-- Extensible metadata must use one property model; identity and relationships
-  such as containment and tag membership remain explicit structural data.
-- A user must be able to capture bounded, local diagnostic evidence for a human
-  or coding agent without enabling telemetry or disclosing note content by default,
-  with an explicit one-recording option when content is needed to reproduce a bug.
+- Local graphs work without a network connection.
+- Rust owns domain rules, CRDT mutation, indexing, and query semantics.
+- Platform code implements storage and binding concerns without domain policy.
+- Canonical graph data remains portable Loro state; every index is disposable.
+- User queries cannot access the filesystem, network, processes, or another graph.
+- Presentation preferences and localization never mutate graph semantics.
+- Nix provides reproducible development, build, and verification environments.
+- Architecture remains no larger than current requirements; future delivery
+  stages add their own compatibility and migration machinery when it is needed.
 
-## System Context
+## Current System
 
 ```mermaid
 flowchart LR
-    UI[React / TypeScript UI]
-    Port[Typed CorePort]
-    Native[Tauri 2 adapter<br/>macOS + Android]
-    Web[WebAssembly adapter<br/>browser]
-    Core[Rust graph core]
-    Local[(Local replica<br/>SQLite or IndexedDB)]
-    Index[(Derived RDF index<br/>SPARQL + search)]
-    Sync[Sync agent]
-    Server[Remote sync server<br/>Rust]
-    DB[(PostgreSQL)]
+    UI[React UI] --> Session[GraphSession]
+    Session --> Port[CorePort v1]
+    Port --> Worker[Web Worker adapter]
+    Worker --> Core[Rust/Wasm graph core]
+    Core --> Store[(IndexedDB update log)]
+    Core --> Index[(In-memory RDF index)]
 
-    UI --> Port
-    Port --> Native --> Core
-    Port --> Web --> Core
-    Core --> Local
-    Core --> Index
-    Core --> Sync
-    Sync <-->|TLS WebSocket| Server
-    Server --> DB
+    Native[Headless native adapter] --> Core
+    Native --> SQLite[(SQLite update log)]
 ```
 
-The UI calls the same versioned `CorePort` contract on every platform. Native
-clients invoke the Rust core in-process through Tauri commands. The browser
-loads the same core compiled to WebAssembly. A local graph stops at durable
-local storage. A remote graph uses the identical local replica plus a sync
-agent.
+The browser Worker owns the Wasm core and IndexedDB interaction. Main-thread
+components receive immutable DTOs and semantic events; they do not receive Loro
+containers or access persistence directly. The native adapter is a parity and
+persistence test boundary, not a shipped application shell.
 
-## Components
+## Component Boundaries
 
-- `domain` owns IDs, uniform property types/definitions, commands, invariants,
-  journal rules, and tag-default rules. It does not know Loro, storage,
-  transport, or UI.
-- `graph-core` owns the graph runtime, Loro projection, transactions, undo, and
-  events. It does not know platform APIs or authentication.
-- `query` owns the Loro-to-RDF projection, triple/text indexes, SPARQL parsing
-  and planning, and budgeted execution. It cannot mutate CRDT state, scan Loro
-  as a normal query path, select another graph, or call the server.
-- `platform` owns native/WebAssembly bindings plus persistence and transport
-  adapters. It contains no domain decisions.
-- `diagnostics` is a local, opt-in observation plane across UI, adapter, core,
-  query, and persistence boundaries. Its standard policy records typed state
-  relationships without values and correlates semantic UI intent, boundary spans,
-  reconciliation and terminal presentation checkpoints. Its enhanced policy separately
-  classifies explicitly consented content. Neither alters graph state nor uses `CorePort`
-  as a logging API, and disabled recording avoids feature-state projection work.
-- `app-ui` owns editing interaction, block selection, navigation, the command
-  layer, failure reporting, browser-local preferences, localization, and
-  responsive presentation. It does not hold canonical graph state, and the
-  preferences it owns — appearance, UI language, journal timezone and date
-  format, keyboard bindings — are presentation only: none of them can change
-  domain, query or synchronization semantics. Its visual contract — tokens,
-  disclosure rules, motion constraints, and the committed contrast table — is
-  [`DESIGN.md`](DESIGN.md).
-- The future `sync-server` owns authentication boundaries, graph authorization, durable
-  update relay, and compaction. It does not interpret notes or execute queries.
+- `domain` owns IDs, property definitions and values, commands, and invariants.
+  It has no dependency on Loro, storage, transport, or UI frameworks.
+- `graph-core` owns one graph runtime, Loro projection, transactions, local
+  history, persistence coordination, remote-update import, and events.
+- `query` owns Loro-to-RDF projection, indexing, constrained SPARQL planning,
+  and budgeted read-only execution. It cannot mutate canonical state.
+- `platform-web` exposes the product Wasm boundary.
+- `platform-native` supplies the headless CorePort and SQLite adapter used for
+  parity and recovery verification.
+- `apps/client` owns interaction, navigation, browser-local preferences,
+  localization, error presentation, and responsive UI.
+- The future `sync-server` will own authentication, authorization, durable
+  update relay, and server-side compaction; see
+  [server architecture](architectures/server.md).
 
-Detailed contracts are in:
+Detailed contracts:
 
 - [Core and domain](architectures/core.md)
-- [CRDT data model and persistence](architectures/data.md)
-- [Query engine](architectures/query.md)
-- [Client applications](architectures/clients.md)
+- [CRDT data and local persistence](architectures/data.md)
+- [Query and derived index](architectures/query.md)
+- [Client application](architectures/clients.md)
 - [Property command picker](architectures/property-command-picker.md)
 - [Internationalization](architectures/i18n.md)
-- [Diagnostic recording and bug artifacts](architectures/diagnostics.md)
-- [Design language and UI contract](DESIGN.md)
-- [Remote synchronization server](architectures/server.md)
-- [Build, delivery, and verification](architectures/build.md)
+- [Build and verification](architectures/build.md)
+- [Future synchronization server](architectures/server.md)
 
-## Core Runtime Contract
+## CorePort
 
-One `GraphRuntime` owns each open graph. It serializes commands so a user action
-is one Loro transaction, persists the resulting update, atomically publishes a
-derived RDF index revision, and then emits a typed event. Remote imports enter
-through the same runtime and update the same projection. Reads use immutable
-DTOs; callers never receive Loro containers.
-
-The command boundary is also the local history boundary: one user intent is one
-domain command, one undo item, one persisted CRDT update, and one semantic event.
-Multi-block edits, parsed outline insertion, and Enter-driven block splitting
-therefore cross the boundary as one command; the UI never holds an undo group
-open across asynchronous calls.
-
-The boundary is asynchronous and versioned:
+The asynchronous CorePort v1 contract has seven operations:
 
 ```text
 open_graph(locator) -> graph_handle + graph_summary
@@ -144,147 +91,88 @@ subscribe(graph_handle, cursor) -> graph_events
 close_graph(graph_handle)
 ```
 
-Large text edits and synchronization payloads use binary buffers rather than
-JSON. All other boundary values are generated from a shared schema to keep
-TypeScript, native, and WebAssembly adapters compatible.
+[`contracts/core-port.json`](contracts/core-port.json) generates the Rust and
+TypeScript DTOs. [`fixtures/core-port/current.json`](fixtures/core-port/current.json)
+is the shared adapter corpus. Large CRDT and archive payloads use transferable
+binary buffers; ordinary values use generated DTOs. Adapter-only graph listing,
+deletion, retry, and test controls are deliberately outside CorePort.
 
-## Data and Consistency Model
+## Data and Consistency
 
-- A graph is one Loro document and one independent synchronization/security
-  unit.
-- Pages are stored by stable `PageId`; each page owns one ordered, movable Loro
-  tree containing only that page's blocks.
-- Page roots and blocks share one node payload: collaborative content, a
-  property bag, and a set of `TagId` references. A page remains the aggregate
-  and read boundary around its root node and page-local outline.
-- Tags are first-class graph entities in a `TagId`-keyed registry. Query and
-  task features remain projections over well-known property keys.
-- Live regular page names and live tag names are unique in separate graph-scoped
-  namespaces after case and whitespace normalization; stable IDs remain entity
-  identity. Snapshot open, local commands, and staged remote imports enforce
-  the invariant before canonical state is published.
-- Block ownership is structural: a block belongs to the page whose nested tree
-  contains it. Moves are page-local, and block commands carry both `PageId` and
-  `BlockId` so reads and writes never scan other pages.
-- Property entries merge independently. Each value is an atomic tagged scalar:
-  number, string, page reference, checkbox, or local date.
-- The versioned domain property registry maps each built-in key to only a value
-  `shape` and target `placements`. Shape composes cardinality, value type, and
-  optional string choices; each placement names a target and its `user` or
-  `core` access. A `tag_default` placement replaces a separate defaultability
-  flag. Client visibility is derived from access plus sparse renderer overrides.
-- Every persisted page, block, and tag starts with equal `system.created-at` and
-  `system.updated-at` values. Direct mutation advances `updated-at`; a block
-  mutation also touches its owning page. Soft-deletable pages and tags set
-  `system.deleted-at` on deletion, clear it on restore, and advance `updated-at`
-  for both transitions. `created-at` never changes.
-- Journal identity is deterministic from `(GraphId, local date)`, making journal
-  creation idempotent across offline devices.
-- Adding a tag reference copies that tag's defaults into missing node properties
-  in the same transaction. Existing values win; later default changes are not
-  retroactive.
-- Deleted pages are soft-deleted in shared state. References remain resolvable
-  as tombstones until explicit, policy-driven cleanup.
-- The per-graph RDF triple index, text/hierarchy accelerators, compiled SPARQL
-  plans, UI selection, connection status, and presence are derived or ephemeral
-  and never become canonical CRDT state. Each index revision identifies the
-  exact Loro frontier from which it was projected and is discarded/rebuilt when
-  its fingerprint is stale.
+- One graph is one Loro document and one independent storage and future sync unit.
+- Pages and tags use stable IDs. Each page owns one page-local movable block tree.
+- Page roots and blocks share collaborative content, a typed property bag, and
+  explicit tag references.
+- Page and tag names are unique in separate normalized graph-wide namespaces.
+- Journal IDs derive deterministically from graph ID and local date.
+- Property values are atomic tagged scalars: number, string, page reference,
+  checkbox, or local date. Repeated values have stable slots.
+- [`contracts/property-registry.json`](contracts/property-registry.json) is the
+  current v1 registry shared by core and client. Unknown user properties remain
+  readable and editable according to namespace rules.
+- Deleting a page or tag is a soft delete. References remain resolvable as
+  tombstones until a later lifecycle policy removes them.
+- RDF triples, text caches, query plans, UI selection, and connection state are
+  derived or ephemeral and never canonical graph data.
 
-CRDT/document mechanics such as entity IDs, schema version, tree parent/order,
-and tombstones are not user-visible semantics and remain structural metadata.
-Tag identity/membership and node containment are also explicit structural data.
+One user intent becomes one domain command, one Loro transaction, one local undo
+item, one durable update, and one semantic event. The runtime validates complete
+structural changes before mutation. An update is reported saved only after the
+repository append commits; a failed append holds the exact bytes for retry and
+blocks additional mutation.
 
-## Local-First Write and Sync Flow
+## Local Write Flow
 
 1. The UI submits a domain command with an idempotency key.
-2. `GraphRuntime` validates it and applies one Loro transaction.
-3. The local repository durably appends the exported update before the runtime
-   reports a saved state.
-4. The RDF/text index publishes one complete revision and subscribers receive a
-   semantic graph event.
-5. For a remote graph, the sync agent sends the same update until acknowledged.
-6. The server authorizes and durably stores the update before broadcasting it.
-7. Peers import updates in any order; Loro convergence, not server sequence,
-   defines graph state.
+2. `GraphRuntime` validates and applies one Loro transaction.
+3. The repository appends the binary update durably.
+4. The RDF index publishes a complete revision for the new Loro frontier.
+5. Subscribers receive semantic graph and durability events.
 
-The editor may render optimistically, but it must display an unsaved state until
-step 3 succeeds. Network failure never blocks local editing.
+The editor may render an operation optimistically only when it has a safe
+inverse. Network availability is irrelevant to this current local flow.
 
-## Deployment Units
+## Security and Privacy
 
-- **Web client (current):** static assets, Web Worker-hosted Rust/Wasm core,
-  IndexedDB repository, and Web Locks-enforced single-tab editing per graph.
-- **macOS client (planned):** Tauri application, in-process Rust core, SQLite repository,
-  and native WebSocket transport.
-- **Android client (planned):** Tauri application with the same frontend and Rust core,
-  SQLite repository, and platform lifecycle integration.
-- **Sync service (planned):** stateless HTTP/WebSocket Rust processes backed by
-  PostgreSQL; graph rooms are disposable caches reconstructed from checkpoints
-  and updates.
-
-## Security and Privacy Boundaries
-
-- Local-only graphs never contact the sync service.
-- Diagnostic recording is explicitly started, locally bounded, and never uploaded
-  by the application. Standard artifacts exclude content while retaining typed
-  state relationships. Enhanced capture is off by default, fixed for one recording,
-  limited to a disclosed scope, and separately confirmed before sensitive export.
-- Remote endpoints require TLS and authenticated graph membership. Authorization
-  metadata is server state, not CRDT state, so clients cannot grant themselves
-  access by editing a graph.
-- The server applies frame-size, update-rate, and document-size limits before
-  accepting untrusted CRDT bytes.
-- User queries run only in the client core against the current graph's derived
-  RDF index. The accepted SPARQL profile excludes update, dataset selection,
-  federation, and other I/O. V1 bounds source, algebra, bindings, and rows; the
-  browser runs evaluation in the graph Worker rather than the UI thread.
-- The initial remote design is not end-to-end encrypted: the service
-  reconstructs Loro documents for differential sync and compaction. E2EE would
-  require a new opaque-log and key-management design and is intentionally
-  deferred.
+- Local graphs make no network requests.
+- Query execution is confined to the current graph's derived index. Dataset
+  selection, federation, SPARQL Update, and other I/O-capable forms are rejected.
+- Raw internal errors stay behind typed stable error codes; the UI localizes
+  safe messages.
+- Future remote endpoints require TLS, authenticated membership, and limits on
+  untrusted CRDT frames before acceptance.
+- The planned first remote protocol is not end-to-end encrypted; E2EE requires
+  a separate opaque-log and key-management design.
 
 ## Repository Shape
 
 ```text
-crates/
-  domain/             # Pure domain model and commands
-  graph-core/         # Loro-backed runtime and application services
-  query/              # RDF projector/index, SPARQL planner and executor
-  platform-native/    # Headless SQLite and native CorePort parity adapter
-  platform-web/       # Product wasm-bindgen graph-core adapter
-apps/
-  client/             # React/TypeScript UI, i18n, Worker, and IndexedDB adapter
-architectures/        # Component architecture documents
-steps/                # Verifiable, staged implementation plan
-flake.nix
-flake.lock
-Cargo.toml
-Cargo.lock
-pnpm-lock.yaml
+crates/domain/             pure domain model and commands
+crates/graph-core/         Loro runtime and application services
+crates/query/              RDF projection and SPARQL execution
+crates/platform-web/       Wasm bindings
+crates/platform-native/    headless SQLite/CorePort adapter
+apps/client/               React UI, Worker, IndexedDB, and browser tests
+contracts/                 current source contracts
+fixtures/                  current cross-adapter corpus
+architectures/             component architecture documents
+steps/                     future delivery plan
 ```
 
-Dependencies point inward: platform and delivery crates depend on application
-and domain crates, never the reverse. The future sync protocol will contain
-transport types only and will not expose server persistence models.
+Dependencies point inward: platform and delivery code depend on the core and
+domain, never the reverse.
 
 ## Evolution Rules
 
-- CRDT schema changes require compatibility fixtures and an updated
-  [data architecture](architectures/data.md). They use an idempotent migration
-  when entity identity can be preserved; otherwise the old schema is rejected
-  explicitly and requires a separate import/conversion boundary.
-- `CorePort` and sync-protocol changes are explicitly versioned and tolerate one
-  supported rolling-upgrade window.
-- New platforms implement existing ports; they do not fork domain behavior.
-- New metadata features define well-known properties and projections. New
-  identity or relationship semantics require an explicit structural design;
-  either kind of schema change requires compatibility fixtures.
-- RDF vocabulary/projection, query-profile, and text-analyzer changes are
-  versioned independently from the CRDT schema. Cached indexes from any
-  mismatched version are rebuilt from Loro rather than migrated as user data.
-- Diagnostic artifact schema and capture policy are versioned independently
-  from product contracts; new fields, relationship signals, content categories,
-  or scope changes require privacy review and compatibility fixtures.
+- Change a current contract and its generators, consumers, tests, and
+  architecture together.
+- Add compatibility fixtures only when the product genuinely supports more
+  than one deployed contract or persisted schema.
+- Add schema migration machinery when the first real migration is introduced;
+  migration is not a placeholder in the current v1 document.
+- New platforms implement existing ports rather than forking domain behavior.
+- New metadata features use the property registry. New identity or relationship
+  semantics require an explicit structural design.
+- Derived-index format changes rebuild from Loro rather than migrate user data.
 - Architecture-affecting code changes update this document and the relevant
   component document in the same change.

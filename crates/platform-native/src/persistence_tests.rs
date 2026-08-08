@@ -107,10 +107,6 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
         .mark_compacted(checkpoint_sequence)
         .unwrap();
     runtime
-        .repository_mut()
-        .store_index_cache("pages-v2", b"cached-index")
-        .unwrap();
-    runtime
         .execute(envelope(
             &graph,
             "rename-home",
@@ -129,13 +125,6 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
     assert_eq!(report.checkpoint_sequence, checkpoint_sequence);
     assert_eq!(report.replayed_updates, 1);
     assert_eq!(restored.core().fingerprint().unwrap(), expected);
-    assert_eq!(
-        restored
-            .repository_mut()
-            .load_index_cache("pages-v2")
-            .unwrap(),
-        Some(b"cached-index".to_vec())
-    );
     assert_eq!(
         restored
             .repository_mut()

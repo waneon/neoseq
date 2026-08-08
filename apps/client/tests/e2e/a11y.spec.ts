@@ -14,7 +14,11 @@ async function audit(page: Page): Promise<string[]> {
     .analyze();
   return results.violations
     .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
-    .map((violation) => `${violation.id}: ${violation.help}`);
+    .flatMap((violation) =>
+      violation.nodes.map(
+        (node) => `${violation.id}: ${violation.help} (${node.target.join(" ")})`,
+      ),
+    );
 }
 
 test("graph picker passes the basic accessibility audit", async ({ page }) => {
@@ -29,7 +33,11 @@ test("journal, outline, and property editors pass the basic audit", async ({ pag
   await typeInFocusedBlock(page, "audited block");
   await openBlockMenu(page);
   await page.getByTestId("menu-properties").click();
-  await expect(page.getByTestId("property-picker")).toBeVisible();
+  const picker = page.getByTestId("property-picker");
+  await expect(picker).toBeVisible();
+  await picker.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished)),
+  );
   expect(await audit(page)).toEqual([]);
 });
 

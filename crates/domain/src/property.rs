@@ -2,7 +2,7 @@ use crate::{LocalDate, PageId, PropertyKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 5;
+pub const REGISTRY_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -545,11 +545,10 @@ mod tests {
     }
 
     #[test]
-    fn registry_matches_the_versioned_fixture() {
-        let expected: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../fixtures/core/property-definitions-v5.json"
-        ))
-        .unwrap();
+    fn registry_matches_the_checked_in_contract() {
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../../contracts/property-registry.json"))
+                .unwrap();
         assert_eq!(registry_fixture(), expected);
     }
 }

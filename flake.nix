@@ -33,10 +33,8 @@
             ./deny.toml
             ./crates
             ./contracts/core-port.json
-            ./fixtures/core
-            ./fixtures/core-port/v3.json
-            ./fixtures/core-port/v4.json
-            ./fixtures/core-port/v5.json
+            ./contracts/property-registry.json
+            ./fixtures/core-port/current.json
           ];
         };
         testClientFiles = lib.fileset.unions [
@@ -61,7 +59,7 @@
             ./apps/client/tsconfig.json
             ./apps/client/tsconfig.node.json
             ./apps/client/vite.config.ts
-            ./fixtures/core/property-definitions-v5.json
+            ./contracts/property-registry.json
         ];
         webSource = lib.fileset.toSource {
           root = ./.;
@@ -75,9 +73,7 @@
             ./apps/client/playwright.config.ts
             ./apps/client/vitest.config.ts
             ./apps/client/tests
-            ./fixtures/core-port/v3.json
-            ./fixtures/core-port/v4.json
-            ./fixtures/core-port/v5.json
+            ./fixtures/core-port/current.json
           ];
         };
         generatedSource = lib.fileset.toSource {
@@ -88,9 +84,7 @@
             ./scripts/generate-contracts.mjs
             ./crates/domain/src/generated/core_port.rs
             ./apps/client/src/generated/core-port.ts
-            ./fixtures/core-port/v3.json
-            ./fixtures/core-port/v4.json
-            ./fixtures/core-port/v5.json
+            ./fixtures/core-port/current.json
           ];
         };
         pnpmDependencyFiles = [
@@ -157,12 +151,6 @@
           '';
         wasmBindings = makeWasmBindings "neoseq-wasm-bindings" coreWasm;
         wasmDevBindings = makeWasmBindings "neoseq-wasm-bindings-dev" coreWasmDev;
-        coreTools = craneLib.buildPackage (commonArgs // {
-          pname = "neoseq-core-tools";
-          cargoExtraArgs = "-p graph-core --features test-support --bin core-scenario";
-          doCheck = false;
-        });
-
         pnpmDeps = pkgs.fetchPnpmDeps {
           # A content-derived name prevents a stale fixed-output store path from
           # hiding a manifest change when its hash was not updated.
@@ -171,7 +159,7 @@
           src = pnpmSource;
           pnpm = pkgs.pnpm_10;
           fetcherVersion = 4;
-          hash = "sha256-s85hFoWCpvdai6uGjwKbnhc1+XTPmxruO+topmijptw=";
+          hash = "sha256-BKTTuHgfawqN2Punejs2c2gy2LV4evhfMLqJqJj4tsk=";
         };
         nodeInputs = [ pkgs.nodejs_22 pkgs.pnpm_10 pkgs.pnpmConfigHook ];
         nodeDerivation = src: {
@@ -294,7 +282,7 @@
           # Pretendard is a single, self-hosted variable face. Keep the offline
           # shell cost explicit instead of letting font assets bypass the budget.
           check_raw fonts 2097152 "$root"/assets/*.woff2
-          # Step 5 embeds the SPARQL parser, optimizer, evaluator, and RDF
+          # The client embeds the SPARQL parser, optimizer, evaluator, and RDF
           # indexes in the offline Wasm core. Keep the increase explicit.
           check_raw wasm 4194304 "$root"/assets/*.wasm
           check_gzip wasm 1468006 "$root"/assets/*.wasm
@@ -442,7 +430,6 @@
       {
         packages = {
           core-wasm = coreWasm;
-          core-tools = coreTools;
           browser-harness = browserHarness;
           wasm-bindings = wasmBindings;
           inherit web;
@@ -452,7 +439,6 @@
         apps = {
           web-dev = app "${webDev}/bin/neoseq-web-dev" "Run the Vite development server";
           web-preview = app "${webPreview}/bin/neoseq-web-preview" "Serve the production Web bundle";
-          core-scenario = app "${coreTools}/bin/core-scenario" "Run the test-support core scenario tool";
           test-domain = app "${testDomain}/bin/neoseq-test-domain" "Run domain tests";
           test-core-model = app "${testCoreModel}/bin/neoseq-test-core-model" "Run core model tests";
           test-core-convergence = app "${testCoreConvergence}/bin/neoseq-test-core-convergence" "Run convergence tests";

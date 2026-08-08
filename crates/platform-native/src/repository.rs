@@ -1,5 +1,5 @@
 use graph_core::{
-    AppendReceipt, CheckpointRecord, GraphLocation, GraphLocator, GraphMetadata, GraphRepository,
+    AppendReceipt, CheckpointRecord, GraphLocator, GraphMetadata, GraphRepository,
     LocalGraphRepository, QuarantineRecord, SCHEMA_VERSION, StorageCapabilities, UpdateRecord,
     checksum,
 };
@@ -29,8 +29,6 @@ pub enum SqliteRepositoryError {
     Corrupt(String),
     #[error("graph is not present in local storage")]
     NotFound,
-    #[error("remote graph locators are not available in local-only mode")]
-    RemoteUnavailable,
     #[error("injected failure at {0}")]
     Injected(&'static str),
     #[error("SQLite operation failed: {0}")]
@@ -70,9 +68,6 @@ impl SqliteGraphRepository {
         locator: GraphLocator,
         now: &str,
     ) -> Result<Self, SqliteRepositoryError> {
-        if !matches!(locator.location, GraphLocation::Local) {
-            return Err(SqliteRepositoryError::RemoteUnavailable);
-        }
         let mut connection = Connection::open(path).map_err(SqliteRepositoryError::from)?;
         connection
             .busy_timeout(std::time::Duration::ZERO)
@@ -86,16 +81,14 @@ impl SqliteGraphRepository {
             ));
         }
         migrate(&mut connection)?;
-        let location = serde_json::to_string(&locator.location)
-            .map_err(|error| SqliteRepositoryError::Sqlite(error.to_string()))?;
         connection
             .execute(
                 "INSERT INTO graph_metadata(
-                    graph_id, location, schema_version, next_sequence,
+                    graph_id, schema_version, next_sequence,
                     compacted_through, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?4)
+                 ) VALUES (?1, ?2, 1, 0, ?3, ?3)
                  ON CONFLICT(graph_id) DO NOTHING",
-                params![locator.graph_id.as_str(), location, SCHEMA_VERSION, now],
+                params![locator.graph_id.as_str(), SCHEMA_VERSION, now],
             )
             .map_err(SqliteRepositoryError::from)?;
         Ok(Self {
@@ -222,13 +215,6 @@ impl GraphRepository for SqliteGraphRepository {
             .map_err(SqliteRepositoryError::from)?;
         transaction
             .execute(
-                "INSERT INTO graph_outbox(graph_id, local_sequence, ready)
-                 VALUES (?1, ?2, 1)",
-                params![graph_id, as_i64(sequence)?],
-            )
-            .map_err(SqliteRepositoryError::from)?;
-        transaction
-            .execute(
                 "UPDATE graph_metadata
                  SET next_sequence = ?2, updated_at = ?3 WHERE graph_id = ?1",
                 params![graph_id, as_i64(sequence + 1)?, created_at],
@@ -250,36 +236,32 @@ impl LocalGraphRepository for SqliteGraphRepository {
         let row = self
             .connection
             .query_row(
-                "SELECT location, schema_version, next_sequence, compacted_through,
+                "SELECT schema_version, next_sequence, compacted_through,
                         created_at, updated_at
                  FROM graph_metadata WHERE graph_id = ?1",
                 [self.locator.graph_id.as_str()],
                 |row| {
                     Ok((
-                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
-                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
                     ))
                 },
             )
             .optional()
             .map_err(SqliteRepositoryError::from)?
             .ok_or(SqliteRepositoryError::NotFound)?;
-        let location = serde_json::from_str(&row.0)
-            .map_err(|error| SqliteRepositoryError::Corrupt(error.to_string()))?;
         Ok(GraphMetadata {
             locator: GraphLocator {
                 graph_id: self.locator.graph_id.clone(),
-                location,
             },
-            schema_version: as_u32(row.1)?,
-            next_sequence: as_u64(row.2)?,
-            compacted_through: as_u64(row.3)?,
-            created_at: row.4,
-            updated_at: row.5,
+            schema_version: as_u32(row.0)?,
+            next_sequence: as_u64(row.1)?,
+            compacted_through: as_u64(row.2)?,
+            created_at: row.3,
+            updated_at: row.4,
         })
     }
 
@@ -386,29 +368,6 @@ impl LocalGraphRepository for SqliteGraphRepository {
         Ok(())
     }
 
-    fn load_index_cache(&mut self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.connection
-            .query_row(
-                "SELECT payload FROM graph_index_cache WHERE graph_id = ?1 AND cache_key = ?2",
-                params![self.locator.graph_id.as_str(), key],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(SqliteRepositoryError::from)
-    }
-
-    fn store_index_cache(&mut self, key: &str, value: &[u8]) -> Result<(), Self::Error> {
-        self.connection
-            .execute(
-                "INSERT INTO graph_index_cache(graph_id, cache_key, payload)
-                 VALUES (?1, ?2, ?3)
-                 ON CONFLICT(graph_id, cache_key) DO UPDATE SET payload = excluded.payload",
-                params![self.locator.graph_id.as_str(), key, value],
-            )
-            .map_err(SqliteRepositoryError::from)?;
-        Ok(())
-    }
-
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error> {
         self.connection
             .execute(
@@ -465,8 +424,6 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .transaction()
             .map_err(SqliteRepositoryError::from)?;
         for table in [
-            "graph_outbox",
-            "graph_index_cache",
             "graph_quarantine",
             "graph_checkpoint",
             "graph_update",
@@ -509,7 +466,6 @@ fn migrate(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
             .execute_batch(
                 "CREATE TABLE graph_metadata (
                     graph_id TEXT PRIMARY KEY,
-                    location TEXT NOT NULL,
                     schema_version INTEGER NOT NULL,
                     next_sequence INTEGER NOT NULL,
                     compacted_through INTEGER NOT NULL,
@@ -535,21 +491,6 @@ fn migrate(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
                     created_at TEXT NOT NULL,
                     PRIMARY KEY(graph_id, local_sequence),
                     FOREIGN KEY(graph_id) REFERENCES graph_metadata(graph_id)
-                 );
-                 CREATE TABLE graph_outbox (
-                    graph_id TEXT NOT NULL,
-                    local_sequence INTEGER NOT NULL,
-                    ready INTEGER NOT NULL,
-                    acknowledged_at TEXT,
-                    PRIMARY KEY(graph_id, local_sequence),
-                    FOREIGN KEY(graph_id, local_sequence)
-                      REFERENCES graph_update(graph_id, local_sequence)
-                 );
-                 CREATE TABLE graph_index_cache (
-                    graph_id TEXT NOT NULL,
-                    cache_key TEXT NOT NULL,
-                    payload BLOB NOT NULL,
-                    PRIMARY KEY(graph_id, cache_key)
                  );
                  CREATE TABLE graph_quarantine (
                     graph_id TEXT NOT NULL,
