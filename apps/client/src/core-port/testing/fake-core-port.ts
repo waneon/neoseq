@@ -98,10 +98,11 @@ export class FakeCorePort implements SessionPort {
       created_tag: null as string | null,
       changed: true,
     };
+    const timestamp = `t${this.sequence + 1}`;
     try {
-      this.apply(command, result);
+      this.apply(command, result, timestamp);
       if (command.type !== "undo" && command.type !== "redo" && result.changed) {
-        this.touchCommand(command, result, `t${this.sequence + 1}`);
+        this.touchCommand(command, result, timestamp);
       }
     } catch (error) {
       this.restore(before);
@@ -201,12 +202,16 @@ export class FakeCorePort implements SessionPort {
     this.nextCursor += 1;
   }
 
-  private apply(command: Command, result: { created_page: string | null; created_block: string | null; created_tag: string | null; changed: boolean }): void {
+  private apply(
+    command: Command,
+    result: { created_page: string | null; created_block: string | null; created_tag: string | null; changed: boolean },
+    timestamp: string,
+  ): void {
     switch (command.type) {
       case "ensure_page": {
         if (!this.rawPage(command.page_id)) {
           this.assertPageNameAvailable(command.title, command.page_id);
-          this.pages.push(newPage(command.page_id, "regular", command.title, null));
+          this.pages.push(newPage(command.page_id, "regular", command.title, null, timestamp));
           result.created_page = command.page_id;
         } else {
           result.changed = false;
@@ -216,7 +221,7 @@ export class FakeCorePort implements SessionPort {
       case "ensure_journal": {
         const id = `journal-${command.date}`;
         if (!this.rawPage(id)) {
-          this.pages.push(newPage(id, "journal", null, command.date));
+          this.pages.push(newPage(id, "journal", null, command.date, timestamp));
           result.created_page = id;
         } else {
           result.changed = false;
@@ -230,7 +235,7 @@ export class FakeCorePort implements SessionPort {
       case "delete_page":
         setSingle(this.requirePage(command.page_id).properties, "system.deleted-at", {
           type: "string",
-          value: "now",
+          value: timestamp,
         });
         break;
       case "restore_page": {
@@ -243,7 +248,12 @@ export class FakeCorePort implements SessionPort {
       case "ensure_tag": {
         if (!this.rawTag(command.tag_id)) {
           this.assertTagNameAvailable(command.name, command.tag_id);
-          this.tags.push({ id: command.tag_id, name: command.name, properties: [], defaults: [] });
+          this.tags.push({
+            id: command.tag_id,
+            name: command.name,
+            properties: lifecycle(timestamp),
+            defaults: [],
+          });
           result.created_tag = command.tag_id;
         } else {
           result.changed = false;
@@ -257,7 +267,7 @@ export class FakeCorePort implements SessionPort {
       case "delete_tag":
         setSingle(this.requireTag(command.tag_id).properties, "system.deleted-at", {
           type: "string",
-          value: "now",
+          value: timestamp,
         });
         break;
       case "restore_tag": {
@@ -273,7 +283,7 @@ export class FakeCorePort implements SessionPort {
         const block: BlockSnapshot = {
           id,
           markdown: command.markdown,
-          properties: [],
+          properties: lifecycle(timestamp),
           tags: [],
           children: [],
         };
@@ -297,7 +307,7 @@ export class FakeCorePort implements SessionPort {
         const block: BlockSnapshot = {
           id,
           markdown: command.index === 0 ? "" : points.slice(command.index).join(""),
-          properties: [],
+          properties: lifecycle(timestamp),
           tags: [],
           children: [],
         };
@@ -343,9 +353,19 @@ export class FakeCorePort implements SessionPort {
           if (position === 0 && command.replace) {
             block = this.requireBlock(command.page_id, command.replace).block;
             block.markdown = item.markdown;
+            setSingle(block.properties, "system.updated-at", {
+              type: "string",
+              value: timestamp,
+            });
           } else {
             const id = `b-${(this.blockCounter += 1)}`;
-            block = { id, markdown: item.markdown, properties: [], tags: [], children: [] };
+            block = {
+              id,
+              markdown: item.markdown,
+              properties: lifecycle(timestamp),
+              tags: [],
+              children: [],
+            };
             if (item.depth === 0) {
               baseSiblings.splice(Math.min(baseIndex + rootOffset, baseSiblings.length), 0, block);
               rootOffset += 1;
@@ -541,7 +561,7 @@ export class FakeCorePort implements SessionPort {
 
   private touchCommand(
     command: Command,
-    result: { created_page: string | null; created_block: string | null },
+    result: { created_page: string | null; created_block: string | null; created_tag: string | null },
     timestamp: string,
   ): void {
     switch (command.type) {
@@ -590,11 +610,15 @@ export class FakeCorePort implements SessionPort {
         this.touchEntity(command.entity, timestamp);
         break;
       case "ensure_tag":
+        if (result.created_tag) this.touchTag(result.created_tag, timestamp);
+        break;
       case "rename_tag":
       case "delete_tag":
       case "restore_tag":
       case "set_tag_default":
       case "remove_tag_default":
+        this.touchTag(command.tag_id, timestamp);
+        break;
       case "undo":
       case "redo":
         break;
@@ -624,6 +648,15 @@ export class FakeCorePort implements SessionPort {
 
   private touchBlock(pageId: string, blockId: string, timestamp: string): void {
     setSingle(this.requireBlock(pageId, blockId).block.properties, "system.updated-at", {
+      type: "string",
+      value: timestamp,
+    });
+  }
+
+  private touchTag(tagId: string, timestamp: string): void {
+    const tag = this.rawTag(tagId);
+    if (!tag) fail("internal", `tag does not exist: ${tagId}`);
+    setSingle(tag.properties, "system.updated-at", {
       type: "string",
       value: timestamp,
     });
@@ -726,14 +759,22 @@ function newPage(
   kind: "regular" | "journal",
   title: string | null,
   date: string | null,
+  timestamp: string,
 ): PageSnapshot {
   const properties: PropertyEntry[] = [
     { key: "page.kind", value: { type: "string", value: kind } },
-    { key: "system.created-at", value: { type: "string", value: "t0" } },
+    ...lifecycle(timestamp),
   ];
   if (date !== null) properties.push({ key: "journal.date", value: { type: "date", value: date } });
   properties.sort((a, b) => a.key.localeCompare(b.key));
   return { id, title: title ?? "", properties, tags: [], blocks: [] };
+}
+
+function lifecycle(timestamp: string): PropertyEntry[] {
+  return ["system.created-at", "system.updated-at"].map((key) => ({
+    key,
+    value: { type: "string", value: timestamp },
+  }));
 }
 
 function hasKey(bag: PropertyEntry[], key: string): boolean {

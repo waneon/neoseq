@@ -838,7 +838,7 @@ impl GraphCore {
                 let tree_index = (*index).min(available);
                 let node = outline.create_at(parent_tree, tree_index)?;
                 let meta = outline.get_meta(node)?;
-                initialize_node(&meta, markdown)?;
+                initialize_created_node(&meta, markdown, now)?;
                 result.created_block = Some(block_id(node));
             }
             Command::SplitBlock {
@@ -878,7 +878,7 @@ impl GraphCore {
                     text.to_string().chars().skip(*index).collect()
                 };
                 let node = outline.create_at(parent, position)?;
-                initialize_node(&outline.get_meta(node)?, &tail)?;
+                initialize_created_node(&outline.get_meta(node)?, &tail, now)?;
                 if *index > 0 && *index < text.len_unicode() {
                     text.delete(*index, text.len_unicode() - *index)?;
                 }
@@ -932,7 +932,11 @@ impl GraphCore {
                             );
                             let target =
                                 outline.create_at(base_parent, base_index.min(available))?;
-                            initialize_node(&outline.get_meta(target)?, &item.markdown)?;
+                            initialize_created_node(
+                                &outline.get_meta(target)?,
+                                &item.markdown,
+                                now,
+                            )?;
                             root_offset = 1;
                             target
                         }
@@ -943,7 +947,7 @@ impl GraphCore {
                         );
                         let target = outline
                             .create_at(base_parent, (base_index + root_offset).min(available))?;
-                        initialize_node(&outline.get_meta(target)?, &item.markdown)?;
+                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
                         root_offset += 1;
                         target
                     } else {
@@ -953,7 +957,7 @@ impl GraphCore {
                         let child_index = inserted_children.entry(parent_node).or_default();
                         let target = outline.create_at(Some(parent_node), *child_index)?;
                         *child_index += 1;
-                        initialize_node(&outline.get_meta(target)?, &item.markdown)?;
+                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
                         target
                     };
 
@@ -1130,14 +1134,17 @@ impl GraphCore {
             | Command::RemoveRepeatedProperty { entity, .. }
             | Command::AddTag { entity, .. }
             | Command::RemoveTag { entity, .. } => self.touch_entity(entity, now)?,
-            Command::EnsureTag { .. }
-            | Command::RenameTag { .. }
-            | Command::DeleteTag { .. }
-            | Command::RestoreTag { .. }
-            | Command::SetTagDefault { .. }
-            | Command::RemoveTagDefault { .. }
-            | Command::Undo
-            | Command::Redo => {}
+            Command::EnsureTag { .. } => {
+                if let Some(tag_id) = &result.created_tag {
+                    self.touch_tag(tag_id, now)?;
+                }
+            }
+            Command::RenameTag { tag_id, .. }
+            | Command::DeleteTag { tag_id }
+            | Command::RestoreTag { tag_id }
+            | Command::SetTagDefault { tag_id, .. }
+            | Command::RemoveTagDefault { tag_id, .. } => self.touch_tag(tag_id, now)?,
+            Command::Undo | Command::Redo => {}
         }
         Ok(())
     }
@@ -1168,6 +1175,14 @@ impl GraphCore {
     ) -> Result<(), CoreError> {
         set_single(
             &self.block_bag(page_id, block_id)?,
+            &key("system.updated-at"),
+            &PropertyValue::String(now.to_owned()),
+        )
+    }
+
+    fn touch_tag(&self, tag_id: &TagId, now: &str) -> Result<(), CoreError> {
+        set_single(
+            &self.tag_bag(tag_id, "properties")?,
             &key("system.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
@@ -1206,11 +1221,7 @@ impl GraphCore {
                     &PropertyValue::Date(date),
                 )?;
             }
-            set_single(
-                &properties,
-                &key("system.created-at"),
-                &PropertyValue::String(now.to_owned()),
-            )?;
+            initialize_lifecycle(&properties, now)?;
             Ok(Some(page_id.clone()))
         } else {
             Ok(None)
@@ -1232,11 +1243,7 @@ impl GraphCore {
             return Ok(None);
         }
         tag.insert("name", name)?;
-        set_single(
-            &properties,
-            &key("system.created-at"),
-            &PropertyValue::String(now.to_owned()),
-        )?;
+        initialize_lifecycle(&properties, now)?;
         Ok(Some(tag_id.clone()))
     }
 
@@ -1739,6 +1746,17 @@ fn initialize_node(node: &LoroMap, content: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+fn initialize_created_node(node: &LoroMap, content: &str, now: &str) -> Result<(), CoreError> {
+    initialize_node(node, content)?;
+    initialize_lifecycle(&node.ensure_mergeable_map("properties")?, now)
+}
+
+fn initialize_lifecycle(properties: &LoroMap, now: &str) -> Result<(), CoreError> {
+    let value = PropertyValue::String(now.to_owned());
+    set_single(properties, &key("system.created-at"), &value)?;
+    set_single(properties, &key("system.updated-at"), &value)
+}
+
 fn replace_text(text: &LoroText, content: &str) -> Result<(), CoreError> {
     if text.len_unicode() > 0 {
         text.delete(0, text.len_unicode())?;
@@ -2066,6 +2084,18 @@ mod tests {
             "t1",
         )
         .unwrap();
+    }
+
+    fn property_string<'a>(bag: &'a [PropertyEntry], raw_key: &str) -> Option<&'a str> {
+        bag.iter().find_map(|entry| {
+            if entry.key.as_str() != raw_key {
+                return None;
+            }
+            match &entry.value {
+                PropertyValue::String(value) => Some(value.as_str()),
+                _ => None,
+            }
+        })
     }
 
     #[test]
@@ -2883,6 +2913,155 @@ mod tests {
                     && entry.value == PropertyValue::String("t4".into())
             }));
         }
+    }
+
+    #[test]
+    fn lifecycle_metadata_is_uniform_for_persisted_entities() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "child");
+        let tag = TagId::new("project").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: tag.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(
+            property_string(&snapshot.pages[0].properties, "system.created-at"),
+            Some("t1")
+        );
+        assert_eq!(
+            property_string(&snapshot.pages[0].properties, "system.updated-at"),
+            Some("t2")
+        );
+        assert_eq!(
+            property_string(&snapshot.pages[0].blocks[0].properties, "system.created-at"),
+            Some("t2")
+        );
+        assert_eq!(
+            property_string(&snapshot.pages[0].blocks[0].properties, "system.updated-at"),
+            Some("t2")
+        );
+        assert_eq!(snapshot.pages[0].blocks[0].id, block);
+        assert_eq!(
+            property_string(&snapshot.tags[0].properties, "system.created-at"),
+            Some("t3")
+        );
+        assert_eq!(
+            property_string(&snapshot.tags[0].properties, "system.updated-at"),
+            Some("t3")
+        );
+
+        core.execute(
+            envelope(
+                "rename-tag",
+                Command::RenameTag {
+                    tag_id: tag.clone(),
+                    name: "Work".into(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(
+            property_string(&snapshot.tags[0].properties, "system.created-at"),
+            Some("t3")
+        );
+        assert_eq!(
+            property_string(&snapshot.tags[0].properties, "system.updated-at"),
+            Some("t4")
+        );
+
+        core.execute(
+            envelope(
+                "delete-tag",
+                Command::DeleteTag {
+                    tag_id: tag.clone(),
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        let deleted_tag = decode_bag(&core.tag_bag(&tag, "properties").unwrap()).0;
+        assert_eq!(
+            property_string(&deleted_tag, "system.created-at"),
+            Some("t3")
+        );
+        assert_eq!(
+            property_string(&deleted_tag, "system.updated-at"),
+            Some("t5")
+        );
+        assert_eq!(
+            property_string(&deleted_tag, "system.deleted-at"),
+            Some("t5")
+        );
+
+        core.execute(
+            envelope(
+                "restore-tag",
+                Command::RestoreTag {
+                    tag_id: tag.clone(),
+                },
+            ),
+            "t6",
+        )
+        .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        let restored_tag = &snapshot.tags[0].properties;
+        assert_eq!(
+            property_string(restored_tag, "system.created-at"),
+            Some("t3")
+        );
+        assert_eq!(
+            property_string(restored_tag, "system.updated-at"),
+            Some("t6")
+        );
+        assert_eq!(property_string(restored_tag, "system.deleted-at"), None);
+
+        core.execute(
+            envelope("delete-page", Command::DeletePage { page_id: page() }),
+            "t7",
+        )
+        .unwrap();
+        let deleted_page = decode_bag(&core.page_properties(&page()).unwrap()).0;
+        assert_eq!(
+            property_string(&deleted_page, "system.created-at"),
+            Some("t1")
+        );
+        assert_eq!(
+            property_string(&deleted_page, "system.updated-at"),
+            Some("t7")
+        );
+        assert_eq!(
+            property_string(&deleted_page, "system.deleted-at"),
+            Some("t7")
+        );
+
+        core.execute(
+            envelope("restore-page", Command::RestorePage { page_id: page() }),
+            "t8",
+        )
+        .unwrap();
+        let snapshot = core.page_snapshot(&page()).unwrap();
+        let restored_page = &snapshot.properties;
+        assert_eq!(
+            property_string(restored_page, "system.created-at"),
+            Some("t1")
+        );
+        assert_eq!(
+            property_string(restored_page, "system.updated-at"),
+            Some("t8")
+        );
+        assert_eq!(property_string(restored_page, "system.deleted-at"), None);
     }
 
     #[test]

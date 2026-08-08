@@ -47,12 +47,13 @@ and `journal.date: Date`; their display title is derived from the date. Journal
 IDs are deterministically derived from `GraphId` and the date, so all replicas
 address the same page when creating that day's journal.
 
-Page lifecycle metadata in the root node uses well-known string properties
-`system.created-at`, `system.updated-at`, and `system.deleted-at` with canonical
-timestamp encodings. Block nodes also carry `system.updated-at`. A block
-mutation updates both that block and its owning page, while changes below a
-block do not implicitly rewrite ancestor block timestamps. Concurrent
-initialization uses Loro's
+Pages, blocks, and tags initialize `system.created-at` and `system.updated-at`
+to the same canonical command timestamp. Direct mutation advances
+`system.updated-at`; a block mutation updates both that block and its owning
+page, while changes below a block do not implicitly rewrite ancestor block
+timestamps. Soft-deletable pages and tags set `system.deleted-at` on deletion,
+clear it on restore, and advance `updated-at` for both transitions.
+`created-at` is immutable. Concurrent initialization uses Loro's
 mergeable/get-or-create operation rather than replacing a child container under
 the same map key.
 
@@ -101,7 +102,8 @@ page/block mismatch without searching other page trees.
 ## Tags
 
 `tags` is keyed by stable `TagId`. A tag record contains an atomic `name`, a
-property bag for lifecycle metadata, and a default property bag. Node
+property bag with the same creation/update lifecycle metadata as nodes, and a
+default property bag. Node
 membership is a CRDT set encoded as `tag_refs: Map<TagId, true>`; it is not a
 property and never points to a page. Renaming a tag therefore does not rewrite
 members. Reverse membership is a derived local query index, not a second

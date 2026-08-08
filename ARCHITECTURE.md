@@ -173,8 +173,11 @@ TypeScript, native, and WebAssembly adapters compatible.
   optional string choices; each placement names a target and its `user` or
   `core` access. A `tag_default` placement replaces a separate defaultability
   flag. Client visibility is derived from access plus sparse renderer overrides.
-- `system.updated-at` is written on every direct page/block mutation. A block
-  mutation also updates its owning page so page recency includes outline work.
+- Every persisted page, block, and tag starts with equal `system.created-at` and
+  `system.updated-at` values. Direct mutation advances `updated-at`; a block
+  mutation also touches its owning page. Soft-deletable pages and tags set
+  `system.deleted-at` on deletion, clear it on restore, and advance `updated-at`
+  for both transitions. `created-at` never changes.
 - Journal identity is deterministic from `(GraphId, local date)`, making journal
   creation idempotent across offline devices.
 - Adding a tag reference copies that tag's defaults into missing node properties

@@ -121,9 +121,12 @@ features use well-known properties rather than new persisted fields:
   drive task views and controls;
 - Node `content`, `page.kind: String`, and `journal.date: Date` define page and
   journal presentation; `content` is block Markdown for non-root nodes.
-- `system.updated-at: String` records the command timestamp for each directly
-  changed page or block. Any block mutation also touches its owning page;
-  descendant changes do not touch ancestor blocks.
+- `system.created-at: String` and `system.updated-at: String` are initialized to
+  the same command timestamp for every page, block, and tag. Direct mutation
+  advances `updated-at`; block mutation also touches its owning page, while
+  descendant changes do not touch ancestor blocks. Page and tag deletion sets
+  `system.deleted-at` and advances `updated-at`; restore clears `deleted-at` and
+  advances `updated-at`. `created-at` is immutable.
 
 The versioned property-definition registry is the semantic authority for value
 shape and placement access. `task.status` and `task.priority` use suggested open

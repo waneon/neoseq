@@ -35,11 +35,11 @@
     },
     "system.created-at": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "core", "tag_metadata": "core"}
+      "placements": {"page": "core", "block": "core", "tag_metadata": "core"}
     },
     "system.updated-at": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "core", "block": "core"}
+      "placements": {"page": "core", "block": "core", "tag_metadata": "core"}
     },
     "system.deleted-at": {
       "shape": {"single": {"string": "any"}},

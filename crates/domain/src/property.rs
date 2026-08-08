@@ -174,12 +174,13 @@ const USER_PAGE_BLOCK_DEFAULT: &[PropertyPlacement] = &[
     PropertyPlacement::user(PropertyTarget::TagDefault),
 ];
 const CORE_PAGE: &[PropertyPlacement] = &[PropertyPlacement::core(PropertyTarget::Page)];
-const CORE_PAGE_BLOCK: &[PropertyPlacement] = &[
-    PropertyPlacement::core(PropertyTarget::Page),
-    PropertyPlacement::core(PropertyTarget::Block),
-];
 const CORE_PAGE_TAG: &[PropertyPlacement] = &[
     PropertyPlacement::core(PropertyTarget::Page),
+    PropertyPlacement::core(PropertyTarget::TagMetadata),
+];
+const CORE_PAGE_BLOCK_TAG: &[PropertyPlacement] = &[
+    PropertyPlacement::core(PropertyTarget::Page),
+    PropertyPlacement::core(PropertyTarget::Block),
     PropertyPlacement::core(PropertyTarget::TagMetadata),
 ];
 const PAGE_KINDS: &[&str] = &["regular", "journal"];
@@ -254,14 +255,14 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "system.created-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
-            placements: CORE_PAGE_TAG,
+            placements: CORE_PAGE_BLOCK_TAG,
         },
     ),
     (
         "system.updated-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
-            placements: CORE_PAGE_BLOCK,
+            placements: CORE_PAGE_BLOCK_TAG,
         },
     ),
     (
@@ -506,6 +507,14 @@ mod tests {
         assert!(
             validate_property_target(&key("system.created-at"), PropertyTarget::TagMetadata)
                 .is_ok()
+        );
+        assert!(validate_property_target(&key("system.created-at"), PropertyTarget::Block).is_ok());
+        assert!(
+            validate_property_target(&key("system.updated-at"), PropertyTarget::TagMetadata)
+                .is_ok()
+        );
+        assert!(
+            validate_property_target(&key("system.deleted-at"), PropertyTarget::Block).is_err()
         );
         assert!(validate_property_write(&key("page.kind"), PropertyTarget::Page).is_err());
         assert!(validate_property_write(&key("system.deleted-at"), PropertyTarget::Page).is_err());
