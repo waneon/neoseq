@@ -223,7 +223,8 @@ opens the palette's own contents for a user who has not met `⌘K` yet.
 3. **No token without both modes.** A colour declared for one mode only is incomplete.
    Alpha-on-canvas ink is banned outright — it cannot be inverted.
 4. **One signal per state.** Active is a fill *or* a rule *or* a weight — never all
-   three. Focus is one outline, not an outline plus a ring plus a recoloured border.
+   three. Focus is component-owned luminance, caret, glyph, thread, or selection;
+   a global browser-style outline is never added on top.
 5. **Every capability has one canonical command and one pointer route.** A user who
    never learns a shortcut loses speed, never capability. This is enforced by a test.
    A palette row counts as that route only because the palette itself has a permanent
@@ -503,10 +504,10 @@ bordered status pills, and — emphatically — no dashed empty states.
 | `--r-full` | 9999px | The bullet dot, and nothing else |
 
 Radius grows with the surface, so a control inside a panel is always tighter than the
-panel. A neutral control focus ring **never declares a radius** — it inherits the element's own. v1's
-global `:focus-visible { border-radius: 4px }` squared off every rounded control in the
-product the moment it was focused, because `app.css` was imported unlayered and
-therefore outranked every Tailwind utility.
+panel. Focus treatment stays inside the component's existing shape; no global offset
+outline gets a second silhouette. v1's global `:focus-visible { border-radius: 4px }`
+squared off every rounded control in the product the moment it was focused, because
+`app.css` was imported unlayered and therefore outranked every Tailwind utility.
 
 ---
 
@@ -633,15 +634,16 @@ state is unfinished.
 |---|---|
 | Default | Per component |
 | Hover | `--surface-2` — the one hover colour in the product; glyphs rise to `--ink` |
-| Focus (controls) | `outline: 2px solid var(--ink-3); outline-offset: 2px` — achromatic and keyboard-only |
+| Focus (controls) | Component-owned luminance, glyph, thread, or selection treatment; native outlines are suppressed globally |
 | Focus (fields) | `--surface-2` plus the resting `--e1` edge; borderless writing surfaces use their caret or active thread |
 | Pressed | `--surface-3` (or `--accent-hover` for the primary action). No transform. |
 | Disabled | 50% opacity, pointer events off, still in the layout, still announced, and in the palette still listed **with its reason** |
 
-> **Why focus is achromatic.** Indigo names an action, a caret, or a structural drop.
+> **Why focus has no global ring.** Indigo names an action, a caret, or a structural drop.
 > Reusing it on every field made ordinary navigation read as a succession of actions and
-> put a blue frame around controls opened with the pointer. Fields now change luminance
-> while keeping their resting edge; keyboard-focused controls use a neutral ink outline.
+> put a blue frame around controls opened with the pointer. A neutral offset outline was
+> still a foreign frame around otherwise borderless UI. Fields now change luminance while
+> keeping their resting edge; other controls reveal focus through their own existing state.
 >
 > Two kinds of surface are excluded and each says so instead. A **borderless typing
 > surface** that looks like text rather than like a field — a 33px page title, a block's
@@ -1352,8 +1354,9 @@ Non-negotiable, and partly enforced by CI (axe, wcag2a/wcag2aa, serious + critic
 both colour schemes):
 
 1. Contrast follows the committed table. `--ink-3` never touches `--surface-2/3`.
-2. One visible focus indicator on every interactive element: neutral outline for
-   controls, luminance/resting edge for fields, and caret/thread for writing surfaces.
+2. Focus appearance is component-owned: luminance/resting edge for fields,
+   caret/thread for writing surfaces, and the control's existing glyph or selection
+   treatment elsewhere. Native global outlines are disabled.
 3. Real landmarks: a `<main>` in the primary view and a skip link. `aria-hidden` never
    lands on the only landmark.
 4. Real headings. Every section that looks like a heading is one; no uppercase `<span>`
@@ -1404,7 +1407,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - **Radix supplies behaviour, this document supplies appearance.** Portalling, focus
   trapping, dismissal, roving focus and ARIA wiring come from the primitive; every
   visual property comes from a token. shadcn's `focus-visible:ring-2` and
-  `focus-visible:border-ring` are removed so focus is one ring, not three.
+  `focus-visible:border-ring` are removed, and native outlines are suppressed globally;
+  focus appearance belongs to each component.
 - **Native where native is better — and a `<select>` is not.** Checkboxes and date inputs
   stay real form controls, because the platform brings a picker and a mobile wheel that
   nothing here can reproduce. A list of choices brings an unstylable popup instead, drawn
@@ -1458,8 +1462,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Don't animate `transform`, `scale`, or `translate` — not on entrance, not on press,
   not on hover. The two exceptions are named in § Motion and are a box's own size and the
   collapse chevron's rotation; a third has to be argued there before it ships.
-- Don't use an accent focus ring. Indigo is reserved for actions, carets, and structural
-  drops; keyboard focus uses neutral ink and fields use luminance.
+- Don't use a native or offset focus ring. Indigo is reserved for actions, carets, and
+  structural drops; focus stays inside the component's own visual language.
 - Don't ship two controls that look identical at rest and open different popups.
 - Don't set a modifier and its key as one run of mono text, and don't leave them touching.
 - Don't separate a group heading from its rows by one type size and nothing else.

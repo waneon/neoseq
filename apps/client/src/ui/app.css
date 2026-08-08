@@ -256,24 +256,14 @@ a:hover {
   background: var(--accent-soft);
 }
 
-/* Keyboard focus stays achromatic. Indigo means an action or structural drop;
-   using it for every focused control made the interface flash blue as the user
-   simply moved through a form. */
-:focus-visible {
-  outline: 2px solid var(--ink-3);
-  outline-offset: 2px;
-}
-
-/* Text fields never take an offset outline. Browsers match `:focus-visible` on
-   them for ordinary pointer focus, so an outline follows every click. Field-like
-   controls use a quiet luminance change where they are declared; borderless
-   writing surfaces use the caret and active thread. */
-:where(input, textarea, select):focus,
-:where(input, textarea, select):focus-visible {
+/* Focus appearance belongs to each Neoseq component. Suppress the browser's
+   native offset outline globally so controls use their own luminance, caret,
+   glyph, thread, or selection treatment instead of acquiring a foreign frame. */
+:where(:focus, :focus-visible) {
   outline: none;
 }
 
-/* Which leaves two kinds of field, and they answer differently on purpose:
+/* Fields answer focus in two different ways on purpose:
    a control that *looks* like a field (an input, a select's stand-in, a code area)
    takes the accent as its inset edge, declared where its resting `--e1` edge is
    declared; a borderless typing surface that looks like text (a page title, a

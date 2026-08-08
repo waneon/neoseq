@@ -4,9 +4,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
-// Focus is the one neutral global `:focus-visible` outline from app.css — these
-// variants deliberately do not set `outline-none` (which would suppress it) and
-// do not add a ring or recolour a border on top of it. Press feedback is a
+// app.css suppresses native focus outlines globally. These variants deliberately
+// do not reintroduce a shadcn ring or recolour a border. Press feedback is a
 // background change; nothing here animates a transform.
 const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,color] duration-100 ease-out disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
