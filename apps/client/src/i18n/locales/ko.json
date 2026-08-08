@@ -384,7 +384,7 @@
   "tags.addDefault": "기본 속성 추가…",
   "tags.defaultsFor": "{name}의 기본 속성",
   "tags.deleteAction": "태그 삭제",
-  "tags.deleteConfirm": "“{name}” 태그가 그래프의 태그 목록에서 삭제됩니다. 이미 블록에 복사된 기본 속성 값은 그대로 남습니다.",
+  "tags.deleteConfirm": "“{name}” 태그가 그래프와 이를 사용 중인 모든 페이지 및 블록에서 삭제됩니다. 이미 복사된 기본 속성 값은 그대로 남습니다.",
   "tags.deleteNamed": "{name} 태그 삭제",
   "tags.deleteTitle": "태그를 삭제할까요?",
   "tags.duplicate": "“{name}” 태그가 이미 있습니다",

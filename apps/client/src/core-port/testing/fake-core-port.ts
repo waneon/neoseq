@@ -180,10 +180,17 @@ export class FakeCorePort implements SessionPort {
   }
 
   private snapshot(): GraphSnapshot {
+    const liveTags = new Set(
+      this.tags
+        .filter((tag) => !hasKey(tag.properties, "builtin.deleted-at"))
+        .map((tag) => tag.id),
+    );
     return clone({
       schema_version: 1,
       graph_id: this.graphId,
-      pages: this.pages.filter((page) => !hasKey(page.properties, "builtin.deleted-at")),
+      pages: this.pages
+        .filter((page) => !hasKey(page.properties, "builtin.deleted-at"))
+        .map((page) => projectLiveTags(page, liveTags)),
       tags: this.tags.filter((tag) => !hasKey(tag.properties, "builtin.deleted-at")),
       quarantined: [],
     });
@@ -269,6 +276,7 @@ export class FakeCorePort implements SessionPort {
           type: "string",
           value: timestamp,
         });
+        this.detachTagFromAllNodes(command.tag_id, timestamp);
         break;
       case "restore_tag": {
         const tag = this.rawTag(command.tag_id);
@@ -662,6 +670,37 @@ export class FakeCorePort implements SessionPort {
     });
   }
 
+  private detachTagFromAllNodes(tagId: string, timestamp: string): void {
+    const detachBlocks = (blocks: BlockSnapshot[]): boolean => {
+      let pageChanged = false;
+      for (const block of blocks) {
+        const index = block.tags.indexOf(tagId);
+        if (index >= 0) {
+          block.tags.splice(index, 1);
+          setSingle(block.properties, "builtin.updated-at", {
+            type: "string",
+            value: timestamp,
+          });
+          pageChanged = true;
+        }
+        pageChanged = detachBlocks(block.children) || pageChanged;
+      }
+      return pageChanged;
+    };
+
+    for (const page of this.pages) {
+      const index = page.tags.indexOf(tagId);
+      const rootChanged = index >= 0;
+      if (rootChanged) page.tags.splice(index, 1);
+      if (rootChanged || detachBlocks(page.blocks)) {
+        setSingle(page.properties, "builtin.updated-at", {
+          type: "string",
+          value: timestamp,
+        });
+      }
+    }
+  }
+
   private rawTag(id: string): TagSnapshot | undefined {
     return this.tags.find((tag) => tag.id === id);
   }
@@ -752,6 +791,19 @@ function findIn(
     if (nested) return nested;
   }
   return null;
+}
+
+function projectLiveTags(page: PageSnapshot, liveTags: ReadonlySet<string>): PageSnapshot {
+  const projectBlocks = (blocks: BlockSnapshot[]): BlockSnapshot[] => blocks.map((block) => ({
+    ...block,
+    tags: block.tags.filter((tag) => liveTags.has(tag)),
+    children: projectBlocks(block.children),
+  }));
+  return {
+    ...page,
+    tags: page.tags.filter((tag) => liveTags.has(tag)),
+    blocks: projectBlocks(page.blocks),
+  };
 }
 
 function newPage(

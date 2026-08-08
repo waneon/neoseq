@@ -23,6 +23,18 @@ struct OutlinePlan {
 }
 
 #[derive(Debug, Clone)]
+struct TagDetachPage {
+    page_id: PageId,
+    root: bool,
+    blocks: Vec<BlockId>,
+}
+
+#[derive(Debug, Clone)]
+struct TagDetachPlan {
+    pages: Vec<TagDetachPage>,
+}
+
+#[derive(Debug, Clone)]
 struct OutlineState {
     parents: BTreeMap<BlockId, Option<BlockId>>,
     children: BTreeMap<Option<BlockId>, Vec<BlockId>>,
@@ -422,9 +434,14 @@ impl GraphCore {
     }
 
     pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
+        let mut quarantined = Vec::new();
+        let tags = tag_snapshots(&self.doc, &mut quarantined);
+        let live_tags = tags
+            .iter()
+            .map(|tag| tag.id.clone())
+            .collect::<BTreeSet<_>>();
         let pages = self.doc.get_map("pages");
         let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
-        let mut quarantined = Vec::new();
 
         pages.for_each(|raw_id, value| {
             let Ok(page_id) = PageId::new(raw_id) else {
@@ -435,7 +452,7 @@ impl GraphCore {
                 quarantined.push(format!("page:{raw_id}:not-map"));
                 return;
             };
-            if let Some(snapshot) = page_metadata(&page_id, &page, &mut quarantined) {
+            if let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) {
                 snapshots.insert(page_id, snapshot);
             }
         });
@@ -447,13 +464,15 @@ impl GraphCore {
                 continue;
             };
             for root in outline.roots() {
-                snapshot
-                    .blocks
-                    .push(block_snapshot(&outline, root, &mut quarantined)?);
+                snapshot.blocks.push(block_snapshot(
+                    &outline,
+                    root,
+                    &live_tags,
+                    &mut quarantined,
+                )?);
             }
         }
 
-        let tags = tag_snapshots(&self.doc, &mut quarantined);
         quarantined.sort();
         Ok(GraphSnapshot {
             schema_version: SCHEMA_VERSION,
@@ -487,24 +506,33 @@ impl GraphCore {
     pub fn page_snapshot(&self, page_id: &PageId) -> Result<PageSnapshot, CoreError> {
         let page = self.require_live_page(page_id)?;
         let mut quarantined = Vec::new();
-        let mut snapshot = page_metadata(page_id, &page, &mut quarantined)
+        let live_tags = live_tag_ids(&self.doc);
+        let mut snapshot = page_metadata(page_id, &page, &live_tags, &mut quarantined)
             .ok_or_else(|| CoreError::PageDeleted(page_id.clone()))?;
         let outline = page
             .get("outline")
             .and_then(value_into_tree)
             .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".to_owned()))?;
         for root in outline.roots() {
-            snapshot
-                .blocks
-                .push(block_snapshot(&outline, root, &mut quarantined)?);
+            snapshot.blocks.push(block_snapshot(
+                &outline,
+                root,
+                &live_tags,
+                &mut quarantined,
+            )?);
         }
         Ok(snapshot)
     }
 
     fn snapshot_metadata(&self) -> Result<GraphSnapshot, CoreError> {
+        let mut quarantined = Vec::new();
+        let tags = tag_snapshots(&self.doc, &mut quarantined);
+        let live_tags = tags
+            .iter()
+            .map(|tag| tag.id.clone())
+            .collect::<BTreeSet<_>>();
         let pages = self.doc.get_map("pages");
         let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
-        let mut quarantined = Vec::new();
         pages.for_each(|raw_id, value| {
             let Ok(page_id) = PageId::new(raw_id) else {
                 quarantined.push(format!("page:{raw_id}:invalid-id"));
@@ -514,11 +542,10 @@ impl GraphCore {
                 quarantined.push(format!("page:{raw_id}:not-map"));
                 return;
             };
-            if let Some(snapshot) = page_metadata(&page_id, &page, &mut quarantined) {
+            if let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) {
                 snapshots.insert(page_id, snapshot);
             }
         });
-        let tags = tag_snapshots(&self.doc, &mut quarantined);
         quarantined.sort();
         Ok(GraphSnapshot {
             schema_version: SCHEMA_VERSION,
@@ -726,7 +753,10 @@ impl GraphCore {
                 validate_name(&title, "page")?;
                 ensure_page_name_available(&self.doc, page_id, &title)?;
             }
-            Command::DeleteTag { tag_id } | Command::RemoveTagDefault { tag_id, .. } => {
+            Command::DeleteTag { tag_id } => {
+                self.require_live_tag(tag_id)?;
+            }
+            Command::RemoveTagDefault { tag_id, .. } => {
                 self.require_tag(tag_id)?;
             }
             Command::RestoreTag { tag_id } => {
@@ -812,11 +842,8 @@ impl GraphCore {
                 self.require_tag(tag_id)?.insert("name", name.as_str())?;
             }
             Command::DeleteTag { tag_id } => {
-                set_single(
-                    &self.tag_bag(tag_id, "properties")?,
-                    &key("builtin.deleted-at"),
-                    &PropertyValue::String(now.to_owned()),
-                )?;
+                let plan = self.plan_delete_tag(tag_id)?;
+                self.apply_delete_tag(tag_id, &plan, now)?;
             }
             Command::RestoreTag { tag_id } => {
                 self.tag_bag(tag_id, "properties")?
@@ -1301,6 +1328,71 @@ impl GraphCore {
         })
     }
 
+    fn plan_delete_tag(&self, tag_id: &TagId) -> Result<TagDetachPlan, CoreError> {
+        let mut page_maps = Vec::new();
+        self.doc.get_map("pages").for_each(|raw_id, value| {
+            if let (Ok(page_id), Some(page)) = (PageId::new(raw_id), value_into_map(value)) {
+                page_maps.push((page_id, page));
+            }
+        });
+        page_maps.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut pages = Vec::new();
+        for (page_id, page) in page_maps {
+            let root = page
+                .get("root")
+                .and_then(value_into_map)
+                .ok_or_else(|| CoreError::InvalidHierarchy("page root node is missing".into()))?;
+            let root_tagged = node_has_tag(&root, tag_id);
+            let outline = page
+                .get("outline")
+                .and_then(value_into_tree)
+                .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".into()))?;
+            let mut blocks = Vec::new();
+            for node in outline.roots() {
+                collect_tagged_blocks(&outline, node, tag_id, &mut blocks)?;
+            }
+            if root_tagged || !blocks.is_empty() {
+                pages.push(TagDetachPage {
+                    page_id,
+                    root: root_tagged,
+                    blocks,
+                });
+            }
+        }
+        Ok(TagDetachPlan { pages })
+    }
+
+    fn apply_delete_tag(
+        &self,
+        tag_id: &TagId,
+        plan: &TagDetachPlan,
+        now: &str,
+    ) -> Result<(), CoreError> {
+        set_single(
+            &self.tag_bag(tag_id, "properties")?,
+            &key("builtin.deleted-at"),
+            &PropertyValue::String(now.to_owned()),
+        )?;
+        for page in &plan.pages {
+            if page.root {
+                self.page_root(&page.page_id)?
+                    .ensure_mergeable_map("tag_refs")?
+                    .delete(tag_id.as_str())?;
+            }
+            let outline = self.page_outline(&page.page_id)?;
+            for block_id in &page.blocks {
+                outline
+                    .get_meta(require_block_in(&outline, block_id)?)?
+                    .ensure_mergeable_map("tag_refs")?
+                    .delete(tag_id.as_str())?;
+                self.touch_block(&page.page_id, block_id, now)?;
+            }
+            self.touch_page(&page.page_id, now)?;
+        }
+        Ok(())
+    }
+
     fn move_blocks(
         &self,
         block_ids: &[BlockId],
@@ -1575,6 +1667,7 @@ fn validate_name(value: &str, entity: &'static str) -> Result<(), CoreError> {
 
 fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
     let mut names = Vec::new();
+    let live_tags = live_tag_ids(doc);
     doc.get_map("pages").for_each(|raw_id, value| {
         let Ok(page_id) = PageId::new(raw_id) else {
             return;
@@ -1583,7 +1676,7 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
             return;
         };
         let mut quarantined = Vec::new();
-        let Some(snapshot) = page_metadata(&page_id, &page, &mut quarantined) else {
+        let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) else {
             return;
         };
         let is_journal = snapshot.properties.iter().any(|entry| {
@@ -1603,6 +1696,14 @@ fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
     tag_snapshots(doc, &mut quarantined)
         .into_iter()
         .map(|tag| (tag.id, tag.name))
+        .collect()
+}
+
+fn live_tag_ids(doc: &LoroDoc) -> BTreeSet<TagId> {
+    let mut quarantined = Vec::new();
+    tag_snapshots(doc, &mut quarantined)
+        .into_iter()
+        .map(|tag| tag.id)
         .collect()
 }
 
@@ -1846,6 +1947,7 @@ fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
 fn page_metadata(
     page_id: &PageId,
     page: &LoroMap,
+    live_tags: &BTreeSet<TagId>,
     quarantined: &mut Vec<String>,
 ) -> Option<PageSnapshot> {
     let Some(root) = page.get("root").and_then(value_into_map) else {
@@ -1875,7 +1977,7 @@ fn page_metadata(
     if bag_has_key(&properties, "builtin.deleted-at") {
         return None;
     }
-    let tags = decode_tag_refs(&root, &format!("page:{page_id}"), quarantined);
+    let tags = decode_tag_refs(&root, &format!("page:{page_id}"), live_tags, quarantined);
     Some(PageSnapshot {
         id: page_id.clone(),
         title,
@@ -1925,7 +2027,12 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
     snapshots.into_values().collect()
 }
 
-fn decode_tag_refs(node: &LoroMap, owner: &str, quarantined: &mut Vec<String>) -> Vec<TagId> {
+fn decode_tag_refs(
+    node: &LoroMap,
+    owner: &str,
+    live_tags: &BTreeSet<TagId>,
+    quarantined: &mut Vec<String>,
+) -> Vec<TagId> {
     let Some(refs) = node.get("tag_refs").and_then(value_into_map) else {
         quarantined.push(format!("{owner}:tag-refs:missing-or-invalid"));
         return Vec::new();
@@ -1934,7 +2041,8 @@ fn decode_tag_refs(node: &LoroMap, owner: &str, quarantined: &mut Vec<String>) -
     refs.for_each(|raw_id, value| {
         let valid = matches!(value, ValueOrContainer::Value(LoroValue::Bool(true)));
         match (TagId::new(raw_id), valid) {
-            (Ok(tag_id), true) => tags.push(tag_id),
+            (Ok(tag_id), true) if live_tags.contains(&tag_id) => tags.push(tag_id),
+            (Ok(_), true) => quarantined.push(format!("{owner}:tag-ref:{raw_id}:dangling")),
             _ => quarantined.push(format!("{owner}:tag-ref:{raw_id}:invalid")),
         }
     });
@@ -1945,6 +2053,7 @@ fn decode_tag_refs(node: &LoroMap, owner: &str, quarantined: &mut Vec<String>) -
 fn block_snapshot(
     outline: &LoroTree,
     node: TreeID,
+    live_tags: &BTreeSet<TagId>,
     quarantined: &mut Vec<String>,
 ) -> Result<BlockSnapshot, CoreError> {
     let meta = outline.get_meta(node)?;
@@ -1967,10 +2076,10 @@ fn block_snapshot(
         }
         valid
     });
-    let tags = decode_tag_refs(&meta, &format!("block:{node}"), quarantined);
+    let tags = decode_tag_refs(&meta, &format!("block:{node}"), live_tags, quarantined);
     let mut children = Vec::new();
     for child in outline.children(node).unwrap_or_default() {
-        children.push(block_snapshot(outline, child, quarantined)?);
+        children.push(block_snapshot(outline, child, live_tags, quarantined)?);
     }
     Ok(BlockSnapshot {
         id: block_id(node),
@@ -1979,6 +2088,28 @@ fn block_snapshot(
         tags,
         children,
     })
+}
+
+fn node_has_tag(node: &LoroMap, tag_id: &TagId) -> bool {
+    node.get("tag_refs")
+        .and_then(value_into_map)
+        .and_then(|refs| refs.get(tag_id.as_str()))
+        .is_some_and(|value| matches!(value, ValueOrContainer::Value(LoroValue::Bool(true))))
+}
+
+fn collect_tagged_blocks(
+    outline: &LoroTree,
+    node: TreeID,
+    tag_id: &TagId,
+    blocks: &mut Vec<BlockId>,
+) -> Result<(), CoreError> {
+    if node_has_tag(&outline.get_meta(node)?, tag_id) {
+        blocks.push(block_id(node));
+    }
+    for child in outline.children(node).unwrap_or_default() {
+        collect_tagged_blocks(outline, child, tag_id, blocks)?;
+    }
+    Ok(())
 }
 
 fn value_into_map(value: ValueOrContainer) -> Option<LoroMap> {
@@ -2916,6 +3047,181 @@ mod tests {
                     && entry.value == PropertyValue::String("t4".into())
             }));
         }
+    }
+
+    #[test]
+    fn model_delete_tag_detaches_every_node_and_undo_restores_membership() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let live_page = page();
+        let deleted_page = PageId::new("deleted-page").unwrap();
+        ensure_regular_page(&mut core, "live-page", &live_page);
+        ensure_regular_page(&mut core, "deleted-page", &deleted_page);
+        let live_block = insert_root(&mut core, "live-block", &live_page, 0, "live");
+        let nested_block = core
+            .execute(
+                envelope(
+                    "nested-block",
+                    Command::InsertBlock {
+                        page_id: live_page.clone(),
+                        parent: Some(live_block.clone()),
+                        index: 0,
+                        markdown: "nested".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap()
+            .result
+            .created_block
+            .unwrap();
+        let deleted_block = insert_root(&mut core, "deleted-block", &deleted_page, 0, "hidden");
+        let tag = TagId::new("project").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: tag.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "default",
+                Command::SetTagDefault {
+                    tag_id: tag.clone(),
+                    key: key("builtin.task-status"),
+                    value: PropertyValue::String("todo".into()),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        for (command_id, entity) in [
+            (
+                "tag-page",
+                EntityId::Page {
+                    id: live_page.clone(),
+                },
+            ),
+            (
+                "tag-live-block",
+                EntityId::Block {
+                    page_id: live_page.clone(),
+                    id: live_block.clone(),
+                },
+            ),
+            (
+                "tag-deleted-block",
+                EntityId::Block {
+                    page_id: deleted_page.clone(),
+                    id: deleted_block.clone(),
+                },
+            ),
+            (
+                "tag-nested-block",
+                EntityId::Block {
+                    page_id: live_page.clone(),
+                    id: nested_block.clone(),
+                },
+            ),
+        ] {
+            core.execute(
+                envelope(
+                    command_id,
+                    Command::AddTag {
+                        entity,
+                        tag_id: tag.clone(),
+                    },
+                ),
+                "t5",
+            )
+            .unwrap();
+        }
+        core.execute(
+            envelope(
+                "hide-page",
+                Command::DeletePage {
+                    page_id: deleted_page.clone(),
+                },
+            ),
+            "t6",
+        )
+        .unwrap();
+
+        core.execute(
+            envelope(
+                "delete-tag",
+                Command::DeleteTag {
+                    tag_id: tag.clone(),
+                },
+            ),
+            "t7",
+        )
+        .unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        assert!(snapshot.tags.is_empty());
+        assert!(snapshot.pages[0].tags.is_empty());
+        assert!(snapshot.pages[0].blocks[0].tags.is_empty());
+        assert!(snapshot.pages[0].blocks[0].children[0].tags.is_empty());
+        assert!(snapshot.pages[0].blocks[0].properties.iter().any(|entry| {
+            entry.key.as_str() == "builtin.task-status"
+                && entry.value == PropertyValue::String("todo".into())
+        }));
+        assert!(!node_has_tag(&core.page_root(&live_page).unwrap(), &tag));
+        assert!(!node_has_tag(
+            &core
+                .page_outline(&deleted_page)
+                .unwrap()
+                .get_meta(tree_id(&deleted_block).unwrap())
+                .unwrap(),
+            &tag,
+        ));
+
+        core.execute(envelope("undo-delete-tag", Command::Undo), "t8")
+            .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(snapshot.tags[0].id, tag);
+        assert_eq!(snapshot.pages[0].tags, [tag.clone()]);
+        assert_eq!(snapshot.pages[0].blocks[0].tags, [tag.clone()]);
+        assert_eq!(snapshot.pages[0].blocks[0].children[0].tags, [tag.clone()]);
+        assert!(node_has_tag(
+            &core
+                .page_outline(&deleted_page)
+                .unwrap()
+                .get_meta(tree_id(&deleted_block).unwrap())
+                .unwrap(),
+            &tag,
+        ));
+
+        core.execute(envelope("redo-delete-tag", Command::Redo), "t9")
+            .unwrap();
+        core.execute(
+            envelope(
+                "restore-tag",
+                Command::RestoreTag {
+                    tag_id: tag.clone(),
+                },
+            ),
+            "t10",
+        )
+        .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(snapshot.tags[0].id, tag);
+        assert!(snapshot.pages[0].tags.is_empty());
+        assert!(snapshot.pages[0].blocks[0].tags.is_empty());
+        assert!(snapshot.pages[0].blocks[0].children[0].tags.is_empty());
+        assert!(!node_has_tag(
+            &core
+                .page_outline(&deleted_page)
+                .unwrap()
+                .get_meta(tree_id(&deleted_block).unwrap())
+                .unwrap(),
+            &tag,
+        ));
     }
 
     #[test]

@@ -68,7 +68,8 @@ commands are:
   more block subtrees;
 - set/remove typed properties, including repeated entries;
 - apply query/task convenience commands through properties and tag/page/journal
-  commands through their explicit structural entities;
+  commands through their explicit structural entities, with tag deletion
+  detaching its membership from every page and block;
 - undo/redo the local actor's latest command group.
 
 Generic property commands can mutate only registry-declared user-writable
@@ -127,7 +128,8 @@ features use well-known properties rather than new persisted fields:
   advances `updated-at`; block mutation also touches its owning page, while
   descendant changes do not touch ancestor blocks. Page and tag deletion sets
   `builtin.deleted-at` and advances `updated-at`; restore clears `deleted-at` and
-  advances `updated-at`. `created-at` is immutable.
+  advances `updated-at`. Tag deletion also touches every block and owning page
+  whose membership it removes. `created-at` is immutable.
 
 The versioned property-definition registry is the semantic authority for value
 shape and placement access. `builtin.task-status` and `builtin.task-priority` use suggested open
@@ -162,6 +164,15 @@ and later changes to tag defaults affect only subsequent tag operations. A
 truly concurrent write to the same property follows Loro's normal per-key
 conflict rule. This avoids hidden retroactive changes and makes the result
 representable as ordinary CRDT operations.
+
+`RemoveTag(node, tag)` detaches one membership. `DeleteTag(tag)` is graph-wide:
+the core plans every page root and reachable block carrying the tag, then sets
+the tag tombstone and removes those memberships in the command's single Loro
+transaction and undo item. It also scans soft-deleted pages so restoring a page
+cannot revive a deleted membership. Snapshot projection intersects stored
+memberships with live tag IDs as a defensive boundary for old or concurrently
+merged data; dangling tag IDs are quarantined and never reach the client or RDF
+index. Restoring a tag does not restore memberships removed by its deletion.
 
 ## Graph Runtime
 

@@ -178,8 +178,9 @@ continuing to issue `add_tag` and `remove_tag` commands — and inline in the
 outline's `#` tag menu; both attach existing tags only. `TagChips` renders as
 a right-aligned cluster on the block's own line, each chip a single remove
 button. `features/tags/TagsView.tsx` owns the tag lifecycle: a card per live
-tag, inline creation (`ensure_tag`), confirmed deletion (`delete_tag`), and
-the picker on a tag target for defaults.
+tag, inline creation (`ensure_tag`), confirmed graph-wide deletion
+(`delete_tag`, which detaches every page and block membership), and the picker
+on a tag target for defaults.
 
 The query projection remains a view over well-known properties with the
 generic chips as its edit route; the task facts' edit routes are their own

@@ -112,8 +112,9 @@ deletion, retry, and test controls are deliberately outside CorePort.
   levels: application-defined `builtin.<name>` and graph-level user-defined
   `user.<name>`. Unknown built-ins remain readable but core-managed; unknown user
   properties remain readable and editable.
-- Deleting a page or tag is a soft delete. References remain resolvable as
-  tombstones until a later lifecycle policy removes them.
+- Deleting a page is a soft delete and page references remain resolvable as
+  tombstones. Deleting a tag soft-deletes its record and atomically detaches
+  that tag from every page root and block; copied default-property values remain.
 - RDF triples, text caches, query plans, UI selection, and connection state are
   derived or ephemeral and never canonical graph data.
 

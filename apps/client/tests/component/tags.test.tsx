@@ -78,6 +78,21 @@ describe("first-class tags and tag defaults", () => {
     expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do");
   });
 
+  it("removes a deleted tag from hydrated blocks but keeps copied defaults", async () => {
+    const { session } = await mountTagged();
+    await session.execute({
+      type: "add_tag",
+      entity: { kind: "block", page_id: "home", id: "b-1" },
+      tag_id: "project",
+    });
+    expect(await screen.findByTestId("tag-chip")).toHaveTextContent("#Project");
+
+    await session.execute({ type: "delete_tag", tag_id: "project" });
+
+    await waitFor(() => expect(screen.queryByTestId("tag-chip")).not.toBeInTheDocument());
+    expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do");
+  });
+
   it("does not offer a duplicate tag create action", async () => {
     await mountTagged();
     const user = userEvent.setup();

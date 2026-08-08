@@ -52,8 +52,10 @@ before mutation.
 ## Tags and Properties
 
 Tags are independent graph entities keyed by `TagId` and have a unique live
-name namespace. Page and block `tag_refs` carry membership explicitly. Missing
-or deleted targets remain resolvable as dangling references.
+name namespace. Page and block `tag_refs` carry membership explicitly. Tag
+deletion keeps the tag record as a tombstone but removes its ID from every node
+in the same transaction. Snapshot projection exposes only references to live
+tags, quarantining stale or concurrently merged dangling IDs.
 
 A property bag maps a validated key to one stable slot or an ordered set of
 stable slots. Each slot contains one tagged scalar:
@@ -78,7 +80,8 @@ copied values, and later default changes are not retroactive.
 Pages, blocks, and tags initialize `builtin.created-at` and
 `builtin.updated-at` together. Direct mutation advances `updated-at`; a block
 mutation also touches its page. Page and tag deletion sets `builtin.deleted-at`,
-and restore clears it. `created-at` never changes.
+and restore clears it. Tag deletion also advances timestamps on nodes and owning
+pages whose membership it removes. `created-at` never changes.
 
 ## Validation and Merge
 
@@ -89,6 +92,7 @@ The runtime validates these invariants before publishing state:
 - no visible hierarchy cycle exists;
 - regular page and tag names are unique in their separate namespaces;
 - properties and tag records have valid encodings.
+- published page and block tag memberships resolve to live tag records.
 
 Local commands are preflighted against current state. Remote updates are first
 applied to a fork and are published only if the merged snapshot passes the same

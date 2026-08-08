@@ -372,3 +372,54 @@ fn convergence_randomized_disruptions_use_saved_seeds() {
         run_seed(state);
     }
 }
+
+#[test]
+fn convergence_deleted_tag_is_not_published_after_concurrent_add() {
+    let fixture = base_fixture(0x02_dead_7001);
+    let mut left = GraphCore::from_snapshot(fixture.graph.clone(), 2, &fixture.snapshot).unwrap();
+    let mut right = GraphCore::from_snapshot(fixture.graph.clone(), 3, &fixture.snapshot).unwrap();
+
+    execute(
+        &mut left,
+        &fixture.graph,
+        2,
+        0,
+        Command::DeleteTag {
+            tag_id: fixture.tag_b.clone(),
+        },
+    );
+    execute(
+        &mut right,
+        &fixture.graph,
+        3,
+        0,
+        Command::AddTag {
+            entity: EntityId::Block {
+                page_id: fixture.page_a.clone(),
+                id: fixture.text.clone(),
+            },
+            tag_id: fixture.tag_b.clone(),
+        },
+    );
+
+    let left_update = left.export_all().unwrap();
+    let right_update = right.export_all().unwrap();
+    left.import_remote(&right_update).unwrap();
+    right.import_remote(&left_update).unwrap();
+
+    for core in [&left, &right] {
+        let snapshot = core.snapshot().unwrap();
+        assert!(snapshot.tags.iter().all(|tag| tag.id != fixture.tag_b));
+        let block = snapshot.pages[0]
+            .blocks
+            .iter()
+            .find(|block| block.id == fixture.text)
+            .unwrap();
+        assert!(block.tags.iter().all(|tag| tag != &fixture.tag_b));
+        assert!(block.properties.iter().any(|entry| {
+            entry.key.as_str() == "builtin.task-priority"
+                && entry.value == PropertyValue::String("high".into())
+        }));
+    }
+    assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
+}

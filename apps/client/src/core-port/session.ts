@@ -47,6 +47,11 @@ export interface SessionPort extends CorePort {
   terminate?(): void;
 }
 
+type ReconcileScope =
+  | { kind: "summary" }
+  | { kind: "page"; pageId: string }
+  | { kind: "all-hydrated-pages" };
+
 export class GraphSession {
   private state: SessionState;
   private handle = "";
@@ -195,8 +200,7 @@ export class GraphSession {
           : { kind: "unsaved", code: "dirty_unsaved", message: "the last change is not durable yet", retryable: true };
       await this.reconcile(
         save,
-        commandPageId(command, response.result as CommandResult),
-        command.type === "undo" || command.type === "redo",
+        commandReconcileScope(command, response.result as CommandResult),
       );
       return response.result as CommandResult;
     } catch (error) {
@@ -204,12 +208,15 @@ export class GraphSession {
       if (detail.code === "dirty_unsaved" || detail.code === "storage_full") {
         // The command applied in memory but is not durable. Show the state
         // and keep the exact bytes pending for retry.
-        await this.reconcile({
-          kind: "unsaved",
-          code: detail.code,
-          message: detail.message,
-          retryable: detail.retryable,
-        }, commandPageId(command));
+        await this.reconcile(
+          {
+            kind: "unsaved",
+            code: detail.code,
+            message: detail.message,
+            retryable: detail.retryable,
+          },
+          commandReconcileScope(command),
+        );
       } else {
         // The command was rejected before applying; canonical state and the
         // previous save state are unchanged.
@@ -245,11 +252,10 @@ export class GraphSession {
     });
   }
 
-  /** Drains events, refreshes graph metadata, then refreshes only the affected page. */
+  /** Drains events, refreshes graph metadata, then rehydrates the command's impact scope. */
   private async reconcile(
     save: SaveState,
-    pageId?: string,
-    refreshHydrated = false,
+    scope: ReconcileScope = { kind: "summary" },
   ): Promise<void> {
     try {
       const batch = await this.port.subscribe({
@@ -262,10 +268,10 @@ export class GraphSession {
     }
     const read = await this.port.read({ graph_handle: this.handle });
     let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
-    const pageIdsToRead = refreshHydrated
+    const pageIdsToRead = scope.kind === "all-hydrated-pages"
       ? [...this.state.hydratedPages]
-      : pageId
-        ? [pageId]
+      : scope.kind === "page"
+        ? [scope.pageId]
         : [];
     for (const id of pageIdsToRead) {
       if (!snapshot.pages.some((page) => page.id === id)) continue;
@@ -292,7 +298,7 @@ export class GraphSession {
   }
 }
 
-function commandPageId(command: Command, result?: CommandResult): string | undefined {
+function commandReconcileScope(command: Command, result?: CommandResult): ReconcileScope {
   switch (command.type) {
     case "ensure_page":
     case "rename_page":
@@ -307,26 +313,35 @@ function commandPageId(command: Command, result?: CommandResult): string | undef
     case "indent_blocks":
     case "outdent_blocks":
     case "delete_blocks":
-      return command.page_id;
+      return { kind: "page", pageId: command.page_id };
     case "add_tag":
     case "remove_tag":
-      return command.entity.kind === "block" ? command.entity.page_id : command.entity.id;
+      return {
+        kind: "page",
+        pageId: command.entity.kind === "block" ? command.entity.page_id : command.entity.id,
+      };
     case "set_property":
     case "remove_property":
     case "add_repeated_property":
     case "remove_repeated_property":
-      return command.entity.kind === "block" ? command.entity.page_id : command.entity.id;
+      return {
+        kind: "page",
+        pageId: command.entity.kind === "block" ? command.entity.page_id : command.entity.id,
+      };
     case "ensure_journal":
-      return result?.created_page ?? undefined;
+      return result?.created_page
+        ? { kind: "page", pageId: result.created_page }
+        : { kind: "summary" };
+    case "delete_tag":
+    case "undo":
+    case "redo":
+      return { kind: "all-hydrated-pages" };
     case "ensure_tag":
     case "rename_tag":
-    case "delete_tag":
     case "restore_tag":
     case "set_tag_default":
     case "remove_tag_default":
-    case "undo":
-    case "redo":
-      return undefined;
+      return { kind: "summary" };
   }
 }
 

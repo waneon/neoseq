@@ -384,7 +384,7 @@
   "tags.addDefault": "Add default…",
   "tags.defaultsFor": "Defaults for {name}",
   "tags.deleteAction": "Delete tag",
-  "tags.deleteConfirm": "“{name}” will be removed from the graph’s tags. Values it already copied onto blocks stay on those blocks.",
+  "tags.deleteConfirm": "“{name}” will be removed from the graph and from every page and block using it. Values it already copied stay in place.",
   "tags.deleteNamed": "Delete tag {name}",
   "tags.deleteTitle": "Delete this tag?",
   "tags.duplicate": "Tag “{name}” already exists",
