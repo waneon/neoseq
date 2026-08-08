@@ -436,8 +436,9 @@
   "validation.keyLength": "Property key exceeds 128 bytes.",
   "validation.propertyCardinality": "“{key}” is a {cardinality} property.",
   "validation.propertyStrings": "“{key}” allows: {values}.",
+  "validation.propertyTarget": "“{key}” cannot be written on a {target}.",
   "validation.propertyType": "“{key}” expects a {type} value.",
-  "validation.reservedKey": "“{key}” is structural and cannot be a property.",
+  "validation.reservedKey": "“{key}” is reserved and cannot be edited as a property.",
   "validation.stringLength": "String exceeds 65536 bytes.",
   "validation.whitespaceKey": "Property key cannot have surrounding whitespace."
 }

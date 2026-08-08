@@ -31,7 +31,12 @@ import type {
   PropertyValue,
   TagSnapshot,
 } from "../snapshot";
-import { sameValue, validateDefault, validateValue } from "../../entities/properties";
+import {
+  sameValue,
+  validateDefault,
+  validateValue,
+  validateWriteTarget,
+} from "../../entities/properties";
 import { canonicalEntityName } from "../../entities/names";
 import type { SessionPort } from "../session";
 
@@ -421,18 +426,22 @@ export class FakeCorePort implements SessionPort {
         }
         break;
       case "set_property": {
-        const issue = validateValue(command.key, command.value, "single");
+        const issue = validateWriteTarget(command.key, command.entity.kind)
+          ?? validateValue(command.key, command.value, "single");
         if (issue) fail("internal", issue.message);
         setSingle(this.entityBag(command.entity), command.key, command.value);
         break;
       }
       case "remove_property": {
+        const issue = validateWriteTarget(command.key, command.entity.kind);
+        if (issue) fail("internal", issue.message);
         const bag = this.entityBag(command.entity);
         removeAll(bag, command.key);
         break;
       }
       case "add_repeated_property": {
-        const issue = validateValue(command.key, command.value, "repeated");
+        const issue = validateWriteTarget(command.key, command.entity.kind)
+          ?? validateValue(command.key, command.value, "repeated");
         if (issue) fail("internal", issue.message);
         const bag = this.entityBag(command.entity);
         if (!bag.some((e) => e.key === command.key && sameValue(e.value, command.value))) {
@@ -441,6 +450,8 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "remove_repeated_property": {
+        const issue = validateWriteTarget(command.key, command.entity.kind);
+        if (issue) fail("internal", issue.message);
         const bag = this.entityBag(command.entity);
         const index = bag.findIndex(
           (e) => e.key === command.key && sameValue(e.value, command.value),

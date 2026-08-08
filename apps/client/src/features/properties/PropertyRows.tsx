@@ -1,6 +1,6 @@
 import type { PropertyEntry, PropertyValue } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
-import { cardinalityOf, isSystemKey } from "../../entities/properties";
+import { cardinalityOf, isGenericProperty } from "../../entities/properties";
 import { useI18n } from "../../i18n";
 import { useSessionState } from "../shell/session-context";
 
@@ -13,7 +13,7 @@ export function PropertyRows({
 }) {
   const state = useSessionState();
   const { message } = useI18n();
-  const visible = bag.filter((entry) => !isSystemKey(entry.key));
+  const visible = bag.filter((entry) => isGenericProperty(entry.key));
   if (visible.length === 0) return null;
 
   return (

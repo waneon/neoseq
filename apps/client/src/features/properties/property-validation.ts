@@ -13,6 +13,8 @@ export function validationMessage(issue: ValidationIssue, message: MessageFuncti
         key: values.key,
         cardinality: values.cardinality,
       });
+    case "property_target":
+      return message("validation.propertyTarget", { key: values.key, target: values.target });
     case "property_strings":
       return message("validation.propertyStrings", { key: values.key, values: values.values });
     case "default_forbidden":

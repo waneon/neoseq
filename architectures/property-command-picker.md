@@ -92,8 +92,8 @@ single-valued under current client rules. Moving between stages writes nothing.
 
 Property candidates are bounded to:
 
-1. visible, non-system keys already present on the target;
-2. known, non-system registry definitions; and
+1. generic-visible keys already present on the target;
+2. registry definitions that are user-writable on the resolved target; and
 3. one validated custom-key creation result for the current query.
 
 Existing keys sort first. The picker does not scan the graph document or any
@@ -115,9 +115,11 @@ closes it. Closing restores focus to the invoking element when it still exists.
 ### Property and Tag Presentation
 
 `PropertyRows` is the stateless block projection. Pages retain their compact
-four-item `key: value` strip. Both filter system keys, format page references
-against the current snapshot, and invoke the picker for direct editing. Keys use
-the identifier voice; values truncate without changing stored data. An empty bag
+four-item `key: value` strip. Both use the client presentation registry to show
+generic and feature-enhanced properties, format page references against the
+current snapshot, and invoke the picker for direct editing. Read-only metadata
+and hidden lifecycle fields never enter the generic route. Keys use the
+identifier voice; values truncate without changing stored data. An empty bag
 renders no rows or strip.
 
 The legacy `PropertyBagEditor` and block inspector are removed. Tag membership
@@ -154,10 +156,12 @@ second ordinary core command; no batch command or schema change is introduced.
 
 ## Validation and Failure Reporting
 
-`entities/properties.ts` and the versioned core fixture remain the client
-validation source. Structural keys fail in the active stage. Type, date, number,
-length, allowed-string, and cardinality checks run before dispatch; the core
-remains authoritative.
+The versioned domain fixture supplies target, writer, type, cardinality,
+defaultability, and string-value policy to `entities/properties.ts`. A separate
+client presentation registry owns only visibility and renderer selection.
+Structural and core-managed keys fail in the active stage; target, date, number,
+length, restricted-string, and cardinality checks run before dispatch. The core
+repeats all semantic checks and remains authoritative.
 
 A rejected session command keeps the active picker state and reports once
 through `features/notify/`. No failed mutation creates a row. Local durability,

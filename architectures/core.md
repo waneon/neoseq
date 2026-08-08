@@ -43,12 +43,16 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The schema-v3 registry is a checked-in compatibility fixture. It defines query,
-task, page, journal, and system keys. The five
-value types are number, string, page reference, checkbox, and local date.
-Unknown keys accept any of those types and retain the command-selected single
-or repeated cardinality. ID and date deserialization passes through the same
-validation as direct construction.
+The property registry is a separately versioned domain contract; registry v4 is
+the checked-in current fixture. For every built-in key it declares value type,
+cardinality, valid storage targets, user-writable targets, write ownership, tag
+defaultability, and whether string choices are suggestions or restrictions. The
+five value types are number, string, page reference, checkbox, and local date.
+Unknown user keys accept any of those types on pages and blocks and retain the
+command-selected single or repeated cardinality. `page.*` unknown keys are
+page-only, the `system.*` namespace is core-managed, and structural keys remain
+invalid. ID and date deserialization passes through the same validation as
+direct construction.
 
 ## Command Model
 
@@ -63,6 +67,11 @@ commands are:
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities;
 - undo/redo the local actor's latest command group.
+
+Generic property commands can mutate only registry-declared user-writable
+targets. Page kind, journal identity, lifecycle timestamps, and tombstones are
+core-managed and can change only through their owning page, journal, tag, and
+touch command paths. Presentation filtering is not an authority boundary.
 
 Each command carries a client-generated idempotency key and expected graph
 handle. The runtime rejects malformed IDs, invalid values, cycles, references to
@@ -114,13 +123,15 @@ features use well-known properties rather than new persisted fields:
   changed page or block. Any block mutation also touches its owning page;
   descendant changes do not touch ancestor blocks.
 
-The versioned property-definition registry declares a well-known key's value
-type, cardinality, validation, and defaultability. Unknown keys remain valid
-with any supported `PropertyValue`, so older clients preserve new properties
-without understanding their feature semantics. The registry does not create a
-second state model: task and query services read and write ordinary property
-entries, and every well-known property remains available to the generic property
-editor and query engine. New metadata features begin by defining keys; new
+The versioned property-definition registry is the semantic authority for
+well-known targets and writers as well as value validation. `task.status` and
+`task.priority` declare suggested open choices; `page.kind` and
+`query.language` declare restricted choices without key-specific validation
+branches. Unknown keys remain valid with any supported `PropertyValue`. The
+registry does not create a second state model: task and query services read and
+write ordinary entries. Client presentation metadata separately decides whether
+a property is generic, feature-enhanced, read-only metadata, or hidden. New
+metadata features begin by defining domain policy plus an optional renderer; new
 identity or relationship semantics require an explicit architecture decision.
 
 Entity IDs, tag membership, Loro tree parent/order, schema version, and

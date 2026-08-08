@@ -61,7 +61,7 @@
             ./apps/client/tsconfig.json
             ./apps/client/tsconfig.node.json
             ./apps/client/vite.config.ts
-            ./fixtures/core/property-definitions-v3.json
+            ./fixtures/core/property-definitions-v4.json
         ];
         webSource = lib.fileset.toSource {
           root = ./.;

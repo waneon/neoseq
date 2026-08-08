@@ -454,6 +454,7 @@ export interface MessageArgumentMap {
   "validation.keyLength": undefined;
   "validation.propertyCardinality": { readonly "cardinality": string | number; readonly "key": string | number };
   "validation.propertyStrings": { readonly "key": string | number; readonly "values": string | number };
+  "validation.propertyTarget": { readonly "key": string | number; readonly "target": string | number };
   "validation.propertyType": { readonly "key": string | number; readonly "type": string | number };
   "validation.reservedKey": { readonly "key": string | number };
   "validation.stringLength": undefined;

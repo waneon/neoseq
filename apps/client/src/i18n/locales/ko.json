@@ -436,8 +436,9 @@
   "validation.keyLength": "속성 키가 128바이트를 초과합니다.",
   "validation.propertyCardinality": "“{key}”은(는) {cardinality} 속성입니다.",
   "validation.propertyStrings": "“{key}”에 허용되는 값: {values}.",
+  "validation.propertyTarget": "“{key}”은(는) {target}에 쓸 수 없습니다.",
   "validation.propertyType": "“{key}”에는 {type} 유형 값이 필요합니다.",
-  "validation.reservedKey": "“{key}”은(는) 구조용 키이므로 속성으로 사용할 수 없습니다.",
+  "validation.reservedKey": "“{key}”은(는) 예약되어 있어 속성으로 편집할 수 없습니다.",
   "validation.stringLength": "문자열이 65536바이트를 초과합니다.",
   "validation.whitespaceKey": "속성 키 앞뒤에 공백을 사용할 수 없습니다."
 }

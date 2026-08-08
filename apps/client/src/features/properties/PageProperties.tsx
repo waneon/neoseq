@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PageSnapshot, PropertyValue } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
-import { isSystemKey } from "../../entities/properties";
+import { isGenericProperty } from "../../entities/properties";
 import { useI18n } from "../../i18n";
 import { useCommands } from "../commands/context";
 import { useSessionState } from "../shell/session-context";
@@ -59,10 +59,10 @@ export function PageProperties({
 
   return (
     <div className="page-inline-properties" ref={anchorRef}>
-      {page.properties.some((entry) => !isSystemKey(entry.key)) && (
+      {page.properties.some((entry) => isGenericProperty(entry.key)) && (
         <div className="prop-strip">
           {page.properties
-            .filter((entry) => !isSystemKey(entry.key))
+            .filter((entry) => isGenericProperty(entry.key))
             .slice(0, STRIP_LIMIT)
             .map((entry, index) => (
               <button
@@ -75,10 +75,10 @@ export function PageProperties({
                 <span className="value">{describe(entry.value, state, message)}</span>
               </button>
             ))}
-          {page.properties.filter((entry) => !isSystemKey(entry.key)).length > STRIP_LIMIT && (
+          {page.properties.filter((entry) => isGenericProperty(entry.key)).length > STRIP_LIMIT && (
             <button className="prop-strip-chip" onClick={(event) => show(undefined, event.currentTarget)}>
               {message("properties.more", {
-                count: page.properties.filter((entry) => !isSystemKey(entry.key)).length - STRIP_LIMIT,
+                count: page.properties.filter((entry) => isGenericProperty(entry.key)).length - STRIP_LIMIT,
               })}
             </button>
           )}

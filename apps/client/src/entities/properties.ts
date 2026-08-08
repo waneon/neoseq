@@ -3,14 +3,25 @@
 // against one definition source. Unknown keys are first-class: they render
 // and edit through the same generic path.
 
-import registryFixture from "../../../../fixtures/core/property-definitions-v3.json";
+import registryFixture from "../../../../fixtures/core/property-definitions-v4.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
+
+export type PropertyTarget = "page" | "block" | "tag_metadata";
+export type PropertyVisibility =
+  | "generic"
+  | "feature_and_generic"
+  | "read_only_metadata"
+  | "hidden";
 
 export interface PropertyDefinition {
   key: string;
   type: PropertyValueType;
   cardinality: "single" | "repeated";
+  valid_targets: PropertyTarget[];
+  user_writable_targets: PropertyTarget[];
+  write_policy: "user" | "core";
   defaultable: boolean;
+  string_value_policy: "any" | "suggested" | "restricted";
   allowed_strings: string[];
 }
 
@@ -18,15 +29,43 @@ export const REGISTRY: PropertyDefinition[] = registryFixture.properties as Prop
 
 export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox", "date", "page"];
 
-/** Keys the app writes through dedicated commands or system paths. */
-const RESERVED_KEYS = new Set(["tag", "page.title", "block.page", "page.kind", "journal.date"]);
+const STRUCTURAL_KEYS = new Set(["tag", "page.title", "block.page"]);
+
+// Presentation stays client-owned. Domain write and target policy comes from
+// the versioned registry above; this map only decides how canonical values are
+// exposed in this React client.
+const PRESENTATION: Record<string, PropertyVisibility> = {
+  "query.source": "feature_and_generic",
+  "query.language": "feature_and_generic",
+  "task.status": "feature_and_generic",
+  "task.scheduled": "feature_and_generic",
+  "task.deadline": "feature_and_generic",
+  "task.priority": "feature_and_generic",
+  "page.kind": "read_only_metadata",
+  "journal.date": "read_only_metadata",
+  "system.created-at": "read_only_metadata",
+  "system.updated-at": "read_only_metadata",
+  "system.deleted-at": "hidden",
+};
 
 export function definition(key: string): PropertyDefinition | undefined {
   return REGISTRY.find((item) => item.key === key);
 }
 
-export function isSystemKey(key: string): boolean {
-  return key.startsWith("system.") || RESERVED_KEYS.has(key);
+export function visibilityOf(key: string): PropertyVisibility {
+  return PRESENTATION[key] ?? "generic";
+}
+
+export function isGenericProperty(key: string): boolean {
+  const visibility = visibilityOf(key);
+  return visibility === "generic" || visibility === "feature_and_generic";
+}
+
+export function canUserWrite(key: string, target: Exclude<PropertyTarget, "tag_metadata">): boolean {
+  const item = definition(key);
+  if (item) return item.write_policy === "user" && item.user_writable_targets.includes(target);
+  if (STRUCTURAL_KEYS.has(key) || key.startsWith("system.")) return false;
+  return target === "page" || !key.startsWith("page.");
 }
 
 export function cardinalityOf(key: string): "single" | "repeated" {
@@ -44,6 +83,7 @@ export interface ValidationIssue {
     | "key_length"
     | "property_cardinality"
     | "property_strings"
+    | "property_target"
     | "property_type"
     | "reserved_key"
     | "string_length"
@@ -56,11 +96,42 @@ export function validateKey(key: string): ValidationIssue | null {
   const trimmed = key.trim();
   if (trimmed.length === 0) return { code: "empty_key", message: "Property key cannot be empty." };
   if (trimmed !== key) return { code: "whitespace_key", message: "Property key cannot have surrounding whitespace." };
-  if (key.length > 128) return { code: "key_length", message: "Property key exceeds 128 bytes." };
-  if (RESERVED_KEYS.has(key) || key.startsWith("system.")) return { code: "reserved_key", message: `“${key}” is structural and cannot be a property.`, values: { key } };
+  if (new TextEncoder().encode(key).length > 128) {
+    return { code: "key_length", message: "Property key exceeds 128 bytes." };
+  }
+  if (
+    STRUCTURAL_KEYS.has(key)
+    || definition(key)?.write_policy === "core"
+    || key.startsWith("system.")
+  ) {
+    return {
+      code: "reserved_key",
+      message: `“${key}” is managed by the core.`,
+      values: { key },
+    };
+  }
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(key)) return { code: "control_character", message: "Property key contains a control character." };
   return null;
+}
+
+export function validateWriteTarget(
+  key: string,
+  target: Exclude<PropertyTarget, "tag_metadata">,
+): ValidationIssue | null {
+  if (canUserWrite(key, target)) return null;
+  if (
+    STRUCTURAL_KEYS.has(key)
+    || definition(key)?.write_policy === "core"
+    || key.startsWith("system.")
+  ) {
+    return { code: "reserved_key", message: `“${key}” is managed by the core.`, values: { key } };
+  }
+  return {
+    code: "property_target",
+    message: `“${key}” cannot be written on a ${target}.`,
+    values: { key, target },
+  };
 }
 
 export function validateValue(
@@ -89,9 +160,8 @@ export function validateValue(
     return { code: "property_cardinality", message: `“${key}” is a ${item.cardinality} property.`, values: { key, cardinality: item.cardinality } };
   }
   if (
-    item.allowed_strings.length > 0 &&
+    item.string_value_policy === "restricted" &&
     value.type === "string" &&
-    !["task.status", "task.priority"].includes(key) &&
     !item.allowed_strings.includes(value.value)
   ) {
     return { code: "property_strings", message: `“${key}” allows: ${item.allowed_strings.join(", ")}.`, values: { key, values: item.allowed_strings.join(", ") } };

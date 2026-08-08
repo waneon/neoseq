@@ -156,8 +156,9 @@ one slot resolve as one complete value.
 Well-known entries include `query.source`, `query.language`, task fields,
 `page.kind`, and `journal.date`. They use exactly
 the same encoding and synchronization path as user-defined properties. The
-registry adds type/cardinality validation and feature projection but no extra
-storage.
+separately versioned domain registry adds type, cardinality, target, writer,
+default, and string-choice policy but no extra graph storage. Registry v4 does
+not change the document's schema-3 slot encoding.
 
 ## Deletion and Repair
 

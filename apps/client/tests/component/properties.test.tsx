@@ -106,8 +106,25 @@ describe("property picker", () => {
     const picker = await openPagePicker(user);
     await user.type(within(picker).getByLabelText("Property key"), "page.title");
     expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
-      "structural and cannot be a property",
+      "reserved and cannot be edited as a property",
     );
+  });
+
+  it("keeps core-managed properties outside the generic write path", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    const picker = await openPagePicker(user);
+    await user.type(within(picker).getByLabelText("Property key"), "system.deleted-at");
+    expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
+      "reserved and cannot be edited as a property",
+    );
+
+    await expect(session.execute({
+      type: "set_property",
+      entity: { kind: "page", id: "home" },
+      key: "page.kind",
+      value: { type: "string", value: "journal" },
+    })).rejects.toThrow("managed by the core");
   });
 
   it("opens from slash and removes the slash token before applying a value", async () => {

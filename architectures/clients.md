@@ -291,8 +291,10 @@ and transitions to what it found. Both trades are argued in
 [`DESIGN.md`](../DESIGN.md) §§ Choice, Motion.
 
 The property registry the UI validates against is imported from the versioned
-core fixture (`fixtures/core/property-definitions-v3.json`), so client and core
-share one definition source. Features depend inward on `entities`, `core-port`,
+domain fixture (`fixtures/core/property-definitions-v4.json`), so client and core
+share target, writer, value, and default policy. React-owned presentation
+metadata independently selects generic, feature-enhanced, read-only, or hidden
+rendering without becoming a domain authority. Features depend inward on `entities`, `core-port`,
 `i18n`, and `ui`; reverse imports are forbidden. Cross-feature actions are domain
 commands, app-level navigation, or a layer provided through context —
 never a shared mutable store.

@@ -401,7 +401,7 @@ function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => 
   const { message, formatInstant } = useI18n();
   const created = stringValue(page.properties, "system.created-at");
   const updated = stringValue(page.properties, "system.updated-at");
-  const journal = stringValue(page.properties, "journal.date");
+  const journal = journalDate(page);
   const [copied, setCopied] = useState(false);
 
   return (

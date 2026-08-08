@@ -1,8 +1,9 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
     GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot, PageSummary, PropertyBag,
-    PropertyEntry, PropertyError, PropertyKey, PropertyValue, SplitPlacement, TagId, TagSnapshot,
-    validate_default, validate_property,
+    PropertyEntry, PropertyError, PropertyKey, PropertyTarget, PropertyValue, SplitPlacement,
+    TagId, TagSnapshot, validate_default, validate_property, validate_property_target,
+    validate_property_write,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -50,8 +51,6 @@ pub enum CoreError {
     BlockNotFound(BlockId),
     #[error("invalid block hierarchy: {0}")]
     InvalidHierarchy(String),
-    #[error("property {key} is not valid on {entity}")]
-    InvalidPropertyTarget { key: String, entity: &'static str },
     #[error("text exceeds the resource limit")]
     TextTooLong,
     #[error("property validation failed: {0}")]
@@ -740,18 +739,18 @@ impl GraphCore {
             }
             Command::SetProperty { entity, key, value } => {
                 self.validate_entity(entity)?;
-                validate_target(entity, key)?;
+                validate_property_write(key, property_target(entity))?;
                 validate_property(key, value, Cardinality::Single)?;
             }
             Command::AddRepeatedProperty { entity, key, value }
             | Command::RemoveRepeatedProperty { entity, key, value } => {
                 self.validate_entity(entity)?;
-                validate_target(entity, key)?;
+                validate_property_write(key, property_target(entity))?;
                 validate_property(key, value, Cardinality::Repeated)?;
             }
             Command::RemoveProperty { entity, key } => {
                 self.validate_entity(entity)?;
-                validate_target(entity, key)?;
+                validate_property_write(key, property_target(entity))?;
             }
             Command::SetTagDefault { tag_id, key, value } => {
                 self.require_tag(tag_id)?;
@@ -1662,32 +1661,10 @@ fn validate_unique_entity_names(doc: &LoroDoc) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn validate_target(entity: &EntityId, key: &PropertyKey) -> Result<(), CoreError> {
-    let valid = valid_target_kind(matches!(entity, EntityId::Page { .. }), key);
-    if valid {
-        Ok(())
-    } else {
-        Err(CoreError::InvalidPropertyTarget {
-            key: key.to_string(),
-            entity: match entity {
-                EntityId::Page { .. } => "page",
-                EntityId::Block { .. } => "block",
-            },
-        })
-    }
-}
-
-fn valid_target_kind(page: bool, key: &PropertyKey) -> bool {
-    if matches!(key.as_str(), "block.page" | "page.title" | "tag") {
-        return false;
-    }
-    if page {
-        true
-    } else {
-        key.as_str() == "system.updated-at"
-            || (!key.as_str().starts_with("page.")
-                && key.as_str() != "journal.date"
-                && !key.as_str().starts_with("system."))
+fn property_target(entity: &EntityId) -> PropertyTarget {
+    match entity {
+        EntityId::Page { .. } => PropertyTarget::Page,
+        EntityId::Block { .. } => PropertyTarget::Block,
     }
 }
 
@@ -1868,7 +1845,7 @@ fn page_metadata(
     let (mut properties, mut issues) = decode_bag_child(&root, "properties");
     quarantined.append(&mut issues);
     properties.retain(|entry| {
-        if valid_target_kind(true, &entry.key) {
+        if validate_property_target(&entry.key, PropertyTarget::Page).is_ok() {
             true
         } else {
             quarantined.push(format!(
@@ -1912,7 +1889,9 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
         if bag_has_key(&properties, "system.deleted-at") {
             return;
         }
-        properties.retain(|entry| entry.key.as_str().starts_with("system."));
+        properties.retain(|entry| {
+            validate_property_target(&entry.key, PropertyTarget::TagMetadata).is_ok()
+        });
         let (mut defaults, mut issues) = decode_bag_child(&tag, "defaults");
         quarantined.append(&mut issues);
         defaults.retain(|entry| validate_default(&entry.key, &entry.value).is_ok());
@@ -1962,7 +1941,7 @@ fn block_snapshot(
     let (mut properties, mut issues) = decode_bag_child(&meta, "properties");
     quarantined.append(&mut issues);
     properties.retain(|entry| {
-        let valid = valid_target_kind(false, &entry.key);
+        let valid = validate_property_target(&entry.key, PropertyTarget::Block).is_ok();
         if !valid {
             quarantined.push(format!(
                 "block:{node}:property:{}:invalid-target",
@@ -2087,6 +2066,43 @@ mod tests {
             "t1",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn model_rejects_generic_writes_to_core_managed_properties() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let before = core.snapshot().unwrap();
+
+        for (index, raw_key) in ["page.kind", "journal.date", "system.deleted-at"]
+            .into_iter()
+            .enumerate()
+        {
+            let value = if raw_key == "journal.date" {
+                PropertyValue::Date(LocalDate::new("2026-08-08").unwrap())
+            } else {
+                PropertyValue::String("user-value".into())
+            };
+            let error = core
+                .execute(
+                    envelope(
+                        &format!("forbidden-{index}"),
+                        Command::SetProperty {
+                            entity: EntityId::Page { id: page() },
+                            key: key(raw_key),
+                            value,
+                        },
+                    ),
+                    "t2",
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                CoreError::Property(PropertyError::CoreManaged(_))
+            ));
+        }
+
+        assert_eq!(core.snapshot().unwrap(), before);
     }
 
     #[test]

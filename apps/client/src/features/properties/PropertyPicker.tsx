@@ -18,10 +18,11 @@ import {
   defaultValueFor,
   definition,
   formatValue,
-  isSystemKey,
+  isGenericProperty,
   REGISTRY,
   validateKey,
   validateValue,
+  validateWriteTarget,
   VALUE_TYPES,
 } from "../../entities/properties";
 import { todayLocalDate } from "../../entities/journal";
@@ -163,14 +164,18 @@ export function PropertyPicker({
   }, [onClose, stage]);
 
   const visibleEntries = useMemo(
-    () => target.bag.filter((entry) => !isSystemKey(entry.key)),
+    () => target.bag.filter((entry) => isGenericProperty(entry.key)),
     [target.bag],
   );
   const candidates = useMemo<Candidate[]>(() => {
     const normalized = query.trim().toLocaleLowerCase();
     const present = new Set(visibleEntries.map((entry) => entry.key));
     const known = REGISTRY
-      .filter((item) => !isSystemKey(item.key))
+      .filter((item) => (
+        isGenericProperty(item.key)
+        && item.write_policy === "user"
+        && item.user_writable_targets.includes(target.kind)
+      ))
       .map((item) => item.key);
     const keys = [...new Set([...visibleEntries.map((entry) => entry.key), ...known])]
       .filter((item) => !normalized || item.toLocaleLowerCase().includes(normalized))
@@ -180,11 +185,11 @@ export function PropertyPicker({
       });
     const result = keys.map((item) => ({ key: item, existing: present.has(item), create: false }));
     const exact = keys.some((item) => item === query.trim());
-    if (normalized && !exact && !isSystemKey(query.trim()) && !validateKey(query.trim())) {
+    if (normalized && !exact && !validateKey(query.trim()) && !validateWriteTarget(query.trim(), target.kind)) {
       result.push({ key: query.trim(), existing: false, create: true });
     }
     return result.slice(0, 12);
-  }, [compare, query, visibleEntries]);
+  }, [compare, query, target.kind, visibleEntries]);
 
   useEffect(() => setActive(0), [query, stage]);
 
@@ -227,7 +232,9 @@ export function PropertyPicker({
   const commit = async (value: PropertyValue) => {
     if (!key || readonly) return;
     const keyIssue = validateKey(key);
-    const issue = keyIssue ?? validateValue(key, value, cardinalityOf(key));
+    const issue = keyIssue
+      ?? validateWriteTarget(key, target.kind)
+      ?? validateValue(key, value, cardinalityOf(key));
     if (issue) {
       setError(validationMessage(issue, message));
       return;
