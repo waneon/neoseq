@@ -32,10 +32,11 @@ into Loro operations and Loro changes back into domain DTOs.
   command.
 - `PropertyKey` has exactly two levels: `builtin.<name>` or `user.<name>`. Names
   use lowercase ASCII kebab-case and the complete key is limited to 128 bytes.
-- `PropertyField` pairs a key and stable shape with zero or more typed values.
-  A present field may be empty; see [Property fields](properties.md).
-- `PropertyValue` is exactly one of finite number, string, page reference,
-  checkbox/boolean, or local date. It never relies on heuristic string parsing.
+- `PropertyField` pairs a key and stable atomic or document shape with its
+  values. A present atomic field may be empty; see [Property fields](properties.md).
+- Atomic `PropertyValue` variants are finite number, string, page reference,
+  checkbox/boolean, or local date. A document value is a schema/version-tagged
+  immutable snapshot backed by finer-grained CRDT containers.
 - `TagId` identifies a graph-scoped tag independently of pages. Page roots and
   blocks carry `TagId` sets outside their property bags.
 
@@ -45,8 +46,8 @@ placeholder.
 
 The property registry is a separately versioned domain contract; registry v1 is
 the checked-in current contract. Each built-in key maps to `shape` and
-`placements`. Shape composes cardinality with one of the five value types and,
-for strings, any/suggested/closed choices. Placements map page, block, tag
+`placements`. Shape composes cardinality with an atomic value type or a
+schema/version-tagged document and, for strings, any/suggested/closed choices. Placements map page, block, tag
 metadata, and tag default targets directly to `user` or `core` access. Their
 absence means the property is invalid there; therefore no separate valid-target,
 write-policy, or defaultability fields exist.
@@ -68,6 +69,8 @@ commands are:
   more block subtrees;
 - ensure, set, clear, or remove typed fields and mutate repeated members through
   the same owner-based command family;
+- edit structured properties through schema-owned semantic commands, including
+  query source splices and stable-ID saved-view mutations;
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities, with tag deletion
   detaching its membership from every page and block;
@@ -117,8 +120,8 @@ Page/block content and tag membership are explicit node fields. Extensible
 features use well-known properties rather than new persisted fields:
 
 - `tag_refs: Set<TagId>` provides graph-scoped tagging outside properties;
-- `builtin.query-source: String` and `builtin.query-language: String` define an executable
-  query;
+- `builtin.query: Document<neoseq.query/v1>` defines an executable query and its
+  shared saved result views;
 - `builtin.task-status: String` represents states such as `todo`, `doing`, and `done`;
 - `builtin.task-scheduled: Date`, `builtin.task-deadline: Date`, and `builtin.task-priority: String`
   drive task views and controls;
@@ -134,11 +137,11 @@ features use well-known properties rather than new persisted fields:
 
 The versioned property-definition registry is the semantic authority for value
 shape and placement access. `builtin.task-status` and `builtin.task-priority` use suggested open
-choices; `builtin.page-kind` and `builtin.query-language` use closed choices without key-specific
-validation branches. Unknown namespaced keys remain valid with any supported
+choices; `builtin.page-kind` uses closed choices without key-specific validation
+branches. Unknown namespaced keys remain valid with any supported atomic
 `PropertyValue`; their namespace determines whether generic commands may write
 them. The registry does not create a second state model: task and
-query services read and write ordinary fields. Client presentation derives its
+query services read and write registered fields. Client presentation derives its
 generic and hidden cases from placements, with sparse feature and metadata
 renderer overrides. New identity or relationship semantics still require an
 explicit architecture decision.

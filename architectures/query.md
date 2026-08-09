@@ -152,10 +152,14 @@ ORDER BY ?deadline ?block
 LIMIT 100
 ```
 
-A block is executable when it has `builtin.query-source: String`. New query blocks also write
-`builtin.query-language: "sparql-1.1/neoseq-v1"`; a missing language uses that default.
-Source and language synchronize as ordinary properties.
-Plans, results, parameters, and editor state do not.
+A block is executable when it has a valid `builtin.query` document with schema
+`neoseq.query` version 1. Its source is collaborative text; language, stable-ID
+saved views, their presentation configuration, and the shared default view
+synchronize inside the graph. Table and list are the current renderers.
+
+The RDF projection emits the query property's presence but does not recursively
+project its document configuration. Plans, results, runtime bindings, revisions,
+loading/error state, private view overrides, and editor drafts do not synchronize.
 
 ## Planning, Reactivity, and Budgets
 

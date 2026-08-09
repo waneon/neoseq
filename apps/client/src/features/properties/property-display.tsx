@@ -13,7 +13,6 @@ import {
   CalendarIcon,
   FileTextIcon,
   HashIcon,
-  LanguagesIcon,
   PlusIcon,
   SearchCodeIcon,
   SquareCheckIcon,
@@ -42,10 +41,8 @@ export function propertyDisplayName(key: string, message: MessageFunction): stri
       return message("task.scheduled");
     case TASK_DEADLINE_KEY:
       return message("task.deadline");
-    case "builtin.query-source":
-      return message("properties.builtin.querySource");
-    case "builtin.query-language":
-      return message("properties.builtin.queryLanguage");
+    case "builtin.query":
+      return message("properties.builtin.query");
     default:
       return key.startsWith(USER_PREFIX) ? key.slice(USER_PREFIX.length) : key;
   }
@@ -64,6 +61,8 @@ export function TypeGlyph({ type }: { type: PropertyValueType | undefined }) {
       return <FileTextIcon data-type-glyph aria-hidden />;
     case "string":
       return <TypeIcon data-type-glyph aria-hidden />;
+    case "document":
+      return <SearchCodeIcon data-type-glyph aria-hidden />;
     default:
       return <PlusIcon data-type-glyph aria-hidden />;
   }
@@ -83,10 +82,8 @@ export function propertyGlyph(key: string, valueType?: PropertyValueType): React
       return <CalendarIcon data-type-glyph aria-hidden />;
     case TASK_DEADLINE_KEY:
       return <AlarmClockIcon data-type-glyph aria-hidden />;
-    case "builtin.query-source":
+    case "builtin.query":
       return <SearchCodeIcon data-type-glyph aria-hidden />;
-    case "builtin.query-language":
-      return <LanguagesIcon data-type-glyph aria-hidden />;
     default:
       return <TypeGlyph type={valueType} />;
   }

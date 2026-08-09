@@ -1197,6 +1197,24 @@ positioned control still routes to the same picker.
   not settled, the chip carries the word `Overdue` in `--danger` ink — a deviation is
   plain, never colour-only, and it falls silent the moment the task settles.
 
+### Query block
+
+A query is a tool embedded in the outline, not a dashboard card. Its quiet
+`--surface-1` frame follows the block's width; the source remains a full-width mono
+field on `--surface-2`, and results begin immediately below it.
+
+- The toolbar reads `SPARQL`, then the saved result view, then revision and Run. The
+  view is a small ghost-button dropdown with radio rows, never a permanent tab strip.
+- Table and List are presentation modes over the same result. Changing one persists
+  the query document's shared default view; it never reruns or rewrites the source.
+- Table keeps variables as the column headings. List repeats variable labels in a
+  narrow mono column so values remain scannable without implying cards or entities
+  that the query did not declare.
+- Results, loading, errors, selection, and scroll position are not saved view data.
+  Switching views changes only the existing result's presentation.
+- At narrow widths the source and result keep the outline width. Tables scroll inline;
+  list values wrap. Toolbar controls remain one row and the revision yields space first.
+
 ### Save slot
 
 | State | Render |

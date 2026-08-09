@@ -19,7 +19,8 @@ export type PropertyValueSpec =
   | "page"
   | "checkbox"
   | "date"
-  | { string: StringSpec };
+  | { string: StringSpec }
+  | { document: { schema: string; version: number } };
 export type PropertyShape =
   | { single: PropertyValueSpec }
   | { set: PropertyValueSpec };
@@ -35,8 +36,7 @@ export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox",
 
 const PROPERTY_KEY_PATTERN = /^(?:builtin|user)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const FEATURE_RENDERERS = new Set([
-  "builtin.query-source",
-  "builtin.query-language",
+  "builtin.query",
   "builtin.task-status",
   "builtin.task-scheduled",
   "builtin.task-deadline",
@@ -59,7 +59,8 @@ function shapeValue(shape: PropertyShape): PropertyValueSpec {
 
 function specValueType(spec: PropertySpec): PropertyValueType {
   const value = shapeValue(spec.shape);
-  return typeof value === "string" ? value : "string";
+  if (typeof value === "string") return value;
+  return "document" in value ? "document" : "string";
 }
 
 function hasUserPlacement(spec: PropertySpec): boolean {
@@ -75,7 +76,7 @@ export function stringChoicesOf(key: string): string[] {
   const spec = definition(key);
   if (!spec) return [];
   const value = shapeValue(spec.shape);
-  if (typeof value === "string" || value.string === "any") return [];
+  if (typeof value === "string" || "document" in value || value.string === "any") return [];
   return "suggested" in value.string ? value.string.suggested : value.string.one_of;
 }
 
@@ -185,6 +186,13 @@ export function validateValue(
   if (value.type === "page" && value.value.trim().length === 0) {
     return { code: "empty_page", message: "Page reference cannot be empty." };
   }
+  if (value.type === "document" || value.type === "unsupported_document") {
+    return {
+      code: "property_type",
+      message: `“${key}” requires a document-specific command.`,
+      values: { key, type: "document" },
+    };
+  }
   const spec = definition(key);
   if (!spec) return null;
   const expectedType = specValueType(spec);
@@ -198,6 +206,7 @@ export function validateValue(
   const valueSpec = shapeValue(spec.shape);
   if (
     typeof valueSpec !== "string"
+    && "string" in valueSpec
     && typeof valueSpec.string !== "string"
     && "one_of" in valueSpec.string
     && value.type === "string"
@@ -249,6 +258,11 @@ export function defaultValueFor(type: PropertyValueType, today: string): Propert
       return { type: "date", value: today };
     case "page":
       return { type: "page", value: "" };
+    case "document":
+      return {
+        type: "document",
+        value: defaultQueryDocument(),
+      };
     default:
       return { type: "string", value: "" };
   }
@@ -260,11 +274,37 @@ export function formatValue(value: PropertyValue): string {
       return value.value ? "checked" : "unchecked";
     case "number":
       return String(value.value);
+    case "document":
+      return value.value.schema;
+    case "unsupported_document":
+      return `${value.value.schema} v${value.value.version}`;
     default:
       return value.value;
   }
 }
 
 export function sameValue(left: PropertyValue, right: PropertyValue): boolean {
+  if (
+    left.type === "document"
+    || right.type === "document"
+    || left.type === "unsupported_document"
+    || right.type === "unsupported_document"
+  ) {
+    return left.type === right.type && JSON.stringify(left.value) === JSON.stringify(right.value);
+  }
   return left.type === right.type && left.value === right.value;
+}
+
+export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type: "document" }>["value"] {
+  return {
+    schema: "neoseq.query",
+    version: 1,
+    source,
+    language: "sparql-1.1/neoseq-v1",
+    views: [
+      { id: "table", name: "Table", kind: "table", position: 0, visible_variables: [] },
+      { id: "list", name: "List", kind: "list", position: 1, visible_variables: [] },
+    ],
+    default_view_id: "table",
+  };
 }

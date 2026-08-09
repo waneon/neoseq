@@ -11,7 +11,7 @@ import {
 /** Builtin keys are searched by storage name but read by their product names. */
 const DISPLAY_NAME: Record<string, string> = {
   "builtin.task-status": "Status",
-  "builtin.query-source": "Query",
+  "builtin.query": "Query",
 };
 
 async function setKnownProperty(page: Page, key: string, value: string): Promise<void> {
@@ -51,12 +51,13 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await openBlockProperties(page, 1);
   await setKnownProperty(
     page,
-    "builtin.query-source",
+    "builtin.query",
     "PREFIX neo: <urn:neoseq:vocab:v1:> PREFIX prop: <urn:neoseq:property:> SELECT ?content WHERE { ?block prop:builtin.task-status \"done\"; neo:content ?content }",
   );
-  await expect(page.getByTestId("prop-builtin.query-language")).toContainText("sparql-1.1/neoseq-v1");
-
   const query = page.getByTestId("query-block");
   await expect(query.getByLabel("SPARQL source")).toBeVisible();
   await expect(query).toContainText("Ship the query engine");
+  await expect(query.getByTestId("query-view-trigger")).toContainText("Table");
+  await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "List");
+  await expect(query.getByTestId("query-list")).toBeVisible();
 });

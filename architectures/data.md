@@ -14,8 +14,9 @@ tags: Map<TagId, TagRecord>
 ```
 
 The Loro document plus its verified update/checkpoint history is the only
-canonical representation. RDF triples, text caches, query plans, and UI state
-are disposable projections. There is no migration ledger in the current
+canonical representation. RDF triples, text caches, query plans, and session UI
+state are disposable projections. Shared saved-view definitions are canonical
+document-property data. There is no migration ledger in the current
 document; Step 9 introduces migration metadata alongside the first real schema
 transition.
 
@@ -57,16 +58,21 @@ deletion keeps the tag record as a tombstone but removes its ID from every node
 in the same transaction. Snapshot projection exposes only references to live
 tags, quarantining stale or concurrently merged dangling IDs.
 
-A property bag maps each validated key to a stable field marker plus zero or
-more stable value slots. The marker records type and cardinality, so clearing
-values preserves an empty field. Removing the property removes both marker and
-values. Each value is one tagged scalar:
+A property bag maps each validated key to a stable field marker. Atomic fields
+own zero or more stable value slots; the marker records type and cardinality so
+clearing values preserves an empty field. Atomic values are:
 
 - finite number;
 - string;
 - page reference;
 - checkbox/boolean;
 - local date.
+
+Schema-owned document fields instead own a mergeable map below a document slot.
+`builtin.query` stores source as `Text` and each stable-ID result view as its own
+map, so source edits, view selection, and edits to different views merge without
+replacing one serialized object. Removing any property deletes its marker and
+all atomic slots or document containers owned by the key.
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
 the v1 authority for built-in shapes, placements, and `user` versus `core`

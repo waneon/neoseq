@@ -1,87 +1,107 @@
-# Property Fields
+# Property Fields and Documents
 
 This document defines the shared property model used by the domain, graph core,
 CorePort snapshots, query projection, and clients.
 
-## Field Model
+## Two Property Shapes
 
-A property bag is a key-unique collection of `PropertyField` values:
+A property bag is a key-unique collection of `PropertyField` values. A field has
+a stable marker containing its key, value type, and cardinality. Its value is
+one of two shapes:
+
+- an atomic single or set containing finite numbers, strings, page references,
+  checkboxes, or local dates;
+- a single schema-owned document whose internal CRDT containers define its
+  merge granularity.
+
+Atomic fields retain the v1 DTO shape:
 
 ```text
-PropertyField {
-  key
-  value_type
-  cardinality: single | set
-  values: PropertyValue[]
-}
+PropertyField { key, value_type, cardinality, values: PropertyValue[] }
 ```
 
-Field presence and value presence are independent. `values: []` is a present
-property with no value; absence of the field means the property is not present.
-There is no null, empty string, or synthetic `Empty` value. A single field has
-zero or one value, while a set field has zero or more distinct values. Every
-stored value must match the field's declared type and registry shape.
+Field presence and value presence are independent for atomic properties.
+`values: []` is a present empty field; absence of the marker means the property
+is absent. A single field has zero or one value and a set has distinct values.
 
-Known keys derive type, cardinality, placement, and write access from the
-property registry. A newly created unknown `user.*` field records the shape
-chosen by its command, after which that shape is stable. Unknown `builtin.*`
-fields remain readable but are not generically writable.
+A document snapshot is carried as one tagged `PropertyValue` across CorePort,
+but it is not stored as one JSON value. It includes `schema` and `version` so
+domain validation and the client renderer can dispatch without inspecting UI
+implementation details. Generic atomic commands cannot write or clear document
+properties; they may remove the complete field.
+
+## Registry and Schema Ownership
+
+[`../contracts/property-registry.json`](../contracts/property-registry.json)
+defines shape, placement, and write access. Known built-ins have a compiled
+domain schema. Unknown built-ins remain preserved and read-only; unknown
+`user.*` fields remain atomic and editable with their command-selected shape.
+
+Document schemas have coordinated handlers at existing boundaries:
+
+- `domain` owns DTOs, validation, and semantic commands;
+- `graph-core` owns the schema's Loro container layout and mutations;
+- `query` explicitly chooses any semantic RDF projection;
+- the client maps the schema to its renderer and editor.
+
+The registry never stores React component names, CSS, icons, or localized copy.
+An unknown future document version is preserved by the CRDT document and is not
+generically editable by an older client.
+
+## Query Document
+
+`builtin.query` is `neoseq.query` version 1. Its snapshot contains source,
+language, stable-ID views, view order positions, per-view variable visibility,
+and a default view ID. Its canonical Loro layout is:
+
+```text
+d:builtin.query: Map
+  schema, version, language, default_view_id
+  source: Text
+  views: Map<QueryViewId, Map>
+    name, kind, position, visible_variables, deleted
+```
+
+Source edits use Unicode splice commands and merge as collaborative text. View
+records merge independently by stable ID. Position ties sort by ID, making
+concurrent inserts deterministic. Removing a view writes its `deleted` marker,
+so edits to its other fields do not implicitly resurrect it; removing the
+default selects the first remaining ordered view in the same transaction.
+
+The current built-in views are `table` and `list`. Additional saved views use
+the same record contract rather than adding property keys or storage roots.
 
 ## Owners and Commands
 
-One `PropertyOwner` identifies every user-writable bag:
+Page, block, and tag-default bags share atomic property commands. Target policy
+comes from the owner and registry. Document schemas add semantic commands; the
+query document currently supports source set/splice, view put/remove, and
+default-view selection. One command remains one Loro transaction, undo item,
+durable update, and semantic event.
 
-- page;
-- block, including its owning page;
-- tag default.
+Tag defaults materialize only schemas whose registry contract allows copying.
+The query document has no tag-default placement. Atomic defaults copy their
+complete marker and current values only when the target key is absent; removing
+a tag or later changing its defaults is not retroactive.
 
-The same commands apply to every owner:
+## Storage, Projection, and State Boundaries
 
-| Intent | Command | Result |
-| --- | --- | --- |
-| create an empty field | `ensure_property` | field exists with `values: []` |
-| set a single value | `set_property` | field exists with one value |
-| clear values | `clear_property_values` | field remains, values become empty |
-| remove a field | `remove_property` | field and all values are absent |
-| add a set member | `add_repeated_property` | member is present idempotently |
-| remove a set member | `remove_repeated_property` | member is absent; field remains |
+Atomic fields use one marker plus separate single/set slots. Document fields use
+one marker plus a schema-owned mergeable container. Snapshot decoding joins
+them and quarantines malformed or contract-invalid data. Removing a field
+deletes its marker and all atomic or document storage below that key.
 
-Target-specific validation is selected from the owner. Tag defaults do not
-have a parallel command family or a special value representation. Commands are
-one transaction and therefore preserve the existing undo, redo, persistence,
-touch, and refresh boundaries.
+RDF always emits property presence. Atomic values emit typed predicates.
+Document values are not recursively converted to RDF; each schema must opt into
+a bounded semantic projection so presentation settings do not pollute graph
+semantics.
 
-## Tag Default Materialization
+Saved query source, shared views, and the shared default view are graph data and
+synchronize with the graph. Query results, revisions, loading state, selection,
+scroll, and editor drafts are derived or session state and never synchronize.
+User-private overrides such as a person's last-opened view belong to a separate
+user preference sync unit when cross-device preference sync is introduced.
 
-Adding a tag copies each default field whose key is absent from the target.
-The complete shape and current values are copied, so an empty default creates an
-empty property field on the page or block. A present empty field counts as an
-existing field and is never overwritten by another default.
-
-Defaults are materialized, not dynamically inherited. Removing a tag does not
-remove copied fields, and later default changes are not retroactive.
-
-## Storage and Projection
-
-The Loro bag stores one stable field marker per key and separate stable value
-slots. The marker owns the key, value type, and cardinality; it carries no
-inline values. A field marker can therefore survive clearing its value slots.
-Removing a property deletes both its marker and value slots. Snapshot decoding
-joins markers and values and quarantines orphaned, malformed, or shape-invalid
-slots.
-
-The RDF projection emits a property-presence relation for every field and emits
-the existing typed value predicate once per value. Empty fields consequently
-remain queryable without inventing an RDF literal.
-
-## Client Contract
-
-Clients render an empty field as “No value” and keep it editable. The picker
-offers separate actions to add without a value, clear values, and remove the
-property. Specialized task and query renderers are optional views over the same
-field; empty specialized fields remain reachable through the generic chip path.
-
-During the pre-release v1 phase this model replaces the earlier entry-per-value
-encoding in place. No schema-version bump or migration is provided: snapshots
-written with the superseded encoding are intentionally incompatible and should
-be discarded or recreated.
+During pre-release development this contract replaces the earlier
+`builtin.query-source` and `builtin.query-language` properties in place. No
+migration or dual-read/write path is supported.

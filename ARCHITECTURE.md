@@ -107,8 +107,9 @@ deletion, retry, and test controls are deliberately outside CorePort.
   explicit tag references.
 - Page and tag names are unique in separate normalized graph-wide namespaces.
 - Journal IDs derive deterministically from graph ID and local date.
-- A property field owns a key, value type, cardinality, and zero or more atomic
-  tagged values. Empty fields are first-class; repeated values have stable slots.
+- A property field is either an atomic single/set or a schema-owned CRDT
+  document. Empty atomic fields are first-class; repeated values and document
+  children have stable identities and independent merge granularity.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
   current v1 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined
@@ -117,8 +118,9 @@ deletion, retry, and test controls are deliberately outside CorePort.
 - Deleting a page is a soft delete and page references remain resolvable as
   tombstones. Deleting a tag soft-deletes its record and atomically detaches
   that tag from every page root and block; copied default-property values remain.
-- RDF triples, text caches, query plans, UI selection, and connection state are
-  derived or ephemeral and never canonical graph data.
+- Shared saved-view definitions are graph data. RDF triples, query results and
+  plans, private presentation preferences, UI selection, and connection state
+  are derived, user-scoped, or ephemeral and never canonical graph data.
 
 One user intent becomes one domain command, one Loro transaction, one local undo
 item, one durable update, and one semantic event. The runtime validates complete

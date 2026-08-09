@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { stringValue } from "../../src/core-port/snapshot";
+import { queryDocument, stringValue } from "../../src/core-port/snapshot";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
 async function mountProjection() {
@@ -39,10 +39,9 @@ describe("query and task projections", () => {
       frontier: "fake-3",
     };
     await session.execute({
-      type: "set_property",
+      type: "set_query_source",
       owner: { kind: "block", page_id: "home", id: "b-1" },
-      key: "builtin.query-source",
-      value: { type: "string", value: "SELECT ?block ?status WHERE { ?block ?p ?status }" },
+      source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 
     expect(await screen.findByLabelText("SPARQL source")).toHaveValue(
@@ -50,6 +49,13 @@ describe("query and task projections", () => {
     );
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
     expect(screen.getByTestId("query-block")).toHaveTextContent("revision 3");
+
+    await chooseFromMenu(userEvent.setup(), screen.getByTestId("query-view-trigger"), "List");
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && queryDocument(block.properties)?.default_view_id).toBe("list");
+    });
+    expect(screen.getByTestId("query-list")).toBeInTheDocument();
   });
 
   it("preserves unknown task values and writes the status through the inline control", async () => {

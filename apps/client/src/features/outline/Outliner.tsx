@@ -56,7 +56,7 @@ import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
-import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
+import { findBlock, findPage, queryDocument, stringValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions, type HistoryRevealRequest } from "../history/context";
@@ -2888,7 +2888,7 @@ function BlockRow({
             onEdit={(key, anchor) => editor.openProperties(row.block.id, key, anchor)}
           />
         )}
-        {!pending && stringValue(row.block.properties, "builtin.query-source") !== undefined && (
+        {!pending && queryDocument(row.block.properties) !== undefined && (
           <QueryBlock pageId={editor.pageId} block={row.block} />
         )}
       </div>

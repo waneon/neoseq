@@ -84,7 +84,7 @@ imported directly by the client and Rust domain. Placement access determines
 whether a property is hidden, read-only, or editable. Sparse renderer maps add
 specialized controls without becoming a schema authority:
 
-- `builtin.query-source` provides a SPARQL editor and result view;
+- `builtin.query` provides a SPARQL editor and schema-owned saved result views;
 - `builtin.task-*` provides workflow, priority, and date controls;
 - registered lifecycle and page built-ins appear as read-only page information;
 - unknown `user.*` keys use the generic typed editor, while unknown
@@ -98,9 +98,10 @@ The shared picker distinguishes a present empty field from an absent property.
 It can ensure an empty field, clear only its values, or remove the field, and
 renders empty fields as “No value” on every owner surface.
 
-Removing a specialized renderer never hides or destroys its values. New
-non-structural features add registry entries and projections, not frontend data
-stores or new CRDT roots.
+Document renderers receive immutable schema snapshots and issue semantic
+commands; they never mutate JSON or Loro containers. Unknown document versions
+remain visible as unsupported read-only data. Removing a specialized renderer
+never hides or destroys its values.
 
 ## Commands, Navigation, and Errors
 
@@ -164,6 +165,11 @@ shared mutable graph store.
 locale, journal timezone/date format, and shortcut overrides. Graph display
 names belong to the browser graph directory; graph content and metadata belong
 to the core.
+
+Shared saved-view definitions and the graph's default view belong to the query
+document. A person's last-opened view and personal layout overrides remain
+browser-local until a separate user-private preference sync unit exists. Query
+results, selection, scroll, loading state, and drafts are session-only.
 
 The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script

@@ -182,9 +182,11 @@ tag, inline creation (`ensure_tag`), confirmed graph-wide deletion
 (`delete_tag`, which detaches every page and block membership), and the picker
 on a tag target for defaults.
 
-The query projection remains a view over well-known properties with the
-generic chips as its edit route; the task facts' edit routes are their own
-chips, which open the same picker.
+The query projection remains a view over the well-known `builtin.query`
+document. The picker creates it through `set_query_source`, while its mounted
+query block edits source with splice commands and selects saved views through
+document-specific commands. Task facts retain their own chips, which open the
+same picker.
 
 ## Command Mapping
 
@@ -199,9 +201,10 @@ The picker maps user intent onto the existing domain commands:
 | Add a repeated member           | `add_repeated_property`    |
 | Remove a repeated member        | `remove_repeated_property` |
 
-The existing `builtin.query-source` orchestration remains: a successful source write
-also materializes the default `builtin.query-language` when absent. This still uses a
-second ordinary core command; no batch command or schema change is introduced.
+`builtin.query` is the one document exception to the atomic mapping. Setting its
+source creates the complete valid document with stable table/list views in one
+command. Generic commands cannot replace or clear its document value; removing
+the complete field still uses `remove_property`.
 
 ## Snapshot and Lifecycle Rules
 
@@ -260,7 +263,7 @@ implementations.
 
 ## Verification Boundary
 
-- Component tests cover all five value types, custom keys, validation, direct
+- Component tests cover all five atomic value types, the query document, custom keys, validation, direct
   row editing, slash-token removal, slash grouping and one-keystroke status
   writes, the inline status control and task chips, the natural-language date
   editor, known enums, and tag separation.

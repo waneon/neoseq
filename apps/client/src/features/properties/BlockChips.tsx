@@ -61,6 +61,13 @@ export function BlockChips({
     (status === undefined || !isSettledStatus(status));
 
   const describe = (value: PropertyValue): string => {
+    if (value.type === "document") {
+      const view = value.value.views.find((item) => item.id === value.value.default_view_id);
+      return view?.name ?? value.value.schema;
+    }
+    if (value.type === "unsupported_document") {
+      return `${value.value.schema} v${value.value.version}`;
+    }
     if (value.type === "checkbox") {
       return value.value ? message("common.yes") : message("common.no");
     }

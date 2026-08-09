@@ -1,14 +1,35 @@
 // Immutable DTO shapes produced by the Rust core (`domain::GraphSnapshot`).
 // The UI renders these views and never mutates them locally.
 
-export type PropertyValueType = "number" | "string" | "page" | "checkbox" | "date";
+export type PropertyValueType = "number" | "string" | "page" | "checkbox" | "date" | "document";
+
+export type QueryViewKind = "table" | "list";
+
+export interface QueryView {
+  id: string;
+  name: string;
+  kind: QueryViewKind;
+  position: number;
+  visible_variables: string[];
+}
+
+export interface PropertyDocument {
+  schema: "neoseq.query";
+  version: 1;
+  source: string;
+  language: "sparql-1.1/neoseq-v1";
+  views: QueryView[];
+  default_view_id: string;
+}
 
 export type PropertyValue =
   | { type: "number"; value: number }
   | { type: "string"; value: string }
   | { type: "page"; value: string }
   | { type: "checkbox"; value: boolean }
-  | { type: "date"; value: string };
+  | { type: "date"; value: string }
+  | { type: "document"; value: PropertyDocument }
+  | { type: "unsupported_document"; value: { schema: string; version: number } };
 
 export interface PropertyField {
   key: string;
@@ -97,6 +118,13 @@ export function singleValue(bag: PropertyField[], key: string): PropertyValue | 
 export function stringValue(bag: PropertyField[], key: string): string | undefined {
   const value = singleValue(bag, key);
   return value?.type === "string" ? value.value : undefined;
+}
+
+export function queryDocument(bag: PropertyField[]): PropertyDocument | undefined {
+  const value = singleValue(bag, "builtin.query");
+  return value?.type === "document" && value.value.schema === "neoseq.query"
+    ? value.value
+    : undefined;
 }
 
 export function dateValue(bag: PropertyField[], key: string): string | undefined {

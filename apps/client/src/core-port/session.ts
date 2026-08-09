@@ -329,6 +329,11 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "remove_property":
     case "add_repeated_property":
     case "remove_repeated_property":
+    case "set_query_source":
+    case "splice_query_source":
+    case "put_query_view":
+    case "remove_query_view":
+    case "set_query_default_view":
       return command.owner.kind === "tag_default"
         ? { kind: "summary" }
         : {

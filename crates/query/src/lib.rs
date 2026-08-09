@@ -541,6 +541,11 @@ fn add_properties(
                 PropertyValue::Date(value) => {
                     Literal::new_typed_literal(value.as_str(), xsd::DATE).into()
                 }
+                // Document properties are canonical feature configuration, not
+                // scalar graph facts. Their field marker above remains
+                // queryable, while each schema owns any future semantic
+                // projection explicitly.
+                PropertyValue::Document(_) | PropertyValue::UnsupportedDocument(_) => continue,
             };
             triples.insert(Triple::new(subject.clone(), predicate.clone(), value));
         }

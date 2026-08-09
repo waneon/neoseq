@@ -213,8 +213,7 @@ export interface MessageArgumentMap {
   "properties.addTag": undefined;
   "properties.back": undefined;
   "properties.block": undefined;
-  "properties.builtin.queryLanguage": undefined;
-  "properties.builtin.querySource": undefined;
+  "properties.builtin.query": undefined;
   "properties.checked": undefined;
   "properties.choose": undefined;
   "properties.clear": undefined;
@@ -253,6 +252,7 @@ export interface MessageArgumentMap {
   "properties.tomorrow": undefined;
   "properties.type.checkbox": undefined;
   "properties.type.date": undefined;
+  "properties.type.document": undefined;
   "properties.type.number": undefined;
   "properties.type.page": undefined;
   "properties.type.string": undefined;
@@ -268,6 +268,9 @@ export interface MessageArgumentMap {
   "query.running": undefined;
   "query.section": undefined;
   "query.source": undefined;
+  "query.view": undefined;
+  "query.viewList": undefined;
+  "query.viewTable": undefined;
   "save.notSaved": undefined;
   "save.saved": undefined;
   "save.saving": undefined;

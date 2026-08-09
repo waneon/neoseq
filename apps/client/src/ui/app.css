@@ -1862,6 +1862,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   margin-left: var(--sp-1);
 }
 
+.query-toolbar .query-view-trigger {
+  width: auto;
+  max-width: 148px;
+  margin-left: var(--sp-1);
+  padding-inline: var(--sp-1);
+  color: var(--ink-2);
+}
+
+.query-view-trigger svg {
+  flex: none;
+}
+
 .query-toolbar svg {
   width: 14px;
   height: 14px;
@@ -1943,6 +1955,42 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .query-table td {
+  color: var(--ink-2);
+}
+
+.query-list {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.query-list > li {
+  display: grid;
+  gap: 2px;
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.query-list > li > span {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.35fr) minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+
+.query-list b {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-list span span {
+  overflow-wrap: anywhere;
   color: var(--ink-2);
 }
 

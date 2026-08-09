@@ -38,6 +38,7 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
+import { diffSplice } from "../outline/text-diff";
 import { PageAutocomplete } from "./PageAutocomplete";
 import {
   propertyDisplayName,
@@ -103,7 +104,12 @@ export function PropertyPicker({
   // Placement checks speak the registry's language: a tag target writes the
   // `tag_default` placement, never a bag of its own.
   const writeTarget = target.kind === "tag" ? "tag_default" : target.kind;
-  const writeDisabled = readonly || (key !== null && !canUserWrite(key, writeTarget));
+  const selectedUnsupported = key !== null && target.bag
+    .find((field) => field.key === key)
+    ?.values.some((value) => value.type === "unsupported_document");
+  const writeDisabled = readonly
+    || selectedUnsupported
+    || (key !== null && !canUserWrite(key, writeTarget));
 
   const reposition = useCallback(() => {
     const rect = anchor?.getBoundingClientRect();
@@ -258,6 +264,23 @@ export function PropertyPicker({
 
   const commit = async (value: PropertyValue) => {
     if (!key || writeDisabled) return;
+    if (key === "builtin.query" && value.type === "document") {
+      const current = target.bag
+        .find((field) => field.key === key)
+        ?.values.find((item) => item.type === "document");
+      const splice = current?.type === "document"
+        ? diffSplice(current.value.source, value.value.source)
+        : null;
+      if (current?.type === "document" && !splice) {
+        onClose();
+        return;
+      }
+      const saved = await run(current?.type === "document" && splice
+        ? { type: "splice_query_source", owner, ...splice }
+        : { type: "set_query_source", owner, source: value.value.source });
+      if (saved) onClose();
+      return;
+    }
     const keyIssue = validateKey(key);
     const existing = target.bag.find((field) => field.key === key);
     const cardinality = existing?.cardinality === "set" ? "repeated" : cardinalityOf(key);
@@ -273,20 +296,16 @@ export function PropertyPicker({
       ? { type: "add_repeated_property", owner, key, value }
       : { type: "set_property", owner, key, value });
     if (!saved) return;
-    if (target.kind !== "tag" && key === "builtin.query-source" && !target.bag.some((entry) => entry.key === "builtin.query-language")) {
-      const languageSaved = await run({
-        type: "set_property",
-        owner,
-        key: "builtin.query-language",
-        value: { type: "string", value: "sparql-1.1/neoseq-v1" },
-      });
-      if (!languageSaved) return;
-    }
     onClose();
   };
 
   const ensureEmpty = async () => {
     if (!key || writeDisabled) return;
+    if (key === "builtin.query") {
+      const saved = await run({ type: "set_query_source", owner, source: "" });
+      if (saved) onClose();
+      return;
+    }
     const cardinality = cardinalityOf(key) === "repeated" ? "set" : "single";
     const saved = await run({
       type: "ensure_property",
@@ -342,6 +361,13 @@ export function PropertyPicker({
     ? validateKey(storageKeyForQuery(query))
     : null;
   const describeValue = (value: PropertyValue): string => {
+    if (value.type === "document") {
+      const view = value.value.views.find((item) => item.id === value.value.default_view_id);
+      return view?.name ?? value.value.schema;
+    }
+    if (value.type === "unsupported_document") {
+      return `${value.value.schema} v${value.value.version}`;
+    }
     if (value.type === "checkbox") return value.value
       ? message("properties.checked")
       : message("properties.unchecked");
@@ -557,7 +583,7 @@ export function PropertyPicker({
                 {message("properties.addEmpty")}
               </Button>
             )}
-            {selectedField && selectedValues.length > 0 && (
+            {selectedField && selectedValues.length > 0 && type !== "document" && (
               <Button variant="secondary" onClick={() => void clearValues()} disabled={writeDisabled || committing}>
                 {message("properties.clear")}
               </Button>
@@ -623,6 +649,24 @@ function ValueInput({
         placeholder={message("properties.pickPage")}
         allowCreate
         onPick={(id) => onCommit({ type: "page", value: id })}
+      />
+    );
+  }
+  if (type === "document") {
+    const document = value.type === "document" ? value.value : null;
+    return (
+      <Input
+        autoFocus
+        aria-label={label}
+        value={document?.source ?? ""}
+        readOnly={readonly}
+        onChange={(event) => {
+          if (!document) return;
+          onChange({ type: "document", value: { ...document, source: event.target.value } });
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing) onCommit(value);
+        }}
       />
     );
   }

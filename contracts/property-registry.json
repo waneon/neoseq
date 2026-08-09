@@ -1,12 +1,8 @@
 {
   "schema": 1,
   "properties": {
-    "builtin.query-source": {
-      "shape": {"single": {"string": "any"}},
-      "placements": {"page": "user", "block": "user"}
-    },
-    "builtin.query-language": {
-      "shape": {"single": {"string": {"one_of": ["sparql-1.1/neoseq-v1"]}}},
+    "builtin.query": {
+      "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
       "placements": {"page": "user", "block": "user"}
     },
     "builtin.task-status": {

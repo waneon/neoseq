@@ -1,7 +1,7 @@
 use crate::GraphCore;
 use domain::{
     BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, PageId,
-    PropertyKey, PropertyOwner, PropertyValue, TagId,
+    PropertyKey, PropertyOwner, PropertyValue, QueryViewId, TagId,
 };
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
@@ -422,6 +422,101 @@ fn convergence_deleted_tag_is_not_published_after_concurrent_add() {
             entry.key.as_str() == "builtin.task-priority"
                 && entry.values == [PropertyValue::String("high".into())]
         }));
+    }
+    assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
+}
+
+#[test]
+fn convergence_query_text_and_view_choice_merge_independently() {
+    let graph = GraphId::new("query-document-convergence").unwrap();
+    let page = PageId::new("page").unwrap();
+    let mut base = GraphCore::new(graph.clone(), 1, "base").unwrap();
+    execute(
+        &mut base,
+        &graph,
+        1,
+        0,
+        Command::EnsurePage {
+            page_id: page.clone(),
+            title: "Page".into(),
+        },
+    );
+    let block = base
+        .execute(
+            CommandEnvelope {
+                graph_id: graph.clone(),
+                command_id: CommandId::new("query-block").unwrap(),
+                command: Command::InsertBlock {
+                    page_id: page.clone(),
+                    parent: None,
+                    index: 0,
+                    markdown: "Query".into(),
+                },
+            },
+            "base",
+        )
+        .unwrap()
+        .result
+        .created_block
+        .unwrap();
+    let owner = PropertyOwner::Block {
+        page_id: page.clone(),
+        id: block,
+    };
+    execute(
+        &mut base,
+        &graph,
+        1,
+        2,
+        Command::SetQuerySource {
+            owner: owner.clone(),
+            source: "SELECT * WHERE {}".into(),
+        },
+    );
+    let snapshot = base.export_snapshot().unwrap();
+    let mut left = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
+    let mut right = GraphCore::from_snapshot(graph.clone(), 3, &snapshot).unwrap();
+
+    execute(
+        &mut left,
+        &graph,
+        2,
+        0,
+        Command::SpliceQuerySource {
+            owner: owner.clone(),
+            index: 17,
+            delete: 0,
+            insert: " LIMIT 5".into(),
+        },
+    );
+    execute(
+        &mut right,
+        &graph,
+        3,
+        0,
+        Command::SetQueryDefaultView {
+            owner,
+            view_id: QueryViewId::new("list").unwrap(),
+        },
+    );
+
+    let left_update = left.export_all().unwrap();
+    let right_update = right.export_all().unwrap();
+    left.import_remote(&right_update).unwrap();
+    right.import_remote(&left_update).unwrap();
+
+    for core in [&left, &right] {
+        let page = core.snapshot().unwrap().pages.remove(0);
+        let field = page.blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == "builtin.query")
+            .unwrap();
+        let PropertyValue::Document(document) = &field.values[0] else {
+            panic!("query document was not preserved")
+        };
+        assert_eq!(document.source, "SELECT * WHERE {} LIMIT 5");
+        assert_eq!(document.default_view_id.as_str(), "list");
     }
     assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
 }

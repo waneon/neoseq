@@ -38,6 +38,7 @@ import type {
   TagSnapshot,
 } from "../snapshot";
 import {
+  defaultQueryDocument,
   sameValue,
   validateFieldShape,
   validateValue,
@@ -523,7 +524,7 @@ export class FakeCorePort implements SessionPort {
           ?? validateValue(command.key, command.value, "repeated");
         if (issue) fail("internal", issue.message);
         const bag = this.propertyOwnerBag(command.owner);
-        const field = ensureField(bag, command.key, command.value.type, "set");
+        const field = ensureField(bag, command.key, propertyValueType(command.value), "set");
         if (!field.values.some((value) => sameValue(value, command.value))) {
           field.values.push(command.value);
         }
@@ -537,6 +538,59 @@ export class FakeCorePort implements SessionPort {
           const index = field.values.findIndex((value) => sameValue(value, command.value));
           if (index >= 0) field.values.splice(index, 1);
         }
+        break;
+      }
+      case "set_query_source": {
+        const bag = this.propertyOwnerBag(command.owner);
+        let field = bag.find((item) => item.key === "builtin.query");
+        if (!field) {
+          field = {
+            key: "builtin.query",
+            value_type: "document",
+            cardinality: "single",
+            values: [{ type: "document", value: defaultQueryDocument(command.source) }],
+          };
+          bag.push(field);
+        } else {
+          const value = field.values[0];
+          if (value?.type !== "document") fail("internal", "query document is invalid");
+          value.value.source = command.source;
+        }
+        break;
+      }
+      case "splice_query_source": {
+        const document = this.requireQuery(command.owner);
+        const points = Array.from(document.source);
+        if (command.index + command.delete > points.length) {
+          fail("internal", "query source splice is out of bounds");
+        }
+        points.splice(command.index, command.delete, ...Array.from(command.insert));
+        document.source = points.join("");
+        break;
+      }
+      case "put_query_view": {
+        const document = this.requireQuery(command.owner);
+        const index = document.views.findIndex((view) => view.id === command.view.id);
+        if (index >= 0) document.views[index] = clone(command.view);
+        else document.views.push(clone(command.view));
+        document.views.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+        break;
+      }
+      case "remove_query_view": {
+        const document = this.requireQuery(command.owner);
+        if (document.views.length === 1) fail("internal", "the last query view cannot be removed");
+        document.views = document.views.filter((view) => view.id !== command.view_id);
+        if (document.default_view_id === command.view_id) {
+          document.default_view_id = document.views[0].id;
+        }
+        break;
+      }
+      case "set_query_default_view": {
+        const document = this.requireQuery(command.owner);
+        if (!document.views.some((view) => view.id === command.view_id)) {
+          fail("internal", "default query view does not exist");
+        }
+        document.default_view_id = command.view_id;
         break;
       }
       case "add_tag": {
@@ -717,6 +771,11 @@ export class FakeCorePort implements SessionPort {
       case "remove_property":
       case "add_repeated_property":
       case "remove_repeated_property":
+      case "set_query_source":
+      case "splice_query_source":
+      case "put_query_view":
+      case "remove_query_view":
+      case "set_query_default_view":
         return ownerEntry(command.owner);
       case "add_tag":
       case "remove_tag":
@@ -835,6 +894,11 @@ export class FakeCorePort implements SessionPort {
       case "remove_property":
       case "add_repeated_property":
       case "remove_repeated_property":
+      case "set_query_source":
+      case "splice_query_source":
+      case "put_query_view":
+      case "remove_query_view":
+      case "set_query_default_view":
         this.touchPropertyOwner(command.owner, timestamp);
         break;
       case "add_tag":
@@ -873,6 +937,13 @@ export class FakeCorePort implements SessionPort {
     } else {
       this.touchEntity(owner, timestamp);
     }
+  }
+
+  private requireQuery(owner: PropertyOwnerRef) {
+    const field = this.propertyOwnerBag(owner).find((item) => item.key === "builtin.query");
+    const value = field?.values[0];
+    if (value?.type !== "document") fail("internal", "query document does not exist");
+    return value.value;
   }
 
   private touchPage(pageId: string, timestamp: string): void {
@@ -1104,7 +1175,11 @@ function ensureField(
 }
 
 function setSingle(bag: PropertyField[], key: string, value: PropertyValue): void {
-  ensureField(bag, key, value.type, "single").values = [value];
+  ensureField(bag, key, propertyValueType(value), "single").values = [value];
+}
+
+function propertyValueType(value: PropertyValue): PropertyField["value_type"] {
+  return value.type === "unsupported_document" ? "document" : value.type;
 }
 
 function removeAll(bag: PropertyField[], key: string): void {

@@ -1,6 +1,6 @@
 use crate::{
     BlockId, Cardinality, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey,
-    PropertyType, PropertyValue, TagId,
+    PropertyType, PropertyValue, QueryViewId, TagId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -131,6 +131,28 @@ pub enum Command {
         key: PropertyKey,
         value: PropertyValue,
     },
+    SetQuerySource {
+        owner: PropertyOwner,
+        source: String,
+    },
+    SpliceQuerySource {
+        owner: PropertyOwner,
+        index: usize,
+        delete: usize,
+        insert: String,
+    },
+    PutQueryView {
+        owner: PropertyOwner,
+        view: QueryView,
+    },
+    RemoveQueryView {
+        owner: PropertyOwner,
+        view_id: QueryViewId,
+    },
+    SetQueryDefaultView {
+        owner: PropertyOwner,
+        view_id: QueryViewId,
+    },
     AddTag {
         entity: EntityId,
         tag_id: TagId,
@@ -141,6 +163,22 @@ pub enum Command {
     },
     Undo,
     Redo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryViewKind {
+    Table,
+    List,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryView {
+    pub id: QueryViewId,
+    pub name: String,
+    pub kind: QueryViewKind,
+    pub position: u32,
+    pub visible_variables: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,9 +1,11 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
     GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, PageId, PageSnapshot,
-    PageSummary, PropertyBag, PropertyError, PropertyField, PropertyKey, PropertyOwner,
-    PropertyTarget, PropertyType, PropertyValue, SplitPlacement, TagId, TagSnapshot,
-    validate_property, validate_property_field, validate_property_shape, validate_property_target,
+    PageSummary, PropertyBag, PropertyDocument, PropertyDocumentHeader, PropertyError,
+    PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue,
+    QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryView,
+    QueryViewId, QueryViewKind, SplitPlacement, TagId, TagSnapshot, validate_property,
+    validate_property_field, validate_property_shape, validate_property_target,
     validate_property_write,
 };
 use loro::{
@@ -886,11 +888,17 @@ impl GraphCore {
                 self.validate_property_owner(owner)?;
                 validate_property_write(key, property_owner_target(owner))?;
                 validate_property_shape(key, *value_type, *cardinality)?;
+                if *value_type == PropertyType::Document {
+                    return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
+                }
             }
             Command::SetProperty { owner, key, value } => {
                 self.validate_property_owner(owner)?;
                 validate_property_write(key, property_owner_target(owner))?;
                 validate_property(key, value, Cardinality::Single)?;
+                if value.property_type() == PropertyType::Document {
+                    return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
+                }
             }
             Command::AddRepeatedProperty { owner, key, value }
             | Command::RemoveRepeatedProperty { owner, key, value } => {
@@ -902,6 +910,77 @@ impl GraphCore {
             | Command::RemoveProperty { owner, key } => {
                 self.validate_property_owner(owner)?;
                 validate_property_write(key, property_owner_target(owner))?;
+                if matches!(command, Command::ClearPropertyValues { .. })
+                    && key.as_str() == QUERY_PROPERTY_KEY
+                {
+                    return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
+                }
+            }
+            Command::SetQuerySource { owner, source } => {
+                self.validate_query_owner(owner)?;
+                if source.len() > 65_536 {
+                    return Err(CoreError::TextTooLong);
+                }
+            }
+            Command::SpliceQuerySource {
+                owner,
+                index,
+                delete,
+                insert,
+            } => {
+                self.validate_query_owner(owner)?;
+                let document = self.query_document(owner)?;
+                let points = document.source.chars().count();
+                if index.saturating_add(*delete) > points {
+                    return Err(CoreError::InvalidHierarchy(
+                        "query source splice is out of bounds".to_owned(),
+                    ));
+                }
+                let start_byte = document
+                    .source
+                    .char_indices()
+                    .nth(*index)
+                    .map_or(document.source.len(), |(offset, _)| offset);
+                let end_byte = document
+                    .source
+                    .char_indices()
+                    .nth(index.saturating_add(*delete))
+                    .map_or(document.source.len(), |(offset, _)| offset);
+                let next_len = document.source.len() - (end_byte - start_byte) + insert.len();
+                if next_len > 65_536 {
+                    return Err(CoreError::TextTooLong);
+                }
+            }
+            Command::PutQueryView { owner, view } => {
+                self.validate_query_owner(owner)?;
+                let mut document = self.query_document(owner)?;
+                if let Some(existing) = document.views.iter_mut().find(|item| item.id == view.id) {
+                    *existing = view.clone();
+                } else {
+                    document.views.push(view.clone());
+                }
+                document.validate()?;
+            }
+            Command::RemoveQueryView { owner, view_id } => {
+                self.validate_query_owner(owner)?;
+                let mut document = self.query_document(owner)?;
+                document.views.retain(|view| &view.id != view_id);
+                if document.views.is_empty() {
+                    return Err(PropertyError::InvalidDocument(
+                        "the last query view cannot be removed".to_owned(),
+                    )
+                    .into());
+                }
+            }
+            Command::SetQueryDefaultView { owner, view_id } => {
+                self.validate_query_owner(owner)?;
+                let document = self.query_document(owner)?;
+                if !document.views.iter().any(|view| &view.id == view_id) {
+                    return Err(PropertyError::InvalidDocument(
+                        "default query view does not exist".to_owned(),
+                    )
+                    .into());
+                }
             }
             Command::AddTag { entity, tag_id } => {
                 self.validate_entity(entity)?;
@@ -1206,6 +1285,42 @@ impl GraphCore {
                 self.property_owner_bag(owner)?
                     .delete(&repeated_slot(key, value)?)?;
             }
+            Command::SetQuerySource { owner, source } => {
+                let document = ensure_query_document(&self.property_owner_bag(owner)?)?;
+                replace_text(&document.ensure_mergeable_text("source")?, source)?;
+            }
+            Command::SpliceQuerySource {
+                owner,
+                index,
+                delete,
+                insert,
+            } => {
+                let document = require_query_document(&self.property_owner_bag(owner)?)?;
+                document
+                    .ensure_mergeable_text("source")?
+                    .delete(*index, *delete)?;
+                if !insert.is_empty() {
+                    document
+                        .ensure_mergeable_text("source")?
+                        .insert(*index, insert)?;
+                }
+            }
+            Command::PutQueryView { owner, view } => {
+                put_query_view(
+                    &require_query_document(&self.property_owner_bag(owner)?)?,
+                    view,
+                )?;
+            }
+            Command::RemoveQueryView { owner, view_id } => {
+                remove_query_view(
+                    &require_query_document(&self.property_owner_bag(owner)?)?,
+                    view_id,
+                )?;
+            }
+            Command::SetQueryDefaultView { owner, view_id } => {
+                require_query_document(&self.property_owner_bag(owner)?)?
+                    .insert("default_view_id", view_id.as_str())?;
+            }
             Command::AddTag { entity, tag_id } => {
                 self.entity_tags(entity)?.insert(tag_id.as_str(), true)?;
                 let entity_bag = self.entity_bag(entity)?;
@@ -1299,6 +1414,13 @@ impl GraphCore {
             | Command::RemoveProperty { owner, .. }
             | Command::AddRepeatedProperty { owner, .. }
             | Command::RemoveRepeatedProperty { owner, .. } => {
+                self.touch_property_owner(owner, now)?
+            }
+            Command::SetQuerySource { owner, .. }
+            | Command::SpliceQuerySource { owner, .. }
+            | Command::PutQueryView { owner, .. }
+            | Command::RemoveQueryView { owner, .. }
+            | Command::SetQueryDefaultView { owner, .. } => {
                 self.touch_property_owner(owner, now)?
             }
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
@@ -1768,7 +1890,12 @@ impl GraphCore {
             | Command::ClearPropertyValues { owner, .. }
             | Command::RemoveProperty { owner, .. }
             | Command::AddRepeatedProperty { owner, .. }
-            | Command::RemoveRepeatedProperty { owner, .. } => owner_plan(owner),
+            | Command::RemoveRepeatedProperty { owner, .. }
+            | Command::SetQuerySource { owner, .. }
+            | Command::SpliceQuerySource { owner, .. }
+            | Command::PutQueryView { owner, .. }
+            | Command::RemoveQueryView { owner, .. }
+            | Command::SetQueryDefaultView { owner, .. } => owner_plan(owner),
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
                 entity_plan(entity)
             }
@@ -2100,6 +2227,19 @@ impl GraphCore {
         }
     }
 
+    fn validate_query_owner(&self, owner: &PropertyOwner) -> Result<(), CoreError> {
+        self.validate_property_owner(owner)?;
+        let query_key = key(QUERY_PROPERTY_KEY);
+        validate_property_write(&query_key, property_owner_target(owner))?;
+        Ok(())
+    }
+
+    fn query_document(&self, owner: &PropertyOwner) -> Result<PropertyDocument, CoreError> {
+        let bag = self.property_owner_bag(owner)?;
+        let document = require_query_document(&bag)?;
+        decode_query_document(&document).map_err(CoreError::InvalidHierarchy)
+    }
+
     fn entity_tags(&self, entity: &EntityId) -> Result<LoroMap, CoreError> {
         match entity {
             EntityId::Page { id } => Ok(self.page_root(id)?.ensure_mergeable_map("tag_refs")?),
@@ -2313,7 +2453,12 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::ClearPropertyValues { owner, .. }
         | Command::RemoveProperty { owner, .. }
         | Command::AddRepeatedProperty { owner, .. }
-        | Command::RemoveRepeatedProperty { owner, .. } => match owner {
+        | Command::RemoveRepeatedProperty { owner, .. }
+        | Command::SetQuerySource { owner, .. }
+        | Command::SpliceQuerySource { owner, .. }
+        | Command::PutQueryView { owner, .. }
+        | Command::RemoveQueryView { owner, .. }
+        | Command::SetQueryDefaultView { owner, .. } => match owner {
             PropertyOwner::TagDefault { .. } => "TagDefaultsChanged",
             PropertyOwner::Page { .. } | PropertyOwner::Block { .. } => "PropertiesChanged",
         },
@@ -2355,6 +2500,10 @@ fn repeated_slot(key: &PropertyKey, value: &PropertyValue) -> Result<String, Cor
         key.as_str(),
         hex::encode(Sha256::digest(encoded))
     ))
+}
+
+fn document_slot(key: &PropertyKey) -> String {
+    format!("d:{}", key.as_str())
 }
 
 fn initialize_node(node: &LoroMap, content: &str) -> Result<(), CoreError> {
@@ -2449,16 +2598,198 @@ fn set_repeated(map: &LoroMap, key: &PropertyKey, value: &PropertyValue) -> Resu
     Ok(())
 }
 
+fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
+    let query_key = key(QUERY_PROPERTY_KEY);
+    ensure_property_field(map, &query_key, PropertyType::Document, Cardinality::Single)?;
+    let created = map.get(&document_slot(&query_key)).is_none();
+    let document = map.ensure_mergeable_map(&document_slot(&query_key))?;
+    if created {
+        document.insert("schema", QUERY_DOCUMENT_SCHEMA)?;
+        document.insert("version", i64::from(QUERY_DOCUMENT_VERSION))?;
+        document.insert("language", QUERY_LANGUAGE)?;
+        document.insert("default_view_id", "table")?;
+        let _ = document.ensure_mergeable_text("source")?;
+        let defaults = PropertyDocument::default_query(String::new());
+        for view in &defaults.views {
+            put_query_view(&document, view)?;
+        }
+    } else {
+        let decoded = decode_query_document(&document).map_err(CoreError::InvalidHierarchy)?;
+        decoded.validate()?;
+    }
+    Ok(document)
+}
+
+fn require_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
+    let query_key = key(QUERY_PROPERTY_KEY);
+    let Some(document) = map.get(&document_slot(&query_key)).and_then(value_into_map) else {
+        return Err(PropertyError::InvalidDocument("query document is missing".to_owned()).into());
+    };
+    Ok(document)
+}
+
+fn put_query_view(document: &LoroMap, view: &QueryView) -> Result<(), CoreError> {
+    let views = document.ensure_mergeable_map("views")?;
+    let created = views.get(view.id.as_str()).is_none();
+    let stored = views.ensure_mergeable_map(view.id.as_str())?;
+    stored.insert("name", view.name.as_str())?;
+    stored.insert(
+        "kind",
+        match view.kind {
+            QueryViewKind::Table => "table",
+            QueryViewKind::List => "list",
+        },
+    )?;
+    stored.insert("position", i64::from(view.position))?;
+    stored.insert(
+        "visible_variables",
+        serde_json::to_string(&view.visible_variables)?,
+    )?;
+    // Editing an existing view never clears its tombstone. A concurrent remove
+    // therefore wins over writes to the view's other fields; recreating a view
+    // uses a new stable ID.
+    if created {
+        stored.insert("deleted", false)?;
+    }
+    Ok(())
+}
+
+fn remove_query_view(document: &LoroMap, view_id: &QueryViewId) -> Result<(), CoreError> {
+    let current = decode_query_document(document).map_err(CoreError::InvalidHierarchy)?;
+    let next_default = if current.default_view_id == *view_id {
+        Some(
+            current
+                .views
+                .iter()
+                .find(|view| &view.id != view_id)
+                .ok_or_else(|| {
+                    PropertyError::InvalidDocument(
+                        "the last query view cannot be removed".to_owned(),
+                    )
+                })?
+                .id
+                .clone(),
+        )
+    } else {
+        None
+    };
+    let views = document.ensure_mergeable_map("views")?;
+    let stored = views
+        .get(view_id.as_str())
+        .and_then(value_into_map)
+        .ok_or_else(|| PropertyError::InvalidDocument("query view does not exist".to_owned()))?;
+    stored.insert("deleted", true)?;
+    if let Some(next) = next_default {
+        document.insert("default_view_id", next.as_str())?;
+    }
+    Ok(())
+}
+
+fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String> {
+    let schema = map_string(document, "schema")
+        .ok_or_else(|| "query document schema is missing".to_owned())?;
+    let version = map_i64(document, "version")
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| "query document version is invalid".to_owned())?;
+    let language = map_string(document, "language")
+        .ok_or_else(|| "query document language is missing".to_owned())?;
+    let source = match document.get("source") {
+        Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
+        _ => return Err("query document source is missing".to_owned()),
+    };
+    let requested_default_view_id = QueryViewId::new(
+        map_string(document, "default_view_id")
+            .ok_or_else(|| "query document default view is missing".to_owned())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let views = document
+        .get("views")
+        .and_then(value_into_map)
+        .ok_or_else(|| "query document views are missing".to_owned())?;
+    let mut decoded = Vec::new();
+    let mut issues = Vec::new();
+    views.for_each(|raw_id, value| {
+        let Some(view) = value_into_map(value) else {
+            issues.push(format!("query view {raw_id} is not a map"));
+            return;
+        };
+        if map_bool(&view, "deleted") == Some(true) {
+            return;
+        }
+        let parsed = (|| {
+            let id = QueryViewId::new(raw_id).map_err(|error| error.to_string())?;
+            let name = map_string(&view, "name")
+                .ok_or_else(|| format!("query view {raw_id} name is missing"))?;
+            let kind = match map_string(&view, "kind").as_deref() {
+                Some("table") => QueryViewKind::Table,
+                Some("list") => QueryViewKind::List,
+                _ => return Err(format!("query view {raw_id} kind is invalid")),
+            };
+            let position = map_i64(&view, "position")
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| format!("query view {raw_id} position is invalid"))?;
+            let visible_variables = map_string(&view, "visible_variables")
+                .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+                .ok_or_else(|| format!("query view {raw_id} variables are invalid"))?;
+            Ok(QueryView {
+                id,
+                name,
+                kind,
+                position,
+                visible_variables,
+            })
+        })();
+        match parsed {
+            Ok(view) => decoded.push(view),
+            Err(issue) => issues.push(issue),
+        }
+    });
+    if let Some(issue) = issues.into_iter().next() {
+        return Err(issue);
+    }
+    decoded.sort_by(|left, right| {
+        left.position
+            .cmp(&right.position)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    if decoded.is_empty() {
+        decoded.push(
+            PropertyDocument::default_query(String::new())
+                .views
+                .remove(0),
+        );
+    }
+    let default_view_id = if decoded
+        .iter()
+        .any(|view| view.id == requested_default_view_id)
+    {
+        requested_default_view_id
+    } else {
+        decoded[0].id.clone()
+    };
+    let snapshot = PropertyDocument {
+        schema,
+        version,
+        source,
+        language,
+        views: decoded,
+        default_view_id,
+    };
+    snapshot.validate().map_err(|error| error.to_string())?;
+    Ok(snapshot)
+}
+
 fn bag_contains_key(map: &LoroMap, key: &PropertyKey) -> bool {
     map.get(&field_slot(key)).is_some()
 }
 
 fn property_value_slots(map: &LoroMap, key: &PropertyKey) -> Vec<String> {
     let single = single_slot(key);
+    let document = document_slot(key);
     let repeated = format!("r:{}:", key.as_str());
     let mut slots = Vec::new();
     map.for_each(|slot, _| {
-        if slot == single || slot.starts_with(&repeated) {
+        if slot == single || slot == document || slot.starts_with(&repeated) {
             slots.push(slot.to_owned());
         }
     });
@@ -2519,6 +2850,48 @@ fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
     });
     map.for_each(|slot, value| {
         if slot.starts_with("f:") {
+            return;
+        }
+        if let Some(raw_key) = slot.strip_prefix("d:") {
+            let Ok(key) = PropertyKey::new(raw_key) else {
+                issues.push(format!("property-slot:{slot}:invalid-key"));
+                return;
+            };
+            let Some(field) = fields.get_mut(&key) else {
+                issues.push(format!("property-slot:{slot}:missing-field"));
+                return;
+            };
+            if field.value_type != PropertyType::Document
+                || field.cardinality != Cardinality::Single
+            {
+                issues.push(format!("property-slot:{slot}:contract-violation"));
+                return;
+            }
+            let Some(document) = value_into_map(value) else {
+                issues.push(format!("property-slot:{slot}:not-document-map"));
+                return;
+            };
+            let schema = map_string(&document, "schema");
+            let version = map_i64(&document, "version").and_then(|value| u32::try_from(value).ok());
+            match (schema, version) {
+                (Some(schema), Some(version))
+                    if schema != QUERY_DOCUMENT_SCHEMA || version != QUERY_DOCUMENT_VERSION =>
+                {
+                    field.values =
+                        vec![PropertyValue::UnsupportedDocument(PropertyDocumentHeader {
+                            schema,
+                            version,
+                        })];
+                }
+                (Some(_), Some(_)) => {
+                    let Ok(document) = decode_query_document(&document) else {
+                        issues.push(format!("property-slot:{slot}:invalid-document"));
+                        return;
+                    };
+                    field.values = vec![PropertyValue::Document(document)];
+                }
+                _ => issues.push(format!("property-slot:{slot}:invalid-document-header")),
+            }
             return;
         }
         let (raw_key, cardinality) = if let Some(raw_key) = slot.strip_prefix("s:") {
@@ -2791,6 +3164,13 @@ fn map_i64(map: &LoroMap, key: &str) -> Option<i64> {
     }
 }
 
+fn map_bool(map: &LoroMap, key: &str) -> Option<bool> {
+    match map.get(key) {
+        Some(ValueOrContainer::Value(LoroValue::Bool(value))) => Some(value),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2899,6 +3279,101 @@ mod tests {
         }
 
         assert_eq!(core.snapshot().unwrap(), before);
+    }
+
+    #[test]
+    fn query_documents_use_semantic_commands_and_round_trip_structured_views() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        let source = "SELECT ?item WHERE {}";
+        let owner = PropertyOwner::Block {
+            page_id: page(),
+            id: block.clone(),
+        };
+
+        core.execute(
+            envelope(
+                "query",
+                Command::SetQuerySource {
+                    owner: owner.clone(),
+                    source: source.into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "query-splice",
+                Command::SpliceQuerySource {
+                    owner: owner.clone(),
+                    index: source.chars().count(),
+                    delete: 0,
+                    insert: " LIMIT 10".into(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "query-view",
+                Command::SetQueryDefaultView {
+                    owner: owner.clone(),
+                    view_id: QueryViewId::new("list").unwrap(),
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+
+        let snapshot = core.page_snapshot(&page()).unwrap();
+        let field = snapshot.blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+            .unwrap();
+        let PropertyValue::Document(document) = &field.values[0] else {
+            panic!("query property did not decode as a document")
+        };
+        assert_eq!(document.source, "SELECT ?item WHERE {} LIMIT 10");
+        assert_eq!(document.default_view_id.as_str(), "list");
+        assert_eq!(document.views.len(), 2);
+
+        let error = core
+            .execute(
+                envelope(
+                    "oversized-query-splice",
+                    Command::SpliceQuerySource {
+                        owner: owner.clone(),
+                        index: document.source.chars().count(),
+                        delete: 0,
+                        insert: "😀".repeat(20_000),
+                    },
+                ),
+                "t6",
+            )
+            .unwrap_err();
+        assert!(matches!(error, CoreError::TextTooLong));
+
+        let error = core
+            .execute(
+                envelope(
+                    "generic-query-write",
+                    Command::SetProperty {
+                        owner,
+                        key: key(QUERY_PROPERTY_KEY),
+                        value: PropertyValue::Document(document.clone()),
+                    },
+                ),
+                "t7",
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            CoreError::Property(PropertyError::DocumentCommandRequired(_))
+        ));
     }
 
     #[test]
