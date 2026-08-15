@@ -54,13 +54,13 @@ lifecycle, keyboard/touch 기대를 충족함을 실제 설치 artifact로 검�
 ## 자동 검증 gate
 
 ```text
-nix build .#macos-app
-nix build .#android-debug
-nix run .#test-core-port -- --adapter tauri
-nix run .#test-platform-parity
-nix run .#test-e2e-macos
-nix run .#test-e2e-android
-nix flake check
+devenv tasks run build:macos-app
+devenv tasks run build:android-debug
+devenv tasks run test:core-port -- --adapter tauri
+devenv tasks run test:platform-parity
+devenv tasks run test:e2e-macos
+devenv tasks run test:e2e-android
+devenv --profile browser test
 ```
 
 CI는 macOS runner에서 bundle launch test, Android emulator에서 install/launch/

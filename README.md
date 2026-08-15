@@ -13,8 +13,8 @@ provenance are planned work. The active implementation plan starts with
 ## Development and verification
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for setup, the development workflow, and
-efficient test selection. Nix is the supported entry point for local work and
-the CI-equivalent verification gate.
+efficient test selection. devenv is the supported entry point for local work
+and CI verification.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current system and
 [steps/README.md](steps/README.md) for future delivery stages.

@@ -13,6 +13,9 @@
 /apps/client/playwright.config.d.ts
 /apps/client/src-tauri/gen/schemas/
 /.direnv/
+/.devenv*
+/devenv.local.nix
+/devenv.local.yaml
 /.env
 /.DS_Store
 *.db

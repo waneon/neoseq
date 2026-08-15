@@ -66,13 +66,13 @@ content가 일치한다. 손상 fixture는 마지막 valid state로 복구되고
 ## 자동 검증 gate
 
 ```text
-nix run .#test-schema-compatibility
-nix run .#test-property-compatibility
-nix run .#test-checkpoint-recovery
-nix run .#test-server-retention
-nix run .#test-archive-roundtrip
-nix run .#test-backup-restore
-nix flake check
+devenv tasks run test:schema-compatibility
+devenv tasks run test:property-compatibility
+devenv tasks run test:checkpoint-recovery
+devenv tasks run test:server-retention
+devenv tasks run test:archive-roundtrip
+devenv tasks run test:backup-restore
+devenv --profile browser test
 ```
 
 fixture matrix는 최초 지원 schema부터 현재 schema, unknown property, invalid

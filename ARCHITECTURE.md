@@ -25,7 +25,7 @@ Component-level detail lives under [`architectures/`](architectures/), and
 - Canonical graph data remains portable Loro state; every index is disposable.
 - User queries cannot access the filesystem, network, processes, or another graph.
 - Presentation preferences and localization never mutate graph semantics.
-- Nix provides reproducible development, build, and verification environments.
+- devenv provides reproducible development, build, and verification environments.
 - Architecture remains no larger than current requirements; future delivery
   stages add their own compatibility and migration machinery when it is needed.
 

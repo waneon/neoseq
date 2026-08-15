@@ -1,18 +1,15 @@
 # Development
 
-Nix is the supported tool entry point. It provides the pinned Rust, Node,
-pnpm, Wasm, and browser toolchains used by CI.
+devenv provides the Rust, Node, pnpm, Wasm, and verification tools used by CI.
+Entering the shell also installs the locked pnpm workspace dependencies when
+the lockfile changes.
 
 ```sh
-nix develop                    # normal Rust and Web work
-nix develop .#browser-test     # work that needs Playwright browsers
-nix run .#web-dev              # Vite development server on 127.0.0.1:4173
-nix run .#web-preview          # production bundle on 127.0.0.1:4174
+devenv shell                         # normal Rust and Web work
+devenv shell -- web-dev              # Vite on 127.0.0.1:4173
+devenv shell -- web-preview          # production output on 127.0.0.1:4174
+devenv --profile browser shell       # add pinned Playwright browsers
 ```
-
-For a fast frontend loop, install the locked dependencies once from
-`nix develop` with `pnpm install --frozen-lockfile`. The `nix run` test apps do
-not require a checkout-local installation.
 
 ## Before changing code
 
@@ -23,109 +20,74 @@ not require a checkout-local installation.
 - Inspect the working tree and diff to understand and preserve existing work.
 - Keep generated CorePort files in sync by changing
   [`contracts/core-port.json`](contracts/core-port.json) and running
-  `node scripts/generate-contracts.mjs`; do not edit generated outputs by hand.
+  `devenv tasks run coreport:generate`; do not edit generated outputs by hand.
 - Keep locale catalogs in sync by editing the manifest and JSON files under
   `apps/client/src/i18n/locales`, then running
-  `pnpm --filter @neoseq/client i18n:generate`; do not edit generated message
-  types by hand.
+  `devenv tasks run i18n:generate`; do not edit generated message types by
+  hand.
 
-## Testing workflow
+## Build and test
 
-Use the smallest test that can catch the defect during the edit loop, then
-broaden validation once the change is stable:
+Use the smallest test that can catch the behavior while iterating, then broaden
+validation for the affected boundary. Rust tests own domain, core, persistence,
+and query semantics; Vitest owns isolated UI behavior; Playwright is reserved
+for browser boundaries and critical user journeys.
 
-1. Identify the changed behavior and the lowest layer that owns it.
-2. Add or update a regression test at that layer.
-3. Run the exact test while iterating. After a failure, rerun only the failed
-   target until it passes.
-4. Run the owning package or feature suite, then the checks required by the
-   change-risk table below.
-5. Before handoff, review the final diff and report the commands run, their
-   results, and any checks intentionally omitted.
-
-Do not duplicate the same assertion at every layer. Rust tests own domain,
-core, persistence, and query semantics; Vitest owns isolated UI behavior;
-Playwright is reserved for browser boundaries and critical user journeys.
-Never remove, skip, or weaken a test merely to make a change pass.
-
-### Focused commands
-
-Rust test apps accept Cargo test filters where the app is not already scoped to
-a named suite:
+Focused Rust examples:
 
 ```sh
-nix run .#test-domain -- property
-nix run .#test-core-model
-nix run .#test-core-convergence
-nix run .#test-query-projection
-nix run .#test-query-rebuild
-nix run .#test-query-conformance
-nix run .#test-query-differential
-nix run .#test-query-budget
-```
-
-For another crate or a single Rust test, run Cargo in the development shell:
-
-```sh
+cargo test -p domain property
+cargo test -p graph-core model_
+cargo test -p graph-core convergence_ -- --nocapture
+cargo test -p query sparql_
 cargo test -p platform-native core_port
 cargo test -p platform-web
 ```
 
-Run one component file during UI iteration, then the complete component suite:
+Focused frontend examples:
 
 ```sh
 pnpm --filter @neoseq/client exec vitest run tests/component/outline.test.tsx
-nix run .#test-client-components
+devenv tasks run web:test-components
+devenv tasks run web:check
+devenv build outputs.web
 ```
 
-For localization changes, run the focused runtime test before the full component
-suite and browser journey:
+For Playwright work, build the test-mode client once before running focused
+cases in the browser profile:
 
 ```sh
-pnpm --filter @neoseq/client exec vitest run tests/component/i18n.test.tsx
-nix run .#test-e2e-web -- --grep "switches to Korean"
+devenv --profile browser tasks run web:build-test
+devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test tests/persistence.spec.ts --project=chromium --grep "Worker adapter"
+devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test e2e/ --project=chromium --grep "survives reload"
 ```
 
-Interaction that depends on real layout (the outline's selection marquee, the
-drag-to-move drop indicator) has no jsdom equivalent: keep its assertions in
-`tests/e2e/outline.spec.ts` and keep the pure arithmetic behind it in
-`tests/component/selection.test.ts`.
-
-Use `--grep` to narrow browser tests by test title. Include mobile or dark-mode
-projects only when the behavior applies to them.
+Build the deployable output separately from the verification tasks. The
+complete non-browser gate and CI-equivalent gate are:
 
 ```sh
-nix run .#test-indexeddb -- --grep "Worker adapter"
-nix run .#test-e2e-web -- --project chromium --grep "survives reload"
+devenv build outputs.web
+devenv test
+devenv --profile browser test
 ```
 
-Useful broader checks are:
-
-```sh
-cargo fmt --all -- --check                # Rust formatting
-cargo clippy -p graph-core --all-targets --all-features -- --deny warnings
-pnpm check                              # TypeScript
-bash scripts/check-generated.sh         # generated CorePort drift
-nix build .#web                         # production Web/Wasm build
-nix flake check --print-build-logs      # complete CI gate
-```
+The browser profile is separate so normal development does not download the
+Playwright browser closure. The output is a sandboxed, lockfile-backed Web/Wasm
+artifact. The verification tasks check Rust formatting, Clippy, workspace
+tests, dependency policy, generated files, TypeScript, component tests,
+IndexedDB contracts, and Web E2E journeys.
 
 ### Checks by change risk
 
 | Change | Required before handoff |
 | --- | --- |
-| Documentation only | Review the rendered links, commands, and final diff; product tests are unnecessary. |
-| Rust behavior | Focused test, owning crate/suite, and relevant Clippy or `nix flake check` for broad changes. |
-| React or TypeScript behavior | Focused component test, full component suite, and `pnpm check`. |
-| Styling, accessibility, keyboard, routing, or responsive behavior | Relevant component test plus focused E2E; exercise every affected Playwright project. |
-| CorePort, generated schema, Worker, IndexedDB, or persistence | Relevant Rust tests, generated-file check, and `test-indexeddb`; add focused E2E when a user journey changes. |
-| Dependencies, Nix, build inputs, or production output | `nix flake check`; use `nix build .#web` during iteration. |
-| Cross-cutting or merge-ready change | `nix flake check` once after focused suites pass. |
-
-On Linux, `nix flake check` includes IndexedDB and Web E2E tests. On Darwin,
-browser processes cannot run in the Nix sandbox, so run the relevant
-`test-indexeddb` and `test-e2e-web` apps explicitly in addition to the flake
-check.
+| Documentation only | Review links, commands, and the final diff; product tests are unnecessary. |
+| Rust behavior | Focused test, owning crate tests, and relevant Clippy; use `devenv test` for broad changes. |
+| React or TypeScript behavior | Focused component test, `web:test-components`, and `web:check`. |
+| Styling, accessibility, keyboard, routing, or responsive behavior | Relevant component test plus focused E2E across affected Playwright projects. |
+| CorePort, generated schema, Worker, IndexedDB, or persistence | Relevant Rust tests, generated-file check, and focused IndexedDB tests; add E2E when a user journey changes. |
+| Dependencies, devenv, build inputs, or production output | `devenv build outputs.web` and `devenv test`; add the browser profile when browser behavior or dependencies are affected. |
+| Cross-cutting or merge-ready change | `devenv build outputs.web` and `devenv --profile browser test` after focused suites pass. |
 
 ## Repository map
 
@@ -139,5 +101,4 @@ check.
 - `fixtures`: current cross-adapter contract corpus.
 
 Keep changes within these boundaries and prefer the smallest architecture that
-meets the current requirement. Use `nix flake check` as the final CI-equivalent
-gate, not as the inner edit loop.
+meets the current requirement.

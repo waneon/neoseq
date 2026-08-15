@@ -193,4 +193,4 @@ only accepted schema and unsupported values fail explicitly.
 - fault tests cover before-commit, after-commit, busy/quota, and corrupt records;
 - convergence tests exchange binary updates in different and duplicate orders;
 - compaction tests reopen from the retained checkpoint and remaining tail;
-- generated contract drift and schema constants are checked in CI.
+- generated contracts are synchronized before tests and checked by production builds.

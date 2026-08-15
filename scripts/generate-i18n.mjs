@@ -2,6 +2,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parse, TYPE } from "@formatjs/icu-messageformat-parser";
 
+const args = process.argv.slice(2);
+if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
+  throw new Error("usage: generate-i18n.mjs [--check]");
+}
+const check = args[0] === "--check";
+
 const root = resolve(import.meta.dirname, "..");
 const localeDir = resolve(root, "apps/client/src/i18n/locales");
 const output = resolve(root, "apps/client/src/i18n/generated/messages.ts");
@@ -142,12 +148,12 @@ lines.push(
 );
 
 const generated = `${lines.join("\n")}\n`;
-if (process.argv.includes("--check")) {
-  const current = await readFile(output, "utf8").catch(() => "");
-  if (current !== generated) {
-    throw new Error("generated i18n types are stale; run pnpm i18n:generate");
-  }
-} else {
+const current = await readFile(output, "utf8").catch(() => "");
+const stale = current !== generated;
+if (check && stale) {
+  throw new Error("generated i18n types are stale; run devenv tasks run i18n:generate");
+}
+if (!check && stale) {
   await mkdir(resolve(output, ".."), { recursive: true });
   await writeFile(output, generated);
 }

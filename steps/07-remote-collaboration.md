@@ -52,12 +52,12 @@ tag/default/task/query property를 수정한 뒤 reconnect하면 같은 graph로
 ## 자동 검증 gate
 
 ```text
-nix run .#test-sync -- --client web
-nix run .#test-e2e-web -- --grep remote
-nix run .#test-e2e-collaboration
-nix run .#test-authz-revocation
-nix run .#test-multi-tab
-nix flake check
+devenv tasks run test:sync -- --client web
+devenv tasks run test:e2e-web -- --grep remote
+devenv tasks run test:e2e-collaboration
+devenv tasks run test:authz-revocation
+devenv tasks run test:multi-tab
+devenv --profile browser test
 ```
 
 collaboration E2E는 network proxy로 latency, disconnect, reorder, duplicate,

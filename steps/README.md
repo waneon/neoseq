@@ -13,7 +13,7 @@
 ## 단계 운영 원칙
 
 1. 각 단계는 이전 단계의 공개 계약만 사용한다.
-2. 단계 종료 시 `nix flake check`에는 그 시점까지 완성된 모든 회귀 검사가
+2. 단계 종료 시 `devenv --profile browser test`에는 그 시점까지 완성된 모든 회귀 검사가
    포함되어야 한다.
 3. 수동 데모는 자동 검사가 놓치는 UX와 플랫폼 동작을 확인하는 보조 수단이다.
    수동 데모만으로 단계가 완료되지는 않는다.
@@ -62,7 +62,7 @@ Step 7 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한�
 
 모든 단계는 아래 조건을 만족해야 완료로 표시한다.
 
-- [ ] 단계 문서의 자동 gate가 깨끗한 checkout에서 Nix만으로 재현된다.
+- [ ] 단계 문서의 자동 gate가 깨끗한 checkout에서 devenv로 재현된다.
 - [ ] 단계의 수동 데모 시나리오를 처음 보는 검증자가 문서만 보고 수행할 수 있다.
 - [ ] 새 공개 계약에는 정상/오류 fixture가 있다. 실제 지원 버전이 둘 이상일
       때만 호환성 fixture를 추가한다.
@@ -73,30 +73,27 @@ Step 7 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한�
 - [ ] 로그와 test fixture에 note 본문, property 값, credential이 노출되지
       않는다.
 - [ ] 구현과 다른 아키텍처/단계 문서가 없다.
-- [ ] 해당 단계까지의 `nix flake check`가 통과한다.
+- [ ] 해당 단계까지의 `devenv --profile browser test`가 통과한다.
 - [ ] `jj status`에서 검증 대상과 무관한 변경이 없다.
 
 ## 표준 검증 명령 계약
 
-아래 이름은 구현 과정에서 flake output으로 제공할 목표 계약이다. 해당 단계가
+아래 이름은 구현 과정에서 devenv task로 제공할 목표 계약이다. 해당 단계가
 완료되기 전에는 일부 명령이 아직 존재하지 않을 수 있다.
 
 ```text
-nix flake check                         # 완료된 모든 fast/integration gate
-nix build .#core-native                 # native Rust core
-nix build .#core-wasm                   # browser Wasm core
-nix build .#web                         # production Web client
-nix build .#sync-server                 # server binary/container input
-nix build .#macos-app                   # unsigned/signed 정책에 따른 macOS bundle
-nix build .#android-debug               # Android debug APK
-nix run .#test-core-convergence         # randomized multi-peer core corpus
-nix run .#test-persistence              # SQLite/IndexedDB restart/recovery corpus
-nix run .#test-query-conformance        # native/Wasm query parity corpus
-nix run .#test-sync                     # server/client fault and convergence suite
-nix run .#test-e2e-web                  # browser product scenario
+devenv --profile browser test                    # 완료된 모든 fast/integration gate
+devenv build outputs.web                         # production Web/Wasm client
+devenv tasks run build:sync-server               # server binary/container input
+devenv tasks run build:macos-app                 # unsigned/signed 정책에 따른 macOS bundle
+devenv tasks run build:android-debug             # Android debug APK
+devenv tasks run test:sync                       # server/client fault and convergence suite
 ```
 
-플랫폼 서명처럼 Nix sandbox 밖의 입력이 필요한 명령은 필요한 host SDK,
+현재 구현의 focused test는 별도 task wrapper 없이 `cargo`와 `pnpm`으로 직접
+실행한다. 명령은 [`DEVELOPMENT.md`](../DEVELOPMENT.md)를 기준으로 한다.
+
+플랫폼 서명처럼 개발 환경 밖의 입력이 필요한 명령은 필요한 host SDK,
 credential, runner image를 출력 manifest에 기록해야 한다.
 
 ## 검증 계층
@@ -127,7 +124,7 @@ credential, runner image를 출력 manifest에 기록해야 한다.
 | Remote graph/Loro realtime sync        | 07, 10         |
 | Web                                    | 10, 11         |
 | macOS/Android                          | 08, 10, 11     |
-| Rust core, Nix reproducibility         | 모든 후속 단계 |
+| Rust core, devenv reproducibility      | 모든 후속 단계 |
 
 ## 상태 관리
 

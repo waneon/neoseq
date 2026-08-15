@@ -3,13 +3,6 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": {
-    "build": "node ../../scripts/generate-i18n.mjs --check && tsc -b && vite build",
-    "check": "node ../../scripts/generate-i18n.mjs --check && tsc -b --pretty false",
-    "dev": "vite",
-    "i18n:generate": "node ../../scripts/generate-i18n.mjs",
-    "test:indexeddb": "playwright test tests/persistence.spec.ts --project=chromium"
-  },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",

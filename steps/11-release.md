@@ -26,7 +26,7 @@ artifact provenance를 한 release manifest로 연결한다.
 - application/source revision, target, Rust/Node/Loro version, CRDT schema
   range, CorePort, sync protocol, RDF projection, SPARQL profile, text analyzer,
   property registry version을 embed한다.
-- Nix derivation output과 platform signing 결과를 checksum으로 연결한다.
+- build output과 platform signing 결과를 checksum으로 연결한다.
 - SBOM, dependency license, provenance attestation을 생성한다.
 - release artifact는 다시 build하지 않고 검증된 CI output을 승격한다.
 
@@ -37,7 +37,7 @@ artifact provenance를 한 release manifest로 연결한다.
 - macOS codesign/notarization과 update metadata를 검증한다.
 - Android release signing, AAB validation, supported SDK/ABI manifest를
   검증한다.
-- credential은 CI secret store에서만 주입하고 log/Nix store에 남기지 않는다.
+- credential은 CI secret store에서만 주입하고 log나 build output에 남기지 않는다.
 
 ### Rollout
 
@@ -57,14 +57,14 @@ artifact provenance를 한 release manifest로 연결한다.
 ## 자동 검증 gate
 
 ```text
-nix flake check
-nix build .#web
-nix build .#sync-server
-nix build .#macos-app
-nix build .#android-release
-nix run .#verify-release-manifest
-nix run .#test-release-smoke
-nix run .#test-release-rollback
+devenv --profile browser test
+devenv build outputs.web
+devenv tasks run build:sync-server
+devenv tasks run build:macos-app
+devenv tasks run build:android-release
+devenv tasks run verify:release-manifest
+devenv tasks run test:release-smoke
+devenv tasks run test:release-rollback
 ```
 
 signing/notarization/store validation은 platform runner에서 실행하고 결과 ID와

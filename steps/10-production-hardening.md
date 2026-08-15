@@ -69,13 +69,13 @@ release candidate가 공개된 benchmark/security/accessibility/operations gate�
 ## 자동 검증 gate
 
 ```text
-nix run .#test-performance
-nix run .#test-load
-nix run .#test-security
-nix run .#test-fuzz-smoke
-nix run .#test-accessibility
-nix run .#test-operations-drill
-nix flake check
+devenv tasks run test:performance
+devenv tasks run test:load
+devenv tasks run test:security
+devenv tasks run test:fuzz-smoke
+devenv tasks run test:accessibility
+devenv tasks run test:operations-drill
+devenv --profile browser test
 ```
 
 성능 gate는 절대 budget과 기준 branch 대비 regression budget을 함께 사용한다.

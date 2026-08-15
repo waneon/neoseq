@@ -60,13 +60,13 @@ headless native/Wasm test client가 인증된 WebSocket session으로 server에
 ## 자동 검증 gate
 
 ```text
-nix build .#sync-server
-nix run .#test-server-protocol
-nix run .#test-server-db
-nix run .#test-sync -- --headless
-nix run .#test-sync-faults
-nix run .#test-server-authz
-nix flake check
+devenv tasks run build:sync-server
+devenv tasks run test:server-protocol
+devenv tasks run test:server-db
+devenv tasks run test:sync -- --headless
+devenv tasks run test:sync-faults
+devenv tasks run test:server-authz
+devenv --profile browser test
 ```
 
 fault matrix는 DB commit 전/후 server kill, duplicate update, reordered update,
@@ -75,7 +75,7 @@ eviction/reconstruction을 포함한다.
 
 ## 수동 데모
 
-1. Nix integration app으로 PostgreSQL migration과 server를 실행한다.
+1. devenv task로 PostgreSQL migration과 server를 실행한다.
 2. test principal 두 명에게 같은 graph membership을 부여한다.
 3. headless client 두 개에서 offline update를 만든 뒤 연결한다.
 4. 양쪽 state hash와 durable update cursor를 확인한다.

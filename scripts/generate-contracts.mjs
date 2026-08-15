@@ -1,5 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 
+const args = process.argv.slice(2);
+if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
+  throw new Error("usage: generate-contracts.mjs [--check]");
+}
+const check = args[0] === "--check";
+const rustOutput = "crates/domain/src/generated/core_port.rs";
+const typescriptOutput = "apps/client/src/generated/core-port.ts";
+
 const schema = JSON.parse(await readFile("contracts/core-port.json", "utf8"));
 const version = schema.contractVersion;
 const rustCodes = schema.errorCodes
@@ -192,5 +200,21 @@ export interface CorePort {
 }
 `;
 
-await writeFile("crates/domain/src/generated/core_port.rs", rust);
-await writeFile("apps/client/src/generated/core-port.ts", typescript);
+const [currentRust, currentTypescript] = await Promise.all([
+  readFile(rustOutput, "utf8").catch(() => ""),
+  readFile(typescriptOutput, "utf8").catch(() => ""),
+]);
+const rustIsStale = currentRust !== rust;
+const typescriptIsStale = currentTypescript !== typescript;
+
+if (check && (rustIsStale || typescriptIsStale)) {
+  throw new Error(
+    "generated CorePort files are stale; run devenv tasks run coreport:generate",
+  );
+}
+if (!check) {
+  const writes = [];
+  if (rustIsStale) writes.push(writeFile(rustOutput, rust));
+  if (typescriptIsStale) writes.push(writeFile(typescriptOutput, typescript));
+  await Promise.all(writes);
+}
