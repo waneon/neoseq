@@ -2,9 +2,10 @@
 
 ## Status and Responsibilities
 
-Step 6 implements the `sync-protocol` and `sync-server` crates. The service is
-independently runnable and testable; product Web login and remote-graph UX are
-the Step 7 boundary.
+The `sync-protocol` and `sync-server` crates provide the durable synchronization
+service, and the Step 7 Web client consumes both its graph-management HTTP API
+and WebSocket protocol. Production identity remains behind the `TokenVerifier`
+adapter; local development uses the explicit test issuer.
 
 The server makes a remote graph available to authorized replicas. It owns:
 
@@ -26,8 +27,8 @@ record in v1, storing memberships, graph metadata, binary update
 chunks, checkpoints, and acknowledgement/audit data.
 
 ```text
-admin CLI -------------------------------> PostgreSQL
-client -- WSS ---> sync session --> graph room --> PostgreSQL
+admin CLI / authenticated HTTP ----------> PostgreSQL
+Web client -- WSS ---> sync session --> graph room --> PostgreSQL
                                       |
                                       +--> other authorized sessions
 ```
@@ -36,6 +37,12 @@ A graph room holds a rehydrated Loro document and bounded connected sessions.
 It is created single-flight on demand from the current checkpoint plus its
 update tail and can be discarded at any time. V1 is a single-process,
 single-region service; horizontal fan-out has no broker yet.
+
+The authenticated HTTP surface creates and lists graphs and lets an owner list,
+grant, or revoke memberships. Browser WebSockets carry the bearer credential in
+a dedicated base64url subprotocol entry because the browser API cannot set an
+`Authorization` header; the server selects only the stable `neoseq.v1`
+application subprotocol. Credentials are never accepted in a URL.
 
 ## Wire Protocol
 

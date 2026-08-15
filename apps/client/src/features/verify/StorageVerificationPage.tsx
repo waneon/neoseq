@@ -6,6 +6,7 @@ import {
   runIndexedDbFaultCorpus,
   runIndexedDbPersistenceCorpus,
   runWorkerCorePortCorpus,
+  runRemoteOutboxCorpus,
 } from "../../storage-test-corpus";
 
 type State =
@@ -13,19 +14,20 @@ type State =
   | { status: "failed"; error: string }
   | { status: "passed"; corpus: Corpus };
 
-type Corpus = "persistence" | "core-port" | "recovery";
+type Corpus = "persistence" | "core-port" | "recovery" | "sync";
 
 const corpora = {
   persistence: runIndexedDbPersistenceCorpus,
   "core-port": runWorkerCorePortCorpus,
   recovery: runIndexedDbFaultCorpus,
+  sync: runRemoteOutboxCorpus,
 } satisfies Record<Corpus, () => Promise<unknown>>;
 
 export function StorageVerificationPage() {
   const [state, setState] = useState<State>({ status: "running" });
   const [searchParams] = useSearchParams();
   const requested = searchParams.get("corpus");
-  const corpus: Corpus = requested === "core-port" || requested === "recovery"
+  const corpus: Corpus = requested === "core-port" || requested === "recovery" || requested === "sync"
     ? requested
     : "persistence";
 

@@ -5,7 +5,7 @@
 //
 // Strategy: the built shell assets are precached at install; navigations
 // are network-first with cached-shell fallback so deployments propagate
-// while offline reloads still boot; other same-origin GETs are cache-first.
+// while offline reloads still boot; only generated shell assets are cache-first.
 
 const CACHE = "__CACHE_NAME__";
 const PRECACHE = __PRECACHE__;
@@ -48,6 +48,11 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+
+  // Remote graph APIs are intentionally outside the application-shell cache.
+  // Restricting interception to the generated precache also keeps future data
+  // endpoints from accidentally acquiring cache-first semantics.
+  if (!PRECACHE.includes(url.pathname)) return;
 
   event.respondWith(
     caches.match(request, { ignoreVary: true }).then(

@@ -68,6 +68,8 @@ import { QueryBlock } from "../query/QueryBlock";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_STATUS_KEY } from "../../entities/tasks";
 import { codePointIndex, diffSplice } from "./text-diff";
+import { transformSelection } from "./selection-transform";
+import type { PeerPresence } from "../sync/SyncAgent";
 import {
   dropTarget,
   coveredMask,
@@ -196,7 +198,10 @@ interface EditorContext {
   revealed: ReadonlySet<string>;
   /** Rows the selection covers, passengers included — what a bulk verb will take. */
   selectionCount: number;
+  revision: number;
+  presence: readonly PeerPresence[];
   setFocus(id: string | null, caret?: number): void;
+  publishSelection(blockId: string, textarea: HTMLTextAreaElement): void;
   takeTreeFocus(): void;
   /** Drops the caret and selects exactly this block (⌘A past the text). */
   selectOnly(row: OutlineRow): void;
@@ -1184,7 +1189,19 @@ export function Outliner({
     covered: selectionCovered,
     revealed,
     selectionCount,
+    revision: state.revision,
+    presence: [...state.presence.values()].filter(
+      (peer) => peer.page_id === authoritativePage.id,
+    ),
     setFocus,
+    publishSelection: (blockId, textarea) => {
+      session.publishPresence({
+        page_id: authoritativePage.id,
+        block_id: blockId,
+        anchor: textarea.selectionStart,
+        head: textarea.selectionEnd,
+      });
+    },
     takeTreeFocus,
     selectOnly: (row) => {
       if (isPendingId(row.block.id)) return;
@@ -2581,6 +2598,9 @@ function BlockRow({
   const selected = editor.covered.has(row.block.id);
   const selectionCount = editor.selectionCount;
   const menuOpen = editor.menuFor === row.block.id;
+  const peers = editor.presence.filter((peer) => peer.block_id === row.block.id);
+  const projected = useRef(value);
+  const revision = useRef(editor.revision);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -2606,6 +2626,19 @@ function BlockRow({
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
   }, [isFocused, editor.pendingCaret]);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    const previous = projected.current;
+    projected.current = value;
+    if (!textarea || !isFocused || revision.current === editor.revision) return;
+    revision.current = editor.revision;
+    const transformed = transformSelection(previous, value, {
+      anchor: textarea.selectionStart,
+      head: textarea.selectionEnd,
+    });
+    textarea.setSelectionRange(transformed.anchor, transformed.head);
+  }, [editor.revision, isFocused, value]);
 
   return (
     <div
@@ -2837,6 +2870,15 @@ function BlockRow({
         </DropdownMenu>
       </span>
       <div className="outline-text" data-task-status={taskStatus}>
+        {peers.length > 0 && (
+          <span
+            className="remote-presence"
+            aria-label={peers.map((peer) => peer.principal).join(", ")}
+            title={peers.map((peer) => peer.principal).join(", ")}
+          >
+            {peers.slice(0, 2).map((peer) => peer.principal.slice(0, 1).toUpperCase()).join("")}
+          </span>
+        )}
         {taskStatus !== undefined && !pending && (
           <TaskStatusControl pageId={editor.pageId} block={row.block} status={taskStatus} />
         )}
@@ -2864,7 +2906,9 @@ function BlockRow({
           dir="auto"
           onFocus={() => {
             if (!isFocused) editor.setFocus(row.block.id, -1);
+            if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
           }}
+          onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}
           onBlur={() => editor.flushNow(row.block.id)}
           onChange={(event) => editor.onInput(row, event.target.value, event.target)}
           onCompositionStart={() => editor.onCompositionStart(row)}

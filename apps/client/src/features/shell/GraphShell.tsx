@@ -45,7 +45,12 @@ import {
   injectStorageFault,
 } from "virtual:neoseq-worker-factory";
 import { GraphSession } from "../../core-port/session";
-import { graphName, renameGraph, subscribeGraphDirectory } from "../../core-port/directory";
+import {
+  graphConnection,
+  graphName,
+  renameGraph,
+  subscribeGraphDirectory,
+} from "../../core-port/directory";
 import {
   findJournalPage,
   isDeleted,
@@ -98,6 +103,8 @@ import {
 } from "../settings/SettingsDialog";
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
+import { CollaborationStatus } from "./CollaborationStatus";
+import { RemoteMembersDialog } from "../sync/RemoteMembersDialog";
 import { useI18n, type MessageFunction } from "../../i18n";
 import {
   HistoryProvider,
@@ -133,7 +140,7 @@ export function GraphShell() {
         worker.terminate();
         return;
       }
-      created = new GraphSession(graphId, worker);
+      created = new GraphSession(graphId, worker, graphConnection(graphId));
       setSession(created);
       void created.open();
       const faultInjector = injectStorageFault;
@@ -203,6 +210,7 @@ function ShellBody({
   );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [theme, setThemeState] = useState<Theme>(storedTheme);
   const [railCollapsed, setRailCollapsed] = useState(() => {
     try {
@@ -219,6 +227,7 @@ function ShellBody({
   const recoveryAnnounced = useRef(false);
 
   const readonly = state.mode === "readonly";
+  const remote = graphConnection(graphId);
 
   // The open settings section lives in the URL, so the browser's own Back closes
   // the dialog and a link can point straight at one section.
@@ -601,7 +610,13 @@ SELECT ?entity ?content ?page WHERE {
           <p className="rail-brand" data-testid="brand">
             <Wordmark name={message("app.title")} />
           </p>
-          <GraphSwitcher graphId={graphId} name={name} onExit={onExit} />
+          <GraphSwitcher
+            graphId={graphId}
+            name={name}
+            remote={remote !== null}
+            onManageMembers={() => setMembersOpen(true)}
+            onExit={onExit}
+          />
           <div className="shell-nav">
             {/* Search is the affordance that licenses how bare the rest of the
                 interface is, so it stays permanent — it just belongs beside the
@@ -706,6 +721,7 @@ SELECT ?entity ?content ?page WHERE {
                 "everything else". */}
             <div className="topbar-right">
               <SaveStatus state={state} onRetry={() => void session.retry()} />
+              <CollaborationStatus state={state} />
               {readonly && (
                 <span className="readonly-label" data-testid="readonly-pill">
                   {message("shell.readonly")}
@@ -732,6 +748,13 @@ SELECT ?entity ?content ?page WHERE {
         />
       )}
       {shortcutsOpen && <ShortcutSheet onClose={() => setShortcutsOpen(false)} />}
+      {membersOpen && remote && (
+        <RemoteMembersDialog
+          graphId={graphId}
+          connection={remote}
+          onClose={() => setMembersOpen(false)}
+        />
+      )}
       {settingsSection && (
         <SettingsDialog
           graphId={graphId}
@@ -841,10 +864,14 @@ function OverflowMenu({
 function GraphSwitcher({
   graphId,
   name,
+  remote,
+  onManageMembers,
   onExit,
 }: {
   graphId: string;
   name: string;
+  remote: boolean;
+  onManageMembers: () => void;
   onExit: () => void;
 }) {
   const { message } = useI18n();
@@ -907,6 +934,11 @@ function GraphSwitcher({
             <Shortcut binding={bindings.settings} plain />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
+        {remote && (
+          <DropdownMenuItem onSelect={onManageMembers}>
+            {message("graph.manageMembers")}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onExit}>{message("graph.allGraphs")}</DropdownMenuItem>
       </DropdownMenuContent>

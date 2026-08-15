@@ -29,6 +29,19 @@ export interface SavedReceipt {
   checksum: string;
 }
 
+export interface SyncState {
+  version_vector: number[];
+  last_acknowledgement?: number;
+  pending: number;
+}
+
+export interface OutboxMessage {
+  message_id: string;
+  local_sequence: number;
+  base_version_vector: number[];
+  bytes: number[];
+}
+
 export type WorkerOperation =
   | "open_graph"
   | "execute"
@@ -40,6 +53,13 @@ export type WorkerOperation =
   | "retry_pending"
   | "list_graphs"
   | "delete_graph"
+  | "sync_configure"
+  | "sync_state"
+  | "sync_next"
+  | "sync_ack"
+  | "sync_import"
+  | "sync_encode"
+  | "sync_decode"
   | "test_control";
 
 interface WorkerResponse {
@@ -99,6 +119,38 @@ export class CoreWorker implements CorePort {
 
   deleteGraph(graphId: string): Promise<void> {
     return this.request("delete_graph", { graph_id: graphId });
+  }
+
+  configureSync(graphHandle: string): Promise<void> {
+    return this.request("sync_configure", { graph_handle: graphHandle });
+  }
+
+  syncState(graphHandle: string): Promise<SyncState> {
+    return this.request("sync_state", { graph_handle: graphHandle });
+  }
+
+  nextOutbox(graphHandle: string): Promise<OutboxMessage | null> {
+    return this.request("sync_next", { graph_handle: graphHandle });
+  }
+
+  acknowledgeOutbox(graphHandle: string, messageId: string, serverCursor: number): Promise<void> {
+    return this.request("sync_ack", {
+      graph_handle: graphHandle,
+      message_id: messageId,
+      server_cursor: serverCursor,
+    });
+  }
+
+  importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt> {
+    return this.request("sync_import", { graph_handle: graphHandle, bytes });
+  }
+
+  encodeSyncMessage(message: unknown): Promise<ArrayBuffer> {
+    return this.request("sync_encode", message);
+  }
+
+  decodeSyncMessage(frame: ArrayBuffer): Promise<unknown> {
+    return this.request("sync_decode", { frame });
   }
 
   terminate(): void {

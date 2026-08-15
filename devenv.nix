@@ -212,6 +212,64 @@
         after = [ "browser:indexeddb" ];
         before = [ "devenv:enterTest" ];
       };
+      "test:e2e-collaboration" = {
+        description = "Run the real two-browser collaboration scenario";
+        exec = ''
+          set -euo pipefail
+
+          test_root="$(mktemp -d)"
+          server_pid=""
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            if [[ -f "$test_root/data/postmaster.pid" ]]; then
+              pg_ctl -D "$test_root/data" -m immediate -w stop >/dev/null
+            fi
+            rm -rf "$test_root"
+          }
+          trap cleanup EXIT INT TERM
+
+          mkdir -p "$test_root/socket"
+          initdb \
+            -D "$test_root/data" \
+            --auth=trust \
+            --encoding=UTF8 \
+            --no-locale \
+            --username=postgres >/dev/null
+          pg_ctl \
+            -D "$test_root/data" \
+            -o "-F -h ''' -k '$test_root/socket'" \
+            -w start >/dev/null
+
+          export DATABASE_URL="postgresql://postgres@localhost/postgres?host=$test_root/socket"
+          export NEOSEQ_TEST_AUTH_SECRET="neoseq-browser-collaboration"
+          export NEOSEQ_E2E_OWNER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-owner)"
+          export NEOSEQ_E2E_PEER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-peer)"
+          RUST_LOG=sync_server=info \
+            cargo run --quiet --locked -p sync-server -- serve >"$test_root/server.log" 2>&1 &
+          server_pid="$!"
+          for _ in $(seq 1 100); do
+            if curl --fail --silent http://127.0.0.1:8787/readyz >/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
+          curl --fail --silent http://127.0.0.1:8787/readyz >/dev/null || {
+            cat "$test_root/server.log"
+            exit 1
+          }
+
+          if ! pnpm --filter @neoseq/client exec playwright test \
+            tests/e2e/collaboration.spec.ts \
+            --project=chromium; then
+            cat "$test_root/server.log"
+            exit 1
+          fi
+        '';
+        after = [ "web:build-test" ];
+      };
     };
   };
 }

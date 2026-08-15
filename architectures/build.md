@@ -74,6 +74,13 @@ for migration, authorization, idempotency, fault, and restore verification;
 workspace tests skip only that external-database case when `DATABASE_URL` is
 absent.
 
+The standard Rust, component, IndexedDB, and Web E2E suites cover Step 7's
+protocol/client contracts, authorization revocation, multi-tab identity,
+mocked remote Web UX, durable outbox, and headless convergence behavior. The
+only separate Step 7 task starts isolated PostgreSQL and the sync server, mints
+test-only credentials, and verifies a real two-profile
+online/offline/reconnect/revocation journey.
+
 ## Commands
 
 ```text
@@ -85,6 +92,7 @@ devenv build outputs.web
 devenv build outputs.sync-server
 devenv tasks run web:test-components
 devenv tasks run sync-server:test
+devenv --profile browser tasks run test:e2e-collaboration
 devenv test
 devenv --profile browser shell
 devenv --profile browser test

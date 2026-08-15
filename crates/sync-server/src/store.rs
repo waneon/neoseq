@@ -50,6 +50,21 @@ pub struct Membership {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphListing {
+    pub graph_id: String,
+    pub role: GraphRole,
+    pub status: GraphStatus,
+    pub membership_version: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MembershipListing {
+    pub principal_id: String,
+    pub role: GraphRole,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredUpdate {
     pub cursor: u64,
     pub message_id: String,
@@ -147,6 +162,36 @@ pub trait GraphStore: Send + Sync + 'static {
         message_id: &str,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError>;
+}
+
+#[async_trait]
+pub trait GraphAdmin: GraphStore {
+    async fn create_remote_graph(
+        &self,
+        graph_id: &str,
+        owner_principal_id: &str,
+        schema_version: u32,
+        byte_quota: u64,
+        snapshot: &[u8],
+        version_vector: &[u8],
+    ) -> Result<(), StoreError>;
+
+    async fn list_graphs(&self, principal_id: &str) -> Result<Vec<GraphListing>, StoreError>;
+
+    async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError>;
+
+    async fn grant_membership(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+        role: GraphRole,
+    ) -> Result<u64, StoreError>;
+
+    async fn revoke_membership(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, StoreError>;
 }
 
 #[derive(Clone)]
@@ -660,6 +705,90 @@ impl GraphStore for PgStore {
     }
 }
 
+#[async_trait]
+impl GraphAdmin for PgStore {
+    async fn create_remote_graph(
+        &self,
+        graph_id: &str,
+        owner_principal_id: &str,
+        schema_version: u32,
+        byte_quota: u64,
+        snapshot: &[u8],
+        version_vector: &[u8],
+    ) -> Result<(), StoreError> {
+        self.create_graph(
+            graph_id,
+            owner_principal_id,
+            schema_version,
+            byte_quota,
+            snapshot,
+            version_vector,
+        )
+        .await
+    }
+
+    async fn list_graphs(&self, principal_id: &str) -> Result<Vec<GraphListing>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT g.graph_id, m.role, g.status, g.membership_version
+             FROM graph g
+             JOIN graph_membership m ON m.graph_id = g.graph_id
+             WHERE m.principal_id = $1 AND m.revoked_at IS NULL
+             ORDER BY g.created_at, g.graph_id",
+        )
+        .bind(principal_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(GraphListing {
+                    graph_id: row.try_get("graph_id")?,
+                    role: GraphRole::parse(row.try_get("role")?)?,
+                    status: parse_status(row.try_get("status")?)?,
+                    membership_version: as_u64(row.try_get("membership_version")?)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT principal_id, role, version
+             FROM graph_membership
+             WHERE graph_id = $1 AND revoked_at IS NULL
+             ORDER BY principal_id",
+        )
+        .bind(graph_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(MembershipListing {
+                    principal_id: row.try_get("principal_id")?,
+                    role: GraphRole::parse(row.try_get("role")?)?,
+                    version: as_u64(row.try_get("version")?)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn grant_membership(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+        role: GraphRole,
+    ) -> Result<u64, StoreError> {
+        self.grant(graph_id, principal_id, role).await
+    }
+
+    async fn revoke_membership(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, StoreError> {
+        self.revoke(graph_id, principal_id).await
+    }
+}
+
 fn parse_status(value: &str) -> Result<GraphStatus, StoreError> {
     match value {
         "active" => Ok(GraphStatus::Active),
@@ -997,5 +1126,116 @@ impl GraphStore for MemoryStore {
             cursor: next_cursor,
             inserted: true,
         })
+    }
+}
+
+#[async_trait]
+impl GraphAdmin for MemoryStore {
+    async fn create_remote_graph(
+        &self,
+        graph_id: &str,
+        owner_principal_id: &str,
+        schema_version: u32,
+        byte_quota: u64,
+        snapshot: &[u8],
+        version_vector: &[u8],
+    ) -> Result<(), StoreError> {
+        let mut state = self.inner.lock().expect("memory store mutex");
+        if state.graphs.contains_key(graph_id) {
+            return Err(StoreError::Database("graph already exists".into()));
+        }
+        let mut memberships = HashMap::new();
+        memberships.insert(
+            owner_principal_id.to_owned(),
+            MemoryMembership {
+                role: GraphRole::Owner,
+                version: 1,
+                revoked: false,
+            },
+        );
+        state.graphs.insert(
+            graph_id.to_owned(),
+            MemoryGraph {
+                owner_principal_id: owner_principal_id.to_owned(),
+                status: GraphStatus::Active,
+                schema_version,
+                byte_quota,
+                used_bytes: snapshot.len() as u64,
+                checkpoint: StoredCheckpoint {
+                    included_cursor: 0,
+                    snapshot: snapshot.to_vec(),
+                    version_vector: version_vector.to_vec(),
+                    checksum: checksum(snapshot),
+                },
+                updates: Vec::new(),
+                memberships,
+                membership_version: 1,
+            },
+        );
+        Ok(())
+    }
+
+    async fn list_graphs(&self, principal_id: &str) -> Result<Vec<GraphListing>, StoreError> {
+        let state = self.inner.lock().expect("memory store mutex");
+        let mut graphs = state
+            .graphs
+            .iter()
+            .filter_map(|(graph_id, graph)| {
+                let member = graph.memberships.get(principal_id)?;
+                (!member.revoked).then_some(GraphListing {
+                    graph_id: graph_id.clone(),
+                    role: member.role,
+                    status: graph.status,
+                    membership_version: graph.membership_version,
+                })
+            })
+            .collect::<Vec<_>>();
+        graphs.sort_by(|left, right| left.graph_id.cmp(&right.graph_id));
+        Ok(graphs)
+    }
+
+    async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError> {
+        let state = self.inner.lock().expect("memory store mutex");
+        let graph = state.graphs.get(graph_id).ok_or(StoreError::AccessDenied)?;
+        let mut memberships = graph
+            .memberships
+            .iter()
+            .filter_map(|(principal_id, membership)| {
+                (!membership.revoked).then_some(MembershipListing {
+                    principal_id: principal_id.clone(),
+                    role: membership.role,
+                    version: membership.version,
+                })
+            })
+            .collect::<Vec<_>>();
+        memberships.sort_by(|left, right| left.principal_id.cmp(&right.principal_id));
+        Ok(memberships)
+    }
+
+    async fn grant_membership(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+        role: GraphRole,
+    ) -> Result<u64, StoreError> {
+        self.grant(graph_id, principal_id, role);
+        self.authorize(graph_id, principal_id)
+            .await
+            .map(|membership| membership.version)
+    }
+
+    async fn revoke_membership(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, StoreError> {
+        self.revoke(graph_id, principal_id);
+        let state = self.inner.lock().expect("memory store mutex");
+        state
+            .graphs
+            .get(graph_id)
+            .and_then(|graph| graph.memberships.get(principal_id))
+            .map(|membership| membership.version)
+            .ok_or(StoreError::AccessDenied)
     }
 }

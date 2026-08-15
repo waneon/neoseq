@@ -1,11 +1,12 @@
 mod support;
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use std::{sync::Arc, time::Duration};
 use support::*;
 use sync_protocol::{Hello, Message, PROTOCOL_VERSION, VersionRange, decode, encode};
-use sync_server::{AppState, RoomConfig, TestIssuer, router};
+use sync_server::{AppState, GraphStore, RoomConfig, TestIssuer, router};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{Message as WsMessage, client::IntoClientRequest, http::HeaderValue},
@@ -44,10 +45,18 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     assert!(connect_async(&url).await.is_err());
     let mut request = url.into_client_request().unwrap();
     request.headers_mut().insert(
-        "authorization",
-        HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        "sec-websocket-protocol",
+        HeaderValue::from_str(&format!(
+            "neoseq.v1, neoseq.auth.{}",
+            URL_SAFE_NO_PAD.encode(token)
+        ))
+        .unwrap(),
     );
-    let (mut socket, _) = connect_async(request).await.unwrap();
+    let (mut socket, response) = connect_async(request).await.unwrap();
+    assert_eq!(
+        response.headers().get("sec-websocket-protocol").unwrap(),
+        "neoseq.v1"
+    );
     let hello = Message::Hello(Hello {
         protocol: VersionRange::exact(PROTOCOL_VERSION),
         schema: VersionRange::exact(graph_core::SCHEMA_VERSION as u16),
@@ -91,6 +100,76 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     server.abort();
 }
 
+#[tokio::test]
+async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
+    let fixture = fixture(RoomConfig::default());
+    let issuer = Arc::new(TestIssuer::new(b"0123456789abcdef").unwrap());
+    let token = issuer.issue(OWNER).unwrap();
+    let app = router(AppState::new(
+        fixture.manager,
+        issuer,
+        Arc::new(sync_server::Metrics::default()),
+        32,
+        Duration::from_millis(50),
+    ));
+    let graph_id = "remote-api-graph";
+    let response = authorized_request(
+        &app,
+        "POST",
+        "/v1/graphs",
+        &token,
+        &format!(r#"{{"graph_id":"{graph_id}"}}"#),
+    )
+    .await;
+    assert_eq!(response.0, 201, "{}", response.1);
+
+    let members = authorized_request(
+        &app,
+        "GET",
+        &format!("/v1/graphs/{graph_id}/members"),
+        &token,
+        "",
+    )
+    .await;
+    assert_eq!(members.0, 200);
+    assert!(members.1.contains(OWNER));
+    assert!(members.1.contains("owner"));
+
+    let granted = authorized_request(
+        &app,
+        "PUT",
+        &format!("/v1/graphs/{graph_id}/members/invited-editor"),
+        &token,
+        r#"{"role":"editor"}"#,
+    )
+    .await;
+    assert_eq!(granted.0, 204, "{}", granted.1);
+    assert!(
+        fixture
+            .store
+            .authorize(graph_id, "invited-editor")
+            .await
+            .is_ok()
+    );
+
+    let revoked = authorized_request(
+        &app,
+        "DELETE",
+        &format!("/v1/graphs/{graph_id}/members/invited-editor"),
+        &token,
+        "",
+    )
+    .await;
+    assert_eq!(revoked.0, 204, "{}", revoked.1);
+    assert!(
+        fixture
+            .store
+            .authorize(graph_id, "invited-editor")
+            .await
+            .is_err()
+    );
+}
+
 async fn probe(app: &axum::Router, path: &str) -> (u16, String) {
     let response = app
         .clone()
@@ -98,6 +177,31 @@ async fn probe(app: &axum::Router, path: &str) -> (u16, String) {
             axum::http::Request::builder()
                 .uri(path)
                 .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (status, String::from_utf8(body.to_vec()).unwrap())
+}
+
+async fn authorized_request(
+    app: &axum::Router,
+    method: &str,
+    path: &str,
+    token: &str,
+    body: &str,
+) -> (u16, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(body.to_owned()))
                 .unwrap(),
         )
         .await

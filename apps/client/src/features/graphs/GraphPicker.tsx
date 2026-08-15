@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
-import { MoreHorizontalIcon } from "lucide-react";
+import { CloudIcon, MoreHorizontalIcon } from "lucide-react";
 import {
   deleteGraph,
   listGraphs,
   processPendingDelete,
   registerGraph,
+  registerRemoteGraph,
   renameGraph,
   type GraphSummary,
 } from "../../core-port/directory";
+import { createRemoteGraph, listRemoteGraphs } from "../sync/api";
+import { writeAuthSession } from "../sync/auth";
 import { Callout, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
 import { useNotify } from "../notify/context";
@@ -46,6 +49,7 @@ export function GraphPicker() {
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<GraphSummary | null>(null);
   const [deleting, setDeleting] = useState<GraphSummary | null>(null);
+  const [remoteCreate, setRemoteCreate] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -101,6 +105,11 @@ export function GraphPicker() {
                 >
                   <span className="name">{graph.name}</span>
                   <span className="meta">
+                    {graph.kind === "remote" && (
+                      <span className="graph-remote-label">
+                        <CloudIcon aria-hidden /> {message("graph.remote")} ·{" "}
+                      </span>
+                    )}
                     {message("graph.created", {
                       date: formatInstant(graph.created_at, configuredTimezone(), CREATED),
                     })}
@@ -145,9 +154,15 @@ export function GraphPicker() {
             onChange={(event) => setNewName(event.target.value)}
             data-testid="new-graph-name"
           />
-          <button className="btn btn-primary" type="submit" data-testid="create-graph">
-            {message("graph.create")}
-          </button>
+          <div className="picker-new-actions">
+            <button className="btn btn-primary" type="submit" data-testid="create-graph">
+              {message("graph.createLocal")}
+            </button>
+            <button className="btn" type="button" onClick={() => setRemoteCreate(true)} data-testid="create-remote-graph">
+              <CloudIcon aria-hidden />
+              {message("graph.createRemote")}
+            </button>
+          </div>
         </form>
       </div>
 
@@ -171,7 +186,103 @@ export function GraphPicker() {
           }}
         />
       )}
+      {remoteCreate && (
+        <RemoteCreateDialog
+          initialName={newName.trim() || message("graph.defaultName")}
+          onClose={() => setRemoteCreate(false)}
+          onCreated={(graph) => navigate(`/g/${graph.id}`)}
+        />
+      )}
     </main>
+  );
+}
+
+function RemoteCreateDialog({
+  initialName,
+  onClose,
+  onCreated,
+}: {
+  initialName: string;
+  onClose: () => void;
+  onCreated: (graph: GraphSummary) => void;
+}) {
+  const { message } = useI18n();
+  const [name, setName] = useState(initialName);
+  const [serverUrl, setServerUrl] = useState(window.location.origin);
+  const [principal, setPrincipal] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const auth = () => ({ principal: principal.trim(), token: token.trim() });
+  const remember = () => writeAuthSession(serverUrl, auth());
+
+  const connectAvailable = () => {
+    setBusy(true);
+    setError(null);
+    remember();
+    listRemoteGraphs(serverUrl, auth())
+      .then(({ graphs }) => {
+        if (graphs.length === 0) {
+          setBusy(false);
+          setError(message("graph.noRemoteGraphs"));
+          return;
+        }
+        const registered = graphs.map((graph, index) =>
+          registerRemoteGraph(
+            graph.graph_id,
+            index === 0 && name.trim() ? name.trim() : graph.graph_id,
+            serverUrl,
+          ),
+        );
+        onCreated(registered[0]);
+      })
+      .catch(() => {
+        setBusy(false);
+        setError(message("graph.remoteFailed"));
+      });
+  };
+
+  return (
+    <Dialog title={message("graph.remoteCreateTitle")} onClose={onClose}>
+      <p className="dialog-lede">{message("graph.remoteCreateDetail")}</p>
+      {error && <Callout tone="danger">{error}</Callout>}
+      <form
+        className="remote-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError(null);
+          remember();
+          createRemoteGraph(serverUrl, auth())
+            .then(({ graph_id }) => {
+              onCreated(registerRemoteGraph(graph_id, name.trim(), serverUrl));
+            })
+            .catch(() => {
+              setBusy(false);
+              setError(message("graph.remoteFailed"));
+            });
+        }}
+      >
+        <label className="field-label" htmlFor="remote-graph-name">{message("graph.graphName")}</label>
+        <Input id="remote-graph-name" value={name} onChange={(event) => setName(event.target.value)} />
+        <label className="field-label" htmlFor="remote-server-url">{message("graph.serverUrl")}</label>
+        <Input id="remote-server-url" type="url" value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} />
+        <label className="field-label" htmlFor="remote-principal">{message("graph.principal")}</label>
+        <Input id="remote-principal" autoComplete="username" value={principal} onChange={(event) => setPrincipal(event.target.value)} />
+        <label className="field-label" htmlFor="remote-token">{message("graph.token")}</label>
+        <Input id="remote-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
+        <div className="dialog-actions">
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>{message("common.cancel")}</button>
+          <button type="button" className="btn" onClick={connectAvailable} disabled={busy || !principal.trim() || !token.trim()}>
+            {message("graph.connectRemote")}
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !principal.trim() || !token.trim()}>
+            {message("graph.createRemote")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

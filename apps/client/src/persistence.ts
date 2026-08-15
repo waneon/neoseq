@@ -1,12 +1,14 @@
 import type { CorePortErrorCode, GraphLocatorDto, StorageCapabilitiesDto } from "./generated/core-port";
 
 const DATABASE = "neoseq-local";
-const VERSION = 1;
+const VERSION = 2;
 const STORES = {
   metadata: "metadata",
   updates: "updates",
   checkpoints: "checkpoints",
   quarantine: "quarantine",
+  outbox: "outbox",
+  syncState: "sync-state",
 } as const;
 
 export interface MetadataRecord {
@@ -35,6 +37,21 @@ export interface QuarantineRecord extends UpdateRecord {
   export_handle: string;
   record_kind: "update" | "checkpoint";
   reason: string;
+}
+
+export interface OutboxRecord {
+  graph_id: string;
+  message_id: string;
+  local_sequence: number;
+  base_version_vector: ArrayBuffer;
+  payload: ArrayBuffer;
+  created_at: string;
+}
+
+export interface SyncStateRecord {
+  graph_id: string;
+  initialized?: boolean;
+  last_acknowledgement?: number;
 }
 
 export type FaultPoint =
@@ -105,12 +122,20 @@ export class IndexedDbGraphRepository {
     return value;
   }
 
-  async appendUpdate(graphId: string, payload: ArrayBuffer, now: string): Promise<{ local_sequence: number; checksum: string }> {
+  async appendUpdate(
+    graphId: string,
+    payload: ArrayBuffer,
+    now: string,
+    outbox?: { message_id: string; base_version_vector: ArrayBuffer },
+  ): Promise<{ local_sequence: number; checksum: string }> {
     this.storageFault();
     if (this.takeFault("append_before")) throw new StorageError("dirty_unsaved", "append failed before commit", true);
     const digest = await checksum(payload);
     const database = await openDatabase();
-    const transaction = database.transaction([STORES.metadata, STORES.updates], "readwrite");
+    const transaction = database.transaction(
+      [STORES.metadata, STORES.updates, STORES.outbox],
+      "readwrite",
+    );
     const metadataStore = transaction.objectStore(STORES.metadata);
     const updateStore = transaction.objectStore(STORES.updates);
     const existing = await request<UpdateRecord | undefined>(
@@ -134,12 +159,85 @@ export class IndexedDbGraphRepository {
       payload,
       created_at: now,
     } satisfies UpdateRecord);
+    if (outbox) {
+      transaction.objectStore(STORES.outbox).put({
+        graph_id: graphId,
+        message_id: outbox.message_id,
+        local_sequence: localSequence,
+        base_version_vector: outbox.base_version_vector,
+        payload,
+        created_at: now,
+      } satisfies OutboxRecord);
+    }
     metadataStore.put({ ...metadata, next_sequence: localSequence + 1, updated_at: now });
     if (this.takeFault("abort")) transaction.abort();
     await complete(transaction);
     database.close();
     if (this.takeFault("append_after")) throw new StorageError("dirty_unsaved", "append failed after commit", true);
     return { local_sequence: localSequence, checksum: digest };
+  }
+
+  async outbox(graphId: string): Promise<OutboxRecord[]> {
+    return (await allByGraph<OutboxRecord>(STORES.outbox, graphId)).sort(bySequence);
+  }
+
+  /** Durably queues the replica's existing history before later remote edits.
+   * The local checkpoint already owns these bytes, so sequence zero is a
+   * transport-only bootstrap record rather than another recovery-log entry. */
+  async initializeSync(
+    graphId: string,
+    messageId: string,
+    baseVersionVector: ArrayBuffer,
+    payload: ArrayBuffer,
+    now: string,
+  ): Promise<void> {
+    const database = await openDatabase();
+    const transaction = database.transaction([STORES.outbox, STORES.syncState], "readwrite");
+    const stateStore = transaction.objectStore(STORES.syncState);
+    const current = await request<SyncStateRecord | undefined>(stateStore.get(graphId));
+    if (!current?.initialized) {
+      transaction.objectStore(STORES.outbox).put({
+        graph_id: graphId,
+        message_id: messageId,
+        local_sequence: 0,
+        base_version_vector: baseVersionVector,
+        payload,
+        created_at: now,
+      } satisfies OutboxRecord);
+      stateStore.put({
+        ...current,
+        graph_id: graphId,
+        initialized: true,
+      } satisfies SyncStateRecord);
+    }
+    await complete(transaction);
+    database.close();
+  }
+
+  async acknowledge(graphId: string, messageId: string, serverCursor: number): Promise<void> {
+    const database = await openDatabase();
+    const transaction = database.transaction([STORES.outbox, STORES.syncState], "readwrite");
+    transaction.objectStore(STORES.outbox).delete([graphId, messageId]);
+    const stateStore = transaction.objectStore(STORES.syncState);
+    const current = await request<SyncStateRecord | undefined>(stateStore.get(graphId));
+    stateStore.put({
+      ...current,
+      graph_id: graphId,
+      last_acknowledgement: Math.max(current?.last_acknowledgement ?? 0, serverCursor),
+    } satisfies SyncStateRecord);
+    await complete(transaction);
+    database.close();
+  }
+
+  async syncState(graphId: string): Promise<SyncStateRecord> {
+    const database = await openDatabase();
+    const transaction = database.transaction(STORES.syncState, "readonly");
+    const state = await request<SyncStateRecord | undefined>(
+      transaction.objectStore(STORES.syncState).get(graphId),
+    );
+    await complete(transaction);
+    database.close();
+    return state ?? { graph_id: graphId };
   }
 
   async updatesAfter(graphId: string, sequence: number): Promise<UpdateRecord[]> {
@@ -243,7 +341,10 @@ export class IndexedDbGraphRepository {
     const names = Object.values(STORES);
     const transaction = database.transaction(names, "readwrite");
     transaction.objectStore(STORES.metadata).delete(graphId);
-    for (const name of names.filter((name) => name !== STORES.metadata)) {
+    transaction.objectStore(STORES.syncState).delete(graphId);
+    for (const name of names.filter(
+      (name) => name !== STORES.metadata && name !== STORES.syncState,
+    )) {
       const store = transaction.objectStore(name);
       const index = store.index("by_graph");
       const keys = await request<IDBValidKey[]>(index.getAllKeys(graphId));
@@ -294,6 +395,15 @@ async function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(STORES.quarantine)) {
         const quarantine = database.createObjectStore(STORES.quarantine, { keyPath: ["graph_id", "export_handle"] });
         quarantine.createIndex("by_graph", "graph_id", { unique: false });
+      }
+      if (!database.objectStoreNames.contains(STORES.outbox)) {
+        const outbox = database.createObjectStore(STORES.outbox, {
+          keyPath: ["graph_id", "message_id"],
+        });
+        outbox.createIndex("by_graph", "graph_id", { unique: false });
+      }
+      if (!database.objectStoreNames.contains(STORES.syncState)) {
+        database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
       }
       const updates = open.transaction?.objectStore(STORES.updates);
       updates?.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });

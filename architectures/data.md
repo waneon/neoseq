@@ -3,7 +3,7 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-future synchronization unit. The document schema is v1 and has three roots:
+synchronization unit. The document schema is v1 and has three roots:
 
 ```text
 meta: Map
@@ -150,19 +150,26 @@ export their opaque bytes by handle without treating them as graph data.
 
 ## IndexedDB Adapter
 
-The browser uses database `neoseq-local`, version 1, with four stores:
+The browser uses database `neoseq-local`, version 2, with six stores:
 
 ```text
 metadata      key graph_id
 updates       key [graph_id, local_sequence], indexes by_graph/by_checksum
 checkpoints   key [graph_id, local_sequence], index by_graph
 quarantine    key [graph_id, export_handle], index by_graph
+outbox        key [graph_id, message_id], index by_graph
+sync-state    key graph_id
 ```
 
 The Worker owns database access. Each graph append updates metadata and inserts
-the update in one transaction. Browser storage capabilities expose persistence
-permission and quota estimates without changing graph semantics. A Web Lock
-allows only one writable tab per graph; another tab opens read-only.
+the update in one transaction. For a remote graph, that transaction also inserts
+the message ID, causal base, exact bytes, and local sequence into the outbox.
+Acknowledgement removes only the matching outbox record and advances the durable
+server cursor. Initial sync first queues the replica's existing Loro history as
+a sequence-zero transport record, preventing later updates from reaching the
+server without their causal dependencies. Browser storage capabilities expose
+persistence permission and quota estimates without changing graph semantics. A
+Web Lock allows only one writable tab per graph; another tab opens read-only.
 
 ## SQLite Adapter
 
@@ -174,10 +181,10 @@ is implemented.
 
 ## Current Scope and Evolution
 
-All graph locators are local and contain only `graph_id`. Remote identity,
-outboxes, acknowledgements, and transport state enter with remote collaboration,
-not as inactive local-storage columns. The RDF index is rebuilt on open and has
-no persisted cache.
+Core graph locators contain only `graph_id`. The browser directory separately
+records whether a locally persisted replica is local-only or attached to a
+remote server. Transport credentials and presence are not canonical state. The
+RDF index is rebuilt on open and has no persisted cache.
 
 Pre-release v1 may replace an undeployed encoding destructively without a schema
 version bump; superseded snapshots are then unsupported and recreated rather
@@ -192,5 +199,6 @@ only accepted schema and unsupported values fail explicitly.
 - restart tests compare semantic graph state after checkpoint plus tail replay;
 - fault tests cover before-commit, after-commit, busy/quota, and corrupt records;
 - convergence tests exchange binary updates in different and duplicate orders;
+- browser outbox tests cover atomic queueing, restart, protocol encoding, and acknowledgement;
 - compaction tests reopen from the retained checkpoint and remaining tail;
 - generated contracts are synchronized before tests and checked by production builds.

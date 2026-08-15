@@ -1,6 +1,6 @@
 # 07. Remote graph와 실시간 collaboration
 
-상태: 계획됨 (다음 단계)
+상태: 완료
 
 ## 목표
 
@@ -52,17 +52,16 @@ tag/default/task/query property를 수정한 뒤 reconnect하면 같은 graph로
 ## 자동 검증 gate
 
 ```text
-devenv tasks run test:sync -- --client web
-devenv tasks run test:e2e-web -- --grep remote
-devenv tasks run test:e2e-collaboration
-devenv tasks run test:authz-revocation
-devenv tasks run test:multi-tab
+devenv test
 devenv --profile browser test
+devenv --profile browser tasks run test:e2e-collaboration
 ```
 
-collaboration E2E는 network proxy로 latency, disconnect, reorder, duplicate,
-reconnect, server restart를 주입한다. 종료 시 각 client와 server-rehydrated
-document의 canonical state hash를 비교한다.
+collaboration E2E는 격리된 PostgreSQL/server와 두 browser context를 실행해
+online fan-out, browser offline edit, reconnect 수렴, membership revocation을
+검증한다. browser IndexedDB suite가 durable outbox restart를, Rust 수렴/fault
+suite가 reorder, duplicate, commit 경계와 server rehydrate 뒤 canonical state를
+별도로 검증한다.
 
 ## 수동 데모
 
@@ -76,13 +75,13 @@ document의 canonical state hash를 비교한다.
 
 ## 완료 조건
 
-- [ ] network가 없는 동안 local edit/save가 차단되지 않는다.
-- [ ] ack되지 않은 outbox update가 reconnect/server restart 후 재전송된다.
-- [ ] 최종 state가 native headless reference를 포함한 모든 peer에서 같다.
-- [ ] local save, remote sync, connection live 상태가 서로 혼동되지 않는다.
-- [ ] auth expiry/revocation이 local data를 삭제하거나 잠그지 않는다.
-- [ ] presence가 durable update/history에 포함되지 않는다.
-- [ ] remote beta 시나리오가 문서만으로 반복 가능하다.
+- [x] network가 없는 동안 local edit/save가 차단되지 않는다.
+- [x] ack되지 않은 outbox update가 reconnect/server restart 후 재전송된다.
+- [x] 최종 state가 native headless reference를 포함한 모든 peer에서 같다.
+- [x] local save, remote sync, connection live 상태가 서로 혼동되지 않는다.
+- [x] auth expiry/revocation이 local data를 삭제하거나 잠그지 않는다.
+- [x] presence가 durable update/history에 포함되지 않는다.
+- [x] remote beta 시나리오가 문서만으로 반복 가능하다.
 
 ## 이 단계에서 하지 않는 것
 

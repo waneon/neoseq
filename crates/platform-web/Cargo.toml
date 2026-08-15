@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 domain = { path = "../domain" }
 graph-core = { path = "../graph-core" }
 query = { path = "../query" }
+sync-protocol = { path = "../sync-protocol" }
 js-sys = "=0.3.98"
 serde_json.workspace = true
 wasm-bindgen.workspace = true

@@ -8,11 +8,18 @@ export interface GraphSummary {
   id: string;
   name: string;
   created_at: string;
+  kind: "local" | "remote";
+}
+
+export interface RemoteGraphConnection {
+  server_url: string;
 }
 
 interface DirectoryEntry {
   name: string;
   created_at: string;
+  kind?: "local" | "remote";
+  remote?: RemoteGraphConnection;
 }
 
 const DIRECTORY_KEY = "neoseq.graph-directory.v1";
@@ -51,12 +58,30 @@ export function registerGraph(name: string): GraphSummary {
   const created_at = new Date().toISOString();
   entries[id] = { name: name.trim(), created_at };
   writeEntries(entries);
-  return { id, name: name.trim(), created_at };
+  return { id, name: name.trim(), created_at, kind: "local" };
+}
+
+export function registerRemoteGraph(
+  id: string,
+  name: string,
+  serverUrl: string,
+): GraphSummary {
+  const entries = readEntries();
+  const created_at = new Date().toISOString();
+  entries[id] = {
+    name: name.trim(),
+    created_at,
+    kind: "remote",
+    remote: { server_url: normalizeServerUrl(serverUrl) },
+  };
+  writeEntries(entries);
+  return { id, name: name.trim(), created_at, kind: "remote" };
 }
 
 export function renameGraph(id: string, name: string): void {
   const entries = readEntries();
   entries[id] = {
+    ...entries[id],
     name: name.trim(),
     created_at: entries[id]?.created_at ?? new Date().toISOString(),
   };
@@ -65,6 +90,11 @@ export function renameGraph(id: string, name: string): void {
 
 export function graphName(id: string): string {
   return readEntries()[id]?.name ?? id;
+}
+
+export function graphConnection(id: string): RemoteGraphConnection | null {
+  const entry = readEntries()[id];
+  return entry?.kind === "remote" && entry.remote ? entry.remote : null;
 }
 
 /** Union of stored graphs (Worker metadata) and registered names. */
@@ -79,11 +109,17 @@ export async function listGraphs(): Promise<GraphSummary[]> {
         id: metadata.graph_id,
         name: entries[metadata.graph_id]?.name ?? metadata.graph_id,
         created_at: entries[metadata.graph_id]?.created_at ?? metadata.created_at,
+        kind: entries[metadata.graph_id]?.kind ?? "local",
       });
     }
     for (const [id, entry] of Object.entries(entries)) {
       if (!summaries.has(id)) {
-        summaries.set(id, { id, name: entry.name, created_at: entry.created_at });
+        summaries.set(id, {
+          id,
+          name: entry.name,
+          created_at: entry.created_at,
+          kind: entry.kind ?? "local",
+        });
       }
     }
     return [...summaries.values()].sort((left, right) =>
@@ -92,6 +128,12 @@ export async function listGraphs(): Promise<GraphSummary[]> {
   } finally {
     worker.terminate();
   }
+}
+
+
+function normalizeServerUrl(value: string): string {
+  const url = new URL(value || window.location.origin, window.location.origin);
+  return url.toString().replace(/\/$/, "");
 }
 
 export async function deleteGraph(id: string): Promise<void> {

@@ -2,20 +2,22 @@ use crate::{
     auth::TokenVerifier,
     metrics::Metrics,
     room::{RoomConnection, RoomError, RoomManager},
-    store::{GraphStore, StoreError},
+    store::{GraphAdmin, GraphRole, GraphStore, StoreError},
 };
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     extract::{
-        State, WebSocketUpgrade,
+        Path, State, WebSocketUpgrade,
         ws::{Message as WsMessage, WebSocket},
     },
     http::{HeaderMap, HeaderValue, Response, StatusCode, header},
     response::IntoResponse,
-    routing::get,
+    routing::{get, put},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::{
     sync::{
         Arc,
@@ -78,13 +80,265 @@ impl<S: GraphStore, V: TokenVerifier> AppState<S, V> {
     }
 }
 
-pub fn router<S: GraphStore, V: TokenVerifier>(state: AppState<S, V>) -> Router {
+pub fn router<S: GraphAdmin, V: TokenVerifier>(state: AppState<S, V>) -> Router {
     Router::new()
         .route("/livez", get(liveness))
         .route("/readyz", get(readiness::<S, V>))
         .route("/metrics", get(metrics::<S, V>))
         .route("/v1/sync", get(sync_upgrade::<S, V>))
+        .route(
+            "/v1/graphs",
+            get(list_graphs::<S, V>).post(create_graph::<S, V>),
+        )
+        .route(
+            "/v1/graphs/{graph_id}/members",
+            get(list_memberships::<S, V>),
+        )
+        .route(
+            "/v1/graphs/{graph_id}/members/{principal_id}",
+            put(grant_membership::<S, V>).delete(revoke_membership::<S, V>),
+        )
         .with_state(state)
+}
+
+#[derive(Serialize)]
+struct GraphResponse {
+    graph_id: String,
+    role: &'static str,
+    status: &'static str,
+    membership_version: u64,
+}
+
+#[derive(Serialize)]
+struct GraphsResponse {
+    graphs: Vec<GraphResponse>,
+}
+
+#[derive(Deserialize)]
+struct CreateGraphRequest {
+    graph_id: String,
+}
+
+#[derive(Serialize)]
+struct CreatedGraphResponse {
+    graph_id: String,
+}
+
+#[derive(Serialize)]
+struct MembershipResponse {
+    principal_id: String,
+    role: &'static str,
+    version: u64,
+}
+
+#[derive(Serialize)]
+struct MembershipsResponse {
+    memberships: Vec<MembershipResponse>,
+}
+
+#[derive(Deserialize)]
+struct GrantRequest {
+    role: String,
+}
+
+async fn list_graphs<S: GraphAdmin, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    let principal = match api_principal(&state, &headers) {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    match state.rooms.store().list_graphs(&principal).await {
+        Ok(graphs) => Json(GraphsResponse {
+            graphs: graphs
+                .into_iter()
+                .map(|graph| GraphResponse {
+                    graph_id: graph.graph_id,
+                    role: role_name(graph.role),
+                    status: match graph.status {
+                        sync_protocol::GraphStatus::Active => "active",
+                        sync_protocol::GraphStatus::ReadOnly => "read_only",
+                    },
+                    membership_version: graph.membership_version,
+                })
+                .collect(),
+        })
+        .into_response(),
+        Err(error) => api_store_error(error),
+    }
+}
+
+async fn create_graph<S: GraphAdmin, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Json(request): Json<CreateGraphRequest>,
+) -> Response<Body> {
+    let principal = match api_principal(&state, &headers) {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let graph_id = match domain::GraphId::new(&request.graph_id) {
+        Ok(graph_id) => graph_id,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
+    };
+    let core = match graph_core::GraphCore::new(graph_id, u64::MAX - 2, "server:create") {
+        Ok(core) => core,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
+    };
+    let snapshot = match core.export_snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    match state
+        .rooms
+        .store()
+        .create_remote_graph(
+            &request.graph_id,
+            &principal,
+            graph_core::SCHEMA_VERSION,
+            64 * 1024 * 1024,
+            &snapshot,
+            &core.version_vector(),
+        )
+        .await
+    {
+        Ok(()) => (
+            StatusCode::CREATED,
+            Json(CreatedGraphResponse {
+                graph_id: request.graph_id,
+            }),
+        )
+            .into_response(),
+        Err(error) => api_store_error(error),
+    }
+}
+
+async fn list_memberships<S: GraphAdmin, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Path(graph_id): Path<String>,
+) -> Response<Body> {
+    let principal = match require_owner(&state, &headers, &graph_id).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let _ = principal;
+    match state.rooms.store().list_memberships(&graph_id).await {
+        Ok(memberships) => Json(MembershipsResponse {
+            memberships: memberships
+                .into_iter()
+                .map(|membership| MembershipResponse {
+                    principal_id: membership.principal_id,
+                    role: role_name(membership.role),
+                    version: membership.version,
+                })
+                .collect(),
+        })
+        .into_response(),
+        Err(error) => api_store_error(error),
+    }
+}
+
+async fn grant_membership<S: GraphAdmin, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Path((graph_id, principal_id)): Path<(String, String)>,
+    Json(request): Json<GrantRequest>,
+) -> Response<Body> {
+    if let Err(response) = require_owner(&state, &headers, &graph_id).await {
+        return *response;
+    }
+    let role = match request.role.as_str() {
+        "editor" => GraphRole::Editor,
+        "viewer" => GraphRole::Viewer,
+        _ => return (StatusCode::BAD_REQUEST, "role must be editor or viewer\n").into_response(),
+    };
+    match state
+        .rooms
+        .store()
+        .grant_membership(&graph_id, &principal_id, role)
+        .await
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => api_store_error(error),
+    }
+}
+
+async fn revoke_membership<S: GraphAdmin, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Path((graph_id, principal_id)): Path<(String, String)>,
+) -> Response<Body> {
+    let owner = match require_owner(&state, &headers, &graph_id).await {
+        Ok(owner) => owner,
+        Err(response) => return *response,
+    };
+    if owner == principal_id {
+        return (
+            StatusCode::BAD_REQUEST,
+            "owner membership cannot be revoked\n",
+        )
+            .into_response();
+    }
+    match state
+        .rooms
+        .store()
+        .revoke_membership(&graph_id, &principal_id)
+        .await
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => api_store_error(error),
+    }
+}
+
+fn api_principal<S: GraphStore, V: TokenVerifier>(
+    state: &AppState<S, V>,
+    headers: &HeaderMap,
+) -> Result<String, Box<Response<Body>>> {
+    let token =
+        bearer_token(headers).ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
+    state
+        .verifier
+        .verify(token)
+        .map(|principal| principal.id)
+        .map_err(|_| Box::new(StatusCode::UNAUTHORIZED.into_response()))
+}
+
+async fn require_owner<S: GraphStore, V: TokenVerifier>(
+    state: &AppState<S, V>,
+    headers: &HeaderMap,
+    graph_id: &str,
+) -> Result<String, Box<Response<Body>>> {
+    let principal = api_principal(state, headers)?;
+    match state.rooms.store().authorize(graph_id, &principal).await {
+        Ok(membership) if membership.role == GraphRole::Owner => Ok(principal),
+        Ok(_) | Err(StoreError::AccessDenied) => {
+            Err(Box::new(StatusCode::FORBIDDEN.into_response()))
+        }
+        Err(error) => Err(Box::new(api_store_error(error))),
+    }
+}
+
+fn role_name(role: GraphRole) -> &'static str {
+    match role {
+        GraphRole::Owner => "owner",
+        GraphRole::Editor => "editor",
+        GraphRole::Viewer => "viewer",
+    }
+}
+
+fn api_store_error(error: StoreError) -> Response<Body> {
+    match error {
+        StoreError::AccessDenied | StoreError::ReadOnly => StatusCode::FORBIDDEN.into_response(),
+        StoreError::QuotaExceeded => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        StoreError::Database(message)
+            if message.contains("duplicate key") || message.contains("already exists") =>
+        {
+            (StatusCode::CONFLICT, "graph already exists\n").into_response()
+        }
+        _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
 }
 
 async fn liveness() -> &'static str {
@@ -123,24 +377,39 @@ async fn sync_upgrade<S: GraphStore, V: TokenVerifier>(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let Some(token) = bearer_token(&headers) else {
+    let token = bearer_token(&headers)
+        .map(str::to_owned)
+        .or_else(|| websocket_token(&headers));
+    let Some(token) = token else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
     // Verify before upgrade, but never log or retain the credential.
-    if state.verifier.verify(token).is_err() {
+    if state.verifier.verify(&token).is_err() {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let Some(permit) = ConnectionPermit::acquire(state.connections.clone(), state.max_connections)
     else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let token = token.to_owned();
     let max_frame = state.rooms.limits().max_frame_bytes as usize;
     upgrade
+        .protocols(["neoseq.v1"])
         .max_message_size(max_frame)
         .max_frame_size(max_frame)
         .on_upgrade(move |socket| session(socket, state, token, permit))
         .into_response()
+}
+
+fn websocket_token(headers: &HeaderMap) -> Option<String> {
+    let encoded = headers
+        .get("sec-websocket-protocol")?
+        .to_str()
+        .ok()?
+        .split(',')
+        .map(str::trim)
+        .find_map(|protocol| protocol.strip_prefix("neoseq.auth."))
+        .filter(|token| !token.is_empty())?;
+    String::from_utf8(URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {

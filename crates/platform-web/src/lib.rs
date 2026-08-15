@@ -2,7 +2,29 @@
 
 use graph_core::GraphCore;
 use query::{GraphIndex, QueryRequest};
+use sync_protocol::{Message, decode, encode};
 use wasm_bindgen::prelude::*;
+
+const SYNC_MAX_FRAME_BYTES: usize = 1_048_576;
+
+/// Keeps postcard and the versioned wire header in Rust, so browser clients do
+/// not grow an independent protocol implementation that can drift.
+#[wasm_bindgen(js_name = encodeSyncMessageJson)]
+pub fn encode_sync_message_json(message: &str) -> Result<Vec<u8>, JsValue> {
+    let message: Message = serde_json::from_str(message).map_err(js_error)?;
+    encode(&message, SYNC_MAX_FRAME_BYTES).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = decodeSyncMessageJson)]
+pub fn decode_sync_message_json(frame: &[u8]) -> Result<String, JsValue> {
+    let message = decode(frame, SYNC_MAX_FRAME_BYTES).map_err(js_error)?;
+    serde_json::to_string(&message).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = emptyVersionVector)]
+pub fn empty_version_vector() -> Vec<u8> {
+    graph_core::empty_version_vector()
+}
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
@@ -84,6 +106,28 @@ impl WasmGraphCore {
             )
             .map_err(js_error)?;
         Ok(())
+    }
+
+    #[wasm_bindgen(js_name = validateUpdate)]
+    pub fn validate_update(&self, update: &[u8]) -> Result<(), JsValue> {
+        self.inner.validate_remote(update).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = versionVector)]
+    pub fn version_vector(&self) -> Vec<u8> {
+        self.inner.version_vector()
+    }
+
+    #[wasm_bindgen(js_name = exportUpdatesSince)]
+    pub fn export_updates_since(&self, version_vector: &[u8]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .export_updates_since(version_vector)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = exportAll)]
+    pub fn export_all(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.export_all().map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = queryJson)]

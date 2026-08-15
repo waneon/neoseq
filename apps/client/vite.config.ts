@@ -101,6 +101,12 @@ export default defineConfig(({ mode }) => ({
     host: "127.0.0.1",
     port: 4173,
     strictPort: true,
+    proxy: {
+      "/v1": {
+        target: "http://127.0.0.1:8787",
+        ws: true,
+      },
+    },
   },
   worker: {
     format: "es",

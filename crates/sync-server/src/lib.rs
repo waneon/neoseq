@@ -10,7 +10,7 @@ pub use auth::{Principal, TestIssuer, TokenVerifier};
 pub use metrics::Metrics;
 pub use room::{RoomConfig, RoomConnection, RoomError, RoomManager};
 pub use store::{
-    CommitOutcome, FaultPoint, GraphBackup, GraphLoad, GraphRole, GraphStore, Membership,
-    MemoryStore, PgStore, StoreError,
+    CommitOutcome, FaultPoint, GraphAdmin, GraphBackup, GraphListing, GraphLoad, GraphRole,
+    GraphStore, Membership, MembershipListing, MemoryStore, PgStore, StoreError,
 };
 pub use web::{AppState, router};

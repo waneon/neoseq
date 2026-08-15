@@ -97,6 +97,34 @@ cargo run -p sync-server -- grant demo-graph bob editor
 cargo run -p sync-server -- issue-token alice
 ```
 
+For the Web remote-beta demo, run `devenv up`, then mint one token per browser
+profile in another shell:
+
+```sh
+export NEOSEQ_TEST_AUTH_SECRET=neoseq-local-development-only
+export ALICE_TOKEN="$(cargo run -p sync-server -- issue-token alice)"
+export BOB_TOKEN="$(cargo run -p sync-server -- issue-token bob)"
+```
+
+Open `http://127.0.0.1:4173` in two independent browser profiles. In the first,
+choose **Remote**, leave the server URL at the Web origin, enter `alice` and
+`ALICE_TOKEN`, create the graph, then use **Manage members** to invite `bob` as
+an editor. In the second, choose **Remote**, enter `bob` and `BOB_TOKEN`, and
+select **Connect available graphs**. Browser credentials live only for that tab
+session; the Vite `/v1` proxy connects both HTTP and WebSocket traffic to the
+local sync server.
+
+The complete gates already cover the sync contracts, authorization boundaries,
+multi-tab identity, mocked remote UX, and durable browser outbox. The real
+two-browser scenario remains separate because it provisions PostgreSQL, a sync
+server, and test credentials:
+
+```sh
+devenv test
+devenv --profile browser test
+devenv --profile browser tasks run test:e2e-collaboration
+```
+
 The browser profile is separate so normal development does not download the
 Playwright browser closure. The output is a sandboxed, lockfile-backed Web/Wasm
 artifact. The verification tasks check Rust formatting, Clippy, workspace

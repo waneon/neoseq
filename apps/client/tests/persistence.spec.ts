@@ -23,3 +23,7 @@ test("Web Worker adapter matches the current CorePort golden contract", async ({
 test("IndexedDB fault injection preserves recoverable state", async ({ page }) => {
   await runCorpus(page, "recovery");
 });
+
+test("remote outbox survives restart until the server acknowledges it", async ({ page }) => {
+  await runCorpus(page, "sync");
+});

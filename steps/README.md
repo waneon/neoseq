@@ -35,7 +35,7 @@ Step 1–5의 결과는 현재 코드와 아키텍처 문서에 반영되어 있
 - [06. Sync server](06-sync-server.md): PostgreSQL에 update를 durable-ack하는
   synchronization server를 제공한다. **완료된 Server alpha** 지점이다.
 - [07. Remote collaboration](07-remote-collaboration.md): 두 Web client가
-  offline edit 후 재접속·수렴한다. **Remote beta** 지점이다.
+  offline edit 후 재접속·수렴한다. **완료된 Remote beta** 지점이다.
 - [08. Native client](08-native-clients.md): 동일 graph를 macOS와 Android 설치
   app에서 사용한다. **Cross-platform beta** 지점이다.
 - [09. Data lifecycle](09-data-lifecycle.md): migration, checkpoint, archive,
@@ -56,7 +56,7 @@ flowchart LR
     S10 --> S11[11 Release]
 ```
 
-Step 7 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한다.
+Step 8 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한다.
 
 ## 공통 완료 정의
 
@@ -87,11 +87,12 @@ devenv build outputs.web                         # production Web/Wasm client
 devenv build outputs.sync-server                 # server binary/container input
 devenv tasks run build:macos-app                 # unsigned/signed 정책에 따른 macOS bundle
 devenv tasks run build:android-debug             # Android debug APK
-devenv tasks run test:sync                       # server/client fault and convergence suite
+devenv --profile browser tasks run test:e2e-collaboration # 실제 두-browser collaboration
 ```
 
-현재 구현의 focused test는 별도 task wrapper 없이 `cargo`와 `pnpm`으로 직접
-실행한다. 명령은 [`DEVELOPMENT.md`](../DEVELOPMENT.md)를 기준으로 한다.
+실제 service orchestration이 필요한 collaboration만 별도 task로 제공한다. 그
+외 focused test는 wrapper 없이 `cargo`와 `pnpm`으로 직접 실행하며, 명령은
+[`DEVELOPMENT.md`](../DEVELOPMENT.md)를 기준으로 한다.
 
 플랫폼 서명처럼 개발 환경 밖의 입력이 필요한 명령은 필요한 host SDK,
 credential, runner image를 출력 manifest에 기록해야 한다.

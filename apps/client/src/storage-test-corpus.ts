@@ -222,3 +222,46 @@ export async function runIndexedDbFaultCorpus() {
   schemaWriter.terminate();
   return { append_after_recovered: true, corrupt_quarantined: true, quota_typed: true, transaction_abort: true, checkpoint_phases: true, unsupported_schema: true };
 }
+
+export async function runRemoteOutboxCorpus() {
+  const graph = graphId("remote-outbox");
+  const writer = new TestCoreWorker();
+  const opened = await writer.openGraph(openRequest(graph, 271));
+  await writer.configureSync(opened.graph_handle);
+  assert((await writer.syncState(opened.graph_handle)).pending === 1, "replica bootstrap was not queued");
+  const bootstrap = await writer.nextOutbox(opened.graph_handle);
+  assert(bootstrap?.local_sequence === 0, "replica bootstrap must lead the durable outbox");
+  await writer.acknowledgeOutbox(opened.graph_handle, bootstrap.message_id, 40);
+  await writer.execute({
+    graph_handle: opened.graph_handle,
+    command: ensurePage(graph, "offline-page", "offline-page"),
+    timeout_ms: 1_000,
+  });
+  const pending = await writer.syncState(opened.graph_handle);
+  assert(pending.pending === 1, "saved remote edit was not added to the durable outbox");
+  const queued = await writer.nextOutbox(opened.graph_handle);
+  assert(queued?.bytes.length, "outbox update bytes are missing");
+  const encoded = await writer.encodeSyncMessage({
+    Update: {
+      message_id: queued.message_id,
+      base_version_vector: queued.base_version_vector,
+      bytes: queued.bytes,
+    },
+  });
+  const decoded = await writer.decodeSyncMessage(encoded) as { Update?: { message_id?: string } };
+  assert(decoded.Update?.message_id === queued.message_id, "browser protocol codec drifted");
+  writer.terminate();
+
+  const restarted = new TestCoreWorker();
+  const reopened = await restarted.openGraph(openRequest(graph, 272));
+  await restarted.configureSync(reopened.graph_handle);
+  assert((await restarted.syncState(reopened.graph_handle)).pending === 1, "restart lost unacknowledged outbox update");
+  await restarted.acknowledgeOutbox(reopened.graph_handle, queued.message_id, 41);
+  const acknowledged = await restarted.syncState(reopened.graph_handle);
+  assert(acknowledged.pending === 0, "acknowledgement did not remove the outbox update");
+  assert(acknowledged.last_acknowledgement === 41, "ack cursor was not durable");
+  await restarted.closeGraph({ graph_handle: reopened.graph_handle });
+  await restarted.deleteGraph(graph);
+  restarted.terminate();
+  return { durable_retry: true, protocol_codec: true, acknowledgement: 41 };
+}

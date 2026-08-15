@@ -7,13 +7,13 @@ ordered tree of Markdown blocks, and journals provide the primary daily capture
 surface. Typed properties add task and query behavior without introducing
 feature-specific storage shapes.
 
-The implemented product is a local Web client: React calls a Rust/Wasm core in
-a Web Worker, IndexedDB stores the canonical Loro update history, and an
-in-memory RDF index serves graph search and read-only SPARQL. A headless native
-adapter verifies the same contracts with SQLite. An independent Rust sync
-service durably relays authorized Loro updates through PostgreSQL; Web client
-integration, native shells, and release infrastructure continue in
-[`steps/`](steps/).
+The implemented product is a local-first Web client: React calls a Rust/Wasm
+core in a Web Worker, IndexedDB stores the canonical Loro history and remote
+outbox, and an in-memory RDF index serves graph search and read-only SPARQL.
+Remote graphs synchronize through an authenticated Rust WebSocket service and
+durable PostgreSQL update log. A headless native adapter verifies the core and
+storage contracts with SQLite; native shells and release infrastructure remain
+in [`steps/`](steps/).
 
 This document is the repository-wide architectural source of truth.
 Component-level detail lives under [`architectures/`](architectures/), and
@@ -37,16 +37,19 @@ Component-level detail lives under [`architectures/`](architectures/), and
 flowchart LR
     UI[React UI] --> Session[GraphSession]
     Session --> Port[CorePort v1]
+    Session --> Agent[SyncAgent]
     Port --> Worker[Web Worker adapter]
     Worker --> Core[Rust/Wasm graph core]
-    Core --> Store[(IndexedDB update log)]
+    Worker --> Store[(IndexedDB history + outbox)]
+    Core --> Store
     Core --> Index[(In-memory RDF index)]
+
+    Agent <--> Worker
+    Agent <--> Sync[Sync server]
+    Sync --> Postgres[(PostgreSQL update log)]
 
     Native[Headless native adapter] --> Core
     Native --> SQLite[(SQLite update log)]
-
-    Replica[Headless sync replica] --> Sync[Sync server]
-    Sync --> Postgres[(PostgreSQL update log)]
 ```
 
 The browser Worker owns the Wasm core and IndexedDB interaction. Main-thread
@@ -144,8 +147,11 @@ blocks additional mutation.
 4. The RDF index publishes a complete revision for the new Loro frontier.
 5. Subscribers receive semantic graph and durability events.
 
-The editor may render an operation optimistically only when it has a safe
-inverse. Network availability is irrelevant to this current local flow.
+For a remote graph, the local update and its outbox record commit in the same
+IndexedDB transaction. `SyncAgent` sends outbox entries in sequence, removes
+them only after a durable server acknowledgement, and imports validated remote
+bytes through the same Worker/core projection path. Network availability never
+changes the local save contract.
 
 ## Security and Privacy
 

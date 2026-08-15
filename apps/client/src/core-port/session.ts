@@ -15,7 +15,20 @@ import type {
   StorageCapabilitiesDto,
 } from "../generated/core-port";
 import { CORE_PORT_VERSION } from "../generated/core-port";
-import { CorePortFailure, type SavedReceipt } from "../core-worker";
+import {
+  CorePortFailure,
+  type OutboxMessage,
+  type SavedReceipt,
+  type SyncState,
+} from "../core-worker";
+import type { RemoteGraphConnection } from "./directory";
+import {
+  SyncAgent,
+  type LiveState,
+  type PeerPresence,
+  type RemoteSyncState,
+  type SyncAgentPort,
+} from "../features/sync/SyncAgent";
 import type { Command, CommandResult } from "./commands";
 import { envelope } from "./commands";
 import type { GraphSnapshot, GraphSummary, PageSnapshot } from "./snapshot";
@@ -40,10 +53,20 @@ export interface SessionState {
   /** Increments on every authoritative summary or page refresh. */
   revision: number;
   hydratedPages: ReadonlySet<string>;
+  sync: RemoteSyncState;
+  live: LiveState;
+  presence: ReadonlyMap<string, PeerPresence>;
 }
 
 export interface SessionPort extends CorePort {
   retryPending(graphHandle: string): Promise<SavedReceipt>;
+  configureSync?(graphHandle: string): Promise<void>;
+  syncState?(graphHandle: string): Promise<SyncState>;
+  nextOutbox?(graphHandle: string): Promise<OutboxMessage | null>;
+  acknowledgeOutbox?(graphHandle: string, messageId: string, serverCursor: number): Promise<void>;
+  importRemote?(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+  encodeSyncMessage?(message: unknown): Promise<ArrayBuffer>;
+  decodeSyncMessage?(frame: ArrayBuffer): Promise<unknown>;
   terminate?(): void;
 }
 
@@ -62,10 +85,13 @@ export class GraphSession {
   private closeRequested = false;
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
+  private syncAgent: SyncAgent | null = null;
+  private readonly sessionId = `web:${tabId()}:${crypto.randomUUID()}`;
 
   constructor(
     public readonly graphId: string,
     private readonly port: SessionPort,
+    private readonly remote: RemoteGraphConnection | null = null,
   ) {
     this.state = {
       status: "opening",
@@ -77,6 +103,9 @@ export class GraphSession {
       error: null,
       revision: 0,
       hydratedPages: new Set(),
+      sync: remote ? { kind: "pending", count: 0 } : { kind: "local" },
+      live: remote ? "connecting" : "local",
+      presence: new Map(),
     };
   }
 
@@ -110,6 +139,22 @@ export class GraphSession {
         capabilities: opened.capabilities,
         recovery: opened.recovery,
       });
+      if (this.remote) {
+        const syncPort = requireSyncPort(this.port);
+        await syncPort.configureSync(this.handle);
+        this.syncAgent = new SyncAgent(
+          this.graphId,
+          this.handle,
+          this.sessionId,
+          this.remote,
+          syncPort,
+          {
+            applyRemote: (bytes) => this.applyRemote(bytes),
+            changed: (sync) => this.patch(sync),
+          },
+        );
+        this.syncAgent.start();
+      }
     } catch (error) {
       if (!this.closeRequested) {
         this.lease?.release();
@@ -160,6 +205,8 @@ export class GraphSession {
 
   async close(): Promise<void> {
     this.closeRequested = true;
+    this.syncAgent?.stop();
+    this.syncAgent = null;
     await this.opening?.catch(() => undefined);
     await this.queue.catch(() => undefined);
     if (this.handle && this.state.save.kind !== "unsaved") {
@@ -173,6 +220,12 @@ export class GraphSession {
     this.lease = null;
     this.port.terminate?.();
     this.patch({ status: "closed" });
+  }
+
+  publishPresence(
+    presence: Omit<PeerPresence, "session_id" | "principal" | "expires_at">,
+  ): void {
+    void this.syncAgent?.publishPresence(presence);
   }
 
   private async executeNow(command: Command): Promise<CommandResult> {
@@ -203,6 +256,7 @@ export class GraphSession {
         save,
         commandReconcileScope(command, response.result as CommandResult),
       );
+      await this.syncAgent?.wake();
       return response.result as CommandResult;
     } catch (error) {
       const detail = toPortError(error);
@@ -233,12 +287,24 @@ export class GraphSession {
     try {
       const receipt = await this.port.retryPending(this.handle);
       await this.reconcile({ kind: "saved", sequence: receipt.local_sequence });
+      await this.syncAgent?.wake();
     } catch (error) {
       const detail = toPortError(error);
       this.patch({
         save: { kind: "unsaved", code: detail.code, message: detail.message, retryable: detail.retryable },
       });
     }
+  }
+
+  private applyRemote(bytes: number[]): Promise<void> {
+    const run = this.queue.then(async () => {
+      const importRemote = this.port.importRemote;
+      if (!importRemote) throw new Error("remote import is unavailable");
+      await importRemote.call(this.port, this.handle, bytes);
+      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" });
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   private async hydratePageNow(pageId: string): Promise<void> {
@@ -359,9 +425,43 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
 }
 
 function randomPeerId(): number {
-  // 32 random bits keep the peer id an exact JSON number while making
-  // concurrent reuse across tabs vanishingly unlikely.
-  return crypto.getRandomValues(new Uint32Array(1))[0] + 1;
+  // A fresh 53-bit integer for every runtime. The tab id and session id are
+  // separate; none of them are persisted or reused after a runtime closes.
+  const words = crypto.getRandomValues(new Uint32Array(2));
+  return ((words[0] & 0x1fffff) * 0x1_0000_0000 + words[1]) || 1;
+}
+
+const TAB_ID_KEY = "neoseq.tab-id.v1";
+
+function tabId(): string {
+  const existing = sessionStorage.getItem(TAB_ID_KEY);
+  if (existing) return existing;
+  const value = crypto.randomUUID();
+  sessionStorage.setItem(TAB_ID_KEY, value);
+  return value;
+}
+
+type RequiredSyncPort = SessionPort & SyncAgentPort & {
+  configureSync(graphHandle: string): Promise<void>;
+  importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+};
+
+function requireSyncPort(port: SessionPort): RequiredSyncPort {
+  const methods = [
+    "configureSync",
+    "syncState",
+    "nextOutbox",
+    "acknowledgeOutbox",
+    "importRemote",
+    "encodeSyncMessage",
+    "decodeSyncMessage",
+  ] as const;
+  for (const method of methods) {
+    if (typeof port[method] !== "function") {
+      throw new Error(`remote graph requires ${method}`);
+    }
+  }
+  return port as RequiredSyncPort;
 }
 
 function toPortError(error: unknown): CorePortError {

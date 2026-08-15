@@ -3,10 +3,11 @@
 ## Scope
 
 The current client is a React and TypeScript single-page application bundled by
-Vite. It runs the Rust graph core as WebAssembly in a dedicated Worker and uses
-IndexedDB for local persistence. React owns presentation state—focus, selection,
-open layers, composition buffers, and optimistic rows—while the Rust runtime
-owns canonical graph state.
+Vite. It runs the Rust graph core as WebAssembly in a dedicated Worker, uses
+IndexedDB for local persistence, and synchronizes remote graphs through a
+main-thread `SyncAgent`. React owns presentation state—focus, selection, open
+layers, composition buffers, and optimistic rows—while the Rust runtime owns
+canonical graph state.
 
 Future Tauri shells reuse this interaction model through the same CorePort.
 [`../DESIGN.md`](../DESIGN.md) defines the production UI/UX contract, and
@@ -26,10 +27,12 @@ call Wasm, IndexedDB, or native APIs directly. Browser-only graph listing,
 deletion, pending-write retry, storage capabilities, and test fault controls are
 adapter operations outside the portable product contract.
 
-`GraphSession` serializes commands. After a command it drains semantic events,
-refreshes the graph summary, and rehydrates affected pages. It owns subscription
-cursors and turns an ambiguous storage failure into a retry of the exact pending
-update. Callers see immutable DTOs and cannot hold a Loro container.
+`GraphSession` serializes local commands and remote imports. After either it
+drains semantic events, refreshes the graph summary, and rehydrates affected
+pages. It owns subscription cursors, turns an ambiguous storage failure into a
+retry of the exact pending update, and delegates remote transport state to one
+`SyncAgent` per remote graph. Callers see immutable DTOs and cannot hold a Loro
+container.
 
 ## Browser Adapter
 
@@ -43,9 +46,12 @@ test mode adds a storage contract page, deterministic time, and explicit fault
 controls. Those controls and the current CorePort corpus are test-only chunks,
 not public product routes.
 
-Graph display names are browser-level directory metadata in localStorage.
-Canonical note data remains in the Loro repository. A Web Lock grants one tab a
-writable lease per graph; a competing tab is read-only.
+Graph display names, local/remote kind, and remote server origin are
+browser-directory metadata in localStorage. Credentials are scoped to the
+server origin in sessionStorage and are never stored in graph data, localStorage,
+or URLs. Canonical note data remains in the Loro repository. A Web Lock grants
+one tab a writable lease per graph; a competing tab is read-only. Every runtime
+and reconnect uses a fresh peer or transport-session identity.
 
 The headless native CorePort in `platform-native` exercises equivalent runtime,
 SQLite, recovery, and DTO behavior. It is not yet a desktop or mobile UI.
@@ -128,18 +134,24 @@ home report there; durability stays in the save slot, field validation stays by
 the field, and query errors stay in the query block. Stable CorePort errors map
 to localized messages while raw internal detail stays off screen.
 
-## Offline State
+## Local, Sync, and Live State
 
-The current client exposes local durability only:
+Three independent status slots prevent network state from being mistaken for
+local data loss:
 
 - saved: no persistent mark;
 - saving: a delayed quiet indicator;
 - unsaved: a persistent error reason and retry action;
+- sync: pending, synced, paused for auth/revocation/incompatibility, or error;
+- live: connecting, live, offline, or paused;
 - read-only: a persistent lease label.
 
-Remote connection and acknowledgement states will be added with the sync agent.
-They must remain distinct from local durability so network loss never looks like
-lost local work.
+Steady saved/synced/live states remain visually quiet but available to assistive
+technology. Deviations become visible. Remote editing always commits locally
+first; reconnect uses version-vector catch-up and then drains the durable outbox
+in order. Cursor and selection presence uses expiring protocol messages and is
+never written to Loro or IndexedDB. Remote text refresh transforms the local
+selection before the authoritative value replaces the editor draft.
 
 ## Frontend Boundaries
 
@@ -149,6 +161,7 @@ features/           graph, outline, query, task, settings, and navigation UI
 features/commands/  registry, bindings, arbitration, palette, shortcut sheet
 features/history/   semantic undo/redo routing and reveal coordination
 features/notify/    transient failure reporting
+features/sync/      remote API, credentials, transport, membership, presence
 entities/           view models and browser-local settings
 core-port/          session, command builders, DTO mapping, graph lease/directory
 generated/          generated CorePort types

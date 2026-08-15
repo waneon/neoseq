@@ -42,4 +42,24 @@ describe("graph lease lifecycle", () => {
 
     await active.close();
   });
+
+  it("never reuses a runtime peer id after a tab session closes", async () => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+    const firstPort = new FakeCorePort();
+    const firstOpen = vi.spyOn(firstPort, "openGraph");
+    const first = new GraphSession("peer-identity", firstPort);
+    await first.open();
+    await first.close();
+
+    const secondPort = new FakeCorePort();
+    const secondOpen = vi.spyOn(secondPort, "openGraph");
+    const second = new GraphSession("peer-identity", secondPort);
+    await second.open();
+
+    expect(firstOpen.mock.calls[0][0].peer_id).not.toBe(secondOpen.mock.calls[0][0].peer_id);
+    await second.close();
+  });
 });

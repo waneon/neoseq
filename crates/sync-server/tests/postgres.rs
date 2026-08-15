@@ -7,8 +7,8 @@ use std::{
 };
 use sync_protocol::{Hello, Message, PROTOCOL_VERSION, VersionRange, decode, encode};
 use sync_server::{
-    AppState, GraphRole, GraphStore, Metrics, PgStore, RoomConfig, RoomManager, StoreError,
-    TestIssuer, router,
+    AppState, GraphAdmin, GraphRole, GraphStore, Metrics, PgStore, RoomConfig, RoomManager,
+    StoreError, TestIssuer, router,
 };
 use tokio_tungstenite::{
     connect_async,
@@ -49,6 +49,14 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .grant(&graph_id, "postgres-viewer", GraphRole::Viewer)
         .await
         .unwrap();
+    store
+        .grant_membership(&graph_id, "postgres-api-editor", GraphRole::Editor)
+        .await
+        .unwrap();
+    let memberships = store.list_memberships(&graph_id).await.unwrap();
+    assert!(memberships.iter().any(|membership| {
+        membership.principal_id == "postgres-api-editor" && membership.role == GraphRole::Editor
+    }));
 
     let mut client = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
     let before = client.version_vector();
@@ -135,6 +143,18 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         store.authorize(&graph_id, "postgres-editor").await,
         Err(StoreError::AccessDenied)
     ));
+    store
+        .revoke_membership(&graph_id, "postgres-api-editor")
+        .await
+        .unwrap();
+    assert!(
+        store
+            .list_memberships(&graph_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|membership| membership.principal_id != "postgres-api-editor")
+    );
 
     sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
         .execute(store.pool())

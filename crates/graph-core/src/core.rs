@@ -17,6 +17,11 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
 pub const SCHEMA_VERSION: u32 = 1;
+
+/// Encoded causal baseline for a replica that has no operations yet.
+pub fn empty_version_vector() -> Vec<u8> {
+    VersionVector::default().encode()
+}
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 const MAX_STRUCTURAL_TARGETS: usize = 10_000;
 
@@ -529,15 +534,23 @@ impl GraphCore {
     }
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), CoreError> {
+        self.validate_remote(update)?;
+
+        self.doc.set_next_commit_origin("remote:import");
+        self.doc.import(update)?;
+        Ok(())
+    }
+
+    /// Validates a remote update without mutating canonical state. Persistence
+    /// adapters use this before durably appending the bytes, then call
+    /// `import_remote` after the append commits.
+    pub fn validate_remote(&self, update: &[u8]) -> Result<(), CoreError> {
         // Validate on a deep fork first: a rejected remote update must not
         // partially enter the canonical document.
         let candidate = self.doc.fork();
         candidate.import(update)?;
         verify_schema(&candidate, &self.graph_id)?;
         validate_unique_entity_names(&candidate)?;
-
-        self.doc.set_next_commit_origin("remote:import");
-        self.doc.import(update)?;
         Ok(())
     }
 

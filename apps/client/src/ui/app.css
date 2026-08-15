@@ -1105,6 +1105,32 @@ button.chip:focus-visible .chip-glyph .chip-x {
   white-space: nowrap;
 }
 
+.sync-slot,
+.live-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sync-slot[data-sync="paused"],
+.sync-slot[data-sync="error"] {
+  color: var(--danger);
+}
+
 .save-slot[data-save="saved"] {
   gap: 0;
 }
@@ -1455,6 +1481,23 @@ button.chip:focus-visible .chip-glyph .chip-x {
    same wash the platform paints behind selected text, one level up. */
 .outline-row[data-selected="true"] {
   background-color: var(--accent-soft);
+}
+
+.remote-presence {
+  position: absolute;
+  left: calc(-1 * var(--sp-3));
+  top: 1px;
+  min-width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--thread-active);
+  color: var(--ink-2);
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: -0.08em;
+  pointer-events: none;
 }
 
 /* Everything left of the bullet, at every depth. No background of its own — the
@@ -2977,6 +3020,17 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-xs);
 }
 
+.graph-remote-label {
+  display: inline-flex;
+  align-items: center;
+}
+
+.graph-remote-label svg {
+  width: 12px;
+  height: 12px;
+  margin-right: 3px;
+}
+
 .graph-actions {
   flex: none;
   padding-right: var(--sp-2);
@@ -2998,13 +3052,98 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .picker-new {
-  display: flex;
+  display: grid;
   gap: var(--sp-2);
 }
 
 .picker-new > *:first-child {
   flex: 1;
   min-width: 0;
+}
+
+.picker-new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.remote-form {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.remote-form .dialog-actions {
+  margin-top: var(--sp-2);
+}
+
+.remote-account-form {
+  display: grid;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+}
+
+.remote-account-row,
+.member-invite {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.remote-account-row > :first-child,
+.member-invite > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.member-list {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+}
+
+.member-list li {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.member-list span,
+.member-list small {
+  display: block;
+}
+
+.member-list small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.member-invite select {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ink);
+  padding: 0 var(--sp-2);
+  font: inherit;
+}
+
+@media (max-width: 600px) {
+  .remote-form .dialog-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .member-invite {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .member-invite > :first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 /* ────────────────────────── 10. settings ────────────────────────── */

@@ -1,4 +1,9 @@
-import init, { WasmGraphCore } from "./wasm/neoseq_core.js";
+import init, {
+  WasmGraphCore,
+  decodeSyncMessageJson,
+  emptyVersionVector,
+  encodeSyncMessageJson,
+} from "./wasm/neoseq_core.js";
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type {
   CloseGraphRequest,
@@ -30,6 +35,8 @@ interface PendingWrite {
   commandId: string;
   result: unknown;
   createdAt: string;
+  messageId: string;
+  baseVersionVector: ArrayBuffer;
 }
 interface OpenState {
   graphId: string;
@@ -38,6 +45,7 @@ interface OpenState {
   events: EventRecord[];
   nextCursor: number;
   pending?: PendingWrite;
+  remote: boolean;
 }
 
 let wasmReady: Promise<unknown> | undefined;
@@ -68,6 +76,13 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
         case "list_graphs": value = await new IndexedDbGraphRepository().allMetadata(); break;
         case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
+        case "sync_configure": value = await configureSync(payload as { graph_handle: string }); break;
+        case "sync_state": value = await syncState(payload as { graph_handle: string }); break;
+        case "sync_next": value = await syncNext(payload as { graph_handle: string }); break;
+        case "sync_ack": value = await syncAck(payload as { graph_handle: string; message_id: string; server_cursor: number }); break;
+        case "sync_import": value = await syncImport(payload as { graph_handle: string; bytes: ArrayBuffer | Uint8Array }); break;
+        case "sync_encode": await ensureWasm(); value = syncEncode(payload); break;
+        case "sync_decode": await ensureWasm(); value = syncDecode(payload as { frame: ArrayBuffer | Uint8Array }); break;
         default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
       }
     }
@@ -103,6 +118,7 @@ async function openGraph(request: OpenGraphRequest) {
     repository,
     events: [],
     nextCursor: 1,
+    remote: false,
   };
   states.set(handle, state);
   return {
@@ -180,6 +196,7 @@ async function execute(request: ExecuteRequest) {
   if (request.timeout_ms === 0) throw failure("command_timeout", "command deadline elapsed before dispatch", true);
   const state = requireState(request.graph_handle);
   if (state.pending) throw failure("dirty_unsaved", "retry pending update before another mutation", true);
+  const baseVersionVector = ownedBuffer(state.core.versionVector());
   const raw = state.core.executeJson(JSON.stringify(request.command), now());
   const execution = JSON.parse(raw) as {
     result: unknown;
@@ -201,6 +218,8 @@ async function execute(request: ExecuteRequest) {
     commandId: command.command_id ?? "",
     result: execution.result,
     createdAt: now(),
+    messageId: crypto.randomUUID(),
+    baseVersionVector,
   };
   state.pending = pending;
   try {
@@ -219,6 +238,12 @@ async function persistPending(state: OpenState) {
     state.graphId,
     pending.payload,
     pending.createdAt,
+    state.remote
+      ? {
+          message_id: pending.messageId,
+          base_version_vector: pending.baseVersionVector,
+        }
+      : undefined,
   );
   push(state, "local", { type: "semantic", name: pending.semantic, command_id: pending.commandId });
   push(state, "local", { type: "saved_locally", ...receipt });
@@ -291,6 +316,86 @@ async function deleteGraph(payload: { graph_id: string }) {
   return { deleted: true };
 }
 
+async function configureSync(payload: { graph_handle: string }) {
+  const state = requireState(payload.graph_handle);
+  state.remote = true;
+  const history = ownedBuffer(state.core.exportAll());
+  await state.repository.initializeSync(
+    state.graphId,
+    crypto.randomUUID(),
+    ownedBuffer(emptyVersionVector()),
+    history,
+    now(),
+  );
+  return null;
+}
+
+async function syncState(payload: { graph_handle: string }) {
+  const state = requireState(payload.graph_handle);
+  const durable = await state.repository.syncState(state.graphId);
+  const outbox = await state.repository.outbox(state.graphId);
+  return {
+    version_vector: [...state.core.versionVector()],
+    last_acknowledgement: durable.last_acknowledgement,
+    pending: outbox.length,
+  };
+}
+
+async function syncNext(payload: { graph_handle: string }) {
+  const state = requireState(payload.graph_handle);
+  const next = (await state.repository.outbox(state.graphId))[0];
+  if (!next) return null;
+  return {
+    message_id: next.message_id,
+    local_sequence: next.local_sequence,
+    base_version_vector: [...new Uint8Array(next.base_version_vector)],
+    bytes: [...new Uint8Array(next.payload)],
+  };
+}
+
+async function syncAck(payload: {
+  graph_handle: string;
+  message_id: string;
+  server_cursor: number;
+}) {
+  const state = requireState(payload.graph_handle);
+  await state.repository.acknowledge(
+    state.graphId,
+    payload.message_id,
+    payload.server_cursor,
+  );
+  return null;
+}
+
+async function syncImport(payload: {
+  graph_handle: string;
+  bytes: ArrayBuffer | Uint8Array;
+}) {
+  const state = requireState(payload.graph_handle);
+  if (state.pending) {
+    throw failure("dirty_unsaved", "save the local update before importing remote state", true);
+  }
+  const bytes = asUint8Array(payload.bytes);
+  state.core.validateUpdate(bytes);
+  const receipt = await state.repository.appendUpdate(
+    state.graphId,
+    ownedBuffer(bytes),
+    now(),
+  );
+  state.core.importUpdate(bytes);
+  push(state, "remote", { type: "semantic", name: "remote_import" });
+  push(state, "remote", { type: "saved_locally", ...receipt });
+  return receipt;
+}
+
+function syncEncode(payload: unknown): ArrayBuffer {
+  return ownedBuffer(encodeSyncMessageJson(JSON.stringify(payload)));
+}
+
+function syncDecode(payload: { frame: ArrayBuffer | Uint8Array }): unknown {
+  return JSON.parse(decodeSyncMessageJson(asUint8Array(payload.frame)));
+}
+
 async function testControl(payload: Record<string, unknown>) {
   const repository = new IndexedDbGraphRepository();
   switch (payload.action) {
@@ -336,6 +441,10 @@ function isCorePortError(error: unknown): error is CorePortError {
 
 function ownedBuffer(value: Uint8Array): ArrayBuffer {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
+}
+
+function asUint8Array(value: ArrayBuffer | Uint8Array): Uint8Array {
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 
 function now(): string {

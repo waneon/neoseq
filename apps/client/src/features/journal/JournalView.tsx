@@ -47,9 +47,13 @@ export function JournalView() {
 
   useEffect(() => {
     if (!valid || state.status !== "ready" || state.mode === "readonly") return;
+    // A newly connected remote replica must apply its Welcome delta before it
+    // decides that today's journal is missing. Otherwise two clients opening
+    // the same remote graph can race and create distinct journal pages.
+    if (state.live === "connecting") return;
     if (page || ensured.current === date) return;
     ensure();
-  }, [ensure, valid, state.status, state.mode, page, date]);
+  }, [ensure, valid, state.status, state.mode, state.live, page, date]);
 
   useEffect(() => {
     if (!page || state.status !== "ready" || state.hydratedPages.has(page.id)) return;
