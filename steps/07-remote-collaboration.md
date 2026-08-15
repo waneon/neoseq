@@ -1,6 +1,6 @@
 # 07. Remote graph와 실시간 collaboration
 
-상태: 계획됨
+상태: 계획됨 (다음 단계)
 
 ## 목표
 

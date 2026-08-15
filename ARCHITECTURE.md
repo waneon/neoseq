@@ -10,8 +10,10 @@ feature-specific storage shapes.
 The implemented product is a local Web client: React calls a Rust/Wasm core in
 a Web Worker, IndexedDB stores the canonical Loro update history, and an
 in-memory RDF index serves graph search and read-only SPARQL. A headless native
-adapter verifies the same contracts with SQLite. Remote synchronization, Tauri
-shells, and release infrastructure are planned in [`steps/`](steps/).
+adapter verifies the same contracts with SQLite. An independent Rust sync
+service durably relays authorized Loro updates through PostgreSQL; Web client
+integration, native shells, and release infrastructure continue in
+[`steps/`](steps/).
 
 This document is the repository-wide architectural source of truth.
 Component-level detail lives under [`architectures/`](architectures/), and
@@ -42,6 +44,9 @@ flowchart LR
 
     Native[Headless native adapter] --> Core
     Native --> SQLite[(SQLite update log)]
+
+    Replica[Headless sync replica] --> Sync[Sync server]
+    Sync --> Postgres[(PostgreSQL update log)]
 ```
 
 The browser Worker owns the Wasm core and IndexedDB interaction. Main-thread
@@ -62,8 +67,11 @@ persistence test boundary, not a shipped application shell.
   parity and recovery verification.
 - `apps/client` owns interaction, navigation, browser-local preferences,
   localization, error presentation, and responsive UI.
-- The future `sync-server` will own authentication, authorization, durable
-  update relay, and server-side compaction; see
+- `sync-protocol` owns the versioned, size-bounded binary envelope shared by
+  sync replicas and the service.
+- `sync-server` owns authentication and membership seams, durable update relay,
+  disposable graph rooms, presence, and operational endpoints. It does not
+  own graph semantics or a relational graph projection; see
   [server architecture](architectures/server.md).
 
 Detailed contracts:
@@ -77,7 +85,7 @@ Detailed contracts:
 - [Property command picker](architectures/property-command-picker.md)
 - [Internationalization](architectures/i18n.md)
 - [Build and verification](architectures/build.md)
-- [Future synchronization server](architectures/server.md)
+- [Synchronization server](architectures/server.md)
 
 ## CorePort
 
@@ -146,9 +154,9 @@ inverse. Network availability is irrelevant to this current local flow.
   selection, federation, SPARQL Update, and other I/O-capable forms are rejected.
 - Raw internal errors stay behind typed stable error codes; the UI localizes
   safe messages.
-- Future remote endpoints require TLS, authenticated membership, and limits on
+- Remote endpoints require TLS, authenticated membership, and limits on
   untrusted CRDT frames before acceptance.
-- The planned first remote protocol is not end-to-end encrypted; E2EE requires
+- The v1 remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 
 ## Repository Shape
@@ -159,6 +167,8 @@ crates/graph-core/         Loro runtime and application services
 crates/query/              RDF projection and SPARQL execution
 crates/platform-web/       Wasm bindings
 crates/platform-native/    headless SQLite/CorePort adapter
+crates/sync-protocol/      versioned binary synchronization messages
+crates/sync-server/        PostgreSQL-backed WebSocket synchronization service
 apps/client/               React UI, Worker, IndexedDB, and browser tests
 contracts/                 current source contracts
 fixtures/                  current cross-adapter corpus

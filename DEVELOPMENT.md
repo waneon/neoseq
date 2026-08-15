@@ -6,8 +6,9 @@ the lockfile changes.
 
 ```sh
 devenv shell                         # normal Rust and Web work
-devenv shell -- web-dev              # Vite on 127.0.0.1:4173
-devenv shell -- web-preview          # production output on 127.0.0.1:4174
+devenv up                            # Web, PostgreSQL, and sync server
+devenv up web                        # Vite on 127.0.0.1:4173
+devenv up sync-server                # PostgreSQL and sync server on 127.0.0.1:8787
 devenv --profile browser shell       # add pinned Playwright browsers
 ```
 
@@ -42,6 +43,8 @@ cargo test -p graph-core convergence_ -- --nocapture
 cargo test -p query sparql_
 cargo test -p platform-native core_port
 cargo test -p platform-web
+cargo test -p sync-protocol
+cargo test -p sync-server --test sync_faults
 ```
 
 Focused frontend examples:
@@ -67,8 +70,31 @@ complete non-browser gate and CI-equivalent gate are:
 
 ```sh
 devenv build outputs.web
+devenv build outputs.sync-server
 devenv test
 devenv --profile browser test
+```
+
+The workspace Rust test task covers the synchronization protocol and server
+tests. The database task additionally starts and removes an isolated PostgreSQL
+instance so the PostgreSQL integration test does not skip:
+
+```sh
+devenv tasks run rust:test
+devenv tasks run sync-server:test
+```
+
+`devenv up sync-server` starts the persistent local PostgreSQL service and the
+server, applying embedded migrations on connection. In another devenv shell,
+the admin commands can create graphs, manage membership, and mint local test
+tokens. Production identity remains an adapter boundary.
+
+```sh
+export DATABASE_URL="postgresql:///neoseq?host=$PGHOST"
+export NEOSEQ_TEST_AUTH_SECRET=neoseq-local-development-only
+cargo run -p sync-server -- create-graph demo-graph alice
+cargo run -p sync-server -- grant demo-graph bob editor
+cargo run -p sync-server -- issue-token alice
 ```
 
 The browser profile is separate so normal development does not download the
@@ -86,8 +112,8 @@ IndexedDB contracts, and Web E2E journeys.
 | React or TypeScript behavior | Focused component test, `web:test-components`, and `web:check`. |
 | Styling, accessibility, keyboard, routing, or responsive behavior | Relevant component test plus focused E2E across affected Playwright projects. |
 | CorePort, generated schema, Worker, IndexedDB, or persistence | Relevant Rust tests, generated-file check, and focused IndexedDB tests; add E2E when a user journey changes. |
-| Dependencies, devenv, build inputs, or production output | `devenv build outputs.web` and `devenv test`; add the browser profile when browser behavior or dependencies are affected. |
-| Cross-cutting or merge-ready change | `devenv build outputs.web` and `devenv --profile browser test` after focused suites pass. |
+| Dependencies, devenv, build inputs, or production output | Build the affected output and run `devenv test`; add the browser profile when browser behavior or dependencies are affected. |
+| Cross-cutting or merge-ready change | Build `outputs.web` and `outputs.sync-server`, then run `devenv --profile browser test` after focused suites pass. |
 
 ## Repository map
 
@@ -95,6 +121,8 @@ IndexedDB contracts, and Web E2E journeys.
 - `crates/graph-core`: CRDT runtime, transactions, events, and projections.
 - `crates/query`: RDF index and constrained SPARQL execution.
 - `crates/platform-*`: native/SQLite and WebAssembly adapters.
+- `crates/sync-protocol`: versioned, size-bounded binary sync messages.
+- `crates/sync-server`: durable PostgreSQL/WebSocket sync service.
 - `apps/client`: React UI, i18n catalogs/runtime, Web Worker, IndexedDB adapter,
   and browser tests.
 - `contracts`: current generated-code and property-registry boundaries.

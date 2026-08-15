@@ -33,7 +33,7 @@ Step 1–5의 결과는 현재 코드와 아키텍처 문서에 반영되어 있
 구현에 영향을 주는 단계만 유지한다.
 
 - [06. Sync server](06-sync-server.md): PostgreSQL에 update를 durable-ack하는
-  synchronization server를 제공한다. Server alpha 지점이다.
+  synchronization server를 제공한다. **완료된 Server alpha** 지점이다.
 - [07. Remote collaboration](07-remote-collaboration.md): 두 Web client가
   offline edit 후 재접속·수렴한다. **Remote beta** 지점이다.
 - [08. Native client](08-native-clients.md): 동일 graph를 macOS와 Android 설치
@@ -78,13 +78,13 @@ Step 7 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한�
 
 ## 표준 검증 명령 계약
 
-아래 이름은 구현 과정에서 devenv task로 제공할 목표 계약이다. 해당 단계가
+아래 이름은 구현 과정에서 devenv 명령으로 제공할 목표 계약이다. 해당 단계가
 완료되기 전에는 일부 명령이 아직 존재하지 않을 수 있다.
 
 ```text
 devenv --profile browser test                    # 완료된 모든 fast/integration gate
 devenv build outputs.web                         # production Web/Wasm client
-devenv tasks run build:sync-server               # server binary/container input
+devenv build outputs.sync-server                 # server binary/container input
 devenv tasks run build:macos-app                 # unsigned/signed 정책에 따른 macOS bundle
 devenv tasks run build:android-debug             # Android debug APK
 devenv tasks run test:sync                       # server/client fault and convergence suite

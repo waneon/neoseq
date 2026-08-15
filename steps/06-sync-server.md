@@ -1,6 +1,6 @@
 # 06. Durable synchronization server
 
-상태: 계획됨
+상태: 완료
 
 ## 목표
 
@@ -60,12 +60,7 @@ headless native/Wasm test client가 인증된 WebSocket session으로 server에
 ## 자동 검증 gate
 
 ```text
-devenv tasks run build:sync-server
-devenv tasks run test:server-protocol
-devenv tasks run test:server-db
-devenv tasks run test:sync -- --headless
-devenv tasks run test:sync-faults
-devenv tasks run test:server-authz
+devenv build outputs.sync-server
 devenv --profile browser test
 ```
 
@@ -75,22 +70,27 @@ eviction/reconstruction을 포함한다.
 
 ## 수동 데모
 
-1. devenv task로 PostgreSQL migration과 server를 실행한다.
-2. test principal 두 명에게 같은 graph membership을 부여한다.
-3. headless client 두 개에서 offline update를 만든 뒤 연결한다.
-4. 양쪽 state hash와 durable update cursor를 확인한다.
-5. PostgreSQL을 중단한 상태에서 update가 ack/fan-out되지 않는지 확인한다.
-6. DB 복구 후 retry와 재접속으로 수렴하는지 확인한다.
+1. [DEVELOPMENT.md](../DEVELOPMENT.md)의 server 명령대로 PostgreSQL에
+   `DATABASE_URL`을 지정하고 graph를 만든 뒤 service를 실행한다.
+2. admin CLI의 `grant`와 `issue-token`으로 test principal 두 명에게 같은 graph
+   membership과 token을 부여한다.
+3. `cargo test -p sync-server --test sync_convergence --test sync_websocket`로
+   인증된 headless/WebSocket client 두 개의 offline update와 재접속을 실행한다.
+4. test 출력에서 양쪽 state hash와 durable update cursor assertion을 확인한다.
+5. `cargo test -p sync-server --test sync_faults`로 commit 전/후 장애에서
+   ack/fan-out이 발생하지 않는 경로를 실행한다.
+6. retry, process-equivalent room 재구성, slow consumer, revoke test가 모두
+   통과하고 `/livez`, `/readyz`, `/metrics`가 의도한 상태를 반환하는지 확인한다.
 
 ## 완료 조건
 
-- [ ] DB commit 이전에는 ack와 fan-out이 발생하지 않는다.
-- [ ] retry/duplicate/reorder 후에도 peer와 server room이 수렴한다.
-- [ ] authorization이 CRDT state와 독립적으로 강제된다.
-- [ ] unauthorized/revoked principal은 graph 존재나 update를 관찰하지 못한다.
-- [ ] process/room 재시작이 correctness에 영향을 주지 않는다.
-- [ ] bounded queue와 limit이 부하 test에서 메모리 무한 증가를 막는다.
-- [ ] telemetry sample에 사용자 content/credential이 없다.
+- [x] DB commit 이전에는 ack와 fan-out이 발생하지 않는다.
+- [x] retry/duplicate/reorder 후에도 peer와 server room이 수렴한다.
+- [x] authorization이 CRDT state와 독립적으로 강제된다.
+- [x] unauthorized/revoked principal은 graph 존재나 update를 관찰하지 못한다.
+- [x] process/room 재시작이 correctness에 영향을 주지 않는다.
+- [x] bounded queue와 limit이 부하 test에서 메모리 무한 증가를 막는다.
+- [x] telemetry sample에 사용자 content/credential이 없다.
 
 ## 이 단계에서 하지 않는 것
 

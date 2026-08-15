@@ -1,0 +1,123 @@
+mod support;
+
+use support::*;
+use sync_protocol::Limits;
+use sync_server::{GraphStore, RoomConfig};
+
+#[tokio::test]
+async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
+    let fixture = fixture(RoomConfig::default());
+    let (mut client_a, update_a) =
+        client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
+    let (mut client_b, update_b) =
+        client_update(&fixture.snapshot, 3, "create-b", "message-b", "page-b", "B");
+    let mut a = fixture
+        .manager
+        .open(GRAPH, "a", OWNER, &fixture.base_version)
+        .await
+        .unwrap()
+        .connection;
+    let mut a_rx = a.take_outbound();
+    let mut b = fixture
+        .manager
+        .open(GRAPH, "b", PEER, &fixture.base_version)
+        .await
+        .unwrap()
+        .connection;
+    let mut b_rx = b.take_outbound();
+
+    // Server receipt order is deliberately opposite the client creation order.
+    fixture
+        .manager
+        .submit_update(&b, update_b.clone())
+        .await
+        .unwrap();
+    assert_ack(&mut b_rx, "message-b").await;
+    let received_b = assert_update(&mut a_rx, "message-b").await;
+    client_a.import_remote(&received_b.bytes).unwrap();
+
+    fixture
+        .manager
+        .submit_update(&a, update_a.clone())
+        .await
+        .unwrap();
+    assert_ack(&mut a_rx, "message-a").await;
+    let received_a = assert_update(&mut b_rx, "message-a").await;
+    client_b.import_remote(&received_a.bytes).unwrap();
+
+    // Idempotent retry gets the original durable cursor and is not fanned out.
+    fixture.manager.submit_update(&a, update_a).await.unwrap();
+    assert_ack(&mut a_rx, "message-a").await;
+    assert!(receive(&mut b_rx).await.is_none());
+    assert_eq!(fixture.store.update_count(GRAPH), 2);
+
+    let expected = client_a.fingerprint().unwrap();
+    assert_eq!(expected, client_b.fingerprint().unwrap());
+
+    // A client that missed every live broadcast reconciles from its Loro
+    // version vector; transport cursors are not used as CRDT truth.
+    let reconnect = fixture
+        .manager
+        .open(GRAPH, "reconnect", OWNER, &fixture.base_version)
+        .await
+        .unwrap();
+    let mut client_c = graph_core::GraphCore::from_snapshot(
+        domain::GraphId::new(GRAPH).unwrap(),
+        4,
+        &fixture.snapshot,
+    )
+    .unwrap();
+    if reconnect.welcome.checkpoint.is_empty() {
+        client_c
+            .import_remote(&reconnect.welcome.missing_update)
+            .unwrap();
+    } else {
+        client_c
+            .import_remote(&reconnect.welcome.checkpoint)
+            .unwrap();
+    }
+    assert_eq!(expected, client_c.fingerprint().unwrap());
+
+    fixture.manager.evict(GRAPH).await;
+    assert_eq!(
+        expected,
+        fixture.manager.durable_fingerprint(GRAPH).await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
+    let config = RoomConfig {
+        limits: Limits {
+            max_update_bytes: 1,
+            ..Limits::default()
+        },
+        ..RoomConfig::default()
+    };
+    let fixture = fixture(config);
+    let (client, update) =
+        client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
+    fixture
+        .store
+        .commit_update(GRAPH, OWNER, &update.message_id, &update.bytes)
+        .await
+        .unwrap();
+    let opened = fixture
+        .manager
+        .open(GRAPH, "checkpoint-client", OWNER, &fixture.base_version)
+        .await
+        .unwrap();
+    assert!(opened.welcome.missing_update.is_empty());
+    assert!(!opened.welcome.checkpoint.is_empty());
+    let mut reconnect = graph_core::GraphCore::from_snapshot(
+        domain::GraphId::new(GRAPH).unwrap(),
+        3,
+        &fixture.snapshot,
+    )
+    .unwrap();
+    reconnect.import_remote(&opened.welcome.checkpoint).unwrap();
+    assert_eq!(
+        client.fingerprint().unwrap(),
+        reconnect.fingerprint().unwrap()
+    );
+}

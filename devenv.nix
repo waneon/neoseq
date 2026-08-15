@@ -33,22 +33,34 @@
     NIX_LDFLAGS = "-L${pkgs.libiconv}/lib";
   };
 
-  scripts = {
-    web-dev = {
-      description = "Build the development Wasm module and start Vite";
-      exec = ''
-        set -euo pipefail
-        devenv tasks run wasm:build-dev
-        exec pnpm --filter @neoseq/client exec vite "$@"
-      '';
+  services.postgres = {
+    enable = true;
+    package = pkgs.postgresql_17;
+    initialDatabases = [ { name = "neoseq"; } ];
+  };
+
+  processes = {
+    web = {
+      exec = "pnpm --filter @neoseq/client exec vite";
+      after = [ "wasm:build-dev" ];
+      ready.http.get = {
+        port = 4173;
+        path = "/";
+      };
+      restart.on = "never";
     };
-    web-preview = {
-      description = "Build and preview the production Web output";
+    sync-server = {
       exec = ''
-        set -euo pipefail
-        web_output="$(devenv build outputs.web | ${lib.getExe pkgs.jq} -r '."outputs.web"')"
-        exec pnpm --filter @neoseq/client exec vite preview --outDir "$web_output" --host 127.0.0.1 --port 4174 "$@"
+        DATABASE_URL="postgresql:///neoseq?host=$PGHOST" \
+          NEOSEQ_TEST_AUTH_SECRET="neoseq-local-development-only" \
+          exec cargo run --locked -p sync-server -- serve
       '';
+      after = [ "devenv:processes:postgres" ];
+      ready.http.get = {
+        port = 8787;
+        path = "/readyz";
+      };
+      restart.on = "never";
     };
   };
 
@@ -95,6 +107,38 @@
       before = [ "devenv:enterTest" ];
     };
 
+    "sync-server:test" = {
+      description = "Run PostgreSQL migration, persistence, and restore tests";
+      exec = ''
+        set -euo pipefail
+
+        test_root="$(mktemp -d)"
+        cleanup() {
+          if [[ -f "$test_root/data/postmaster.pid" ]]; then
+            pg_ctl -D "$test_root/data" -m immediate -w stop >/dev/null
+          fi
+          rm -rf "$test_root"
+        }
+        trap cleanup EXIT INT TERM
+
+        mkdir -p "$test_root/socket"
+        initdb \
+          -D "$test_root/data" \
+          --auth=trust \
+          --encoding=UTF8 \
+          --no-locale \
+          --username=postgres >/dev/null
+        pg_ctl \
+          -D "$test_root/data" \
+          -o "-F -h ''' -k '$test_root/socket'" \
+          -w start >/dev/null
+
+        export DATABASE_URL="postgresql://postgres@localhost/postgres?host=$test_root/socket"
+        cargo test -p sync-server --test postgres -- --nocapture
+      '';
+      before = [ "devenv:enterTest" ];
+    };
+
     "wasm:build-dev" = {
       description = "Build development Wasm bindings";
       exec = ''
@@ -129,10 +173,15 @@
     };
   };
 
-  outputs.web = pkgs.callPackage ./nix/web.nix {
-    rustToolchain = config.languages.rust.toolchainPackage;
-    nodejs = config.languages.javascript.package;
-    pnpm = config.languages.javascript.pnpm.package;
+  outputs = {
+    web = pkgs.callPackage ./nix/web.nix {
+      rustToolchain = config.languages.rust.toolchainPackage;
+      nodejs = config.languages.javascript.package;
+      pnpm = config.languages.javascript.pnpm.package;
+    };
+    sync-server = pkgs.callPackage ./nix/sync-server.nix {
+      rustToolchain = config.languages.rust.toolchainPackage;
+    };
   };
 
   profiles.browser.module = {

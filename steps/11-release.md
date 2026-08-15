@@ -59,7 +59,7 @@ artifact provenance를 한 release manifest로 연결한다.
 ```text
 devenv --profile browser test
 devenv build outputs.web
-devenv tasks run build:sync-server
+devenv build outputs.sync-server
 devenv tasks run build:macos-app
 devenv tasks run build:android-release
 devenv tasks run verify:release-manifest

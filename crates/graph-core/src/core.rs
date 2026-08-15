@@ -10,7 +10,7 @@ use domain::{
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
-    LoroValue, TreeID, TreeParentId, UndoManager, ValueOrContainer,
+    LoroValue, TreeID, TreeParentId, UndoManager, ValueOrContainer, VersionVector,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -547,6 +547,18 @@ impl GraphCore {
 
     pub fn export_all(&self) -> Result<Vec<u8>, CoreError> {
         Ok(self.doc.export(ExportMode::all_updates())?)
+    }
+
+    /// Encodes the Loro version vector used as the CRDT synchronization truth.
+    /// Durable transport cursors deliberately do not participate in this value.
+    pub fn version_vector(&self) -> Vec<u8> {
+        self.doc.oplog_vv().encode()
+    }
+
+    /// Exports operations absent from an encoded remote Loro version vector.
+    pub fn export_updates_since(&self, encoded: &[u8]) -> Result<Vec<u8>, CoreError> {
+        let version = VersionVector::decode(encoded)?;
+        Ok(self.doc.export(ExportMode::updates(&version))?)
     }
 
     pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {

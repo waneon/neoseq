@@ -1,0 +1,30 @@
+{
+  "protocolVersion": 1,
+  "hello": {
+    "graphId": "fixture-graph",
+    "sessionId": "fixture-session",
+    "versionVector": [1, 2, 3],
+    "lastAcknowledgement": 7,
+    "frameHex": "4e53515000010000002900010101010d666978747572652d67726170680f666978747572652d73657373696f6e030102030107"
+  },
+  "errors": [
+    {
+      "name": "bad-magic",
+      "frameHex": "00000000000000000000",
+      "maxBytes": 1024,
+      "code": "malformed_frame"
+    },
+    {
+      "name": "unsupported-wire-version",
+      "frameHex": "4e53515000020000002900010101010d666978747572652d67726170680f666978747572652d73657373696f6e030102030107",
+      "maxBytes": 1024,
+      "code": "unsupported_protocol"
+    },
+    {
+      "name": "oversized-frame",
+      "frameHex": "4e53515000010000002900010101010d666978747572652d67726170680f666978747572652d73657373696f6e030102030107",
+      "maxBytes": 20,
+      "code": "frame_too_large"
+    }
+  ]
+}
