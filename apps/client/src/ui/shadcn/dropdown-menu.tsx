@@ -60,7 +60,7 @@ function DropdownMenuItem({
         // never has two answers.
         "focus:bg-accent focus:text-accent-foreground",
         "data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-[var(--danger-soft)]",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
+        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-[var(--ink-3)]",
         "data-[variant=destructive]:[&_svg]:text-destructive",
         className,
@@ -95,7 +95,7 @@ function DropdownMenuRadioItem({
       className={cn(
         "relative flex min-h-[30px] cursor-pointer select-none items-center gap-2 rounded-md py-1 pl-7 pr-2 text-sm text-foreground outline-none transition-colors",
         "focus:bg-accent focus:text-accent-foreground",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
+        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}
       {...props}

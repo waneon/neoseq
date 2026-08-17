@@ -2,14 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   ListIcon,
-  LoaderCircleIcon,
   PlayIcon,
   Table2Icon,
 } from "lucide-react";
 import type { RdfTerm, SparqlQueryResult } from "../../generated/core-port";
 import type { BlockSnapshot, QueryView } from "../../core-port/snapshot";
-import { queryDocument } from "../../core-port/snapshot";
-import { Button } from "@/ui/shadcn/button";
+import { findPage, journalDate, pageTitle, queryDocument } from "../../core-port/snapshot";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +43,14 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   const run = () => {
     const current = ++generation.current;
+    // A blank source is a query the user has not written yet, not a parse
+    // failure — it stays quietly at "not run" instead of opening on an error.
+    if (draft.trim().length === 0) {
+      setResult(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     void session
@@ -105,21 +111,22 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         <span className="query-language">SPARQL</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
+            {/* The toolbar controls are the bespoke 24px icon-btn, not a shadcn
+                Button: its size utilities live in the `utilities` layer, which
+                outranks `neoseq`, so no toolbar CSS could ever size them. */}
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="query-view-trigger"
+              className="icon-btn query-view-trigger"
               disabled={state.mode === "readonly"}
               aria-label={message("query.view")}
               data-testid="query-view-trigger"
             >
               {activeView.kind === "table"
-                ? <Table2Icon data-icon="inline-start" aria-hidden />
-                : <ListIcon data-icon="inline-start" aria-hidden />}
+                ? <Table2Icon aria-hidden />
+                : <ListIcon aria-hidden />}
               {viewLabel(activeView, message)}
-              <ChevronDownIcon data-icon="inline-end" aria-hidden />
-            </Button>
+              <ChevronDownIcon aria-hidden />
+            </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
@@ -139,16 +146,18 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
               ? message("query.running")
               : message("query.notRun")}
         </span>
-        <Button
+        {/* The revision slot already says "running"; swapping or disabling the
+            control on every debounced auto-run would flicker it while typing
+            (§ Loading — below the flash threshold, show nothing). A stale run
+            is superseded by its generation guard, so re-pressing is safe. */}
+        <button
           type="button"
-          variant="ghost"
-          size="icon"
+          className="icon-btn"
           onClick={run}
           aria-label={message("query.run")}
-          disabled={loading}
         >
-          {loading ? <LoaderCircleIcon className="query-spinner" /> : <PlayIcon />}
-        </Button>
+          <PlayIcon aria-hidden />
+        </button>
       </div>
       <textarea
         className="query-source"
@@ -178,7 +187,26 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 }
 
 function QueryResultView({ result, view }: { result: SparqlQueryResult; view: QueryView }) {
-  const { message } = useI18n();
+  const { message, formatJournalDate } = useI18n();
+  const state = useSessionState();
+
+  // A page the graph knows is shown by its name, the way the rest of the
+  // product names it — a journal day in the user's own date format, any other
+  // page by its title. Only an unknown entity falls back to its raw id.
+  const formatTerm = (term: RdfTerm | undefined): string => {
+    if (!term) return "—";
+    if (term.kind === "literal") return term.value;
+    if (term.entity?.kind === "page") {
+      const page = findPage(state.snapshot, term.entity.id);
+      if (page) {
+        const day = journalDate(page);
+        return day ? formatJournalDate(day) : pageTitle(page);
+      }
+    }
+    if (term.entity) return term.entity.id;
+    return term.value;
+  };
+
   if (result.kind === "ask") {
     return (
       <p className="query-ask" data-value={result.value}>
@@ -240,12 +268,3 @@ function viewLabel(view: QueryView, message: ReturnType<typeof useI18n>["message
   return view.name;
 }
 
-function formatTerm(term: RdfTerm | undefined): string {
-  if (!term) return "—";
-  if (term.kind === "literal") return term.value;
-  if (term.entity) {
-    if (term.entity.kind === "block") return term.entity.id;
-    return term.entity.id;
-  }
-  return term.value;
-}

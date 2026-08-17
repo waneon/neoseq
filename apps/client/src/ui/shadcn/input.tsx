@@ -13,7 +13,9 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       className={cn(
         "flex h-8 w-full min-w-0 rounded-md bg-background px-2.5 text-sm text-foreground shadow-[var(--e1)]",
         "placeholder:text-[var(--ink-3)] caret-[var(--accent)]",
-        "focus-visible:bg-[var(--surface-2)] focus-visible:shadow-[var(--e1)]",
+        // Focus fills --surface-2, where --ink-3 fails AA — the placeholder
+        // steps up one ink level while the field is lit.
+        "focus-visible:bg-[var(--surface-2)] focus-visible:shadow-[var(--e1)] focus-visible:placeholder:text-[var(--ink-2)]",
         "read-only:text-[var(--ink-2)] disabled:cursor-not-allowed disabled:opacity-50",
         "file:inline-flex file:border-0 file:bg-transparent file:text-sm file:font-medium",
         className,

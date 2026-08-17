@@ -38,7 +38,9 @@ export function RemoteMembersDialog({
     try {
       setMembers((await listMemberships(connection.server_url, auth, graphId)).memberships);
     } catch {
-      setError(message("graph.remoteFailed"));
+      // Each verb reports its own failure — a rejected invite is not a
+      // network outage, and the sentence names what the user actually tried.
+      setError(message("graph.membersLoadFailed"));
     } finally {
       setBusy(false);
     }
@@ -61,15 +63,16 @@ export function RemoteMembersDialog({
     event.preventDefault();
     const auth = readAuthSession(connection.server_url);
     if (!auth || !invite.trim()) return;
+    const account = invite.trim();
     setBusy(true);
-    grantMembership(connection.server_url, auth, graphId, invite.trim(), role)
+    grantMembership(connection.server_url, auth, graphId, account, role)
       .then(() => {
         setInvite("");
         return refresh(auth);
       })
       .catch(() => {
         setBusy(false);
-        setError(message("graph.remoteFailed"));
+        setError(message("graph.inviteFailed", { account }));
       });
   };
 
@@ -99,6 +102,7 @@ export function RemoteMembersDialog({
               <button
                 className="btn btn-danger"
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   const auth = readAuthSession(connection.server_url);
                   if (!auth) return;
@@ -107,7 +111,7 @@ export function RemoteMembersDialog({
                     .then(() => refresh(auth))
                     .catch(() => {
                       setBusy(false);
-                      setError(message("graph.remoteFailed"));
+                      setError(message("graph.revokeFailed", { account: member.principal_id }));
                     });
                 }}
               >
@@ -118,19 +122,26 @@ export function RemoteMembersDialog({
         ))}
       </ul>
       <form className="member-invite" onSubmit={inviteMember}>
-        <Input aria-label={message("graph.memberAccount")} placeholder={message("graph.memberAccount")} value={invite} onChange={(event) => setInvite(event.target.value)} />
-        {/* The one dropdown — never a native <select>, whose popup the OS
-            draws in its own language. See DESIGN.md § Choice. */}
-        <MenuSelect
-          value={role}
-          options={[
-            { value: "editor", label: message("graph.editor") },
-            { value: "viewer", label: message("graph.viewer") },
-          ]}
-          onValueChange={(value) => setRole(value as "editor" | "viewer")}
-          label={message("graph.memberRole")}
-        />
-        <button className="btn btn-primary" type="submit" disabled={busy || !invite.trim()}>{message("graph.invite")}</button>
+        {/* The sibling fields above carry visible labels; a placeholder-only
+            field would be the one that goes silent the moment it is typed in. */}
+        <label className="field-label" htmlFor="member-invite-account">
+          {message("graph.memberAccount")}
+        </label>
+        <div className="member-invite-row">
+          <Input id="member-invite-account" value={invite} onChange={(event) => setInvite(event.target.value)} />
+          {/* The one dropdown — never a native <select>, whose popup the OS
+              draws in its own language. See DESIGN.md § Choice. */}
+          <MenuSelect
+            value={role}
+            options={[
+              { value: "editor", label: message("graph.editor") },
+              { value: "viewer", label: message("graph.viewer") },
+            ]}
+            onValueChange={(value) => setRole(value as "editor" | "viewer")}
+            label={message("graph.memberRole")}
+          />
+          <button className="btn btn-primary" type="submit" disabled={busy || !invite.trim()}>{message("graph.invite")}</button>
+        </div>
       </form>
     </Dialog>
   );

@@ -15,6 +15,7 @@ import {
   findPage,
   isDeleted,
   pageTitle,
+  queryDocument,
   stringValue,
 } from "../../core-port/snapshot";
 import { todayLocalDate } from "../../entities/journal";
@@ -46,10 +47,15 @@ export function BlockChips({
   const priority = stringValue(block.properties, TASK_PRIORITY_KEY);
   const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
   const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
-  // Task keys have their own positioned chips above; the generic rows carry
-  // everything else the block states, in the same chip language.
+  // Task keys have their own positioned chips above, and a valid query document
+  // is presented by the query block itself — a chip would state the same fact
+  // twice. The generic rows carry everything else the block states.
+  const hasQueryBlock = queryDocument(block.properties) !== undefined;
   const generic = block.properties.filter(
-    (field) => isGenericProperty(field.key) && (!isTaskKey(field.key) || field.values.length === 0),
+    (field) =>
+      isGenericProperty(field.key) &&
+      (!isTaskKey(field.key) || field.values.length === 0) &&
+      !(field.key === "builtin.query" && hasQueryBlock),
   );
   const hasTaskFacts =
     priority !== undefined || scheduled !== undefined || deadline !== undefined;

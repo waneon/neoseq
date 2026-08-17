@@ -59,6 +59,7 @@ import {
   type PageSnapshot,
 } from "../../core-port/snapshot";
 import { Wordmark } from "../../ui/brand";
+import { Input } from "@/ui/shadcn/input";
 import { Kbd } from "@/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
@@ -890,8 +891,7 @@ function GraphSwitcher({
           setRenaming(false);
         }}
       >
-        <input
-          className="h-8 w-full rounded-md bg-[var(--canvas)] px-2 text-sm shadow-[var(--e1)]"
+        <Input
           aria-label={message("graph.graphName")}
           autoFocus
           value={draft}

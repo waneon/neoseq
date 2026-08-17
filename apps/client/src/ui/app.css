@@ -52,11 +52,11 @@
   --rail-edge: color-mix(in oklab, var(--ink) 10%, transparent);
 
   --e2:
-    0 0 0 1px color-mix(in oklab, var(--ink) 8%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--ink) 10%, transparent),
     0 2px 6px -2px oklch(0.255 0.009 75 / 0.08),
     0 8px 24px -8px oklch(0.255 0.009 75 / 0.14);
   --e3:
-    0 0 0 1px color-mix(in oklab, var(--ink) 8%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--ink) 10%, transparent),
     0 4px 12px -4px oklch(0.255 0.009 75 / 0.1),
     0 24px 64px -16px oklch(0.255 0.009 75 / 0.2);
 
@@ -177,10 +177,10 @@
     --rail-edge: transparent;
 
     --e2:
-      0 0 0 1px color-mix(in oklab, var(--ink) 8%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--ink) 10%, transparent),
       0 8px 24px -8px oklch(0 0 0 / 0.55);
     --e3:
-      0 0 0 1px color-mix(in oklab, var(--ink) 8%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--ink) 10%, transparent),
       0 24px 64px -16px oklch(0 0 0 / 0.7);
   }
 }
@@ -210,10 +210,10 @@
   --rail-edge: transparent;
 
   --e2:
-    0 0 0 1px color-mix(in oklab, var(--ink) 8%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--ink) 10%, transparent),
     0 8px 24px -8px oklch(0 0 0 / 0.55);
   --e3:
-    0 0 0 1px color-mix(in oklab, var(--ink) 8%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--ink) 10%, transparent),
     0 24px 64px -16px oklch(0 0 0 / 0.7);
 }
 
@@ -238,7 +238,7 @@ body {
   line-height: var(--lh-md);
   font-weight: var(--weight-normal);
   font-optical-sizing: auto;
-  font-feature-settings: "lnum", "locl";
+  font-feature-settings: "lnum", "locl", "cv11";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -430,7 +430,7 @@ h2 {
 }
 
 .icon-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: default;
 }
 
@@ -615,6 +615,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    only a hair more separation, not a second full blank band. */
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--sp-2);
   margin-top: var(--sp-1);
@@ -685,6 +686,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .menu-select[data-placeholder="true"] .value {
   color: var(--ink-3);
+}
+
+/* Focused and open sit on --surface-2, where --ink-3 fails AA — the placeholder
+   steps up one ink level while the field is lit (the contract's one hard rule). */
+.menu-select:focus-visible[data-placeholder="true"] .value,
+.menu-select[data-state="open"][data-placeholder="true"] .value {
+  color: var(--ink-2);
 }
 
 .menu-select svg {
@@ -1012,19 +1020,22 @@ button.chip:focus-visible .chip-glyph .chip-x {
   opacity: 1;
 }
 
+/* Slots that render nothing stay invisible, so this wider gap only ever appears
+   between deviations that are actually showing — without it, two 12px reports
+   sit four pixels apart and read as one run-on sentence. */
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
+  gap: var(--sp-3);
   margin-left: auto;
 }
 
 /* A nav row's own shortcut badge. Search lives in the rail now, so the badge is
-   what still teaches ⌘K after the top bar lost its pill. */
+   what still teaches ⌘K after the top bar lost its pill. It reveals instantly —
+   hover-revealed chrome never fades (§ Motion rule 4). */
 .shell-nav-item .nav-kbd {
   flex: none;
   opacity: 0;
-  transition: opacity var(--dur-press) var(--ease-out);
 }
 
 .shell-sidebar:hover .shell-nav-item .nav-kbd,
@@ -1832,7 +1843,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .query-block {
   margin: var(--sp-1) var(--sp-1) var(--sp-3);
-  border-radius: var(--r-2);
+  /* A --surface-1 panel takes the panel radius (§ Shape). */
+  border-radius: var(--r-3);
   background: var(--surface-1);
   overflow: hidden;
 }
@@ -1852,23 +1864,29 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-weight: var(--weight-medium);
 }
 
+/* The revision yields space first when the toolbar tightens (§ Query block). */
 .query-revision {
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.query-toolbar button {
-  flex: none;
-  width: 28px;
-  height: 28px;
+.query-toolbar .icon-btn {
   margin-left: var(--sp-1);
 }
 
+/* The view chooser is a small ghost button in the icon-btn's own metrics,
+   widened to carry its label. */
 .query-toolbar .query-view-trigger {
   width: auto;
   max-width: 148px;
-  margin-left: var(--sp-1);
+  gap: var(--sp-1);
   padding-inline: var(--sp-1);
+  overflow: hidden;
   color: var(--ink-2);
+  white-space: nowrap;
 }
 
 .query-view-trigger svg {
@@ -1893,7 +1911,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   caret-color: var(--accent);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  line-height: var(--lh-sm);
+  line-height: var(--lh-xs);
   tab-size: 2;
 }
 
@@ -1943,10 +1961,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
   text-align: left;
 }
 
+/* Rows separate by spacing and the header's quieter ink — a drawn rule under
+   every row is outside § Depth's three legal lines. */
 .query-table th,
 .query-table td {
   padding: var(--sp-1) var(--sp-2);
-  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 
@@ -1971,7 +1990,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   display: grid;
   gap: 2px;
   padding: var(--sp-1) var(--sp-2);
-  border-bottom: 1px solid var(--line);
 }
 
 .query-list > li > span {
@@ -2030,8 +2048,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
   height: 5px;
   border-radius: var(--r-full);
   background: var(--ink-3);
+  /* "Comes straight back" — the reveal is instant, per § Motion rule 4. */
   opacity: 0.4;
-  transition: opacity var(--dur-press) var(--ease-out);
 }
 
 .outline-placeholder:hover .dot::after,
@@ -2062,8 +2080,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
   height: 5px;
   border-radius: var(--r-full);
   background: var(--ink-3);
+  /* Hover-revealed chrome is instant, per § Motion rule 4. */
   opacity: 0;
-  transition: opacity var(--dur-press) var(--ease-out);
 }
 
 .outline-append:hover::before,
@@ -3020,29 +3038,47 @@ button.chip:focus-visible .chip-glyph .chip-x {
   gap: var(--sp-2);
 }
 
-.remote-form {
-  display: grid;
-  gap: var(--sp-2);
-}
-
-.remote-form .dialog-actions {
-  margin-top: var(--sp-2);
-}
-
+/* A label must sit closer to its own field than to the field above it, or every
+   pair reads as belonging to the wrong label. The grid gap is the within-pair
+   4px; the between-pair distance comes from the label's own top margin. */
+.remote-form,
 .remote-account-form {
   display: grid;
   gap: var(--sp-1);
+}
+
+.remote-form .field-label,
+.remote-account-form .field-label {
+  margin-top: var(--sp-2);
+  margin-bottom: 0;
+}
+
+.remote-form .field-label:first-child,
+.remote-account-form .field-label:first-child {
+  margin-top: 0;
+}
+
+.remote-form .dialog-actions {
+  margin-top: var(--sp-3);
+}
+
+.remote-account-form {
   margin-bottom: var(--sp-4);
 }
 
-.remote-account-row,
 .member-invite {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.remote-account-row,
+.member-invite-row {
   display: flex;
   gap: var(--sp-2);
 }
 
 .remote-account-row > :first-child,
-.member-invite > :first-child {
+.member-invite-row > :first-child {
   flex: 1;
   min-width: 0;
 }
@@ -3086,7 +3122,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* The role trigger shrinks to its value; the account field takes the rest. */
-.member-invite .menu-select {
+.member-invite-row .menu-select {
   flex: none;
   width: auto;
 }
@@ -3097,12 +3133,12 @@ button.chip:focus-visible .chip-glyph .chip-x {
     align-items: stretch;
   }
 
-  .member-invite {
+  .member-invite-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .member-invite > :first-child {
+  .member-invite-row > :first-child {
     grid-column: 1 / -1;
   }
 }
@@ -3167,13 +3203,29 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background: var(--surface-2);
 }
 
-/* The tab list is navigated with the keyboard across a quiet pane where no
-   caret or wash marks the roving position, so keyboard focus keeps a drawn
-   indicator here: a neutral hairline, not the accent (moving between tabs is
-   wayfinding, not a pending action). */
+/* Keyboard focus takes the one highlight every roving list in the product
+   uses — the --surface-2 wash plus the 2px accent rule at the left edge
+   (§ Interaction States) — never a drawn outline, which is the box § Depth
+   forbids. The rule is what keeps focus legible when it lands on the current
+   section, whose own fill is already a step darker. */
+.settings-tab {
+  position: relative;
+}
+
 .settings-tab:focus-visible {
-  outline: 1px solid var(--ink-3);
-  outline-offset: -1px;
+  outline: none;
+  background: var(--surface-2);
+}
+
+.settings-tab:focus-visible::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: var(--r-full);
+  background: var(--accent);
 }
 
 .settings-tab[aria-current="true"] {

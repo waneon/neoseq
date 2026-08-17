@@ -62,14 +62,23 @@ test("settings passes the basic audit", async ({ page }) => {
   await appearanceTab.focus();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Tab");
+  // Keyboard focus is component-owned (DESIGN.md § Interaction States): the
+  // tab takes the product's one roving highlight — the wash plus the 2px
+  // accent rule at the left edge — never a drawn outline, which would be
+  // outside § Depth's three legal lines.
   await expect.poll(() => appearanceTab.evaluate((element) => {
     const styles = getComputedStyle(element);
+    const rule = getComputedStyle(element, "::before");
     const probe = document.createElement("span");
-    probe.style.color = "var(--ink-3)";
+    probe.style.color = "var(--accent)";
     document.body.append(probe);
-    const neutral = getComputedStyle(probe).color;
+    const accent = getComputedStyle(probe).color;
     probe.remove();
-    return styles.outlineStyle === "solid" && styles.outlineColor === neutral;
+    return (
+      styles.outlineStyle === "none" &&
+      rule.width === "2px" &&
+      rule.backgroundColor === accent
+    );
   })).toBe(true);
   expect(await audit(page)).toEqual([]);
 });

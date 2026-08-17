@@ -231,10 +231,14 @@ function RemoteCreateDialog({
           setError(message("graph.noRemoteGraphs"));
           return;
         }
+        // The server knows ids, not names — the typed name goes to the first
+        // graph, and the rest take a readable numbered variant of it rather
+        // than an opaque id as their card title.
+        const base = name.trim() || message("graph.defaultName");
         const registered = graphs.map((graph, index) =>
           registerRemoteGraph(
             graph.graph_id,
-            index === 0 && name.trim() ? name.trim() : graph.graph_id,
+            index === 0 ? base : `${base} (${index + 1})`,
             serverUrl,
           ),
         );
@@ -242,7 +246,7 @@ function RemoteCreateDialog({
       })
       .catch(() => {
         setBusy(false);
-        setError(message("graph.remoteFailed"));
+        setError(message("graph.connectRemoteFailed"));
       });
   };
 
@@ -263,7 +267,7 @@ function RemoteCreateDialog({
             })
             .catch(() => {
               setBusy(false);
-              setError(message("graph.remoteFailed"));
+              setError(message("graph.createRemoteFailed"));
             });
         }}
       >

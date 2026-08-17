@@ -128,9 +128,11 @@ export interface MessageArgumentMap {
   "graph.allGraphs": undefined;
   "graph.backToGraphs": undefined;
   "graph.connectRemote": undefined;
+  "graph.connectRemoteFailed": undefined;
   "graph.create": undefined;
   "graph.createLocal": undefined;
   "graph.createRemote": undefined;
+  "graph.createRemoteFailed": undefined;
   "graph.created": { readonly "date": string | number };
   "graph.defaultName": undefined;
   "graph.delete": undefined;
@@ -140,6 +142,7 @@ export interface MessageArgumentMap {
   "graph.empty": undefined;
   "graph.graphName": undefined;
   "graph.invite": undefined;
+  "graph.inviteFailed": { readonly "account": string | number };
   "graph.lede": undefined;
   "graph.listFailed": { readonly "detail": string | number };
   "graph.loadError": undefined;
@@ -148,6 +151,7 @@ export interface MessageArgumentMap {
   "graph.memberAccount": undefined;
   "graph.memberRole": undefined;
   "graph.membersDetail": undefined;
+  "graph.membersLoadFailed": undefined;
   "graph.membersTitle": undefined;
   "graph.newName": undefined;
   "graph.noRemoteGraphs": undefined;
@@ -156,9 +160,9 @@ export interface MessageArgumentMap {
   "graph.remote": undefined;
   "graph.remoteCreateDetail": undefined;
   "graph.remoteCreateTitle": undefined;
-  "graph.remoteFailed": undefined;
   "graph.rename": undefined;
   "graph.revoke": undefined;
+  "graph.revokeFailed": { readonly "account": string | number };
   "graph.serverUrl": undefined;
   "graph.settings": undefined;
   "graph.signIn": undefined;

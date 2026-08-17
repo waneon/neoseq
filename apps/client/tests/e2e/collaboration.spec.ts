@@ -75,7 +75,9 @@ async function connectRemote(page: Page, name: string, principal: string, token:
 async function invite(page: Page, principal: string) {
   await page.getByTestId("graph-switcher").click();
   await page.getByRole("menuitem", { name: "Manage members" }).click();
-  await page.getByPlaceholder("Account ID").fill(principal);
+  // The invite field carries a visible label like its sibling fields; the
+  // sign-in form above uses the same "Account ID" label, so scope to the row.
+  await page.locator(".member-invite").getByLabel("Account ID").fill(principal);
   await page.getByRole("button", { name: "Invite", exact: true }).click();
   await expect(page.locator(".member-list li", { hasText: principal })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
