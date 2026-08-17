@@ -9,7 +9,7 @@ devenv shell                         # normal Rust and Web work
 devenv up                            # Web, PostgreSQL, and sync server
 devenv up web                        # Vite on 127.0.0.1:4173
 devenv up sync-server                # PostgreSQL and sync server on 127.0.0.1:8787
-devenv --profile browser shell       # add pinned Playwright browsers
+devenv --profile browser-test shell  # add pinned Playwright browsers
 ```
 
 ## Before changing code
@@ -56,12 +56,12 @@ devenv build outputs.web
 ```
 
 For Playwright work, build the test-mode client once before running focused
-cases in the browser profile:
+cases in the `browser-test` profile:
 
 ```sh
-devenv --profile browser tasks run web:build-test
-devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test tests/persistence.spec.ts --project=chromium --grep "Worker adapter"
-devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test e2e/ --project=chromium --grep "survives reload"
+devenv --profile browser-test tasks run web:build-test
+devenv --profile browser-test shell -- pnpm --filter @neoseq/client exec playwright test tests/persistence.spec.ts --project=chromium --grep "Worker adapter"
+devenv --profile browser-test shell -- pnpm --filter @neoseq/client exec playwright test e2e/ --project=chromium --grep "survives reload"
 ```
 
 Build the deployable output separately from the verification tasks. The
@@ -71,7 +71,7 @@ complete non-browser gate and CI-equivalent gate are:
 devenv build outputs.web
 devenv build outputs.sync-server
 devenv test
-devenv --profile browser test
+devenv --profile browser-test test
 ```
 
 The workspace Rust test task covers the synchronization protocol and in-memory
@@ -114,17 +114,19 @@ select **Connect available graphs**. Browser credentials live only for that tab
 session; the Vite `/v1` proxy connects both HTTP and WebSocket traffic to the
 local sync server.
 
-The complete browser-profile gate covers the sync contracts, authorization
+The complete `browser-test` profile gate covers the sync contracts, authorization
 boundaries, multi-tab identity, mocked remote UX, durable browser outbox, and a
-real two-browser scenario. For that final scenario, devenv starts a test-only
-sync-server process on an allocated port and gives it a uniquely named
-PostgreSQL database and test credentials:
+real two-browser scenario. The product corpus runs in parallel on desktop;
+mobile runs focused drawer and accessibility coverage, while dark mode repeats
+the accessibility contract. For the final collaboration scenario, devenv
+starts a test-only sync-server process on an allocated port and gives it a
+uniquely named PostgreSQL database and test credentials:
 
 ```sh
-devenv --profile browser test
+devenv --profile browser-test test
 ```
 
-The browser profile is separate so normal development does not download the
+The `browser-test` profile is separate so normal development does not download the
 Playwright browser closure. The output is a sandboxed, lockfile-backed Web/Wasm
 artifact. The verification tasks check Rust formatting, Clippy, workspace
 tests, dependency policy, generated files, TypeScript, component tests,
@@ -139,8 +141,8 @@ IndexedDB contracts, and Web E2E journeys.
 | React or TypeScript behavior | Focused component test, `frontend:test`, and `frontend:check`. |
 | Styling, accessibility, keyboard, routing, or responsive behavior | Relevant component test plus focused E2E across affected Playwright projects. |
 | CorePort, generated schema, Worker, IndexedDB, or persistence | Relevant Rust tests, generated-file check, and focused IndexedDB tests; add E2E when a user journey changes. |
-| Dependencies, devenv, build inputs, or production output | Build the affected output and run `devenv test`; add the browser profile when browser behavior or dependencies are affected. |
-| Cross-cutting or merge-ready change | Build `outputs.web` and `outputs.sync-server`, then run `devenv --profile browser test` after focused suites pass. |
+| Dependencies, devenv, build inputs, or production output | Build the affected output and run `devenv test`; add the `browser-test` profile when browser behavior or dependencies are affected. |
+| Cross-cutting or merge-ready change | Build `outputs.web` and `outputs.sync-server`, then run `devenv --profile browser-test test` after focused suites pass. |
 
 ## Repository map
 

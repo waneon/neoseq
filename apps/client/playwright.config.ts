@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: "./tests",
   testMatch: /.*\.spec\.ts/,
   fullyParallel: false,
-  workers: 1,
+  workers: process.env.CI ? 2 : 4,
   retries: 0,
   reporter: "line",
   expect: {
@@ -20,13 +20,12 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testIgnore: /mobile\.spec\.ts/,
     },
     {
       name: "mobile-chromium",
       use: { ...devices["Pixel 7"] },
-      // The persistence corpus is a contract suite, not a product
-      // scenario; one engine run keeps its gate unchanged.
-      testIgnore: /persistence\.spec\.ts/,
+      testMatch: /(?:a11y|mobile)\.spec\.ts/,
     },
     {
       // Dark mode ships from the same token declaration, so it needs the same

@@ -64,18 +64,21 @@ named database.
 production artifacts. Keeping artifact construction separate from tasks makes
 it reproducible and cacheable.
 
-`devenv --profile browser test` adds pinned Chromium-based IndexedDB contracts,
-Web E2E suites, and a real two-profile collaboration scenario. The scenario
-uses a test-only sync-server process with an allocated port and an isolated
-database on the managed PostgreSQL service. The separate profile prevents
-normal shell users from paying the browser and service-orchestration cost. CI
-builds the deployable Web output, runs this full gate, and uploads the
-checkout-local Playwright failure artifacts.
+`devenv --profile browser-test test` adds pinned Chromium-based IndexedDB contracts,
+parallel desktop E2E, focused mobile and dark-mode coverage, and a real
+two-profile collaboration scenario. The scenario uses a test-only sync-server
+process with an allocated port and an isolated database on the managed
+PostgreSQL service. The separate profile prevents normal shell users from
+paying the browser and service-orchestration cost. CI builds the deployable Web
+output, runs this full gate, and uploads the checkout-local Playwright failure
+artifacts.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored migration, authorization, idempotency, fault, and
 restore integration test against its own database.
+Portable checks attach directly to the test lifecycle; process-backed suites
+attach to the managed process graph so their dependencies start only once.
 
 The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab

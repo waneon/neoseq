@@ -22,7 +22,7 @@ jobs:
       - name: Build production output
         run: devenv build outputs.web
       - name: Run verification
-        run: devenv --profile browser test
+        run: devenv --profile browser-test test
 
       - name: Upload Playwright failure artifacts
         if: ${{ failure() }}
