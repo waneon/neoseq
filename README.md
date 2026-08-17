@@ -1,24 +1,60 @@
 # Neoseq
 
-Neoseq is a local-first outliner. Its current product is an offline Web
-application with journals, a virtualized outline, Markdown blocks, typed
-properties, tags with per-tag default properties, task controls, graph search,
-and read-only SPARQL queries. A shared Rust core runs through WebAssembly in a
-Worker and persists graphs to IndexedDB.
+Neoseq is a local-first outliner for journals, Markdown blocks, typed
+properties, tasks, graph search, and read-only SPARQL. Its Rust core runs in a
+Web Worker and stores graphs in IndexedDB.
 
-Remote graphs connect that local replica to an authenticated Rust WebSocket
-service with durable PostgreSQL-backed Loro update relay. The Web client keeps
-editing offline, retries its durable outbox on reconnect, supports member
-management and ephemeral presence, and keeps local-save, remote-sync, and live
-connection status separate. This is the completed Remote beta; native
-packaging, data lifecycle work, and release provenance remain planned in
-[steps/](steps/).
+## Quick start
 
-## Development and verification
+Start the Web client, PostgreSQL, and synchronization server, then open
+`http://127.0.0.1:4173`.
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for setup, the development workflow, and
-efficient test selection. devenv is the supported entry point for local work
-and CI verification.
+```sh
+devenv up
+```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the current system and
-[steps/README.md](steps/README.md) for future delivery stages.
+## Development
+
+devenv provides the Rust, Node, pnpm, Wasm, and verification tools used by CI.
+Entering the shell also installs the locked pnpm workspace dependencies when
+the lockfile changes.
+
+```sh
+devenv shell                         # normal Rust and Web work
+devenv --profile browser-test shell  # add pinned Playwright browsers
+```
+
+## Build and test
+
+Build the reproducible production artifacts independently for the static Web
+application and the Rust synchronization service.
+
+```sh
+devenv build outputs.web          # Rust/Wasm core and static Web client
+devenv build outputs.sync-server  # PostgreSQL-backed sync server binary
+```
+
+Run the portable verification gate by default. The `browser-test` profile adds
+pinned Chromium, IndexedDB contracts, and end-to-end scenarios.
+
+```sh
+devenv test                         # Rust, generated files, TypeScript, and components
+devenv --profile browser-test test  # portable gate plus browser-backed tests
+```
+
+## Sync server
+
+Start the local PostgreSQL service and sync server together. In another devenv
+shell, create a graph, grant membership, and issue development-only tokens.
+
+```sh
+devenv up sync-server  # PostgreSQL and sync server on 127.0.0.1:8787
+```
+
+```sh
+export DATABASE_URL="postgresql:///neoseq?host=$PGHOST"
+export NEOSEQ_TEST_AUTH_SECRET=neoseq-local-development-only
+cargo run -p sync-server -- create-graph demo-graph alice
+cargo run -p sync-server -- grant demo-graph bob editor
+cargo run -p sync-server -- issue-token alice
+```
