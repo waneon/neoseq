@@ -206,8 +206,8 @@ The runtime keeps ephemeral semantic metadata beside each local Loro undo item.
 An undo or redo result includes its scope, affected page IDs, and at most one
 currently live page/block reveal target. This metadata is presentation-neutral:
 the core never chooses a route, scrolls, or focuses UI. See
-[`history-navigation.md`](history-navigation.md) for the contract and fallback
-rules.
+[`history-navigation.md`](history-navigation.md) for the contract and client
+policy.
 
 The implementation expresses the actor boundary as the single-owner
 `GraphRuntime<R, C>` message loop. Its mutable receiver serializes execute,

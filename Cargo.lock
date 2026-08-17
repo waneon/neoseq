@@ -1702,7 +1702,6 @@ dependencies = [
  "graph-core",
  "query",
  "rusqlite",
- "serde",
  "serde_json",
  "thiserror 2.0.19",
 ]
@@ -1713,7 +1712,6 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "graph-core",
- "js-sys",
  "query",
  "serde_json",
  "sync-protocol",
@@ -2504,7 +2502,6 @@ dependencies = [
  "hmac",
  "http-body-util",
  "serde",
- "serde_json",
  "sha2",
  "sqlx",
  "sync-protocol",

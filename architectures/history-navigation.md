@@ -53,8 +53,9 @@ state, is not synced, and does not change the persisted graph schema.
 `GraphSession` serializes the history command before any navigation. It uses
 `affected_pages` to refresh only destination pages that are already hydrated.
 The normal routed page loader hydrates a destination that was not previously in
-memory. If an older adapter does not provide a history effect, the session falls
-back to conservatively reconciling every hydrated page.
+memory. If persistence fails after an in-memory history mutation, the session
+conservatively reconciles every hydrated page because no result metadata was
+returned.
 
 Navigation never begins before command execution and reconciliation succeed.
 Failures leave the route unchanged and use the ordinary localized undo/redo

@@ -414,9 +414,12 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
       return { kind: "all-hydrated-pages" };
     case "undo":
     case "redo":
-      return result?.history_effect
-        ? { kind: "pages", pageIds: result.history_effect.affected_pages }
-        : { kind: "all-hydrated-pages" };
+      if (!result) return { kind: "all-hydrated-pages" };
+      if (!result.changed) return { kind: "summary" };
+      if (!result.history_effect) {
+        throw new Error("changed history command omitted its effect");
+      }
+      return { kind: "pages", pageIds: result.history_effect.affected_pages };
     case "ensure_tag":
     case "rename_tag":
     case "restore_tag":

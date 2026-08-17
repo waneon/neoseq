@@ -132,10 +132,6 @@ export function dateValue(bag: PropertyField[], key: string): string | undefined
   return value?.type === "date" ? value.value : undefined;
 }
 
-export function repeatedValues(bag: PropertyField[], key: string): PropertyValue[] {
-  return propertyField(bag, key)?.values ?? [];
-}
-
 export function pageTitle(page: PageSnapshot): string {
   return page.title || page.id;
 }

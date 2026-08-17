@@ -29,8 +29,3 @@ export function writeAuthSession(serverUrl: string, session: AuthSession): void 
   sessionStorage.setItem(key(serverUrl), JSON.stringify(session));
   window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: serverUrl }));
 }
-
-export function clearAuthSession(serverUrl: string): void {
-  sessionStorage.removeItem(key(serverUrl));
-  window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: serverUrl }));
-}

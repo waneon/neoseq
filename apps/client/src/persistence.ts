@@ -54,13 +54,11 @@ export interface SyncStateRecord {
   last_acknowledgement?: number;
 }
 
-export type FaultPoint =
-  | "append_before"
-  | "append_after"
-  | "checkpoint_before"
-  | "checkpoint_after"
-  | "abort"
-  | "quota";
+export interface PersistenceHooks {
+  before?(operation: "append" | "checkpoint"): void;
+  beforeCommit?(transaction: IDBTransaction): void;
+  after?(operation: "append" | "checkpoint"): void;
+}
 
 export class StorageError extends Error {
   constructor(
@@ -73,11 +71,7 @@ export class StorageError extends Error {
 }
 
 export class IndexedDbGraphRepository {
-  private fault?: FaultPoint;
-
-  injectOnce(fault: FaultPoint): void {
-    this.fault = fault;
-  }
+  constructor(private readonly hooks?: PersistenceHooks) {}
 
   async openGraph(locator: GraphLocatorDto, now: string): Promise<MetadataRecord> {
     const database = await openDatabase();
@@ -128,8 +122,7 @@ export class IndexedDbGraphRepository {
     now: string,
     outbox?: { message_id: string; base_version_vector: ArrayBuffer },
   ): Promise<{ local_sequence: number; checksum: string }> {
-    this.storageFault();
-    if (this.takeFault("append_before")) throw new StorageError("dirty_unsaved", "append failed before commit", true);
+    this.hooks?.before?.("append");
     const digest = await checksum(payload);
     const database = await openDatabase();
     const transaction = database.transaction(
@@ -170,10 +163,10 @@ export class IndexedDbGraphRepository {
       } satisfies OutboxRecord);
     }
     metadataStore.put({ ...metadata, next_sequence: localSequence + 1, updated_at: now });
-    if (this.takeFault("abort")) transaction.abort();
+    this.hooks?.beforeCommit?.(transaction);
     await complete(transaction);
     database.close();
-    if (this.takeFault("append_after")) throw new StorageError("dirty_unsaved", "append failed after commit", true);
+    this.hooks?.after?.("append");
     return { local_sequence: localSequence, checksum: digest };
   }
 
@@ -251,8 +244,7 @@ export class IndexedDbGraphRepository {
   }
 
   async saveCheckpoint(graphId: string, payload: ArrayBuffer, sequence: number, now: string): Promise<string> {
-    this.storageFault();
-    if (this.takeFault("checkpoint_before")) throw new StorageError("internal", "checkpoint failed before commit", true);
+    this.hooks?.before?.("checkpoint");
     const digest = await checksum(payload);
     const database = await openDatabase();
     const transaction = database.transaction(STORES.checkpoints, "readwrite");
@@ -264,10 +256,10 @@ export class IndexedDbGraphRepository {
       payload,
       created_at: now,
     } satisfies CheckpointRecord);
-    if (this.takeFault("abort")) transaction.abort();
+    this.hooks?.beforeCommit?.(transaction);
     await complete(transaction);
     database.close();
-    if (this.takeFault("checkpoint_after")) throw new StorageError("internal", "checkpoint failed after commit", true);
+    this.hooks?.after?.("checkpoint");
     return digest;
   }
 
@@ -287,51 +279,10 @@ export class IndexedDbGraphRepository {
     database.close();
   }
 
-  async setSchemaVersion(graphId: string, schemaVersion: number): Promise<void> {
-    const database = await openDatabase();
-    const transaction = database.transaction(STORES.metadata, "readwrite");
-    const store = transaction.objectStore(STORES.metadata);
-    const metadata = await request<MetadataRecord | undefined>(store.get(graphId));
-    if (!metadata) throw new StorageError("graph_not_open", "graph metadata not found", false);
-    store.put({ ...metadata, schema_version: schemaVersion });
-    await complete(transaction);
-    database.close();
-  }
-
   async quarantine(record: QuarantineRecord): Promise<void> {
     const database = await openDatabase();
     const transaction = database.transaction(STORES.quarantine, "readwrite");
     transaction.objectStore(STORES.quarantine).put(record);
-    await complete(transaction);
-    database.close();
-  }
-
-  async quarantined(graphId: string): Promise<QuarantineRecord[]> {
-    return (await allByGraph<QuarantineRecord>(STORES.quarantine, graphId)).sort((a, b) => a.export_handle.localeCompare(b.export_handle));
-  }
-
-  async exportQuarantine(graphId: string, exportHandle: string): Promise<ArrayBuffer> {
-    const database = await openDatabase();
-    const transaction = database.transaction(STORES.quarantine, "readonly");
-    const value = await request<QuarantineRecord | undefined>(
-      transaction.objectStore(STORES.quarantine).get([graphId, exportHandle]),
-    );
-    await complete(transaction);
-    database.close();
-    if (!value) throw new StorageError("storage_corrupt", "quarantine export handle not found", false);
-    return value.payload;
-  }
-
-  async corruptUpdate(graphId: string, sequence: number): Promise<void> {
-    const database = await openDatabase();
-    const transaction = database.transaction(STORES.updates, "readwrite");
-    const store = transaction.objectStore(STORES.updates);
-    const key: [string, number] = [graphId, sequence];
-    const value = await request<UpdateRecord | undefined>(store.get(key));
-    if (!value) throw new StorageError("storage_corrupt", "update to corrupt was not found", false);
-    const source = new Uint8Array(value.payload);
-    const truncated = source.slice(0, Math.max(0, source.byteLength - 1));
-    store.put({ ...value, payload: truncated.buffer });
     await complete(transaction);
     database.close();
   }
@@ -364,18 +315,6 @@ export class IndexedDbGraphRepository {
       usage_bytes: estimate.usage,
     };
   }
-
-  private storageFault(): void {
-    if (this.takeFault("quota")) throw new StorageError("storage_full", "IndexedDB quota exceeded", true);
-  }
-
-  private takeFault(expected: FaultPoint): boolean {
-    if (this.fault === expected) {
-      this.fault = undefined;
-      return true;
-    }
-    return false;
-  }
 }
 
 async function openDatabase(): Promise<IDBDatabase> {
@@ -383,30 +322,25 @@ async function openDatabase(): Promise<IDBDatabase> {
     const open = indexedDB.open(DATABASE, VERSION);
     open.onupgradeneeded = () => {
       const database = open.result;
-      if (!database.objectStoreNames.contains(STORES.metadata)) {
-        database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
-      }
+      database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
       for (const name of [STORES.updates, STORES.checkpoints]) {
-        if (!database.objectStoreNames.contains(name)) {
-          const store = database.createObjectStore(name, { keyPath: ["graph_id", "local_sequence"] });
-          store.createIndex("by_graph", "graph_id", { unique: false });
-        }
-      }
-      if (!database.objectStoreNames.contains(STORES.quarantine)) {
-        const quarantine = database.createObjectStore(STORES.quarantine, { keyPath: ["graph_id", "export_handle"] });
-        quarantine.createIndex("by_graph", "graph_id", { unique: false });
-      }
-      if (!database.objectStoreNames.contains(STORES.outbox)) {
-        const outbox = database.createObjectStore(STORES.outbox, {
-          keyPath: ["graph_id", "message_id"],
+        const store = database.createObjectStore(name, {
+          keyPath: ["graph_id", "local_sequence"],
         });
-        outbox.createIndex("by_graph", "graph_id", { unique: false });
+        store.createIndex("by_graph", "graph_id", { unique: false });
       }
-      if (!database.objectStoreNames.contains(STORES.syncState)) {
-        database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
-      }
-      const updates = open.transaction?.objectStore(STORES.updates);
-      updates?.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
+      const quarantine = database.createObjectStore(STORES.quarantine, {
+        keyPath: ["graph_id", "export_handle"],
+      });
+      quarantine.createIndex("by_graph", "graph_id", { unique: false });
+      const outbox = database.createObjectStore(STORES.outbox, {
+        keyPath: ["graph_id", "message_id"],
+      });
+      outbox.createIndex("by_graph", "graph_id", { unique: false });
+      database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
+      open.transaction
+        ?.objectStore(STORES.updates)
+        .createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
     };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(mapDomError(open.error));

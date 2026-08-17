@@ -18,7 +18,6 @@ import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
 import { MenuSelect } from "@/ui/menu-select";
-import { Button } from "@/ui/shadcn/button";
 import { useNotify } from "../notify/context";
 import { useSessionState } from "../shell/session-context";
 import { ShortcutEditor } from "./ShortcutEditor";

@@ -19,9 +19,12 @@ import {
   IndexedDbGraphRepository,
   StorageError,
   validChecksum,
-  type FaultPoint,
   type QuarantineRecord,
 } from "./persistence";
+import {
+  TestIndexedDbGraphRepository,
+  type FaultPoint,
+} from "./testing/test-persistence";
 
 interface Message {
   id: number;
@@ -74,7 +77,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
         case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
         case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
-        case "list_graphs": value = await new IndexedDbGraphRepository().allMetadata(); break;
+        case "list_graphs": value = await createRepository().allMetadata(); break;
         case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
         case "sync_configure": value = await configureSync(payload as { graph_handle: string }); break;
         case "sync_state": value = await syncState(payload as { graph_handle: string }); break;
@@ -106,7 +109,7 @@ async function openGraph(request: OpenGraphRequest) {
   }
   const handle = `local:${request.locator.graph_id}`;
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
-  const repository = new IndexedDbGraphRepository();
+  const repository = createRepository();
   const metadata = await repository.openGraph(request.locator, now());
   if (metadata.schema_version !== 1) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
@@ -312,7 +315,7 @@ async function deleteGraph(payload: { graph_id: string }) {
       throw failure("invalid_request", "close the graph before deleting it", false);
     }
   }
-  await new IndexedDbGraphRepository().deleteLocal(payload.graph_id);
+  await createRepository().deleteLocal(payload.graph_id);
   return { deleted: true };
 }
 
@@ -397,21 +400,25 @@ function syncDecode(payload: { frame: ArrayBuffer | Uint8Array }): unknown {
 }
 
 async function testControl(payload: Record<string, unknown>) {
-  const repository = new IndexedDbGraphRepository();
+  const repository = createRepository() as TestIndexedDbGraphRepository;
   switch (payload.action) {
     case "inject": {
       const state = requireState(String(payload.graph_handle));
-      state.repository.injectOnce(payload.fault as FaultPoint);
+      (state.repository as TestIndexedDbGraphRepository).injectOnce(payload.fault as FaultPoint);
       return null;
     }
-    case "retry": return persistPending(requireState(String(payload.graph_handle))).then(() => null);
     case "corrupt_update": return repository.corruptUpdate(String(payload.graph_id), Number(payload.sequence)).then(() => null);
-    case "quarantine_count": return (await repository.quarantined(String(payload.graph_id))).length;
+    case "quarantine_count": return repository.quarantineCount(String(payload.graph_id));
     case "export_quarantine": return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
     case "set_schema": return repository.setSchemaVersion(String(payload.graph_id), Number(payload.schema_version)).then(() => null);
-    case "delete_local": return repository.deleteLocal(String(payload.graph_id)).then(() => null);
     default: throw failure("invalid_request", "unknown test control action", false);
   }
+}
+
+function createRepository(): IndexedDbGraphRepository {
+  return import.meta.env.MODE === "test"
+    ? new TestIndexedDbGraphRepository()
+    : new IndexedDbGraphRepository();
 }
 
 function requireState(handle: string): OpenState {

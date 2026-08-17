@@ -53,7 +53,6 @@ import {
   subscribeGraphDirectory,
 } from "../../core-port/directory";
 import {
-  findJournalPage,
   isDeleted,
   pageKind,
   pageTitle,
@@ -577,7 +576,6 @@ SELECT ?entity ?content ?page WHERE {
     navigate,
     createPage,
     onExit,
-    session,
     notify,
     bridge,
     openMembers: remote ? () => setMembersOpen(true) : null,
@@ -959,7 +957,6 @@ interface CommandInputs {
   navigate: (to: string) => void;
   createPage: (title?: string) => Promise<void>;
   onExit: () => void;
-  session: GraphSession;
   notify: Notifier;
   bridge: CommandBridge;
   /** Remote graphs only: the members dialog, so the verb has a palette row. */
@@ -1015,7 +1012,6 @@ function buildCommands(input: CommandInputs): Command[] {
     navigate,
     createPage,
     onExit,
-    session,
     notify,
     bridge,
     openMembers,

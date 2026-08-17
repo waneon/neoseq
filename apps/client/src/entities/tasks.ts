@@ -31,8 +31,3 @@ export function isTaskKey(key: string): boolean {
 export function isSettledStatus(status: string): boolean {
   return status === "done" || status === "cancelled";
 }
-
-/** 1–3 for the registry's suggested priorities, 0 for anything else. */
-export function priorityLevel(priority: string): number {
-  return TASK_PRIORITIES.indexOf(priority) + 1;
-}

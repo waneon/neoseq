@@ -11,10 +11,6 @@ export function codePoints(value: string): string[] {
   return Array.from(value);
 }
 
-export function codePointLength(value: string): number {
-  return codePoints(value).length;
-}
-
 /** UTF-16 offset → code point index (never splits surrogate pairs). */
 export function codePointIndex(value: string, utf16Offset: number): number {
   let index = 0;

@@ -1,5 +1,5 @@
 import { CoreWorker } from "./core-worker";
-import type { FaultPoint } from "./persistence";
+import type { FaultPoint } from "./testing/test-persistence";
 
 export class TestCoreWorker extends CoreWorker {
   injectFault(graphHandle: string, fault: FaultPoint): Promise<void> {
