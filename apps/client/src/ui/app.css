@@ -1105,6 +1105,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
   white-space: nowrap;
 }
 
+/* Remote durability and liveness speak the save slot's exact language — the
+   quiet 12px voice, the 5px dot, nothing at all when the answer is the boring
+   one — because three adjacent slots with two dialects would read as three
+   different kinds of thing. */
 .sync-slot,
 .live-slot {
   display: inline-flex;
@@ -1118,17 +1122,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
   white-space: nowrap;
 }
 
-.status-dot {
-  width: 5px;
-  height: 5px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-}
-
 .sync-slot[data-sync="paused"],
 .sync-slot[data-sync="error"] {
   color: var(--danger);
+}
+
+.sync-slot[data-sync="paused"] .save-dot,
+.sync-slot[data-sync="error"] .save-dot {
+  background: var(--danger);
 }
 
 .save-slot[data-save="saved"] {
@@ -1483,21 +1484,31 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background-color: var(--accent-soft);
 }
 
+/* Who else is on this line. Presence is metadata, not a control, so it takes
+   the tag cluster's position — gathered at the right edge of the block's own
+   line — in the metadata voice: bare 12px `--ink-3` text, no fill, no ring,
+   no hit box. 5px of vertical padding centres the 16px line inside the block's
+   26px one, and the 40% cap is the same trailing share the tags get. */
 .remote-presence {
-  position: absolute;
-  left: calc(-1 * var(--sp-3));
-  top: 1px;
-  min-width: 14px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-left: 1px solid var(--thread-active);
-  color: var(--ink-2);
-  font-size: 9px;
-  line-height: 1;
-  letter-spacing: -0.08em;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  margin-left: auto;
+  padding: 5px var(--sp-1) 5px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
   pointer-events: none;
+}
+
+/* When tags follow, presence hands the auto margin over and the two read as
+   one right-aligned cluster. */
+.remote-presence + .outline-tags {
+  margin-left: 0;
 }
 
 /* Everything left of the bullet, at every depth. No background of its own — the
@@ -3020,15 +3031,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-xs);
 }
 
+/* The read-only label's own idiom: a 12px glyph beside 12px metadata text. */
 .graph-remote-label {
   display: inline-flex;
   align-items: center;
+  gap: var(--sp-1);
+  vertical-align: bottom;
 }
 
 .graph-remote-label svg {
+  flex: none;
   width: 12px;
   height: 12px;
-  margin-right: 3px;
 }
 
 .graph-actions {
@@ -3057,7 +3071,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .picker-new > *:first-child {
-  flex: 1;
   min-width: 0;
 }
 
@@ -3096,38 +3109,46 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .member-list {
   display: grid;
-  gap: 1px;
+  gap: var(--sp-2);
   margin: 0 0 var(--sp-3);
   padding: 0;
   list-style: none;
 }
 
 .member-list li {
-  min-height: 40px;
+  min-height: var(--sp-6);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
 }
 
-.member-list span,
-.member-list small {
-  display: block;
+/* The id in the identifier voice, the role one ink step under it. */
+.member-id {
+  display: grid;
+  min-width: 0;
 }
 
-.member-list small {
+.member-id .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+}
+
+.member-id small {
   color: var(--ink-3);
   font-size: var(--text-xs);
+  line-height: var(--lh-xs);
 }
 
-.member-invite select {
-  min-height: 36px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  background: var(--canvas);
-  color: var(--ink);
-  padding: 0 var(--sp-2);
-  font: inherit;
+/* The role trigger shrinks to its value; the account field takes the rest. */
+.member-invite .menu-select {
+  flex: none;
+  width: auto;
 }
 
 @media (max-width: 600px) {

@@ -164,6 +164,7 @@ export interface MessageArgumentMap {
   "graph.revoke": undefined;
   "graph.serverUrl": undefined;
   "graph.settings": undefined;
+  "graph.signIn": undefined;
   "graph.token": undefined;
   "graph.viewer": undefined;
   "graph.yourGraphs": undefined;

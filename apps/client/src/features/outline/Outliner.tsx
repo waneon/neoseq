@@ -113,6 +113,8 @@ const FLOATING_OVERLAY_SELECTOR =
 /** Edge band that pulls the scroll container along during a drag. */
 const AUTOSCROLL_BAND_PX = 56;
 const AUTOSCROLL_MAX_PX = 18;
+/** How long caret moves coalesce before one presence frame goes out. */
+const PRESENCE_PUBLISH_MS = 150;
 
 // Pending rows bridge the async gap between Enter and the core's block-creation
 // acknowledgement: each is focused synchronously so fast typing
@@ -320,6 +322,8 @@ export function Outliner({
   const releasePointer = useRef<(() => void) | null>(null);
   const autoScroll = useRef<{ speed: number; frame: number } | null>(null);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presenceTimer = useRef<number | null>(null);
+  const presenceDraft = useRef<Omit<PeerPresence, "session_id" | "principal" | "expires_at"> | null>(null);
   const pendingHistoryReveal = useRef<HistoryRevealRequest | null>(null);
   const overlayAtPressStart = useRef(false);
   // GraphSession resolves commands only after reconciling its snapshot. Read
@@ -384,6 +388,7 @@ export function Outliner({
   useEffect(
     () => () => {
       if (revealTimer.current) clearTimeout(revealTimer.current);
+      if (presenceTimer.current !== null) clearTimeout(presenceTimer.current);
     },
     [],
   );
@@ -1195,12 +1200,20 @@ export function Outliner({
     ),
     setFocus,
     publishSelection: (blockId, textarea) => {
-      session.publishPresence({
+      // Coalesced: `select` fires for every keystroke and caret move, and each
+      // publish is a worker round-trip plus a socket frame. Peers reading a
+      // caret 150ms late is invisible; a frame per keystroke is not free.
+      presenceDraft.current = {
         page_id: authoritativePage.id,
         block_id: blockId,
         anchor: textarea.selectionStart,
         head: textarea.selectionEnd,
-      });
+      };
+      if (presenceTimer.current !== null) return;
+      presenceTimer.current = window.setTimeout(() => {
+        presenceTimer.current = null;
+        if (presenceDraft.current) session.publishPresence(presenceDraft.current);
+      }, PRESENCE_PUBLISH_MS);
     },
     takeTreeFocus,
     selectOnly: (row) => {
@@ -2870,15 +2883,6 @@ function BlockRow({
         </DropdownMenu>
       </span>
       <div className="outline-text" data-task-status={taskStatus}>
-        {peers.length > 0 && (
-          <span
-            className="remote-presence"
-            aria-label={peers.map((peer) => peer.principal).join(", ")}
-            title={peers.map((peer) => peer.principal).join(", ")}
-          >
-            {peers.slice(0, 2).map((peer) => peer.principal.slice(0, 1).toUpperCase()).join("")}
-          </span>
-        )}
         {taskStatus !== undefined && !pending && (
           <TaskStatusControl pageId={editor.pageId} block={row.block} status={taskStatus} />
         )}
@@ -2921,6 +2925,11 @@ function BlockRow({
             editor.pasteOutline(row, items);
           }}
         />
+        {peers.length > 0 && (
+          <span className="remote-presence">
+            {peers.map((peer) => peer.principal).join(", ")}
+          </span>
+        )}
         {tags.length > 0 && (
           <div className="outline-tags">
             <TagChips pageId={editor.pageId} block={row.block} />

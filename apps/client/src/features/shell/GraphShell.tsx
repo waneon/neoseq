@@ -38,6 +38,7 @@ import {
   SettingsIcon,
   Trash2Icon,
   Undo2Icon,
+  UsersIcon,
 } from "lucide-react";
 import {
   clearTestHook,
@@ -579,6 +580,7 @@ SELECT ?entity ?content ?page WHERE {
     session,
     notify,
     bridge,
+    openMembers: remote ? () => setMembersOpen(true) : null,
     toggleRail,
     railCollapsed,
     applyTheme,
@@ -960,6 +962,8 @@ interface CommandInputs {
   session: GraphSession;
   notify: Notifier;
   bridge: CommandBridge;
+  /** Remote graphs only: the members dialog, so the verb has a palette row. */
+  openMembers: (() => void) | null;
   toggleRail: () => void;
   applyTheme: (next: Theme) => void;
   message: MessageFunction;
@@ -1014,6 +1018,7 @@ function buildCommands(input: CommandInputs): Command[] {
     session,
     notify,
     bridge,
+    openMembers,
     toggleRail,
     railCollapsed,
     applyTheme,
@@ -1230,6 +1235,21 @@ function buildCommands(input: CommandInputs): Command[] {
       pointerRoute: message("shell.settings"),
       run: () => bridge.openSettings(),
     },
+    // A menu item alone would make the graph switcher the only route to the
+    // members dialog; every verb also gets its palette row (Principle 5).
+    ...(openMembers
+      ? [
+          {
+            id: "manage-members",
+            group: "Graph",
+            label: message("graph.manageMembers"),
+            keywords: ["invite", "share", "collaborators", "revoke"],
+            icon: <UsersIcon aria-hidden />,
+            pointerRoute: message("shortcuts.switchGraphRoute"),
+            run: openMembers,
+          } satisfies Command,
+        ]
+      : []),
     {
       id: "all-graphs",
       group: "Graph",

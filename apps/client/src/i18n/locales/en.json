@@ -134,6 +134,7 @@
   "graph.remoteCreateDetail": "The graph stays editable on this device and syncs through your server when connected.",
   "graph.serverUrl": "Server URL",
   "graph.principal": "Account ID",
+  "graph.signIn": "Sign in",
   "graph.token": "Access token",
   "graph.manageMembers": "Manage members",
   "graph.membersTitle": "Remote graph members",

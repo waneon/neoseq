@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { RemoteGraphConnection } from "../../core-port/directory";
 import { useI18n } from "../../i18n";
 import { Callout, Dialog } from "../../ui/components";
+import { MenuSelect } from "../../ui/menu-select";
 import { Input } from "@/ui/shadcn/input";
 import {
   grantMembership,
@@ -44,10 +45,9 @@ export function RemoteMembersDialog({
   };
 
   useEffect(() => {
+    // One fetch per graph the dialog opens on; `refresh` is deliberately not a
+    // dependency because its identity changes with transient form state.
     void refresh();
-    // The dialog represents one graph opening; refresh is intentionally not a
-    // dependency because its identity carries transient form state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphId]);
 
   const saveAccount = (event: FormEvent) => {
@@ -83,16 +83,21 @@ export function RemoteMembersDialog({
         <label className="field-label" htmlFor="member-account-token">{message("graph.token")}</label>
         <div className="remote-account-row">
           <Input id="member-account-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
-          <button className="btn" type="submit" disabled={!principal.trim() || !token.trim() || busy}>{message("common.retryShort")}</button>
+          <button className="btn" type="submit" disabled={!principal.trim() || !token.trim() || busy}>{message("graph.signIn")}</button>
         </div>
       </form>
       <ul className="member-list" aria-busy={busy}>
         {members.map((member) => (
           <li key={member.principal_id}>
-            <span><strong>{member.principal_id}</strong><small>{message(`graph.${member.role}`)}</small></span>
+            {/* An account id is an identifier, not prose — it takes the mono
+                voice, and the role sits under it in the metadata voice. */}
+            <span className="member-id">
+              <span className="mono">{member.principal_id}</span>
+              <small>{message(`graph.${member.role}`)}</small>
+            </span>
             {member.role !== "owner" && (
               <button
-                className="btn"
+                className="btn btn-danger"
                 type="button"
                 onClick={() => {
                   const auth = readAuthSession(connection.server_url);
@@ -114,10 +119,17 @@ export function RemoteMembersDialog({
       </ul>
       <form className="member-invite" onSubmit={inviteMember}>
         <Input aria-label={message("graph.memberAccount")} placeholder={message("graph.memberAccount")} value={invite} onChange={(event) => setInvite(event.target.value)} />
-        <select aria-label={message("graph.memberRole")} value={role} onChange={(event) => setRole(event.target.value as "editor" | "viewer")}>
-          <option value="editor">{message("graph.editor")}</option>
-          <option value="viewer">{message("graph.viewer")}</option>
-        </select>
+        {/* The one dropdown — never a native <select>, whose popup the OS
+            draws in its own language. See DESIGN.md § Choice. */}
+        <MenuSelect
+          value={role}
+          options={[
+            { value: "editor", label: message("graph.editor") },
+            { value: "viewer", label: message("graph.viewer") },
+          ]}
+          onValueChange={(value) => setRole(value as "editor" | "viewer")}
+          label={message("graph.memberRole")}
+        />
         <button className="btn btn-primary" type="submit" disabled={busy || !invite.trim()}>{message("graph.invite")}</button>
       </form>
     </Dialog>

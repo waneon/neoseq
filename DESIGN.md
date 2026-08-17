@@ -165,6 +165,9 @@ components:
   shortcut-key: { height: 24px, radius: "{r-1}", typography: "{mono-xs}", recording: "{accent} fill", touch: 32px }
   thread:      { width: 1px, colour: "{thread}", active: "{thread-active}", offset: "{slot}/2" }
   save-slot:   { saved: "nothing", saving: "5px {ink-3} dot after 600ms", unsaved: "5px {danger} dot + reason + Retry" }
+  sync-slot:   { synced: "nothing", pending: "5px {ink-3} dot + count after 600ms", paused-or-error: "5px {danger} dot + reason" }
+  live-slot:   { live: "nothing", connecting-or-offline: "5px {ink-3} dot + label" }
+  presence:    { voice: "{xs} {ink-3}", position: "right edge of the block's line, before its tags", control: none }
   toast:       { width: 360px, radius: "{r-3}", background: "{overlay}", elevation: "{e2}", layer: "{layers.toast}", anchor: "top-right, below the top bar", icon: "16px — info ⓘ {ink-2} / success ✓ {ok} / danger ⚠ {danger}", entrance: none, countdown: "2px bar, 4s / 6s / 10s by tone", dismiss: "always visible" }
   overflow:    { trigger: "{icon-btn} ⋯, top bar, last", menu: "generated from the command registry" }
 
@@ -1227,6 +1230,25 @@ The element stays mounted with its `data-save` attribute in every state. A trans
 toast would be wrong here: durability is ambient, and it is also the thing tests wait on.
 The notification layer knows this and **stays silent on `dirty_unsaved` and
 `storage_full`**, so one failure is never reported by two surfaces at once.
+
+### Collaboration status and presence
+
+A remote graph adds two slots beside the save slot, in the save slot's exact
+language — the quiet 12px voice, the 5px dot, and nothing at all in the steady
+state — because three adjacent slots with two dialects would read as three
+different kinds of thing. `synced` and `live` render only screen-reader text.
+`pending` waits the same 600ms as `saving` so an outbox that drains between two
+keystrokes never flickers, and it stays silent at a count of zero, which every
+reconnect briefly reports. `paused` and `error` are the deviations: `--danger`
+ink, the reason as plain visible text. The sign-in that clears an auth pause
+lives in the members dialog — the graph switcher's `Manage members`, which is
+also a palette row, per Principle 5.
+
+Who else is on a line is metadata, not a control. Peers' names render as bare
+12px `--ink-3` text at the right edge of the block's own line — the tag
+cluster's position, one ink step quieter than a tag — with no fill, no ring, no
+drawn box, and no hit box of their own. Caret moves coalesce briefly before one
+presence frame goes out, so following a peer never costs a frame per keystroke.
 
 ### Toasts
 

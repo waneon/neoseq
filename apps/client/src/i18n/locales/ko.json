@@ -134,6 +134,7 @@
   "graph.remoteCreateDetail": "이 기기에서 계속 편집할 수 있으며, 연결되면 서버를 통해 동기화합니다.",
   "graph.serverUrl": "서버 URL",
   "graph.principal": "계정 ID",
+  "graph.signIn": "로그인",
   "graph.token": "액세스 토큰",
   "graph.manageMembers": "멤버 관리",
   "graph.membersTitle": "원격 그래프 멤버",

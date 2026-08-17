@@ -106,9 +106,13 @@ export function GraphPicker() {
                   <span className="name">{graph.name}</span>
                   <span className="meta">
                     {graph.kind === "remote" && (
-                      <span className="graph-remote-label">
-                        <CloudIcon aria-hidden /> {message("graph.remote")} ·{" "}
-                      </span>
+                      <>
+                        <span className="graph-remote-label">
+                          <CloudIcon aria-hidden />
+                          {message("graph.remote")}
+                        </span>
+                        {" · "}
+                      </>
                     )}
                     {message("graph.created", {
                       date: formatInstant(graph.created_at, configuredTimezone(), CREATED),
@@ -159,7 +163,6 @@ export function GraphPicker() {
               {message("graph.createLocal")}
             </button>
             <button className="btn" type="button" onClick={() => setRemoteCreate(true)} data-testid="create-remote-graph">
-              <CloudIcon aria-hidden />
               {message("graph.createRemote")}
             </button>
           </div>

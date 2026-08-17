@@ -67,7 +67,9 @@ function DialogContent({
         <DialogPrimitive.Content
           data-slot="dialog-content"
           className={cn(
-            "pointer-events-auto relative grid w-full max-w-[440px] gap-4 rounded-xl bg-[var(--overlay)] p-4 shadow-[var(--e3)] sm:p-6",
+            // 600px is the design system's own compact breakpoint (the gutter
+            // steps down there too) — not Tailwind's 640px `sm`.
+            "pointer-events-auto relative grid w-full max-w-[440px] gap-4 rounded-xl bg-[var(--overlay)] p-6 shadow-[var(--e3)] max-[600px]:p-4",
             className,
           )}
           {...props}
