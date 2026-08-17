@@ -30,7 +30,7 @@ export interface SyncAgentState {
 export interface SyncAgentPort {
   syncState(graphHandle: string): Promise<SyncState>;
   nextOutbox(graphHandle: string): Promise<OutboxMessage | null>;
-  acknowledgeOutbox(graphHandle: string, messageId: string, serverCursor: number): Promise<void>;
+  acknowledgeOutbox(graphHandle: string, messageId: string): Promise<void>;
   encodeSyncMessage(message: unknown): Promise<ArrayBuffer>;
   decodeSyncMessage(frame: ArrayBuffer): Promise<unknown>;
 }
@@ -61,7 +61,6 @@ export class SyncAgent {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: string | null = null;
   private incoming: Promise<void> = Promise.resolve();
-  private presenceSequence = 0;
   private transportSessionId = "";
   private presence = new Map<string, PeerPresence>();
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -118,7 +117,6 @@ export class SyncAgent {
     }));
     const frame = await this.port.encodeSyncMessage({
       Presence: {
-        sequence: ++this.presenceSequence,
         expires_in_ms: PRESENCE_TTL_MS,
         payload: [...payload],
       },
@@ -177,7 +175,6 @@ export class SyncAgent {
         graph_id: this.graphId,
         session_id: this.transportSessionId,
         version_vector: state.version_vector,
-        last_acknowledgement: state.last_acknowledgement ?? null,
       },
     });
     this.socket?.send(frame);
@@ -201,11 +198,7 @@ export class SyncAgent {
     if (message.Ack) {
       const ack = message.Ack;
       const messageId = String(ack.message_id);
-      await this.port.acknowledgeOutbox(
-        this.graphHandle,
-        messageId,
-        Number(ack.server_cursor),
-      );
+      await this.port.acknowledgeOutbox(this.graphHandle, messageId);
       if (this.inFlight === messageId) this.inFlight = null;
       await this.refreshPending();
       await this.flush();
@@ -225,7 +218,7 @@ export class SyncAgent {
     }
     if (message.Error) {
       const code = String(message.Error.code);
-      if (["authentication_required", "access_denied", "membership_revoked"].includes(code)) {
+      if (["access_denied", "membership_revoked"].includes(code)) {
         this.patch({
           sync: { kind: "paused", reason: code === "membership_revoked" ? "revoked" : "auth" },
           live: "paused",

@@ -12,7 +12,7 @@ export type PropertyOwnerRef =
   | { kind: "block"; page_id: string; id: string }
   | { kind: "tag_default"; tag_id: string };
 
-export interface OutlineItemInput {
+interface OutlineItemInput {
   depth: number;
   markdown: string;
 }

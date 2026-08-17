@@ -28,14 +28,11 @@
 
 ## 단계 요약
 
-Step 1–5의 결과는 현재 코드와 아키텍처 문서에 반영되어 있으며, 완료 당시의
+Step 1–7의 결과는 현재 코드와 아키텍처 문서에 반영되어 있으며, 완료 당시의
 계획과 검증 기록은 버전 관리 이력에서 확인한다. 저장소에는 아직 의사결정과
-구현에 영향을 주는 단계만 유지한다.
+구현에 영향을 주는 단계만 유지한다. Step 7까지가 **완료된 Remote beta**
+지점이다.
 
-- [06. Sync server](06-sync-server.md): PostgreSQL에 update를 durable-ack하는
-  synchronization server를 제공한다. **완료된 Server alpha** 지점이다.
-- [07. Remote collaboration](07-remote-collaboration.md): 두 Web client가
-  offline edit 후 재접속·수렴한다. **완료된 Remote beta** 지점이다.
 - [08. Native client](08-native-clients.md): 동일 graph를 macOS와 Android 설치
   app에서 사용한다. **Cross-platform beta** 지점이다.
 - [09. Data lifecycle](09-data-lifecycle.md): migration, checkpoint, archive,
@@ -49,14 +46,12 @@ Step 1–5의 결과는 현재 코드와 아키텍처 문서에 반영되어 있
 
 ```mermaid
 flowchart LR
-    S6[06 Sync server] --> S7[07 Remote collaboration]
-    S7 --> S8[08 Native clients]
-    S8 --> S9[09 Data lifecycle]
+    S8[08 Native clients] --> S9[09 Data lifecycle]
     S9 --> S10[10 Production hardening]
     S10 --> S11[11 Release]
 ```
 
-Step 8 이후는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한다.
+각 단계는 앞 단계의 계약과 검증 gate가 완료된 뒤 시작한다.
 
 ## 공통 완료 정의
 
@@ -118,11 +113,11 @@ credential, runner image를 출력 manifest에 기록해야 한다.
 | Outliner/page/graph                    | 10             |
 | Daily journal, Markdown block text     | 08             |
 | Uniform property                       | 09             |
-| Page-backed tag/default 복사           | 07             |
+| Page-backed tag/default 복사           | 완료 (07)      |
 | Query property/SPARQL                  | 10             |
 | Task status/schedule/deadline/priority | 08, 10         |
 | Local graph                            | 09             |
-| Remote graph/Loro realtime sync        | 07, 10         |
+| Remote graph/Loro realtime sync        | 10             |
 | Web                                    | 10, 11         |
 | macOS/Android                          | 08, 10, 11     |
 | Rust core, devenv reproducibility      | 모든 후속 단계 |

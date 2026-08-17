@@ -19,8 +19,6 @@ use std::{
 use thiserror::Error;
 
 pub const QUERY_LANGUAGE: &str = "sparql-1.1/neoseq-v1";
-pub const PROJECTION_VERSION: u32 = 1;
-pub const ANALYZER_VERSION: u32 = 1;
 
 pub const NEO_NS: &str = "urn:neoseq:vocab:v1:";
 pub const PROPERTY_NS: &str = "urn:neoseq:property:";
@@ -293,10 +291,6 @@ impl GraphIndex {
                 "CONSTRUCT and DESCRIBE are not supported".into(),
             )),
         }
-    }
-
-    pub fn revision(&self) -> u64 {
-        self.revision
     }
 
     pub fn frontier(&self) -> &str {
@@ -659,10 +653,6 @@ pub fn entity_iri(graph_id: &GraphId, kind: &str, id: &str) -> Result<NamedNode,
         encode_component(graph_id.as_str()),
         encode_component(id)
     ))
-}
-
-pub fn property_iri(key: &str) -> Result<NamedNode, QueryError> {
-    named(&format!("{PROPERTY_NS}{}", encode_component(key)))
 }
 
 pub fn normalize_text(value: &str) -> String {

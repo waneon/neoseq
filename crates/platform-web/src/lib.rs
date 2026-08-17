@@ -118,13 +118,6 @@ impl WasmGraphCore {
         self.inner.version_vector()
     }
 
-    #[wasm_bindgen(js_name = exportUpdatesSince)]
-    pub fn export_updates_since(&self, version_vector: &[u8]) -> Result<Vec<u8>, JsValue> {
-        self.inner
-            .export_updates_since(version_vector)
-            .map_err(js_error)
-    }
-
     #[wasm_bindgen(js_name = exportAll)]
     pub fn export_all(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.export_all().map_err(js_error)
@@ -137,11 +130,6 @@ impl WasmGraphCore {
         }
         let request: QueryRequest = serde_json::from_str(request).map_err(js_error)?;
         serde_json::to_string(&self.index.execute(request).map_err(js_error)?).map_err(js_error)
-    }
-
-    #[wasm_bindgen(js_name = snapshotJson)]
-    pub fn snapshot_json(&self) -> Result<String, JsValue> {
-        serde_json::to_string(&self.inner.snapshot().map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = summaryJson)]
@@ -159,9 +147,5 @@ impl WasmGraphCore {
     #[wasm_bindgen(js_name = exportSnapshot)]
     pub fn export_snapshot(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.export_snapshot().map_err(js_error)
-    }
-
-    pub fn fingerprint(&self) -> Result<String, JsValue> {
-        self.inner.fingerprint().map_err(js_error)
     }
 }

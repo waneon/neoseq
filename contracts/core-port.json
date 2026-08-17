@@ -27,6 +27,5 @@
     "storage_full",
     "storage_corrupt",
     "internal"
-  ],
-  "binaryTransport": "transferable_array_buffer"
+  ]
 }

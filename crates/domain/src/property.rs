@@ -387,10 +387,6 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
     ),
 ];
 
-pub fn registry() -> &'static [(&'static str, PropertySpec)] {
-    REGISTRY
-}
-
 pub fn definition(key: &PropertyKey) -> Option<&'static PropertySpec> {
     REGISTRY
         .iter()

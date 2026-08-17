@@ -51,7 +51,6 @@ export interface OutboxRecord {
 export interface SyncStateRecord {
   graph_id: string;
   initialized?: boolean;
-  last_acknowledgement?: number;
 }
 
 export interface PersistenceHooks {
@@ -207,17 +206,10 @@ export class IndexedDbGraphRepository {
     database.close();
   }
 
-  async acknowledge(graphId: string, messageId: string, serverCursor: number): Promise<void> {
+  async acknowledge(graphId: string, messageId: string): Promise<void> {
     const database = await openDatabase();
-    const transaction = database.transaction([STORES.outbox, STORES.syncState], "readwrite");
+    const transaction = database.transaction(STORES.outbox, "readwrite");
     transaction.objectStore(STORES.outbox).delete([graphId, messageId]);
-    const stateStore = transaction.objectStore(STORES.syncState);
-    const current = await request<SyncStateRecord | undefined>(stateStore.get(graphId));
-    stateStore.put({
-      ...current,
-      graph_id: graphId,
-      last_acknowledgement: Math.max(current?.last_acknowledgement ?? 0, serverCursor),
-    } satisfies SyncStateRecord);
     await complete(transaction);
     database.close();
   }
@@ -388,7 +380,7 @@ function mapDomError(error: DOMException | null): StorageError {
   return new StorageError("storage_corrupt", error?.message ?? "IndexedDB operation failed", false);
 }
 
-export async function checksum(payload: ArrayBuffer): Promise<string> {
+async function checksum(payload: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", payload);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

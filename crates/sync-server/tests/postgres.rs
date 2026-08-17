@@ -212,7 +212,6 @@ async fn websocket_commit(
         graph_id: graph_id.to_owned(),
         session_id: "postgres-websocket".into(),
         version_vector: base_version.to_vec(),
-        last_acknowledgement: None,
     });
     socket
         .send(WsMessage::Binary(

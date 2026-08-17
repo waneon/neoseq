@@ -1,7 +1,5 @@
-use crate::{AppendReceipt, CoreError, GraphCore, checksum};
-use domain::{
-    CommandEnvelope, CommandResult, GraphId, GraphSnapshot, GraphSummary, PageId, PageSnapshot,
-};
+use crate::{CoreError, GraphCore};
+use domain::{CommandEnvelope, CommandResult, GraphSnapshot, GraphSummary, PageId, PageSnapshot};
 use query::{GraphIndex, QueryError, QueryRequest, QueryResult};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -49,57 +47,6 @@ pub enum EventBatch {
 }
 
 pub use crate::persistence::GraphRepository;
-
-#[derive(Debug, Clone)]
-pub struct InMemoryUpdate {
-    pub local_sequence: u64,
-    pub checksum: String,
-    pub bytes: Vec<u8>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Default)]
-pub struct InMemoryRepository {
-    updates: Vec<InMemoryUpdate>,
-}
-
-impl InMemoryRepository {
-    pub fn updates(&self) -> &[InMemoryUpdate] {
-        &self.updates
-    }
-}
-
-#[derive(Debug, Error)]
-#[error("in-memory repository is infallible")]
-pub struct InMemoryRepositoryError;
-
-impl GraphRepository for InMemoryRepository {
-    type Error = InMemoryRepositoryError;
-    fn append_update(
-        &mut self,
-        update: &[u8],
-        created_at: &str,
-    ) -> Result<AppendReceipt, Self::Error> {
-        let digest = checksum(update);
-        if let Some(existing) = self.updates.iter().find(|record| record.checksum == digest) {
-            return Ok(AppendReceipt {
-                local_sequence: existing.local_sequence,
-                checksum: digest,
-            });
-        }
-        let local_sequence = self.updates.len() as u64 + 1;
-        self.updates.push(InMemoryUpdate {
-            local_sequence,
-            checksum: digest.clone(),
-            bytes: update.to_vec(),
-            created_at: created_at.to_owned(),
-        });
-        Ok(AppendReceipt {
-            local_sequence,
-            checksum: digest,
-        })
-    }
-}
 
 pub trait Clock {
     fn now(&mut self) -> String;
@@ -185,52 +132,6 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             next_cursor: 1,
             pending: None,
         })
-    }
-
-    pub fn new(
-        graph_id: GraphId,
-        peer_id: u64,
-        mut repository: R,
-        mut clock: C,
-        event_capacity: usize,
-    ) -> Result<Self, RuntimeError> {
-        if event_capacity == 0 {
-            return Err(RuntimeError::ZeroEventCapacity);
-        }
-        let core = GraphCore::new(graph_id, peer_id, &clock.now())?;
-        let index = GraphIndex::new_at(&core.snapshot()?, core.frontier())?;
-        // Initialization is represented by a checkpoint in later persistence
-        // stages, so no product update is appended here.
-        let _ = &mut repository;
-        Ok(Self {
-            core,
-            index,
-            repository,
-            clock,
-            events: VecDeque::new(),
-            event_capacity,
-            next_cursor: 1,
-            pending: None,
-        })
-    }
-
-    pub fn from_snapshot(
-        graph_id: GraphId,
-        peer_id: u64,
-        snapshot: &[u8],
-        repository: R,
-        clock: C,
-        event_capacity: usize,
-    ) -> Result<Self, RuntimeError> {
-        if event_capacity == 0 {
-            return Err(RuntimeError::ZeroEventCapacity);
-        }
-        Self::from_core(
-            GraphCore::from_snapshot(graph_id, peer_id, snapshot)?,
-            repository,
-            clock,
-            event_capacity,
-        )
     }
 
     pub fn execute(&mut self, command: CommandEnvelope) -> Result<CommandResult, RuntimeError> {
@@ -399,7 +300,59 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::{Command, CommandId, PageId};
+    use crate::{AppendReceipt, checksum};
+    use domain::{Command, CommandId, GraphId, PageId};
+
+    #[derive(Debug, Clone)]
+    struct InMemoryUpdate {
+        local_sequence: u64,
+        checksum: String,
+    }
+
+    #[derive(Debug, Default)]
+    struct InMemoryRepository {
+        updates: Vec<InMemoryUpdate>,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("in-memory repository is infallible")]
+    struct InMemoryRepositoryError;
+
+    impl GraphRepository for InMemoryRepository {
+        type Error = InMemoryRepositoryError;
+        fn append_update(
+            &mut self,
+            update: &[u8],
+            _created_at: &str,
+        ) -> Result<AppendReceipt, Self::Error> {
+            let digest = checksum(update);
+            if let Some(existing) = self.updates.iter().find(|record| record.checksum == digest) {
+                return Ok(AppendReceipt {
+                    local_sequence: existing.local_sequence,
+                    checksum: digest,
+                });
+            }
+            let local_sequence = self.updates.len() as u64 + 1;
+            self.updates.push(InMemoryUpdate {
+                local_sequence,
+                checksum: digest.clone(),
+            });
+            Ok(AppendReceipt {
+                local_sequence,
+                checksum: digest,
+            })
+        }
+    }
+
+    fn new_runtime<R: GraphRepository>(
+        graph: &GraphId,
+        repository: R,
+        event_capacity: usize,
+    ) -> GraphRuntime<R, InMemoryClock> {
+        let mut clock = InMemoryClock::new("tick");
+        let core = GraphCore::new(graph.clone(), 1, &clock.now()).unwrap();
+        GraphRuntime::from_core(core, repository, clock, event_capacity).unwrap()
+    }
 
     fn envelope(graph: &GraphId, number: usize) -> CommandEnvelope {
         CommandEnvelope {
@@ -415,18 +368,11 @@ mod tests {
     #[test]
     fn model_runtime_serializes_and_bounds_events() {
         let graph = GraphId::new("runtime").unwrap();
-        let mut runtime = GraphRuntime::new(
-            graph.clone(),
-            1,
-            InMemoryRepository::default(),
-            InMemoryClock::new("tick"),
-            2,
-        )
-        .unwrap();
+        let mut runtime = new_runtime(&graph, InMemoryRepository::default(), 2);
         for number in 0..3 {
             runtime.execute(envelope(&graph, number)).unwrap();
         }
-        assert_eq!(runtime.repository().updates().len(), 3);
+        assert_eq!(runtime.repository().updates.len(), 3);
         assert!(matches!(
             runtime.subscribe(0),
             EventBatch::ResyncRequired {
@@ -480,17 +426,14 @@ mod tests {
     #[test]
     fn persistence_saved_event_follows_append_and_dirty_bytes_can_retry() {
         let graph = GraphId::new("runtime-failure").unwrap();
-        let mut runtime = GraphRuntime::new(
-            graph.clone(),
-            1,
+        let mut runtime = new_runtime(
+            &graph,
             FailingRepository {
                 fail: true,
                 records: Vec::new(),
             },
-            InMemoryClock::new("tick"),
             8,
-        )
-        .unwrap();
+        );
         assert!(matches!(
             runtime.execute(envelope(&graph, 1)),
             Err(RuntimeError::DirtyUnsaved(_))

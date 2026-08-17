@@ -70,7 +70,6 @@ pub struct Hello {
     pub session_id: String,
     /// Loro's encoded version vector. Transport cursors are never substituted here.
     pub version_vector: Vec<u8>,
-    pub last_acknowledgement: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +103,6 @@ pub struct Ack {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Presence {
-    pub sequence: u64,
     pub expires_in_ms: u32,
     pub payload: Vec<u8>,
 }
@@ -120,7 +118,6 @@ pub enum ErrorCode {
     PresenceTooLarge,
     InvalidMessage,
     InvalidUpdate,
-    AuthenticationRequired,
     AccessDenied,
     MembershipRevoked,
     RateLimited,
@@ -154,20 +151,6 @@ pub enum Message {
     Presence(Presence),
     Error(ErrorMessage),
     ResyncRequired(ResyncRequired),
-}
-
-impl Message {
-    pub const fn kind(&self) -> &'static str {
-        match self {
-            Self::Hello(_) => "hello",
-            Self::Welcome(_) => "welcome",
-            Self::Update(_) => "update",
-            Self::Ack(_) => "ack",
-            Self::Presence(_) => "presence",
-            Self::Error(_) => "error",
-            Self::ResyncRequired(_) => "resync_required",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -302,7 +285,6 @@ mod tests {
         graph_id: String,
         session_id: String,
         version_vector: Vec<u8>,
-        last_acknowledgement: u64,
         frame_hex: String,
     }
 
@@ -322,7 +304,6 @@ mod tests {
             graph_id: "graph-1".into(),
             session_id: "session-1".into(),
             version_vector: vec![1, 2, 3],
-            last_acknowledgement: Some(7),
         })
     }
 
@@ -395,7 +376,6 @@ mod tests {
             graph_id: fixture.hello.graph_id,
             session_id: fixture.hello.session_id,
             version_vector: fixture.hello.version_vector,
-            last_acknowledgement: Some(fixture.hello.last_acknowledgement),
         });
         assert_eq!(
             hex::encode(encode(&message, 1024).unwrap()),

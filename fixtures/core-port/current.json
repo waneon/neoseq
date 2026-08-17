@@ -33,9 +33,6 @@
     "read_page": "page_snapshot",
     "query": "select_result",
     "subscribe": ["semantic", "saved_locally"],
-    "close": "closed",
-    "timeout_error": "command_timeout",
-    "query_error": "invalid_query",
-    "dirty_error": "dirty_unsaved"
+    "timeout_error": "command_timeout"
   }
 }

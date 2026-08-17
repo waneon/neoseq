@@ -39,7 +39,3 @@ export function flattenOutline(page: PageSnapshot, collapsedIds: ReadonlySet<str
 export function rowIndexOf(rows: OutlineRow[], blockId: string): number {
   return rows.findIndex((row) => row.block.id === blockId);
 }
-
-export function subtreeSize(block: BlockSnapshot): number {
-  return 1 + block.children.reduce((total, child) => total + subtreeSize(child), 0);
-}

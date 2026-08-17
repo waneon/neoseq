@@ -13,7 +13,7 @@ export const TASK_SCHEDULED_KEY = "builtin.task-scheduled";
 export const TASK_DEADLINE_KEY = "builtin.task-deadline";
 export const TASK_PRIORITY_KEY = "builtin.task-priority";
 
-export const TASK_KEYS = [
+const TASK_KEYS = [
   TASK_STATUS_KEY,
   TASK_SCHEDULED_KEY,
   TASK_DEADLINE_KEY,

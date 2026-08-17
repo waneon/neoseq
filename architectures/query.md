@@ -123,11 +123,11 @@ query(graph_handle, {
   source,
   bindings: Map<Variable, RdfTerm>,
   budget
-}) -> SelectResult | AskResult
+}) -> QueryResult (select | ask)
 ```
 
 Bindings become the query's initial solution mapping; they are never inserted
-through string substitution. `SelectResult` preserves declared variable order
+through string substitution. A select result preserves declared variable order
 and returns unbound, IRI, or typed-literal cells plus index revision/frontier.
 Entity IRIs are additionally decoded to typed entity references at the
 CorePort boundary. Unspecified result order follows SPARQL semantics; product

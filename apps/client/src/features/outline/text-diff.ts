@@ -7,7 +7,7 @@ export interface Splice {
   insert: string;
 }
 
-export function codePoints(value: string): string[] {
+function codePoints(value: string): string[] {
   return Array.from(value);
 }
 

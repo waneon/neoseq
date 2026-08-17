@@ -5,23 +5,23 @@
 import registryContract from "../../../../contracts/property-registry.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
 
-export type PropertyTarget = "page" | "block" | "tag_metadata" | "tag_default";
-export type PropertyAccess = "user" | "core";
+type PropertyTarget = "page" | "block" | "tag_metadata" | "tag_default";
+type PropertyAccess = "user" | "core";
 export type PropertyVisibility =
   | "generic"
   | "feature_and_generic"
   | "read_only_metadata"
   | "hidden";
 
-export type StringSpec = "any" | { suggested: string[] } | { one_of: string[] };
-export type PropertyValueSpec =
+type StringSpec = "any" | { suggested: string[] } | { one_of: string[] };
+type PropertyValueSpec =
   | "number"
   | "page"
   | "checkbox"
   | "date"
   | { string: StringSpec }
   | { document: { schema: string; version: number } };
-export type PropertyShape =
+type PropertyShape =
   | { single: PropertyValueSpec }
   | { set: PropertyValueSpec };
 
@@ -49,7 +49,7 @@ const METADATA_RENDERERS = new Set([
   "builtin.updated-at",
 ]);
 
-export function definition(key: string): PropertySpec | undefined {
+function definition(key: string): PropertySpec | undefined {
   return REGISTRY[key];
 }
 

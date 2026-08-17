@@ -25,7 +25,7 @@ import type { MessageFunction } from "../../i18n";
 import { fuzzyScore } from "../commands/registry";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 
-export type SlashAction =
+type SlashAction =
   | { kind: "set"; key: string; value: PropertyValue }
   | { kind: "picker"; key?: string };
 

@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const previewPort = Number.parseInt(process.env.NEOSEQ_PLAYWRIGHT_PORT ?? "4173", 10);
+const previewPort = 4173;
 
 export default defineConfig({
   testDir: "./tests",

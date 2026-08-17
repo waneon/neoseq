@@ -34,7 +34,7 @@ export function setJournalDateFormat(format: JournalDateFormat): void {
 }
 
 /** The local calendar date (YYYY-MM-DD) for `instant` in `timezone`. */
-export function localDateIn(timezone: string, instant: Date = new Date()): string {
+function localDateIn(timezone: string, instant: Date = new Date()): string {
   // en-CA formats as YYYY-MM-DD.
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,

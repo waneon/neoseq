@@ -3,7 +3,7 @@
 ## Status and Responsibilities
 
 The `sync-protocol` and `sync-server` crates provide the durable synchronization
-service, and the Step 7 Web client consumes both its graph-management HTTP API
+service, and the Web client consumes both its graph-management HTTP API
 and WebSocket protocol. Production identity remains behind the `TokenVerifier`
 adapter; local development uses the explicit test issuer.
 

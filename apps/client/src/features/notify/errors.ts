@@ -41,7 +41,7 @@ const FALLBACK = {
   internal: "error.internal",
 } as const satisfies Record<CorePortErrorCode, MessageKey>;
 
-export function portError(error: unknown): CorePortError | null {
+function portError(error: unknown): CorePortError | null {
   return error instanceof CorePortFailure ? error.detail : null;
 }
 

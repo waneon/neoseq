@@ -125,7 +125,7 @@ const PRESENCE_PUBLISH_MS = 150;
 const PENDING_PREFIX = "pending-";
 type InputMethod = "keyboard" | "pointer" | "context_menu";
 
-export function isPendingId(id: string): boolean {
+function isPendingId(id: string): boolean {
   return id.startsWith(PENDING_PREFIX);
 }
 

@@ -26,8 +26,8 @@ import {
   type TextDirection,
 } from "./generated/messages";
 
-export { LOCALE_DEFINITIONS, SUPPORTED_LOCALES };
-export type { SupportedLocale, TextDirection };
+export { LOCALE_DEFINITIONS };
+export type { SupportedLocale };
 export type LocalePreference = "system" | SupportedLocale;
 
 const catalogModules = import.meta.glob("./locales/*.json", {
@@ -213,7 +213,7 @@ const LocaleContext = createContext<LocaleContextValue>({
   formatJournalDate: (date) => defaultRuntime.formatLocalDate(date),
 });
 
-export function applyDocumentLocale(runtime: LocaleRuntime): void {
+function applyDocumentLocale(runtime: LocaleRuntime): void {
   document.documentElement.lang = runtime.locale;
   document.documentElement.dir = runtime.direction;
   document.title = runtime.message("app.title");

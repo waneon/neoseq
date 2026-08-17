@@ -64,8 +64,8 @@ it reproducible and cacheable.
 
 `devenv --profile browser test` adds pinned Chromium-based IndexedDB contract
 and Web E2E suites. The separate profile prevents normal shell users from
-paying the Playwright browser download and closure cost. CI builds both
-deployable outputs, runs this full gate, and uploads the checkout-local
+paying the Playwright browser download and closure cost. CI builds the
+deployable Web output, runs this full gate, and uploads the checkout-local
 Playwright failure artifacts.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
@@ -74,10 +74,11 @@ for migration, authorization, idempotency, fault, and restore verification;
 workspace tests skip only that external-database case when `DATABASE_URL` is
 absent.
 
-The standard Rust, component, IndexedDB, and Web E2E suites cover Step 7's
-protocol/client contracts, authorization revocation, multi-tab identity,
-mocked remote Web UX, durable outbox, and headless convergence behavior. The
-only separate Step 7 task starts isolated PostgreSQL and the sync server, mints
+The standard Rust, component, IndexedDB, and Web E2E suites cover the remote
+collaboration protocol/client contracts, authorization revocation, multi-tab
+identity, mocked remote Web UX, durable outbox, and headless convergence
+behavior. The only separate collaboration task starts isolated PostgreSQL and
+the sync server, mints
 test-only credentials, and verifies a real two-profile
 online/offline/reconnect/revocation journey.
 

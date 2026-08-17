@@ -63,7 +63,7 @@ export interface SessionPort extends CorePort {
   configureSync?(graphHandle: string): Promise<void>;
   syncState?(graphHandle: string): Promise<SyncState>;
   nextOutbox?(graphHandle: string): Promise<OutboxMessage | null>;
-  acknowledgeOutbox?(graphHandle: string, messageId: string, serverCursor: number): Promise<void>;
+  acknowledgeOutbox?(graphHandle: string, messageId: string): Promise<void>;
   importRemote?(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
   encodeSyncMessage?(message: unknown): Promise<ArrayBuffer>;
   decodeSyncMessage?(frame: ArrayBuffer): Promise<unknown>;

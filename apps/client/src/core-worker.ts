@@ -31,7 +31,6 @@ export interface SavedReceipt {
 
 export interface SyncState {
   version_vector: number[];
-  last_acknowledgement?: number;
   pending: number;
 }
 
@@ -133,12 +132,8 @@ export class CoreWorker implements CorePort {
     return this.request("sync_next", { graph_handle: graphHandle });
   }
 
-  acknowledgeOutbox(graphHandle: string, messageId: string, serverCursor: number): Promise<void> {
-    return this.request("sync_ack", {
-      graph_handle: graphHandle,
-      message_id: messageId,
-      server_cursor: serverCursor,
-    });
+  acknowledgeOutbox(graphHandle: string, messageId: string): Promise<void> {
+    return this.request("sync_ack", { graph_handle: graphHandle, message_id: messageId });
   }
 
   importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt> {

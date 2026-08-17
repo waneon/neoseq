@@ -17,7 +17,6 @@
 
 @import "pretendard/dist/web/variable/pretendardvariable.css";
 @import "tailwindcss";
-@import "tw-animate-css";
 @import "./app.css" layer(neoseq);
 
 @theme inline {

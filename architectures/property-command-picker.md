@@ -2,10 +2,8 @@
 
 ## Status and Scope
 
-This document describes the shipped Web-client architecture for the
-[Property Command Picker specification](../specs/property-command-picker.md).
-It replaces the expanded page and block property forms with inline snapshot
-projections and one contextual picker.
+This document describes the shipped Web-client architecture for property
+editing: inline snapshot projections plus one contextual picker.
 
 The picker uses the shared field and owner contracts described in
 [Property fields](properties.md). Its presentation remains client-owned while
@@ -172,7 +170,7 @@ Task status stays a **positioned renderer** at the head of the line
 including the explicit remove row. On pages the four task keys stay in the
 generic strip.
 
-The legacy `PropertyBagEditor` and block inspector are removed. Tag membership
+Tag membership
 lives in `TagPicker` — which reuses `TagChips` and `PageAutocomplete` while
 continuing to issue `add_tag` and `remove_tag` commands — and inline in the
 outline's `#` tag menu; both attach existing tags only. `TagChips` renders as

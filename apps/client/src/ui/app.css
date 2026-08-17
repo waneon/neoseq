@@ -396,16 +396,6 @@ h2 {
   background: var(--accent-hover);
 }
 
-.btn-quiet {
-  background: transparent;
-  color: var(--ink-2);
-}
-
-.btn-quiet:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
 .btn-danger {
   background: transparent;
   color: var(--danger);
@@ -606,8 +596,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .rail-group h2,
 .settings-group h3,
 .cmdk-group-title,
-.shortcuts section h3,
-.settings-details > summary {
+.shortcuts section h3 {
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
@@ -738,48 +727,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
    accent while the row promises deletion. */
 [data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted]::before {
   background: var(--danger);
-}
-
-/* A field that accepts anything and also offers a list — the property key. The
-   list is behind an explicit chevron rather than appearing under the caret,
-   because these are suggestions and not the set of legal answers, and the two
-   parts share one edge because they are one control. */
-.field-menu {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.field-menu > [data-slot="input"] {
-  padding-right: 28px;
-}
-
-.field-menu-trigger {
-  position: absolute;
-  right: 2px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: var(--r-1);
-  background: none;
-  color: var(--ink-3);
-  cursor: pointer;
-  transition: color var(--dur-press) var(--ease-out);
-}
-
-.field-menu-trigger:hover,
-.field-menu-trigger[data-state="open"] {
-  color: var(--ink);
-}
-
-.field-menu-trigger svg {
-  width: 14px;
-  height: 14px;
 }
 
 /* A real control that must stay focusable and value-synced without stating its
@@ -2928,13 +2875,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background: var(--canvas);
 }
 
-.picker-recording-status {
-  position: fixed;
-  z-index: 20;
-  top: var(--sp-3);
-  right: var(--gutter);
-}
-
 .picker-inner {
   width: min(560px, 100%);
 }
@@ -3341,38 +3281,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .settings-grid dd button:hover {
   color: var(--ink);
-}
-
-.settings-details > summary {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  gap: var(--sp-1);
-  height: 28px;
-  padding: 0 var(--sp-2) 0 0;
-  cursor: pointer;
-  list-style: none;
-}
-
-.settings-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.settings-details > summary:hover {
-  color: var(--ink-2);
-}
-
-.settings-details[open] > summary {
-  margin-bottom: var(--sp-3);
-  color: var(--ink-2);
-}
-
-.settings-detail-description {
-  max-width: 60ch;
-  margin: 0 0 var(--sp-3);
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
 }
 
 .settings-danger h2 {
@@ -3883,12 +3791,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
-    /* neutralise tw-animate-css's enter transforms so reduced motion means no
-       motion, rather than an instant snap from an offset */
-    --tw-enter-translate-x: 0 !important;
-    --tw-enter-translate-y: 0 !important;
-    --tw-enter-scale: 1 !important;
-    --tw-enter-rotate: 0 !important;
   }
 
   /* The one animation that survives, and it is named on purpose: the toast

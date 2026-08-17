@@ -115,7 +115,7 @@ export async function chooseFromMenu(
 }
 
 /** Waits until the session queue settles and React flushed the state. */
-export async function settle(): Promise<void> {
+async function settle(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));

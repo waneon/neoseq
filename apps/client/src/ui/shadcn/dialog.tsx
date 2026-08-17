@@ -8,20 +8,10 @@ function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
 
-function DialogTrigger(
-  props: React.ComponentProps<typeof DialogPrimitive.Trigger>,
-) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
-}
-
 function DialogPortal(
   props: React.ComponentProps<typeof DialogPrimitive.Portal>,
 ) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
-}
-
-function DialogClose(props: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
 function DialogOverlay({
@@ -41,10 +31,8 @@ function DialogOverlay({
 }
 
 // Centred by a flex wrapper rather than `-translate-x-1/2 -translate-y-1/2`, so
-// the panel carries no transform at all. That matters twice over: a transform on
-// the content makes tw-animate-css's `animate-in` keyframes interpolate the
-// dialog's *position* (its `from` transform is identity, not the element's own),
-// and any moving panel is a target automation reports as unstable.
+// the panel carries no transform at all — a moving panel is a target automation
+// reports as unstable.
 //
 // The panel also does not fade. Only the scrim does. A dialog is read the instant
 // it opens — by the user, by a screenshot, and by the contrast audit — and text
@@ -100,19 +88,6 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-footer"
-      className={cn(
-        "mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
 function DialogTitle({
   className,
   ...props
@@ -129,28 +104,4 @@ function DialogTitle({
   );
 }
 
-function DialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
-      className={cn("text-sm text-muted-foreground", className)}
-      {...props}
-    />
-  );
-}
-
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-};
+export { Dialog, DialogContent, DialogHeader, DialogTitle };

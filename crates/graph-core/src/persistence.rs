@@ -231,67 +231,13 @@ fn repository_error(error: impl std::fmt::Display) -> RecoveryError {
     RecoveryError::Repository(error.to_string())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CheckpointPolicy {
-    pub update_count: usize,
-    pub update_bytes: usize,
-    pub idle_ticks: u64,
-}
-
-impl Default for CheckpointPolicy {
-    fn default() -> Self {
-        Self {
-            update_count: 128,
-            update_bytes: 4 * 1024 * 1024,
-            idle_ticks: 30,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct CheckpointTracker {
-    updates: usize,
-    bytes: usize,
-    last_write_tick: u64,
-}
-
-impl CheckpointTracker {
-    pub fn record_update(&mut self, bytes: usize, tick: u64) {
-        self.updates += 1;
-        self.bytes += bytes;
-        self.last_write_tick = tick;
-    }
-
-    pub fn should_checkpoint(&self, policy: CheckpointPolicy, current_tick: u64) -> bool {
-        self.updates >= policy.update_count
-            || self.bytes >= policy.update_bytes
-            || (self.updates > 0
-                && current_tick.saturating_sub(self.last_write_tick) >= policy.idle_ticks)
-    }
-
-    pub fn checkpointed(&mut self) {
-        self.updates = 0;
-        self.bytes = 0;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn persistence_checksum_and_checkpoint_policy_are_deterministic() {
+    fn persistence_checksum_is_deterministic() {
         assert_eq!(checksum(b"neoseq"), checksum(b"neoseq"));
         assert!(!valid_checksum(&checksum(b"other"), b"neoseq"));
-        let mut tracker = CheckpointTracker::default();
-        tracker.record_update(7, 10);
-        assert!(tracker.should_checkpoint(
-            CheckpointPolicy {
-                update_count: 2,
-                update_bytes: 8,
-                idle_ticks: 5,
-            },
-            15
-        ));
     }
 }

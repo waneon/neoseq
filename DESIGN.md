@@ -144,7 +144,6 @@ components:
   nav-row:     { height: 32px, radius: "{r-2}", rest: "{ink-2}", hover: "{surface-2}", active: "{surface-3} + {ink} + 550" }
   btn:         { height: 32px, radius: "{r-2}", typography: "{sm}", weight: 550 }
   btn-primary: { background: "{accent}", text: "{on-accent}", hover: "{accent-hover}" }
-  btn-quiet:   { background: transparent, text: "{ink}", hover: "{surface-2}" }
   btn-danger:  { background: transparent, text: "{danger}", hover: "{danger-soft}" }
   icon-btn:    { size: 24px, radius: "{r-2}", glyph: "{ink-3}", hover: "{surface-2} + {ink}" }
   input:       { height: 32px, radius: "{r-2}", background: "{canvas}", ring: "{e1}", focus: "{surface-2} fill + {e1} — see § Interaction States" }
@@ -603,9 +602,8 @@ pointer down a virtualized list and reads as lag, not polish.
 
 ### Reduced motion
 
-`prefers-reduced-motion: reduce` collapses durations to 1ms **and** neutralises
-`tw-animate-css`'s enter transforms (`--tw-enter-translate-*`, `--tw-enter-scale`), so
-a reduced-motion user gets no motion rather than an instant snap from an offset. It
+`prefers-reduced-motion: reduce` collapses animation and transition durations to
+1ms, so a reduced-motion user gets no motion rather than an instant snap. It
 must not touch `scroll-behavior` globally, and it restores `.toast-timer`'s real
 duration for the reason given above — the only exemption in the product, and one that
 has to be re-argued before a second is added.

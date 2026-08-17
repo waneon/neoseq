@@ -10,9 +10,9 @@ Remote graphs connect that local replica to an authenticated Rust WebSocket
 service with durable PostgreSQL-backed Loro update relay. The Web client keeps
 editing offline, retries its durable outbox on reconnect, supports member
 management and ephemeral presence, and keeps local-save, remote-sync, and live
-connection status separate. This is the completed
-[Remote beta](steps/07-remote-collaboration.md); native packaging, data
-lifecycle work, and release provenance remain planned.
+connection status separate. This is the completed Remote beta; native
+packaging, data lifecycle work, and release provenance remain planned in
+[steps/](steps/).
 
 ## Development and verification
 

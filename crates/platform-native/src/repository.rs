@@ -4,7 +4,7 @@ use graph_core::{
     checksum,
 };
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use thiserror::Error;
 
 pub const SQLITE_SCHEMA_VERSION: i64 = 1;
@@ -57,7 +57,6 @@ fn sqlite_code(error: &rusqlite::Error) -> Option<ErrorCode> {
 
 pub struct SqliteGraphRepository {
     connection: Connection,
-    path: PathBuf,
     locator: GraphLocator,
     fault: Option<FaultPoint>,
 }
@@ -93,7 +92,6 @@ impl SqliteGraphRepository {
             .map_err(SqliteRepositoryError::from)?;
         Ok(Self {
             connection,
-            path: path.to_owned(),
             locator,
             fault: None,
         })
@@ -101,10 +99,6 @@ impl SqliteGraphRepository {
 
     pub fn inject_once(&mut self, fault: FaultPoint) {
         self.fault = Some(fault);
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 
     pub fn journal_mode(&self) -> Result<String, SqliteRepositoryError> {

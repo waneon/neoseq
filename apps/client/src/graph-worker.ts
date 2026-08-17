@@ -82,7 +82,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "sync_configure": value = await configureSync(payload as { graph_handle: string }); break;
         case "sync_state": value = await syncState(payload as { graph_handle: string }); break;
         case "sync_next": value = await syncNext(payload as { graph_handle: string }); break;
-        case "sync_ack": value = await syncAck(payload as { graph_handle: string; message_id: string; server_cursor: number }); break;
+        case "sync_ack": value = await syncAck(payload as { graph_handle: string; message_id: string }); break;
         case "sync_import": value = await syncImport(payload as { graph_handle: string; bytes: ArrayBuffer | Uint8Array }); break;
         case "sync_encode": await ensureWasm(); value = syncEncode(payload); break;
         case "sync_decode": await ensureWasm(); value = syncDecode(payload as { frame: ArrayBuffer | Uint8Array }); break;
@@ -335,11 +335,9 @@ async function configureSync(payload: { graph_handle: string }) {
 
 async function syncState(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
-  const durable = await state.repository.syncState(state.graphId);
   const outbox = await state.repository.outbox(state.graphId);
   return {
     version_vector: [...state.core.versionVector()],
-    last_acknowledgement: durable.last_acknowledgement,
     pending: outbox.length,
   };
 }
@@ -356,17 +354,9 @@ async function syncNext(payload: { graph_handle: string }) {
   };
 }
 
-async function syncAck(payload: {
-  graph_handle: string;
-  message_id: string;
-  server_cursor: number;
-}) {
+async function syncAck(payload: { graph_handle: string; message_id: string }) {
   const state = requireState(payload.graph_handle);
-  await state.repository.acknowledge(
-    state.graphId,
-    payload.message_id,
-    payload.server_cursor,
-  );
+  await state.repository.acknowledge(state.graphId, payload.message_id);
   return null;
 }
 

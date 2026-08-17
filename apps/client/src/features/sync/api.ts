@@ -15,7 +15,7 @@ export interface RemoteGraphListing {
   membership_version: number;
 }
 
-export class RemoteApiError extends Error {
+class RemoteApiError extends Error {
   constructor(public readonly status: number, message: string) {
     super(message);
   }

@@ -42,7 +42,6 @@ cargo test -p graph-core model_
 cargo test -p graph-core convergence_ -- --nocapture
 cargo test -p query sparql_
 cargo test -p platform-native core_port
-cargo test -p platform-web
 cargo test -p sync-protocol
 cargo test -p sync-server --test sync_faults
 ```

@@ -11,7 +11,7 @@ use graph_core::{
     recover_graph,
 };
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 type NativeRuntime = GraphRuntime<SqliteGraphRepository, InMemoryClock>;
 
@@ -30,10 +30,6 @@ impl NativeCorePort {
             event_capacity,
             tick: 0,
         }
-    }
-
-    pub fn database_path(&self) -> &Path {
-        &self.database_path
     }
 
     pub fn open_graph(

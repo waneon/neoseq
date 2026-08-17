@@ -3,7 +3,7 @@
 
 export type PropertyValueType = "number" | "string" | "page" | "checkbox" | "date" | "document";
 
-export type QueryViewKind = "table" | "list";
+type QueryViewKind = "table" | "list";
 
 export interface QueryView {
   id: string;
@@ -54,7 +54,7 @@ export interface PageSnapshot {
   blocks: BlockSnapshot[];
 }
 
-export interface PageSummary {
+interface PageSummary {
   id: string;
   title: string;
   properties: PropertyField[];
@@ -107,11 +107,11 @@ export function mergePage(snapshot: GraphSnapshot, page: PageSnapshot): GraphSna
   };
 }
 
-export function propertyField(bag: PropertyField[], key: string): PropertyField | undefined {
+function propertyField(bag: PropertyField[], key: string): PropertyField | undefined {
   return bag.find((field) => field.key === key);
 }
 
-export function singleValue(bag: PropertyField[], key: string): PropertyValue | undefined {
+function singleValue(bag: PropertyField[], key: string): PropertyValue | undefined {
   return propertyField(bag, key)?.values[0];
 }
 

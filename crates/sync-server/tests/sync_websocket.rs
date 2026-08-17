@@ -63,7 +63,6 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
         graph_id: GRAPH.into(),
         session_id: "websocket-client".into(),
         version_vector: fixture.base_version.clone(),
-        last_acknowledgement: None,
     });
     socket
         .send(WsMessage::Binary(

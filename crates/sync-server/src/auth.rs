@@ -13,8 +13,6 @@ pub struct Principal {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AuthError {
-    #[error("authentication token is missing")]
-    Missing,
     #[error("authentication token is invalid")]
     Invalid,
 }

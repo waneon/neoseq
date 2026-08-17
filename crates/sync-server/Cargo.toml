@@ -12,7 +12,6 @@ base64 = "0.22"
 domain = { path = "../domain" }
 futures-util = "0.3"
 graph-core = { path = "../graph-core" }
-hex.workspace = true
 hmac = "0.12"
 serde.workspace = true
 sha2.workspace = true
@@ -24,6 +23,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [dev-dependencies]
+hex.workspace = true
 http-body-util = "0.1"
 tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }

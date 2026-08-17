@@ -5,10 +5,6 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
-const clientPackage = JSON.parse(
-  readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
-) as { version: string };
-
 // Generates the application-shell Service Worker with the built asset list
 // precached, so an offline reload can boot the full shell (including the
 // Wasm core and its Worker chunk). Data is never cached — shell only.
@@ -86,7 +82,6 @@ function workerFactory(mode: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
-  cacheDir: process.env.NEOSEQ_VITE_CACHE_DIR,
   plugins: [testRoutes(mode), workerFactory(mode), react(), tailwindcss(), shellServiceWorker()],
   resolve: {
     alias: {
@@ -94,9 +89,6 @@ export default defineConfig(({ mode }) => ({
     },
   },
   clearScreen: false,
-  define: {
-    __NEOSEQ_APP_VERSION__: JSON.stringify(clientPackage.version),
-  },
   server: {
     host: "127.0.0.1",
     port: 4173,

@@ -231,7 +231,7 @@ export async function runRemoteOutboxCorpus() {
   assert((await writer.syncState(opened.graph_handle)).pending === 1, "replica bootstrap was not queued");
   const bootstrap = await writer.nextOutbox(opened.graph_handle);
   assert(bootstrap?.local_sequence === 0, "replica bootstrap must lead the durable outbox");
-  await writer.acknowledgeOutbox(opened.graph_handle, bootstrap.message_id, 40);
+  await writer.acknowledgeOutbox(opened.graph_handle, bootstrap.message_id);
   await writer.execute({
     graph_handle: opened.graph_handle,
     command: ensurePage(graph, "offline-page", "offline-page"),
@@ -256,12 +256,11 @@ export async function runRemoteOutboxCorpus() {
   const reopened = await restarted.openGraph(openRequest(graph, 272));
   await restarted.configureSync(reopened.graph_handle);
   assert((await restarted.syncState(reopened.graph_handle)).pending === 1, "restart lost unacknowledged outbox update");
-  await restarted.acknowledgeOutbox(reopened.graph_handle, queued.message_id, 41);
+  await restarted.acknowledgeOutbox(reopened.graph_handle, queued.message_id);
   const acknowledged = await restarted.syncState(reopened.graph_handle);
   assert(acknowledged.pending === 0, "acknowledgement did not remove the outbox update");
-  assert(acknowledged.last_acknowledgement === 41, "ack cursor was not durable");
   await restarted.closeGraph({ graph_handle: reopened.graph_handle });
   await restarted.deleteGraph(graph);
   restarted.terminate();
-  return { durable_retry: true, protocol_codec: true, acknowledgement: 41 };
+  return { durable_retry: true, protocol_codec: true, acknowledged: true };
 }

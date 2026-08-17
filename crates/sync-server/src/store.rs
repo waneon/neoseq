@@ -45,7 +45,6 @@ pub struct Membership {
     pub principal_id: String,
     pub role: GraphRole,
     pub version: u64,
-    pub graph_status: GraphStatus,
     pub schema_version: u32,
 }
 
@@ -540,7 +539,7 @@ impl GraphStore for PgStore {
         principal_id: &str,
     ) -> Result<Membership, StoreError> {
         let row = sqlx::query(
-            "SELECT m.role, m.version, g.status, g.schema_version
+            "SELECT m.role, m.version, g.schema_version
              FROM graph_membership m
              JOIN graph g ON g.graph_id = m.graph_id
              WHERE m.graph_id = $1 AND m.principal_id = $2 AND m.revoked_at IS NULL",
@@ -554,7 +553,6 @@ impl GraphStore for PgStore {
             principal_id: principal_id.to_owned(),
             role: GraphRole::parse(row.try_get("role")?)?,
             version: as_u64(row.try_get("version")?)?,
-            graph_status: parse_status(row.try_get("status")?)?,
             schema_version: as_u32(row.try_get("schema_version")?)?,
         })
     }
@@ -1045,7 +1043,6 @@ impl GraphStore for MemoryStore {
             principal_id: principal_id.to_owned(),
             role: member.role,
             version: member.version,
-            graph_status: graph.status,
             schema_version: graph.schema_version,
         })
     }

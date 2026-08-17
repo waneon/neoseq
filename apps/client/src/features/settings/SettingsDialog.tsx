@@ -48,7 +48,7 @@ const DATE_FORMAT_MESSAGE = {
 const APP_SECTIONS = ["appearance", "language", "journal", "keyboard", "storage"] as const;
 const GRAPH_SECTIONS = ["graph", "danger"] as const;
 
-export const SETTINGS_SECTIONS = [...APP_SECTIONS, ...GRAPH_SECTIONS];
+const SETTINGS_SECTIONS = [...APP_SECTIONS, ...GRAPH_SECTIONS];
 
 export type SettingsSection = (typeof APP_SECTIONS)[number] | (typeof GRAPH_SECTIONS)[number];
 
