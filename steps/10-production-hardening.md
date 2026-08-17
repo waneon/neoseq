@@ -66,22 +66,6 @@ release candidate가 공개된 benchmark/security/accessibility/operations gate�
 - concurrent connection/update throughput과 bounded queue memory
 - crash recovery와 backup restore 시간
 
-## 자동 검증 gate
-
-```text
-devenv tasks run test:performance
-devenv tasks run test:load
-devenv tasks run test:security
-devenv tasks run test:fuzz-smoke
-devenv tasks run test:accessibility
-devenv tasks run test:operations-drill
-devenv --profile browser test
-```
-
-성능 gate는 절대 budget과 기준 branch 대비 regression budget을 함께 사용한다.
-flaky percentile은 반복 횟수와 runner class를 pin하고 원시 결과를 artifact로
-남긴다.
-
 ## 수동 데모
 
 1. staging에서 large graph를 Web/macOS/Android로 연다.

@@ -153,7 +153,7 @@
       after = [ "coreport:check" ];
     };
 
-    "web:check" = {
+    "frontend:check" = {
       description = "Check TypeScript";
       exec = "pnpm --filter @neoseq/client exec tsc -b --pretty false";
       after = [
@@ -162,7 +162,7 @@
       ];
       before = [ "devenv:enterTest" ];
     };
-    "web:test-components" = {
+    "frontend:test" = {
       description = "Run component tests";
       exec = "pnpm --filter @neoseq/client exec vitest run";
       after = [
@@ -212,7 +212,7 @@
         after = [ "browser:indexeddb" ];
         before = [ "devenv:enterTest" ];
       };
-      "test:e2e-collaboration" = {
+      "browser:e2e-collaboration" = {
         description = "Run the real two-browser collaboration scenario";
         exec = ''
           set -euo pipefail
@@ -268,7 +268,8 @@
             exit 1
           fi
         '';
-        after = [ "web:build-test" ];
+        after = [ "browser:e2e" ];
+        before = [ "devenv:enterTest" ];
       };
     };
   };

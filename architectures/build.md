@@ -62,11 +62,12 @@ test uses a separate temporary PostgreSQL instance.
 production artifacts. Keeping artifact construction separate from tasks makes
 it reproducible and cacheable.
 
-`devenv --profile browser test` adds pinned Chromium-based IndexedDB contract
-and Web E2E suites. The separate profile prevents normal shell users from
-paying the Playwright browser download and closure cost. CI builds the
-deployable Web output, runs this full gate, and uploads the checkout-local
-Playwright failure artifacts.
+`devenv --profile browser test` adds pinned Chromium-based IndexedDB contracts,
+Web E2E suites, and a real two-profile collaboration scenario backed by an
+isolated PostgreSQL database and sync server. The separate profile prevents
+normal shell users from paying the browser and service-orchestration cost. CI
+builds the deployable Web output, runs this full gate, and uploads the
+checkout-local Playwright failure artifacts.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task starts an isolated temporary PostgreSQL
@@ -74,27 +75,8 @@ for migration, authorization, idempotency, fault, and restore verification;
 workspace tests skip only that external-database case when `DATABASE_URL` is
 absent.
 
-The standard Rust, component, IndexedDB, and Web E2E suites cover the remote
+The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab
 identity, mocked remote Web UX, durable outbox, and headless convergence
-behavior. The only separate collaboration task starts isolated PostgreSQL and
-the sync server, mints
-test-only credentials, and verifies a real two-profile
-online/offline/reconnect/revocation journey.
-
-## Commands
-
-```text
-devenv shell
-devenv up
-devenv up web
-devenv up sync-server
-devenv build outputs.web
-devenv build outputs.sync-server
-devenv tasks run web:test-components
-devenv tasks run sync-server:test
-devenv --profile browser tasks run test:e2e-collaboration
-devenv test
-devenv --profile browser shell
-devenv --profile browser test
-```
+behavior. The collaboration stage additionally verifies a real two-profile
+online/offline/reconnect/revocation journey through the assembled system.

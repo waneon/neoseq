@@ -54,22 +54,6 @@ artifact provenance를 한 release manifest로 연결한다.
 - v1이 end-to-end encrypted가 아니라는 점과 server data boundary를 명시한다.
 - 지원 OS/browser/device와 upgrade policy를 공개한다.
 
-## 자동 검증 gate
-
-```text
-devenv --profile browser test
-devenv build outputs.web
-devenv build outputs.sync-server
-devenv tasks run build:macos-app
-devenv tasks run build:android-release
-devenv tasks run verify:release-manifest
-devenv tasks run test:release-smoke
-devenv tasks run test:release-rollback
-```
-
-signing/notarization/store validation은 platform runner에서 실행하고 결과 ID와
-checksum을 release manifest에 기록한다.
-
 ## 수동 데모
 
 1. staging에 release artifact 그대로 server/Web을 배포한다.

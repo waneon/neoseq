@@ -50,8 +50,8 @@ Focused frontend examples:
 
 ```sh
 pnpm --filter @neoseq/client exec vitest run tests/component/outline.test.tsx
-devenv tasks run web:test-components
-devenv tasks run web:check
+devenv tasks run frontend:test
+devenv tasks run frontend:check
 devenv build outputs.web
 ```
 
@@ -113,15 +113,16 @@ select **Connect available graphs**. Browser credentials live only for that tab
 session; the Vite `/v1` proxy connects both HTTP and WebSocket traffic to the
 local sync server.
 
-The complete gates already cover the sync contracts, authorization boundaries,
-multi-tab identity, mocked remote UX, and durable browser outbox. The real
-two-browser scenario remains separate because it provisions PostgreSQL, a sync
-server, and test credentials:
+The complete browser-profile gate covers the sync contracts, authorization
+boundaries, multi-tab identity, mocked remote UX, durable browser outbox, and a
+real two-browser scenario. That final scenario provisions an isolated
+PostgreSQL database, sync server, and test credentials. Its named task remains
+available when explicitly selecting the collaboration gate and its browser
+prerequisites:
 
 ```sh
-devenv test
 devenv --profile browser test
-devenv --profile browser tasks run test:e2e-collaboration
+devenv --profile browser tasks run browser:e2e-collaboration
 ```
 
 The browser profile is separate so normal development does not download the
@@ -136,7 +137,7 @@ IndexedDB contracts, and Web E2E journeys.
 | --- | --- |
 | Documentation only | Review links, commands, and the final diff; product tests are unnecessary. |
 | Rust behavior | Focused test, owning crate tests, and relevant Clippy; use `devenv test` for broad changes. |
-| React or TypeScript behavior | Focused component test, `web:test-components`, and `web:check`. |
+| React or TypeScript behavior | Focused component test, `frontend:test`, and `frontend:check`. |
 | Styling, accessibility, keyboard, routing, or responsive behavior | Relevant component test plus focused E2E across affected Playwright projects. |
 | CorePort, generated schema, Worker, IndexedDB, or persistence | Relevant Rust tests, generated-file check, and focused IndexedDB tests; add E2E when a user journey changes. |
 | Dependencies, devenv, build inputs, or production output | Build the affected output and run `devenv test`; add the browser profile when browser behavior or dependencies are affected. |

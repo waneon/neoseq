@@ -63,22 +63,6 @@ content가 일치한다. 손상 fixture는 마지막 valid state로 복구되고
 - graph local replica 삭제와 remote graph administrative deletion을 분리한다.
 - soft delete/restore와 physical retention cleanup의 사용자 의미를 구분한다.
 
-## 자동 검증 gate
-
-```text
-devenv tasks run test:schema-compatibility
-devenv tasks run test:property-compatibility
-devenv tasks run test:checkpoint-recovery
-devenv tasks run test:server-retention
-devenv tasks run test:archive-roundtrip
-devenv tasks run test:backup-restore
-devenv --profile browser test
-```
-
-fixture matrix는 최초 지원 schema부터 현재 schema, unknown property, invalid
-typed property, pre/post checkpoint crash, truncated archive, zip bomb 유사
-입력, retention window 밖 client를 포함한다.
-
 ## 수동 데모
 
 1. 이전 version fixture를 현재 Web client에서 연다.

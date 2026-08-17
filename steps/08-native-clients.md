@@ -51,22 +51,6 @@ lifecycle, keyboard/touch 기대를 충족함을 실제 설치 artifact로 검�
 - desktop keyboard와 mobile gesture가 같은 core command를 생성하게 한다.
 - platform-specific presentation state를 graph property로 저장하지 않는다.
 
-## 자동 검증 gate
-
-```text
-devenv tasks run build:macos-app
-devenv tasks run build:android-debug
-devenv tasks run test:core-port -- --adapter tauri
-devenv tasks run test:platform-parity
-devenv tasks run test:e2e-macos
-devenv tasks run test:e2e-android
-devenv --profile browser test
-```
-
-CI는 macOS runner에서 bundle launch test, Android emulator에서 install/launch/
-pause-resume test를 실행한다. parity suite는 동일 archive를
-Web/macOS/Android에서 열고 command/query corpus 후 canonical hash를 비교한다.
-
 ## 수동 데모
 
 ### macOS
