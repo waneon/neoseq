@@ -5,6 +5,56 @@
   ...
 }:
 
+let
+  withTestDatabase = pkgs.writeShellApplication {
+    name = "with-test-database";
+    runtimeInputs = [
+      config.services.postgres.package
+      pkgs.coreutils
+    ];
+    text = ''
+      set -euo pipefail
+
+      if [[ "$#" -eq 0 ]]; then
+        echo "usage: with-test-database <command> [argument ...]" >&2
+        exit 64
+      fi
+      : "''${PGHOST:?PGHOST must point to the managed PostgreSQL service}"
+
+      suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+      database="neoseq_test_$suffix"
+      child_pid=""
+
+      # shellcheck disable=SC2329 # Invoked by the EXIT trap.
+      drop_database() {
+        dropdb --if-exists --force --maintenance-db=postgres "$database" >/dev/null
+      }
+      # shellcheck disable=SC2329 # Invoked by the signal traps.
+      terminate() {
+        if [[ -n "$child_pid" ]]; then
+          kill "$child_pid" 2>/dev/null || true
+          wait "$child_pid" 2>/dev/null || true
+          child_pid=""
+        fi
+        exit 143
+      }
+
+      createdb --maintenance-db=postgres "$database"
+      trap drop_database EXIT
+      trap terminate INT TERM
+      export DATABASE_URL="postgresql:///$database?host=$PGHOST"
+
+      "$@" &
+      child_pid="$!"
+      set +e
+      wait "$child_pid"
+      status="$?"
+      set -e
+      child_pid=""
+      exit "$status"
+    '';
+  };
+in
 {
   languages = {
     rust = {
@@ -48,6 +98,7 @@
         path = "/";
       };
       restart.on = "never";
+      start.enable = !config.devenv.isTesting;
     };
     sync-server = {
       exec = ''
@@ -61,6 +112,7 @@
         path = "/readyz";
       };
       restart.on = "never";
+      start.enable = !config.devenv.isTesting;
     };
   };
 
@@ -109,33 +161,8 @@
 
     "sync-server:test" = {
       description = "Run PostgreSQL migration, persistence, and restore tests";
-      exec = ''
-        set -euo pipefail
-
-        test_root="$(mktemp -d)"
-        cleanup() {
-          if [[ -f "$test_root/data/postmaster.pid" ]]; then
-            pg_ctl -D "$test_root/data" -m immediate -w stop >/dev/null
-          fi
-          rm -rf "$test_root"
-        }
-        trap cleanup EXIT INT TERM
-
-        mkdir -p "$test_root/socket"
-        initdb \
-          -D "$test_root/data" \
-          --auth=trust \
-          --encoding=UTF8 \
-          --no-locale \
-          --username=postgres >/dev/null
-        pg_ctl \
-          -D "$test_root/data" \
-          -o "-F -h ''' -k '$test_root/socket'" \
-          -w start >/dev/null
-
-        export DATABASE_URL="postgresql://postgres@localhost/postgres?host=$test_root/socket"
-        cargo test -p sync-server --test postgres -- --nocapture
-      '';
+      exec = "${withTestDatabase}/bin/with-test-database cargo test -p sync-server --test postgres -- --ignored --nocapture";
+      after = [ "devenv:processes:postgres@ready" ];
       before = [ "devenv:enterTest" ];
     };
 
@@ -184,13 +211,41 @@
     };
   };
 
-  profiles.browser.module = {
+  profiles.browser.module = { config, ... }:
+  let
+    e2eSyncPort = config.processes.e2e-sync-server.ports.http.value;
+  in
+  {
     packages = [ pkgs.playwright-driver ];
     env = {
       PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
       FONTCONFIG_FILE = pkgs.makeFontsConf {
         fontDirectories = [ pkgs.dejavu_fonts ];
       };
+    };
+    processes.e2e-sync-server = {
+      exec = "${withTestDatabase}/bin/with-test-database cargo run --quiet --locked -p sync-server -- serve";
+      env = {
+        NEOSEQ_BIND = "127.0.0.1:${toString e2eSyncPort}";
+        NEOSEQ_TEST_AUTH_SECRET = "neoseq-browser-collaboration";
+      };
+      ports.http.allocate = 8787;
+      after = [
+        "browser:e2e"
+        "devenv:processes:postgres@ready"
+      ];
+      ready = {
+        http.get = {
+          port = e2eSyncPort;
+          path = "/readyz";
+        };
+        period = 1;
+        timeout = 30;
+      };
+      restart.on = "never";
+      # The browser profile also supports interactive shells; only the full
+      # test lifecycle should auto-start this isolated service.
+      start.enable = config.devenv.isTesting;
     };
     tasks = {
       "web:build-test" = {
@@ -214,61 +269,18 @@
       };
       "browser:e2e-collaboration" = {
         description = "Run the real two-browser collaboration scenario";
+        env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString e2eSyncPort}";
         exec = ''
           set -euo pipefail
 
-          test_root="$(mktemp -d)"
-          server_pid=""
-          cleanup() {
-            if [[ -n "$server_pid" ]]; then
-              kill "$server_pid" 2>/dev/null || true
-              wait "$server_pid" 2>/dev/null || true
-            fi
-            if [[ -f "$test_root/data/postmaster.pid" ]]; then
-              pg_ctl -D "$test_root/data" -m immediate -w stop >/dev/null
-            fi
-            rm -rf "$test_root"
-          }
-          trap cleanup EXIT INT TERM
-
-          mkdir -p "$test_root/socket"
-          initdb \
-            -D "$test_root/data" \
-            --auth=trust \
-            --encoding=UTF8 \
-            --no-locale \
-            --username=postgres >/dev/null
-          pg_ctl \
-            -D "$test_root/data" \
-            -o "-F -h ''' -k '$test_root/socket'" \
-            -w start >/dev/null
-
-          export DATABASE_URL="postgresql://postgres@localhost/postgres?host=$test_root/socket"
           export NEOSEQ_TEST_AUTH_SECRET="neoseq-browser-collaboration"
           export NEOSEQ_E2E_OWNER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-owner)"
           export NEOSEQ_E2E_PEER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-peer)"
-          RUST_LOG=sync_server=info \
-            cargo run --quiet --locked -p sync-server -- serve >"$test_root/server.log" 2>&1 &
-          server_pid="$!"
-          for _ in $(seq 1 100); do
-            if curl --fail --silent http://127.0.0.1:8787/readyz >/dev/null; then
-              break
-            fi
-            sleep 0.1
-          done
-          curl --fail --silent http://127.0.0.1:8787/readyz >/dev/null || {
-            cat "$test_root/server.log"
-            exit 1
-          }
-
-          if ! pnpm --filter @neoseq/client exec playwright test \
+          pnpm --filter @neoseq/client exec playwright test \
             tests/e2e/collaboration.spec.ts \
-            --project=chromium; then
-            cat "$test_root/server.log"
-            exit 1
-          fi
+            --project=chromium
         '';
-        after = [ "browser:e2e" ];
+        after = [ "devenv:processes:e2e-sync-server@ready" ];
         before = [ "devenv:enterTest" ];
       };
     };

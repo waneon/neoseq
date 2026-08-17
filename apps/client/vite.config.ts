@@ -5,6 +5,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
+const syncOrigin = process.env.NEOSEQ_SYNC_ORIGIN ?? "http://127.0.0.1:8787";
+
 // Generates the application-shell Service Worker with the built asset list
 // precached, so an offline reload can boot the full shell (including the
 // Wasm core and its Worker chunk). Data is never cached — shell only.
@@ -95,7 +97,7 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
     proxy: {
       "/v1": {
-        target: "http://127.0.0.1:8787",
+        target: syncOrigin,
         ws: true,
       },
     },

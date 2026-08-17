@@ -74,9 +74,10 @@ devenv test
 devenv --profile browser test
 ```
 
-The workspace Rust test task covers the synchronization protocol and server
-tests. The database task additionally starts and removes an isolated PostgreSQL
-instance so the PostgreSQL integration test does not skip:
+The workspace Rust test task covers the synchronization protocol and in-memory
+server tests. The PostgreSQL integration test is explicitly ignored there and
+owned by `sync-server:test`. Devenv starts the managed PostgreSQL service, while
+the task creates and removes a uniquely named database for the suite:
 
 ```sh
 devenv tasks run rust:test
@@ -115,14 +116,12 @@ local sync server.
 
 The complete browser-profile gate covers the sync contracts, authorization
 boundaries, multi-tab identity, mocked remote UX, durable browser outbox, and a
-real two-browser scenario. That final scenario provisions an isolated
-PostgreSQL database, sync server, and test credentials. Its named task remains
-available when explicitly selecting the collaboration gate and its browser
-prerequisites:
+real two-browser scenario. For that final scenario, devenv starts a test-only
+sync-server process on an allocated port and gives it a uniquely named
+PostgreSQL database and test credentials:
 
 ```sh
 devenv --profile browser test
-devenv --profile browser tasks run browser:e2e-collaboration
 ```
 
 The browser profile is separate so normal development does not download the

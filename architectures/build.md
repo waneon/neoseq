@@ -47,14 +47,16 @@ the production artifact exists only as a Nix output.
 The `sync-server` output builds the release service binary and installs it as a
 single Nix store artifact. Database migrations are embedded in the binary.
 For local development, the supervised sync server waits for the persistent
-PostgreSQL service and exposes an HTTP readiness probe. The isolated database
-test uses a separate temporary PostgreSQL instance.
+PostgreSQL service and exposes an HTTP readiness probe. Database-backed tests
+share the devenv-managed PostgreSQL service while each suite owns a uniquely
+named database.
 
 ## Verification
 
 `devenv test` runs the portable gate:
 
-- Rust formatting, strict Clippy, workspace tests, and dependency policy;
+- Rust formatting, strict Clippy, workspace and PostgreSQL integration tests,
+  and dependency policy;
 - generated CorePort and locale drift checks;
 - TypeScript and component tests.
 
@@ -63,17 +65,17 @@ production artifacts. Keeping artifact construction separate from tasks makes
 it reproducible and cacheable.
 
 `devenv --profile browser test` adds pinned Chromium-based IndexedDB contracts,
-Web E2E suites, and a real two-profile collaboration scenario backed by an
-isolated PostgreSQL database and sync server. The separate profile prevents
+Web E2E suites, and a real two-profile collaboration scenario. The scenario
+uses a test-only sync-server process with an allocated port and an isolated
+database on the managed PostgreSQL service. The separate profile prevents
 normal shell users from paying the browser and service-orchestration cost. CI
 builds the deployable Web output, runs this full gate, and uploads the
 checkout-local Playwright failure artifacts.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
-convergence behavior. The database task starts an isolated temporary PostgreSQL
-for migration, authorization, idempotency, fault, and restore verification;
-workspace tests skip only that external-database case when `DATABASE_URL` is
-absent.
+convergence behavior. The database task depends on PostgreSQL readiness and
+runs the explicitly ignored migration, authorization, idempotency, fault, and
+restore integration test against its own database.
 
 The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab
