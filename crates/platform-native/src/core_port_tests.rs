@@ -276,6 +276,7 @@ fn core_port_native_unsupported_schema_has_stable_code() {
         &database.0,
         GraphLocator::local(graph),
         "2026-08-03T14:00:00Z",
+        112,
     )
     .unwrap();
     repository.set_schema_version(4).unwrap();

@@ -15,6 +15,7 @@ import type {
   ReadPageResponse,
   SubscribeRequest,
   SubscribeResponse,
+  StorageCapabilitiesDto,
 } from "./generated/core-port";
 import type { MetadataRecord } from "./persistence";
 
@@ -32,6 +33,8 @@ export interface SavedReceipt {
 export interface SyncState {
   version_vector: number[];
   pending: number;
+  replica_id: number;
+  history_epoch: number;
 }
 
 export interface OutboxMessage {
@@ -39,6 +42,7 @@ export interface OutboxMessage {
   local_sequence: number;
   base_version_vector: number[];
   bytes: number[];
+  history_epoch: number;
 }
 
 export type WorkerOperation =
@@ -52,11 +56,13 @@ export type WorkerOperation =
   | "retry_pending"
   | "list_graphs"
   | "delete_graph"
+  | "storage_capabilities"
   | "sync_configure"
   | "sync_state"
   | "sync_next"
   | "sync_ack"
   | "sync_import"
+  | "sync_replace"
   | "sync_encode"
   | "sync_decode"
   | "test_control";
@@ -120,6 +126,10 @@ export class CoreWorker implements CorePort {
     return this.request("delete_graph", { graph_id: graphId });
   }
 
+  storageCapabilities(graphHandle: string): Promise<StorageCapabilitiesDto> {
+    return this.request("storage_capabilities", { graph_handle: graphHandle });
+  }
+
   configureSync(graphHandle: string): Promise<void> {
     return this.request("sync_configure", { graph_handle: graphHandle });
   }
@@ -138,6 +148,20 @@ export class CoreWorker implements CorePort {
 
   importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt> {
     return this.request("sync_import", { graph_handle: graphHandle, bytes });
+  }
+
+  replaceRemote(
+    graphHandle: string,
+    checkpoint: number[],
+    historyEpoch: number,
+    serverVersionVector: number[],
+  ): Promise<void> {
+    return this.request("sync_replace", {
+      graph_handle: graphHandle,
+      checkpoint,
+      history_epoch: historyEpoch,
+      server_version_vector: serverVersionVector,
+    });
   }
 
   encodeSyncMessage(message: unknown): Promise<ArrayBuffer> {

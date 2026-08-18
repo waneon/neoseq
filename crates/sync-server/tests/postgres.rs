@@ -73,6 +73,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         )
         .unwrap();
     let update = sync_protocol::Update {
+        history_epoch: 0,
         message_id: "postgres-message".into(),
         base_version_vector: before,
         bytes: execution.update,
@@ -108,6 +109,35 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
             .await,
         Err(StoreError::ReadOnly)
     ));
+
+    let rotated = client.export_gc_checkpoint().unwrap();
+    assert_eq!(
+        store
+            .install_checkpoint(
+                &graph_id,
+                0,
+                durable_cursor,
+                &rotated,
+                &client.version_vector(),
+            )
+            .await
+            .unwrap(),
+        1
+    );
+    let compacted = store.load_graph(&graph_id).await.unwrap();
+    assert_eq!(compacted.history_epoch, 1);
+    assert!(compacted.updates.is_empty());
+    let compacted_duplicate = store
+        .commit_update(
+            &graph_id,
+            "postgres-editor",
+            &update.message_id,
+            &update.bytes,
+        )
+        .await
+        .unwrap();
+    assert!(!compacted_duplicate.inserted);
+    assert_eq!(compacted_duplicate.cursor, durable_cursor);
 
     let expected = client.fingerprint().unwrap();
     let backup = store.backup_graph(&graph_id).await.unwrap();
@@ -155,18 +185,19 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
             .all(|membership| membership.principal_id != "postgres-api-editor")
     );
 
-    sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
+    PgStore::from_pool(store.pool().clone()).await.unwrap();
+    sqlx::query("UPDATE neoseq_schema_version SET version = 3 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
     assert!(matches!(
         PgStore::from_pool(store.pool().clone()).await,
         Err(StoreError::SchemaTooNew {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2
         })
     ));
-    sqlx::query("UPDATE neoseq_schema_version SET version = 1 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
@@ -210,6 +241,8 @@ async fn websocket_commit(
         schema: VersionRange::exact(SCHEMA_VERSION as u16),
         graph_id: graph_id.to_owned(),
         session_id: "postgres-websocket".into(),
+        replica_id: 2,
+        history_epoch: 0,
         version_vector: base_version.to_vec(),
     });
     socket

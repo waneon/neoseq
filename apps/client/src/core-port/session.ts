@@ -60,11 +60,18 @@ export interface SessionState {
 
 export interface SessionPort extends CorePort {
   retryPending(graphHandle: string): Promise<SavedReceipt>;
+  storageCapabilities?(graphHandle: string): Promise<StorageCapabilitiesDto>;
   configureSync?(graphHandle: string): Promise<void>;
   syncState?(graphHandle: string): Promise<SyncState>;
   nextOutbox?(graphHandle: string): Promise<OutboxMessage | null>;
   acknowledgeOutbox?(graphHandle: string, messageId: string): Promise<void>;
   importRemote?(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+  replaceRemote?(
+    graphHandle: string,
+    checkpoint: number[],
+    historyEpoch: number,
+    serverVersionVector: number[],
+  ): Promise<void>;
   encodeSyncMessage?(message: unknown): Promise<ArrayBuffer>;
   decodeSyncMessage?(frame: ArrayBuffer): Promise<unknown>;
   terminate?(): void;
@@ -150,6 +157,8 @@ export class GraphSession {
           syncPort,
           {
             applyRemote: (bytes) => this.applyRemote(bytes),
+            replaceRemote: (checkpoint, historyEpoch, serverVersionVector) =>
+              this.replaceRemote(checkpoint, historyEpoch, serverVersionVector),
             changed: (sync) => this.patch(sync),
           },
         );
@@ -173,6 +182,12 @@ export class GraphSession {
     // Keep the queue alive after failures so later commands still run.
     this.queue = tracked.catch(() => undefined);
     return tracked;
+  }
+
+  async refreshCapabilities(): Promise<void> {
+    if (this.state.status !== "ready" || !this.port.storageCapabilities) return;
+    const capabilities = await this.port.storageCapabilities(this.handle);
+    this.patch({ capabilities });
   }
 
   hydratePage(pageId: string): Promise<void> {
@@ -307,6 +322,27 @@ export class GraphSession {
     return run;
   }
 
+  private replaceRemote(
+    checkpoint: number[],
+    historyEpoch: number,
+    serverVersionVector: number[],
+  ): Promise<void> {
+    const run = this.queue.then(async () => {
+      const replaceRemote = this.port.replaceRemote;
+      if (!replaceRemote) throw new Error("remote history replacement is unavailable");
+      await replaceRemote.call(
+        this.port,
+        this.handle,
+        checkpoint,
+        historyEpoch,
+        serverVersionVector,
+      );
+      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" });
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
   private async hydratePageNow(pageId: string): Promise<void> {
     if (this.state.status !== "ready") return;
     const response = await this.port.readPage({ graph_handle: this.handle, page_id: pageId });
@@ -428,8 +464,8 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
 }
 
 function randomPeerId(): number {
-  // A fresh 53-bit integer for every runtime. The tab id and session id are
-  // separate; none of them are persisted or reused after a runtime closes.
+  // A 53-bit bootstrap suggestion. The repository persists the first value for
+  // this graph and ignores later runtime suggestions.
   const words = crypto.getRandomValues(new Uint32Array(2));
   return ((words[0] & 0x1fffff) * 0x1_0000_0000 + words[1]) || 1;
 }
@@ -447,6 +483,12 @@ function tabId(): string {
 type RequiredSyncPort = SessionPort & SyncAgentPort & {
   configureSync(graphHandle: string): Promise<void>;
   importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+  replaceRemote(
+    graphHandle: string,
+    checkpoint: number[],
+    historyEpoch: number,
+    serverVersionVector: number[],
+  ): Promise<void>;
 };
 
 function requireSyncPort(port: SessionPort): RequiredSyncPort {
@@ -456,6 +498,7 @@ function requireSyncPort(port: SessionPort): RequiredSyncPort {
     "nextOutbox",
     "acknowledgeOutbox",
     "importRemote",
+    "replaceRemote",
     "encodeSyncMessage",
     "decodeSyncMessage",
   ] as const;

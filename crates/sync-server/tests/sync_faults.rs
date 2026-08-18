@@ -223,6 +223,7 @@ async fn malformed_loro_bytes_never_reach_durable_storage() {
         .connection;
     let _receiver = opened.take_outbound();
     let malformed = sync_protocol::Update {
+        history_epoch: 0,
         message_id: "malformed".into(),
         base_version_vector: fixture.base_version,
         bytes: vec![0xde, 0xad, 0xbe, 0xef],

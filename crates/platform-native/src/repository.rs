@@ -7,7 +7,7 @@ use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use std::path::Path;
 use thiserror::Error;
 
-pub const SQLITE_SCHEMA_VERSION: i64 = 1;
+pub const SQLITE_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FaultPoint {
@@ -66,6 +66,7 @@ impl SqliteGraphRepository {
         path: &Path,
         locator: GraphLocator,
         now: &str,
+        suggested_replica_id: u64,
     ) -> Result<Self, SqliteRepositoryError> {
         let mut connection = Connection::open(path).map_err(SqliteRepositoryError::from)?;
         connection
@@ -83,11 +84,24 @@ impl SqliteGraphRepository {
         connection
             .execute(
                 "INSERT INTO graph_metadata(
-                    graph_id, schema_version, next_sequence,
-                    compacted_through, created_at, updated_at
-                 ) VALUES (?1, ?2, 1, 0, ?3, ?3)
+                    graph_id, replica_id, history_epoch, schema_version,
+                    next_sequence, compacted_through, checkpoint_bytes,
+                    tail_bytes, tail_count, created_at, updated_at
+                 ) VALUES (?1, ?2, 0, ?3, 1, 0, 0, 0, 0, ?4, ?4)
                  ON CONFLICT(graph_id) DO NOTHING",
-                params![locator.graph_id.as_str(), SCHEMA_VERSION, now],
+                params![
+                    locator.graph_id.as_str(),
+                    as_i64(suggested_replica_id)?,
+                    SCHEMA_VERSION,
+                    now
+                ],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        connection
+            .execute(
+                "UPDATE graph_metadata SET replica_id = ?2
+                 WHERE graph_id = ?1 AND replica_id = 0",
+                params![locator.graph_id.as_str(), as_i64(suggested_replica_id)?],
             )
             .map_err(SqliteRepositoryError::from)?;
         Ok(Self {
@@ -210,8 +224,15 @@ impl GraphRepository for SqliteGraphRepository {
         transaction
             .execute(
                 "UPDATE graph_metadata
-                 SET next_sequence = ?2, updated_at = ?3 WHERE graph_id = ?1",
-                params![graph_id, as_i64(sequence + 1)?, created_at],
+                 SET next_sequence = ?2, tail_bytes = tail_bytes + ?3,
+                     tail_count = tail_count + 1, updated_at = ?4
+                 WHERE graph_id = ?1",
+                params![
+                    graph_id,
+                    as_i64(sequence + 1)?,
+                    as_i64(update.len() as u64)?,
+                    created_at
+                ],
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction.commit().map_err(SqliteRepositoryError::from)?;
@@ -230,8 +251,9 @@ impl LocalGraphRepository for SqliteGraphRepository {
         let row = self
             .connection
             .query_row(
-                "SELECT schema_version, next_sequence, compacted_through,
-                        created_at, updated_at
+                "SELECT replica_id, history_epoch, schema_version, next_sequence,
+                        compacted_through, checkpoint_bytes, tail_bytes,
+                        tail_count, created_at, updated_at
                  FROM graph_metadata WHERE graph_id = ?1",
                 [self.locator.graph_id.as_str()],
                 |row| {
@@ -239,8 +261,13 @@ impl LocalGraphRepository for SqliteGraphRepository {
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
                     ))
                 },
             )
@@ -251,11 +278,16 @@ impl LocalGraphRepository for SqliteGraphRepository {
             locator: GraphLocator {
                 graph_id: self.locator.graph_id.clone(),
             },
-            schema_version: as_u32(row.0)?,
-            next_sequence: as_u64(row.1)?,
-            compacted_through: as_u64(row.2)?,
-            created_at: row.3,
-            updated_at: row.4,
+            replica_id: as_u64(row.0)?,
+            history_epoch: as_u64(row.1)?,
+            schema_version: as_u32(row.2)?,
+            next_sequence: as_u64(row.3)?,
+            compacted_through: as_u64(row.4)?,
+            checkpoint_bytes: as_u64(row.5)?,
+            tail_bytes: as_u64(row.6)?,
+            tail_count: as_u64(row.7)?,
+            created_at: row.8,
+            updated_at: row.9,
         })
     }
 
@@ -309,7 +341,7 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .map_err(SqliteRepositoryError::from)
     }
 
-    fn save_checkpoint(
+    fn install_checkpoint(
         &mut self,
         checkpoint: &[u8],
         local_sequence: u64,
@@ -344,22 +376,50 @@ impl LocalGraphRepository for SqliteGraphRepository {
                 ],
             )
             .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "DELETE FROM graph_update
+                 WHERE graph_id = ?1 AND local_sequence <= ?2",
+                params![self.locator.graph_id.as_str(), as_i64(local_sequence)?],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        let (tail_bytes, tail_count): (i64, i64) = transaction
+            .query_row(
+                "SELECT COALESCE(SUM(LENGTH(payload)), 0), COUNT(*)
+                 FROM graph_update WHERE graph_id = ?1",
+                [self.locator.graph_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "UPDATE graph_metadata
+                 SET compacted_through = MAX(compacted_through, ?2),
+                     checkpoint_bytes = ?3, tail_bytes = ?4, tail_count = ?5,
+                     updated_at = ?6
+                 WHERE graph_id = ?1",
+                params![
+                    self.locator.graph_id.as_str(),
+                    as_i64(local_sequence)?,
+                    as_i64(checkpoint.len() as u64)?,
+                    tail_bytes,
+                    tail_count,
+                    created_at
+                ],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "DELETE FROM graph_checkpoint
+                 WHERE graph_id = ?1 AND local_sequence < ?2",
+                params![self.locator.graph_id.as_str(), as_i64(local_sequence)?],
+            )
+            .map_err(SqliteRepositoryError::from)?;
         transaction.commit().map_err(SqliteRepositoryError::from)?;
         if self.take_fault(FaultPoint::CheckpointAfterCommit) {
             return Err(SqliteRepositoryError::Injected("checkpoint-after-commit"));
         }
         Ok(digest)
-    }
-
-    fn mark_compacted(&mut self, through_sequence: u64) -> Result<(), Self::Error> {
-        self.connection
-            .execute(
-                "UPDATE graph_metadata SET compacted_through = MAX(compacted_through, ?2)
-                 WHERE graph_id = ?1",
-                params![self.locator.graph_id.as_str(), as_i64(through_sequence)?],
-            )
-            .map_err(SqliteRepositoryError::from)?;
-        Ok(())
     }
 
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error> {
@@ -460,9 +520,14 @@ fn migrate(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
             .execute_batch(
                 "CREATE TABLE graph_metadata (
                     graph_id TEXT PRIMARY KEY,
+                    replica_id INTEGER NOT NULL,
+                    history_epoch INTEGER NOT NULL DEFAULT 0,
                     schema_version INTEGER NOT NULL,
                     next_sequence INTEGER NOT NULL,
                     compacted_through INTEGER NOT NULL,
+                    checkpoint_bytes INTEGER NOT NULL DEFAULT 0,
+                    tail_bytes INTEGER NOT NULL DEFAULT 0,
+                    tail_count INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                  );
@@ -497,6 +562,36 @@ fn migrate(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
                     created_at TEXT NOT NULL,
                     PRIMARY KEY(graph_id, export_handle)
                  );",
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .pragma_update(None, "user_version", SQLITE_SCHEMA_VERSION)
+            .map_err(SqliteRepositoryError::from)?;
+        transaction.commit().map_err(SqliteRepositoryError::from)?;
+    } else if version == 1 {
+        let transaction = connection
+            .transaction()
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute_batch(
+                "ALTER TABLE graph_metadata ADD COLUMN replica_id INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE graph_metadata ADD COLUMN history_epoch INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE graph_metadata ADD COLUMN checkpoint_bytes INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE graph_metadata ADD COLUMN tail_bytes INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE graph_metadata ADD COLUMN tail_count INTEGER NOT NULL DEFAULT 0;
+                 UPDATE graph_metadata
+                 SET checkpoint_bytes = COALESCE((
+                         SELECT SUM(LENGTH(payload)) FROM graph_checkpoint
+                         WHERE graph_checkpoint.graph_id = graph_metadata.graph_id
+                     ), 0),
+                     tail_bytes = COALESCE((
+                         SELECT SUM(LENGTH(payload)) FROM graph_update
+                         WHERE graph_update.graph_id = graph_metadata.graph_id
+                     ), 0),
+                     tail_count = COALESCE((
+                         SELECT COUNT(*) FROM graph_update
+                         WHERE graph_update.graph_id = graph_metadata.graph_id
+                     ), 0);",
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction

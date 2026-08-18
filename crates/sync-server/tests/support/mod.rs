@@ -73,6 +73,7 @@ pub fn client_update(
     (
         core,
         Update {
+            history_epoch: 0,
             message_id: message_id.to_owned(),
             base_version_vector,
             bytes: execution.update,

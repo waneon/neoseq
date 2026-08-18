@@ -18,6 +18,8 @@ use thiserror::Error;
 use tokio::sync::{Mutex, OnceCell, mpsc};
 
 const SERVER_PEER_ID: u64 = u64::MAX - 1;
+const CHECKPOINT_TAIL_UPDATES: usize = 256;
+const CHECKPOINT_TAIL_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RoomConfig {
@@ -56,6 +58,8 @@ pub enum RoomError {
     SlowConsumer,
     #[error("durable update requires reconnect before acknowledgement")]
     ReconnectRequired,
+    #[error("client history epoch is stale")]
+    StaleHistory,
 }
 
 struct RoomSlot {
@@ -67,6 +71,9 @@ struct Room {
     cursor: u64,
     status: sync_protocol::GraphStatus,
     schema_version: u32,
+    history_epoch: u64,
+    tail_updates: usize,
+    tail_bytes: usize,
     sessions: HashMap<String, SessionState>,
     valid: bool,
 }
@@ -139,6 +146,26 @@ impl<S: GraphStore> RoomManager<S> {
         principal_id: &str,
         client_version_vector: &[u8],
     ) -> Result<OpenedRoom, RoomError> {
+        self.open_replica(
+            graph_id,
+            session_id,
+            principal_id,
+            1,
+            0,
+            client_version_vector,
+        )
+        .await
+    }
+
+    pub async fn open_replica(
+        &self,
+        graph_id: &str,
+        session_id: &str,
+        principal_id: &str,
+        _replica_id: u64,
+        client_history_epoch: u64,
+        client_version_vector: &[u8],
+    ) -> Result<OpenedRoom, RoomError> {
         if session_id.is_empty() || session_id.len() > 128 {
             return Err(RoomError::InvalidSession);
         }
@@ -156,15 +183,23 @@ impl<S: GraphStore> RoomManager<S> {
         {
             return Err(RoomError::LimitReached);
         }
-        let mut missing_update = guard
-            .core
-            .export_updates_since(client_version_vector)
-            .map_err(|_| RoomError::InvalidVersionVector)?;
-        let checkpoint = if missing_update.len() > self.config.limits.max_update_bytes as usize {
+        let epoch_changed = client_history_epoch != guard.history_epoch;
+        let (mut missing_update, invalid_vector) = if epoch_changed {
+            (Vec::new(), false)
+        } else {
+            match guard.core.export_updates_since(client_version_vector) {
+                Ok(update) => (update, false),
+                Err(_) => (Vec::new(), true),
+            }
+        };
+        let replace_checkpoint = epoch_changed
+            || invalid_vector
+            || missing_update.len() > self.config.limits.max_update_bytes as usize;
+        let checkpoint = if replace_checkpoint {
             missing_update.clear();
             guard
                 .core
-                .export_snapshot()
+                .export_gc_checkpoint()
                 .map_err(|_| RoomError::InvalidUpdate)?
         } else {
             Vec::new()
@@ -185,10 +220,12 @@ impl<S: GraphStore> RoomManager<S> {
             graph_status: guard.status,
             limits: self.config.limits,
             membership_version: membership.version,
+            history_epoch: guard.history_epoch,
             server_cursor: guard.cursor,
             server_version_vector: guard.core.version_vector(),
             missing_update,
             checkpoint,
+            replace_checkpoint,
         };
         self.metrics.session_opened();
         let graph_log_id = telemetry_id(graph_id);
@@ -274,6 +311,13 @@ impl<S: GraphStore> RoomManager<S> {
             cursor: durable.latest_cursor(),
             status: durable.status,
             schema_version: durable.schema_version,
+            history_epoch: durable.history_epoch,
+            tail_updates: durable.updates.len(),
+            tail_bytes: durable
+                .updates
+                .iter()
+                .map(|update| update.bytes.len())
+                .sum(),
             sessions: HashMap::new(),
             valid: true,
         })))
@@ -300,6 +344,9 @@ impl<S: GraphStore> RoomManager<S> {
         if !room.valid {
             return Err(RoomError::ReconnectRequired);
         }
+        if update.history_epoch != room.history_epoch {
+            return Err(RoomError::StaleHistory);
+        }
         let session = room
             .sessions
             .get(&connection.session_id)
@@ -323,7 +370,7 @@ impl<S: GraphStore> RoomManager<S> {
             .import_remote(&update.bytes)
             .map_err(|_| RoomError::InvalidUpdate)?;
         let candidate_size = candidate
-            .export_snapshot()
+            .export_gc_checkpoint()
             .map_err(|_| RoomError::InvalidUpdate)?
             .len();
         if candidate_size > self.config.limits.max_decompressed_bytes as usize {
@@ -361,9 +408,12 @@ impl<S: GraphStore> RoomManager<S> {
                 return Err(RoomError::ReconnectRequired);
             }
             room.cursor = outcome.cursor;
+            room.tail_updates += 1;
+            room.tail_bytes += update.bytes.len();
         }
 
         let ack = Message::Ack(Ack {
+            history_epoch: room.history_epoch,
             message_id: update.message_id.clone(),
             server_cursor: outcome.cursor,
         });
@@ -408,6 +458,57 @@ impl<S: GraphStore> RoomManager<S> {
                 "durable update accepted"
             );
         }
+        if outcome.inserted
+            && (room.tail_updates >= CHECKPOINT_TAIL_UPDATES
+                || room.tail_bytes >= CHECKPOINT_TAIL_BYTES)
+        {
+            // Checkpoint rotation is maintenance after the update is durable and
+            // acknowledged. A failed rotation leaves the current epoch intact so
+            // a later update can retry without turning success into a false NACK.
+            if let Err(error) = self.rotate_history(&connection.graph_id, &mut room).await {
+                tracing::warn!(
+                    graph_id = telemetry_id(&connection.graph_id),
+                    error = %error,
+                    "history checkpoint rotation deferred"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    async fn rotate_history(&self, graph_id: &str, room: &mut Room) -> Result<(), RoomError> {
+        let snapshot = room
+            .core
+            .export_gc_checkpoint()
+            .map_err(|_| RoomError::InvalidUpdate)?;
+        let version_vector = room.core.version_vector();
+        let graph = room.core.graph_id().clone();
+        let replacement = GraphCore::from_snapshot(graph, SERVER_PEER_ID, &snapshot)
+            .map_err(|_| StoreError::Corrupt("candidate checkpoint is invalid"))?;
+        let next_epoch = self
+            .store
+            .install_checkpoint(
+                graph_id,
+                room.history_epoch,
+                room.cursor,
+                &snapshot,
+                &version_vector,
+            )
+            .await?;
+        room.core = replacement;
+        room.history_epoch = next_epoch;
+        room.tail_updates = 0;
+        room.tail_bytes = 0;
+        let message = Message::ResyncRequired(ResyncRequired {
+            code: ErrorCode::StaleHistory,
+            server_cursor: room.cursor,
+            history_epoch: room.history_epoch,
+            diagnostic: "history checkpoint rotated; reconnect from the new epoch".into(),
+        });
+        for session in room.sessions.values() {
+            let _ = session.outbound.try_send(message.clone());
+        }
+        room.sessions.clear();
         Ok(())
     }
 
@@ -523,6 +624,7 @@ fn invalidate_room(room: &mut Room, code: ErrorCode) {
     let message = Message::ResyncRequired(ResyncRequired {
         code,
         server_cursor: room.cursor,
+        history_epoch: room.history_epoch,
         diagnostic: "room was discarded; reconnect from durable state".into(),
     });
     for session in room.sessions.values() {

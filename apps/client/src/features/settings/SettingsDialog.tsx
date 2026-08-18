@@ -19,7 +19,7 @@ import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
 import { MenuSelect } from "@/ui/menu-select";
 import { useNotify } from "../notify/context";
-import { useSessionState } from "../shell/session-context";
+import { useSession, useSessionState } from "../shell/session-context";
 import { ShortcutEditor } from "./ShortcutEditor";
 import {
   LOCALE_DEFINITIONS,
@@ -268,11 +268,11 @@ function JournalSection() {
 }
 
 /**
- * Storage the browser owns, not storage this graph owns: the persistence
- * permission and the origin's usage are the same numbers whichever graph is
- * open, which is why they sit in the application scope.
+ * Persistence permission and quota belong to the browser origin. Usage is the
+ * logical Base+Tail/outbox/quarantine allocation of the currently open graph.
  */
 function StorageSection() {
+  const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
   const { message, formatBytes } = useI18n();
@@ -282,13 +282,14 @@ function StorageSection() {
 
   useEffect(() => {
     let cancelled = false;
+    void session.refreshCapabilities().catch(() => undefined);
     void navigator.storage?.persisted?.().then((value) => {
       if (!cancelled) setPersisted(value);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session]);
 
   const capabilities = state.capabilities;
   const bytes = (value: number | null | undefined) =>

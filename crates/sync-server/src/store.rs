@@ -8,7 +8,8 @@ use std::{
 use sync_protocol::GraphStatus;
 use thiserror::Error;
 
-pub const DATABASE_SCHEMA_VERSION: i32 = 1;
+pub const DATABASE_SCHEMA_VERSION: i32 = 2;
+const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphRole {
@@ -74,6 +75,7 @@ pub struct StoredUpdate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredCheckpoint {
+    pub history_epoch: u64,
     pub included_cursor: u64,
     pub snapshot: Vec<u8>,
     pub version_vector: Vec<u8>,
@@ -87,6 +89,7 @@ pub struct GraphLoad {
     pub status: GraphStatus,
     pub schema_version: u32,
     pub byte_quota: u64,
+    pub history_epoch: u64,
     pub checkpoint: StoredCheckpoint,
     pub updates: Vec<StoredUpdate>,
 }
@@ -129,6 +132,8 @@ pub enum StoreError {
     QuotaExceeded,
     #[error("message id was already committed with different bytes")]
     MessageConflict,
+    #[error("history epoch changed while checkpoint was being installed")]
+    StaleHistory,
     #[error("database schema {found} is newer than supported schema {supported}")]
     SchemaTooNew { found: i32, supported: i32 },
     #[error("durable graph data is corrupt: {0}")]
@@ -161,6 +166,15 @@ pub trait GraphStore: Send + Sync + 'static {
         message_id: &str,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError>;
+
+    async fn install_checkpoint(
+        &self,
+        graph_id: &str,
+        expected_epoch: u64,
+        included_cursor: u64,
+        snapshot: &[u8],
+        version_vector: &[u8],
+    ) -> Result<u64, StoreError>;
 }
 
 #[async_trait]
@@ -379,8 +393,8 @@ impl PgStore {
         sqlx::query(
             "INSERT INTO graph(
                 graph_id, owner_principal_id, status, schema_version, byte_quota,
-                used_bytes, membership_version
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                used_bytes, membership_version, history_epoch
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(&graph.graph_id)
         .bind(&graph.owner_principal_id)
@@ -395,15 +409,18 @@ impl PgStore {
         .bind(as_i64(graph.byte_quota)?)
         .bind(as_i64(used_bytes)?)
         .bind(as_i64(membership_version)?)
+        .bind(as_i64(graph.history_epoch)?)
         .execute(&mut *transaction)
         .await?;
         let checkpoint_id: i64 = sqlx::query_scalar(
             "INSERT INTO graph_checkpoint(
-                graph_id, included_cursor, snapshot, version_vector, checksum, size_bytes
-             ) VALUES ($1, $2, $3, $4, $5, $6)
+                graph_id, history_epoch, included_cursor, snapshot, version_vector,
+                checksum, size_bytes
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING checkpoint_id",
         )
         .bind(&graph.graph_id)
+        .bind(as_i64(graph.checkpoint.history_epoch)?)
         .bind(as_i64(graph.checkpoint.included_cursor)?)
         .bind(&graph.checkpoint.snapshot)
         .bind(&graph.checkpoint.version_vector)
@@ -482,8 +499,16 @@ async fn migrate(pool: &PgPool) -> Result<(), StoreError> {
                 supported: DATABASE_SCHEMA_VERSION,
             });
         }
+        if found < 2 {
+            sqlx::raw_sql(include_str!("../migrations/0002_history_epoch.sql"))
+                .execute(&mut *transaction)
+                .await?;
+        }
     } else {
         sqlx::raw_sql(include_str!("../migrations/0001_sync.sql"))
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::raw_sql(include_str!("../migrations/0002_history_epoch.sql"))
             .execute(&mut *transaction)
             .await?;
     }
@@ -560,6 +585,7 @@ impl GraphStore for PgStore {
     async fn load_graph(&self, graph_id: &str) -> Result<GraphLoad, StoreError> {
         let row = sqlx::query(
             "SELECT g.owner_principal_id, g.status, g.schema_version, g.byte_quota,
+                    g.history_epoch, c.history_epoch AS checkpoint_epoch,
                     c.included_cursor, c.snapshot, c.version_vector, c.checksum
              FROM graph g
              JOIN graph_checkpoint c ON c.checkpoint_id = g.checkpoint_id
@@ -575,6 +601,10 @@ impl GraphStore for PgStore {
             return Err(StoreError::Corrupt("checkpoint checksum mismatch"));
         }
         let included_cursor = as_u64(row.try_get("included_cursor")?)?;
+        let history_epoch = as_u64(row.try_get("history_epoch")?)?;
+        if as_u64(row.try_get("checkpoint_epoch")?)? != history_epoch {
+            return Err(StoreError::Corrupt("checkpoint history epoch mismatch"));
+        }
         let update_rows = sqlx::query(
             "SELECT cursor, message_id, principal_id, checksum, payload
              FROM graph_update
@@ -605,7 +635,9 @@ impl GraphStore for PgStore {
             status: parse_status(row.try_get("status")?)?,
             schema_version: as_u32(row.try_get("schema_version")?)?,
             byte_quota: as_u64(row.try_get("byte_quota")?)?,
+            history_epoch,
             checkpoint: StoredCheckpoint {
+                history_epoch,
                 included_cursor,
                 snapshot,
                 version_vector: row.try_get("version_vector")?,
@@ -644,7 +676,11 @@ impl GraphStore for PgStore {
         let digest = checksum(bytes);
         if let Some(row) = sqlx::query(
             "SELECT cursor, checksum FROM graph_update
-             WHERE graph_id = $1 AND message_id = $2",
+             WHERE graph_id = $1 AND message_id = $2
+             UNION ALL
+             SELECT cursor, checksum FROM graph_update_receipt
+             WHERE graph_id = $1 AND message_id = $2
+             LIMIT 1",
         )
         .bind(graph_id)
         .bind(message_id)
@@ -700,6 +736,108 @@ impl GraphStore for PgStore {
             cursor: as_u64(cursor)?,
             inserted: true,
         })
+    }
+
+    async fn install_checkpoint(
+        &self,
+        graph_id: &str,
+        expected_epoch: u64,
+        included_cursor: u64,
+        snapshot: &[u8],
+        version_vector: &[u8],
+    ) -> Result<u64, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT history_epoch, byte_quota FROM graph
+             WHERE graph_id = $1 FOR UPDATE",
+        )
+        .bind(graph_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(StoreError::AccessDenied)?;
+        if as_u64(row.try_get("history_epoch")?)? != expected_epoch {
+            return Err(StoreError::StaleHistory);
+        }
+        let next_epoch = expected_epoch
+            .checked_add(1)
+            .ok_or(StoreError::Corrupt("history epoch overflow"))?;
+        let tail_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM graph_update
+             WHERE graph_id = $1 AND cursor > $2",
+        )
+        .bind(graph_id)
+        .bind(as_i64(included_cursor)?)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let used_bytes = (snapshot.len() as u64)
+            .checked_add(as_u64(tail_bytes)?)
+            .ok_or(StoreError::QuotaExceeded)?;
+        if used_bytes > as_u64(row.try_get("byte_quota")?)? {
+            return Err(StoreError::QuotaExceeded);
+        }
+        let checkpoint_id: i64 = sqlx::query_scalar(
+            "INSERT INTO graph_checkpoint(
+                graph_id, history_epoch, included_cursor, snapshot,
+                version_vector, checksum, size_bytes
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING checkpoint_id",
+        )
+        .bind(graph_id)
+        .bind(as_i64(next_epoch)?)
+        .bind(as_i64(included_cursor)?)
+        .bind(snapshot)
+        .bind(version_vector)
+        .bind(checksum(snapshot))
+        .bind(as_i64(snapshot.len() as u64)?)
+        .fetch_one(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO graph_update_receipt(
+                graph_id, message_id, checksum, cursor, received_at
+             ) SELECT graph_id, message_id, checksum, cursor, received_at
+               FROM graph_update WHERE graph_id = $1 AND cursor <= $2
+             ON CONFLICT(graph_id, message_id) DO NOTHING",
+        )
+        .bind(graph_id)
+        .bind(as_i64(included_cursor)?)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "DELETE FROM graph_update_receipt
+             WHERE graph_id = $1 AND message_id NOT IN (
+                 SELECT message_id FROM graph_update_receipt
+                 WHERE graph_id = $1 ORDER BY cursor DESC LIMIT $2
+             )",
+        )
+        .bind(graph_id)
+        .bind(as_i64(MAX_RETAINED_RECEIPTS as u64)?)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query("DELETE FROM graph_update WHERE graph_id = $1 AND cursor <= $2")
+            .bind(graph_id)
+            .bind(as_i64(included_cursor)?)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "UPDATE graph SET checkpoint_id = $2, history_epoch = $3, used_bytes = $4
+             WHERE graph_id = $1",
+        )
+        .bind(graph_id)
+        .bind(checkpoint_id)
+        .bind(as_i64(next_epoch)?)
+        .bind(as_i64(used_bytes)?)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "DELETE FROM graph_checkpoint
+             WHERE graph_id = $1 AND checkpoint_id <> $2",
+        )
+        .bind(graph_id)
+        .bind(checkpoint_id)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(next_epoch)
     }
 }
 
@@ -825,9 +963,11 @@ struct MemoryGraph {
     status: GraphStatus,
     schema_version: u32,
     byte_quota: u64,
+    history_epoch: u64,
     used_bytes: u64,
     checkpoint: StoredCheckpoint,
     updates: Vec<StoredUpdate>,
+    receipts: HashMap<String, (String, u64)>,
     memberships: HashMap<String, MemoryMembership>,
     membership_version: u64,
 }
@@ -874,14 +1014,17 @@ impl MemoryStore {
                     status: GraphStatus::Active,
                     schema_version,
                     byte_quota,
+                    history_epoch: 0,
                     used_bytes: snapshot.len() as u64,
                     checkpoint: StoredCheckpoint {
+                        history_epoch: 0,
                         included_cursor: 0,
                         checksum: checksum(&snapshot),
                         snapshot,
                         version_vector,
                     },
                     updates: Vec::new(),
+                    receipts: HashMap::new(),
                     memberships,
                     membership_version: 1,
                 },
@@ -982,9 +1125,11 @@ impl MemoryStore {
                     status: backup.graph.status,
                     schema_version: backup.graph.schema_version,
                     byte_quota: backup.graph.byte_quota,
+                    history_epoch: backup.graph.history_epoch,
                     used_bytes,
                     checkpoint: backup.graph.checkpoint,
                     updates: backup.graph.updates,
+                    receipts: HashMap::new(),
                     memberships,
                     membership_version,
                 },
@@ -1009,6 +1154,7 @@ fn memory_load(graph_id: &str, graph: &MemoryGraph) -> GraphLoad {
         status: graph.status,
         schema_version: graph.schema_version,
         byte_quota: graph.byte_quota,
+        history_epoch: graph.history_epoch,
         checkpoint: graph.checkpoint.clone(),
         updates: graph.updates.clone(),
     }
@@ -1100,6 +1246,15 @@ impl GraphStore for MemoryStore {
                 inserted: false,
             });
         }
+        if let Some((stored_checksum, cursor)) = graph.receipts.get(message_id) {
+            if stored_checksum != &checksum(bytes) {
+                return Err(StoreError::MessageConflict);
+            }
+            return Ok(CommitOutcome {
+                cursor: *cursor,
+                inserted: false,
+            });
+        }
         let next_used = graph
             .used_bytes
             .checked_add(bytes.len() as u64)
@@ -1123,6 +1278,74 @@ impl GraphStore for MemoryStore {
             cursor: next_cursor,
             inserted: true,
         })
+    }
+
+    async fn install_checkpoint(
+        &self,
+        graph_id: &str,
+        expected_epoch: u64,
+        included_cursor: u64,
+        snapshot: &[u8],
+        version_vector: &[u8],
+    ) -> Result<u64, StoreError> {
+        let mut state = self.inner.lock().expect("memory store mutex");
+        if !state.available {
+            return Err(StoreError::Unavailable("injected outage"));
+        }
+        let graph = state
+            .graphs
+            .get_mut(graph_id)
+            .ok_or(StoreError::AccessDenied)?;
+        if graph.history_epoch != expected_epoch {
+            return Err(StoreError::StaleHistory);
+        }
+        let next_epoch = expected_epoch
+            .checked_add(1)
+            .ok_or(StoreError::Corrupt("history epoch overflow"))?;
+        let tail_bytes = graph
+            .updates
+            .iter()
+            .filter(|update| update.cursor > included_cursor)
+            .map(|update| update.bytes.len() as u64)
+            .sum::<u64>();
+        let used_bytes = (snapshot.len() as u64)
+            .checked_add(tail_bytes)
+            .ok_or(StoreError::QuotaExceeded)?;
+        if used_bytes > graph.byte_quota {
+            return Err(StoreError::QuotaExceeded);
+        }
+        let mut retained = Vec::new();
+        for update in graph.updates.drain(..) {
+            if update.cursor <= included_cursor {
+                graph
+                    .receipts
+                    .entry(update.message_id)
+                    .or_insert((update.checksum, update.cursor));
+            } else {
+                retained.push(update);
+            }
+        }
+        if graph.receipts.len() > MAX_RETAINED_RECEIPTS {
+            let mut cursors = graph
+                .receipts
+                .values()
+                .map(|(_, cursor)| *cursor)
+                .collect::<Vec<_>>();
+            cursors.sort_unstable_by(|left, right| right.cmp(left));
+            let minimum = cursors[MAX_RETAINED_RECEIPTS - 1];
+            graph.receipts.retain(|_, (_, cursor)| *cursor >= minimum);
+        }
+        graph.history_epoch = next_epoch;
+        graph.used_bytes = used_bytes;
+        graph.checkpoint = StoredCheckpoint {
+            history_epoch: next_epoch,
+            included_cursor,
+            snapshot: snapshot.to_vec(),
+            version_vector: version_vector.to_vec(),
+            checksum: checksum(snapshot),
+        };
+        graph.updates = retained;
+        Ok(next_epoch)
     }
 }
 
@@ -1157,14 +1380,17 @@ impl GraphAdmin for MemoryStore {
                 status: GraphStatus::Active,
                 schema_version,
                 byte_quota,
+                history_epoch: 0,
                 used_bytes: snapshot.len() as u64,
                 checkpoint: StoredCheckpoint {
+                    history_epoch: 0,
                     included_cursor: 0,
                     snapshot: snapshot.to_vec(),
                     version_vector: version_vector.to_vec(),
                     checksum: checksum(snapshot),
                 },
                 updates: Vec::new(),
+                receipts: HashMap::new(),
                 memberships,
                 membership_version: 1,
             },

@@ -50,8 +50,9 @@ Graph display names, local/remote kind, and remote server origin are
 browser-directory metadata in localStorage. Credentials are scoped to the
 server origin in sessionStorage and are never stored in graph data, localStorage,
 or URLs. Canonical note data remains in the Loro repository. A Web Lock grants
-one tab a writable lease per graph; a competing tab is read-only. Every runtime
-and reconnect uses a fresh peer or transport-session identity.
+one tab a writable lease per graph; a competing tab is read-only. The Loro peer
+ID is generated once and persisted with graph metadata; only the transport
+session ID is fresh for each connection.
 
 The headless native CorePort in `platform-native` exercises equivalent runtime,
 SQLite, recovery, and DTO behavior. It is not yet a desktop or mobile UI.
@@ -149,9 +150,12 @@ local data loss:
 Steady saved/synced/live states remain visually quiet but available to assistive
 technology. Deviations become visible. Remote editing always commits locally
 first; reconnect uses version-vector catch-up and then drains the durable outbox
-in order. Cursor and selection presence uses expiring protocol messages and is
-never written to Loro or IndexedDB. Remote text refresh transforms the local
-selection before the authoritative value replaces the editor draft.
+in order. A server epoch replacement is handled inside the Worker: it validates
+the replacement checkpoint, rebases durable unacknowledged intent, atomically
+swaps IndexedDB Base+Tail, and only then publishes the new canonical core.
+Cursor and selection presence uses expiring protocol messages and is never
+written to Loro or IndexedDB. Remote text refresh transforms the local selection
+before the authoritative value replaces the editor draft.
 
 ## Frontend Boundaries
 

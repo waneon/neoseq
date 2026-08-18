@@ -123,6 +123,13 @@ impl WasmGraphCore {
         self.inner.export_all().map_err(js_error)
     }
 
+    #[wasm_bindgen(js_name = exportUpdatesSince)]
+    pub fn export_updates_since(&self, version_vector: &[u8]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .export_updates_since(version_vector)
+            .map_err(js_error)
+    }
+
     #[wasm_bindgen(js_name = queryJson)]
     pub fn query_json(&self, request: &str) -> Result<String, JsValue> {
         if self.pending_update.is_some() {
@@ -147,5 +154,10 @@ impl WasmGraphCore {
     #[wasm_bindgen(js_name = exportSnapshot)]
     pub fn export_snapshot(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.export_snapshot().map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = exportGcCheckpoint)]
+    pub fn export_gc_checkpoint(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.export_gc_checkpoint().map_err(js_error)
     }
 }

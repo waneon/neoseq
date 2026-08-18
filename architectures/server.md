@@ -23,7 +23,7 @@ blocks.
 
 The Rust service uses an async HTTP/WebSocket stack. Processes are stateless
 except for disposable in-memory graph rooms. PostgreSQL is the durable system of
-record in v1, storing memberships, graph metadata, binary update
+record, storing memberships, graph metadata, binary update
 chunks, checkpoints, and acknowledgement/audit data.
 
 ```text
@@ -41,7 +41,7 @@ single-region service; horizontal fan-out has no broker yet.
 The authenticated HTTP surface creates and lists graphs and lets an owner list,
 grant, or revoke memberships. Browser WebSockets carry the bearer credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
-`Authorization` header; the server selects only the stable `neoseq.v1`
+`Authorization` header; the server selects only the stable `neoseq.v2`
 application subprotocol. Credentials are never accepted in a URL.
 
 ## Wire Protocol
@@ -49,12 +49,12 @@ application subprotocol. Credentials are never accepted in a URL.
 The binary protocol is versioned independently from the CRDT schema. Messages
 are length-delimited envelopes:
 
-- `Hello`: protocol/schema range, graph ID, session ID, Loro version vector,
-  and last acknowledgement;
-- `Welcome`: selected protocol, graph status, limits, server version vector, and
-  a missing update or checkpoint when the delta exceeds its limit;
-- `Update`: client message ID, base metadata, and Loro update bytes;
-- `Ack`: client message ID and durable server receipt cursor;
+- `Hello`: protocol/schema range, graph ID, session ID, stable replica ID,
+  history epoch, and Loro version vector;
+- `Welcome`: selected protocol, graph status, limits, history epoch, server
+  version vector, and either a missing update or replacement checkpoint;
+- `Update`: history epoch, client message ID, base version vector, and Loro bytes;
+- `Ack`: history epoch, client message ID, and durable server receipt cursor;
 - `Presence`: ephemeral cursor/selection state with expiry;
 - `Error`/`ResyncRequired`: stable code and recoverability metadata.
 
@@ -66,8 +66,8 @@ client keeps an outbox item until its message ID is acknowledged.
 
 1. Authenticate the connection and authorize current graph membership.
 2. Negotiate protocol and compatible document-schema ranges.
-3. Compare Loro version vectors. Export missing server operations and import
-   valid client operations.
+3. Compare history epochs and Loro version vectors. Export missing operations
+   within one epoch, or send a replacement shallow checkpoint across epochs.
 4. For every client update, enforce limits and import into a temporary fork of
    the room document for validation.
 5. Persist the exact validated bytes transactionally, then import them into the
@@ -88,26 +88,39 @@ closes revoked sessions.
 
 The logical PostgreSQL records are:
 
-- graph metadata: ID, owner, status, schema version, byte quota, checkpoint
-  pointer;
+- graph metadata: ID, owner, status, schema version, byte quota, history epoch,
+  and checkpoint pointer;
 - membership: graph ID, principal ID, role, revocation/version metadata;
 - update: graph ID, server cursor, message ID, checksum, bytes, size, received
   time;
-- checkpoint: graph ID, included cursor, Loro snapshot/version, checksum, size;
+- checkpoint: graph ID, history epoch, included cursor, shallow Loro
+  snapshot/version vector, checksum, and size;
+- compact receipt: graph/message ID, checksum, and original cursor for
+  idempotent retries after covered update rows are reclaimed;
 - audit event: principal, graph, security/administrative action, timestamp.
 
-Uniqueness on `(graph_id, message_id)` makes client retry idempotent; reuse with
-different bytes is rejected. Database row sequence is transport metadata only.
+Uniqueness on `(graph_id, message_id)` across the live Tail and compact receipt
+set makes recent client retry idempotent; reuse with different bytes is rejected.
+Database row sequence is transport metadata only.
 Graph content is not decomposed into SQL page/block tables, avoiding a competing
 source of truth.
 
 ## Checkpoints and Retention
 
 Graph creation stores an initial verified checkpoint and the room always loads
-the pointed checkpoint before its durable update tail. A reconnect normally
-receives a version-vector delta and falls back to the current room snapshot when
-that delta exceeds the update limit. Checkpoint rotation and physical update
-retention remain the Step 9 data-lifecycle boundary.
+the pointed Base before its durable Tail. After 256 Tail records or 1 MiB, the
+room exports a shallow checkpoint at its current cursor. One PostgreSQL
+transaction inserts the new Base, copies covered message identities to compact
+receipts, deletes covered update payloads and older checkpoints, advances the
+graph pointer and `history_epoch`, and recomputes used bytes. The in-memory room
+then adopts the same Base and asks connected replicas to reconnect.
+
+A replica on the current epoch normally receives a version-vector delta. A
+replica on an older epoch—or one whose delta cannot be represented within the
+negotiated limit—receives a replacement checkpoint and must atomically rebase
+durable unacknowledged intent. Compact receipts are capped at the most recent
+4,096 messages per graph; older retries may obtain a new transport cursor, but
+Loro operation identity keeps their content import idempotent.
 
 ## Security and Abuse Controls
 
@@ -154,6 +167,8 @@ rejected frames, slow consumers, and room reconstruction count.
 - Envelope tests cover malformed/version/size failures, and Loro import tests
   cover malformed and reconstructed-size limits.
 - Restore tests build rooms from logical backups, checkpoints, and update tails.
+- Epoch tests verify physical Tail reclamation, replacement checkpoints, stale
+  update rejection, and duplicate acknowledgement from compact receipts.
 
 The differential exchange follows Loro's documented
 [version-vector synchronization model](https://www.loro.dev/docs/tutorial/sync).

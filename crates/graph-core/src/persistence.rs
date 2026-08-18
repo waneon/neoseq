@@ -18,9 +18,14 @@ impl GraphLocator {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphMetadata {
     pub locator: GraphLocator,
+    pub replica_id: u64,
+    pub history_epoch: u64,
     pub schema_version: u32,
     pub next_sequence: u64,
     pub compacted_through: u64,
+    pub checkpoint_bytes: u64,
+    pub tail_bytes: u64,
+    pub tail_count: u64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -81,13 +86,14 @@ pub trait LocalGraphRepository: GraphRepository {
     fn metadata(&mut self) -> Result<GraphMetadata, Self::Error>;
     fn checkpoints_descending(&mut self) -> Result<Vec<CheckpointRecord>, Self::Error>;
     fn updates_after(&mut self, local_sequence: u64) -> Result<Vec<UpdateRecord>, Self::Error>;
-    fn save_checkpoint(
+    /// Atomically installs a recovery checkpoint, advances the compacted
+    /// sequence, and removes covered update/older-checkpoint payloads.
+    fn install_checkpoint(
         &mut self,
         checkpoint: &[u8],
         local_sequence: u64,
         created_at: &str,
     ) -> Result<String, Self::Error>;
-    fn mark_compacted(&mut self, through_sequence: u64) -> Result<(), Self::Error>;
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error>;
     fn quarantined(&mut self) -> Result<Vec<QuarantineRecord>, Self::Error>;
     fn delete_local(self) -> Result<(), Self::Error>;

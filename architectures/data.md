@@ -114,7 +114,8 @@ The core persistence port stores:
 
 ```text
 GraphMetadata
-  graph_id, schema_version, next_sequence, compacted_through, timestamps
+  graph_id, replica_id, history_epoch, schema_version
+  next_sequence, compacted_through, checkpoint/tail byte counts, timestamps
 UpdateRecord
   local_sequence, checksum, bytes, created_at
 CheckpointRecord
@@ -132,7 +133,7 @@ A successful core mutation remains pending until append commits. While pending,
 the runtime rejects another mutation and clean close; retry uses the same bytes.
 Only after commit does it publish semantic and saved events.
 
-## Recovery and Compaction
+## Base+Tail Recovery and Compaction
 
 Open chooses the newest checkpoint with the current schema and a valid checksum,
 then replays the verified update tail in sequence order. Invalid checkpoints are
@@ -140,17 +141,31 @@ quarantined and the next older checkpoint is considered. Once an update tail is
 invalid, that record and the remaining tail are quarantined rather than partly
 applied. If checkpoints exist but none are valid, open fails explicitly.
 
-Checkpoint creation stores a full Loro snapshot at a local sequence. Compaction
-keeps the selected checkpoint, removes covered updates and older checkpoints,
-and advances `compacted_through`. Crash safety comes from transaction boundaries:
-either the pre-compaction history or the compacted history remains readable.
+Recovery state is one Base checkpoint plus its verified Tail updates. A normal
+snapshot retains operation history for interchange. A GC checkpoint is a Loro
+shallow snapshot at the current frontier: it preserves current state and the
+frontier needed by later updates while discarding operations before that
+frontier.
+
+Local-only graphs install a GC checkpoint after 128 Tail records or 512 KiB.
+Checkpoint write, covered-update deletion, older-checkpoint deletion, metadata
+accounting, and pointer advance are one transaction, so recovery sees either
+the old Base+Tail or the new one. Clean close also attempts this maintenance,
+but correctness and bounded growth do not depend on close firing.
+
+Remote replicas cannot choose a GC frontier independently. They retain mergeable
+history until the server publishes a new `history_epoch`. Adopting that epoch is
+one transaction: the server checkpoint becomes Base, durable unacknowledged
+intent is replayed and exported against the server version vector as at most one
+Tail record, and the outbox references that Tail. If rebase or commit fails, the
+old canonical state remains intact.
 
 Quarantine records are not silently deleted or re-imported. The storage UI may
 export their opaque bytes by handle without treating them as graph data.
 
 ## IndexedDB Adapter
 
-The browser uses database `neoseq-local`, version 2, with six stores:
+The browser uses database `neoseq-local`, version 3, with six stores:
 
 ```text
 metadata      key graph_id
@@ -161,21 +176,28 @@ outbox        key [graph_id, message_id], index by_graph
 sync-state    key graph_id
 ```
 
-The Worker owns database access. Each graph append updates metadata and inserts
-the update in one transaction. For a remote graph, that transaction also inserts
-the message ID, causal base, exact bytes, and local sequence into the outbox.
-Acknowledgement removes only the matching outbox record and advances the durable
-server cursor. Initial sync first queues the replica's existing Loro history as
-a sequence-zero transport record, preventing later updates from reaching the
-server without their causal dependencies. Browser storage capabilities expose
-persistence permission and quota estimates without changing graph semantics. A
-Web Lock allows only one writable tab per graph; another tab opens read-only.
+The Worker owns database access. The first open persists a random 53-bit
+`replica_id`; later opens reuse it so version vectors do not accumulate a peer
+for every browser runtime. Each graph append updates metadata and inserts the
+update in one transaction. For a remote graph, that transaction also inserts an
+outbox message ID, causal base, and local sequence. Incremental outbox records
+reference the update row instead of duplicating its payload. Only the initial
+sequence-zero bootstrap stores inline bytes because it has no update row.
+
+Acknowledgement removes the matching outbox record. A Tail row already covered
+by Base remains pinned while referenced and is deleted with that acknowledgement.
+Storage capability `usage_bytes` reports logical bytes owned by this graph—Base,
+Tail, standalone bootstrap, and quarantine—not origin-wide Wasm, font, or HTTP
+cache allocation. Browser quota remains the origin quota reported by
+StorageManager. A Web Lock allows only one writable tab per graph; another tab
+opens read-only.
 
 ## SQLite Adapter
 
-The headless native adapter uses one WAL-mode profile database. Schema version 1
+The headless native adapter uses one WAL-mode profile database. Schema version 2
 contains graph metadata, update, checkpoint, and quarantine tables with the same
-transaction and checksum behavior as IndexedDB. Its purpose is native parity,
+stable replica identity, byte accounting, transaction, and checksum behavior as
+IndexedDB. Its purpose is native parity,
 restart, compaction, corruption, and injected-failure testing until a Tauri shell
 is implemented.
 
@@ -199,6 +221,8 @@ only accepted schema and unsupported values fail explicitly.
 - restart tests compare semantic graph state after checkpoint plus tail replay;
 - fault tests cover before-commit, after-commit, busy/quota, and corrupt records;
 - convergence tests exchange binary updates in different and duplicate orders;
-- browser outbox tests cover atomic queueing, restart, protocol encoding, and acknowledgement;
-- compaction tests reopen from the retained checkpoint and remaining tail;
+- browser outbox tests cover normalized queueing, epoch rebase, restart,
+  protocol encoding, and acknowledgement;
+- compaction tests cross the periodic threshold and reopen from the retained
+  shallow checkpoint and remaining tail;
 - generated contracts are synchronized before tests and checked by production builds.

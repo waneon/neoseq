@@ -1,7 +1,7 @@
 import type { CorePortErrorCode, GraphLocatorDto, StorageCapabilitiesDto } from "./generated/core-port";
 
 const DATABASE = "neoseq-local";
-const VERSION = 2;
+const VERSION = 3;
 const STORES = {
   metadata: "metadata",
   updates: "updates",
@@ -14,9 +14,16 @@ const STORES = {
 export interface MetadataRecord {
   graph_id: string;
   locator: GraphLocatorDto;
+  /** Stable Loro peer identity for this browser replica. */
+  replica_id: number;
+  /** Server-coordinated history generation. Local-only graphs remain at zero. */
+  history_epoch: number;
   schema_version: number;
   next_sequence: number;
   compacted_through: number;
+  checkpoint_bytes: number;
+  tail_bytes: number;
+  tail_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -44,13 +51,28 @@ export interface OutboxRecord {
   message_id: string;
   local_sequence: number;
   base_version_vector: ArrayBuffer;
-  payload: ArrayBuffer;
+  /** Bootstrap history has no update row. Incremental entries reference updates. */
+  payload?: ArrayBuffer;
   created_at: string;
+}
+
+export interface ResolvedOutboxRecord extends OutboxRecord {
+  payload: ArrayBuffer;
 }
 
 export interface SyncStateRecord {
   graph_id: string;
   initialized?: boolean;
+}
+
+export interface GraphStorageStats {
+  checkpoint_bytes: number;
+  checkpoint_count: number;
+  update_bytes: number;
+  update_count: number;
+  outbox_bytes: number;
+  outbox_count: number;
+  compacted_through: number;
 }
 
 export interface PersistenceHooks {
@@ -72,21 +94,42 @@ export class StorageError extends Error {
 export class IndexedDbGraphRepository {
   constructor(private readonly hooks?: PersistenceHooks) {}
 
-  async openGraph(locator: GraphLocatorDto, now: string): Promise<MetadataRecord> {
+  async openGraph(
+    locator: GraphLocatorDto,
+    now: string,
+    suggestedReplicaId: number,
+  ): Promise<MetadataRecord> {
     const database = await openDatabase();
-    const transaction = database.transaction(STORES.metadata, "readwrite");
+    const transaction = database.transaction(
+      [STORES.metadata, STORES.updates, STORES.checkpoints],
+      "readwrite",
+    );
     const store = transaction.objectStore(STORES.metadata);
     const existing = await request<MetadataRecord | undefined>(store.get(locator.graph_id));
-    const metadata = existing ?? {
+    const updates = await request<UpdateRecord[]>(
+      transaction.objectStore(STORES.updates).index("by_graph").getAll(locator.graph_id),
+    );
+    const checkpoints = await request<CheckpointRecord[]>(
+      transaction.objectStore(STORES.checkpoints).index("by_graph").getAll(locator.graph_id),
+    );
+    const metadata: MetadataRecord = {
+      ...existing,
       graph_id: locator.graph_id,
       locator,
-      schema_version: 1,
-      next_sequence: 1,
-      compacted_through: 0,
-      created_at: now,
-      updated_at: now,
+      replica_id: existing?.replica_id ?? suggestedReplicaId,
+      history_epoch: existing?.history_epoch ?? 0,
+      schema_version: existing?.schema_version ?? 1,
+      next_sequence: existing?.next_sequence ?? 1,
+      compacted_through: existing?.compacted_through ?? 0,
+      checkpoint_bytes: checkpoints.reduce((total, value) => total + value.payload.byteLength, 0),
+      tail_bytes: updates.reduce((total, value) => total + value.payload.byteLength, 0),
+      tail_count: updates.length,
+      created_at: existing?.created_at ?? now,
+      updated_at: existing?.updated_at ?? now,
     };
-    if (!existing) store.put(metadata);
+    // Version-3 metadata is migrated lazily so Wasm can recover the old
+    // checkpoint/update representation before any history is discarded.
+    store.put(metadata);
     await complete(transaction);
     database.close();
     return metadata;
@@ -157,11 +200,16 @@ export class IndexedDbGraphRepository {
         message_id: outbox.message_id,
         local_sequence: localSequence,
         base_version_vector: outbox.base_version_vector,
-        payload,
         created_at: now,
       } satisfies OutboxRecord);
     }
-    metadataStore.put({ ...metadata, next_sequence: localSequence + 1, updated_at: now });
+    metadataStore.put({
+      ...metadata,
+      next_sequence: localSequence + 1,
+      tail_bytes: metadata.tail_bytes + payload.byteLength,
+      tail_count: metadata.tail_count + 1,
+      updated_at: now,
+    });
     this.hooks?.beforeCommit?.(transaction);
     await complete(transaction);
     database.close();
@@ -169,8 +217,35 @@ export class IndexedDbGraphRepository {
     return { local_sequence: localSequence, checksum: digest };
   }
 
-  async outbox(graphId: string): Promise<OutboxRecord[]> {
-    return (await allByGraph<OutboxRecord>(STORES.outbox, graphId)).sort(bySequence);
+  async outbox(graphId: string): Promise<ResolvedOutboxRecord[]> {
+    const database = await openDatabase();
+    const transaction = database.transaction([STORES.outbox, STORES.updates], "readonly");
+    const records = await request<OutboxRecord[]>(
+      transaction.objectStore(STORES.outbox).index("by_graph").getAll(graphId),
+    );
+    const updateStore = transaction.objectStore(STORES.updates);
+    const resolved: ResolvedOutboxRecord[] = [];
+    for (const record of records.sort(bySequence)) {
+      let payload = record.payload;
+      if (!payload) {
+        const update = await request<UpdateRecord | undefined>(
+          updateStore.get([graphId, record.local_sequence]),
+        );
+        if (!update) {
+          transaction.abort();
+          throw new StorageError(
+            "storage_corrupt",
+            `outbox update ${record.local_sequence} is missing`,
+            false,
+          );
+        }
+        payload = update.payload;
+      }
+      resolved.push({ ...record, payload });
+    }
+    await complete(transaction);
+    database.close();
+    return resolved;
   }
 
   /** Durably queues the replica's existing history before later remote edits.
@@ -208,8 +283,32 @@ export class IndexedDbGraphRepository {
 
   async acknowledge(graphId: string, messageId: string): Promise<void> {
     const database = await openDatabase();
-    const transaction = database.transaction(STORES.outbox, "readwrite");
-    transaction.objectStore(STORES.outbox).delete([graphId, messageId]);
+    const transaction = database.transaction(
+      [STORES.metadata, STORES.outbox, STORES.updates],
+      "readwrite",
+    );
+    const outboxStore = transaction.objectStore(STORES.outbox);
+    const record = await request<OutboxRecord | undefined>(outboxStore.get([graphId, messageId]));
+    outboxStore.delete([graphId, messageId]);
+    if (record && record.local_sequence > 0) {
+      const metadata = await request<MetadataRecord | undefined>(
+        transaction.objectStore(STORES.metadata).get(graphId),
+      );
+      if (metadata && record.local_sequence <= metadata.compacted_through) {
+        const updateStore = transaction.objectStore(STORES.updates);
+        const update = await request<UpdateRecord | undefined>(
+          updateStore.get([graphId, record.local_sequence]),
+        );
+        updateStore.delete([graphId, record.local_sequence]);
+        if (update) {
+          transaction.objectStore(STORES.metadata).put({
+            ...metadata,
+            tail_bytes: Math.max(0, metadata.tail_bytes - update.payload.byteLength),
+            tail_count: Math.max(0, metadata.tail_count - 1),
+          });
+        }
+      }
+    }
     await complete(transaction);
     database.close();
   }
@@ -235,12 +334,27 @@ export class IndexedDbGraphRepository {
     return values.sort((left, right) => right.local_sequence - left.local_sequence);
   }
 
-  async saveCheckpoint(graphId: string, payload: ArrayBuffer, sequence: number, now: string): Promise<string> {
+  async installCheckpoint(
+    graphId: string,
+    payload: ArrayBuffer,
+    sequence: number,
+    now: string,
+  ): Promise<string> {
     this.hooks?.before?.("checkpoint");
     const digest = await checksum(payload);
     const database = await openDatabase();
-    const transaction = database.transaction(STORES.checkpoints, "readwrite");
-    transaction.objectStore(STORES.checkpoints).put({
+    const transaction = database.transaction(
+      [STORES.metadata, STORES.updates, STORES.checkpoints, STORES.outbox],
+      "readwrite",
+    );
+    const metadataStore = transaction.objectStore(STORES.metadata);
+    const metadata = await request<MetadataRecord | undefined>(metadataStore.get(graphId));
+    if (!metadata) {
+      transaction.abort();
+      throw new StorageError("graph_not_open", "graph metadata not found", false);
+    }
+    const checkpointStore = transaction.objectStore(STORES.checkpoints);
+    checkpointStore.put({
       graph_id: graphId,
       local_sequence: sequence,
       schema_version: 1,
@@ -248,6 +362,34 @@ export class IndexedDbGraphRepository {
       payload,
       created_at: now,
     } satisfies CheckpointRecord);
+    const pinned = new Set(
+      (await request<OutboxRecord[]>(
+        transaction.objectStore(STORES.outbox).index("by_graph").getAll(graphId),
+      ))
+        .map((record) => record.local_sequence)
+        .filter((value) => value > 0),
+    );
+    const updateStore = transaction.objectStore(STORES.updates);
+    const updates = await request<UpdateRecord[]>(updateStore.index("by_graph").getAll(graphId));
+    let tailBytes = 0;
+    let tailCount = 0;
+    for (const update of updates) {
+      if (update.local_sequence <= sequence && !pinned.has(update.local_sequence)) {
+        updateStore.delete([graphId, update.local_sequence]);
+      } else {
+        tailBytes += update.payload.byteLength;
+        tailCount += 1;
+      }
+    }
+    await deleteSequences(checkpointStore, graphId, (value) => value < sequence);
+    metadataStore.put({
+      ...metadata,
+      compacted_through: Math.max(metadata.compacted_through, sequence),
+      checkpoint_bytes: payload.byteLength,
+      tail_bytes: tailBytes,
+      tail_count: tailCount,
+      updated_at: now,
+    });
     this.hooks?.beforeCommit?.(transaction);
     await complete(transaction);
     database.close();
@@ -255,20 +397,84 @@ export class IndexedDbGraphRepository {
     return digest;
   }
 
-  async compact(graphId: string, sequence: number): Promise<void> {
+  /** Atomically adopts a server-owned history epoch. The server checkpoint is
+   * the new Base; any local state absent from it is stored once as a Tail row
+   * and referenced by a fresh outbox message. */
+  async replaceHistory(
+    graphId: string,
+    checkpoint: ArrayBuffer,
+    historyEpoch: number,
+    baseVersionVector: ArrayBuffer,
+    rebasedTail: ArrayBuffer,
+    messageId: string,
+    now: string,
+  ): Promise<void> {
+    this.hooks?.before?.("checkpoint");
+    const [checkpointDigest, tailDigest] = await Promise.all([
+      checksum(checkpoint),
+      rebasedTail.byteLength > 0 ? checksum(rebasedTail) : Promise.resolve(""),
+    ]);
     const database = await openDatabase();
     const transaction = database.transaction(
-      [STORES.metadata, STORES.updates, STORES.checkpoints],
+      [STORES.metadata, STORES.updates, STORES.checkpoints, STORES.outbox],
       "readwrite",
     );
     const metadataStore = transaction.objectStore(STORES.metadata);
     const metadata = await request<MetadataRecord | undefined>(metadataStore.get(graphId));
-    if (!metadata) throw new StorageError("graph_not_open", "graph metadata not found", false);
-    metadataStore.put({ ...metadata, compacted_through: Math.max(metadata.compacted_through, sequence) });
-    await deleteSequences(transaction.objectStore(STORES.updates), graphId, (value) => value <= sequence);
-    await deleteSequences(transaction.objectStore(STORES.checkpoints), graphId, (value) => value < sequence);
+    if (!metadata) {
+      transaction.abort();
+      throw new StorageError("graph_not_open", "graph metadata not found", false);
+    }
+    const checkpointSequence = metadata.next_sequence - 1;
+    const checkpointStore = transaction.objectStore(STORES.checkpoints);
+    const updateStore = transaction.objectStore(STORES.updates);
+    const outboxStore = transaction.objectStore(STORES.outbox);
+    await Promise.all([
+      deleteByGraph(checkpointStore, graphId),
+      deleteByGraph(updateStore, graphId),
+      deleteByGraph(outboxStore, graphId),
+    ]);
+    checkpointStore.put({
+      graph_id: graphId,
+      local_sequence: checkpointSequence,
+      schema_version: 1,
+      checksum: checkpointDigest,
+      payload: checkpoint,
+      created_at: now,
+    } satisfies CheckpointRecord);
+    let nextSequence = metadata.next_sequence;
+    if (rebasedTail.byteLength > 0) {
+      const localSequence = nextSequence;
+      updateStore.put({
+        graph_id: graphId,
+        local_sequence: localSequence,
+        checksum: tailDigest,
+        payload: rebasedTail,
+        created_at: now,
+      } satisfies UpdateRecord);
+      outboxStore.put({
+        graph_id: graphId,
+        message_id: messageId,
+        local_sequence: localSequence,
+        base_version_vector: baseVersionVector,
+        created_at: now,
+      } satisfies OutboxRecord);
+      nextSequence += 1;
+    }
+    metadataStore.put({
+      ...metadata,
+      history_epoch: historyEpoch,
+      next_sequence: nextSequence,
+      compacted_through: checkpointSequence,
+      checkpoint_bytes: checkpoint.byteLength,
+      tail_bytes: rebasedTail.byteLength,
+      tail_count: rebasedTail.byteLength > 0 ? 1 : 0,
+      updated_at: now,
+    });
+    this.hooks?.beforeCommit?.(transaction);
     await complete(transaction);
     database.close();
+    this.hooks?.after?.("checkpoint");
   }
 
   async quarantine(record: QuarantineRecord): Promise<void> {
@@ -297,14 +503,57 @@ export class IndexedDbGraphRepository {
     database.close();
   }
 
-  async capabilities(): Promise<StorageCapabilitiesDto> {
+  async capabilities(graphId: string): Promise<StorageCapabilitiesDto> {
     const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : undefined;
     const estimate = navigator.storage?.estimate ? await navigator.storage.estimate() : {};
+    const metadata = await this.metadata(graphId);
+    const [outbox, quarantine] = await Promise.all([
+      allByGraph<OutboxRecord>(STORES.outbox, graphId),
+      allByGraph<QuarantineRecord>(STORES.quarantine, graphId),
+    ]);
+    const standaloneOutboxBytes = outbox.reduce(
+      (total, record) => total + (record.payload?.byteLength ?? 0),
+      0,
+    );
+    const quarantineBytes = quarantine.reduce(
+      (total, record) => total + record.payload.byteLength,
+      0,
+    );
     return {
       durable: true,
       persisted,
       quota_bytes: estimate.quota,
-      usage_bytes: estimate.usage,
+      // This field is graph data, not the origin-wide allocation returned by
+      // StorageManager (which also includes the Wasm/font shell cache).
+      usage_bytes:
+        metadata.checkpoint_bytes
+        + metadata.tail_bytes
+        + standaloneOutboxBytes
+        + quarantineBytes,
+    };
+  }
+
+  async storageStats(graphId: string): Promise<GraphStorageStats> {
+    const metadata = await this.metadata(graphId);
+    const [checkpoints, updates, outbox] = await Promise.all([
+      allByGraph<CheckpointRecord>(STORES.checkpoints, graphId),
+      allByGraph<UpdateRecord>(STORES.updates, graphId),
+      allByGraph<OutboxRecord>(STORES.outbox, graphId),
+    ]);
+    return {
+      checkpoint_bytes: checkpoints.reduce(
+        (total, record) => total + record.payload.byteLength,
+        0,
+      ),
+      checkpoint_count: checkpoints.length,
+      update_bytes: updates.reduce((total, record) => total + record.payload.byteLength, 0),
+      update_count: updates.length,
+      outbox_bytes: outbox.reduce(
+        (total, record) => total + (record.payload?.byteLength ?? 0),
+        0,
+      ),
+      outbox_count: outbox.length,
+      compacted_through: metadata.compacted_through,
     };
   }
 }
@@ -314,25 +563,42 @@ async function openDatabase(): Promise<IDBDatabase> {
     const open = indexedDB.open(DATABASE, VERSION);
     open.onupgradeneeded = () => {
       const database = open.result;
-      database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
-      for (const name of [STORES.updates, STORES.checkpoints]) {
-        const store = database.createObjectStore(name, {
-          keyPath: ["graph_id", "local_sequence"],
-        });
-        store.createIndex("by_graph", "graph_id", { unique: false });
+      if (!database.objectStoreNames.contains(STORES.metadata)) {
+        database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
       }
-      const quarantine = database.createObjectStore(STORES.quarantine, {
-        keyPath: ["graph_id", "export_handle"],
-      });
-      quarantine.createIndex("by_graph", "graph_id", { unique: false });
-      const outbox = database.createObjectStore(STORES.outbox, {
-        keyPath: ["graph_id", "message_id"],
-      });
-      outbox.createIndex("by_graph", "graph_id", { unique: false });
-      database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
-      open.transaction
-        ?.objectStore(STORES.updates)
-        .createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
+      for (const name of [STORES.updates, STORES.checkpoints]) {
+        const store = database.objectStoreNames.contains(name)
+          ? open.transaction!.objectStore(name)
+          : database.createObjectStore(name, {
+              keyPath: ["graph_id", "local_sequence"],
+            });
+        if (!store.indexNames.contains("by_graph")) {
+          store.createIndex("by_graph", "graph_id", { unique: false });
+        }
+      }
+      const quarantine = database.objectStoreNames.contains(STORES.quarantine)
+        ? open.transaction!.objectStore(STORES.quarantine)
+        : database.createObjectStore(STORES.quarantine, {
+            keyPath: ["graph_id", "export_handle"],
+          });
+      if (!quarantine.indexNames.contains("by_graph")) {
+        quarantine.createIndex("by_graph", "graph_id", { unique: false });
+      }
+      const outbox = database.objectStoreNames.contains(STORES.outbox)
+        ? open.transaction!.objectStore(STORES.outbox)
+        : database.createObjectStore(STORES.outbox, {
+            keyPath: ["graph_id", "message_id"],
+          });
+      if (!outbox.indexNames.contains("by_graph")) {
+        outbox.createIndex("by_graph", "graph_id", { unique: false });
+      }
+      if (!database.objectStoreNames.contains(STORES.syncState)) {
+        database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
+      }
+      const updates = open.transaction!.objectStore(STORES.updates);
+      if (!updates.indexNames.contains("by_checksum")) {
+        updates.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
+      }
     };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(mapDomError(open.error));
@@ -357,6 +623,11 @@ async function deleteSequences(
   for (const key of keys) {
     if (Array.isArray(key) && shouldDelete(Number(key[1]))) store.delete(key);
   }
+}
+
+async function deleteByGraph(store: IDBObjectStore, graphId: string): Promise<void> {
+  const keys = await request<IDBValidKey[]>(store.index("by_graph").getAllKeys(graphId));
+  keys.forEach((key) => store.delete(key));
 }
 
 function request<T>(value: IDBRequest<T>): Promise<T> {

@@ -8,7 +8,7 @@ surface. Typed properties add task and query behavior without introducing
 feature-specific storage shapes.
 
 The implemented product is a local-first Web client: React calls a Rust/Wasm
-core in a Web Worker, IndexedDB stores the canonical Loro history and remote
+core in a Web Worker, IndexedDB stores a bounded Loro Base+Tail and remote
 outbox, and an in-memory RDF index serves graph search and read-only SPARQL.
 Remote graphs synchronize through an authenticated Rust WebSocket service and
 durable PostgreSQL update log. A headless native adapter verifies the core and
@@ -40,13 +40,13 @@ flowchart LR
     Session --> Agent[SyncAgent]
     Port --> Worker[Web Worker adapter]
     Worker --> Core[Rust/Wasm graph core]
-    Worker --> Store[(IndexedDB history + outbox)]
+    Worker --> Store[(IndexedDB Base + Tail + outbox)]
     Core --> Store
     Core --> Index[(In-memory RDF index)]
 
     Agent <--> Worker
     Agent <--> Sync[Sync server]
-    Sync --> Postgres[(PostgreSQL update log)]
+    Sync --> Postgres[(PostgreSQL epoch checkpoint + tail)]
 
     Native[Headless native adapter] --> Core
     Native --> SQLite[(SQLite update log)]
@@ -153,6 +153,13 @@ them only after a durable server acknowledgement, and imports validated remote
 bytes through the same Worker/core projection path. Network availability never
 changes the local save contract.
 
+Persistence is Base+Tail, not an unbounded event archive. Local graphs install
+a shallow Loro checkpoint after 128 tail records or 512 KiB and atomically
+remove covered updates. Each durable replica keeps one stable Loro peer ID.
+Remote history is reclaimed only when the server rotates a `history_epoch`;
+clients atomically adopt the new Base and rebase any unacknowledged local intent
+into one referenced Tail/outbox record.
+
 ## Security and Privacy
 
 - Local graphs make no network requests.
@@ -162,7 +169,7 @@ changes the local save contract.
   safe messages.
 - Remote endpoints require TLS, authenticated membership, and limits on
   untrusted CRDT frames before acceptance.
-- The v1 remote protocol is not end-to-end encrypted; E2EE requires
+- The v2 remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 
 ## Repository Shape
@@ -191,8 +198,8 @@ domain, never the reverse.
   architecture together.
 - Add compatibility fixtures only when the product genuinely supports more
   than one deployed contract or persisted schema.
-- Add schema migration machinery when the first real migration is introduced;
-  migration is not a placeholder in the current v1 document.
+- Persisted adapter and wire schemas migrate independently from the canonical
+  graph document schema and reject versions newer than they support.
 - New platforms implement existing ports rather than forking domain behavior.
 - New metadata features use the property registry. New identity or relationship
   semantics require an explicit structural design.

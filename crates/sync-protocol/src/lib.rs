@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const WIRE_VERSION: u16 = 1;
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 pub const HEADER_LEN: usize = 10;
 const MAGIC: [u8; 4] = *b"NSQP";
 
@@ -68,6 +68,10 @@ pub struct Hello {
     pub schema: VersionRange,
     pub graph_id: String,
     pub session_id: String,
+    /// Stable identity of this durable graph replica.
+    pub replica_id: u64,
+    /// History generation owned by the server checkpoint coordinator.
+    pub history_epoch: u64,
     /// Loro's encoded version vector. Transport cursors are never substituted here.
     pub version_vector: Vec<u8>,
 }
@@ -79,6 +83,7 @@ pub struct Welcome {
     pub graph_status: GraphStatus,
     pub limits: Limits,
     pub membership_version: u64,
+    pub history_epoch: u64,
     pub server_cursor: u64,
     pub server_version_vector: Vec<u8>,
     /// A Loro update containing operations absent from the client's version vector.
@@ -86,10 +91,14 @@ pub struct Welcome {
     /// A Loro snapshot offered when an incremental update would exceed the
     /// negotiated update limit. Empty when `missing_update` is used.
     pub checkpoint: Vec<u8>,
+    /// The checkpoint replaces local canonical state rather than merging into
+    /// it because the client's retained history predates the server epoch.
+    pub replace_checkpoint: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Update {
+    pub history_epoch: u64,
     pub message_id: String,
     pub base_version_vector: Vec<u8>,
     pub bytes: Vec<u8>,
@@ -97,6 +106,7 @@ pub struct Update {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ack {
+    pub history_epoch: u64,
     pub message_id: String,
     pub server_cursor: u64,
 }
@@ -123,6 +133,7 @@ pub enum ErrorCode {
     RateLimited,
     StorageUnavailable,
     GraphLimitExceeded,
+    StaleHistory,
     SlowConsumer,
     Internal,
 }
@@ -139,6 +150,7 @@ pub struct ErrorMessage {
 pub struct ResyncRequired {
     pub code: ErrorCode,
     pub server_cursor: u64,
+    pub history_epoch: u64,
     pub diagnostic: String,
 }
 
@@ -228,6 +240,7 @@ pub fn validate_message(message: &Message, limits: Limits) -> Result<(), Protoco
                 || hello.graph_id.len() > 128
                 || hello.session_id.is_empty()
                 || hello.session_id.len() > 128
+                || hello.replica_id == 0
                 || hello.version_vector.len() > 16_384
             {
                 return Err(ProtocolError::new(
@@ -303,6 +316,8 @@ mod tests {
             schema: VersionRange::exact(1),
             graph_id: "graph-1".into(),
             session_id: "session-1".into(),
+            replica_id: 1,
+            history_epoch: 0,
             version_vector: vec![1, 2, 3],
         })
     }
@@ -342,6 +357,7 @@ mod tests {
             ..Limits::default()
         };
         let update = Message::Update(Update {
+            history_epoch: 0,
             message_id: "m1".into(),
             base_version_vector: Vec::new(),
             bytes: vec![0; 3],
@@ -375,6 +391,8 @@ mod tests {
             schema: VersionRange::exact(1),
             graph_id: fixture.hello.graph_id,
             session_id: fixture.hello.session_id,
+            replica_id: 1,
+            history_epoch: 0,
             version_vector: fixture.hello.version_vector,
         });
         assert_eq!(

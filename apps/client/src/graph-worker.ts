@@ -43,6 +43,7 @@ interface PendingWrite {
 }
 interface OpenState {
   graphId: string;
+  replicaId: number;
   core: WasmGraphCore;
   repository: IndexedDbGraphRepository;
   events: EventRecord[];
@@ -50,6 +51,9 @@ interface OpenState {
   pending?: PendingWrite;
   remote: boolean;
 }
+
+const COMPACT_TAIL_UPDATES = 128;
+const COMPACT_TAIL_BYTES = 512 * 1024;
 
 let wasmReady: Promise<unknown> | undefined;
 const states = new Map<string, OpenState>();
@@ -79,11 +83,18 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
         case "list_graphs": value = await createRepository().allMetadata(); break;
         case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
+        case "storage_capabilities": value = await storageCapabilities(payload as { graph_handle: string }); break;
         case "sync_configure": value = await configureSync(payload as { graph_handle: string }); break;
         case "sync_state": value = await syncState(payload as { graph_handle: string }); break;
         case "sync_next": value = await syncNext(payload as { graph_handle: string }); break;
         case "sync_ack": value = await syncAck(payload as { graph_handle: string; message_id: string }); break;
         case "sync_import": value = await syncImport(payload as { graph_handle: string; bytes: ArrayBuffer | Uint8Array }); break;
+        case "sync_replace": value = await syncReplace(payload as {
+          graph_handle: string;
+          checkpoint: ArrayBuffer | Uint8Array;
+          history_epoch: number;
+          server_version_vector: ArrayBuffer | Uint8Array;
+        }); break;
         case "sync_encode": await ensureWasm(); value = syncEncode(payload); break;
         case "sync_decode": await ensureWasm(); value = syncDecode(payload as { frame: ArrayBuffer | Uint8Array }); break;
         default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
@@ -110,13 +121,14 @@ async function openGraph(request: OpenGraphRequest) {
   const handle = `local:${request.locator.graph_id}`;
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = createRepository();
-  const metadata = await repository.openGraph(request.locator, now());
+  const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
   if (metadata.schema_version !== 1) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
-  const recovery = await recover(repository, request.locator.graph_id, request.peer_id);
+  const recovery = await recover(repository, request.locator.graph_id, metadata.replica_id);
   const state: OpenState = {
     graphId: request.locator.graph_id,
+    replicaId: metadata.replica_id,
     core: recovery.core,
     repository,
     events: [],
@@ -127,7 +139,7 @@ async function openGraph(request: OpenGraphRequest) {
   return {
     graph_handle: handle,
     summary: JSON.parse(state.core.summaryJson()),
-    capabilities: await repository.capabilities(),
+    capabilities: await repository.capabilities(state.graphId),
     recovery: recovery.report,
   };
 }
@@ -159,8 +171,8 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
   }
   if (!core) {
     core = new WasmGraphCore(graphId, BigInt(peerId), now());
-    const snapshot = ownedBuffer(core.exportSnapshot());
-    await repository.saveCheckpoint(graphId, snapshot, 0, now());
+    const snapshot = ownedBuffer(core.exportGcCheckpoint());
+    await repository.installCheckpoint(graphId, snapshot, 0, now());
   }
   let replayedUpdates = 0;
   let corruptTail = false;
@@ -251,7 +263,32 @@ async function persistPending(state: OpenState) {
   push(state, "local", { type: "semantic", name: pending.semantic, command_id: pending.commandId });
   push(state, "local", { type: "saved_locally", ...receipt });
   state.pending = undefined;
+  try {
+    await maybeCompact(state);
+  } catch {
+    // The update is already durable. Maintenance is retried on the next
+    // threshold or clean close and must not turn a saved command into an
+    // ambiguous dirty write.
+  }
   return receipt;
+}
+
+async function maybeCompact(state: OpenState, force = false): Promise<void> {
+  if (state.pending || state.remote) return;
+  const metadata = await state.repository.metadata(state.graphId);
+  if (
+    !force
+    && metadata.tail_count < COMPACT_TAIL_UPDATES
+    && metadata.tail_bytes < COMPACT_TAIL_BYTES
+  ) {
+    return;
+  }
+  const through = metadata.next_sequence - 1;
+  const checkpoint = ownedBuffer(state.core.exportGcCheckpoint());
+  // Validate the exact bytes before the atomic pointer swap. Recovery never
+  // has to discover that a maintenance checkpoint was malformed.
+  WasmGraphCore.fromSnapshot(state.graphId, BigInt(state.replicaId), new Uint8Array(checkpoint));
+  await state.repository.installCheckpoint(state.graphId, checkpoint, through, now());
 }
 
 function read(request: ReadRequest) {
@@ -295,11 +332,15 @@ function subscribe(request: SubscribeRequest) {
 async function closeGraph(request: CloseGraphRequest) {
   const state = requireState(request.graph_handle);
   if (state.pending) throw failure("dirty_unsaved", "close rejected while an update is not durable", true);
-  const metadata = await state.repository.metadata(state.graphId);
-  const through = metadata.next_sequence - 1;
-  const snapshot = ownedBuffer(state.core.exportSnapshot());
-  await state.repository.saveCheckpoint(state.graphId, snapshot, through, now());
-  await state.repository.compact(state.graphId, through);
+  if (state.remote) {
+    // Remote history is retained until the server publishes a GC epoch.
+    const metadata = await state.repository.metadata(state.graphId);
+    const through = metadata.next_sequence - 1;
+    const snapshot = ownedBuffer(state.core.exportSnapshot());
+    await state.repository.installCheckpoint(state.graphId, snapshot, through, now());
+  } else {
+    await maybeCompact(state, true);
+  }
   states.delete(request.graph_handle);
   return { closed: true };
 }
@@ -319,6 +360,11 @@ async function deleteGraph(payload: { graph_id: string }) {
   return { deleted: true };
 }
 
+async function storageCapabilities(payload: { graph_handle: string }) {
+  const state = requireState(payload.graph_handle);
+  return state.repository.capabilities(state.graphId);
+}
+
 async function configureSync(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   state.remote = true;
@@ -336,9 +382,12 @@ async function configureSync(payload: { graph_handle: string }) {
 async function syncState(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   const outbox = await state.repository.outbox(state.graphId);
+  const metadata = await state.repository.metadata(state.graphId);
   return {
     version_vector: [...state.core.versionVector()],
     pending: outbox.length,
+    replica_id: state.replicaId,
+    history_epoch: metadata.history_epoch,
   };
 }
 
@@ -346,11 +395,13 @@ async function syncNext(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   const next = (await state.repository.outbox(state.graphId))[0];
   if (!next) return null;
+  const metadata = await state.repository.metadata(state.graphId);
   return {
     message_id: next.message_id,
     local_sequence: next.local_sequence,
     base_version_vector: [...new Uint8Array(next.base_version_vector)],
     bytes: [...new Uint8Array(next.payload)],
+    history_epoch: metadata.history_epoch,
   };
 }
 
@@ -381,6 +432,46 @@ async function syncImport(payload: {
   return receipt;
 }
 
+async function syncReplace(payload: {
+  graph_handle: string;
+  checkpoint: ArrayBuffer | Uint8Array;
+  history_epoch: number;
+  server_version_vector: ArrayBuffer | Uint8Array;
+}) {
+  const state = requireState(payload.graph_handle);
+  if (state.pending) {
+    throw failure("dirty_unsaved", "save the local update before replacing history", true);
+  }
+  const checkpoint = ownedBuffer(asUint8Array(payload.checkpoint));
+  const serverVersionVector = ownedBuffer(asUint8Array(payload.server_version_vector));
+  const candidate = WasmGraphCore.fromSnapshot(
+    state.graphId,
+    BigInt(state.replicaId),
+    new Uint8Array(checkpoint),
+  );
+  // Replay only durable, unacknowledged intent onto the new Base. If any old
+  // update cannot be rebased, canonical state remains untouched and reconnect
+  // can be retried or surfaced as recovery-required.
+  for (const record of await state.repository.outbox(state.graphId)) {
+    candidate.importUpdate(new Uint8Array(record.payload));
+  }
+  const rebasedTail = ownedBuffer(
+    candidate.exportUpdatesSince(new Uint8Array(serverVersionVector)),
+  );
+  await state.repository.replaceHistory(
+    state.graphId,
+    checkpoint,
+    payload.history_epoch,
+    serverVersionVector,
+    rebasedTail,
+    crypto.randomUUID(),
+    now(),
+  );
+  state.core = candidate;
+  push(state, "remote", { type: "semantic", name: "history_epoch_replaced" });
+  return null;
+}
+
 function syncEncode(payload: unknown): ArrayBuffer {
   return ownedBuffer(encodeSyncMessageJson(JSON.stringify(payload)));
 }
@@ -400,6 +491,15 @@ async function testControl(payload: Record<string, unknown>) {
     case "corrupt_update": return repository.corruptUpdate(String(payload.graph_id), Number(payload.sequence)).then(() => null);
     case "quarantine_count": return repository.quarantineCount(String(payload.graph_id));
     case "export_quarantine": return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
+    case "storage_stats": return repository.storageStats(String(payload.graph_id));
+    case "replica_id": return repository.metadata(String(payload.graph_id)).then((value) => value.replica_id);
+    case "gc_checkpoint": {
+      const state = requireState(String(payload.graph_handle));
+      return {
+        checkpoint: [...state.core.exportGcCheckpoint()],
+        version_vector: [...state.core.versionVector()],
+      };
+    }
     case "set_schema": return repository.setSchemaVersion(String(payload.graph_id), Number(payload.schema_version)).then(() => null);
     default: throw failure("invalid_request", "unknown test control action", false);
   }

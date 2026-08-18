@@ -30,6 +30,14 @@ function ensurePage(graph: string, commandId: string, pageId: string) {
   };
 }
 
+function renamePage(graph: string, commandId: string, pageId: string, title: string) {
+  return {
+    graph_id: graph,
+    command_id: commandId,
+    command: { type: "rename_page", page_id: pageId, title },
+  };
+}
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -49,6 +57,7 @@ export async function runIndexedDbPersistenceCorpus() {
   const graph = graphId("indexeddb-corpus");
   const creator = new TestCoreWorker();
   const opened = await creator.openGraph(openRequest(graph, 201));
+  const replicaId = await creator.replicaId(graph);
   assert(opened.summary && opened.capabilities.durable, "open must expose durable storage capability");
   const saved = await creator.execute({
     graph_handle: opened.graph_handle,
@@ -57,14 +66,26 @@ export async function runIndexedDbPersistenceCorpus() {
   });
   assert(saved.save_status.status === "saved_locally", "execute must acknowledge local durability");
   assert(saved.save_status.checksum.length === 64, "saved update checksum must be SHA-256");
+  for (let index = 0; index < 130; index += 1) {
+    await creator.execute({
+      graph_handle: opened.graph_handle,
+      command: renamePage(graph, `rename-${index}`, "home", `Home ${index % 2}`),
+      timeout_ms: 1_000,
+    });
+  }
+  const compacted = await creator.storageStats(graph);
+  assert(compacted.compacted_through >= 128, "tail threshold did not install a checkpoint");
+  assert(compacted.checkpoint_count === 1, "compaction retained redundant checkpoints");
+  assert(compacted.update_count < 8, "compaction retained its covered update tail");
   const before = await creator.read({ graph_handle: opened.graph_handle });
   await creator.closeGraph({ graph_handle: opened.graph_handle });
   creator.terminate();
 
   const restorer = new TestCoreWorker();
   const reopened = await restorer.openGraph(openRequest(graph, 202));
+  assert(await restorer.replicaId(graph) === replicaId, "browser replica id changed across restart");
   assert(JSON.stringify(reopened.summary) === JSON.stringify(before.summary), "worker restart changed the canonical summary");
-  assert(reopened.recovery.checkpoint_sequence === 1, "close checkpoint was not selected on reopen");
+  assert(reopened.recovery.checkpoint_sequence >= 128, "compacted checkpoint was not selected on reopen");
   await restorer.closeGraph({ graph_handle: reopened.graph_handle });
   await restorer.deleteGraph(graph);
   restorer.terminate();
@@ -227,6 +248,7 @@ export async function runRemoteOutboxCorpus() {
   const graph = graphId("remote-outbox");
   const writer = new TestCoreWorker();
   const opened = await writer.openGraph(openRequest(graph, 271));
+  const serverBase = await writer.gcCheckpoint(opened.graph_handle);
   await writer.configureSync(opened.graph_handle);
   assert((await writer.syncState(opened.graph_handle)).pending === 1, "replica bootstrap was not queued");
   const bootstrap = await writer.nextOutbox(opened.graph_handle);
@@ -239,10 +261,13 @@ export async function runRemoteOutboxCorpus() {
   });
   const pending = await writer.syncState(opened.graph_handle);
   assert(pending.pending === 1, "saved remote edit was not added to the durable outbox");
+  const referenced = await writer.storageStats(graph);
+  assert(referenced.outbox_bytes === 0, "incremental outbox duplicated update payload bytes");
   const queued = await writer.nextOutbox(opened.graph_handle);
   assert(queued?.bytes.length, "outbox update bytes are missing");
   const encoded = await writer.encodeSyncMessage({
     Update: {
+      history_epoch: queued.history_epoch,
       message_id: queued.message_id,
       base_version_vector: queued.base_version_vector,
       bytes: queued.bytes,
@@ -250,17 +275,31 @@ export async function runRemoteOutboxCorpus() {
   });
   const decoded = await writer.decodeSyncMessage(encoded) as { Update?: { message_id?: string } };
   assert(decoded.Update?.message_id === queued.message_id, "browser protocol codec drifted");
+  await writer.replaceRemote(
+    opened.graph_handle,
+    serverBase.checkpoint,
+    1,
+    serverBase.version_vector,
+  );
+  const replaced = await writer.syncState(opened.graph_handle);
+  assert(replaced.history_epoch === 1, "server history epoch was not installed");
+  assert(replaced.pending === 1, "unacknowledged local intent was lost during rebase");
+  const rebased = await writer.nextOutbox(opened.graph_handle);
+  assert(rebased?.history_epoch === 1, "rebased outbox retained a stale epoch");
+  const replacedStats = await writer.storageStats(graph);
+  assert(replacedStats.update_count === 1, "rebased intent was not normalized to one tail row");
+  assert(replacedStats.outbox_bytes === 0, "rebased outbox duplicated its tail payload");
   writer.terminate();
 
   const restarted = new TestCoreWorker();
   const reopened = await restarted.openGraph(openRequest(graph, 272));
   await restarted.configureSync(reopened.graph_handle);
   assert((await restarted.syncState(reopened.graph_handle)).pending === 1, "restart lost unacknowledged outbox update");
-  await restarted.acknowledgeOutbox(reopened.graph_handle, queued.message_id);
+  await restarted.acknowledgeOutbox(reopened.graph_handle, rebased.message_id);
   const acknowledged = await restarted.syncState(reopened.graph_handle);
   assert(acknowledged.pending === 0, "acknowledgement did not remove the outbox update");
   await restarted.closeGraph({ graph_handle: reopened.graph_handle });
   await restarted.deleteGraph(graph);
   restarted.terminate();
-  return { durable_retry: true, protocol_codec: true, acknowledged: true };
+  return { durable_retry: true, protocol_codec: true, epoch_rebased: true, acknowledged: true };
 }

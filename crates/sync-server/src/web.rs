@@ -393,7 +393,7 @@ async fn sync_upgrade<S: GraphStore, V: TokenVerifier>(
     };
     let max_frame = state.rooms.limits().max_frame_bytes as usize;
     upgrade
-        .protocols(["neoseq.v1"])
+        .protocols(["neoseq.v2"])
         .max_message_size(max_frame)
         .max_frame_size(max_frame)
         .on_upgrade(move |socket| session(socket, state, token, permit))
@@ -502,10 +502,12 @@ async fn session<S: GraphStore, V: TokenVerifier>(
 
     let opened = match state
         .rooms
-        .open(
+        .open_replica(
             &hello.graph_id,
             &hello.session_id,
             &principal.id,
+            hello.replica_id,
+            hello.history_epoch,
             &hello.version_vector,
         )
         .await
@@ -646,6 +648,7 @@ async fn run_session<S: GraphStore, V: TokenVerifier>(
                         error,
                         RoomError::Store(StoreError::AccessDenied)
                             | RoomError::ReconnectRequired
+                            | RoomError::StaleHistory
                             | RoomError::SlowConsumer
                     ) {
                         break;
@@ -727,6 +730,11 @@ fn room_error_message(error: &RoomError) -> Message {
             ErrorCode::InvalidUpdate,
             false,
             "message id conflicts with durable update",
+        ),
+        RoomError::Store(StoreError::StaleHistory) | RoomError::StaleHistory => (
+            ErrorCode::StaleHistory,
+            true,
+            "client history epoch is stale",
         ),
         RoomError::Store(_) => (
             ErrorCode::StorageUnavailable,

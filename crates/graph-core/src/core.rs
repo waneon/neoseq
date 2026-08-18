@@ -558,6 +558,18 @@ impl GraphCore {
         Ok(self.doc.export(ExportMode::Snapshot)?)
     }
 
+    /// Exports the current state as a garbage-collected persistence baseline.
+    ///
+    /// Unlike `export_snapshot`, this intentionally drops operation history
+    /// before the current frontier. It is suitable for a local recovery
+    /// checkpoint only when the caller owns the history-retention decision.
+    /// Synced replicas must use a server-approved history frontier instead of
+    /// compacting independently.
+    pub fn export_gc_checkpoint(&self) -> Result<Vec<u8>, CoreError> {
+        let frontiers = self.doc.oplog_frontiers();
+        Ok(self.doc.export(ExportMode::shallow_snapshot(&frontiers))?)
+    }
+
     pub fn export_all(&self) -> Result<Vec<u8>, CoreError> {
         Ok(self.doc.export(ExportMode::all_updates())?)
     }

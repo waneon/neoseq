@@ -72,9 +72,13 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
             .import_remote(&reconnect.welcome.missing_update)
             .unwrap();
     } else {
-        client_c
-            .import_remote(&reconnect.welcome.checkpoint)
-            .unwrap();
+        assert!(reconnect.welcome.replace_checkpoint);
+        client_c = graph_core::GraphCore::from_snapshot(
+            domain::GraphId::new(GRAPH).unwrap(),
+            4,
+            &reconnect.welcome.checkpoint,
+        )
+        .unwrap();
     }
     assert_eq!(expected, client_c.fingerprint().unwrap());
 
@@ -109,15 +113,83 @@ async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
         .unwrap();
     assert!(opened.welcome.missing_update.is_empty());
     assert!(!opened.welcome.checkpoint.is_empty());
-    let mut reconnect = graph_core::GraphCore::from_snapshot(
+    assert!(opened.welcome.replace_checkpoint);
+    let reconnect = graph_core::GraphCore::from_snapshot(
         domain::GraphId::new(GRAPH).unwrap(),
         3,
-        &fixture.snapshot,
+        &opened.welcome.checkpoint,
     )
     .unwrap();
-    reconnect.import_remote(&opened.welcome.checkpoint).unwrap();
     assert_eq!(
         client.fingerprint().unwrap(),
         reconnect.fingerprint().unwrap()
     );
+}
+
+#[tokio::test]
+async fn history_epoch_rotation_reclaims_tail_and_preserves_retry_receipts() {
+    let fixture = fixture(RoomConfig::default());
+    let (client, update) = client_update(
+        &fixture.snapshot,
+        2,
+        "rotate",
+        "rotate-message",
+        "page-a",
+        "A",
+    );
+    let committed = fixture
+        .store
+        .commit_update(GRAPH, OWNER, &update.message_id, &update.bytes)
+        .await
+        .unwrap();
+    let checkpoint = client.export_gc_checkpoint().unwrap();
+    let epoch = fixture
+        .store
+        .install_checkpoint(
+            GRAPH,
+            0,
+            committed.cursor,
+            &checkpoint,
+            &client.version_vector(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(epoch, 1);
+    assert_eq!(fixture.store.update_count(GRAPH), 0);
+
+    let duplicate = fixture
+        .store
+        .commit_update(GRAPH, OWNER, &update.message_id, &update.bytes)
+        .await
+        .unwrap();
+    assert_eq!(duplicate.cursor, committed.cursor);
+    assert!(!duplicate.inserted);
+
+    let mut opened = fixture
+        .manager
+        .open_replica(GRAPH, "stale-client", OWNER, 3, 0, &fixture.base_version)
+        .await
+        .unwrap();
+    assert_eq!(opened.welcome.history_epoch, 1);
+    assert!(opened.welcome.replace_checkpoint);
+    let mut stale = update;
+    stale.history_epoch = 0;
+    assert!(matches!(
+        fixture
+            .manager
+            .submit_update(&opened.connection, stale)
+            .await,
+        Err(sync_server::RoomError::StaleHistory)
+    ));
+    let restored = graph_core::GraphCore::from_snapshot(
+        domain::GraphId::new(GRAPH).unwrap(),
+        3,
+        &opened.welcome.checkpoint,
+    )
+    .unwrap();
+    assert_eq!(
+        client.fingerprint().unwrap(),
+        restored.fingerprint().unwrap()
+    );
+    let _ = opened.connection.take_outbound();
 }

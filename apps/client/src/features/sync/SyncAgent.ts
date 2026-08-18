@@ -37,6 +37,11 @@ export interface SyncAgentPort {
 
 interface SyncAgentDelegate {
   applyRemote(bytes: number[]): Promise<void>;
+  replaceRemote(
+    checkpoint: number[],
+    historyEpoch: number,
+    serverVersionVector: number[],
+  ): Promise<void>;
   changed(state: SyncAgentState): void;
 }
 
@@ -140,7 +145,7 @@ export class SyncAgent {
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     this.transportSessionId = `${this.sessionId}:${crypto.randomUUID()}`;
     const socket = new WebSocket(url, [
-      "neoseq.v1",
+      "neoseq.v2",
       `neoseq.auth.${base64Url(auth.token)}`,
     ]);
     socket.binaryType = "arraybuffer";
@@ -170,10 +175,12 @@ export class SyncAgent {
     const state = await this.port.syncState(this.graphHandle);
     const frame = await this.port.encodeSyncMessage({
       Hello: {
-        protocol: { min: 1, max: 1 },
+        protocol: { min: 2, max: 2 },
         schema: { min: 1, max: 1 },
         graph_id: this.graphId,
         session_id: this.transportSessionId,
+        replica_id: state.replica_id,
+        history_epoch: state.history_epoch,
         version_vector: state.version_vector,
       },
     });
@@ -186,7 +193,16 @@ export class SyncAgent {
       const welcome = message.Welcome;
       const missing = numberArray(welcome.missing_update);
       const checkpoint = numberArray(welcome.checkpoint);
-      if (checkpoint.length > 0) await this.delegate.applyRemote(checkpoint);
+      if (Boolean(welcome.replace_checkpoint)) {
+        if (checkpoint.length === 0) throw new Error("replacement checkpoint is missing");
+        await this.delegate.replaceRemote(
+          checkpoint,
+          Number(welcome.history_epoch),
+          numberArray(welcome.server_version_vector),
+        );
+      } else if (checkpoint.length > 0) {
+        await this.delegate.applyRemote(checkpoint);
+      }
       if (missing.length > 0) await this.delegate.applyRemote(missing);
       this.welcomed = true;
       this.retry = 0;
@@ -245,6 +261,7 @@ export class SyncAgent {
     }
     const frame = await this.port.encodeSyncMessage({
       Update: {
+        history_epoch: next.history_epoch,
         message_id: next.message_id,
         base_version_vector: next.base_version_vector,
         bytes: next.bytes,

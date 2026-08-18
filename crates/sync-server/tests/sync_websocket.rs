@@ -47,7 +47,7 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     request.headers_mut().insert(
         "sec-websocket-protocol",
         HeaderValue::from_str(&format!(
-            "neoseq.v1, neoseq.auth.{}",
+            "neoseq.v2, neoseq.auth.{}",
             URL_SAFE_NO_PAD.encode(token)
         ))
         .unwrap(),
@@ -55,13 +55,15 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let (mut socket, response) = connect_async(request).await.unwrap();
     assert_eq!(
         response.headers().get("sec-websocket-protocol").unwrap(),
-        "neoseq.v1"
+        "neoseq.v2"
     );
     let hello = Message::Hello(Hello {
         protocol: VersionRange::exact(PROTOCOL_VERSION),
         schema: VersionRange::exact(graph_core::SCHEMA_VERSION as u16),
         graph_id: GRAPH.into(),
         session_id: "websocket-client".into(),
+        replica_id: 2,
+        history_epoch: 0,
         version_vector: fixture.base_version.clone(),
     });
     socket

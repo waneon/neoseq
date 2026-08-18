@@ -8,7 +8,7 @@ import {
 } from "../persistence";
 
 const DATABASE = "neoseq-local";
-const VERSION = 2;
+const VERSION = 3;
 
 export type FaultPoint =
   | "append_before"

@@ -427,6 +427,40 @@ fn convergence_deleted_tag_is_not_published_after_concurrent_add() {
 }
 
 #[test]
+fn gc_checkpoint_drops_repeated_edit_history_without_changing_state() {
+    let fixture = base_fixture(0x02_0000_0abc);
+    let mut core = GraphCore::from_snapshot(fixture.graph.clone(), 77, &fixture.snapshot).unwrap();
+    for sequence in 0..512 {
+        execute(
+            &mut core,
+            &fixture.graph,
+            77,
+            1_000 + sequence,
+            Command::SpliceMarkdown {
+                page_id: fixture.page_a.clone(),
+                block_id: fixture.text.clone(),
+                index: 0,
+                delete: 1,
+                insert: if sequence % 2 == 0 { "x" } else { "y" }.into(),
+            },
+        );
+    }
+
+    let expected = core.fingerprint().unwrap();
+    let archive = core.export_snapshot().unwrap();
+    let checkpoint = core.export_gc_checkpoint().unwrap();
+    let restored = GraphCore::from_snapshot(fixture.graph, 78, &checkpoint).unwrap();
+
+    assert_eq!(restored.fingerprint().unwrap(), expected);
+    assert!(
+        checkpoint.len() * 3 < archive.len(),
+        "GC checkpoint {} bytes did not substantially reduce {} bytes of history",
+        checkpoint.len(),
+        archive.len(),
+    );
+}
+
+#[test]
 fn convergence_query_text_and_view_choice_merge_independently() {
     let graph = GraphId::new("query-document-convergence").unwrap();
     let page = PageId::new("page").unwrap();

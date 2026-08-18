@@ -52,13 +52,18 @@ fn open(
         path,
         GraphLocator::local(graph.clone()),
         "2026-08-03T12:00:00Z",
+        peer,
     )
     .unwrap();
     let (core, report) =
         recover_graph(&mut repository, graph.clone(), peer, "2026-08-03T12:00:01Z").unwrap();
     if repository.checkpoints_descending().unwrap().is_empty() {
         repository
-            .save_checkpoint(&core.export_snapshot().unwrap(), 0, "2026-08-03T12:00:02Z")
+            .install_checkpoint(
+                &core.export_gc_checkpoint().unwrap(),
+                0,
+                "2026-08-03T12:00:02Z",
+            )
             .unwrap();
     }
     (
@@ -100,11 +105,7 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
     let checkpoint_sequence = runtime.repository_mut().metadata().unwrap().next_sequence - 1;
     runtime
         .repository_mut()
-        .save_checkpoint(&checkpoint, checkpoint_sequence, "2026-08-03T12:01:00Z")
-        .unwrap();
-    runtime
-        .repository_mut()
-        .mark_compacted(checkpoint_sequence)
+        .install_checkpoint(&checkpoint, checkpoint_sequence, "2026-08-03T12:01:00Z")
         .unwrap();
     runtime
         .execute(envelope(
@@ -118,7 +119,7 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
         .unwrap();
     let expected = runtime.core().fingerprint().unwrap();
     assert_eq!(runtime.repository().journal_mode().unwrap(), "wal");
-    assert_eq!(runtime.repository().schema_version().unwrap(), 1);
+    assert_eq!(runtime.repository().schema_version().unwrap(), 2);
     drop(runtime);
 
     let (mut restored, report) = open(database.path(), &graph, 32);
@@ -204,7 +205,7 @@ fn recovery_corrupt_tail_is_quarantined_and_graph_remains_writable() {
     let checkpoint = runtime.core().export_snapshot().unwrap();
     runtime
         .repository_mut()
-        .save_checkpoint(&checkpoint, 1, "2026-08-03T12:02:00Z")
+        .install_checkpoint(&checkpoint, 1, "2026-08-03T12:02:00Z")
         .unwrap();
     let checkpoint_hash = runtime.core().fingerprint().unwrap();
     runtime
@@ -253,7 +254,7 @@ fn recovery_checkpoint_and_storage_fault_matrix_is_typed() {
     assert!(
         runtime
             .repository_mut()
-            .save_checkpoint(&snapshot, 1, "before")
+            .install_checkpoint(&snapshot, 1, "before")
             .is_err()
     );
     runtime
@@ -262,7 +263,7 @@ fn recovery_checkpoint_and_storage_fault_matrix_is_typed() {
     assert!(
         runtime
             .repository_mut()
-            .save_checkpoint(&snapshot, 1, "after")
+            .install_checkpoint(&snapshot, 1, "after")
             .is_err()
     );
     assert_eq!(

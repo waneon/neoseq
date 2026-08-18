@@ -188,11 +188,13 @@ updates one ordered integration point.
 
 Its lifecycle is:
 
-1. load the latest valid checkpoint and update tail;
+1. load the latest valid Base checkpoint and verified update Tail using the
+   replica ID persisted by the platform repository;
 2. validate the document schema;
 3. rebuild the RDF index from the validated Loro snapshot, then emit the initial view;
 4. accept local commands and remote imports;
-5. periodically checkpoint and compact local update storage;
+5. periodically install a shallow GC checkpoint for local-only history, or
+   adopt a server-authorized checkpoint when a remote history epoch changes;
 6. flush pending persistence work on suspension/close.
 
 A successfully planned command is applied as one Loro transaction. The runtime
@@ -221,6 +223,12 @@ semantic and `SavedLocally` events are withheld until append commits. On failure
 the exact bytes and event metadata remain in memory; another mutation and clean
 close are rejected until retry succeeds. After-commit retries are idempotent at
 the repository checksum boundary.
+
+The core exposes full snapshots for history-preserving interchange and shallow
+GC checkpoints for coordinated retention. Platform code may install a shallow
+checkpoint only when it owns the relevant history boundary: immediately for a
+local-only graph, or after a remote server epoch transition. This distinction
+prevents one replica from discarding operations another replica still needs.
 
 ## Read and Event Model
 

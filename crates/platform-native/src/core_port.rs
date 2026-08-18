@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 type NativeRuntime = GraphRuntime<SqliteGraphRepository, InMemoryClock>;
+const COMPACT_TAIL_UPDATES: u64 = 128;
+const COMPACT_TAIL_BYTES: u64 = 512 * 1024;
 
 pub struct NativeCorePort {
     database_path: PathBuf,
@@ -61,12 +63,13 @@ impl NativeCorePort {
                 graph_id: graph_id.clone(),
             },
             &opened_at,
+            request.peer_id,
         )
         .map_err(map_storage_error)?;
+        let replica_id = repository.metadata().map_err(map_storage_error)?.replica_id;
         let recovered_at = self.now();
-        let (core, recovery) =
-            recover_graph(&mut repository, graph_id, request.peer_id, &recovered_at)
-                .map_err(|error| map_recovery_error(&error.to_string()))?;
+        let (core, recovery) = recover_graph(&mut repository, graph_id, replica_id, &recovered_at)
+            .map_err(|error| map_recovery_error(&error.to_string()))?;
         if repository
             .checkpoints_descending()
             .map_err(map_storage_error)?
@@ -74,8 +77,8 @@ impl NativeCorePort {
         {
             let checkpointed_at = self.now();
             repository
-                .save_checkpoint(
-                    &core.export_snapshot().map_err(map_core_error)?,
+                .install_checkpoint(
+                    &core.export_gc_checkpoint().map_err(map_core_error)?,
                     0,
                     &checkpointed_at,
                 )
@@ -132,6 +135,21 @@ impl NativeCorePort {
             .map_err(map_storage_error)?
             .last()
             .map_or_else(String::new, |record| record.checksum.clone());
+        if metadata.tail_count >= COMPACT_TAIL_UPDATES || metadata.tail_bytes >= COMPACT_TAIL_BYTES
+        {
+            let checkpoint = runtime
+                .core()
+                .export_gc_checkpoint()
+                .map_err(map_core_error)?;
+            let checkpointed_at = metadata.updated_at.clone();
+            // The command is already durable. A maintenance failure leaves the
+            // previous checkpoint and tail readable and is retried later.
+            let _ = runtime.repository_mut().install_checkpoint(
+                &checkpoint,
+                local_sequence,
+                &checkpointed_at,
+            );
+        }
         Ok(ExecuteResponse {
             result: serde_json::to_value(result).map_err(map_json_error)?,
             save_status: SaveStatusDto::SavedLocally {
@@ -231,15 +249,14 @@ impl NativeCorePort {
             .metadata()
             .map_err(map_storage_error)?;
         let through = metadata.next_sequence.saturating_sub(1);
-        let snapshot = runtime.core().export_snapshot().map_err(map_core_error)?;
+        let snapshot = runtime
+            .core()
+            .export_gc_checkpoint()
+            .map_err(map_core_error)?;
         let now = self.now();
         runtime
             .repository_mut()
-            .save_checkpoint(&snapshot, through, &now)
-            .map_err(map_storage_error)?;
-        runtime
-            .repository_mut()
-            .mark_compacted(through)
+            .install_checkpoint(&snapshot, through, &now)
             .map_err(map_storage_error)?;
         runtime.close().map_err(map_runtime_error)?;
         Ok(CloseGraphResponse { closed: true })
