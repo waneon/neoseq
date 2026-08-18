@@ -72,6 +72,7 @@ in
   };
 
   tasks = {
+    # tasks
     "coreport:generate" = {
       description = "Generate CorePort files when stale";
       exec = "node scripts/generate-contracts.mjs";
@@ -89,6 +90,21 @@ in
       exec = "node scripts/generate-i18n.mjs --check";
     };
 
+    "wasm:build-dev" = {
+      description = "Build development Wasm bindings";
+      exec = ''
+        set -euo pipefail
+        cargo build --release --target wasm32-unknown-unknown -p platform-web
+        wasm-bindgen \
+          --target web \
+          --out-dir apps/client/src/wasm \
+          --out-name neoseq_core \
+          target/wasm32-unknown-unknown/release/platform_web.wasm
+      '';
+      after = [ "coreport:check" ];
+    };
+
+    # tests
     "rust:fmt" = {
       description = "Check Rust formatting";
       exec = "cargo fmt --all -- --check";
@@ -118,20 +134,6 @@ in
       description = "Run PostgreSQL migration, persistence, and restore tests";
       exec = "${withTestDatabase}/bin/with-test-database cargo test -p sync-server --test postgres -- --ignored --nocapture";
       after = [ "devenv:processes:postgres@ready" ];
-    };
-
-    "wasm:build-dev" = {
-      description = "Build development Wasm bindings";
-      exec = ''
-        set -euo pipefail
-        cargo build --release --target wasm32-unknown-unknown -p platform-web
-        wasm-bindgen \
-          --target web \
-          --out-dir apps/client/src/wasm \
-          --out-name neoseq_core \
-          target/wasm32-unknown-unknown/release/platform_web.wasm
-      '';
-      after = [ "coreport:check" ];
     };
 
     "frontend:check" = {
