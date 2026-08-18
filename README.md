@@ -10,7 +10,7 @@ can start the Web client, PostgreSQL, and synchronization server with a single
 command:
 
 ```sh
-devenv --profile release-serve up -d
+devenv --profile release-serve up
 ```
 
 This serves the Neoseq app at `http://127.0.0.1:4174`.
@@ -22,6 +22,18 @@ locked pnpm workspace dependencies whenever the lockfile changes.
 
 ```sh
 devenv shell
+```
+
+Start the development Web client with Hot Module Replacement (HMR), then open
+`http://127.0.0.1:4173`. Frontend changes are applied automatically. After
+changing Rust code, rebuild the development Wasm bindings to trigger HMR.
+
+```sh
+# Start the development services and HMR-enabled Web client.
+devenv up
+
+# In another development shell, rebuild Wasm after changing Rust code.
+devenv tasks run wasm:build-dev
 ```
 
 Build the reproducible production artifacts independently for the static Web
