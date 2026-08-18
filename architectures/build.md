@@ -15,13 +15,14 @@ provenance enter only in the stages that implement them.
 - supervised Web and sync server development processes;
 - a persistent local PostgreSQL service and isolated database-test tooling;
 - reproducible production Web and sync server outputs plus the verification task graph;
-- an optional profile containing Playwright browsers and their environment.
+- optional profiles for Playwright verification and serving release artifacts.
 
 `outputs.web` and `outputs.sync-server` own the deployable artifacts. They build
 from Git-tracked sources inside the Nix sandbox with dependencies fetched from
-the lockfiles. Processes and services own the development runtime; tasks own
-checks and ephemeral database or browser-test setup. Package scripts do not
-define repository-wide build or verification flow.
+the lockfiles. The `release-serve` profile runs those artifacts behind one Web
+origin with the managed PostgreSQL service. Base processes and services own the
+development runtime; tasks own checks and ephemeral database or browser-test
+setup. Package scripts do not define repository-wide build or verification flow.
 
 ## Build flow
 

@@ -1,5 +1,6 @@
 {
   lib,
+  mkSource,
   stdenv,
   libiconv,
   rustPlatform,
@@ -17,9 +18,10 @@ let
     ../crates
     ../fixtures
   ];
-  src = lib.fileset.toSource {
+  src = mkSource {
+    name = "${pname}-source";
     root = ../.;
-    fileset = lib.fileset.intersection (lib.fileset.gitTracked ../.) applicationFiles;
+    fileset = applicationFiles;
   };
 in
 stdenv.mkDerivation {

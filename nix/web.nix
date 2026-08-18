@@ -1,5 +1,6 @@
 {
   lib,
+  mkSource,
   stdenv,
   fetchPnpmDeps,
   nodejs,
@@ -36,9 +37,12 @@ let
     ../scripts/generate-contracts.mjs
     ../scripts/generate-i18n.mjs
   ];
-  src = lib.fileset.toSource {
+  src = mkSource {
+    name = "${pname}-source";
     root = ../.;
-    fileset = lib.fileset.intersection (lib.fileset.gitTracked ../.) applicationFiles;
+    fileset = lib.fileset.difference applicationFiles (
+      lib.fileset.maybeMissing ../apps/client/src/wasm
+    );
   };
 in
 stdenv.mkDerivation {

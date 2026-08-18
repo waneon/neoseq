@@ -6,6 +6,7 @@
 }:
 
 let
+  mkSource = pkgs.callPackage ./nix/mk-source.nix { };
   withTestDatabase = pkgs.callPackage ./nix/devenv/test-database.nix {
     postgresql = config.services.postgres.package;
   };
@@ -56,11 +57,11 @@ in
       start.enable = !config.devenv.isTesting;
     };
     sync-server = {
-      exec = ''
-        DATABASE_URL="postgresql:///neoseq?host=$PGHOST" \
-          NEOSEQ_TEST_AUTH_SECRET="neoseq-local-development-only" \
-          exec cargo run --locked -p sync-server -- serve
-      '';
+      env = {
+        DATABASE_URL = "postgresql:///neoseq?host=${config.env.PGHOST}";
+        NEOSEQ_TEST_AUTH_SECRET = "neoseq-local-development-only";
+      };
+      exec = "exec cargo run --locked -p sync-server -- serve";
       after = [ "devenv:processes:postgres" ];
       ready.http.get = {
         port = 8787;
@@ -158,14 +159,17 @@ in
 
   outputs = {
     web = pkgs.callPackage ./nix/web.nix {
+      inherit mkSource;
       rustToolchain = config.languages.rust.toolchainPackage;
       nodejs = config.languages.javascript.package;
       pnpm = config.languages.javascript.pnpm.package;
     };
     sync-server = pkgs.callPackage ./nix/sync-server.nix {
+      inherit mkSource;
       rustToolchain = config.languages.rust.toolchainPackage;
     };
   };
 
   profiles."browser-test".module = import ./nix/devenv/browser-test.nix { inherit withTestDatabase; };
+  profiles."release-serve".module = import ./nix/devenv/release-serve.nix;
 }

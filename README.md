@@ -38,6 +38,12 @@ devenv build outputs.web          # Rust/Wasm core and static Web client
 devenv build outputs.sync-server  # PostgreSQL-backed sync server binary
 ```
 
+Serve both release artifacts with the managed PostgreSQL service.
+
+```sh
+devenv --profile release-serve up
+```
+
 Run the portable verification gate by default. The `browser-test` profile adds
 pinned Chromium, IndexedDB contracts, and end-to-end scenarios.
 
