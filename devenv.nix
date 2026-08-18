@@ -143,6 +143,7 @@ in
       after = [
         "coreport:check"
         "i18n:check"
+        "wasm:build-dev"
       ];
       before = [ "devenv:enterTest" ];
     };
