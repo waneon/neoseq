@@ -16,7 +16,3 @@
 ### Design Documentation
 - Use DESIGN.md as the source of truth for the repository's design.
 - When working on frontend design, always take this document into account and design and implement the UI/UX at a production-quality level.
-
-### README.md
-- Agents are responsible for updating and maintaining these files, while avoiding unnecessary expansion, duplication, or excessive detail.
-- Write for human readers in clear, human-readable language, and keep only the essential information concise.
