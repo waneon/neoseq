@@ -12,19 +12,30 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: DeterminateSystems/determinate-nix-action@v3
-      - uses: cachix/cachix-action@v16
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Cache nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('devenv.lock', 'devenv.yaml', '**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+
+      - name: Devenv cache
+        uses: cachix/cachix-action@v16
         with:
           name: devenv
+
       - name: Install devenv
         run: nix profile add nixpkgs#devenv
-      - name: Build production output
-        run: devenv build outputs.web
+
       - name: Run verification
         run: devenv --profile browser-test test
 
-      - name: Upload Playwright failure artifacts
+      - name: Upload playwright failure artifacts
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
         with:
