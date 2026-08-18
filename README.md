@@ -10,7 +10,7 @@ can start the Web client, PostgreSQL, and synchronization server with a single
 command:
 
 ```sh
-devenv --profile release-serve up
+devenv --profile release-serve up -d
 ```
 
 This serves the Neoseq app at `http://127.0.0.1:4174`.
