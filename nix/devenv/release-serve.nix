@@ -36,6 +36,7 @@ in
     web = {
       exec = lib.mkForce "exec ${lib.getExe pkgs.caddy} run --config ${caddyfile} --adapter caddyfile";
       after = lib.mkForce [ "devenv:processes:sync-server@ready" ];
+      ready.http.get.port = lib.mkForce 4174;
     };
     sync-server.exec = lib.mkForce "exec ${lib.getExe config.outputs.sync-server} serve";
   };
