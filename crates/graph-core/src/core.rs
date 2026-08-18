@@ -3,10 +3,10 @@ use domain::{
     GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, PageId, PageSnapshot,
     PageSummary, PropertyBag, PropertyDocument, PropertyDocumentHeader, PropertyError,
     PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue,
-    QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryView,
-    QueryViewId, QueryViewKind, SplitPlacement, TagId, TagSnapshot, validate_property,
-    validate_property_field, validate_property_shape, validate_property_target,
-    validate_property_write,
+    QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryPlan,
+    QueryView, QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement,
+    TagId, TagSnapshot, validate_property, validate_property_field, validate_property_shape,
+    validate_property_target, validate_property_write,
 };
 use loro::{
     Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
@@ -988,6 +988,21 @@ impl GraphCore {
                     return Err(CoreError::TextTooLong);
                 }
             }
+            Command::SetQueryPlan {
+                owner,
+                plan,
+                source,
+            } => {
+                self.validate_query_owner(owner)?;
+                plan.validate()?;
+                if source.len() > 65_536 {
+                    return Err(CoreError::TextTooLong);
+                }
+            }
+            Command::ClearQueryPlan { owner } => {
+                self.validate_query_owner(owner)?;
+                self.query_document(owner)?;
+            }
             Command::PutQueryView { owner, view } => {
                 self.validate_query_owner(owner)?;
                 let mut document = self.query_document(owner)?;
@@ -1322,9 +1337,12 @@ impl GraphCore {
                 self.property_owner_bag(owner)?
                     .delete(&repeated_slot(key, value)?)?;
             }
+            // Writing SPARQL by hand detaches the builder: the plan no longer
+            // describes what runs, so it stops claiming to.
             Command::SetQuerySource { owner, source } => {
                 let document = ensure_query_document(&self.property_owner_bag(owner)?)?;
                 replace_text(&document.ensure_mergeable_text("source")?, source)?;
+                clear_query_plan(&document)?;
             }
             Command::SpliceQuerySource {
                 owner,
@@ -1341,6 +1359,23 @@ impl GraphCore {
                         .ensure_mergeable_text("source")?
                         .insert(*index, insert)?;
                 }
+                clear_query_plan(&document)?;
+            }
+            Command::SetQueryPlan {
+                owner,
+                plan,
+                source,
+            } => {
+                let document = ensure_query_document(&self.property_owner_bag(owner)?)?;
+                // The plan and the source it compiled to land in one
+                // transaction, so no revision ever runs a source the stored
+                // plan did not produce.
+                replace_text(&document.ensure_mergeable_text("source")?, source)?;
+                document.insert("plan_version", i64::from(plan.version))?;
+                document.insert("plan", plan.payload.as_str())?;
+            }
+            Command::ClearQueryPlan { owner } => {
+                clear_query_plan(&require_query_document(&self.property_owner_bag(owner)?)?)?;
             }
             Command::PutQueryView { owner, view } => {
                 put_query_view(
@@ -1455,6 +1490,8 @@ impl GraphCore {
             }
             Command::SetQuerySource { owner, .. }
             | Command::SpliceQuerySource { owner, .. }
+            | Command::SetQueryPlan { owner, .. }
+            | Command::ClearQueryPlan { owner }
             | Command::PutQueryView { owner, .. }
             | Command::RemoveQueryView { owner, .. }
             | Command::SetQueryDefaultView { owner, .. } => {
@@ -1930,6 +1967,8 @@ impl GraphCore {
             | Command::RemoveRepeatedProperty { owner, .. }
             | Command::SetQuerySource { owner, .. }
             | Command::SpliceQuerySource { owner, .. }
+            | Command::SetQueryPlan { owner, .. }
+            | Command::ClearQueryPlan { owner }
             | Command::PutQueryView { owner, .. }
             | Command::RemoveQueryView { owner, .. }
             | Command::SetQueryDefaultView { owner, .. } => owner_plan(owner),
@@ -2493,6 +2532,8 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::RemoveRepeatedProperty { owner, .. }
         | Command::SetQuerySource { owner, .. }
         | Command::SpliceQuerySource { owner, .. }
+        | Command::SetQueryPlan { owner, .. }
+        | Command::ClearQueryPlan { owner }
         | Command::PutQueryView { owner, .. }
         | Command::RemoveQueryView { owner, .. }
         | Command::SetQueryDefaultView { owner, .. } => match owner {
@@ -2657,6 +2698,16 @@ fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     Ok(document)
 }
 
+fn clear_query_plan(document: &LoroMap) -> Result<(), CoreError> {
+    if document.get("plan").is_some() {
+        document.delete("plan")?;
+    }
+    if document.get("plan_version").is_some() {
+        document.delete("plan_version")?;
+    }
+    Ok(())
+}
+
 fn require_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     let query_key = key(QUERY_PROPERTY_KEY);
     let Some(document) = map.get(&document_slot(&query_key)).and_then(value_into_map) else {
@@ -2678,10 +2729,8 @@ fn put_query_view(document: &LoroMap, view: &QueryView) -> Result<(), CoreError>
         },
     )?;
     stored.insert("position", i64::from(view.position))?;
-    stored.insert(
-        "visible_variables",
-        serde_json::to_string(&view.visible_variables)?,
-    )?;
+    stored.insert("columns", serde_json::to_string(&view.columns)?)?;
+    stored.insert("options", serde_json::to_string(&view.options)?)?;
     // Editing an existing view never clears its tombstone. A concurrent remove
     // therefore wins over writes to the view's other fields; recreating a view
     // uses a new stable ID.
@@ -2765,15 +2814,22 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
             let position = map_i64(&view, "position")
                 .and_then(|value| u32::try_from(value).ok())
                 .ok_or_else(|| format!("query view {raw_id} position is invalid"))?;
-            let visible_variables = map_string(&view, "visible_variables")
-                .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
-                .ok_or_else(|| format!("query view {raw_id} variables are invalid"))?;
+            let columns = map_string(&view, "columns")
+                .and_then(|value| serde_json::from_str::<Vec<QueryViewColumn>>(&value).ok())
+                .ok_or_else(|| format!("query view {raw_id} columns are invalid"))?;
+            // Presentation switches decode leniently: a view written by a peer
+            // that predates them, or by one that added a switch this build does
+            // not know, still opens on this build's defaults.
+            let options = map_string(&view, "options")
+                .and_then(|value| serde_json::from_str::<QueryViewOptions>(&value).ok())
+                .unwrap_or_default();
             Ok(QueryView {
                 id,
                 name,
                 kind,
                 position,
-                visible_variables,
+                columns,
+                options,
             })
         })();
         match parsed {
@@ -2804,6 +2860,19 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
     } else {
         decoded[0].id.clone()
     };
+    // A plan this build cannot read is not a broken document: the source is
+    // still the executable query, so the plan is simply absent and the block
+    // opens on its SPARQL instead of the builder.
+    let plan = match (
+        map_i64(document, "plan_version"),
+        map_string(document, "plan"),
+    ) {
+        (Some(version), Some(payload)) => u32::try_from(version)
+            .ok()
+            .map(|version| QueryPlan { version, payload })
+            .filter(|plan| plan.validate().is_ok()),
+        _ => None,
+    };
     let snapshot = PropertyDocument {
         schema,
         version,
@@ -2811,6 +2880,7 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
         language,
         views: decoded,
         default_view_id,
+        plan,
     };
     snapshot.validate().map_err(|error| error.to_string())?;
     Ok(snapshot)
@@ -3411,6 +3481,190 @@ mod tests {
             error,
             CoreError::Property(PropertyError::DocumentCommandRequired(_))
         ));
+    }
+
+    #[test]
+    fn query_plan_travels_with_its_compiled_source_and_detaches_on_a_hand_edit() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        let owner = PropertyOwner::Block {
+            page_id: page(),
+            id: block.clone(),
+        };
+        let read = |core: &GraphCore| {
+            let snapshot = core.page_snapshot(&page()).unwrap();
+            let field = snapshot.blocks[0]
+                .properties
+                .iter()
+                .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+                .cloned()
+                .unwrap();
+            let PropertyValue::Document(document) = field.values[0].clone() else {
+                panic!("query property did not decode as a document")
+            };
+            document
+        };
+
+        core.execute(
+            envelope(
+                "plan",
+                Command::SetQueryPlan {
+                    owner: owner.clone(),
+                    plan: QueryPlan {
+                        version: 1,
+                        payload: "{\"subject\":\"block\"}".into(),
+                    },
+                    source: "SELECT ?item WHERE {}".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let document = read(&core);
+        assert_eq!(document.source, "SELECT ?item WHERE {}");
+        assert_eq!(document.plan.as_ref().map(|plan| plan.version), Some(1));
+
+        // Editing the SPARQL by hand makes the source authoritative again.
+        core.execute(
+            envelope(
+                "hand-edit",
+                Command::SpliceQuerySource {
+                    owner: owner.clone(),
+                    index: 0,
+                    delete: 0,
+                    insert: "# note\n".into(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        assert!(read(&core).plan.is_none());
+
+        core.execute(
+            envelope(
+                "replan",
+                Command::SetQueryPlan {
+                    owner: owner.clone(),
+                    plan: QueryPlan {
+                        version: 1,
+                        payload: "{\"subject\":\"page\"}".into(),
+                    },
+                    source: "SELECT ?page WHERE {}".into(),
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        assert!(read(&core).plan.is_some());
+        core.execute(
+            envelope(
+                "clear-plan",
+                Command::ClearQueryPlan {
+                    owner: owner.clone(),
+                },
+            ),
+            "t6",
+        )
+        .unwrap();
+        let detached = read(&core);
+        assert!(detached.plan.is_none());
+        assert_eq!(detached.source, "SELECT ?page WHERE {}");
+
+        let error = core
+            .execute(
+                envelope(
+                    "invalid-plan",
+                    Command::SetQueryPlan {
+                        owner,
+                        plan: QueryPlan {
+                            version: 1,
+                            payload: "not json".into(),
+                        },
+                        source: String::new(),
+                    },
+                ),
+                "t7",
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            CoreError::Property(PropertyError::InvalidDocument(_))
+        ));
+    }
+
+    #[test]
+    fn query_view_columns_round_trip_through_loro() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        let owner = PropertyOwner::Block {
+            page_id: page(),
+            id: block,
+        };
+        core.execute(
+            envelope(
+                "source",
+                Command::SetQuerySource {
+                    owner: owner.clone(),
+                    source: "SELECT ?item WHERE {}".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "view",
+                Command::PutQueryView {
+                    owner: owner.clone(),
+                    view: QueryView {
+                        id: QueryViewId::new("table").unwrap(),
+                        name: "Table".into(),
+                        kind: QueryViewKind::Table,
+                        position: 0,
+                        columns: vec![
+                            QueryViewColumn {
+                                variable: "item".into(),
+                                hidden: false,
+                                width: Some(240),
+                            },
+                            QueryViewColumn {
+                                variable: "status".into(),
+                                hidden: true,
+                                width: None,
+                            },
+                        ],
+                        options: QueryViewOptions {
+                            compact: true,
+                            wrap: false,
+                        },
+                    },
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+
+        let snapshot = core.page_snapshot(&page()).unwrap();
+        let PropertyValue::Document(document) = snapshot.blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+            .map(|field| field.values[0].clone())
+            .unwrap()
+        else {
+            panic!("query property did not decode as a document")
+        };
+        let table = document
+            .views
+            .iter()
+            .find(|view| view.id.as_str() == "table")
+            .unwrap();
+        assert_eq!(table.columns.len(), 2);
+        assert_eq!(table.columns[0].width, Some(240));
+        assert!(table.columns[1].hidden);
+        assert!(table.options.compact);
     }
 
     #[test]

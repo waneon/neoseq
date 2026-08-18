@@ -1,8 +1,12 @@
 # Neoseq
 
 Neoseq is a local-first outliner for journals, Markdown blocks, typed
-properties, tasks, graph search, and read-only SPARQL. Its Rust core runs in a
-Web Worker and stores graphs in IndexedDB.
+properties, tasks, and graph search. Its Rust core runs in a Web Worker and
+stores graphs in IndexedDB.
+
+Queries live in the outline. Typing `/` builds one visually — conditions,
+grouping, columns, sorting — and it compiles to the read-only SPARQL the core
+runs, which stays visible and editable for anyone who prefers to write it.
 
 ## Quick start
 

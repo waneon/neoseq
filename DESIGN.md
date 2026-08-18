@@ -1130,6 +1130,7 @@ The picker is the only property-writing surface:
 - `/` in a block opens the slash menu (below). Its indirect items — `Scheduled`,
   `Deadline`, `Add property` — remove the slash token, persist a pending block if
   necessary, and open the picker for that block, already on their key when they have one.
+  Its `Query …` items are not picker routes: they build a query in place (§ Query block).
 - `⌘P` opens it for the focused block, or the page when no block is focused. The title
   and bullet context menus provide the pointer routes, and the palette's task rows
   (`Set task status…`, `Set priority…`, `Set scheduled date…`, `Set deadline…`) open the
@@ -1150,7 +1151,9 @@ The picker is the only property-writing surface:
   § Implementation's "native where native is better". Choosing any of them commits —
   a date editor has no separate Set button.
 - System keys are omitted and live in page info. Tags keep a separate picker because
-  membership and property values are different domain commands.
+  membership and property values are different domain commands. The query key is
+  omitted too, on entities and on tag defaults alike: its own block is the whole
+  editor, and that block's menu is where it is removed.
 
 The picker is portaled and fixed to its invoking row or editor, so it does not resize the
 outline or get clipped by virtualization. `Escape` closes without changing slash text;
@@ -1163,12 +1166,15 @@ row language — one highlight shared by pointer and keyboard, a 2px accent rule
 active row, § The group label for its dividers — at the caret instead of at 12vh.
 
 - **Grouped when browsing, ranked when searching.** An empty query shows every item
-  under `Task status` / `Priority` / `Date` / `Property` labels; typing filters across
-  all groups with the palette's own fuzzy matcher and English and Korean aliases, and a
-  ranked list is deliberately not re-grouped.
+  under `Task status` / `Priority` / `Date` / `Query` / `Property` labels; typing filters
+  across all groups with the palette's own fuzzy matcher and English and Korean aliases,
+  and a ranked list is deliberately not re-grouped.
 - **Direct items write in one keystroke.** A status or priority row removes the token
   and issues one `set_property` — no picker, no intermediate surface. Indirect items
   (`Scheduled…`, `Deadline…`, `Add property…`) open the picker instead.
+- **`Query blocks` / `Query pages` / `Query tags` turn the line into a query** and open
+  the builder on a plan that already runs. This is the *only* route to a query: the
+  property picker does not offer it, because a query is built, not filled in.
 - `⏎` and `⇥` take the highlighted item, `↑`/`↓` move it, `Escape` closes without
   touching the draft, and the whole surface stands down during IME composition.
 - On a pending block the choice waits for the real block id — a temp id never crosses
@@ -1201,20 +1207,71 @@ positioned control still routes to the same picker.
 ### Query block
 
 A query is a tool embedded in the outline, not a dashboard card. Its quiet
-`--surface-1` frame follows the block's width; the source remains a full-width mono
-field on `--surface-2`, and results begin immediately below it.
+`--surface-1` frame follows the block's width; the editor — builder or source — is a
+full-width band on `--surface-2`, and results begin immediately below it.
 
-- The toolbar reads `SPARQL`, then the saved result view, then revision and Run. The
-  view is a small ghost-button dropdown with radio rows, never a permanent tab strip.
+- The toolbar reads the editor's name (`Query` for a built one, `SPARQL` for a
+  hand-written one), then the saved result view, then a columns-and-density menu,
+  then revision, Run, and the block's own overflow menu. The view is a small
+  ghost-button dropdown with radio rows, never a permanent tab strip.
 - Table and List are presentation modes over the same result. Changing one persists
-  the query document's shared default view; it never reruns or rewrites the source.
-- Table keeps variables as the column headings. List repeats variable labels in a
-  narrow mono column so values remain scannable without implying cards or entities
-  that the query did not declare.
-- Results, loading, errors, selection, and scroll position are not saved view data.
-  Switching views changes only the existing result's presentation.
-- At narrow widths the source and result keep the outline width. Tables scroll inline;
-  list values wrap. Toolbar controls remain one row and the revision yields space first.
+  the query document's shared default view; it never reruns or rewrites the query.
+- Results, loading, errors, selection, scroll position, and a table's own header sort
+  are not saved view data. Switching views changes only the existing result's
+  presentation. Column order, width, and visibility *are* saved view data, because a
+  reader who shapes a table means it to stay shaped.
+- At narrow widths the editor and result keep the outline width. Tables scroll inline;
+  builder rows and list values wrap. Toolbar controls remain one row and the revision
+  yields space first.
+
+#### The builder
+
+The builder is the default and the only thing `/` creates, because most people who
+want a query do not want a language. It reads as a **sentence in rows** — *Find
+blocks / where all of … / show … / sort by … / limit …* — where the connectives are
+12px `--ink-3` words that are never controls, and every choice is the product's one
+dropdown (§ Choice) at the same 32px form metric as every other field.
+
+- **A condition is one row**: field, comparison, value. The value editor is the one
+  its field's type deserves — the shape-led rows for a task status, a relative-day
+  menu (`Today`, `In 7 days`, `Start of next week`) for a date with the native picker
+  behind `Exact date…`, `PageAutocomplete` for a page, removable chips for `is any of`.
+- **A group is depth, not a card.** A nested `all` / `any` / `none` group is set apart
+  by one indent and a single hairline in the thread language — no border, no fill
+  (§ The three legal lines). That nesting is what gives the builder SPARQL's reach.
+- **Remove is revealed, never summoned**: the `×` on a condition and the wastebasket
+  on a group appear on hover or focus of their own row and never change the layout.
+- **A column is a chip whose dropdown is its summary.** Its resting option is the
+  plain field; choosing `count of` or `all` renames the chip to say so, so summarizing
+  is a property of the column rather than a separate mode.
+- **The SPARQL is available, never in the way.** `Show SPARQL` discloses exactly what
+  the builder will run, read-only in the mono voice; `Edit as SPARQL…` writes that
+  query out in full and hands it over, which is a one-way door and says so by leaving
+  the builder.
+
+#### The result table
+
+- Headings separate from the body by luminance and ink, never a rule: the header row
+  is `--surface-2` in the 12px `--ink-3` voice and stays put while the body scrolls.
+- A heading **is** the sort control and carries no button chrome at rest, because a
+  row of headings that all look like buttons reads as a toolbar. Its overflow menu
+  holds sort, move, hide, and reset-width, each with a keyboard route.
+- The width handle is the only vertical line in a table and it is `--thread`, so it
+  reads as the seam between two columns rather than as a drawn cell border. It is a
+  `separator` with a value, so `←`/`→` resize it without a pointer.
+- Cells read as what the query asked for: a page or block cell is a route to the thing
+  it names, a date is in the reader's own journal format, a task status keeps its
+  shape glyph, tags are chips, and numbers align to the end of their column in tabular
+  figures. A column the query did not describe falls back to `?variable` and plain
+  terms — honest about knowing less.
+
+#### The result list
+
+Blocks answer as blocks. A list row is an **outline row**: the same bullet in the same
+gutter, the same 16px line, the status shape at the head of it, and every other
+selected value as the same chip strip that sits under a block in the document. It is a
+lens, not the document — the rows are read-only and the bullet is a real focus stop
+that opens the block where it actually lives.
 
 ### Save slot
 

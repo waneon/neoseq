@@ -49,24 +49,32 @@ carries writes nothing. Pending blocks defer the choice until the real
 `BlockId` lands, exactly like a slash choice. Detection never changes Markdown.
 
 Slash items are declared in `features/outline/slash-commands.tsx`: task
-statuses and priorities as **direct** items carrying one `PropertyValue`, and
+statuses and priorities as **direct** items carrying one `PropertyValue`,
 `Scheduled` / `Deadline` / `Add property` as **picker** items carrying an
-optional initial key. Labels are localized; matching runs the palette's fuzzy
-scorer over labels plus English and Korean aliases. An empty query renders the
-declared groups in order; a non-empty query renders one ranked list.
+optional initial key, and `Query blocks` / `Query pages` / `Query tags` as
+**query** items carrying the subject a new plan starts on. `/` is the only route
+to a query: `builtin.query` is deliberately absent from the picker's candidates
+(`entities/properties.ts` marks it `feature_only`), so a query is never
+half-created through the generic property route, and it has no tag-default
+placement either. The query block owns every later edit, including its removal.
+
+Labels are localized; matching runs the palette's fuzzy scorer over labels plus
+English and Korean aliases. An empty query renders the declared groups in order;
+a non-empty query renders one ranked list.
 
 The menu keeps focus in the textarea. `↑`/`↓` move the active row, `Enter` and
 `Tab` accept it, `Escape` dismisses without changing the draft, and detection
 stands down during IME composition. Accepting always removes the recognized
 token first; a direct item then issues a single `set_property` through the
-session, while a picker item opens `PropertyPicker`, already on its key when it
-has one. A persisted block flushes through the normal Markdown draft path
-first.
+session, a query item issues a single `set_query_plan`, and a picker item opens
+`PropertyPicker`, already on its key when it has one. A persisted block flushes
+through the normal Markdown draft path first.
 
 Pending blocks do not cross into the picker or a command under temporary IDs.
 The outliner remembers the chosen action, waits for `insert_block` to return
 the real `BlockId`, transfers raced text through the existing pending-row path,
-and only then replays it — a direct write executes, a picker intent opens.
+and only then replays it — a direct write or a query creation executes, a picker
+intent opens.
 Insert failure uses the existing pending-insert report and never opens a picker
 for a missing target.
 
@@ -122,6 +130,9 @@ Property candidates are bounded to:
 1. generic-visible keys already present on the target;
 2. registry definitions that are user-writable on the resolved target; and
 3. one validated custom-key creation result for the current query.
+
+A key whose feature owns its whole surface — currently only `builtin.query` — is
+outside all three, on either an entity or a tag default.
 
 Existing keys sort first. The picker does not scan the graph document or any
 adapter-owned state.
@@ -181,10 +192,12 @@ tag, inline creation (`ensure_tag`), confirmed graph-wide deletion
 on a tag target for defaults.
 
 The query projection remains a view over the well-known `builtin.query`
-document. The picker creates it through `set_query_source`, while its mounted
-query block edits source with splice commands and selects saved views through
-document-specific commands. Task facts retain their own chips, which open the
-same picker.
+document. The outline's `/` menu creates it through `set_query_plan`, and the
+mounted query block owns every later edit: the builder writes plan and compiled
+source together, the SPARQL escape hatch splices source, saved views and their
+column layout go through document-specific commands, and the block's own menu
+removes the property. Task facts retain their own chips, which open the same
+picker.
 
 ## Command Mapping
 
@@ -200,9 +213,10 @@ The picker maps user intent onto the existing domain commands:
 | Remove a repeated member        | `remove_repeated_property` |
 
 `builtin.query` is the one document exception to the atomic mapping. Setting its
-source creates the complete valid document with stable table/list views in one
-command. Generic commands cannot replace or clear its document value; removing
-the complete field still uses `remove_property`.
+plan or its source creates the complete valid document with stable table/list
+views in one command. Generic commands cannot replace or clear its document
+value; removing the complete field still uses `remove_property`, which is what
+the query block's own `Remove query` issues.
 
 ## Snapshot and Lifecycle Rules
 
@@ -261,10 +275,13 @@ implementations.
 
 ## Verification Boundary
 
-- Component tests cover all five atomic value types, the query document, custom keys, validation, direct
-  row editing, slash-token removal, slash grouping and one-keystroke status
-  writes, the inline status control and task chips, the natural-language date
-  editor, known enums, and tag separation.
+- Component tests cover all five atomic value types, custom keys, validation,
+  direct row editing, slash-token removal, slash grouping and one-keystroke
+  status writes, the inline status control and task chips, the natural-language
+  date editor, known enums, and tag separation. The query document has its own
+  suite: `/` creating a plan, conditions and nested groups reaching the compiled
+  source, column and view layout persisting, the SPARQL escape hatch, removal,
+  and the picker's refusal to offer the key.
 - Outline tests continue to cover pending-row reconciliation, structure, undo,
   selection, and virtualization-sensitive focus behavior.
 - Shortcut tests cover the new default, conflicts, formatting, and browser-key

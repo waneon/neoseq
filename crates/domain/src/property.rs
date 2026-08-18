@@ -1,4 +1,6 @@
-use crate::{LocalDate, PageId, PropertyKey, QueryView, QueryViewId, QueryViewKind};
+use crate::{
+    LocalDate, PageId, PropertyKey, QueryView, QueryViewId, QueryViewKind, QueryViewOptions,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -7,6 +9,7 @@ pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
 pub const QUERY_LANGUAGE: &str = "sparql-1.1/neoseq-v1";
+pub const QUERY_PLAN_LIMIT: usize = 32_768;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -142,6 +145,42 @@ pub struct PropertyDocumentHeader {
     pub version: u32,
 }
 
+/// The builder's structured description of a query.
+///
+/// `source` stays the executable artifact: the core parses, plans, and runs
+/// SPARQL and nothing else. A plan is the *authoring* representation the query
+/// builder writes that source from, kept beside it so reopening a query reopens
+/// the builder rather than a wall of SPARQL. Its `payload` grammar therefore
+/// belongs to the authoring layer, and the domain owns only what makes the
+/// document well-formed: a JSON object, within bounds, carrying its own version
+/// so a client that does not understand it can fall back to editing the source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryPlan {
+    pub version: u32,
+    pub payload: String,
+}
+
+impl QueryPlan {
+    pub fn validate(&self) -> Result<(), PropertyError> {
+        if self.version == 0 {
+            return Err(PropertyError::InvalidDocument(
+                "query plan version must be positive".to_owned(),
+            ));
+        }
+        if self.payload.len() > QUERY_PLAN_LIMIT {
+            return Err(PropertyError::StringTooLong);
+        }
+        let parsed = serde_json::from_str::<serde_json::Value>(&self.payload)
+            .map_err(|_| PropertyError::InvalidDocument("query plan is not JSON".to_owned()))?;
+        if !parsed.is_object() {
+            return Err(PropertyError::InvalidDocument(
+                "query plan must be a JSON object".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PropertyDocument {
     pub schema: String,
@@ -150,6 +189,8 @@ pub struct PropertyDocument {
     pub language: String,
     pub views: Vec<QueryView>,
     pub default_view_id: QueryViewId,
+    #[serde(default)]
+    pub plan: Option<QueryPlan>,
 }
 
 impl PropertyDocument {
@@ -165,17 +206,20 @@ impl PropertyDocument {
                     name: "Table".to_owned(),
                     kind: QueryViewKind::Table,
                     position: 0,
-                    visible_variables: Vec::new(),
+                    columns: Vec::new(),
+                    options: QueryViewOptions::default(),
                 },
                 QueryView {
                     id: QueryViewId::new("list").expect("static query view id"),
                     name: "List".to_owned(),
                     kind: QueryViewKind::List,
                     position: 1,
-                    visible_variables: Vec::new(),
+                    columns: Vec::new(),
+                    options: QueryViewOptions::default(),
                 },
             ],
             default_view_id: QueryViewId::new("table").expect("static query view id"),
+            plan: None,
         }
     }
 
@@ -211,15 +255,25 @@ impl PropertyDocument {
                     "invalid query view name".to_owned(),
                 ));
             }
-            if view.visible_variables.len() > 128
-                || view.visible_variables.iter().any(|variable| {
-                    variable.is_empty()
-                        || variable.len() > 128
-                        || variable.chars().any(char::is_control)
+            if view.columns.len() > 128
+                || view.columns.iter().any(|column| {
+                    column.variable.is_empty()
+                        || column.variable.len() > 128
+                        || column.variable.chars().any(char::is_control)
                 })
             {
                 return Err(PropertyError::InvalidDocument(
-                    "invalid query view variable selection".to_owned(),
+                    "invalid query view column selection".to_owned(),
+                ));
+            }
+            let mut variables = std::collections::BTreeSet::new();
+            if view
+                .columns
+                .iter()
+                .any(|column| !variables.insert(column.variable.as_str()))
+            {
+                return Err(PropertyError::InvalidDocument(
+                    "duplicate query view column".to_owned(),
                 ));
             }
         }
@@ -227,6 +281,9 @@ impl PropertyDocument {
             return Err(PropertyError::InvalidDocument(
                 "default query view does not exist".to_owned(),
             ));
+        }
+        if let Some(plan) = &self.plan {
+            plan.validate()?;
         }
         Ok(())
     }
@@ -689,6 +746,51 @@ mod tests {
         let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
         assert!(document.validate().is_ok());
         document.default_view_id = QueryViewId::new("missing").unwrap();
+        assert!(document.validate().is_err());
+    }
+
+    #[test]
+    fn query_view_columns_are_unique_and_bounded() {
+        let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
+        document.views[0].columns = vec![
+            crate::QueryViewColumn {
+                variable: "task".to_owned(),
+                hidden: false,
+                width: Some(220),
+            },
+            crate::QueryViewColumn {
+                variable: "status".to_owned(),
+                hidden: true,
+                width: None,
+            },
+        ];
+        assert!(document.validate().is_ok());
+        document.views[0].columns[1].variable = "task".to_owned();
+        assert!(document.validate().is_err());
+    }
+
+    #[test]
+    fn query_plan_accepts_a_bounded_json_object_only() {
+        let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
+        document.plan = Some(QueryPlan {
+            version: 1,
+            payload: "{\"subject\":\"block\"}".to_owned(),
+        });
+        assert!(document.validate().is_ok());
+        document.plan = Some(QueryPlan {
+            version: 1,
+            payload: "[1,2]".to_owned(),
+        });
+        assert!(document.validate().is_err());
+        document.plan = Some(QueryPlan {
+            version: 0,
+            payload: "{}".to_owned(),
+        });
+        assert!(document.validate().is_err());
+        document.plan = Some(QueryPlan {
+            version: 1,
+            payload: format!("{{\"a\":\"{}\"}}", "x".repeat(QUERY_PLAN_LIMIT)),
+        });
         assert!(document.validate().is_err());
     }
 

@@ -11,8 +11,16 @@
 // remove the slash token first, so the command never leaks into the Markdown.
 
 import type { ReactNode } from "react";
-import { AlarmClockIcon, CalendarIcon, Settings2Icon } from "lucide-react";
+import {
+  AlarmClockIcon,
+  CalendarIcon,
+  FileTextIcon,
+  HashIcon,
+  ListTreeIcon,
+  Settings2Icon,
+} from "lucide-react";
 import type { PropertyValue } from "../../core-port/snapshot";
+import type { PlanSubject } from "../../entities/query-plan";
 import {
   TASK_DEADLINE_KEY,
   TASK_PRIORITIES,
@@ -27,12 +35,20 @@ import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 
 type SlashAction =
   | { kind: "set"; key: string; value: PropertyValue }
-  | { kind: "picker"; key?: string };
+  | { kind: "picker"; key?: string }
+  /** Turns the block into a query and opens the builder on a starting plan. */
+  | { kind: "query"; subject: PlanSubject };
 
-export type SlashGroup = "status" | "priority" | "date" | "property";
+export type SlashGroup = "status" | "priority" | "date" | "query" | "property";
 
 /** Groups in the order the menu renders them. */
-export const SLASH_GROUP_ORDER: SlashGroup[] = ["status", "priority", "date", "property"];
+export const SLASH_GROUP_ORDER: SlashGroup[] = [
+  "status",
+  "priority",
+  "date",
+  "query",
+  "property",
+];
 
 export interface SlashItem {
   id: string;
@@ -104,6 +120,37 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     aliases: ["deadline", "due", "마감", "마감일"],
     glyph: <AlarmClockIcon aria-hidden />,
     action: { kind: "picker", key: TASK_DEADLINE_KEY },
+  });
+  // `/` is the only route to a query: the property picker does not offer
+  // `builtin.query`, because a query is built, not filled in.
+  // The three share one alias — `query` — so typing the word ranks them in the
+  // order declared here rather than by how long their labels happen to be.
+  items.push({
+    id: "query-blocks",
+    group: "query",
+    label: message("query.slashBlocks"),
+    hint: message("query.slashBlocksHint"),
+    aliases: ["query", "search", "filter", "쿼리", "검색", "찾기"],
+    glyph: <ListTreeIcon aria-hidden />,
+    action: { kind: "query", subject: "block" },
+  });
+  items.push({
+    id: "query-pages",
+    group: "query",
+    label: message("query.slashPages"),
+    hint: message("query.slashPagesHint"),
+    aliases: ["query", "search", "쿼리", "검색"],
+    glyph: <FileTextIcon aria-hidden />,
+    action: { kind: "query", subject: "page" },
+  });
+  items.push({
+    id: "query-tags",
+    group: "query",
+    label: message("query.slashTags"),
+    hint: message("query.slashTagsHint"),
+    aliases: ["query", "search", "쿼리", "검색"],
+    glyph: <HashIcon aria-hidden />,
+    action: { kind: "query", subject: "tag" },
   });
   items.push({
     id: "property",

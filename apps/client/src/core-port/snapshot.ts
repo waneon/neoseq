@@ -3,14 +3,37 @@
 
 export type PropertyValueType = "number" | "string" | "page" | "checkbox" | "date" | "document";
 
-type QueryViewKind = "table" | "list";
+export type QueryViewKind = "table" | "list";
+
+export interface QueryViewColumn {
+  variable: string;
+  hidden: boolean;
+  width: number | null;
+}
+
+export interface QueryViewOptions {
+  compact: boolean;
+  wrap: boolean;
+}
 
 export interface QueryView {
   id: string;
   name: string;
   kind: QueryViewKind;
   position: number;
-  visible_variables: string[];
+  columns: QueryViewColumn[];
+  options: QueryViewOptions;
+}
+
+/**
+ * The builder's structured description of a query, stored beside the SPARQL it
+ * compiled to. `payload` holds the authoring grammar in
+ * `entities/query-plan.ts`; a version this build does not know keeps the block
+ * on its source instead of the builder.
+ */
+export interface QueryPlanDocument {
+  version: number;
+  payload: string;
 }
 
 export interface PropertyDocument {
@@ -20,6 +43,7 @@ export interface PropertyDocument {
   language: "sparql-1.1/neoseq-v1";
   views: QueryView[];
   default_view_id: string;
+  plan?: QueryPlanDocument | null;
 }
 
 export type PropertyValue =

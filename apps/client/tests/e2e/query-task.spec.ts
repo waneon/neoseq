@@ -11,7 +11,6 @@ import {
 /** Builtin keys are searched by storage name but read by their product names. */
 const DISPLAY_NAME: Record<string, string> = {
   "builtin.task-status": "Status",
-  "builtin.query": "Query",
 };
 
 async function setKnownProperty(page: Page, key: string, value: string): Promise<void> {
@@ -29,6 +28,12 @@ async function setKnownProperty(page: Page, key: string, value: string): Promise
   await expect(picker).toHaveCount(0);
 }
 
+/** Chooses from one of the builder's dropdowns, which are all `MenuSelect`. */
+async function chooseInBuilder(page: Page, label: string, option: string): Promise<void> {
+  await page.getByTestId("query-builder").getByRole("button", { name: label }).click();
+  await page.getByRole("menuitemradio", { name: option, exact: true }).click();
+}
+
 test("query-task projections share ordinary properties and the SPARQL index", async ({ page }) => {
   await createGraph(page, "Query Task Graph");
   await startOutline(page);
@@ -43,21 +48,54 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await awaitSaved(page);
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done");
 
+  // The query property has no picker route: `/` is the only way to make one.
+  // (A `user.query` key of one's own is still offerable — that is a different
+  // property that happens to share a word.)
+  await openBlockProperties(page, 0);
+  await page.getByTestId("property-picker").getByLabel("Property key").fill("query");
+  await expect(
+    page.getByTestId("property-picker").getByRole("option", { name: "Query", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
   const taskText = page.locator(".outline-input").first();
   await taskText.click();
   await taskText.press("End");
   await taskText.press("Enter");
-  await typeInFocusedBlock(page, "Done tasks");
-  await openBlockProperties(page, 1);
-  await setKnownProperty(
-    page,
-    "builtin.query",
-    "PREFIX neo: <urn:neoseq:vocab:v1:> PREFIX prop: <urn:neoseq:property:> SELECT ?content WHERE { ?block prop:builtin.task-status \"done\"; neo:content ?content }",
-  );
+  await page.keyboard.type("/query");
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Blocks/ }).click();
+
   const query = page.getByTestId("query-block");
-  await expect(query.getByLabel("SPARQL source")).toBeVisible();
-  await expect(query).toContainText("Ship the query engine");
+  await expect(query.getByTestId("query-builder")).toBeVisible();
+  await awaitSaved(page);
+
+  // Narrowing the plan narrows the SPARQL the core actually runs.
+  await query.getByTestId("qb-add-condition").click();
+  await chooseInBuilder(page, "Field", "Status");
+  await chooseInBuilder(page, "Value", "Done");
+  await awaitSaved(page);
+
+  const table = query.getByTestId("query-table");
+  await expect(table).toContainText("Ship the query engine");
+  await expect(table.getByRole("columnheader", { name: /Text/ })).toBeVisible();
+
+  // The compiled source is available, and it is what ran.
+  await query.getByTestId("query-actions-trigger").click();
+  await page.getByRole("menuitem", { name: "Show SPARQL" }).click();
+  await expect(query.getByTestId("query-compiled")).toContainText("prop:builtin.task-status");
+
   await expect(query.getByTestId("query-view-trigger")).toContainText("Table");
   await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "List");
   await expect(query.getByTestId("query-list")).toBeVisible();
+  await expect(query.getByTestId("query-list-row").first()).toContainText("Ship the query engine");
+
+  // Hiding a column is saved view data, so it survives a reload.
+  await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "Table");
+  await query.getByTestId("query-col-menu-page").click();
+  await page.getByRole("menuitem", { name: "Hide column" }).click();
+  await awaitSaved(page);
+  await page.reload();
+  const reloaded = page.getByTestId("query-block");
+  await expect(reloaded.getByTestId("query-table")).toBeVisible();
+  await expect(reloaded.getByRole("columnheader", { name: /Page/ })).toHaveCount(0);
 });

@@ -10,6 +10,8 @@ type PropertyAccess = "user" | "core";
 export type PropertyVisibility =
   | "generic"
   | "feature_and_generic"
+  /** Its feature owns the whole surface; the generic property route never offers it. */
+  | "feature_only"
   | "read_only_metadata"
   | "hidden";
 
@@ -36,12 +38,15 @@ export const VALUE_TYPES: PropertyValueType[] = ["string", "number", "checkbox",
 
 const PROPERTY_KEY_PATTERN = /^(?:builtin|user)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const FEATURE_RENDERERS = new Set([
-  "builtin.query",
   "builtin.task-status",
   "builtin.task-scheduled",
   "builtin.task-deadline",
   "builtin.task-priority",
 ]);
+// A query is authored, not filled in: `/` builds one and the query block owns
+// every edit and its removal. Offering `builtin.query` as a property row would
+// put a second, worse editor beside the builder for the same value.
+const FEATURE_ONLY_RENDERERS = new Set(["builtin.query"]);
 const METADATA_RENDERERS = new Set([
   "builtin.page-kind",
   "builtin.journal-date",
@@ -82,6 +87,7 @@ export function stringChoicesOf(key: string): string[] {
 
 export function visibilityOf(key: string): PropertyVisibility {
   if (METADATA_RENDERERS.has(key)) return "read_only_metadata";
+  if (FEATURE_ONLY_RENDERERS.has(key)) return "feature_only";
   if (FEATURE_RENDERERS.has(key)) return "feature_and_generic";
   const spec = definition(key);
   if (spec && !hasUserPlacement(spec)) return "hidden";
@@ -302,9 +308,12 @@ export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type
     source,
     language: "sparql-1.1/neoseq-v1",
     views: [
-      { id: "table", name: "Table", kind: "table", position: 0, visible_variables: [] },
-      { id: "list", name: "List", kind: "list", position: 1, visible_variables: [] },
+      { id: "table", name: "Table", kind: "table", position: 0, columns: [], options: VIEW_OPTIONS },
+      { id: "list", name: "List", kind: "list", position: 1, columns: [], options: VIEW_OPTIONS },
     ],
     default_view_id: "table",
+    plan: null,
   };
 }
+
+const VIEW_OPTIONS = { compact: false, wrap: false };

@@ -555,6 +555,7 @@ export class FakeCorePort implements SessionPort {
           const value = field.values[0];
           if (value?.type !== "document") fail("internal", "query document is invalid");
           value.value.source = command.source;
+          value.value.plan = null;
         }
         break;
       }
@@ -566,6 +567,39 @@ export class FakeCorePort implements SessionPort {
         }
         points.splice(command.index, command.delete, ...Array.from(command.insert));
         document.source = points.join("");
+        // Writing SPARQL by hand detaches the builder, exactly as the core does.
+        document.plan = null;
+        break;
+      }
+      case "set_query_plan": {
+        if (command.plan.version < 1) fail("internal", "query plan version must be positive");
+        try {
+          const parsed: unknown = JSON.parse(command.plan.payload);
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            fail("internal", "query plan must be a JSON object");
+          }
+        } catch {
+          fail("internal", "query plan is not JSON");
+        }
+        const bag = this.propertyOwnerBag(command.owner);
+        let field = bag.find((item) => item.key === "builtin.query");
+        if (!field) {
+          field = {
+            key: "builtin.query",
+            value_type: "document",
+            cardinality: "single",
+            values: [{ type: "document", value: defaultQueryDocument(command.source) }],
+          };
+          bag.push(field);
+        }
+        const value = field.values[0];
+        if (value?.type !== "document") fail("internal", "query document is invalid");
+        value.value.source = command.source;
+        value.value.plan = clone(command.plan);
+        break;
+      }
+      case "clear_query_plan": {
+        this.requireQuery(command.owner).plan = null;
         break;
       }
       case "put_query_view": {
@@ -773,6 +807,8 @@ export class FakeCorePort implements SessionPort {
       case "remove_repeated_property":
       case "set_query_source":
       case "splice_query_source":
+      case "set_query_plan":
+      case "clear_query_plan":
       case "put_query_view":
       case "remove_query_view":
       case "set_query_default_view":
@@ -896,6 +932,8 @@ export class FakeCorePort implements SessionPort {
       case "remove_repeated_property":
       case "set_query_source":
       case "splice_query_source":
+      case "set_query_plan":
+      case "clear_query_plan":
       case "put_query_view":
       case "remove_query_view":
       case "set_query_default_view":

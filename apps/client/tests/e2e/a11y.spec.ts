@@ -41,6 +41,32 @@ test("journal, outline, and property editors pass the basic audit", async ({ pag
   expect(await audit(page)).toEqual([]);
 });
 
+// The query block is the densest control surface in the product — a sentence of
+// dropdowns over a data table — so both of its faces are audited: the builder
+// with a condition in it, and the result table with its header controls.
+test("the query builder and its result table pass the basic audit", async ({ page }) => {
+  await createGraph(page, "A11y Query");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "audited task");
+  await page.getByLabel("Block text").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("/query");
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Blocks/ }).click();
+
+  const query = page.getByTestId("query-block");
+  await expect(query.getByTestId("query-builder")).toBeVisible();
+  await query.getByTestId("qb-add-condition").click();
+  await expect(query.getByTestId("qb-condition")).toBeVisible();
+  await expect(query.getByTestId("query-table")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+
+  await query.getByTestId("query-view-trigger").click();
+  await page.getByRole("menuitemradio", { name: "List", exact: true }).click();
+  await expect(query.getByTestId("query-list")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+});
+
 // A toast is the one surface that arrives unbidden and floats over whatever the
 // user was reading, so it is audited while it is actually up — in both colour
 // schemes, like every other pair in the token set.

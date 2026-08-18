@@ -153,13 +153,55 @@ LIMIT 100
 ```
 
 A block is executable when it has a valid `builtin.query` document with schema
-`neoseq.query` version 1. Its source is collaborative text; language, stable-ID
-saved views, their presentation configuration, and the shared default view
-synchronize inside the graph. Table and list are the current renderers.
+`neoseq.query` version 1. Its source is collaborative text; language, the
+builder plan behind it, stable-ID saved views with their column layout, and the
+shared default view synchronize inside the graph. Table and list are the current
+renderers.
 
 The RDF projection emits the query property's presence but does not recursively
-project its document configuration. Plans, results, runtime bindings, revisions,
-loading/error state, private view overrides, and editor drafts do not synchronize.
+project its document configuration. Query plans (in the SPARQL planner's sense),
+results, runtime bindings, revisions, loading/error state, private view
+overrides, and editor drafts do not synchronize.
+
+## Authoring: the Query Builder
+
+SPARQL stays the only executable query language, and the core reads nothing
+else. A **query plan** is the *authoring* representation the client's query
+builder writes that SPARQL from: a subject kind, a nested all/any/none tree of
+typed conditions, output columns with optional aggregates, an order, and a row
+limit. It is stored beside the source in the same document so reopening a query
+reopens the builder rather than a wall of SPARQL, and so it reaches every
+replica.
+
+The split of ownership is deliberate. The domain owns whether a plan is
+*well-formed* — a bounded JSON object carrying its own version — and enforces
+that setting a plan writes it and its compiled source in one transaction, and
+that writing source by hand clears the plan. The client owns the authoring
+grammar and its compiler, because a builder is an editor for the source, and
+the source it produces is validated, planned, and budgeted by exactly the same
+path a hand-written query takes. A plan version a reader does not understand
+leaves the block on its source, which still runs.
+
+Three properties of the emitted SPARQL are contractual rather than incidental:
+
+- **Every user value leaves as a bound parameter**, never as text spliced into
+  the source. A plan therefore cannot inject syntax, and a relative operand
+  ("due today") resolves against the reader's own today at run time instead of
+  being frozen into the stored query.
+- **Negation is `NOT EXISTS` over the positive pattern**, so "does not contain"
+  keeps entities that carry no such value at all, which is the reading a person
+  means.
+- **Alternatives are a disjunction of `EXISTS`, not `UNION`.** A `UNION` branch
+  is evaluated on its own and only then joined, so neither the subject nor any
+  bound parameter is visible inside it — the branch would ask its question of
+  the whole graph, and a parameterized branch would silently answer nothing.
+  `EXISTS` is evaluated against the solution in hand, which is what "any of
+  these is true *of this row*" means.
+
+A repeated relation folded into one cell compiles to `GROUP_CONCAT` with the
+remaining columns in `GROUP BY`. All of these shapes are covered by a
+query-crate conformance test, because the compiler that writes them lives
+outside Rust.
 
 ## Planning, Reactivity, and Budgets
 

@@ -1,6 +1,6 @@
 use crate::{
     BlockId, Cardinality, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey,
-    PropertyType, PropertyValue, QueryViewId, TagId,
+    PropertyType, PropertyValue, QueryPlan, QueryViewId, TagId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -141,6 +141,14 @@ pub enum Command {
         delete: usize,
         insert: String,
     },
+    SetQueryPlan {
+        owner: PropertyOwner,
+        plan: QueryPlan,
+        source: String,
+    },
+    ClearQueryPlan {
+        owner: PropertyOwner,
+    },
     PutQueryView {
         owner: PropertyOwner,
         view: QueryView,
@@ -172,13 +180,42 @@ pub enum QueryViewKind {
     List,
 }
 
+/// One result column as a saved view presents it. The plan (or a hand-written
+/// `SELECT`) decides which variables exist; a view decides their order, their
+/// width, and whether they are on screen at all. A variable the view does not
+/// mention stays visible at its natural position, so widening a query never
+/// hides its new column.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryViewColumn {
+    pub variable: String,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default)]
+    pub width: Option<u32>,
+}
+
+/// Presentation switches that belong to one saved view rather than to the
+/// query. They never change which rows or values the query returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct QueryViewOptions {
+    /// Table rows at the outline's own row height instead of a roomier one.
+    #[serde(default)]
+    pub compact: bool,
+    /// Let cell text wrap instead of truncating on one line.
+    #[serde(default)]
+    pub wrap: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryView {
     pub id: QueryViewId,
     pub name: String,
     pub kind: QueryViewKind,
     pub position: u32,
-    pub visible_variables: Vec<String>,
+    #[serde(default)]
+    pub columns: Vec<QueryViewColumn>,
+    #[serde(default)]
+    pub options: QueryViewOptions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

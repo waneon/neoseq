@@ -1,7 +1,12 @@
 // Typed builders for `domain::Command` JSON. Shapes mirror the serde
 // representation (`type` tag + snake_case fields) used by `executeJson`.
 
-import type { PropertyValue, PropertyValueType, QueryView } from "./snapshot";
+import type {
+  PropertyValue,
+  PropertyValueType,
+  QueryPlanDocument,
+  QueryView,
+} from "./snapshot";
 
 export type EntityRef =
   | { kind: "page"; id: string }
@@ -59,6 +64,8 @@ export type Command =
   | { type: "remove_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
   | { type: "set_query_source"; owner: PropertyOwnerRef; source: string }
   | { type: "splice_query_source"; owner: PropertyOwnerRef; index: number; delete: number; insert: string }
+  | { type: "set_query_plan"; owner: PropertyOwnerRef; plan: QueryPlanDocument; source: string }
+  | { type: "clear_query_plan"; owner: PropertyOwnerRef }
   | { type: "put_query_view"; owner: PropertyOwnerRef; view: QueryView }
   | { type: "remove_query_view"; owner: PropertyOwnerRef; view_id: string }
   | { type: "set_query_default_view"; owner: PropertyOwnerRef; view_id: string }

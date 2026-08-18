@@ -51,15 +51,16 @@ generically editable by an older client.
 ## Query Document
 
 `builtin.query` is `neoseq.query` version 1. Its snapshot contains source,
-language, stable-ID views, view order positions, per-view variable visibility,
-and a default view ID. Its canonical Loro layout is:
+language, an optional builder plan, stable-ID views with their column layout and
+presentation options, and a default view ID. Its canonical Loro layout is:
 
 ```text
 d:builtin.query: Map
   schema, version, language, default_view_id
   source: Text
+  plan_version, plan          (optional; the builder's authoring payload)
   views: Map<QueryViewId, Map>
-    name, kind, position, visible_variables, deleted
+    name, kind, position, columns, options, deleted
 ```
 
 Source edits use Unicode splice commands and merge as collaborative text. View
@@ -68,15 +69,27 @@ concurrent inserts deterministic. Removing a view writes its `deleted` marker,
 so edits to its other fields do not implicitly resurrect it; removing the
 default selects the first remaining ordered view in the same transaction.
 
-The current built-in views are `table` and `list`. Additional saved views use
-the same record contract rather than adding property keys or storage roots.
+`plan` is the query builder's structured description of the same query, stored
+beside the SPARQL it compiled to. The domain validates only that it is a bounded
+JSON object carrying its own version; the authoring grammar belongs to the
+client, and a version a reader does not understand simply leaves that block on
+its source. Setting a plan writes it and its compiled source in one transaction,
+and writing source by hand clears the plan, so a stored plan always describes
+what runs.
+
+`columns` is a per-view ordered list of `{variable, hidden, width}` records, and
+`options` carries presentation switches (`compact`, `wrap`). Both decode
+leniently: a variable a view has never seen stays visible at its natural
+position, and an unreadable options record falls back to defaults. The current
+built-in views are `table` and `list`. Additional saved views use the same
+record contract rather than adding property keys or storage roots.
 
 ## Owners and Commands
 
 Page, block, and tag-default bags share atomic property commands. Target policy
 comes from the owner and registry. Document schemas add semantic commands; the
-query document currently supports source set/splice, view put/remove, and
-default-view selection. One command remains one Loro transaction, undo item,
+query document currently supports source set/splice, plan set/clear, view
+put/remove, and default-view selection. One command remains one Loro transaction, undo item,
 durable update, and semantic event.
 
 Tag defaults materialize only schemas whose registry contract allows copying.

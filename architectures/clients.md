@@ -91,7 +91,9 @@ imported directly by the client and Rust domain. Placement access determines
 whether a property is hidden, read-only, or editable. Sparse renderer maps add
 specialized controls without becoming a schema authority:
 
-- `builtin.query` provides a SPARQL editor and schema-owned saved result views;
+- `builtin.query` provides the query builder, a SPARQL escape hatch, and
+  schema-owned saved result views. It is authored only through `/`: the generic
+  property route never offers it, so a query is never half-created by a picker;
 - `builtin.task-*` provides workflow, priority, and date controls;
 - registered lifecycle and page built-ins appear as read-only page information;
 - unknown `user.*` keys use the generic typed editor, while unknown
@@ -123,9 +125,10 @@ a query parameter, so browser Back closes it without losing editor context.
 Journal navigation resolves the user's configured timezone to a `LocalDate` and
 asks the core to ensure that deterministic journal.
 
-`features/history/` is the single client coordinator for undo/redo. It consumes
-the core's semantic history effect, chooses a regular-page or journal route, and
-hands block reveal to the mounted outliner. The outliner expands ancestors and
+`features/history/` is the single client coordinator for undo/redo and for
+opening one entity by ID. It consumes the core's semantic history effect, chooses
+a regular-page or journal route, and hands block reveal to the mounted outliner;
+following a query result uses the same reveal path. The outliner expands ancestors and
 scrolls its virtual list; only an undo/redo invoked from an active block editor
 may transfer editor focus. Graph-scoped effects leave the current route intact.
 The complete policy is in [`history-navigation.md`](history-navigation.md).
@@ -183,15 +186,22 @@ locale, journal timezone/date format, and shortcut overrides. Graph display
 names belong to the browser graph directory; graph content and metadata belong
 to the core.
 
-Shared saved-view definitions and the graph's default view belong to the query
-document. A person's last-opened view and personal layout overrides remain
-browser-local until a separate user-private preference sync unit exists. Query
-results, selection, scroll, loading state, and drafts are session-only.
+Shared saved-view definitions, their column layout, and the graph's default view
+belong to the query document, as does the builder plan behind a built query. A
+person's last-opened view remains browser-local until a separate user-private
+preference sync unit exists. Query results, a table's own header sort, selection,
+scroll, loading state, and drafts are session-only.
 
 The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script
 applying an explicit stored choice before React mounts. Portals share one z-index
 scale, and motion follows the closed vocabulary in DESIGN.md.
+
+Headless libraries supply models, never appearance: `@tanstack/react-virtual`
+for the outline's row windowing and `@tanstack/react-table` for the result
+table's ordering, sizing, and sorting models. Every element they drive is
+rendered by this codebase against `ui/app.css`, so no library stylesheet is
+loaded and no component arrives with its own look.
 
 ## Accessibility and Verification
 

@@ -1,0 +1,883 @@
+// The query builder.
+//
+// It reads as a sentence — *Find blocks where all of …, show …, sorted by …* —
+// because that is the shape of the question a person actually has. Every row is
+// the product's one dropdown (`ui/menu-select`), so a choice here behaves like a
+// choice anywhere else, and nesting a group is what gives it the reach of the
+// SPARQL it compiles to: any depth of AND / OR / NOT over any field the graph
+// projects.
+//
+// The builder is a pure editor over a plan value. It never runs, saves, or
+// compiles anything; `QueryBlock` owns all of that.
+
+import { useMemo, useState } from "react";
+import { PlusIcon, Trash2Icon, XIcon } from "lucide-react";
+import { Input } from "@/ui/shadcn/input";
+import { MenuSelect, type MenuSelectOption } from "@/ui/menu-select";
+import type { GraphSnapshot } from "../../core-port/snapshot";
+import { isGenericProperty, stringChoicesOf } from "../../entities/properties";
+import {
+  aggregatesFor,
+  appendNode,
+  columnBaseId,
+  columnKindsFor,
+  defaultAggregateFor,
+  defaultValueForField,
+  emptyGroup,
+  fieldKindsFor,
+  fieldType,
+  newCondition,
+  nextColumnId,
+  operatorsFor,
+  operatorTakesList,
+  operatorTakesRange,
+  operatorTakesValue,
+  PLAN_ANY_OF_MAX,
+  PLAN_LIMIT_MAX,
+  PLAN_MAX_CONDITIONS,
+  PLAN_MAX_DEPTH,
+  PLAN_SUBJECTS,
+  planPropertyKeys,
+  replaceNode,
+  countConditions,
+  groupDepth,
+  type PlanAggregate,
+  type PlanColumn,
+  type PlanColumnSource,
+  type PlanCondition,
+  type PlanField,
+  type PlanGroup,
+  type PlanNode,
+  type PlanSubject,
+  type PlanValue,
+  type QueryPlan,
+} from "../../entities/query-plan";
+import { todayLocalDate } from "../../entities/journal";
+import { useI18n } from "../../i18n";
+import { PageAutocomplete } from "../properties/PageAutocomplete";
+import { propertyDisplayName } from "../properties/property-display";
+import {
+  aggregateLabel,
+  choiceLabel,
+  columnLabel,
+  columnSourceLabel,
+  fieldKindLabel,
+  fieldLabel,
+  matchLabel,
+  operatorLabel,
+  RELATIVE_DATE_PRESETS,
+  relativeDateId,
+  relativeDateLabel,
+  subjectLabel,
+} from "./labels";
+
+const FIELD_PROPERTY_PREFIX = "property:";
+const COLUMN_PROPERTY_PREFIX = "property:";
+const EXACT_DATE = "exact";
+
+/** Every property key this graph actually uses, plus the registry's own. */
+export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
+  const present = new Set<string>();
+  const visit = (bag: { key: string }[]) => {
+    for (const field of bag) if (isGenericProperty(field.key)) present.add(field.key);
+  };
+  for (const page of snapshot.pages) {
+    visit(page.properties);
+    const stack = [...page.blocks];
+    while (stack.length > 0) {
+      const block = stack.pop()!;
+      visit(block.properties);
+      stack.push(...block.children);
+    }
+  }
+  for (const tag of snapshot.tags) {
+    visit(tag.properties);
+    visit(tag.defaults);
+  }
+  return planPropertyKeys(present);
+}
+
+export function QueryBuilder({
+  plan,
+  snapshot,
+  readonly,
+  onChange,
+}: {
+  plan: QueryPlan;
+  snapshot: GraphSnapshot;
+  readonly: boolean;
+  onChange: (plan: QueryPlan) => void;
+}) {
+  const { message } = useI18n();
+  const propertyKeys = useMemo(() => graphPropertyKeys(snapshot), [snapshot]);
+
+  const setWhere = (where: PlanGroup) => onChange({ ...plan, where });
+
+  return (
+    <div className="query-builder" data-testid="query-builder">
+      <div className="qb-line">
+        <span className="qb-lead">{message("query.find")}</span>
+        <MenuSelect
+          value={plan.subject}
+          label={message("query.subjectLabel")}
+          testId="qb-subject"
+          disabled={readonly}
+          options={PLAN_SUBJECTS.map((subject) => ({
+            value: subject,
+            label: subjectLabel(subject, message),
+          }))}
+          onValueChange={(value) => onChange(retarget(plan, value as PlanSubject))}
+        />
+      </div>
+
+      <GroupEditor
+        group={plan.where}
+        plan={plan}
+        depth={0}
+        propertyKeys={propertyKeys}
+        snapshot={snapshot}
+        readonly={readonly}
+        onChange={setWhere}
+        onRemove={null}
+      />
+
+      <ColumnsEditor
+        plan={plan}
+        propertyKeys={propertyKeys}
+        readonly={readonly}
+        onChange={onChange}
+      />
+
+      <div className="qb-line qb-tail">
+        <span className="qb-lead">{message("query.sort")}</span>
+        <MenuSelect
+          value={plan.sort[0]?.column ?? ""}
+          label={message("query.sortLabel")}
+          placeholder={message("query.sortNone")}
+          testId="qb-sort"
+          disabled={readonly}
+          options={[
+            { value: "", label: message("query.sortNone") },
+            ...plan.columns.map((column) => ({
+              value: column.id,
+              label: columnLabel(column, plan.subject, message),
+            })),
+          ]}
+          onValueChange={(value) =>
+            onChange({
+              ...plan,
+              sort: value
+                ? [{ column: value, direction: plan.sort[0]?.direction ?? "asc" }]
+                : [],
+            })}
+        />
+        {plan.sort[0] && (
+          <MenuSelect
+            value={plan.sort[0].direction}
+            label={message("query.sortDirection")}
+            disabled={readonly}
+            options={[
+              { value: "asc", label: message("query.ascending") },
+              { value: "desc", label: message("query.descending") },
+            ]}
+            onValueChange={(value) =>
+              onChange({
+                ...plan,
+                sort: [{ column: plan.sort[0].column, direction: value as "asc" | "desc" }],
+              })}
+          />
+        )}
+        <span className="qb-lead">{message("query.limit")}</span>
+        <Input
+          className="w-20"
+          type="number"
+          min={1}
+          max={PLAN_LIMIT_MAX}
+          value={plan.limit}
+          readOnly={readonly}
+          aria-label={message("query.limit")}
+          data-testid="qb-limit"
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (!Number.isFinite(next)) return;
+            onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
+          }}
+        />
+        <label className="qb-check">
+          <input
+            type="checkbox"
+            checked={plan.distinct}
+            disabled={readonly}
+            onChange={(event) => onChange({ ...plan, distinct: event.target.checked })}
+          />
+          {message("query.uniqueRows")}
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** Changing what a query looks for drops the fields the new subject cannot ask. */
+function retarget(plan: QueryPlan, subject: PlanSubject): QueryPlan {
+  if (subject === plan.subject) return plan;
+  const fields = new Set(fieldKindsFor(subject));
+  const sources = new Set(columnKindsFor(subject));
+  const prune = (node: PlanNode): PlanNode | null => {
+    if (node.kind === "condition") return fields.has(node.field.kind) ? node : null;
+    const children = node.children.map(prune).filter((child): child is PlanNode => child !== null);
+    return { ...node, children };
+  };
+  const columns = plan.columns.filter((column) => sources.has(column.source.kind));
+  const kept = columns.length > 0
+    ? columns
+    : [{ id: "item", source: { kind: "subject" } as PlanColumnSource }];
+  return {
+    ...plan,
+    subject,
+    where: prune(plan.where) as PlanGroup,
+    columns: kept,
+    sort: plan.sort.filter((entry) => kept.some((column) => column.id === entry.column)),
+  };
+}
+
+function GroupEditor({
+  group,
+  plan,
+  depth,
+  propertyKeys,
+  snapshot,
+  readonly,
+  onChange,
+  onRemove,
+}: {
+  group: PlanGroup;
+  plan: QueryPlan;
+  depth: number;
+  propertyKeys: string[];
+  snapshot: GraphSnapshot;
+  readonly: boolean;
+  onChange: (group: PlanGroup) => void;
+  onRemove: (() => void) | null;
+}) {
+  const { message } = useI18n();
+  const full = countConditions(plan.where) >= PLAN_MAX_CONDITIONS;
+  const deep = groupDepth(plan.where) >= PLAN_MAX_DEPTH;
+
+  const replaceChild = (id: string, next: PlanNode | null) =>
+    onChange(replaceNode(group, id, next));
+
+  return (
+    <div className="qb-group" data-depth={depth} data-testid="qb-group">
+      <div className="qb-line qb-group-head">
+        <MenuSelect
+          value={group.match}
+          label={message("query.matchLabel")}
+          disabled={readonly}
+          testId={depth === 0 ? "qb-match" : undefined}
+          options={(["all", "any", "none"] as const).map((match) => ({
+            value: match,
+            label: matchLabel(match, message),
+          }))}
+          onValueChange={(value) =>
+            onChange({ ...group, match: value as PlanGroup["match"] })}
+        />
+        <span className="qb-lead">{message("query.ofTheFollowing")}</span>
+        {onRemove && (
+          <button
+            type="button"
+            className="icon-btn qb-remove"
+            disabled={readonly}
+            aria-label={message("query.removeGroup")}
+            onClick={onRemove}
+          >
+            <Trash2Icon aria-hidden />
+          </button>
+        )}
+      </div>
+
+      <div className="qb-children">
+        {group.children.length === 0 && (
+          <p className="qb-hint">{message("query.noConditions")}</p>
+        )}
+        {group.children.map((child) =>
+          child.kind === "group" ? (
+            <GroupEditor
+              key={child.id}
+              group={child}
+              plan={plan}
+              depth={depth + 1}
+              propertyKeys={propertyKeys}
+              snapshot={snapshot}
+              readonly={readonly}
+              onChange={(next) => replaceChild(child.id, next)}
+              onRemove={() => replaceChild(child.id, null)}
+            />
+          ) : (
+            <ConditionEditor
+              key={child.id}
+              condition={child}
+              subject={plan.subject}
+              propertyKeys={propertyKeys}
+              snapshot={snapshot}
+              readonly={readonly}
+              onChange={(next) => replaceChild(child.id, next)}
+              onRemove={() => replaceChild(child.id, null)}
+            />
+          ))}
+        <div className="qb-line qb-add">
+          <button
+            type="button"
+            className="qb-add-btn"
+            disabled={readonly || full}
+            data-testid={depth === 0 ? "qb-add-condition" : undefined}
+            onClick={() =>
+              onChange(appendNode(group, group.id, newCondition()))}
+          >
+            <PlusIcon aria-hidden />
+            {message("query.addCondition")}
+          </button>
+          <button
+            type="button"
+            className="qb-add-btn"
+            disabled={readonly || full || deep}
+            data-testid={depth === 0 ? "qb-add-group" : undefined}
+            onClick={() => onChange(appendNode(group, group.id, emptyGroup("any")))}
+          >
+            <PlusIcon aria-hidden />
+            {message("query.addGroup")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConditionEditor({
+  condition,
+  subject,
+  propertyKeys,
+  snapshot,
+  readonly,
+  onChange,
+  onRemove,
+}: {
+  condition: PlanCondition;
+  subject: PlanSubject;
+  propertyKeys: string[];
+  snapshot: GraphSnapshot;
+  readonly: boolean;
+  onChange: (condition: PlanCondition) => void;
+  onRemove: () => void;
+}) {
+  const { message } = useI18n();
+  const operators = operatorsFor(condition.field);
+
+  const fieldOptions: MenuSelectOption[] = [
+    ...fieldKindsFor(subject)
+      .filter((kind) => kind !== "property")
+      .map((kind) => ({ value: kind, label: fieldKindLabel(kind, subject, message) })),
+    ...propertyKeys.map((key) => ({
+      value: `${FIELD_PROPERTY_PREFIX}${key}`,
+      label: propertyDisplayName(key, message),
+    })),
+  ];
+
+  const changeField = (encoded: string) => {
+    const field: PlanField = encoded.startsWith(FIELD_PROPERTY_PREFIX)
+      ? { kind: "property", key: encoded.slice(FIELD_PROPERTY_PREFIX.length) }
+      : ({ kind: encoded } as PlanField);
+    const next = operatorsFor(field);
+    const op = next.includes(condition.op) ? condition.op : next[0];
+    onChange({
+      ...condition,
+      field,
+      op,
+      value: operatorTakesValue(op) ? defaultValueForField(field) : undefined,
+      value2: undefined,
+    });
+  };
+
+  return (
+    <div className="qb-condition" data-testid="qb-condition">
+      <MenuSelect
+        className="qb-field"
+        value={condition.field.kind === "property"
+          ? `${FIELD_PROPERTY_PREFIX}${condition.field.key}`
+          : condition.field.kind}
+        label={message("query.fieldLabel")}
+        testId="qb-field"
+        disabled={readonly}
+        options={fieldOptions}
+        onValueChange={changeField}
+      />
+      <MenuSelect
+        className="qb-operator"
+        value={condition.op}
+        label={message("query.operatorLabel")}
+        testId="qb-operator"
+        disabled={readonly}
+        options={operators.map((op) => ({ value: op, label: operatorLabel(op, message) }))}
+        onValueChange={(value) => {
+          const op = value as PlanCondition["op"];
+          onChange({
+            ...condition,
+            op,
+            value: operatorTakesValue(op)
+              ? condition.value ?? defaultValueForField(condition.field)
+              : undefined,
+            value2: operatorTakesRange(op) ? condition.value2 : undefined,
+          });
+        }}
+      />
+      {operatorTakesValue(condition.op) && (
+        <ValueEditor
+          condition={condition}
+          snapshot={snapshot}
+          readonly={readonly}
+          onChange={onChange}
+        />
+      )}
+      <button
+        type="button"
+        className="icon-btn qb-remove"
+        disabled={readonly}
+        aria-label={message("query.removeCondition", {
+          field: fieldLabel(condition.field, subject, message),
+        })}
+        onClick={onRemove}
+      >
+        <XIcon aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+function ValueEditor({
+  condition,
+  snapshot,
+  readonly,
+  onChange,
+}: {
+  condition: PlanCondition;
+  snapshot: GraphSnapshot;
+  readonly: boolean;
+  onChange: (condition: PlanCondition) => void;
+}) {
+  const { message } = useI18n();
+  if (operatorTakesList(condition.op)) {
+    return (
+      <ValueListEditor
+        condition={condition}
+        snapshot={snapshot}
+        readonly={readonly}
+        onChange={onChange}
+      />
+    );
+  }
+  const operand = (
+    <Operand
+      field={condition.field}
+      value={condition.value ?? defaultValueForField(condition.field)}
+      snapshot={snapshot}
+      readonly={readonly}
+      onChange={(value) => onChange({ ...condition, value })}
+    />
+  );
+  if (!operatorTakesRange(condition.op)) return operand;
+  return (
+    <>
+      {operand}
+      <span className="qb-lead">{message("query.and")}</span>
+      <Operand
+        field={condition.field}
+        value={condition.value2 ?? defaultValueForField(condition.field)}
+        snapshot={snapshot}
+        readonly={readonly}
+        onChange={(value) => onChange({ ...condition, value2: value })}
+      />
+    </>
+  );
+}
+
+/** One typed operand: the editor the field's own kind of value deserves. */
+function Operand({
+  field,
+  value,
+  snapshot,
+  readonly,
+  onChange,
+}: {
+  field: PlanField;
+  value: PlanValue;
+  snapshot: GraphSnapshot;
+  readonly: boolean;
+  onChange: (value: PlanValue) => void;
+}) {
+  const { message } = useI18n();
+  const type = fieldType(field);
+
+  if (type === "date") {
+    const relative = value.type === "relative" ? relativeDateId(value.value) : EXACT_DATE;
+    return (
+      <span className="qb-operand">
+        <MenuSelect
+          value={relative}
+          label={message("query.dateLabel")}
+          testId="qb-date"
+          disabled={readonly}
+          options={[
+            ...RELATIVE_DATE_PRESETS.map((preset) => ({
+              value: preset.id,
+              label: relativeDateLabel(preset.id, message),
+            })),
+            { value: EXACT_DATE, label: message("query.relative.exact") },
+          ]}
+          onValueChange={(next) => {
+            if (next === EXACT_DATE) {
+              onChange({ type: "date", value: value.type === "date" ? value.value : todayLocalDate() });
+              return;
+            }
+            const preset = RELATIVE_DATE_PRESETS.find((item) => item.id === next);
+            if (preset) onChange({ type: "relative", value: preset.value });
+          }}
+        />
+        {value.type === "date" && (
+          <Input
+            type="date"
+            className="w-40"
+            value={value.value}
+            readOnly={readonly}
+            aria-label={message("query.exactDate")}
+            onChange={(event) => {
+              if (event.target.value) onChange({ type: "date", value: event.target.value });
+            }}
+          />
+        )}
+      </span>
+    );
+  }
+
+  if (type === "number" || type === "integer") {
+    return (
+      <Input
+        className="w-24"
+        type="number"
+        value={value.type === "number" ? value.value : 0}
+        readOnly={readonly}
+        aria-label={message("query.valueLabel")}
+        data-testid="qb-value"
+        onChange={(event) => onChange({ type: "number", value: Number(event.target.value) })}
+      />
+    );
+  }
+
+  if (type === "tag") {
+    const tags = snapshot.tags;
+    return (
+      <MenuSelect
+        className="qb-value"
+        value={value.type === "tag" ? value.value : ""}
+        label={message("query.valueLabel")}
+        placeholder={message("query.pickTag")}
+        testId="qb-value"
+        disabled={readonly}
+        options={tags.map((tag) => ({ value: tag.id, label: tag.name }))}
+        onValueChange={(next) => onChange({ type: "tag", value: next })}
+      />
+    );
+  }
+
+  if (type === "page") {
+    const current = value.type === "page" ? value.value : "";
+    const page = snapshot.pages.find((item) => item.id === current);
+    return (
+      <span className="qb-operand">
+        {page && <span className="qb-chip">{page.title || page.id}</span>}
+        {!readonly && (
+          <PageAutocomplete
+            placeholder={message("query.pickPage")}
+            onPick={(id) => onChange({ type: "page", value: id })}
+          />
+        )}
+      </span>
+    );
+  }
+
+  const choices = field.kind === "property" ? stringChoicesOf(field.key) : [];
+  if (choices.length > 0) {
+    const current = value.type === "text" ? value.value : "";
+    const options = current && !choices.includes(current) ? [current, ...choices] : choices;
+    return (
+      <MenuSelect
+        className="qb-value"
+        value={current}
+        label={message("query.valueLabel")}
+        placeholder={message("query.pickValue")}
+        testId="qb-value"
+        disabled={readonly}
+        options={options.map((choice) => ({
+          value: choice,
+          label: field.kind === "property" ? choiceLabel(field.key, choice, message) : choice,
+        }))}
+        onValueChange={(next) => onChange({ type: "text", value: next })}
+      />
+    );
+  }
+
+  return (
+    <Input
+      className="w-60 max-w-full"
+      value={value.type === "text" ? value.value : ""}
+      readOnly={readonly}
+      placeholder={message("query.valuePlaceholder")}
+      aria-label={message("query.valueLabel")}
+      data-testid="qb-value"
+      onChange={(event) => onChange({ type: "text", value: event.target.value })}
+    />
+  );
+}
+
+/** `is any of` — a set of alternatives, held as removable chips. */
+function ValueListEditor({
+  condition,
+  snapshot,
+  readonly,
+  onChange,
+}: {
+  condition: PlanCondition;
+  snapshot: GraphSnapshot;
+  readonly: boolean;
+  onChange: (condition: PlanCondition) => void;
+}) {
+  const { message } = useI18n();
+  const [draft, setDraft] = useState("");
+  const members = condition.value?.type === "list" ? condition.value.values : [];
+  const type = fieldType(condition.field);
+  const choices = condition.field.kind === "property" ? stringChoicesOf(condition.field.key) : [];
+
+  const setMembers = (next: string[]) =>
+    onChange({ ...condition, value: { type: "list", values: next.slice(0, PLAN_ANY_OF_MAX) } });
+
+  const add = (member: string) => {
+    const trimmed = member.trim();
+    if (!trimmed || members.includes(trimmed)) return;
+    setMembers([...members, trimmed]);
+  };
+
+  const nameOf = (member: string): string => {
+    if (type === "tag") return snapshot.tags.find((tag) => tag.id === member)?.name ?? member;
+    if (type === "page") {
+      const page = snapshot.pages.find((item) => item.id === member);
+      return page ? page.title || page.id : member;
+    }
+    return member;
+  };
+
+  const remaining = type === "tag"
+    ? snapshot.tags.filter((tag) => !members.includes(tag.id))
+      .map((tag) => ({ value: tag.id, label: tag.name }))
+    : choices.filter((choice) => !members.includes(choice))
+      .map((choice) => ({ value: choice, label: choice }));
+
+  return (
+    <span className="qb-operand qb-list" data-testid="qb-value-list">
+      {members.map((member) => (
+        <span key={member} className="qb-chip">
+          {nameOf(member)}
+          <button
+            type="button"
+            aria-label={message("query.removeValue", { value: nameOf(member) })}
+            disabled={readonly}
+            onClick={() => setMembers(members.filter((item) => item !== member))}
+          >
+            <XIcon aria-hidden />
+          </button>
+        </span>
+      ))}
+      {members.length >= PLAN_ANY_OF_MAX ? null : type === "page" ? (
+        !readonly && (
+          <PageAutocomplete placeholder={message("query.pickPage")} onPick={(id) => add(id)} />
+        )
+      ) : remaining.length > 0 ? (
+        <MenuSelect
+          className="qb-value"
+          value=""
+          label={message("query.addValue")}
+          placeholder={message("query.addValue")}
+          disabled={readonly}
+          options={remaining}
+          onValueChange={add}
+        />
+      ) : (
+        <Input
+          className="w-60 max-w-full"
+          value={draft}
+          readOnly={readonly}
+          placeholder={message("query.addValue")}
+          aria-label={message("query.addValue")}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            add(draft);
+            setDraft("");
+          }}
+          onBlur={() => {
+            add(draft);
+            setDraft("");
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
+function ColumnsEditor({
+  plan,
+  propertyKeys,
+  readonly,
+  onChange,
+}: {
+  plan: QueryPlan;
+  propertyKeys: string[];
+  readonly: boolean;
+  onChange: (plan: QueryPlan) => void;
+}) {
+  const { message } = useI18n();
+  const taken = new Set(
+    plan.columns.map((column) =>
+      column.source.kind === "property"
+        ? `${COLUMN_PROPERTY_PREFIX}${column.source.key}`
+        : column.source.kind),
+  );
+  const available: MenuSelectOption[] = [
+    // `property` is not a column on its own — every property key below is.
+    ...columnKindsFor(plan.subject)
+      .filter((kind) => kind !== "property" && !taken.has(kind))
+      .map((kind) => ({
+        value: kind,
+        label: columnSourceLabel({ kind } as PlanColumnSource, plan.subject, message),
+      })),
+    ...propertyKeys
+      .filter((key) => !taken.has(`${COLUMN_PROPERTY_PREFIX}${key}`))
+      .map((key) => ({
+        value: `${COLUMN_PROPERTY_PREFIX}${key}`,
+        label: propertyDisplayName(key, message),
+      })),
+  ];
+
+  const addColumn = (encoded: string) => {
+    const source: PlanColumnSource = encoded.startsWith(COLUMN_PROPERTY_PREFIX)
+      ? { kind: "property", key: encoded.slice(COLUMN_PROPERTY_PREFIX.length) }
+      : ({ kind: encoded } as PlanColumnSource);
+    const column: PlanColumn = {
+      id: nextColumnId(plan, columnBaseId(source)),
+      source,
+      // A relation with many values folds into one cell by default; a row per
+      // tag would multiply the answer rather than describe it.
+      aggregate: defaultAggregateFor(source),
+    };
+    onChange({ ...plan, columns: [...plan.columns, column] });
+  };
+
+  const update = (id: string, next: Partial<PlanColumn>) =>
+    onChange({
+      ...plan,
+      columns: plan.columns.map((column) =>
+        column.id === id ? { ...column, ...next } : column),
+    });
+
+  const remove = (id: string) =>
+    onChange({
+      ...plan,
+      columns: plan.columns.filter((column) => column.id !== id),
+      sort: plan.sort.filter((entry) => entry.column !== id),
+    });
+
+  return (
+    <div className="qb-line qb-columns">
+      <span className="qb-lead">{message("query.show")}</span>
+      {plan.columns.map((column) => (
+        <ColumnChip
+          key={column.id}
+          column={column}
+          subject={plan.subject}
+          readonly={readonly}
+          removable={plan.columns.length > 1}
+          onChange={(next) => update(column.id, next)}
+          onRemove={() => remove(column.id)}
+        />
+      ))}
+      {available.length > 0 && (
+        <MenuSelect
+          className="qb-add-column"
+          value=""
+          label={message("query.addColumn")}
+          placeholder={message("query.addColumn")}
+          testId="qb-add-column"
+          disabled={readonly}
+          options={available}
+          onValueChange={addColumn}
+        />
+      )}
+    </div>
+  );
+}
+
+function ColumnChip({
+  column,
+  subject,
+  readonly,
+  removable,
+  onChange,
+  onRemove,
+}: {
+  column: PlanColumn;
+  subject: PlanSubject;
+  readonly: boolean;
+  removable: boolean;
+  onChange: (next: Partial<PlanColumn>) => void;
+  onRemove: () => void;
+}) {
+  const { message } = useI18n();
+  const aggregates = aggregatesFor(column.source);
+  const label = columnLabel(column, subject, message);
+  // The chip's own dropdown *is* how a column is summarized: its resting option
+  // is the plain field, and choosing an aggregate renames the chip to say so.
+  return (
+    <span className="qb-column" data-testid="qb-column">
+      <MenuSelect
+        className="qb-column-select"
+        value={column.aggregate ?? ""}
+        label={message("query.columnMode", { column: label })}
+        disabled={readonly}
+        options={[
+          // A subject column has no plain reading — see `decodePlan`.
+          ...(column.source.kind === "subject"
+            ? []
+            : [{ value: "", label: columnSourceLabel(column.source, subject, message) }]),
+          ...aggregates.map((aggregate) => ({
+            value: aggregate,
+            label: message("query.aggregateOf", {
+              aggregate: aggregateLabel(aggregate, message),
+              field: columnSourceLabel(column.source, subject, message),
+            }),
+          })),
+        ]}
+        onValueChange={(value) =>
+          onChange({ aggregate: (value || undefined) as PlanAggregate | undefined })}
+      />
+      {removable && (
+        <button
+          type="button"
+          className="qb-column-remove"
+          disabled={readonly}
+          aria-label={message("query.removeColumn", { column: label })}
+          onClick={onRemove}
+        >
+          <XIcon aria-hidden />
+        </button>
+      )}
+    </span>
+  );
+}

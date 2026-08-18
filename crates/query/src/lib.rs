@@ -857,6 +857,135 @@ mod tests {
         ));
     }
 
+    /// The query builder writes SPARQL, so the shapes it writes are part of
+    /// this profile's contract: a bound parameter standing in for a constant
+    /// object, negation as `NOT EXISTS`, alternatives as a disjunction of
+    /// `EXISTS`, optional columns, `GROUP_CONCAT` over a repeated relation, and
+    /// an aggregate alias used as a sort key. A change here breaks every built
+    /// query.
+    ///
+    /// Alternatives are `EXISTS`, deliberately, and this test is where that is
+    /// nailed down: a `UNION` branch is evaluated before it joins, so a bound
+    /// parameter inside one is unbound and its whole branch silently answers
+    /// nothing. `EXISTS` is evaluated against the solution in hand, so both the
+    /// subject and every parameter reach it.
+    #[test]
+    fn sparql_accepts_the_shapes_the_query_builder_compiles() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        let mut query = request(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             PREFIX prop: <urn:neoseq:property:>\n\
+             SELECT ?item ?c0 (GROUP_CONCAT(DISTINCT ?c1; SEPARATOR=\"\\u001F\") AS ?c1_list)\n\
+                    (COUNT(DISTINCT ?c1) AS ?c2) WHERE {\n\
+               ?item a neo:Block .\n\
+               ?item prop:builtin.task-status ?p0 .\n\
+               FILTER(\n\
+                 EXISTS { ?item neo:tag ?p1 }\n\
+                 || EXISTS { ?item prop:builtin.task-deadline ?v0 . FILTER(?v0 <= ?p2) }\n\
+               )\n\
+               FILTER NOT EXISTS { ?item prop:user.done ?v1 }\n\
+               OPTIONAL { ?item neo:content ?c0 }\n\
+               OPTIONAL { ?item neo:tag ?t0 . ?t0 neo:name ?c1 }\n\
+             }\n\
+             GROUP BY ?item ?c0\n\
+             ORDER BY DESC(?c2) ?c0 ?item\n\
+             LIMIT 50",
+        );
+        query.bindings.insert(
+            "p0".into(),
+            RdfTerm::Literal {
+                value: "todo".into(),
+                datatype: xsd::STRING.as_str().into(),
+                language: None,
+            },
+        );
+        query.bindings.insert(
+            "p1".into(),
+            RdfTerm::Iri {
+                value: entity_iri(&GraphId::new("query graph").unwrap(), "tag", "project")
+                    .unwrap()
+                    .as_str()
+                    .to_owned(),
+                entity: None,
+            },
+        );
+        query.bindings.insert(
+            "p2".into(),
+            RdfTerm::Literal {
+                value: "2026-12-31".into(),
+                datatype: xsd::DATE.as_str().into(),
+                language: None,
+            },
+        );
+        let QueryResult::Select {
+            variables, rows, ..
+        } = index.execute(query).unwrap()
+        else {
+            panic!("expected SELECT")
+        };
+        assert_eq!(variables, ["item", "c0", "c1_list", "c2"]);
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            rows[0].get("c0"),
+            Some(RdfTerm::Literal { value, .. }) if value == "Ship the Query Engine"
+        ));
+        assert!(matches!(
+            rows[0].get("c1_list"),
+            Some(RdfTerm::Literal { value, .. }) if value == "Project"
+        ));
+
+        // The separator a list column joins on has to survive the parser and
+        // reach the cell intact, because the renderer splits on it.
+        let joined = request(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             PREFIX prop: <urn:neoseq:property:>\n\
+             SELECT ?item (GROUP_CONCAT(DISTINCT ?c0; SEPARATOR=\"\\u001F\") AS ?c0_list) WHERE {\n\
+               ?item a neo:Page .\n\
+               OPTIONAL { ?item prop:user.alias ?c0 }\n\
+             } GROUP BY ?item",
+        );
+        let QueryResult::Select { rows, .. } = index.execute(joined).unwrap() else {
+            panic!("expected SELECT")
+        };
+        let Some(RdfTerm::Literal { value, .. }) = rows[0].get("c0_list") else {
+            panic!("expected a joined literal")
+        };
+        assert_eq!(value.split('\u{1f}').count(), 2);
+
+        // The reason alternatives are not `UNION`: the same question asked that
+        // way answers nothing, because `?p0` never reaches the branch.
+        let mut unioned = request(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             SELECT ?item WHERE {\n\
+               ?item a neo:Block .\n\
+               { ?item a neo:Block . ?item neo:content ?v0 .\n\
+                 FILTER(neo:matchesText(?v0, ?p0)) }\n\
+             }",
+        );
+        let mut existing = request(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             SELECT ?item WHERE {\n\
+               ?item a neo:Block .\n\
+               FILTER(EXISTS { ?item neo:content ?v0 . FILTER(neo:matchesText(?v0, ?p0)) })\n\
+             }",
+        );
+        let needle = RdfTerm::Literal {
+            value: "query".into(),
+            datatype: xsd::STRING.as_str().into(),
+            language: None,
+        };
+        unioned.bindings.insert("p0".into(), needle.clone());
+        existing.bindings.insert("p0".into(), needle);
+        let QueryResult::Select { rows: none, .. } = index.execute(unioned).unwrap() else {
+            panic!("expected SELECT")
+        };
+        let QueryResult::Select { rows: found, .. } = index.execute(existing).unwrap() else {
+            panic!("expected SELECT")
+        };
+        assert!(none.is_empty());
+        assert_eq!(found.len(), 1);
+    }
+
     #[test]
     fn sparql_rejects_non_local_or_graph_producing_forms() {
         let index = GraphIndex::new(&snapshot()).unwrap();

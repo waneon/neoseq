@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router";
-import type { CommandResult } from "../../core-port/commands";
+import type { CommandResult, EntityRef } from "../../core-port/commands";
 import type { GraphSession } from "../../core-port/session";
 import { findPage, journalDate, pageKind } from "../../core-port/snapshot";
 
@@ -37,6 +37,12 @@ interface PendingReveal {
 export interface HistoryActions {
   run(direction: "undo" | "redo", invocation: HistoryInvocation): Promise<CommandResult>;
   registerRevealer(pageId: string, handler: RevealHandler): () => void;
+  /**
+   * Opens one entity, wherever it lives: the page it is on, then the block
+   * itself. Undo/redo is one caller; following a query result is another, and
+   * both need the same "navigate, then let the mounted outliner reveal" order.
+   */
+  reveal(target: EntityRef, focus?: boolean): void;
 }
 
 const HistoryContext = createContext<HistoryActions | null>(null);
@@ -74,6 +80,23 @@ export function HistoryProvider({
       : `/g/${graphId}/p/${encodeURIComponent(pageId)}`;
   }, [graphId, session]);
 
+  const reveal = useCallback((target: EntityRef, focus = false) => {
+    const pageId = target.kind === "page" ? target.id : target.page_id;
+    const current = revealer.current;
+    if (target.kind === "page") {
+      if (current?.pageId !== pageId) navigate(routeForPage(pageId));
+      return;
+    }
+    const request: HistoryRevealRequest = {
+      token: crypto.randomUUID(),
+      blockId: target.id,
+      focus,
+    };
+    if (current?.pageId === pageId && current.handler(request)) return;
+    pending.current = { pageId, request };
+    if (current?.pageId !== pageId) navigate(routeForPage(pageId));
+  }, [navigate, routeForPage]);
+
   const run = useCallback(async (
     direction: "undo" | "redo",
     invocation: HistoryInvocation,
@@ -81,30 +104,13 @@ export function HistoryProvider({
     const result = await session.execute({ type: direction });
     const effect = result.history_effect;
     if (!effect || effect.scope === "graph" || !effect.reveal) return result;
-
-    const target = effect.reveal;
-    const pageId = target.kind === "page" ? target.id : target.page_id;
-    const current = revealer.current;
-    if (target.kind === "page") {
-      if (current?.pageId !== pageId) navigate(routeForPage(pageId));
-      return result;
-    }
-
-    const request: HistoryRevealRequest = {
-      token: crypto.randomUUID(),
-      blockId: target.id,
-      focus: invocation.kind === "outline",
-    };
-    if (current?.pageId === pageId && current.handler(request)) return result;
-
-    pending.current = { pageId, request };
-    if (current?.pageId !== pageId) navigate(routeForPage(pageId));
+    reveal(effect.reveal, invocation.kind === "outline");
     return result;
-  }, [navigate, routeForPage, session]);
+  }, [reveal, session]);
 
   const actions = useMemo<HistoryActions>(
-    () => ({ run, registerRevealer }),
-    [registerRevealer, run],
+    () => ({ run, registerRevealer, reveal }),
+    [registerRevealer, reveal, run],
   );
   return <HistoryContext.Provider value={actions}>{children}</HistoryContext.Provider>;
 }

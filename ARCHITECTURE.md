@@ -69,7 +69,8 @@ persistence test boundary, not a shipped application shell.
 - `platform-native` supplies the headless CorePort and SQLite adapter used for
   parity and recovery verification.
 - `apps/client` owns interaction, navigation, browser-local preferences,
-  localization, error presentation, and responsive UI.
+  localization, error presentation, responsive UI, and the query builder that
+  authors SPARQL for the profile `query` executes.
 - `sync-protocol` owns the versioned, size-bounded binary envelope shared by
   sync replicas and the service.
 - `sync-server` owns authentication and membership seams, durable update relay,
@@ -129,9 +130,10 @@ deletion, retry, and test controls are deliberately outside CorePort.
 - Deleting a page is a soft delete and page references remain resolvable as
   tombstones. Deleting a tag soft-deletes its record and atomically detaches
   that tag from every page root and block; copied default-property values remain.
-- Shared saved-view definitions are graph data. RDF triples, query results and
-  plans, private presentation preferences, UI selection, and connection state
-  are derived, user-scoped, or ephemeral and never canonical graph data.
+- Shared saved-view definitions and the query builder's plan behind a built
+  query are graph data. RDF triples, query results and evaluation plans, private
+  presentation preferences, UI selection, and connection state are derived,
+  user-scoped, or ephemeral and never canonical graph data.
 
 One user intent becomes one domain command, one Loro transaction, one local undo
 item, one durable update, and one semantic event. The runtime validates complete

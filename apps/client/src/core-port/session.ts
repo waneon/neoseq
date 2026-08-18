@@ -433,6 +433,8 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "remove_repeated_property":
     case "set_query_source":
     case "splice_query_source":
+    case "set_query_plan":
+    case "clear_query_plan":
     case "put_query_view":
     case "remove_query_view":
     case "set_query_default_view":

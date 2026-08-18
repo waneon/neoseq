@@ -67,6 +67,8 @@ import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_STATUS_KEY } from "../../entities/tasks";
+import { compilePlan } from "../../entities/query-compile";
+import { defaultPlan, encodePlan, QUERY_PLAN_VERSION, type PlanSubject } from "../../entities/query-plan";
 import { codePointIndex, diffSplice } from "./text-diff";
 import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
@@ -575,6 +577,27 @@ export function Outliner({
     [message, notify, session],
   );
 
+  /**
+   * Turns a block into a query. The plan and the SPARQL it compiles to travel in
+   * one command, so the block never exists in a state where the two disagree.
+   */
+  const createQuery = useCallback(
+    async (blockId: string, subject: PlanSubject) => {
+      const plan = defaultPlan(subject);
+      try {
+        await session.execute({
+          type: "set_query_plan",
+          owner: { kind: "block", page_id: pageRef.current.id, id: blockId },
+          plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+          source: compilePlan(plan).source,
+        });
+      } catch (error) {
+        notify.failure(message("failure.createQuery"), error);
+      }
+    },
+    [message, notify, session],
+  );
+
   /** Dispatches the oldest pending creation whose anchor id is real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
@@ -674,6 +697,8 @@ export function Outliner({
                 .catch((error: unknown) => {
                   notify.failure(message("failure.setProperty"), error);
                 });
+            } else if (intent.action?.kind === "query") {
+              void createQuery(realId, intent.action.subject);
             } else {
               const key = intent.action?.kind === "picker" ? intent.action.key : undefined;
               requestAnimationFrame(() => {
@@ -1291,6 +1316,10 @@ export function Outliner({
           .catch((error: unknown) => {
             notify.failure(message("failure.setProperty"), error);
           });
+        return;
+      }
+      if (chosen.action.kind === "query") {
+        void createQuery(row.block.id, chosen.action.subject);
         return;
       }
       setPropertyRequest({
@@ -2174,6 +2203,7 @@ function SlashMenu({
                 | "slash.group.status"
                 | "slash.group.priority"
                 | "slash.group.date"
+                | "slash.group.query"
                 | "slash.group.property")}
             </div>
           )}

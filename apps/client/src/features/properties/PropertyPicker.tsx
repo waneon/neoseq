@@ -38,7 +38,6 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
-import { diffSplice } from "../outline/text-diff";
 import { PageAutocomplete } from "./PageAutocomplete";
 import {
   propertyDisplayName,
@@ -264,23 +263,6 @@ export function PropertyPicker({
 
   const commit = async (value: PropertyValue) => {
     if (!key || writeDisabled) return;
-    if (key === "builtin.query" && value.type === "document") {
-      const current = target.bag
-        .find((field) => field.key === key)
-        ?.values.find((item) => item.type === "document");
-      const splice = current?.type === "document"
-        ? diffSplice(current.value.source, value.value.source)
-        : null;
-      if (current?.type === "document" && !splice) {
-        onClose();
-        return;
-      }
-      const saved = await run(current?.type === "document" && splice
-        ? { type: "splice_query_source", owner, ...splice }
-        : { type: "set_query_source", owner, source: value.value.source });
-      if (saved) onClose();
-      return;
-    }
     const keyIssue = validateKey(key);
     const existing = target.bag.find((field) => field.key === key);
     const cardinality = existing?.cardinality === "set" ? "repeated" : cardinalityOf(key);
@@ -301,11 +283,6 @@ export function PropertyPicker({
 
   const ensureEmpty = async () => {
     if (!key || writeDisabled) return;
-    if (key === "builtin.query") {
-      const saved = await run({ type: "set_query_source", owner, source: "" });
-      if (saved) onClose();
-      return;
-    }
     const cardinality = cardinalityOf(key) === "repeated" ? "set" : "single";
     const saved = await run({
       type: "ensure_property",
@@ -649,24 +626,6 @@ function ValueInput({
         placeholder={message("properties.pickPage")}
         allowCreate
         onPick={(id) => onCommit({ type: "page", value: id })}
-      />
-    );
-  }
-  if (type === "document") {
-    const document = value.type === "document" ? value.value : null;
-    return (
-      <Input
-        autoFocus
-        aria-label={label}
-        value={document?.source ?? ""}
-        readOnly={readonly}
-        onChange={(event) => {
-          if (!document) return;
-          onChange({ type: "document", value: { ...document, source: event.target.value } });
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.nativeEvent.isComposing) onCommit(value);
-        }}
       />
     );
   }
