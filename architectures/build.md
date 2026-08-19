@@ -20,7 +20,9 @@ provenance enter only in the stages that implement them.
 `outputs.web` and `outputs.sync-server` own the deployable artifacts. They build
 from Git-tracked sources inside the Nix sandbox with dependencies fetched from
 the lockfiles. The `release-serve` profile runs those artifacts behind one Web
-origin with the managed PostgreSQL service. Base processes and services own the
+origin with a profile-local managed PostgreSQL instance. Its process ports and
+persistent state are isolated from the base development runtime, so both
+environments can run concurrently. Base processes and services own the
 development runtime; tasks own checks and ephemeral database or browser-test
 setup. Package scripts do not define repository-wide build or verification flow.
 
