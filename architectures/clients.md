@@ -117,7 +117,15 @@ specialized controls without becoming a schema authority:
 - `builtin.query` provides the query builder, a SPARQL escape hatch, and
   schema-owned saved result views. It is authored only through `/`: the generic
   property route never offers it, so a query is never half-created by a picker;
-- `builtin.task-*` provides workflow, priority, and date controls;
+- `builtin.task-*` provides workflow, priority, moment, and recurrence controls. A
+  moment is a `date` key plus an optional `HH:MM` companion key
+  (`builtin.task-scheduled-time`, `builtin.task-deadline-time`), so the day stays a
+  typed date the query index can compare while its time of day refines it. The
+  companion keys are feature-only: the date editor writes them, the date chip reads
+  them, and the generic property route never offers a key whose value would be
+  unanchored. `builtin.task-repeat` is a client-interpreted `<count><unit>` string;
+  completing a recurring task is a client behaviour composed of ordinary property
+  commands, not a core verb;
 - registered lifecycle and page built-ins appear as read-only page information;
 - unknown `user.*` keys use the generic typed editor, while unknown
   `builtin.*` keys are rendered generically but remain read-only;
@@ -206,9 +214,17 @@ actions are domain commands, app navigation, or narrow context interfaces—not 
 shared mutable graph store.
 
 `entities/settings.ts` owns the browser-local preference blob: appearance,
-locale, journal timezone/date format, and shortcut overrides. Graph display
+locale, journal timezone/date format, shortcut overrides, and the presentation
+preferences that tint the outline thread and the task moment chips. Graph display
 names belong to the browser graph directory; graph content and metadata belong
 to the core.
+
+A colour preference stores the *name* of a tone declared in `ui/app.css`, never a
+colour. The surface carries that name as a `data-palette` attribute and CSS resolves
+it, which keeps every preference inside the committed palette and its measured
+contrast in both modes; no presentation preference reaches CorePort or the graph.
+`features/settings/preferences.ts` is the React side of the same store, so a
+preference edited in the dialog reaches the outline in the same commit.
 
 Shared saved-view definitions — their column layout and the order the reader put
 the rows in — and the graph's default view belong to the query document, as does
@@ -233,7 +249,9 @@ loaded and no component arrives with its own look.
 - The outline exposes multi-selectable tree semantics and keyboard navigation.
 - Every context-menu verb also has a keyboard or command-palette route.
 - Focus and structural selection are keyed by stable IDs across virtualization
-  and authoritative refreshes.
+  and authoritative refreshes. A focused row is scrolled into view only when it
+  is not already visible: a block whose result outgrows the viewport cannot be
+  aligned without moving the page under the caret the pointer just placed.
 - Property editors stay associated with their owning page or block and return
   focus after a command.
 - Component tests use a fake CorePort; layout and browser-storage behavior use

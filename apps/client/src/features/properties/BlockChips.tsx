@@ -1,14 +1,18 @@
 // The metadata strip under a block: quiet chips, not a form.
 //
 // Everything typed the block carries beyond its text renders here as one
-// wrapping row — the task facts first (priority, scheduled, deadline; status
-// lives at the head of the line as `TaskStatusControl`), then every generic
-// property, task or user alike, in the same chip language. Each chip is a
-// pointer route into the property picker on its own key. A deadline in the
-// past on an unsettled task says so in words ("Overdue"), because a colour
-// alone is not a signal. An empty set renders nothing at all.
+// wrapping row — the task moments first (scheduled, deadline, repeat; status and
+// priority live at the head of the line as their own controls), then every
+// generic property, task or user alike, in the same chip language. Each chip is a
+// pointer route into the property picker on its own key. An empty set renders
+// nothing at all.
+//
+// A moment carries a tone for how far off it is (§ Tasks / Due tones). The tone
+// is the second reading of a fact the chip already writes out — the date, and the
+// word `Overdue` when one has passed — so nothing here is colour-only, and both
+// the thresholds and the tones belong to the user (§ Settings / Tasks).
 
-import { AlarmClockIcon, CalendarIcon } from "lucide-react";
+import { AlarmClockIcon, CalendarIcon, RepeatIcon } from "lucide-react";
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
 import {
   dateValue,
@@ -18,20 +22,26 @@ import {
   queryDocument,
   stringValue,
 } from "../../core-port/snapshot";
-import { todayLocalDate } from "../../entities/journal";
+import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import { isGenericProperty } from "../../entities/properties";
 import {
+  dueTierOf,
+  dueToneOf,
   isSettledStatus,
   isTaskKey,
+  isTimeOfDay,
+  parseRepeat,
   TASK_DEADLINE_KEY,
-  TASK_PRIORITY_KEY,
+  TASK_REPEAT_KEY,
   TASK_SCHEDULED_KEY,
   TASK_STATUS_KEY,
+  timeKeyFor,
+  type TaskDateKey,
 } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
 import { useSessionState } from "../shell/session-context";
-import { PriorityGlyph } from "../tasks/glyphs";
-import { priorityLabel } from "../tasks/labels";
+import { useDueTiers } from "../settings/preferences";
+import { repeatLabel } from "../tasks/labels";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 
 export function BlockChips({
@@ -42,13 +52,17 @@ export function BlockChips({
   onEdit: (key: string, anchor: HTMLElement) => void;
 }) {
   const state = useSessionState();
-  const { message, formatJournalDate } = useI18n();
+  const { message, formatJournalDate, formatTimeOfDay } = useI18n();
+  const tiers = useDueTiers();
   const status = stringValue(block.properties, TASK_STATUS_KEY);
-  const priority = stringValue(block.properties, TASK_PRIORITY_KEY);
   const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
   const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
-  // Task keys have their own positioned chips above, and a valid query document
-  // is presented by the query block itself — a chip would state the same fact
+  // An interval that does not parse is still the user's own string: it stays on
+  // screen and stays editable, it simply does not recur.
+  const repeatRaw = stringValue(block.properties, TASK_REPEAT_KEY);
+  const repeat = repeatRaw !== undefined ? parseRepeat(repeatRaw) : null;
+  // Task keys have their own positioned controls, and a valid query document is
+  // presented by the query block itself — a chip would state the same fact
   // twice. The generic rows carry everything else the block states.
   const hasQueryBlock = queryDocument(block.properties) !== undefined;
   const generic = block.properties.filter(
@@ -58,13 +72,14 @@ export function BlockChips({
       !(field.key === "builtin.query" && hasQueryBlock),
   );
   const hasTaskFacts =
-    priority !== undefined || scheduled !== undefined || deadline !== undefined;
+    scheduled !== undefined || deadline !== undefined || repeatRaw !== undefined;
   if (!hasTaskFacts && generic.length === 0) return null;
 
-  const overdue =
-    deadline !== undefined &&
-    deadline < todayLocalDate() &&
-    (status === undefined || !isSettledStatus(status));
+  // A settled task has no urgency left to report: the strike through its line is
+  // the whole reading, and a red date on a finished job is noise.
+  const settled = status !== undefined && isSettledStatus(status);
+  const today = todayLocalDate();
+  const nowTime = nowLocalTime();
 
   const describe = (value: PropertyValue): string => {
     if (value.type === "document") {
@@ -92,44 +107,51 @@ export function BlockChips({
       ? message("properties.noValue")
       : field.values.map(describe).join(", ");
 
+  const momentChip = (key: TaskDateKey, date: string) => {
+    const scheduledKey = key === TASK_SCHEDULED_KEY;
+    const rawTime = stringValue(block.properties, timeKeyFor(key));
+    const time = rawTime !== undefined && isTimeOfDay(rawTime) ? rawTime : undefined;
+    const tier = settled ? undefined : dueTierOf(date, time, today, nowTime, tiers);
+    const Glyph = scheduledKey ? CalendarIcon : AlarmClockIcon;
+    return (
+      <button
+        type="button"
+        className="task-chip"
+        data-due={tier}
+        data-palette={tier ? dueToneOf(tier, tiers) : undefined}
+        data-testid={scheduledKey ? "task-chip-scheduled" : "task-chip-deadline"}
+        onClick={(event) => onEdit(key, event.currentTarget)}
+      >
+        <Glyph aria-hidden />
+        <span className="task-chip-name">
+          {message(scheduledKey ? "task.scheduled" : "task.deadline")}
+        </span>
+        <span className="task-chip-value">
+          {formatJournalDate(date)}
+          {time && <span className="task-chip-time">{formatTimeOfDay(time)}</span>}
+        </span>
+        {repeat && <RepeatIcon className="task-chip-repeat" aria-hidden />}
+        {tier === "overdue" && <span className="task-chip-overdue">{message("task.overdue")}</span>}
+      </button>
+    );
+  };
+
   return (
     <div className="block-chips" aria-label={message("task.section")} data-testid="block-chips">
-      {priority !== undefined && (
+      {scheduled !== undefined && momentChip(TASK_SCHEDULED_KEY, scheduled)}
+      {deadline !== undefined && momentChip(TASK_DEADLINE_KEY, deadline)}
+      {repeatRaw !== undefined && (
         <button
           type="button"
           className="task-chip"
-          data-testid="task-chip-priority"
-          onClick={(event) => onEdit(TASK_PRIORITY_KEY, event.currentTarget)}
+          data-testid="task-chip-repeat"
+          onClick={(event) => onEdit(TASK_REPEAT_KEY, event.currentTarget)}
         >
-          <PriorityGlyph priority={priority} />
-          <span className="task-chip-name">{message("task.priority")}</span>
-          <span className="task-chip-value">{priorityLabel(priority, message)}</span>
-        </button>
-      )}
-      {scheduled !== undefined && (
-        <button
-          type="button"
-          className="task-chip"
-          data-testid="task-chip-scheduled"
-          onClick={(event) => onEdit(TASK_SCHEDULED_KEY, event.currentTarget)}
-        >
-          <CalendarIcon aria-hidden />
-          <span className="task-chip-name">{message("task.scheduled")}</span>
-          <span className="task-chip-value">{formatJournalDate(scheduled)}</span>
-        </button>
-      )}
-      {deadline !== undefined && (
-        <button
-          type="button"
-          className="task-chip"
-          data-overdue={overdue || undefined}
-          data-testid="task-chip-deadline"
-          onClick={(event) => onEdit(TASK_DEADLINE_KEY, event.currentTarget)}
-        >
-          <AlarmClockIcon aria-hidden />
-          <span className="task-chip-name">{message("task.deadline")}</span>
-          <span className="task-chip-value">{formatJournalDate(deadline)}</span>
-          {overdue && <span className="task-chip-overdue">{message("task.overdue")}</span>}
+          <RepeatIcon aria-hidden />
+          <span className="task-chip-name">{message("task.repeat")}</span>
+          <span className="task-chip-value">
+            {repeat ? repeatLabel(repeat, message) : repeatRaw}
+          </span>
         </button>
       )}
       {generic.map((field) => (

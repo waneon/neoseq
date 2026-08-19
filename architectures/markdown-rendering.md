@@ -25,6 +25,14 @@ is activated. Plain text may keep the textarea fast path because its reading
 projection is identical. Pending blocks and IME composition always stay in the
 source editor.
 
+Deactivation is therefore the same fact as the outline releasing its focused block
+ID, and the editor owns that decision because the row cannot make it: a `blur`
+reports only that the textarea lost focus, never where focus went. The outline
+answers on the next frame by asking where focus actually is, and treats two
+destinations as *not* leaving — elsewhere inside the same row, and any floating
+overlay, both of which hand the caret straight back. Without this, focus leaving the
+outline entirely left the block on its raw source until the next reload.
+
 Activation carries a caret offset. The projection derives it from the pressed
 point by walking the rendered text and the source together, so the boundary needs
 no stored source positions and the parse stays disposable. The projection is also
@@ -89,8 +97,8 @@ insufficient.
   HTML, inert images and checkboxes, and the detector's fast path;
 - caret tests cover mapping a rendered offset back through headings, list
   markers, inline delimiters, and soft breaks;
-- outline tests cover reading-to-source activation, IME, draft retention, and
-  authoritative reconciliation;
+- outline tests cover reading-to-source activation and its release when focus
+  leaves the row, IME, draft retention, and authoritative reconciliation;
 - query tests cover compact content and direct-field editing without nested
   interactive elements, block boxes, or a second line;
 - browser tests cover the caret landing where the reader pressed, the source

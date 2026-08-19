@@ -48,6 +48,26 @@ The registry never stores React component names, CSS, icons, or localized copy.
 An unknown future document version is preserved by the CRDT document and is not
 generically editable by an older client.
 
+## Task Keys
+
+The task keys are ordinary registry entries; there is no task storage shape. Two of
+them are worth stating explicitly because their split is a deliberate boundary rather
+than an accident of history:
+
+- a **moment** is a `date` key (`builtin.task-scheduled`, `builtin.task-deadline`) plus
+  an optional string companion holding `HH:MM`
+  (`builtin.task-scheduled-time`, `builtin.task-deadline-time`). The two are separate
+  facts and separate commands. Keeping the day a `date` is what keeps it comparable as
+  `xsd:date` in the derived index; folding a time into that literal would make every
+  date comparison in a user query ill-typed;
+- **recurrence** is `builtin.task-repeat`, a `<count><unit>` string the client
+  interprets. Advancing a recurring task is a client behaviour composed of the ordinary
+  property commands, not a domain verb: the domain validates the value as a string and
+  states nothing about what recurring means.
+
+A value either key cannot interpret stays readable and editable as the string it is,
+which is the same tolerance every other unknown property value gets.
+
 ## Query Document
 
 `builtin.query` is `neoseq.query` version 1. Its snapshot contains source,

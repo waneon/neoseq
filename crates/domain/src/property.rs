@@ -405,9 +405,30 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         },
     ),
     (
+        "builtin.task-scheduled-time",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
         "builtin.task-deadline",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
+        "builtin.task-deadline-time",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            placements: USER_PAGE_BLOCK_DEFAULT,
+        },
+    ),
+    (
+        "builtin.task-repeat",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),

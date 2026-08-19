@@ -1,7 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { queryDocument, stringValue } from "../../src/core-port/snapshot";
+import { dateValue, queryDocument, stringValue } from "../../src/core-port/snapshot";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
 async function mountProjection() {
@@ -84,7 +84,7 @@ describe("query and task projections", () => {
     expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done");
   });
 
-  it("shows priority and dates as chips that open the picker on their key", async () => {
+  it("puts priority at the head of the line and dates in the chip strip", async () => {
     const { session } = await mountProjection();
     const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
     await session.execute({
@@ -100,21 +100,52 @@ describe("query and task projections", () => {
       value: { type: "date", value: "2001-01-01" },
     });
 
-    const priority = await screen.findByTestId("task-chip-priority");
-    expect(priority).toHaveTextContent("High");
-    // A deadline in the past on an unsettled task says so in words.
-    expect(await screen.findByTestId("task-chip-deadline")).toHaveTextContent("Overdue");
+    // Priority is a positioned control beside status, not a chip under the text.
+    const priority = await screen.findByTestId("task-priority-toggle");
+    expect(priority).toHaveAccessibleName("Priority: High");
+    expect(screen.queryByTestId("task-chip-priority")).not.toBeInTheDocument();
+    // A deadline in the past on an unsettled task says so in words, and takes the
+    // overdue tier's tone.
+    const deadline = await screen.findByTestId("task-chip-deadline");
+    expect(deadline).toHaveTextContent("Overdue");
+    expect(deadline).toHaveAttribute("data-due", "overdue");
+    expect(deadline).toHaveAttribute("data-palette", "danger");
     // Task facts are positioned renderers, not generic rows: the same fact is
     // never stated twice under one block.
     expect(screen.queryByTestId("prop-builtin.task-priority")).not.toBeInTheDocument();
 
-    const user = userEvent.setup();
-    await user.click(priority);
-    const picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: "Low" }));
+    await chooseFromMenu(userEvent.setup(), priority, "Low");
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && stringValue(block.properties, "builtin.task-priority")).toBe("low");
+    });
+  });
+
+  it("rolls a recurring task forward instead of settling it", async () => {
+    const { session } = await mountProjection();
+    const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
+    for (const command of [
+      { key: "builtin.task-status", value: { type: "string", value: "todo" } },
+      { key: "builtin.task-scheduled", value: { type: "date", value: "2026-08-21" } },
+      { key: "builtin.task-scheduled-time", value: { type: "string", value: "09:30" } },
+      { key: "builtin.task-repeat", value: { type: "string", value: "2w" } },
+    ] as const) {
+      await session.execute({ type: "set_property", owner, ...command });
+    }
+
+    // The moment reads as one fact: the day, then the time of day.
+    const scheduled = await screen.findByTestId("task-chip-scheduled");
+    expect(scheduled).toHaveTextContent("09:30");
+    expect(await screen.findByTestId("task-chip-repeat")).toHaveTextContent("Every 2 weeks");
+
+    const toggle = await screen.findByTestId("task-status-toggle");
+    await chooseFromMenu(userEvent.setup(), toggle, "Complete this one");
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      // Completing an occurrence is not finishing the task: it stays to-do and
+      // the date moves by the stored interval, counted from the date that was set.
+      expect(block && stringValue(block.properties, "builtin.task-status")).toBe("todo");
+      expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-09-04");
     });
   });
 });

@@ -17,6 +17,7 @@ import {
   FileTextIcon,
   HashIcon,
   ListTreeIcon,
+  RepeatIcon,
   Settings2Icon,
 } from "lucide-react";
 import type { PropertyValue } from "../../core-port/snapshot";
@@ -25,6 +26,7 @@ import {
   TASK_DEADLINE_KEY,
   TASK_PRIORITIES,
   TASK_PRIORITY_KEY,
+  TASK_REPEAT_KEY,
   TASK_SCHEDULED_KEY,
   TASK_STATUS_KEY,
   TASK_STATUSES,
@@ -120,6 +122,15 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     aliases: ["deadline", "due", "마감", "마감일"],
     glyph: <AlarmClockIcon aria-hidden />,
     action: { kind: "picker", key: TASK_DEADLINE_KEY },
+  });
+  items.push({
+    id: "repeat",
+    group: "date",
+    label: message("task.repeat"),
+    hint: message("slash.repeatHint"),
+    aliases: ["repeat", "recur", "recurring", "every", "반복", "되풀이"],
+    glyph: <RepeatIcon aria-hidden />,
+    action: { kind: "picker", key: TASK_REPEAT_KEY },
   });
   // `/` is the only route to a query: the property picker does not offer
   // `builtin.query`, because a query is built, not filled in.

@@ -6,6 +6,7 @@ import {
   createGraph,
   openBlockMenu,
   startOutline,
+  typeInFocusedBlock,
 } from "./helpers";
 
 test("builds a deep outline with the keyboard and reorders a subtree", async ({ page }) => {
@@ -269,4 +270,38 @@ test("pastes Markdown list items as one outline history step", async ({ page }) 
   await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "2", "1"]);
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => blockTexts(page)).toEqual([""]);
+});
+
+test("pressing a block taller than the viewport does not move the page", async ({ page }) => {
+  await createGraph(page, "Tall Block Graph");
+  await startOutline(page);
+
+  // A block long enough to outgrow the window on its own — which is what a block
+  // carrying a query result does routinely.
+  const long = Array.from({ length: 300 }, (_, index) => `sentence number ${index}`).join(" ");
+  await page.getByLabel("Block text").fill(long);
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await typeInFocusedBlock(page, "the block after it");
+
+  const tall = page.getByTestId("outline-row").first();
+  const box = (await tall.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.height).toBeGreaterThan(viewport.height);
+
+  // Park the page so the row overflows both edges of the window: on screen, and
+  // impossible to align to either one.
+  await page.evaluate(() => {
+    document.querySelector(".page-scroll")!.scrollTop = 400;
+  });
+  const before = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
+
+  // "Keep the focused row visible" is right for a row that arrived from the
+  // keyboard and wrong for one the pointer just pressed: a row taller than the
+  // viewport cannot be aligned without moving the page out from under the caret
+  // the reader just placed.
+  await page.mouse.click(box.x + box.width / 2, 300);
+  await expect(page.getByLabel("Block text").first()).toBeFocused();
+  const after = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
+  expect(Math.abs(after - before)).toBeLessThan(4);
 });

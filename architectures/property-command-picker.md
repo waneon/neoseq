@@ -149,7 +149,12 @@ Value controls are selected from the property type and definition:
 - dates use one natural-language field (the palette's `parseDateQuery`) whose
   resolved day is a pressable preview row, quick rows for today / tomorrow /
   next week, and the native date input as the precision fallback — every route
-  commits directly;
+  commits directly. A **task** date grows one further row: the native time input
+  for its companion `-time` key. That row is a *refinement*, not the answer the
+  picker was opened for, so it writes its own `set_property` (or
+  `remove_property`, when cleared) and leaves the panel open;
+- `builtin.task-repeat` uses a count field, a unit menu, and a words preview of
+  the interval they make;
 - pages reuse `PageAutocomplete`; and
 - repeated values show individually removable members plus whole-key clear.
 
@@ -160,6 +165,12 @@ stands for the property rather than for a value the property holds. Keys present
 key shows its bare name in the mono voice, and a bare query creates
 `user.<name>` so the storage prefix is never typed or read. Every surface that
 prints a key (picker, block chips, page strip) goes through the same module.
+
+Outside-press dismissal exempts the surfaces the picker itself opens — the entity
+autocomplete and the one dropdown both portal to the body, so a press on one of
+their rows is outside the panel in the DOM and inside the editor to the user. The
+z-index scale carries the matching order: `--z-menu` sits above `--z-popover`,
+because a menu and a popover only ever coexist when the popover opened the menu.
 
 The picker is portaled to `document.body` and positioned in viewport space from
 the invoking element. This avoids clipping by the scroll container and the
@@ -184,11 +195,19 @@ the chip's key and anchor. Read-only metadata and hidden lifecycle fields never
 enter the generic route. Values truncate without changing stored data. An
 empty bag renders no strip.
 
-Task status stays a **positioned renderer** at the head of the line
+Task status and priority stay **positioned renderers** at the head of the line
 (`entities/tasks.ts` names the task-key set excluded from the generic chips):
-`TaskStatusControl` renders the status glyph and owns its `menuitemradio` menu,
-including the explicit remove row. On pages the four task keys stay in the
+`TaskStatusControl` and `TaskPriorityControl` render their glyphs and each owns its
+`menuitemradio` menu, including an explicit remove row. `TaskStatusControl` also
+owns the recurrence behaviour: when the block carries an interval and a moment,
+`Done` becomes `Complete this one` and issues the ordinary property commands that
+advance the dates and keep the status at `todo`. On pages the task keys stay in the
 generic strip.
+
+The moment chips read their companion time key and their due tier, and carry the
+tier's tone as a `data-palette` name that `ui/app.css` resolves. Both the day
+thresholds and the tones are browser-local presentation preferences read through
+`features/settings/preferences.ts`; neither reaches a command or the graph.
 
 Tag membership
 lives in `TagPicker` — which reuses `TagChips` and `PageAutocomplete` while

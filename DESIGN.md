@@ -238,7 +238,8 @@ opens the palette's own contents for a user who has not met `⌘K` yet.
    is the indent thread, and it is load-bearing. If a graphic device does not encode
    something true about the content, it does not ship.
 2. **Luminance separates; lines do not.** Stacked surfaces differ by 3–5% lightness.
-   A 1px line is legal in exactly three places (§ Depth). Every other border is a bug.
+   A 1px line is legal in three places in chrome, two inside the writing, and one seam
+   inside a panel (§ Depth). Every other border is a bug.
 3. **No token without both modes.** A colour declared for one mode only is incomplete.
    Alpha-on-canvas ink is banned outright — it cannot be inverted.
 4. **One signal per state.** Active is a fill *or* a rule *or* a weight — never all
@@ -293,8 +294,10 @@ theme — the single most common tell of a web app that only pretends to have a 
 | `--ink-3` | Metadata, placeholders, group headers, resting icon glyphs. |
 | `--accent` | Links, the primary action, carets, selection/drop state, and the active thread. Nothing else. |
 | `--danger` | Destructive verbs, the unsaved state, and the last step of a state set. Never a fill behind body text. |
-| `--ok` | Affirmative indicators: persistent storage granted, a task done. A dot or a glyph, never a fill. |
-| `--attention` | "Underway, and it needs you" — the middle step of a state set, and nothing else. A glyph tone. |
+| `--ok` | Affirmative indicators: persistent storage granted, a task done. A mark or a mark's own fill. |
+| `--attention` | "Underway, and it needs you" — the middle step of a state set, and nothing else. |
+| `--on-tone` | What is drawn *on* a state tone: the tick cut out of a completed task's disc. Aliases `--on-accent`. |
+| `--tone` | Not a colour — the tone a **preference** named, resolved by § The tone map. |
 
 There is no second structural accent, and no decorative palette. If a future feature
 needs to distinguish **categories**, it distinguishes them by shape, position, or
@@ -310,12 +313,13 @@ the ones already declared per mode:
 
 | Step | Token | Resolves to |
 |---|---|---|
-| `todo`, `low` | `--status-todo`, `--priority-low` | `currentColor` — it declines a tone |
+| `todo` | `--status-todo` | `currentColor` — it declines a tone |
+| `low` | `--priority-low` | `--ink-3` |
 | `doing`, `medium` | `--status-doing`, `--priority-medium` | `--attention` |
 | `done` | `--status-done` | `--ok` |
 | `cancelled`, `high` | `--status-cancelled`, `--priority-high` | `--danger` |
 
-Four rules hold this in place, and they are what make it safe rather than decorative.
+Five rules hold this in place, and they are what make it safe rather than decorative.
 
 1. **The shape says it first.** The tone rides a glyph that already distinguishes the
    state on its own — an empty ring, a half-filled one, a check, a cross; one, two or
@@ -323,13 +327,30 @@ Four rules hold this in place, and they are what make it safe rather than decora
    accessible name. Nothing in the set is legible *only* in colour, so greyscale,
    monochrome printing and every form of colour blindness lose the second reading and
    keep the first. This is the § Accessibility Contract's rule, not an exception to it.
-2. **The first step declines a tone.** `todo` and `low` take the ink around them, which
-   is how an unstarted task keeps answering hover and focus the way every other glyph
-   does — and how "nothing has happened yet" stays quiet rather than being announced in
-   a colour of its own (§ Principles, *silent when steady*).
-3. **Chrome never takes a state tone**, and a state tone never becomes a fill, a pill,
-   or a row background. It colours a glyph, at glyph size, and stops there.
-4. **A key's mark is not a value.** The glyph that stands beside `Priority` in the
+2. **The unstarted step declines a tone.** `todo` takes the ink around it, which is how
+   an unstarted task keeps answering hover and focus the way every other glyph does — and
+   how "nothing has happened yet" stays quiet rather than being announced in a colour of
+   its own (§ Principles, *silent when steady*). `low` is the same claim one step along:
+   it takes `--ink-3`, the metadata ink, because "this one least" is a fact about
+   ranking and not an alarm.
+3. **A state tone may fill its own mark and tint its own chip. It may not fill anything
+   larger.** The line it stops at is *the thing the state is about*: the 20px disc a
+   status is drawn in, the 24px square a priority is drawn in, the 22px chip a moment is
+   written in. Never a row, never a panel, never a band behind the writing, and never
+   text at body size. The earlier form of this rule said "a glyph, at glyph size, and
+   stops there", and it was one clause too strict in one direction and too loose in the
+   other: an outlined tick was the quietest mark on a row that a person scans a page
+   *for*, while nothing stopped a tone from tinting a whole line. This states the
+   boundary as a size instead of as a medium.
+4. **A settled state inverts.** `done` and `cancelled` fill the disc with the tone and
+   cut the mark out of it in `--on-tone`. It is the one place in the product where a
+   glyph carries two colours, and it is earned: a finished task is what a reader sweeps
+   a page looking for, and a filled disc is as distinct in shape from an empty ring as a
+   ticked one was — so the weight is bought without spending the non-colour reading.
+   `--on-tone` is white in light mode, which is the mark a checked box has always
+   carried, and near-black in dark mode, where every tone in this palette is the light
+   half of its pair.
+5. **A key's mark is not a value.** The glyph that stands beside `Priority` in the
    picker is the property's mark, so it opts out (`data-plain`); a red glyph next to
    the word would name a priority the property does not have.
 
@@ -337,6 +358,36 @@ Four rules hold this in place, and they are what make it safe rather than decora
 text — the same constraint that governs `--ink-3`. It is the neutrals' own warm hue
 (75 light / 78 dark) taken to chroma, which is why it reads as this palette rather
 than as a borrowed traffic light.
+
+### The tone map
+
+Two things in this interface are the reader's colour to choose: the outline's indent
+thread, and how far off a date has to be before its chip says so (§ Settings). Neither
+choice is allowed to name a colour.
+
+A preference stores the **name of a step** — `neutral`, `accent`, `ok`, `attention`,
+`danger` — and the surface carries that name as `data-palette`. Five rules in `app.css`
+are the only place a name becomes a colour:
+
+```css
+[data-palette="accent"] { --tone: var(--accent); }
+```
+
+Everything downstream reads `var(--tone)`. That is what makes a user preference safe:
+it cannot reach outside the committed palette, both modes come free because the tones
+are already declared per mode, and every figure in § Contrast still holds for every
+choice — because there are five choices and they are all in the table.
+
+Two consequences worth stating, because both were bugs first:
+
+- **A token derived from `--tone` must be declared on the element that carries
+  `data-palette`, not on `:root`.** A custom property is substituted where it is
+  *declared*; a thread colour written at the root bakes in the root's tone and no
+  preference can reach it afterwards.
+- **A preference tints one thing, not every thing that shares its token.** The outline's
+  thread and the hairline inside a panel used to be the same token. They are now
+  `--thread-line` (the outline's, tone-driven) and `--thread` (the hairline, ink-driven),
+  because a reader who asked for a green outline did not ask for green table seams.
 
 ### Contrast — the committed table
 
@@ -368,6 +419,23 @@ contrast, the table is what you consult, not the component.**
 | `--attention` | 10.28 | 9.85 | 9.30 | 9.10 | 8.31 | 7.33 |
 
 `--on-accent` on `--accent`: 6.22 light / 8.92 dark. On `--danger`: 6.55 / 7.35.
+
+**Tinted by a tone** (§ The state palette, rule 3). A moment's chip fills with its tone
+at 12% over the canvas — 20% under the pointer — and writes its label in
+`color-mix(in oklab, var(--tone) 70%, var(--ink))`. Taking the tone neat would have put
+amber at 3.6:1 behind 12px text; pulling each tone 30% toward the ink keeps the hue and
+clears AA on both fills:
+
+| Tone | label / chip | label / hover |
+|---|---|---|
+| `neutral` (`--ink-2`) | 7.98 / 8.33 | 7.03 / 7.07 |
+| `accent` | 7.06 / 8.65 | 6.25 / 7.30 |
+| `ok` | 6.69 / 8.94 | 5.95 / 7.48 |
+| `attention` | 6.24 / 9.22 | 5.58 / 7.65 |
+| `danger` | 7.27 / 7.77 | 6.39 / 6.71 |
+
+**On a filled mark** (rule 4). `--on-tone` on `--ok`: 5.67 light / 9.58 dark. On
+`--danger`: 6.55 / 7.35. Both clear AA for text, well past the 3:1 a mark is held to.
 
 > **The one hard rule.** `--ink-3` is legal on `--canvas`, `--surface-1`, `--rail`, and
 > `--overlay` only. On `--surface-2` or `--surface-3` it fails AA, so any 12–14px text
@@ -421,6 +489,29 @@ a 14px shadcn `Button` on the same screen.
 **The user's writing is the largest 500-weight text in the interface and the only text
 at 26px line-height.** Chrome is 14px or smaller. This is the hierarchy — not size
 alone, but the fact that chrome and content are typographically different kinds of thing.
+
+### The heading steps, inside a block
+
+A Markdown heading is the one place the user writes at a size the five roles do not
+name, and it needs a scale of its own because it is *inside* a document rather than
+labelling one. Four steps, anchored at both ends rather than picked in the middle:
+
+| Level | Size / Line | Token |
+|---|---|---|
+| `#` | 28 / 36 | `--head-1` |
+| `##` | 24 / 32 | `--head-2` |
+| `###` | 20 / 28 | `--head-3` |
+| `####` and below | 16 / 26 | `md` |
+
+The top step sits just under the 33px page `<h1>`, so a heading is the largest thing in
+the writing and still never ties with the name of the page it is written on. The bottom
+step is the body size exactly, so `####` is a bold line rather than a size nobody asked
+for. The two between are the interpolation. `#####` and `######` repeat the body size in
+`--ink-2` — "a heading, quieter" — because the outline's own depth is where deeper
+hierarchy belongs.
+
+Three steps was the earlier answer and it was one short at the top: `#` came out at 19px
+against a 16px paragraph, and a page of notes read as one undifferentiated weight.
 
 ### The mono voice
 
@@ -549,9 +640,10 @@ In light mode a floating surface is white with a shadow; in dark mode it is *lig
 than the canvas. That inversion is the whole reason elevation is expressed as tokens
 rather than as a fixed shadow.
 
-### The three legal lines
+### The legal lines
 
-A 1px line may exist in exactly three places, and each is the thread language:
+A 1px line may exist in **chrome** in exactly three places, and each is the thread
+language:
 
 1. The rail's right edge — **in light mode only.** In dark mode the luminance step
    separates, and a line would read as a drawn box.
@@ -559,10 +651,25 @@ A 1px line may exist in exactly three places, and each is the thread language:
 3. `--line-strong` as an inset ring on an overlay floating over content, where a
    shadow alone cannot resolve the edge.
 
+A line may also exist **inside the writing**, where it is content rather than chrome and
+separates content from content:
+
+4. A Markdown thematic break: 1px `--line` across the measure.
+5. A rule under a `#` or `##` heading, in the same hairline. It stops at the top two
+   levels on purpose — a rule under every heading is a page of rules, and at that point
+   the line is the texture rather than the structure.
+
+And once **inside a panel**, as the seam between the two halves of one field: the day and
+the time of day of a single moment (§ Tasks) are one answer in two controls, and the
+hairline is what says so.
+
 Every other border in the product is deleted: no bordered cards, no bordered status
 pills, and — emphatically — no dashed empty states. A chip is not a card: it is a
-control (it opens the picker on its key), so it wears the control's `--e1` resting
-ring, not a drawn box.
+control (it opens the picker on its key), so it wears the control's resting ring, not a
+drawn box — `--e1-chip` at 1.5px of `--line-strong` rather than the 1px `--e1` a full-size
+input takes. A 22px control carrying 12px text is the smallest thing in the product and
+was wearing the thinnest line in it, which made a strip of metadata read as loose words
+instead of a row of things you can press.
 
 ### The one scrollbar
 
@@ -991,8 +1098,13 @@ and a right-aligned shortcut badge.
 
 ### The outline
 
-**Row.** 30px at one line: 16px/26px text with 2px of vertical padding, making a screen
-of short lines read as a list rather than a column of paragraphs.
+**Row.** 28px at one line: 16px/26px text with 1px of vertical padding, making a screen
+of short lines read as a list rather than a column of paragraphs. It was 30px, and at
+that height the gap between two siblings competed with the gap between a block and its
+own metadata strip — depth, not air, is what should be doing the separating here.
+**One indent is 30px**, up from 24px: at three levels the difference between two siblings
+and a parent and its child was six pixels of text offset and one hairline, and § Measure's
+848px still leaves a block five levels deep 698px to write in.
 `padding-left: calc(var(--gutter) + var(--depth) * var(--indent))`
 from CSS custom properties, not an inline style that silently overrides the row's own
 padding shorthand, and a matching negative `margin-left` so the row reaches one gutter
@@ -1001,10 +1113,32 @@ text, `default` over the gutter. **No hover fill and no focused-row fill** — t
 the signal, and a full-width wash behind the line the user is typing is noise. A
 *selected* row is the one exception, and § Selection says why.
 
-**Thread.** One `repeating-linear-gradient` on the row background, offset by half the
-bullet slot, sized to `depth × indent`. Zero extra DOM, because the rows are
-virtualized. Ancestors of the focused row carry `data-ancestor="true"` and switch from
-`--thread` to `--thread-active`, lighting the path from the root to the caret.
+**Thread.** Three `linear-gradient`s on the row background. Zero extra DOM, because the
+rows are virtualized — a pseudo-element the row does not have and a `<div>` per level
+are both worse than one more background layer.
+
+Two of them draw the **ancestor columns**: one `repeating-linear-gradient` offset by half
+the bullet slot and sized to `depth × indent` at rest, and the same gradient in the active
+tone sized to the `--lit` levels. Ancestors of the focused row carry
+`data-ancestor="true"`, which lights the path from the root to the caret continuously even
+across intervening siblings.
+
+The third is the **bullet's own thread**, and it is what makes this a tree rather than a
+set of indents. It runs from just under the bullet of a row that has children to that
+row's bottom edge — which is exactly the gap between a parent's mark and where its first
+child's ancestor column begins. Without it the vertical line under a bullet appeared out
+of nowhere one row later, and a parent with a two-line body had a visible break in the
+middle of its own subtree. A **collapsed** row is the one case that has children and
+draws nothing: the halo on its bullet already says they are there, and a line to nothing
+is a promise the next row breaks.
+
+**The thread is the one colour in the product the reader chooses** (§ The tone map,
+§ Settings). At 8% of ink the resting line was a rumour — present in a screenshot and
+absent on a screen, which is how the one piece of structure an outliner draws for free
+came to be asked for as a feature. It is now 30% of the chosen tone at rest and 72% on
+the lit path, still quieter than `--line`, and it is `--thread-line` rather than
+`--thread`: the hairline inside a panel keeps its ink-relative value, because a reader
+who asked for a green outline did not ask for green table seams.
 
 **Bullet.** A 5px dot centred in a 20px slot with a 24px hit box achieved by negative
 margin, so the target exceeds the mark without moving layout. The dot escalates
@@ -1147,12 +1281,12 @@ from that, and each of them was a defect before it was a rule.
    straight over to the source; focus reached by pointer waits for the press, which knows
    where the caret goes. A page of rendered blocks is otherwise a page with no way in.
 
-Markdown inherits the block's 16/26 body voice. **Six heading levels get three steps,**
-because that is how many the type system has to spend inside a block: level one takes the
-19/600 section scale as a real heading beneath the page's `<h1>`, level two takes the body
-size at strong weight, and every level below reads as *a heading, quieter* — the same size
-and weight in `--ink-2`. A fourth step at 50 units of weight is a difference nobody reads,
-and the outline's own depth is where deep hierarchy belongs.
+Markdown inherits the block's 16/26 body voice. **Six heading levels get four steps** —
+28 / 24 / 20 / 16, anchored under the page title at the top and on the body size at the
+bottom, with `#####` and `######` repeating the last step in `--ink-2`. § The heading
+steps has the table and the argument. **`#` and `##` also carry a hairline rule beneath
+them**, because those two open a *section* and a section opens with a line; § The legal
+lines admits it as a line inside the writing and says why it stops there.
 
 A list gets its markers back, at `--ink-3`: a marker is structure rather than writing, and
 a list with no marker is a paragraph. Inline code and fenced code share the mono voice on
@@ -1304,6 +1438,16 @@ The picker is the only property-writing surface:
   platform's own date input stays at the bottom as the precision tool, per
   § Implementation's "native where native is better". Choosing any of them commits —
   a date editor has no separate Set button.
+- **A task date grows one row rather than a second surface to visit.** Under the day sits
+  the time of day — the platform's own clock, for the same reason the date row keeps a
+  native picker — separated by the one hairline § The legal lines allows inside a panel.
+  It writes as soon as it is complete and **does not close the panel**: a time is a
+  refinement of the answer the picker was opened for, not the answer, and closing on one
+  would throw the reader out halfway through describing one moment. Clearing it returns
+  the moment to the whole day.
+- **A recurrence is a count, a unit, and the words they make.** The preview reads the
+  interval back in a sentence, because a choice confirmed by reading beats one assembled
+  from a number field and a unit noun in two separate controls.
 - System keys are omitted and live in page info. Tags keep a separate picker because
   membership and property values are different domain commands. The query key is
   omitted too, on entities and on tag defaults alike: its own block is the whole
@@ -1312,6 +1456,11 @@ The picker is the only property-writing surface:
 The picker is portaled and fixed to its invoking row or editor, so it does not resize the
 outline or get clipped by virtualization. `Escape` closes without changing slash text;
 a successful command closes and restores focus to the invoking document control.
+
+**A surface the picker opened is not "outside" it.** Both the entity autocomplete and the
+one dropdown portal to the body, so a press on one of their rows lands outside the panel
+in the DOM while being, to the reader, a press inside the editor they are filling in.
+Dismissal exempts them; § Overlays carries the matching z-order.
 
 ### The slash menu
 
@@ -1341,28 +1490,63 @@ shape. The presentation is positioned, not generic — the four keys never appea
 generic property rows on a block, because they would state the same facts twice. Every
 positioned control still routes to the same picker.
 
-- **Status is a shape at the head of the line** — the position a checkbox has held in
-  every list tool. One circle language carries the set: empty (`todo`), half-filled
-  (`doing`), checked (`done`), crossed (`cancelled`), dashed for a value outside the
-  suggested four. **Shape first, then colour**: each step also takes its tone from
-  § The state palette, and the shape alone still carries the state, so the tint is the
-  second reading and never the only one. Clicking the glyph opens the one dropdown
-  (§ Choice) with `menuitemradio` rows and an explicit `Remove status` item.
+- **Status and priority are the two marks before the writing** — status first, in the
+  position a checkbox has held in every list tool, then priority, then the words. They
+  answer the same question the sentence does and they answer it earlier, which is why
+  priority left the chip strip: under the text it was read *after* the line it was
+  supposed to qualify, and it competed with a row of properties for the attention it
+  needed first. The pair sits in the text's hanging indent, so a wrapped line keeps one
+  left edge and a row acquiring a priority never reflows its sentence.
+- **One circle language carries the status set**: empty (`todo`), half-filled (`doing`),
+  a filled disc with a tick cut out of it (`done`), the same disc with a cross
+  (`cancelled`), dashed for a value outside the suggested four. **Shape first, then
+  colour**: each step also takes its tone from § The state palette, and the shape alone
+  still carries the state, so the tint is the second reading and never the only one.
+  Clicking either mark opens the one dropdown (§ Choice) with `menuitemradio` rows and an
+  explicit removal item.
+- **Priority is one to three filled bars on a wash of its own tone.** Three 3px bars is a
+  small mark to hang a distinction on, and beside a filled status disc it lost every
+  time; the wash gives it comparable weight without inventing a second shape. The count
+  of filled bars is still the first reading and the label is still in the accessible name.
 - **Done and cancelled are settled**: the block's text strikes through and steps back
   one ink level. The glyph, its tone, and the strike agree; none of the three is the
   only signal.
-- **Priority, scheduled, and deadline are quiet chips** under the text, in the chip
-  metrics, each led by its glyph — priority is one to three filled bars, tinted by the
-  same three steps — and each a pointer route into the picker on its own key. Dates are
-  written in the user's own journal date format.
 - **A priority list is offered strongest first.** The registry states its suggested
   values in the domain's ascending order, which is the right order to store and the
   wrong order to read: the reason a person opens a priority list is to *raise*
   something, so `High` is the row nearest the pointer. Status keeps the registry's
   progression, because that is the order the work moves in.
-- **A missed deadline says so in words.** When a deadline has passed and the status is
-  not settled, the chip carries the word `Overdue` in `--danger` ink — a deviation is
-  plain, never colour-only, and it falls silent the moment the task settles.
+
+**A moment is a day and, optionally, a time of day.** Scheduled and deadline are quiet
+chips under the text, in the chip metrics, each led by its glyph and each a pointer route
+into the picker on its own key. The day is written in the user's own journal date format;
+a time follows it in tabular figures, in the locale's own clock. A date with no time means
+the whole of its day, which is what it has always meant. The two are stored as separate
+keys and read as one fact — the day stays a `date` so it remains comparable in the query
+index, and the time refines it.
+
+- **A missed moment says so in words.** When it has passed and the status is not settled,
+  the chip carries the word `Overdue` — a deviation is plain, never colour-only, and it
+  falls silent the moment the task settles.
+- **How far off it is, it says in colour.** Four ordered steps — `overdue`, `soon`,
+  `upcoming`, `later` — tint the chip through § The state palette's rule 3. Both the day
+  thresholds and the tone each step takes belong to the reader (§ Settings): "soon" is a
+  week for someone planning a quarter and an hour for someone shipping today, and which
+  tone means *act now* is a habit people bring with them. What is not theirs is the
+  shape — four steps, `overdue` first — because the ordering is what makes the tint
+  readable at all. The date and the word are still written out, so the tint is the
+  second reading here too.
+- **A settled task has no urgency left to report.** The strike through its line is the
+  whole reading; a red date on a finished job is noise.
+
+**Recurrence: `Done` means "this one", not "all of them".** A task with a repeat interval
+is offered `Complete this one` in place of `Done`, and choosing it keeps the status at
+`todo` and moves the moment on by the interval — counted from the date that was set, not
+from today, so a weekly task finished three days late is still due on its own weekday. A
+toast says where it went, because the only visible consequence is a date the reader may
+not be looking at. The interval is a count and a unit (`1d`, `2w`, `3m`, `1y`) and it has
+its own chip; the grammar stops there deliberately — a cron field or an RRULE is a
+calendar's job, not an outliner's.
 
 ### Query block
 
@@ -1407,7 +1591,7 @@ dropdown (§ Choice) at the same 32px form metric as every other field.
   behind `Exact date…`, `PageAutocomplete` for a page, removable chips for `is any of`.
 - **A group is depth, not a card.** A nested `all` / `any` / `none` group is set apart
   by one indent and a single hairline in the thread language — no border, no fill
-  (§ The three legal lines). That nesting is what gives the builder SPARQL's reach.
+  (§ The legal lines). That nesting is what gives the builder SPARQL's reach.
 - **Remove is revealed, never summoned**: the `×` on a condition and the wastebasket
   on a group appear on hover or focus of their own row and never change the layout.
 - **A column is a chip whose dropdown is its summary.** Its resting option is the
@@ -1564,7 +1748,7 @@ date presentation, keyboard bindings, and storage persistence belong to the
   change one thing, and come back to the same block with the same caret. 820px, a 168px
   scope nav on the left, the pane scrolling on the right.
 - **Two named groups, each with a real `<h3>`.** `Application` — Appearance, Language,
-  Journal, Keyboard, Storage. `This graph` — Graph, Danger zone. The headings and
+  Journal, Tasks, Keyboard, Storage. `This graph` — Graph, Danger zone. The headings and
   § The group label's typography carry the scope distinction without explanatory copy
   inside the navigation column.
 - **Switching sections fades** at `--dur-view`. The pane is a box that is already on
@@ -1577,6 +1761,16 @@ date presentation, keyboard bindings, and storage persistence belong to the
 - **Journal date format carries a live example per option** (`Abbreviated month — Aug 5,
   2026`). A user choosing how their days are written should be reading the result, not
   decoding a label.
+- **A colour setting previews itself, at the size it will be.** The outline thread's five
+  swatches are not coloured squares: each is three indent threads in the tone being
+  offered, on the canvas they are drawn on, at the weight the outline draws them. The
+  chosen tone's name reads at the end of the row rather than under every swatch, so the
+  choice is nameable without five words of chrome. A setting whose result you cannot see
+  until you close the dialog is one people change twice and then leave wrong.
+- **`Tasks` is four ordered rows, each previewing itself with the real chip.** Two of them
+  carry the day threshold they reach to; all four carry the tone they take. The order is
+  fixed and the numbers are not, and § Tasks says why. `Restore defaults` is one button,
+  because four wrong colours is one mistake.
 - **A shortcut's badge is the control that changes it.** Press it, then press the keys.
   Recording is an `--accent` fill on the badge itself; `⎋` or moving focus away cancels;
   a rejection says which of the three rules it hit. A row whose binding is not the default
@@ -1629,6 +1823,14 @@ All portaled to the document — a menu anchored inside a scrolling, clipping, t
 ancestor (the virtualized outline is all three) cannot escape with `z-index` alone. All
 on the one `--z-*` scale, which replaces four disagreeing definitions where dialog, menu
 and toast were tied at 50. All dismissible by outside click, `Escape`, and selection.
+
+**The one dropdown sits above a popover, not under it.** `--z-menu` is above
+`--z-popover`, which looks backwards read as a list of kinds and is right read as an
+order of opening: the two only ever coexist one way round, because every route from a
+menu *to* a popover closes the menu first. A menu that a popover opened — the interval
+editor's unit list inside the property picker — is therefore always the newer layer. With
+the scale the other way it rendered behind the panel that summoned it and could not be
+pressed at all.
 
 **Placement is one rule, declared once.** Every surface that hangs off something on
 screen — the slash menu, the tag menu, the property picker, the tag picker, the entity
@@ -1760,11 +1962,18 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   visual property comes from a token. shadcn's `focus-visible:ring-2` and
   `focus-visible:border-ring` are removed, and native outlines are suppressed globally;
   focus appearance belongs to each component.
-- **Native where native is better — and a `<select>` is not.** Checkboxes and date inputs
-  stay real form controls, because the platform brings a picker and a mobile wheel that
-  nothing here can reproduce. A list of choices brings an unstylable popup instead, drawn
-  by the OS in the OS's own language, so it became the one Radix menu every other choice
-  in the product uses; § Choice argues it and names the cost.
+- **Native where native is better — and a `<select>` is not.** Checkboxes, date inputs and
+  time inputs stay real form controls, because the platform brings a picker and a mobile
+  wheel that nothing here can reproduce. A list of choices brings an unstylable popup
+  instead, drawn by the OS in the OS's own language, so it became the one Radix menu every
+  other choice in the product uses; § Choice argues it and names the cost.
+- **Native where native is wrong — the spell checker.** `spellcheck="false"` on the root
+  element, inherited by every descendant. The browser's dictionary has no entry for a page
+  name, a tag, a property key or a SPARQL variable, so in a document made of short graph
+  references it produced a page of red underlines that were never mistakes — and it cannot
+  be right about text this product has no language for. One declaration at the root rather
+  than an attribute on each of a dozen authoring surfaces, and on the next one somebody
+  adds.
 
 ---
 
@@ -1773,8 +1982,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 ### Do
 
 - Let the indent thread be the one graphic device, and light the path to the caret.
-- Separate surfaces with a 3–5% lightness step; reach for a border only in the three
-  places listed in § Depth.
+- Separate surfaces with a 3–5% lightness step; reach for a line only in the places
+  § Depth lists.
 - Declare every colour in both modes in the same block, and keep hue and chroma fixed.
 - Consult the contrast table before styling text on a tinted surface.
 - Reserve `--accent` for actions, links, carets, selection/drop state and the active thread.
@@ -1805,8 +2014,17 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   parked beside it, and give the same verbs a key and a palette row.
 - Let a selection be visible in exactly one way: a fill on the rows it holds.
 - Animate `opacity` only, and never animate a container that is measured on mount.
-- Keep selects, checkboxes and date fields native; restyle rather than rebuild.
+- Keep checkboxes, date fields and time fields native; restyle rather than rebuild — but
+  turn the spell checker off, because it has no dictionary for a graph.
 - Let exactly one region scroll, and let the top bar never reflow.
+- Store a colour *preference* as the name of a declared tone and let CSS resolve it, so a
+  choice cannot leave the palette or the contrast table (§ The tone map).
+- Draw a token that depends on `--tone` on the element that carries `data-palette` — a
+  custom property is substituted where it is declared, not where it is read.
+- Scroll a focused row into view only when it is not already visible: a row taller than
+  the window cannot be aligned without moving the page out from under the caret.
+- Answer "focus left this row" on the next frame, by asking where focus went, rather than
+  on the `blur` that only says it left.
 
 ### Don't
 
@@ -1817,6 +2035,12 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   not chrome; a nav icon, a toolbar icon and a property *key*'s mark are.
 - Don't tint categories. Colour names a state, and a state set has to be closed and
   ordered before it earns one.
+- Don't let a state tone fill anything larger than the thing the state is about: a mark's
+  own disc and its own chip, never a row, a band, or a panel.
+- Don't write a colour from TypeScript, not even for a setting the user chose. Write the
+  tone's *name*; § The tone map turns it into a colour.
+- Don't apply one preference to two tokens that happened to share a value — a chosen
+  outline tone is not a licence to tint every hairline in the product.
 - Don't put `--ink-3` on `--surface-2` or `--surface-3`.
 - Don't tune a tracking ramp for a font the app does not actually load, and don't set
   tracking in `px` on a size that clamps.

@@ -1,5 +1,13 @@
 <!doctype html>
-<html lang="en">
+<!--
+  `spellcheck="false"` is inherited by every descendant, which is the whole point:
+  the browser's dictionary has no entry for a page name, a tag, a property key or
+  a SPARQL variable, so in a document made of short graph references it produced a
+  page of red underlines that were never mistakes. One declaration at the root,
+  rather than an attribute on each of a dozen authoring surfaces — and on the next
+  one somebody adds.
+-->
+<html lang="en" spellcheck="false">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

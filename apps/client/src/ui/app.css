@@ -68,25 +68,58 @@
   /* ink-relative, so one declaration serves both modes */
   --line: color-mix(in oklab, var(--ink) 10%, transparent);
   --line-strong: color-mix(in oklab, var(--ink) 16%, transparent);
+  --halo: color-mix(in oklab, var(--ink) 9%, transparent);
+
+  /* ── The tone map ──
+     The five steps a *preference* is allowed to name, and the only place a
+     preference name becomes a colour. A surface carries `data-palette="accent"`
+     and reads `var(--tone)`; nothing in TypeScript ever writes a colour, so no
+     setting can leave this palette or the contrast table it was measured
+     against, and both modes come free (DESIGN.md § The tone map).
+
+     `--tone` is declared here as well as in each map rule, because a token that
+     is only ever set by an attribute renders nothing at all on the elements that
+     lack it. */
+  --tone: var(--ink-2);
+
+  /* The hairline the product draws inside a panel: a quote's inset rule, a table
+     column seam, the tags screen's separators. It is not the outline's thread —
+     that one answers to a preference and is declared on `.outline-section`, so a
+     reader who wants a blue outline does not also get blue table seams. */
   --thread: color-mix(in oklab, var(--ink) 8%, transparent);
   --thread-active: color-mix(in oklab, var(--ink) 26%, transparent);
-  --halo: color-mix(in oklab, var(--ink) 9%, transparent);
   /* The state palette. Task status and priority are closed enumerations, so each
      step can name a tone — and because these are aliases over tones already
-     declared per mode, one declaration serves both. The first step of each set
-     declines a tone and takes the ink around it, so an unstarted task keeps
-     answering hover and focus the way every other glyph does. */
+     declared per mode, one declaration serves both.
+
+     `todo` declines a tone outright and takes the ink around it, so an unstarted
+     task keeps answering hover and focus the way every other glyph does. `low` is
+     the same claim one step along: the metadata ink, because "this one least" is a
+     fact about ranking rather than an alarm. */
   --status-todo: currentColor;
   --status-doing: var(--attention);
   --status-done: var(--ok);
   --status-cancelled: var(--danger);
-  --priority-low: currentColor;
+  --priority-low: var(--ink-3);
   --priority-medium: var(--attention);
   --priority-high: var(--danger);
+
+  /* What is drawn *on* a tone: the tick cut out of a completed task's filled
+     disc, the label on a tinted chip. It is `--on-accent`, which is white in
+     light mode — the mark a checked box has always carried — and near-black in
+     dark mode, where every tone in this palette is the light half of the pair
+     and a white mark on one would be the least legible thing on the screen. */
+  --on-tone: var(--on-accent);
 
   --scroll-thumb: color-mix(in oklab, var(--ink) 20%, transparent);
   --scroll-thumb-hover: color-mix(in oklab, var(--ink) 34%, transparent);
   --e1: inset 0 0 0 1px var(--line);
+  /* The chip ring. A property chip is the smallest control in the product and it
+     was wearing the thinnest line: 1px of `--line` around 22px of 12px text
+     disappeared into the canvas, so a strip of metadata read as loose words
+     rather than as a row of controls you can press. 1.5px of `--line-strong`
+     is the same shape at a weight that survives being small. */
+  --e1-chip: inset 0 0 0 1.5px var(--line-strong);
 
   /* type — self-hosted Pretendard first, system faces as resilient fallbacks */
   --font-sans:
@@ -111,6 +144,20 @@
   --text-xl: 33px;
   --lh-xl: 40px;
   --track-xl: -0.019em;
+
+  /* Headings *inside a block*. Four steps rather than the three this scale used
+     to spend: the top one lands just under the 33px page title, so an `#` heading
+     reads as the largest thing in the writing and still never ties with the name
+     of the page it is written on, and the bottom one is the body size exactly, so
+     `####` is a bold line rather than a size nobody asked for. The two in between
+     are the interpolation — 28 / 24 / 20 / 16 — which is what makes six levels of
+     Markdown legible as a sequence instead of a set of near-misses. */
+  --head-1: 28px;
+  --head-1-lh: 36px;
+  --head-2: 24px;
+  --head-2-lh: 32px;
+  --head-3: 20px;
+  --head-3-lh: 28px;
   --weight-normal: 500;
   --weight-medium: 550;
   --weight-strong: 600;
@@ -136,7 +183,12 @@
   --topbar-h: 44px;
   --title-row-h: 44px;
   --row-h: 32px;
-  --indent: 24px;
+  /* One indent used to be 24px, which is where an outliner's depth stops being
+     legible: at three levels the difference between two siblings and a parent and
+     its child was six pixels of text offset and one hairline. 30px is a clear
+     step at every depth the measure still allows (§ Measure keeps 848px, so a
+     block five levels deep has 698px left to write in). */
+  --indent: 30px;
   --slot: 20px;
   --target: 24px;
   --append-h: min(40vh, 320px);
@@ -162,10 +214,38 @@
   --z-scrim: 25;
   --z-drawer: 30;
   --z-dialog: 50;
-  --z-menu: 55;
-  --z-popover: 60;
+  /* A popover sits under the one dropdown, not over it. The two only ever coexist
+     one way round: a menu opened *from* a popover — the interval editor's unit
+     list inside the property picker — because every other route closes the menu
+     before the popover appears. With `--z-menu` below `--z-popover` that list
+     rendered behind the panel that summoned it and could not be pressed. */
+  --z-popover: 55;
+  --z-menu: 60;
   --z-palette: 65;
   --z-toast: 70;
+}
+
+/* The tone map itself. Five rules, one per name a preference may hold, and every
+   surface that offers a choice of tone — the outline thread, a due chip, the
+   swatches that set them — resolves through exactly these. */
+[data-palette="neutral"] {
+  --tone: var(--ink-2);
+}
+
+[data-palette="accent"] {
+  --tone: var(--accent);
+}
+
+[data-palette="ok"] {
+  --tone: var(--ok);
+}
+
+[data-palette="attention"] {
+  --tone: var(--attention);
+}
+
+[data-palette="danger"] {
+  --tone: var(--danger);
 }
 
 /* Dark mode. An explicit [data-theme] wins over the OS in both directions, and
@@ -1442,6 +1522,19 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .outline-section {
   position: relative;
   margin-top: var(--sp-6);
+  /* The outline's own thread, in whichever tone the reader chose. It is resolved
+     *here*, on the element that carries `data-palette`, and not at the root: a
+     custom property is substituted where it is declared, so a token written on
+     `:root` would have baked in the root's tone and no preference could reach it.
+     The rows inherit the finished colours.
+
+     At the old 8% of ink the resting line was a rumour — present in a screenshot
+     and absent on a screen, which is why the one piece of structure an outliner
+     draws for free had to be asked for. 30% of `--ink-2` is about three times
+     that and still quieter than `--line`, so the outline reads as threaded
+     without the thread becoming the subject. */
+  --thread-line: color-mix(in oklab, var(--tone) 30%, transparent);
+  --thread-lit: color-mix(in oklab, var(--tone) 72%, transparent);
 }
 
 .outline-viewport {
@@ -1470,13 +1563,30 @@ button.chip:focus-visible .chip-glyph .chip-x {
   user-select: none;
 }
 
-/* The thread. Two stacked gradients, zero extra DOM (the rows are virtualized):
-   the lower layer draws every ancestor level at rest, the upper layer redraws
-   the first `--lit` levels in the active colour, so the path from the root to
-   the caret is continuous even across intervening siblings. */
+/* ── The thread ──
+   Three stacked gradients, zero extra DOM (the rows are virtualized).
+
+   Two of them draw the *ancestor* columns: the lower layer at rest, the upper
+   layer redrawing the first `--lit` levels in the active tone, so the path from
+   the root to the caret stays continuous even across intervening siblings.
+
+   The third is the bullet's own thread, and it is what makes this a tree rather
+   than a set of indents. It starts just below the bullet of a row that has
+   children and runs to the row's bottom edge — which is exactly the gap between
+   a parent's mark and where its first child's ancestor column begins. Without
+   it the vertical line under a bullet appeared out of nowhere one row later, and
+   a parent with a two-line body had a visible break in the middle of its own
+   subtree. It is one background layer rather than a pseudo-element because the
+   row has no spare one to give and a virtualized list has no spare DOM.
+
+   The thread is drawn in whichever tone the reader chose (§ The tone map). */
 .outline-row {
   --depth: 0;
   --lit: 0;
+  /* Where a row's own thread begins: clear of the 5px bullet centred on the
+     26px text line, so the line leaves the mark it belongs to instead of
+     crossing it. */
+  --thread-head: 20px;
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -1486,29 +1596,52 @@ button.chip:focus-visible .chip-glyph .chip-x {
      not to its text. That strip is where a selection drag starts, and it is why
      the thread's offset carries the same term. */
   margin-left: calc(var(--gutter) * -1);
-  padding-top: 2px;
-  padding-bottom: 2px;
+  /* 1px, not 2. A screen of one-line blocks is a list, and at 30px a row the
+     list read as loose — the gap between two siblings competed with the gap
+     between a block and its own metadata strip. 28px keeps the 26px line
+     comfortable and lets depth, not air, do the separating. */
+  padding-top: 1px;
+  padding-bottom: 1px;
   padding-left: calc(var(--gutter) + var(--depth) * var(--indent));
   border-radius: 0;
   cursor: text;
   background-image:
+    linear-gradient(var(--thread-own, transparent), var(--thread-own, transparent)),
     repeating-linear-gradient(
       to right,
-      var(--thread-active) 0 1px,
+      var(--thread-lit) 0 1px,
       transparent 1px var(--indent)
     ),
     repeating-linear-gradient(
       to right,
-      var(--thread) 0 1px,
+      var(--thread-line) 0 1px,
       transparent 1px var(--indent)
     );
   background-position:
+    calc(var(--gutter) + var(--depth) * var(--indent) + var(--slot) / 2)
+      var(--thread-head),
     calc(var(--gutter) + var(--slot) / 2) 0,
     calc(var(--gutter) + var(--slot) / 2) 0;
   background-size:
+    1px calc(100% - var(--thread-head)),
     calc(var(--lit) * var(--indent)) 100%,
     calc(var(--depth) * var(--indent)) 100%;
-  background-repeat: no-repeat, no-repeat;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+}
+
+/* A row draws its own thread only while there is something under it to reach.
+   Collapsed is the one case that has children and must not: the halo on the
+   bullet is already saying they are there, and a line to nothing is a promise
+   the next row breaks. */
+.outline-row[data-has-children="true"]:not([data-collapsed="true"]) {
+  --thread-own: var(--thread-line);
+}
+
+/* On the path from the root to the caret, a parent's own segment lights with the
+   ancestor columns below it — otherwise the lit path had a one-row gap at every
+   level it passed through. */
+.outline-row[data-ancestor="true"] {
+  --thread-own: var(--thread-lit);
 }
 
 /* The one row fill in the product. A hover or focus wash was rejected because
@@ -1804,10 +1937,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   outline: none;
 }
 
-.outline-text[data-task-status] > .outline-markdown {
-  padding-left: 28px;
-}
-
 .outline-text[data-task-status="done"] > .outline-markdown,
 .outline-text[data-task-status="cancelled"] > .outline-markdown {
   color: var(--ink-2);
@@ -1848,11 +1977,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   margin-top: 0;
 }
 
-/* Three steps, and three is all six levels get. Two type sizes and two weights
-   exist to spend here, and a fourth step at 50 units of weight is a difference
-   nobody reads — so level 1 takes the section scale, level 2 the body at strong
-   weight, and everything below reads as "a heading, quieter". The outline's own
-   depth is where deep hierarchy belongs. */
+/* ── Six levels, four steps ──
+   The scale is anchored at both ends rather than chosen in the middle. Level one
+   sits just under the 33px page title, so an `#` heading is the largest thing in
+   the writing and still never ties with the name of the page it is written on;
+   level four is the body size exactly, so `####` is a bold line rather than a
+   size nobody asked for. Two and three are the interpolation between them
+   (§ Typography / heading steps), and five and six read as "a heading, quieter" —
+   the outline's own depth is where deeper hierarchy belongs.
+
+   Three steps was the previous answer and it was one short at the top: a `#`
+   heading came out at 19px, barely above the 16px paragraph beneath it, which
+   made a page of Markdown notes read as one undifferentiated weight. */
 .block-markdown .markdown-heading {
   color: var(--ink-2);
   font-size: var(--text-md);
@@ -1863,13 +1999,40 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .block-markdown .markdown-heading[data-level="1"] {
   color: var(--ink);
-  font-size: var(--text-lg);
-  line-height: var(--lh-lg);
-  letter-spacing: var(--track-lg);
+  font-size: var(--head-1);
+  line-height: var(--head-1-lh);
+  letter-spacing: var(--track-xl);
 }
 
 .block-markdown .markdown-heading[data-level="2"] {
   color: var(--ink);
+  font-size: var(--head-2);
+  line-height: var(--head-2-lh);
+  letter-spacing: var(--track-lg);
+}
+
+.block-markdown .markdown-heading[data-level="3"] {
+  color: var(--ink);
+  font-size: var(--head-3);
+  line-height: var(--head-3-lh);
+  letter-spacing: var(--track-lg);
+}
+
+.block-markdown .markdown-heading[data-level="4"] {
+  color: var(--ink);
+}
+
+/* The two top levels open a *section*, and a section opens with a rule.
+   § The three legal lines admits this as the second horizontal rule the product
+   draws, on the same argument as the first: it is a line inside the writing,
+   drawn in the writing's own hairline tone, separating content from content —
+   never a box around anything. It stops at the top two levels because a rule
+   under every heading is a page of rules, and at that point the line is the
+   texture rather than the structure. */
+.block-markdown .markdown-heading[data-level="1"],
+.block-markdown .markdown-heading[data-level="2"] {
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
 }
 
 .block-markdown strong {
@@ -2209,10 +2372,30 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--glyph-tone, currentColor);
 }
 
-.task-status-toggle {
+/* The mark cut out of a settled task's filled disc. It cannot be `currentColor`,
+   because `currentColor` is the fill it is drawn on — this is the one place in
+   the product where a glyph carries two colours, and § The state palette says
+   why the settled steps earn it. */
+[data-status-glyph] .glyph-mark {
+  stroke: var(--on-tone);
+}
+
+/* ── The marks before the writing ──
+   Status and priority answer the same question, before the words: they are one
+   cluster in the hanging indent, in reading order (state, then how much it
+   matters). Absolutely positioned so the text keeps a single left edge on every
+   line it wraps to, and so a row acquiring a priority never reflows its
+   sentence — the column is reserved by the text's own padding instead. */
+.task-marks {
   position: absolute;
   left: 0;
   top: 1px;
+  display: flex;
+  align-items: center;
+}
+
+.task-status-toggle,
+.task-priority-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2226,18 +2409,53 @@ button.chip:focus-visible .chip-glyph .chip-x {
   cursor: pointer;
 }
 
-.task-status-toggle:hover {
+.task-status-toggle:hover,
+.task-priority-toggle:hover {
   background: var(--surface-2);
   color: var(--ink);
 }
 
-.task-status-toggle:disabled {
+.task-status-toggle:disabled,
+.task-priority-toggle:disabled {
   opacity: 0.5;
   pointer-events: none;
 }
 
-.outline-text[data-task-status] > .outline-input {
+/* Priority carries its own tone as a wash behind the bars as well as in them.
+   Three 3px bars is a small mark to hang a distinction on, and beside a filled
+   status disc it lost every time; the wash gives it the same visual weight
+   without inventing a second shape. The tone is still the second reading — the
+   count of filled bars is the first, and the label is in the accessible name. */
+.task-priority-toggle[data-priority="low"] {
+  --priority-tone: var(--priority-low);
+}
+
+.task-priority-toggle[data-priority="medium"] {
+  --priority-tone: var(--priority-medium);
+}
+
+.task-priority-toggle[data-priority="high"] {
+  --priority-tone: var(--priority-high);
+}
+
+.task-priority-toggle {
+  background: color-mix(in oklab, var(--priority-tone, var(--ink-3)) 12%, transparent);
+}
+
+.task-priority-toggle:hover {
+  background: color-mix(in oklab, var(--priority-tone, var(--ink-3)) 22%, transparent);
+}
+
+/* The hanging indent the mark cluster stands in. One rule per count, because
+   there are exactly two counts a block can have. */
+.outline-text[data-marks="1"] > .outline-input,
+.outline-text[data-marks="1"] > .outline-markdown {
   padding-left: 28px;
+}
+
+.outline-text[data-marks="2"] > .outline-input,
+.outline-text[data-marks="2"] > .outline-markdown {
+  padding-left: 52px;
 }
 
 /* A settled task reads as settled: the strike is the signal, the ink only
@@ -2276,7 +2494,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   border: 0;
   border-radius: var(--r-2);
   background: transparent;
-  box-shadow: var(--e1);
+  box-shadow: var(--e1-chip);
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-xs);
@@ -2290,7 +2508,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .task-chip:hover {
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
   color: var(--ink);
 }
 
@@ -2306,10 +2524,27 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .task-chip-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
   overflow: hidden;
   font-weight: var(--weight-normal);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The clock beside the day. Tabular figures because a column of moments that
+   jumps a pixel per digit reads as unaligned rather than as a list. */
+.task-chip-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* "…and again after this one." The interval itself has its own chip; inside a
+   moment this is a marker, so it takes the glyph size down and steps back. */
+.task-chip .task-chip-repeat {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
 }
 
 .task-chip .flag {
@@ -2317,18 +2552,43 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-weight: var(--weight-normal);
 }
 
-/* A missed deadline on an unsettled task is a deviation, and deviations are
-   plain: the word says it, the colour only underlines it. */
-.task-chip[data-overdue] {
-  color: var(--danger);
+/* ── A moment, tinted by how far off it is ──
+   The tone comes from `--tone`, which the chip receives as the *name* of a step
+   the reader chose (§ The tone map, § Settings / Tasks). Everything the chip
+   states is still written: the day, the time, and the word `Overdue` when one has
+   passed. The tint is the second reading — what makes a page of dates scannable
+   without reading any of them — and never the only one.
+
+   The label mixes 30% ink into the tone rather than taking it neat. At 12px, the
+   lighter tones sit under 4.5:1 on the canvas on their own; pulling each one
+   toward the ink keeps its hue, its recognisability, and § Contrast's one hard
+   rule at the same time. */
+.task-chip[data-due] {
+  background: color-mix(in oklab, var(--tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--tone) 32%, transparent);
+  color: color-mix(in oklab, var(--tone) 70%, var(--ink));
 }
 
-.task-chip[data-overdue]:hover {
-  color: var(--danger);
+.task-chip[data-due]:hover {
+  background: color-mix(in oklab, var(--tone) 20%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--tone) 46%, transparent);
+  color: color-mix(in oklab, var(--tone) 70%, var(--ink));
+}
+
+/* The date is the fact; inside a tinted chip it also carries the weight, so the
+   tint reads as being *about* the date rather than about the whole chip. */
+.task-chip[data-due] .task-chip-value {
+  font-weight: var(--weight-strong);
 }
 
 .task-chip-overdue {
   font-weight: 600;
+}
+
+/* The same chip standing in a settings row as its own preview: it shows what the
+   choice looks like, so it must not also offer the chip's verb. */
+.task-chip[data-preview] {
+  cursor: default;
 }
 
 .query-block {
@@ -3669,6 +3929,46 @@ button.query-list-status[data-active="true"] {
   display: grid;
 }
 
+/* The time of day, on its own row under the day. It reads as a refinement rather
+   than a second question: one glyph, one field, and a way back to "all day".
+   A hairline above it is the seam between the two halves of one moment — the same
+   line § The three legal lines allows inside a panel. */
+.property-date-time {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+}
+
+.property-date-time input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The interval: a count, a unit, and the words they make. The preview spans the
+   row underneath so the confirmation is read rather than assembled. */
+.property-repeat-editor {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.property-repeat-editor input {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.property-repeat-preview {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
 .tag-picker {
   display: flex;
   flex-direction: column;
@@ -3985,7 +4285,9 @@ button.query-list-status[data-active="true"] {
   border: none;
   border-radius: var(--r-2);
   background: transparent;
-  box-shadow: var(--e1);
+  /* The chip ring, at the chip's own weight — the page strip and the strip under
+     a block are one language, so they cannot wear two different rings. */
+  box-shadow: var(--e1-chip);
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-xs);
@@ -3999,7 +4301,7 @@ button.query-list-status[data-active="true"] {
 
 .prop-strip-chip:hover {
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
   color: var(--ink);
 }
 
@@ -4032,6 +4334,9 @@ button.query-list-status[data-active="true"] {
     --text-xl: clamp(26px, 6vw, 33px);
     --track-xl: -0.015em;
     --gutter: var(--sp-4);
+    /* Depth still has to read, but on a 360px screen every indent is spent out
+       of the measure rather than out of a margin, so it gives back four pixels. */
+    --indent: 26px;
   }
 }
 
@@ -4726,6 +5031,166 @@ button.query-list-status[data-active="true"] {
   background: var(--canvas);
   color: var(--ink);
   box-shadow: var(--e1);
+}
+
+/* A named sub-setting inside a section: its own small heading and sentence, then
+   its control. A section that has two unrelated choices in it needs this; one
+   that has one does not, and takes the section heading as its label. */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.settings-field h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: 600;
+}
+
+.settings-field p {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* ── The tone choice ──
+   Five swatches, and each one is a sample of the thing it sets rather than a
+   coloured square: three indent threads at the exact spacing and weight the
+   outline draws them with. A colour setting shown as a blob is a guess; shown as
+   its own result it is a decision. */
+.tone-choice {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.tone-choice-name {
+  margin-left: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* The swatch stands on `--canvas`, not on the dialog's own surface: a thread is
+   drawn on the writing ground, and a 30% hairline previewed against a darker
+   fill reads as a different, weaker colour than the one being chosen. */
+.tone-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  box-shadow: var(--e1);
+  cursor: pointer;
+  transition: box-shadow var(--dur-press) var(--ease-out);
+}
+
+.tone-swatch:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.tone-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.tone-swatch-thread {
+  width: 30px;
+  height: 22px;
+  /* The same two gradients the row uses, resolved against the swatch's own tone
+     and at the same 1px-per-indent rhythm, so the swatch cannot drift from what
+     it previews. */
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      color-mix(in oklab, var(--tone) 72%, transparent) 0 1px,
+      transparent 1px 10px
+    ),
+    repeating-linear-gradient(
+      to right,
+      color-mix(in oklab, var(--tone) 30%, transparent) 0 1px,
+      transparent 1px 10px
+    );
+  background-position: 0 0, 10px 0;
+  background-size: 1px 100%, 100% 100%;
+  background-repeat: no-repeat, no-repeat;
+}
+
+/* ── The due tiers ──
+   Four rows, in the order dates move through them, each previewing itself. The
+   grid keeps the name, the preview, the reach and the tone in four columns so the
+   four rows read down as one scale rather than across as four settings. */
+.due-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Fixed columns rather than `subgrid`: the four rows have to agree, and the
+   widths here are small and known, so the simpler mechanism is also the one that
+   cannot be knocked out of alignment by one row's longer label. */
+.due-tier {
+  display: grid;
+  grid-template-columns: 84px auto minmax(0, 1fr) 128px;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.due-tier-name {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.due-tier-days {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  white-space: nowrap;
+}
+
+.due-tier-days input {
+  width: 64px;
+  text-align: center;
+}
+
+/* The two tiers with no reach to set still occupy the column, so the tone
+   dropdowns line up down the whole scale. */
+.due-tier > .menu-select {
+  grid-column: 4;
+  min-width: 120px;
+}
+
+@media (max-width: 600px) {
+  .due-tiers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .due-tier {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+    padding-bottom: var(--sp-2);
+  }
+
+  .due-tier > .menu-select {
+    grid-column: 1;
+  }
 }
 
 /* A field in the dialog fills its pane. The 360px reading width was tuned for a

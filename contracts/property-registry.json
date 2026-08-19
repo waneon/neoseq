@@ -13,8 +13,20 @@
       "shape": {"single": "date"},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
+    "builtin.task-scheduled-time": {
+      "shape": {"single": {"string": "any"}},
+      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+    },
     "builtin.task-deadline": {
       "shape": {"single": "date"},
+      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+    },
+    "builtin.task-deadline-time": {
+      "shape": {"single": {"string": "any"}},
+      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+    },
+    "builtin.task-repeat": {
+      "shape": {"single": {"string": "any"}},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
     "builtin.task-priority": {

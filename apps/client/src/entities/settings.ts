@@ -18,6 +18,47 @@ export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
   "iso",
 ];
 
+/**
+ * The tones a preference is allowed to name. They are the palette's own five
+ * steps and nothing else — a preference chooses *which* declared tone a surface
+ * takes, never a colour of its own, so both modes and the contrast table keep
+ * holding for every choice (DESIGN.md § The state palette).
+ */
+export type ToneName = "neutral" | "accent" | "ok" | "attention" | "danger";
+
+export const TONE_NAMES: ToneName[] = ["neutral", "accent", "ok", "attention", "danger"];
+
+export function isToneName(value: unknown): value is ToneName {
+  return TONE_NAMES.includes(value as ToneName);
+}
+
+/**
+ * How far off a date is, in the four steps the chips are tinted by. The two
+ * numbers are day counts the user owns; the tones name palette steps.
+ */
+export interface DueTierSettings {
+  /** Due within this many days reads as `soon`. */
+  soonDays: number;
+  /** Due within this many days reads as `upcoming`. */
+  upcomingDays: number;
+  overdueTone: ToneName;
+  soonTone: ToneName;
+  upcomingTone: ToneName;
+  laterTone: ToneName;
+}
+
+export const DEFAULT_DUE_TIERS: DueTierSettings = {
+  soonDays: 1,
+  upcomingDays: 7,
+  overdueTone: "danger",
+  soonTone: "attention",
+  upcomingTone: "accent",
+  laterTone: "neutral",
+};
+
+/** The widest span a threshold may name: a year of lead time is already "later". */
+export const MAX_DUE_DAYS = 365;
+
 export interface AppSettings {
   /** `"system"` or a supported locale tag; validated by the i18n runtime. */
   locale?: string;
@@ -26,6 +67,10 @@ export interface AppSettings {
   journalDateFormat?: JournalDateFormat;
   /** Action id → serialized binding. Only overrides are stored. */
   shortcuts?: Record<string, string>;
+  /** Which declared tone the outline's indent thread takes. */
+  threadTone?: ToneName;
+  /** Day thresholds and tones for the scheduled/deadline tint. */
+  dueTiers?: Partial<DueTierSettings>;
 }
 
 const STORAGE_KEY = "neoseq.settings.v1";
@@ -97,6 +142,45 @@ export function isJournalDateFormat(value: unknown): value is JournalDateFormat 
 export function journalDateFormat(): JournalDateFormat {
   const stored = appSettings().journalDateFormat;
   return isJournalDateFormat(stored) ? stored : "full";
+}
+
+export function threadTone(): ToneName {
+  const stored = appSettings().threadTone;
+  return isToneName(stored) ? stored : "neutral";
+}
+
+export function setThreadTone(tone: ToneName): void {
+  updateAppSettings({ threadTone: tone });
+}
+
+/**
+ * The stored due tiers, repaired into a usable shape. A partial or nonsense
+ * record still has to produce four ordered steps, because the chips read them
+ * on every render: an unusable preference must cost the preference, not the
+ * outline.
+ */
+export function dueTiers(): DueTierSettings {
+  const stored = appSettings().dueTiers ?? {};
+  const days = (value: unknown, fallback: number) =>
+    typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_DUE_DAYS
+      ? value
+      : fallback;
+  const tone = (value: unknown, fallback: ToneName) => (isToneName(value) ? value : fallback);
+  const soonDays = days(stored.soonDays, DEFAULT_DUE_TIERS.soonDays);
+  return {
+    soonDays,
+    // The second threshold can never sit inside the first, or `upcoming` would
+    // be a step no date can reach.
+    upcomingDays: Math.max(soonDays, days(stored.upcomingDays, DEFAULT_DUE_TIERS.upcomingDays)),
+    overdueTone: tone(stored.overdueTone, DEFAULT_DUE_TIERS.overdueTone),
+    soonTone: tone(stored.soonTone, DEFAULT_DUE_TIERS.soonTone),
+    upcomingTone: tone(stored.upcomingTone, DEFAULT_DUE_TIERS.upcomingTone),
+    laterTone: tone(stored.laterTone, DEFAULT_DUE_TIERS.laterTone),
+  };
+}
+
+export function updateDueTiers(patch: Partial<DueTierSettings>): void {
+  updateAppSettings({ dueTiers: { ...dueTiers(), ...patch } });
 }
 
 /** Test seam: drops the cached snapshot without touching storage. */

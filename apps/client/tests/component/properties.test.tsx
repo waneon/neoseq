@@ -3,6 +3,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { stringValue } from "../../src/core-port/snapshot";
 import { chooseFromMenu, GRAPH_ID, mountAt, openPageMenu } from "./harness";
 
 async function mountPage() {
@@ -150,6 +151,76 @@ describe("property picker", () => {
     await user.type(within(picker).getByLabelText("Type a date"), "2026-12-24");
     await user.click(await within(picker).findByTestId("date-parsed"));
     await waitFor(() => expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"));
+  });
+
+  it("writes a time of day beside a task date without leaving the editor", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "stand-up",
+    });
+    const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
+    await session.execute({
+      type: "set_property",
+      owner,
+      key: "builtin.task-scheduled",
+      value: { type: "date", value: "2026-08-21" },
+    });
+
+    await user.click(await screen.findByTestId("task-chip-scheduled"));
+    const picker = await screen.findByTestId("property-picker");
+    fireEvent.change(within(picker).getByTestId("task-time"), { target: { value: "09:30" } });
+
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBe("09:30");
+    });
+    // A time refines the moment the picker was opened for; it is not the answer,
+    // so the editor stays open for the rest of it.
+    expect(screen.getByTestId("property-picker")).toBeInTheDocument();
+  });
+
+  it("writes a recurrence as a count and a unit, previewed in words", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 0,
+      markdown: "water the plants ",
+    });
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/repeat");
+    expect(await screen.findByTestId("slash-menu")).toBeVisible();
+    await user.keyboard("{Enter}");
+
+    const picker = await screen.findByTestId("property-picker");
+    fireEvent.change(within(picker).getByTestId("repeat-count"), { target: { value: "3" } });
+    // `fireEvent` rather than the `chooseFromMenu` helper: userEvent keeps its
+    // pointer state per document, and by this point in the file an earlier test
+    // has left a gesture open on an element that no longer exists, which makes
+    // the next synthesized press miss Radix's trigger entirely. The events below
+    // are the ones the trigger actually listens for.
+    fireEvent.pointerDown(within(picker).getByTestId("repeat-unit"), {
+      button: 0,
+      pointerType: "mouse",
+    });
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Weeks" }));
+    // The interval reads back in words, which is what confirms the choice.
+    expect(within(picker).getByText("Every 3 weeks")).toBeInTheDocument();
+    await user.click(within(picker).getByTestId("repeat-set"));
+
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && stringValue(block.properties, "builtin.task-repeat")).toBe("3w");
+    });
+    expect(await screen.findByTestId("task-chip-repeat")).toHaveTextContent("Every 3 weeks");
   });
 
   it("surfaces validation errors for property keys that cannot exist", async () => {

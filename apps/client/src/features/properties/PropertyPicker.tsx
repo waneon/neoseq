@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
+import { ArrowLeftIcon, CalendarIcon, CheckIcon, ClockIcon, Trash2Icon } from "lucide-react";
 import type { Command, PropertyOwnerRef } from "../../core-port/commands";
 import type { PropertyField, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
@@ -26,17 +26,31 @@ import {
   VALUE_TYPES,
 } from "../../entities/properties";
 import { addDays, todayLocalDate } from "../../entities/journal";
-import { offeredChoices, TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
+import {
+  DEFAULT_REPEAT,
+  formatRepeat,
+  isTaskDateKey,
+  isTimeOfDay,
+  offeredChoices,
+  parseRepeat,
+  REPEAT_UNITS,
+  TASK_PRIORITY_KEY,
+  TASK_REPEAT_KEY,
+  TASK_STATUS_KEY,
+  timeKeyFor,
+  type RepeatUnit,
+} from "../../entities/tasks";
 import { useAnchoredPosition } from "@/ui/anchored";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { moveOptionFocus } from "@/ui/listbox";
+import { MenuSelect } from "@/ui/menu-select";
 import { useI18n } from "../../i18n";
 import { parseDateQuery } from "../commands/dates";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
-import { priorityLabel, statusLabel } from "../tasks/labels";
+import { priorityLabel, repeatLabel, repeatUnitLabel, statusLabel } from "../tasks/labels";
 import { PageAutocomplete } from "./PageAutocomplete";
 import {
   propertyDisplayName,
@@ -121,7 +135,14 @@ export function PropertyPicker({
       if (
         node instanceof Node &&
         !panelRef.current?.contains(node) &&
-        !(node instanceof Element && node.closest(".ac-popover"))
+        // A surface this panel opened is not "outside" it. Both the entity
+        // autocomplete and the one dropdown (§ Choice) portal to the body, so a
+        // press on one of their rows lands outside `panelRef` in the DOM while
+        // being, to the user, a press inside the editor they are filling in.
+        // Without this, choosing from a nested menu dismissed the picker before
+        // the choice could reach it.
+        !(node instanceof Element
+          && node.closest('.ac-popover, [data-slot="dropdown-menu-content"]'))
       ) onClose();
     };
     // Radix selects context-menu rows during the same pointer gesture that
@@ -295,6 +316,20 @@ export function PropertyPicker({
     if (!key || writeDisabled) return;
     const removed = await run({ type: "remove_property", owner, key });
     if (removed) onClose();
+  };
+
+  /**
+   * A refinement of the value being edited, written without closing: the time of
+   * day beside a task date, or its repeat interval. These are separate keys
+   * because they are separate facts, so each is still exactly one command — but
+   * they are not the *answer* the picker was opened for, and closing on one of
+   * them would throw the user out halfway through describing one moment.
+   */
+  const writeRefinement = (refinementKey: string, value: PropertyValue | null) => {
+    if (readonly || !canUserWrite(refinementKey, writeTarget)) return;
+    void run(value === null
+      ? { type: "remove_property", owner, key: refinementKey }
+      : { type: "set_property", owner, key: refinementKey, value });
   };
 
   const onKeyList = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -535,9 +570,11 @@ export function PropertyPicker({
             type={type}
             value={draft}
             allowed={choices}
+            bag={target.bag}
             readonly={writeDisabled || committing}
             onChange={setDraft}
             onCommit={(value) => void commit(value)}
+            onRefine={writeRefinement}
           />
           <div className="property-picker-actions">
             {!selectedField && (
@@ -556,7 +593,7 @@ export function PropertyPicker({
                 {message("properties.removeProperty")}
               </Button>
             )}
-            {type !== "page" && type !== "date" && choices.length === 0 && (
+            {type !== "page" && type !== "date" && key !== TASK_REPEAT_KEY && choices.length === 0 && (
               <Button onClick={() => void commit(draft)} disabled={writeDisabled || committing} data-testid="property-set">
                 {message("properties.set")}
               </Button>
@@ -583,17 +620,21 @@ function ValueInput({
   type,
   value,
   allowed,
+  bag,
   readonly,
   onChange,
   onCommit,
+  onRefine,
 }: {
   entryKey: string;
   type: PropertyValueType;
   value: PropertyValue;
   allowed: string[];
+  bag: PropertyField[];
   readonly: boolean;
   onChange: (value: PropertyValue) => void;
   onCommit: (value: PropertyValue) => void;
+  onRefine: (key: string, value: PropertyValue | null) => void;
 }) {
   const { message } = useI18n();
   const label = message("properties.value", { key: propertyDisplayName(entryKey, message) });
@@ -672,6 +713,9 @@ function ValueInput({
       </div>
     );
   }
+  if (entryKey === TASK_REPEAT_KEY) {
+    return <RepeatValueInput value={value} readonly={readonly} onCommit={onCommit} />;
+  }
   if (type === "date") {
     return (
       <DateValueInput
@@ -680,6 +724,16 @@ function ValueInput({
         readonly={readonly}
         onChange={onChange}
         onCommit={onCommit}
+        // A task moment is a day *and* a time of day, and the two are read as one
+        // fact. The generic date editor keeps its shape; the task keys grow one
+        // extra row rather than a second surface to visit.
+        refinements={isTaskDateKey(entryKey)
+          ? {
+              timeKey: timeKeyFor(entryKey),
+              time: singleString(bag, timeKeyFor(entryKey)),
+              onRefine,
+            }
+          : undefined}
       />
     );
   }
@@ -711,18 +765,26 @@ function ValueInput({
  * platform's own picker is the better precision tool (DESIGN.md
  * § Implementation, "native where native is better").
  */
+interface DateRefinements {
+  timeKey: string;
+  time: string | undefined;
+  onRefine: (key: string, value: PropertyValue | null) => void;
+}
+
 function DateValueInput({
   label,
   value,
   readonly,
   onChange,
   onCommit,
+  refinements,
 }: {
   label: string;
   value: PropertyValue;
   readonly: boolean;
   onChange: (value: PropertyValue) => void;
   onCommit: (value: PropertyValue) => void;
+  refinements?: DateRefinements;
 }) {
   const { message, locale, formatJournalDate } = useI18n();
   const [text, setText] = useState("");
@@ -832,6 +894,128 @@ function DateValueInput({
           }}
         />
       </div>
+      {refinements && <TimeOfDayRow readonly={readonly} {...refinements} />}
     </div>
   );
+}
+
+/**
+ * The time of day beside a task date. It is the platform's own time input for the
+ * same reason the date row keeps a native picker — a clock is one of the few
+ * controls a browser genuinely does better — and it writes as soon as it is
+ * complete, because a time is a refinement rather than the answer the picker was
+ * opened for. Clearing it returns the moment to the whole day, which is what a
+ * date with no time has always meant.
+ */
+function TimeOfDayRow({
+  timeKey,
+  time,
+  readonly,
+  onRefine,
+}: DateRefinements & { readonly: boolean }) {
+  const { message } = useI18n();
+  const current = time !== undefined && isTimeOfDay(time) ? time : "";
+  return (
+    <div className="property-date-time">
+      <ClockIcon data-type-glyph aria-hidden />
+      <Input
+        type="time"
+        aria-label={message("task.timeOfDay")}
+        data-testid="task-time"
+        value={current}
+        readOnly={readonly}
+        onChange={(event) => {
+          const next = event.target.value;
+          // A partially typed time is not a value yet; an emptied field is.
+          if (next === "") onRefine(timeKey, null);
+          else if (isTimeOfDay(next)) onRefine(timeKey, { type: "string", value: next });
+        }}
+      />
+      {current !== "" && (
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={readonly}
+          aria-label={message("task.clearTime")}
+          data-testid="task-time-clear"
+          onClick={() => onRefine(timeKey, null)}
+        >
+          <Trash2Icon data-icon aria-hidden />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The recurrence interval: a count and a unit, which is the whole grammar this
+ * product's repeats have. It is deliberately not a cron field or an RRULE — a
+ * task that repeats every N days, weeks, months or years covers what an outliner
+ * is asked for, and anything past that is a calendar's job.
+ */
+function RepeatValueInput({
+  value,
+  readonly,
+  onCommit,
+}: {
+  value: PropertyValue;
+  readonly: boolean;
+  onCommit: (value: PropertyValue) => void;
+}) {
+  const { message } = useI18n();
+  const stored = value.type === "string" ? parseRepeat(value.value) : null;
+  const [interval, setInterval] = useState(stored ?? DEFAULT_REPEAT);
+  const commit = (next: typeof interval) =>
+    onCommit({ type: "string", value: formatRepeat(next) });
+
+  return (
+    <div className="property-repeat-editor">
+      <Input
+        autoFocus
+        type="number"
+        min={1}
+        max={999}
+        inputMode="numeric"
+        aria-label={message("task.repeatCount")}
+        data-testid="repeat-count"
+        value={String(interval.count)}
+        readOnly={readonly}
+        onChange={(event) => {
+          const count = Number(event.target.value);
+          if (Number.isInteger(count) && count >= 1 && count <= 999) {
+            setInterval({ ...interval, count });
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing) commit(interval);
+        }}
+      />
+      <MenuSelect
+        label={message("task.repeatUnitLabel")}
+        testId="repeat-unit"
+        value={interval.unit}
+        options={REPEAT_UNITS.map((unit) => ({
+          value: unit,
+          label: repeatUnitLabel(unit, message),
+        }))}
+        onValueChange={(next) => setInterval({ ...interval, unit: next as RepeatUnit })}
+      />
+      <Button
+        disabled={readonly}
+        data-testid="repeat-set"
+        onClick={() => commit(interval)}
+      >
+        {message("properties.set")}
+      </Button>
+      {/* The interval in words, so the choice is confirmed by reading it rather
+          than by decoding a count and a unit noun in two separate controls. */}
+      <p className="property-repeat-preview">{repeatLabel(interval, message)}</p>
+    </div>
+  );
+}
+
+/** The single string a key holds, for reading a refinement out of the same bag. */
+function singleString(bag: PropertyField[], key: string): string | undefined {
+  const value = bag.find((field) => field.key === key)?.values[0];
+  return value?.type === "string" ? value.value : undefined;
 }

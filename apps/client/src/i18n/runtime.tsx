@@ -45,6 +45,8 @@ export interface LocaleRuntime {
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
   formatBytes(value: number): string;
   formatLocalDate(value: string, options?: Intl.DateTimeFormatOptions): string;
+  /** A stored `HH:MM` time of day, written the way this locale writes clocks. */
+  formatTimeOfDay(value: string): string;
   formatInstant(
     value: string | number | Date,
     timeZone?: string,
@@ -184,6 +186,17 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
         "UTC",
         options ?? { weekday: "long", year: "numeric", month: "long", day: "numeric" },
       );
+    },
+    formatTimeOfDay: (value) => {
+      const [hours, minutes] = value.split(":").map(Number);
+      if (![hours, minutes].every(Number.isFinite)) return value;
+      // A time of day is not an instant: it has no date and no zone, so it is
+      // formatted from a fixed UTC wall clock and read back in UTC. Anything
+      // else would shift `09:00` by wherever the reader happens to be.
+      return formatDate(new Date(Date.UTC(2000, 0, 1, hours, minutes)), "UTC", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     },
     formatInstant: (value, timeZone, options) => {
       const instant = value instanceof Date ? value : new Date(value);

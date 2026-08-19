@@ -12,6 +12,13 @@
 // the label, and the strike through a settled line. `data-plain` opts a glyph
 // out of the tone for the one case that is not a value — the mark that stands
 // beside a *key*'s name in the picker.
+//
+// The two *settled* states are drawn the other way round: the tone fills the
+// disc and the mark is cut out of it in `--on-tone`. A finished task is the one
+// state a person scans a page for, and an outlined tick at 16px was the quietest
+// mark on the row rather than the loudest. The shape still carries it — a filled
+// disc is as distinct from an empty ring as a ticked one was — so the inversion
+// buys weight without spending the non-colour reading.
 
 import type { SVGProps } from "react";
 
@@ -21,7 +28,9 @@ const BASE: SVGProps<SVGSVGElement> = {
   height: 16,
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.8,
+  // 2px, not 1.8: the ring is the only thing an unstarted task draws, and at
+  // 16px the old hairline read as a smudge beside the bullet.
+  strokeWidth: 2,
   strokeLinecap: "round",
   strokeLinejoin: "round",
   "aria-hidden": true,
@@ -39,21 +48,27 @@ export function TaskStatusGlyph({ status, ...props }: { status: string } & SVGPr
       return (
         <svg {...BASE} {...props} data-status-glyph="doing">
           <circle cx="10" cy="10" r="7" />
-          <path d="M10 3.8 A6.2 6.2 0 0 1 10 16.2 Z" fill="currentColor" stroke="none" />
+          <path d="M10 3.6 A6.4 6.4 0 0 1 10 16.4 Z" fill="currentColor" stroke="none" />
         </svg>
       );
     case "done":
       return (
         <svg {...BASE} {...props} data-status-glyph="done">
-          <circle cx="10" cy="10" r="7" />
-          <path d="m6.8 10.4 2.2 2.2 4.2-4.9" />
+          <circle cx="10" cy="10" r="8" fill="currentColor" stroke="none" />
+          {/* `glyph-mark` takes `--on-tone` in app.css: the mark is cut out of
+              the filled disc, so it can never be drawn in the fill's own ink. */}
+          <path className="glyph-mark" d="m6.3 10.3 2.5 2.5 4.9-5.8" strokeWidth={2.2} />
         </svg>
       );
     case "cancelled":
       return (
         <svg {...BASE} {...props} data-status-glyph="cancelled">
-          <circle cx="10" cy="10" r="7" />
-          <path d="m7.4 7.4 5.2 5.2 M12.6 7.4l-5.2 5.2" />
+          <circle cx="10" cy="10" r="8" fill="currentColor" stroke="none" />
+          <path
+            className="glyph-mark"
+            d="m7 7 6 6 M13 7l-6 6"
+            strokeWidth={2.2}
+          />
         </svg>
       );
     default:
@@ -70,9 +85,9 @@ export function TaskStatusGlyph({ status, ...props }: { status: string } & SVGPr
 export function PriorityGlyph({ priority, ...props }: { priority: string } & SVGProps<SVGSVGElement>) {
   const level = ["low", "medium", "high"].indexOf(priority) + 1;
   const bars = [
-    { x: 4.1, y: 11, h: 5 },
-    { x: 8.7, y: 8, h: 8 },
-    { x: 13.3, y: 5, h: 11 },
+    { x: 3.7, y: 11, h: 5.5 },
+    { x: 8.5, y: 7.8, h: 8.7 },
+    { x: 13.3, y: 4.6, h: 11.9 },
   ];
   return (
     <svg {...BASE} {...props} strokeWidth={0} data-priority-glyph={priority}>
@@ -81,11 +96,13 @@ export function PriorityGlyph({ priority, ...props }: { priority: string } & SVG
           key={bar.x}
           x={bar.x}
           y={bar.y}
-          width="2.6"
+          width="3"
           height={bar.h}
-          rx="1.3"
+          rx="1.5"
           fill="currentColor"
-          opacity={level === 0 || index < level ? 1 : 0.3}
+          // The bars above the level are the same mark held back, not a second
+          // colour: they are what makes "one of three" legible without a label.
+          opacity={level === 0 || index < level ? 1 : 0.26}
         />
       ))}
     </svg>

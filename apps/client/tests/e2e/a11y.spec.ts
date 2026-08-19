@@ -80,6 +80,65 @@ test("a raised toast passes the basic audit", async ({ page }) => {
   expect(await audit(page)).toEqual([]);
 });
 
+// Every new fill in the product is a new contrast pair, and the tinted date chip
+// is four of them at once — one per due tier — sitting on the canvas in both
+// modes. § Contrast commits the figures; this is the gate that keeps them true.
+test("a task's marks and its tinted moments pass the basic audit", async ({ page }) => {
+  await createGraph(page, "A11y Task Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "audited moment");
+
+  await openBlockMenu(page);
+  await page.getByTestId("menu-properties").click();
+  let picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: "Priority", exact: true }).click();
+  await picker.getByRole("option", { name: "Medium", exact: true }).click();
+  await expect(picker).toHaveCount(0);
+
+  // One block per tier would be four blocks; one block whose thresholds move is
+  // the same four pairs with less to set up.
+  await page.getByLabel("Block text").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" /dead");
+  await page.getByTestId("slash-menu").getByRole("option", { name: "Deadline" }).click();
+  picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: /^Today/ }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
+
+  for (const tone of ["neutral", "accent", "ok", "attention", "danger"]) {
+    await page.evaluate((chosen) => {
+      const raw = localStorage.getItem("neoseq.settings.v1");
+      const settings = raw ? JSON.parse(raw) : {};
+      settings.dueTiers = { ...(settings.dueTiers ?? {}), soonTone: chosen };
+      localStorage.setItem("neoseq.settings.v1", JSON.stringify(settings));
+      window.dispatchEvent(new StorageEvent("storage", { key: "neoseq.settings.v1" }));
+    }, tone);
+    await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("data-palette", tone);
+    expect(await audit(page)).toEqual([]);
+  }
+
+  // And the settled states, whose mark is cut out of a filled disc.
+  for (const status of ["Done", "Cancelled"]) {
+    await openBlockMenu(page);
+    await page.getByTestId("menu-properties").click();
+    picker = page.getByTestId("property-picker");
+    // A key that already holds a value reads its value back in the row, so the
+    // name is a prefix rather than the whole label from the second pass on.
+    await picker.getByRole("option", { name: /^Status/ }).click();
+    await picker.getByRole("option", { name: status, exact: true }).click();
+    await expect(picker).toHaveCount(0);
+    expect(await audit(page)).toEqual([]);
+  }
+});
+
+test("the task settings section passes the basic audit", async ({ page }) => {
+  await createGraph(page, "A11y Task Settings");
+  await openSettings(page, "tasks");
+  await expect(page.getByTestId("settings-due-tiers")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+});
+
 test("settings passes the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Settings");
   await openSettings(page);

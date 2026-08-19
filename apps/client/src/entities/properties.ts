@@ -42,11 +42,21 @@ const FEATURE_RENDERERS = new Set([
   "builtin.task-scheduled",
   "builtin.task-deadline",
   "builtin.task-priority",
+  "builtin.task-repeat",
 ]);
 // A query is authored, not filled in: `/` builds one and the query block owns
 // every edit and its removal. Offering `builtin.query` as a property row would
 // put a second, worse editor beside the builder for the same value.
-const FEATURE_ONLY_RENDERERS = new Set(["builtin.query"]);
+//
+// A task date's time of day is the same argument in miniature: it refines a date
+// that already has an editor, and on its own it means nothing at all. The date
+// editor writes it, the date chip reads it, and the generic route never offers a
+// key whose value would be unanchored.
+const FEATURE_ONLY_RENDERERS = new Set([
+  "builtin.query",
+  "builtin.task-scheduled-time",
+  "builtin.task-deadline-time",
+]);
 const METADATA_RENDERERS = new Set([
   "builtin.page-kind",
   "builtin.journal-date",

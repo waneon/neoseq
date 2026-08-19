@@ -5,7 +5,11 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { journalDateFormat, setJournalDateFormat } from "../../src/entities/journal";
-import { resetAppSettingsCache } from "../../src/entities/settings";
+import {
+  dueTiers,
+  resetAppSettingsCache,
+  threadTone,
+} from "../../src/entities/settings";
 import {
   DEFAULT_BINDINGS,
   resolveBindings,
@@ -13,7 +17,7 @@ import {
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
-function mountSettings(section: "journal" | "keyboard") {
+function mountSettings(section: "journal" | "keyboard" | "appearance" | "tasks") {
   return mountAt(
     `/g/${GRAPH_ID}/custom`,
     <SettingsDialog
@@ -123,5 +127,45 @@ describe("editable shortcuts", () => {
     await waitFor(() => expect(badge).toHaveTextContent("Ctrl+K"));
     // With nothing customised there is nothing to restore, so the button goes.
     expect(screen.queryByTestId("shortcut-reset-all")).not.toBeInTheDocument();
+  });
+});
+
+describe("presentation preferences", () => {
+  it("records the outline thread tone as a tone name, never a colour", async () => {
+    const user = userEvent.setup();
+    await mountSettings("appearance");
+
+    const group = screen.getByTestId("settings-thread-tone");
+    const accent = screen.getByRole("button", { name: "Accent", pressed: false });
+    await user.click(accent);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accent" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    // The stored preference is the *name* of a declared tone. `app.css` owns what
+    // it looks like, which is what keeps both modes and the contrast table valid.
+    expect(threadTone()).toBe("accent");
+    expect(group.querySelector('[data-palette="accent"]')).not.toBeNull();
+  });
+
+  it("keeps the due tiers ordered and previews each one in its own tone", async () => {
+    const user = userEvent.setup();
+    await mountSettings("tasks");
+
+    // Each row previews itself with the real chip in the real tone.
+    expect(screen.getByTestId("due-preview-overdue")).toHaveAttribute("data-palette", "danger");
+    expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "accent");
+
+    await chooseFromMenu(user, screen.getByTestId("due-tone-upcoming"), "Green");
+    await waitFor(() => expect(dueTiers().upcomingTone).toBe("ok"));
+
+    // A second threshold inside the first would name a step no date can reach, so
+    // the reader's number is kept and the ordering is repaired around it.
+    fireEvent.change(screen.getByTestId("due-days-soon"), { target: { value: "30" } });
+    await waitFor(() => expect(dueTiers().soonDays).toBe(30));
+    expect(dueTiers().upcomingDays).toBe(30);
   });
 });

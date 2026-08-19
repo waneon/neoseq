@@ -55,6 +55,36 @@ test("renders safe Markdown at rest and restores its source editor", async ({ pa
   await expect(editor).toHaveValue(source);
 });
 
+test("returns to the projection when focus leaves the outline entirely", async ({ page }) => {
+  await createGraph(page, "Markdown Blur Graph");
+  await startOutline(page);
+  await writeBlock(page, "Read **bold text** here.");
+
+  const projection = page.getByTestId("block-markdown").first();
+  await projection.click();
+  const editor = page.getByLabel("Block text").first();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveValue("Read **bold text** here.");
+
+  // The rest of the app is not the outline. A press on the journal's own heading
+  // takes focus nowhere at all — which is the case the row could not see: a blur
+  // says only that the textarea lost focus, never where focus went. The block used
+  // to sit on its raw source from that press until the next reload.
+  await page.getByTestId("journal-title").click();
+  await expect(page.getByTestId("block-markdown").first()).toBeVisible();
+  await expect(page.getByTestId("block-markdown").first().locator("strong"))
+    .toHaveText("bold text");
+
+  // …and the row's own furniture is not "outside" it: opening the block's menu
+  // must leave the editor open underneath the thing that is opening.
+  await projection.click();
+  await expect(page.getByLabel("Block text").first()).toBeFocused();
+  await page.getByTestId("block-bullet").first().click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByLabel("Block text").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+});
+
 test("renders the structure people write, and keeps their line breaks", async ({ page }) => {
   await createGraph(page, "Markdown Dialect");
   await startOutline(page);

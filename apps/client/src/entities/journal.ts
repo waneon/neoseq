@@ -55,3 +55,39 @@ export function addDays(date: string, delta: number): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
 }
+
+/** The wall-clock time of day (HH:MM) in the configured timezone. */
+export function nowLocalTime(instant: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: configuredTimezone(),
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(instant);
+}
+
+/** Whole days from `from` to `to`, negative when `to` is in the past. */
+export function dayDifference(to: string, from: string): number {
+  return Math.round((utcDay(to) - utcDay(from)) / 86_400_000);
+}
+
+function utcDay(date: string): number {
+  const [year, month, day] = date.split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+/**
+ * Calendar arithmetic in months or years, clamped to the target month's length.
+ * A task scheduled on the 31st and repeating monthly lands on the 30th of a
+ * 30-day month rather than sliding into the next one, which is the behaviour a
+ * person means by "every month".
+ */
+export function addMonths(date: string, delta: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + delta, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${target.getUTCFullYear()}-${pad(target.getUTCMonth() + 1)}-${pad(Math.min(day, lastDay))}`;
+}

@@ -11,9 +11,11 @@ import type { ReactNode } from "react";
 import {
   AlarmClockIcon,
   CalendarIcon,
+  ClockIcon,
   FileTextIcon,
   HashIcon,
   PlusIcon,
+  RepeatIcon,
   SearchCodeIcon,
   SquareCheckIcon,
   TypeIcon,
@@ -21,8 +23,11 @@ import {
 import type { PropertyValueType } from "../../core-port/snapshot";
 import {
   TASK_DEADLINE_KEY,
+  TASK_DEADLINE_TIME_KEY,
   TASK_PRIORITY_KEY,
+  TASK_REPEAT_KEY,
   TASK_SCHEDULED_KEY,
+  TASK_SCHEDULED_TIME_KEY,
   TASK_STATUS_KEY,
 } from "../../entities/tasks";
 import type { MessageFunction } from "../../i18n";
@@ -41,6 +46,12 @@ export function propertyDisplayName(key: string, message: MessageFunction): stri
       return message("task.scheduled");
     case TASK_DEADLINE_KEY:
       return message("task.deadline");
+    case TASK_SCHEDULED_TIME_KEY:
+      return message("task.scheduledTime");
+    case TASK_DEADLINE_TIME_KEY:
+      return message("task.deadlineTime");
+    case TASK_REPEAT_KEY:
+      return message("task.repeat");
     case "builtin.query":
       return message("properties.builtin.query");
     default:
@@ -85,6 +96,11 @@ export function propertyGlyph(key: string, valueType?: PropertyValueType): React
       return <CalendarIcon data-type-glyph aria-hidden />;
     case TASK_DEADLINE_KEY:
       return <AlarmClockIcon data-type-glyph aria-hidden />;
+    case TASK_SCHEDULED_TIME_KEY:
+    case TASK_DEADLINE_TIME_KEY:
+      return <ClockIcon data-type-glyph aria-hidden />;
+    case TASK_REPEAT_KEY:
+      return <RepeatIcon data-type-glyph aria-hidden />;
     case "builtin.query":
       return <SearchCodeIcon data-type-glyph aria-hidden />;
     default:

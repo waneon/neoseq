@@ -55,6 +55,7 @@ import { useCommands } from "../commands/context";
 import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
+import { useThreadTone } from "../settings/preferences";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, queryDocument, stringValue } from "../../core-port/snapshot";
@@ -66,8 +67,9 @@ import { PropertyPicker } from "../properties/PropertyPicker";
 import { TagPicker } from "../properties/TagPicker";
 import { TagChips } from "../properties/TagChips";
 import { QueryBlock } from "../query/QueryBlock";
+import { TaskPriorityControl } from "../tasks/PriorityControl";
 import { TaskStatusControl } from "../tasks/StatusControl";
-import { TASK_STATUS_KEY } from "../../entities/tasks";
+import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { compilePlan } from "../../entities/query-compile";
 import { defaultPlan, encodePlan, QUERY_PLAN_VERSION, type PlanSubject } from "../../entities/query-plan";
 import { codePointIndex, diffSplice } from "./text-diff";
@@ -214,6 +216,8 @@ interface EditorContext {
   revision: number;
   presence: readonly PeerPresence[];
   setFocus(id: string | null, caret?: number): void;
+  /** Drops the caret when focus genuinely left this row. See `releaseFocus`. */
+  releaseFocus(id: string): void;
   publishSelection(blockId: string, textarea: HTMLTextAreaElement): void;
   takeTreeFocus(): void;
   /** Drops the caret and selects exactly this block (⌘A past the text). */
@@ -286,6 +290,7 @@ export function Outliner({
   const history = useHistoryActions();
   const notify = useNotify();
   const bindings = useShortcutBindings();
+  const threadTone = useThreadTone();
   const { message, compare } = useI18n();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [historyRevealRevision, bumpHistoryReveal] = useReducer(
@@ -545,6 +550,37 @@ export function Outliner({
   const clearSelection = useCallback(() => {
     anchorId.current = null;
     setSelected((current) => (current.size === 0 ? current : new Set()));
+  }, []);
+
+  /**
+   * Focus leaving a row's text is what returns a Markdown block to its reading
+   * projection. It has to be answered here rather than in the row, because a
+   * `blur` says only that the textarea lost focus — never where focus went — and
+   * the row is not the thing that knows: the answer arrives with the next focus
+   * event, and for a press on quiet space it is "nowhere at all".
+   *
+   * Two destinations are *not* leaving: something else inside the same row (a
+   * chip, the bullet), and anything floating over the page (a menu, the property
+   * picker, a dialog) — in both cases the caret is coming straight back, and
+   * re-rendering the row underneath the thing that is opening is exactly what it
+   * must not do.
+   *
+   * Switching to another window needs no case of its own. Every engine keeps
+   * `document.activeElement` on the element that had focus when the window loses
+   * it — that is how the caret is still there on return — so the same test that
+   * asks "is focus still in this row?" answers this too.
+   */
+  const releaseFocus = useCallback((id: string) => {
+    requestAnimationFrame(() => {
+      if (focusedRef.current !== id) return;
+      const active = document.activeElement;
+      if (active instanceof Element) {
+        if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
+        if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
+      }
+      focusedRef.current = null;
+      setFocusedId(null);
+    });
   }, []);
 
   /**
@@ -1233,6 +1269,7 @@ export function Outliner({
       (peer) => peer.page_id === authoritativePage.id,
     ),
     setFocus,
+    releaseFocus,
     publishSelection: (blockId, textarea) => {
       // Coalesced: `select` fires for every keystroke and caret move, and each
       // publish is a worker round-trip plus a socket frame. Peers reading a
@@ -1709,11 +1746,27 @@ export function Outliner({
   }, [historyRevealRevision, rows, setFocus]);
 
   // Keep keyboard-focused rows visible even when virtualization would have
-  // recycled them.
+  // recycled them — and only then.
+  //
+  // "Bring the focused row into view" is the right behaviour for a row that
+  // arrived from the keyboard and the wrong one for a row the pointer just
+  // pressed: a block carrying a long query result is taller than the viewport,
+  // so aligning it moves the page out from under the caret the user placed. A
+  // row already on screen is by definition in view, whichever way focus reached
+  // it, so intersection is the whole test.
   useEffect(() => {
     if (!focusedId) return;
     const index = rowIndexOf(rows, focusedId);
-    if (index >= 0) virtualizer.scrollToIndex(index);
+    if (index < 0) return;
+    const element = viewportRef.current?.querySelector(
+      `[data-block-id="${cssEscape(focusedId)}"]`,
+    );
+    if (element && scrollElement) {
+      const row = element.getBoundingClientRect();
+      const view = scrollElement.getBoundingClientRect();
+      if (row.bottom > view.top && row.top < view.bottom) return;
+    }
+    virtualizer.scrollToIndex(index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId]);
 
@@ -1833,6 +1886,10 @@ export function Outliner({
       ref={sectionRef}
       data-dragging={dragging || undefined}
       data-selecting={marqueeing || undefined}
+      // The thread's tone, as the *name* of a declared step. `app.css`
+      // § The tone map turns it into a colour, so the preference cannot leave the
+      // palette and both modes follow for free.
+      data-palette={threadTone}
     >
       {/* The selection has no visible counter — the highlighted rows are the
           count — so this is how it reaches a screen reader. */}
@@ -1901,6 +1958,7 @@ export function Outliner({
                   rows={rows}
                   editor={editor}
                   lit={litFor(ancestors, item.index, row.depth)}
+                  ancestor={ancestors.indices.includes(item.index)}
                   bindings={bindings}
                 />
               </div>
@@ -2624,12 +2682,15 @@ function BlockRow({
   rows,
   editor,
   lit,
+  ancestor,
   bindings,
 }: {
   row: OutlineRow;
   rows: OutlineRow[];
   editor: EditorContext;
   lit: number;
+  /** On the path from the root to the caret: its own thread segment lights too. */
+  ancestor: boolean;
   bindings: ReturnType<typeof useShortcutBindings>;
 }) {
   const { message } = useI18n();
@@ -2638,6 +2699,7 @@ function BlockRow({
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
   const taskStatus = stringValue(row.block.properties, TASK_STATUS_KEY);
+  const taskPriority = stringValue(row.block.properties, TASK_PRIORITY_KEY);
   const tags = row.block.tags;
   const selected = editor.covered.has(row.block.id);
   const selectionCount = editor.selectionCount;
@@ -2646,6 +2708,11 @@ function BlockRow({
   const projected = useRef(value);
   const revision = useRef(editor.revision);
   const previewMarkdown = !isFocused && !pending && hasMarkdownSyntax(value);
+  // A pending row has no id a property command can name yet, so it carries no
+  // task marks either.
+  const marks = pending
+    ? 0
+    : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -2700,6 +2767,7 @@ function BlockRow({
       data-collapsed={row.collapsed}
       data-revealed={editor.revealed.has(row.block.id) || undefined}
       data-has-children={row.hasChildren}
+      data-ancestor={ancestor || undefined}
       data-block-id={row.block.id}
       data-testid="outline-row"
       // Depth drives the indent AND the thread gradient; `lit` drives how much
@@ -2915,9 +2983,27 @@ function BlockRow({
           )}
         </DropdownMenu>
       </span>
-      <div className="outline-text" data-task-status={taskStatus}>
-        {taskStatus !== undefined && !pending && (
-          <TaskStatusControl pageId={editor.pageId} block={row.block} status={taskStatus} />
+      <div
+        className="outline-text"
+        data-task-status={taskStatus}
+        // How many marks stand before the writing. It drives the text's hanging
+        // indent, so a wrapped line still aligns with the first one and adding a
+        // priority never leaves the glyph sitting on top of the sentence.
+        data-marks={marks > 0 ? marks : undefined}
+      >
+        {marks > 0 && (
+          <span className="task-marks">
+            {taskStatus !== undefined && (
+              <TaskStatusControl pageId={editor.pageId} block={row.block} status={taskStatus} />
+            )}
+            {taskPriority !== undefined && (
+              <TaskPriorityControl
+                pageId={editor.pageId}
+                block={row.block}
+                priority={taskPriority}
+              />
+            )}
+          </span>
         )}
         <textarea
           ref={textareaRef}
@@ -2925,6 +3011,13 @@ function BlockRow({
           rows={1}
           value={value}
           hidden={previewMarkdown}
+          // The browser's spell checker has no idea what a graph is. It underlines
+          // page names, tags, property keys and code as mistakes, which in a
+          // document made of short lines means a page of red — and it cannot be
+          // right about text this product has no language for. DESIGN.md
+          // § Implementation, "native where native is better", cuts the other way
+          // here: this is native where native is wrong.
+          spellCheck={false}
           tabIndex={previewMarkdown ? -1 : undefined}
           readOnly={editor.readonly}
           aria-label={message("outline.blockText")}
@@ -2948,7 +3041,10 @@ function BlockRow({
             if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
           }}
           onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}
-          onBlur={() => editor.flushNow(row.block.id)}
+          onBlur={() => {
+            editor.flushNow(row.block.id);
+            editor.releaseFocus(row.block.id);
+          }}
           onChange={(event) => editor.onInput(row, event.target.value, event.target)}
           onCompositionStart={() => editor.onCompositionStart(row)}
           onCompositionEnd={(event) => editor.onCompositionEnd(row, event.currentTarget)}

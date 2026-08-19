@@ -13,7 +13,21 @@ import {
   setJournalDateFormat,
   todayLocalDate,
 } from "../../entities/journal";
-import { JOURNAL_DATE_FORMATS, type JournalDateFormat } from "../../entities/settings";
+import {
+  DEFAULT_DUE_TIERS,
+  JOURNAL_DATE_FORMATS,
+  MAX_DUE_DAYS,
+  setThreadTone,
+  TONE_NAMES,
+  updateDueTiers,
+  type DueTierSettings,
+  type JournalDateFormat,
+  type ToneName,
+} from "../../entities/settings";
+import { addDays } from "../../entities/journal";
+import { DUE_TIERS, type DueTier } from "../../entities/tasks";
+import { CalendarIcon } from "lucide-react";
+import { useDueTiers, useThreadTone } from "./preferences";
 import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
@@ -44,8 +58,44 @@ const DATE_FORMAT_MESSAGE = {
   iso: "settings.dateFormatIso",
 } as const satisfies Record<JournalDateFormat, MessageKey>;
 
+const TONE_MESSAGE = {
+  neutral: "tone.neutral",
+  accent: "tone.accent",
+  ok: "tone.ok",
+  attention: "tone.attention",
+  danger: "tone.danger",
+} as const satisfies Record<ToneName, MessageKey>;
+
+const DUE_TIER_MESSAGE = {
+  overdue: "task.due.overdue",
+  soon: "task.due.soon",
+  upcoming: "task.due.upcoming",
+  later: "task.due.later",
+} as const satisfies Record<DueTier, MessageKey>;
+
+/** Which stored tone field each tier reads, so the row and the chip agree. */
+const DUE_TONE_FIELD = {
+  overdue: "overdueTone",
+  soon: "soonTone",
+  upcoming: "upcomingTone",
+  later: "laterTone",
+} as const satisfies Record<DueTier, keyof DueTierSettings>;
+
+/** The two tiers whose reach the user sets, and the field each threshold is. */
+const DUE_DAYS_FIELD = {
+  soon: "soonDays",
+  upcoming: "upcomingDays",
+} as const satisfies Partial<Record<DueTier, keyof DueTierSettings>>;
+
 /** The two scopes, in the order the dialog lists them. Sections come from here. */
-const APP_SECTIONS = ["appearance", "language", "journal", "keyboard", "storage"] as const;
+const APP_SECTIONS = [
+  "appearance",
+  "language",
+  "journal",
+  "tasks",
+  "keyboard",
+  "storage",
+] as const;
 const GRAPH_SECTIONS = ["graph", "danger"] as const;
 
 const SETTINGS_SECTIONS = [...APP_SECTIONS, ...GRAPH_SECTIONS];
@@ -60,6 +110,7 @@ const SECTION_MESSAGE = {
   appearance: "settings.appearance",
   language: "language.label",
   journal: "settings.journal",
+  tasks: "settings.tasks",
   keyboard: "settings.keyboard",
   storage: "settings.storage",
   graph: "settings.graph",
@@ -117,6 +168,7 @@ export function SettingsDialog({
           {section === "appearance" && <AppearanceSection />}
           {section === "language" && <LanguageSection />}
           {section === "journal" && <JournalSection />}
+          {section === "tasks" && <TasksSection />}
           {section === "keyboard" && <ShortcutEditor />}
           {section === "storage" && <StorageSection />}
           {section === "graph" && <GraphSection graphId={graphId} />}
@@ -179,7 +231,56 @@ function AppearanceSection() {
           </button>
         ))}
       </div>
+      <ThreadToneField />
     </section>
+  );
+}
+
+/**
+ * Which tone the outline's indent thread takes. It is the one line the product
+ * draws on every screen of writing, so it is also the one line worth letting a
+ * person choose — and the choice is a *tone name*, never a colour: `app.css`
+ * § The tone map decides what each name looks like in each mode, so no setting
+ * can leave the committed palette or its contrast table.
+ */
+function ThreadToneField() {
+  const { message } = useI18n();
+  const heading = useId();
+  const tone = useThreadTone();
+  return (
+    <div className="settings-field">
+      <h3 id={heading}>{message("settings.threadTone")}</h3>
+      <p>{message("settings.threadToneDescription")}</p>
+      <div
+        className="tone-choice"
+        role="group"
+        aria-labelledby={heading}
+        data-testid="settings-thread-tone"
+      >
+        {TONE_NAMES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className="tone-swatch"
+            data-palette={option}
+            aria-pressed={tone === option}
+            aria-label={message(TONE_MESSAGE[option])}
+            title={message(TONE_MESSAGE[option])}
+            onClick={() => setThreadTone(option)}
+          >
+            {/* The swatch is the thing it sets: indent threads in the tone being
+                offered, on the canvas they are drawn on, at the weight the
+                outline actually draws them. */}
+            <span className="tone-swatch-thread" aria-hidden />
+          </button>
+        ))}
+        {/* Five labelled buttons would be a row of words with a hairline in each.
+            The name of the one that is chosen is the only label the row needs —
+            each swatch still carries its own name for the pointer and the screen
+            reader. */}
+        <span className="tone-choice-name">{message(TONE_MESSAGE[tone])}</span>
+      </div>
+    </div>
   );
 }
 
@@ -264,6 +365,115 @@ function JournalSection() {
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * How far off a date has to be to read as urgent, and what urgent looks like.
+ *
+ * Both halves are the user's because neither is knowable from here: "soon" is a
+ * week for someone planning a quarter and an hour for someone shipping today,
+ * and which tone means "act now" is a habit people bring with them from whatever
+ * they used before. What is *not* theirs is the shape — four ordered steps,
+ * `overdue` first — because the ordering is what makes the tint readable at all.
+ *
+ * Each row previews itself with the real chip, in the real tone, at the real
+ * size. A colour setting whose result you cannot see until you close the dialog
+ * is a setting people change twice and then leave wrong.
+ */
+function TasksSection() {
+  const { message, formatJournalDate } = useI18n();
+  const tiers = useDueTiers();
+  const today = todayLocalDate();
+  // A day offset that lands each preview inside its own tier, so the four rows
+  // read as the scale they configure rather than as four copies of one date.
+  const exampleDay: Record<DueTier, number> = {
+    overdue: -1,
+    soon: Math.max(tiers.soonDays, 0),
+    upcoming: tiers.upcomingDays,
+    later: tiers.upcomingDays + 7,
+  };
+
+  return (
+    <section className="settings-section">
+      <h2>{message("settings.tasks")}</h2>
+      <p>{message("settings.dueTonesDescription")}</p>
+      <div className="due-tiers" data-testid="settings-due-tiers">
+        {DUE_TIERS.map((tier) => {
+          const tone = tiers[DUE_TONE_FIELD[tier]] as ToneName;
+          const daysField = DUE_DAYS_FIELD[tier as keyof typeof DUE_DAYS_FIELD];
+          return (
+            <div className="due-tier" key={tier}>
+              <span className="due-tier-name">{message(DUE_TIER_MESSAGE[tier])}</span>
+              {/* Not a control — the row's own controls follow it — so it is a
+                  span carrying the chip's appearance and nothing of its verbs. */}
+              <span
+                className="task-chip"
+                data-preview
+                data-due={tier}
+                data-palette={tone}
+                data-testid={`due-preview-${tier}`}
+              >
+                <CalendarIcon aria-hidden />
+                <span className="task-chip-value">
+                  {formatJournalDate(addDays(today, exampleDay[tier]))}
+                </span>
+                {tier === "overdue" && (
+                  <span className="task-chip-overdue">{message("task.overdue")}</span>
+                )}
+              </span>
+              {daysField && (
+                <label className="due-tier-days">
+                  {/* Two slots rather than one sentence with a hole in it: the
+                      number is a control, and which side of it the unit falls on
+                      is the language's choice, not the layout's. */}
+                  {message("settings.dueWithinLead")}
+                  <Input
+                    type="number"
+                    min={0}
+                    max={MAX_DUE_DAYS}
+                    inputMode="numeric"
+                    aria-label={message("settings.dueWithinDays", {
+                      tier: message(DUE_TIER_MESSAGE[tier]),
+                    })}
+                    data-testid={`due-days-${tier}`}
+                    value={String(tiers[daysField])}
+                    onChange={(event) => {
+                      const days = Number(event.target.value);
+                      if (Number.isInteger(days) && days >= 0 && days <= MAX_DUE_DAYS) {
+                        updateDueTiers({ [daysField]: days });
+                      }
+                    }}
+                  />
+                  {message("settings.dueWithinTrail")}
+                </label>
+              )}
+              <MenuSelect
+                label={message("settings.dueToneFor", {
+                  tier: message(DUE_TIER_MESSAGE[tier]),
+                })}
+                testId={`due-tone-${tier}`}
+                value={tone}
+                options={TONE_NAMES.map((option) => ({
+                  value: option,
+                  label: message(TONE_MESSAGE[option]),
+                }))}
+                onValueChange={(next) =>
+                  updateDueTiers({ [DUE_TONE_FIELD[tier]]: next as ToneName })}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="btn self-start"
+        data-testid="due-tiers-reset"
+        onClick={() => updateDueTiers(DEFAULT_DUE_TIERS)}
+      >
+        {message("settings.restoreDefaults")}
+      </button>
+    </section>
   );
 }
 

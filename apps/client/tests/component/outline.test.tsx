@@ -30,6 +30,13 @@ async function mountOutline(markdowns: string[] = ["alpha"]) {
   return harness;
 }
 
+/** Lets the one deferred frame `releaseFocus` waits for actually run. */
+async function settleFrame(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  });
+}
+
 describe("outliner keyboard commands", () => {
   it("shows Markdown at rest and restores the source editor on activation", async () => {
     await mountOutline(["Read **bold** text", "plain"]);
@@ -46,6 +53,39 @@ describe("outliner keyboard commands", () => {
 
     await user.click(plainSource);
     await waitFor(() => expect(markdownSource).toHaveAttribute("hidden"));
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+
+    // The browser's dictionary has no entry for a page name or a property key.
+    expect(markdownSource).toHaveAttribute("spellcheck", "false");
+  });
+
+  it("returns to the projection when focus leaves the row, but not for an overlay", async () => {
+    await mountOutline(["Read **bold** text"]);
+    const user = userEvent.setup();
+    const source = screen.getByLabelText("Block text");
+
+    await user.click(screen.getByTestId("block-markdown"));
+    expect(source).not.toHaveAttribute("hidden");
+
+    // The block's own menu takes focus out of the textarea and gives it straight
+    // back, so the editor has to stay open underneath it — otherwise choosing
+    // `Properties` re-rendered the row out from under the menu that was opening.
+    await openBlockMenu(0);
+    await settleFrame();
+    expect(source).not.toHaveAttribute("hidden");
+    await user.keyboard("{Escape}");
+    await settleFrame();
+
+    // A press on the quiet page around the writing focuses nothing at all, so a
+    // blur is the only thing the row ever hears. It used to hear it and stay on
+    // source forever, which meant the reading projection never came back.
+    await act(async () => {
+      screen.getByLabelText("Block text").blur();
+    });
+    await settleFrame();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Block text")).toHaveAttribute("hidden"),
+    );
     expect(screen.getByText("bold").tagName).toBe("STRONG");
   });
 
