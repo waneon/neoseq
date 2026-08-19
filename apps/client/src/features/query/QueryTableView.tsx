@@ -38,13 +38,12 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { useI18n } from "../../i18n";
 import {
-  CellValue,
   cellText,
-  rowSubject,
   type CellContext,
   type ResultColumn,
-  type ResultRow,
+  type ResultViewRow,
 } from "./cells";
+import { EditableCellValue, type QueryResultEditor } from "./edit";
 
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
@@ -64,6 +63,8 @@ export function QueryTableView({
   columns,
   rows,
   context,
+  editor,
+  pinnedRowKey,
   compact,
   wrap,
   onResize,
@@ -71,8 +72,10 @@ export function QueryTableView({
   onMove,
 }: {
   columns: ResultColumn[];
-  rows: ResultRow[];
+  rows: ResultViewRow[];
   context: CellContext;
+  editor: QueryResultEditor;
+  pinnedRowKey?: string;
   compact: boolean;
   wrap: boolean;
   /** Persist a dragged width. Absent while the graph is read-only. */
@@ -83,13 +86,13 @@ export function QueryTableView({
   const { message } = useI18n();
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  const definitions = useMemo<ColumnDef<typeof FEATURES, ResultRow, unknown>[]>(
+  const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
       columns.map((column) => ({
         id: column.variable,
         // Sorting runs on the words the reader sees, not on the raw lexical form
         // of the term underneath them.
-        accessorFn: (row: ResultRow) => cellText(row[column.variable], column, context),
+        accessorFn: (row: ResultViewRow) => cellText(row.values[column.variable], column, context),
         header: column.label,
         size: column.width ?? DEFAULT_WIDTH,
         minSize: MIN_WIDTH,
@@ -103,6 +106,7 @@ export function QueryTableView({
     features: FEATURES,
     data: rows,
     columns: definitions,
+    getRowId: (row) => row.key,
     state: { sorting },
     onSortingChange: setSorting,
     columnResizeMode: "onChange",
@@ -251,8 +255,12 @@ export function QueryTableView({
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} data-testid="query-row">
-              {row.getAllCells().map((cell) => {
+            <tr
+              key={row.id}
+              data-testid="query-row"
+              data-pinned={row.original.key === pinnedRowKey || undefined}
+            >
+              {row.getAllCells().map((cell, cellIndex) => {
                 const column = byVariable.get(cell.column.id);
                 return (
                   <td
@@ -260,12 +268,19 @@ export function QueryTableView({
                     style={{ width: cell.column.getSize() }}
                     data-numeric={column?.numeric || undefined}
                   >
+                    {cellIndex === 0 && row.original.key === pinnedRowKey && (
+                      <span className="query-result-stale" role="status">
+                        {message("query.noLongerMatches")}
+                      </span>
+                    )}
                     {column && (
-                      <CellValue
-                        term={row.original[cell.column.id]}
+                      <EditableCellValue
+                        term={row.original.values[cell.column.id]}
                         column={column}
                         context={context}
-                        subject={rowSubject(row.original, context)}
+                        row={row.original}
+                        editor={editor}
+                        showOpen
                       />
                     )}
                   </td>

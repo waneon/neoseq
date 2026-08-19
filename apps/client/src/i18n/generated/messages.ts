@@ -301,6 +301,7 @@ export interface MessageArgumentMap {
   "query.densityCozy": undefined;
   "query.descending": undefined;
   "query.editAsSparql": undefined;
+  "query.editResult": { readonly "column": string | number };
   "query.exactDate": undefined;
   "query.field.ancestor": undefined;
   "query.field.name": undefined;
@@ -323,6 +324,7 @@ export interface MessageArgumentMap {
   "query.moveColumnLeft": undefined;
   "query.moveColumnRight": undefined;
   "query.noConditions": undefined;
+  "query.noLongerMatches": undefined;
   "query.noResults": undefined;
   "query.noWrap": undefined;
   "query.notRun": undefined;

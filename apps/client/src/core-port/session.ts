@@ -52,6 +52,8 @@ export interface SessionState {
   error: CorePortError | null;
   /** Increments on every authoritative summary or page refresh. */
   revision: number;
+  /** Increments only when canonical graph data may have changed. */
+  canonicalRevision: number;
   hydratedPages: ReadonlySet<string>;
   sync: RemoteSyncState;
   live: LiveState;
@@ -109,6 +111,7 @@ export class GraphSession {
       recovery: null,
       error: null,
       revision: 0,
+      canonicalRevision: 0,
       hydratedPages: new Set(),
       sync: remote ? { kind: "pending", count: 0 } : { kind: "local" },
       live: remote ? "connecting" : "local",
@@ -270,6 +273,7 @@ export class GraphSession {
       await this.reconcile(
         save,
         commandReconcileScope(command, response.result as CommandResult),
+        (response.result as CommandResult).changed,
       );
       await this.syncAgent?.wake();
       return response.result as CommandResult;
@@ -286,6 +290,7 @@ export class GraphSession {
             retryable: detail.retryable,
           },
           commandReconcileScope(command),
+          true,
         );
       } else {
         // The command was rejected before applying; canonical state and the
@@ -316,7 +321,7 @@ export class GraphSession {
       const importRemote = this.port.importRemote;
       if (!importRemote) throw new Error("remote import is unavailable");
       await importRemote.call(this.port, this.handle, bytes);
-      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" });
+      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" }, true);
     });
     this.queue = run.catch(() => undefined);
     return run;
@@ -337,7 +342,7 @@ export class GraphSession {
         historyEpoch,
         serverVersionVector,
       );
-      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" });
+      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" }, true);
     });
     this.queue = run.catch(() => undefined);
     return run;
@@ -359,6 +364,7 @@ export class GraphSession {
   private async reconcile(
     save: SaveState,
     scope: ReconcileScope = { kind: "summary" },
+    canonicalChanged = false,
   ): Promise<void> {
     try {
       const batch = await this.port.subscribe({
@@ -390,7 +396,15 @@ export class GraphSession {
     for (const id of pageIdsToRead) {
       if (pageIds.has(id)) hydratedPages.add(id);
     }
-    this.patch({ snapshot, hydratedPages, save, revision: this.state.revision + 1 });
+    this.patch({
+      snapshot,
+      hydratedPages,
+      save,
+      revision: this.state.revision + 1,
+      canonicalRevision: canonicalChanged
+        ? this.state.canonicalRevision + 1
+        : this.state.canonicalRevision,
+    });
   }
 
   private previousStableSave(): SaveState {

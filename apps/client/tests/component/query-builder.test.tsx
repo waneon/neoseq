@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { queryDocument, type PropertyDocument } from "../../src/core-port/snapshot";
+import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
+import { compilePlan } from "../../src/entities/query-compile";
 import { decodePlan } from "../../src/entities/query-plan";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 import type { Harness } from "./harness";
@@ -161,6 +162,7 @@ describe("the query builder", () => {
 describe("query result views", () => {
   async function withResult(): Promise<Harness> {
     const harness = await mountPage();
+    await createQuery(harness);
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text", "page"],
@@ -168,8 +170,8 @@ describe("query result views", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-1",
-            entity: { kind: "block", page_id: "home", id: "b-1" },
+            value: "urn:neoseq:entity:test-graph:block:b-2",
+            entity: { kind: "block", page_id: "home", id: "b-2" },
           },
           text: {
             kind: "literal",
@@ -186,8 +188,22 @@ describe("query result views", () => {
       revision: 4,
       frontier: "fake-4",
     };
-    await createQuery(harness);
+    // The query block is b-1; b-2 is the canonical result edited through the
+    // projection. Setting the fake result before this command makes its normal
+    // canonical invalidation run the query with the row in place.
+    await harness.session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 1,
+      markdown: "Ship the builder",
+    });
     return harness;
+  }
+
+  function resultBlock(harness: Harness) {
+    const page = findPage(harness.session.getState().snapshot, "home");
+    return page ? findBlock(page, "b-2") : undefined;
   }
 
   it("names its columns in the product's words, not as SPARQL variables", async () => {
@@ -231,5 +247,102 @@ describe("query result views", () => {
     expect(row).toHaveAttribute("role", "treeitem");
     expect(within(row).getByRole("button", { name: /Open “Ship the builder”/ })).toBeInTheDocument();
     expect(row).toHaveTextContent("Ship the builder");
+  });
+
+  it("edits canonical block text directly from the table result", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    expect(editor).toHaveValue("Ship the builder");
+    await user.clear(editor);
+    await user.type(editor, "Ship the editable result");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship the editable result"));
+    await waitFor(() => expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument());
+  });
+
+  it("uses the same property editor from a list result", async () => {
+    const harness = await withResult();
+    const query = storedQuery(harness)!;
+    const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
+    const nextPlan = {
+      ...plan,
+      columns: [
+        ...plan.columns,
+        { id: "status", source: { kind: "property" as const, key: "builtin.task-status" } },
+      ],
+    };
+    harness.port.queryResult = {
+      kind: "select",
+      variables: ["q_subject", "text", "page", "status"],
+      rows: [{
+        q_subject: {
+          kind: "iri",
+          value: "urn:neoseq:entity:test-graph:block:b-2",
+          entity: { kind: "block", page_id: "home", id: "b-2" },
+        },
+        text: {
+          kind: "literal",
+          value: "Ship the builder",
+          datatype: "http://www.w3.org/2001/XMLSchema#string",
+        },
+        page: {
+          kind: "iri",
+          value: "urn:neoseq:entity:test-graph:page:home",
+          entity: { kind: "page", id: "home" },
+        },
+      }],
+      revision: 5,
+      frontier: "fake-5",
+    };
+    await harness.session.execute({
+      type: "set_query_plan",
+      owner: { kind: "block", page_id: "home", id: "b-1" },
+      plan: { version: 1, payload: JSON.stringify(nextPlan) },
+      source: compilePlan(nextPlan).source,
+    });
+
+    const user = userEvent.setup();
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
+    const list = await screen.findByTestId("query-list");
+    await user.click(within(list).getByTitle("Edit Status"));
+    const picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe("done");
+    });
+  });
+
+  it("pins an active row when its edit makes it leave the result", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+    await user.click((await screen.findByTestId("query-table")).querySelector(
+      '[data-testid="query-edit-text"]',
+    )!);
+    await screen.findByTestId("query-markdown-editor");
+
+    harness.port.queryResult = {
+      kind: "select",
+      variables: ["q_subject", "text", "page"],
+      rows: [],
+      revision: 6,
+      frontier: "fake-6",
+    };
+    await harness.session.execute({
+      type: "set_property",
+      owner: { kind: "block", page_id: "home", id: "b-2" },
+      key: "user.pin-check",
+      value: { type: "string", value: "changed" },
+    });
+
+    await waitFor(() => expect(screen.getByText("No longer matches this query")).toBeInTheDocument());
+    expect(screen.getByTestId("query-row")).toHaveAttribute("data-pinned", "true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.getByText("No results")).toBeInTheDocument());
   });
 });

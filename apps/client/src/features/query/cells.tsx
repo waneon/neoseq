@@ -25,6 +25,18 @@ import { priorityLabel, statusLabel } from "../tasks/labels";
 /** One result row: the terms one solution bound, keyed by variable. */
 export type ResultRow = Record<string, RdfTerm>;
 
+/**
+ * A result row with presentation identity separated from its RDF bindings.
+ * The editor is keyed by the entity, never by the row's current position, so a
+ * sort or query refresh cannot move a draft onto another block.
+ */
+export interface ResultViewRow {
+  key: string;
+  values: ResultRow;
+  subject?: QueryEntityRef;
+  subjectKey?: string;
+}
+
 /** One column of a result, as both views understand it. */
 export interface ResultColumn {
   /** The SPARQL variable this column reads. */
@@ -46,6 +58,34 @@ export interface CellContext {
   formatDate: (date: string) => string;
   /** Opens the thing a cell names. */
   onOpen?: (entity: QueryEntityRef) => void;
+}
+
+export function entityRefKey(entity: QueryEntityRef): string {
+  return entity.kind === "block"
+    ? `block:${entity.page_id}:${entity.id}`
+    : `${entity.kind}:${entity.id}`;
+}
+
+/** Stable row ids for both renderers. Duplicate SPARQL solutions get a suffix. */
+export function resultViewRows(rows: ResultRow[], context: CellContext): ResultViewRow[] {
+  const occurrences = new Map<string, number>();
+  return rows.map((values) => {
+    const subject = rowSubject(values, context);
+    const subjectKey = subject ? entityRefKey(subject) : undefined;
+    const terms = Object.entries(values)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([variable, term]) => `${variable}:${term.kind}:${term.value}`)
+      .join("|");
+    const base = subjectKey ?? `terms:${terms}`;
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    return {
+      key: occurrence === 0 ? base : `${base}:${occurrence}`,
+      values,
+      subject,
+      subjectKey,
+    };
+  });
 }
 
 const XSD_DATE = "http://www.w3.org/2001/XMLSchema#date";
@@ -158,13 +198,12 @@ export function CellValue({
   term: RdfTerm | undefined;
   column: ResultColumn;
   context: CellContext;
-  /** The row's own entity, which makes its text cell the route to it. */
+  /** The row's own entity, which lets the result layer route or edit it. */
   subject?: QueryEntityRef;
 }): ReactNode {
-  // A row's text is its name, so it is also how the row is opened — a separate
-  // column of entity ids would be a column nobody reads. A block with nothing
-  // written in it still has to be reachable, so the route keeps a name of its
-  // own where its text would be.
+  // A row's text is its name. The result layer may wrap it with an editor and a
+  // separate open control; the plain renderer remains a route. A block with
+  // nothing written in it still needs an accessible name of its own.
   if (column.source?.kind === "content" && subject && term?.kind === "literal") {
     const empty = term.value.trim().length === 0;
     return (

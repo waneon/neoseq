@@ -79,17 +79,28 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await expect(table).toContainText("Ship the query engine");
   await expect(table.getByRole("columnheader", { name: /Text/ })).toBeVisible();
 
+  // A result cell edits the canonical block; the query remains only the lens
+  // that finds it. Its query-level draft also survives a presentation change.
+  await table.getByTestId("query-edit-text").click();
+  const resultEditor = query.getByTestId("query-markdown-editor");
+  await expect(resultEditor).toHaveValue("Ship the query engine");
+  await resultEditor.fill("Ship editable query results");
+  await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "List");
+  await expect(query.getByTestId("query-list")).toBeVisible();
+  const listEditor = query.getByTestId("query-markdown-editor");
+  await expect(listEditor).toHaveValue("Ship editable query results");
+  await listEditor.press("Enter");
+  await awaitSaved(page);
+  await expect(page.locator(".outline-input").first()).toHaveValue("Ship editable query results");
+  await expect(query.getByTestId("query-list-row").first()).toContainText("Ship editable query results");
+
   // The compiled source is available, and it is what ran.
   await query.getByTestId("query-actions-trigger").click();
   await page.getByRole("menuitem", { name: "Show SPARQL" }).click();
   await expect(query.getByTestId("query-compiled")).toContainText("prop:builtin.task-status");
 
-  await expect(query.getByTestId("query-view-trigger")).toContainText("Table");
-  await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "List");
-  await expect(query.getByTestId("query-list")).toBeVisible();
-  await expect(query.getByTestId("query-list-row").first()).toContainText("Ship the query engine");
-
   // Hiding a column is saved view data, so it survives a reload.
+  await expect(query.getByTestId("query-view-trigger")).toContainText("List");
   await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "Table");
   await query.getByTestId("query-col-menu-page").click();
   await page.getByRole("menuitem", { name: "Hide column" }).click();

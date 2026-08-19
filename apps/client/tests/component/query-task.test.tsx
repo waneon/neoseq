@@ -49,6 +49,11 @@ describe("query and task projections", () => {
     );
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
     expect(screen.getByTestId("query-block")).toHaveTextContent("revision 3");
+    // Result values do not imply a write target: source-mode SPARQL has no
+    // builder provenance, even when a term happens to identify a real block.
+    expect(screen.getByTestId("query-block").querySelector(
+      '[data-testid^="query-edit-"]',
+    )).toBeNull();
 
     await chooseFromMenu(userEvent.setup(), screen.getByTestId("query-view-trigger"), "List");
     await waitFor(() => {

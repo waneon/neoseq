@@ -1264,14 +1264,25 @@ dropdown (§ Choice) at the same 32px form metric as every other field.
   shape glyph, tags are chips, and numbers align to the end of their column in tabular
   figures. A column the query did not describe falls back to `?variable` and plain
   terms — honest about knowing less.
+- A direct field in a built block query is editable in place. Its resting cell is
+  unchanged; hover or keyboard focus raises the standard input fill, and activation
+  replaces only that value with its native text, choice, property, or tag control.
+  A small hover-revealed arrow beside editable block text retains the route to the
+  block's document. Aggregates, relations, and hand-written SPARQL stay plain.
 
 #### The result list
 
 Blocks answer as blocks. A list row is an **outline row**: the same bullet in the same
 gutter, the same 16px line, the status shape at the head of it, and every other
 selected value as the same chip strip that sits under a block in the document. It is a
-lens, not the document — the rows are read-only and the bullet is a real focus stop
-that opens the block where it actually lives.
+lens, not a second document — direct text and facts use the same field controls as
+the source block, while the bullet remains a real focus stop that opens the block
+where it actually lives. Structural moves and subtree actions stay in that document.
+
+If an edit makes a row stop matching, the row keeps the selection wash and says
+`No longer matches this query` until the active editor closes. This is the one
+temporary exception to the result set: it preserves the caret and makes the row's
+departure causal rather than abrupt; it is never saved view data.
 
 ### Save slot
 

@@ -2355,6 +2355,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .query-table tbody td {
+  position: relative;
   padding: var(--sp-1) var(--sp-2);
   color: var(--ink-2);
   vertical-align: top;
@@ -2377,6 +2378,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
    sits on the block's own --surface-1, so the wash is one step further up. */
 .query-table tbody tr:hover td {
   background: var(--surface-2);
+}
+
+/* An edit that changed the predicate stays present until its caret or picker
+   closes. The selection wash makes that temporary exception legible without a
+   new border language; the sentence in the first cell carries the meaning. */
+.query-table tbody tr[data-pinned="true"] td,
+.query-list-row[data-pinned="true"] {
+  background: var(--accent-soft);
 }
 
 .query-table th[data-numeric="true"] .query-th,
@@ -2415,6 +2424,148 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* Query cells remain result cells at rest. Editability appears only on hover or
+   keyboard focus, using the same filled focus state as every Neoseq input. */
+.query-edit-trigger {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  cursor: text;
+}
+
+.query-edit-trigger:hover,
+.query-edit-trigger:focus-visible,
+.query-edit-trigger[data-active="true"] {
+  outline: none;
+  background: var(--surface-3);
+  box-shadow: var(--e1);
+  color: var(--ink);
+}
+
+.query-editable-route {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  max-width: 100%;
+}
+
+.query-editable-route > .query-edit-trigger {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: inherit;
+}
+
+.query-cell-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-2);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.query-editable-route:hover .query-cell-open,
+.query-cell-open:focus-visible {
+  opacity: 1;
+}
+
+.query-cell-open:hover,
+.query-cell-open:focus-visible {
+  outline: none;
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.query-cell-open svg {
+  width: 12px;
+  height: 12px;
+}
+
+@media (hover: none) {
+  .query-cell-open {
+    opacity: 1;
+  }
+}
+
+.query-result-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.query-result-input {
+  width: 100%;
+  min-height: 24px;
+  max-height: 160px;
+  resize: none;
+  overflow: auto;
+  padding: 1px var(--sp-1);
+  border: 0;
+  border-radius: var(--r-1);
+  outline: none;
+  background: var(--surface-2);
+  box-shadow: var(--e1);
+  color: var(--ink);
+  font: inherit;
+  line-height: inherit;
+}
+
+.query-result-input:focus {
+  background: var(--surface-3);
+}
+
+.query-result-editor[data-saving="true"] .query-result-input {
+  color: var(--ink-2);
+}
+
+.query-result-edit-error,
+.query-result-edit-problem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.query-result-edit-error button,
+.query-result-edit-problem button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.query-result-stale {
+  display: block;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  white-space: normal;
 }
 
 .query-status,
@@ -2457,8 +2608,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* ── The result list ──
    Blocks answer as blocks. Same bullet, same gutter, same 15px line, the status
-   shape at the head of it — the outline's own grammar, minus the caret, because
-   this is a lens over the document and not the document. */
+   shape at the head of it — the outline's own grammar. The row remains a lens;
+   its field controls write back through the canonical block commands. */
 .query-list {
   display: grid;
   gap: 0;
@@ -2518,6 +2669,19 @@ button.chip:focus-visible .chip-glyph .chip-x {
   overflow-wrap: anywhere;
 }
 
+button.query-list-line {
+  display: block;
+}
+
+.query-result-editor.query-list-line {
+  display: flex;
+}
+
+.query-list-line .query-result-input {
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+}
+
 .query-list-status {
   display: flex;
   align-items: center;
@@ -2526,6 +2690,21 @@ button.chip:focus-visible .chip-glyph .chip-x {
   width: 24px;
   height: var(--lh-md);
   color: var(--ink-2);
+}
+
+button.query-list-status {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+button.query-list-status:hover,
+button.query-list-status:focus-visible,
+button.query-list-status[data-active="true"] {
+  outline: none;
+  background: var(--surface-3);
+  box-shadow: none;
 }
 
 .query-list-status svg {
@@ -2568,6 +2747,12 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .query-fact > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.query-fact > .query-edit-trigger:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .query-fact-key {

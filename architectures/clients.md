@@ -71,6 +71,19 @@ the authoritative core event while preserving the selection. Structural commands
 cross CorePort immediately and may render optimistically only when the inverse
 is known.
 
+Builder-authored block query results reuse that text intent and the shared
+property/tag controls through a query-level edit coordinator. The coordinator
+hydrates only the active result's page, owns one draft across Table/List view
+changes, and sends ordinary domain commands. A result that stops matching while
+active stays pinned until its editor closes; query rows themselves are never
+optimistically rewritten. Hand-written SPARQL, summaries, and derived relation
+columns remain read-only.
+
+The session exposes separate presentation and canonical revisions. Authoritative
+page hydration advances the former so mounted views reconcile, while only a
+possible graph mutation or remote import advances the latter and invalidates
+visible queries.
+
 Enter is one atomic `split_block` command; on an empty block it is instead an
 insert below, so the caret always lands on the new line. A pending row mounts
 immediately so fast typing has a focus target, then swaps to the real block ID

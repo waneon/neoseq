@@ -134,6 +134,10 @@ deletion, retry, and test controls are deliberately outside CorePort.
   query are graph data. RDF triples, query results and evaluation plans, private
   presentation preferences, UI selection, and connection state are derived,
   user-scoped, or ephemeral and never canonical graph data.
+- Builder-authored block results may expose direct content, property, and tag
+  controls. Those controls resolve the row's stable entity reference and submit
+  ordinary domain commands; the derived query index remains a read-only
+  selection path and is never a mutation API.
 
 One user intent becomes one domain command, one Loro transaction, one local undo
 item, one durable update, and one semantic event. The runtime validates complete

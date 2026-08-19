@@ -174,6 +174,33 @@ project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view
 overrides, and editor drafts do not synchronize.
 
+## Editable Result Projection
+
+Query evaluation remains read-only. A builder-authored block result can be
+edited only when its compiled plan carries a stable subject variable and its
+column provenance names a direct block field. The client combines that subject,
+the plan's column source, the property registry, and the current writable lease
+into an ephemeral edit binding. It never infers a write target from a variable
+name, RDF datatype, or displayed value.
+
+Direct block content writes `splice_markdown`; direct writable properties use
+the owner-based property commands; tag collections use `add_tag` and
+`remove_tag`. Aggregates other than a complete list, structural relations,
+unknown plan versions, and hand-written SPARQL results remain read-only. SPARQL
+Update is not introduced.
+
+RDF rows are display data rather than edit baselines. Entering an editor lazily
+hydrates the subject's canonical page and reads its `BlockSnapshot`; only the
+active result pays that cost. One query-level coordinator owns the draft across
+Table/List presentation changes, keeps identity by entity and field rather than
+row position, and pins an active row if its write makes the row stop matching.
+The row leaves after the editor closes. A failed write keeps its draft and an
+in-place retry route.
+
+Canonical mutations publish the next index revision and conservatively rerun
+visible queries. Page hydration has a separate snapshot revision and does not
+invalidate query results by itself.
+
 ## Authoring: the Query Builder
 
 SPARQL stays the only executable query language, and the core reads nothing

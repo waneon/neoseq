@@ -58,7 +58,8 @@ import { diffSplice } from "../outline/text-diff";
 import { QueryBuilder } from "./QueryBuilder";
 import { QueryListView } from "./QueryListView";
 import { QueryTableView } from "./QueryTableView";
-import type { CellContext, ResultColumn, ResultRow } from "./cells";
+import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
+import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { columnLabel } from "./labels";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
@@ -148,7 +149,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     return () => window.clearTimeout(timer);
     // A canonical graph revision invalidates the previous derived result.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runSource, runBindings, state.revision, session]);
+  }, [runSource, runBindings, state.canonicalRevision, session]);
 
   // One command per pause in the editing, never one per keystroke.
   useEffect(() => {
@@ -187,6 +188,13 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     },
   }), [state.snapshot, compiled?.subjectVariable, message, formatJournalDate, history]);
 
+  const resultEditor = useQueryResultEditor({
+    session,
+    state,
+    enabled: Boolean(plan && compiled?.subjectVariable) && !readonly,
+    message,
+  });
+
   const select = result?.kind === "select" ? result : null;
   const columns = useMemo(
     () => (select && activeView
@@ -194,6 +202,16 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       : []),
     [select, activeView, plan, message, compiled?.subjectVariable],
   );
+  const resultRows = useMemo(
+    () => resultViewRows((select?.rows ?? []) as ResultRow[], cellContext),
+    [select, cellContext],
+  );
+  const activeOrigin = resultEditor.active?.origin.row;
+  const activeRowPresent = activeOrigin
+    ? resultRows.some((row) => row.key === activeOrigin.key)
+    : true;
+  const pinnedRow = activeOrigin && !activeRowPresent ? activeOrigin : null;
+  const visibleRows = pinnedRow ? [...resultRows, pinnedRow] : resultRows;
 
   if (!document || !activeView) return null;
 
@@ -278,6 +296,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
               disabled={readonly}
               aria-label={message("query.view")}
               data-testid="query-view-trigger"
+              onPointerDown={() => resultEditor.preserveDraftForViewChange()}
             >
               {activeView.kind === "table"
                 ? <Table2Icon aria-hidden />
@@ -452,14 +471,16 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             {result.value ? message("query.askTrue") : message("query.askFalse")}
           </p>
         )}
-        {!error && select && select.rows.length === 0 && (
+        {!error && select && visibleRows.length === 0 && (
           <p className="query-empty">{message("query.noResults")}</p>
         )}
-        {!error && select && select.rows.length > 0 && activeView.kind === "table" && (
+        {!error && select && visibleRows.length > 0 && activeView.kind === "table" && (
           <QueryTableView
             columns={inViewOrder(visible, activeView)}
-            rows={select.rows as ResultRow[]}
+            rows={visibleRows}
             context={cellContext}
+            editor={resultEditor}
+            pinnedRowKey={pinnedRow?.key}
             compact={activeView.options.compact}
             wrap={activeView.options.wrap}
             onResize={readonly
@@ -469,15 +490,18 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             onMove={readonly ? undefined : moveColumn}
           />
         )}
-        {!error && select && select.rows.length > 0 && activeView.kind === "list" && (
+        {!error && select && visibleRows.length > 0 && activeView.kind === "list" && (
           <QueryListView
             columns={inViewOrder(visible, activeView)}
-            rows={select.rows as ResultRow[]}
+            rows={visibleRows}
             context={cellContext}
+            editor={resultEditor}
+            pinnedRowKey={pinnedRow?.key}
             compact={activeView.options.compact}
           />
         )}
       </div>
+      <QueryEditPortals editor={resultEditor} />
     </section>
   );
 }
