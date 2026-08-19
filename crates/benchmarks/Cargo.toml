@@ -1,0 +1,22 @@
+[package]
+name = "neoseq-benchmarks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+autobenches = false
+
+[dependencies]
+domain = { path = "../domain" }
+query = { path = "../query" }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "index"
+harness = false
+
+[[bench]]
+name = "query"
+harness = false

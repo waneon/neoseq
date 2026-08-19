@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/benchmarks",
   "crates/domain",
   "crates/graph-core",
   "crates/platform-native",
@@ -16,6 +17,7 @@ edition = "2024"
 rust-version = "1.88"
 
 [workspace.dependencies]
+criterion = "0.8.2"
 hex = "0.4"
 loro = "=1.13.7"
 oxigraph = { version = "=0.5.9", default-features = false, features = ["js"] }

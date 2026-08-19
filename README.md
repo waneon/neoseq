@@ -52,6 +52,17 @@ devenv test                         # Rust, generated files, TypeScript, and com
 devenv --profile browser-test test  # portable gate plus browser-backed tests
 ```
 
+## Performance benchmarks
+
+The dedicated benchmark workspace member has deterministic Criterion suites for
+index construction and refreshes, and representative shapes over 100,
+10,000, and 1,000,000 blocks.
+
+```sh
+# Run both benchmark suites.
+cargo bench -p neoseq-benchmarks
+```
+
 ## Sync server
 
 Start the local PostgreSQL service and sync server together. In another devenv
