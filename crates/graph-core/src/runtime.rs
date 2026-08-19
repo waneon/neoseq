@@ -121,7 +121,11 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         if event_capacity == 0 {
             return Err(RuntimeError::ZeroEventCapacity);
         }
-        let index = GraphIndex::new_at(&core.snapshot()?, core.frontier())?;
+        let index = GraphIndex::from_units(
+            core.graph_id().clone(),
+            core.frontier(),
+            core.index_units()?,
+        )?;
         Ok(Self {
             core,
             index,
@@ -235,12 +239,19 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         match self.core.index_delta(changes)? {
             Some(delta) => {
                 if self.index.apply_delta(delta).is_err() {
-                    self.index = GraphIndex::new_at(&self.core.snapshot()?, self.core.frontier())?;
+                    self.index.rebuild_from_units(
+                        self.core.graph_id().clone(),
+                        self.core.frontier(),
+                        self.core.index_units()?,
+                    )?;
                 }
             }
             None => {
-                self.index
-                    .refresh_at(&self.core.snapshot()?, self.core.frontier())?;
+                self.index.rebuild_from_units(
+                    self.core.graph_id().clone(),
+                    self.core.frontier(),
+                    self.core.index_units()?,
+                )?;
             }
         }
         Ok(())

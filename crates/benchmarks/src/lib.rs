@@ -2,8 +2,8 @@ use domain::{
     BlockId, BlockSnapshot, Cardinality, GraphId, GraphSnapshot, LocalDate, PageId, PageSnapshot,
     PropertyField, PropertyKey, PropertyValue, TagId, TagSnapshot,
 };
-use query::{QUERY_LANGUAGE, QueryBudget, QueryRequest, RdfTerm};
-use std::collections::BTreeMap;
+use query::{IndexUnit, QUERY_LANGUAGE, QueryBudget, QueryRequest, RdfTerm};
+use std::{collections::BTreeMap, convert::Infallible};
 
 pub const LARGE_BLOCK_COUNT: usize = 1_000_000;
 pub const BLOCK_COUNTS: [usize; 3] = [100, 10_000, LARGE_BLOCK_COUNT];
@@ -23,7 +23,7 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
             let first_block = page_index * BLOCKS_PER_PAGE;
             let end_block = (first_block + BLOCKS_PER_PAGE).min(block_count);
             PageSnapshot {
-                id: page_id(page_index),
+                id: page_id_value(page_index),
                 title: format!("Benchmark page {page_index}"),
                 properties: Vec::new(),
                 tags: vec![tag_id(page_index % TAG_COUNT)],
@@ -47,6 +47,36 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
         tags,
         quarantined: Vec::new(),
     }
+}
+
+/// Generates the same fixture one page at a time so cold-build benchmarks do
+/// not keep a second, complete domain snapshot beside the derived index.
+pub fn streaming_units(block_count: usize) -> impl Iterator<Item = Result<IndexUnit, Infallible>> {
+    assert!(block_count > 0);
+    let tags = (0..TAG_COUNT).map(|index| {
+        IndexUnit::Tag(TagSnapshot {
+            id: tag_id(index),
+            name: format!("Benchmark tag {index}"),
+            properties: Vec::new(),
+            defaults: Vec::new(),
+        })
+    });
+    let pages = (0..block_count.div_ceil(BLOCKS_PER_PAGE)).map(move |page_index| {
+        let first_block = page_index * BLOCKS_PER_PAGE;
+        let end_block = (first_block + BLOCKS_PER_PAGE).min(block_count);
+        IndexUnit::Page(PageSnapshot {
+            id: page_id_value(page_index),
+            title: format!("Benchmark page {page_index}"),
+            properties: Vec::new(),
+            tags: vec![tag_id(page_index % TAG_COUNT)],
+            blocks: (first_block..end_block).map(block).collect(),
+        })
+    });
+    tags.chain(pages).map(Ok)
+}
+
+pub fn graph_id() -> GraphId {
+    GraphId::new(GRAPH_ID).expect("static benchmark graph id")
 }
 
 pub fn request(source: &str) -> QueryRequest {
@@ -119,7 +149,7 @@ fn single(key: &str, value: PropertyValue) -> PropertyField {
     }
 }
 
-fn page_id(index: usize) -> PageId {
+fn page_id_value(index: usize) -> PageId {
     PageId::new(format!("page-{index:06}")).expect("generated benchmark page id")
 }
 

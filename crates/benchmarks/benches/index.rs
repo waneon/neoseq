@@ -1,7 +1,7 @@
 use criterion::{
     BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group, criterion_main,
 };
-use neoseq_benchmarks::{BLOCK_COUNTS, LARGE_BLOCK_COUNT, snapshot};
+use neoseq_benchmarks::{BLOCK_COUNTS, LARGE_BLOCK_COUNT, graph_id, snapshot, streaming_units};
 use query::{GraphIndex, IndexDelta};
 use std::hint::black_box;
 
@@ -16,6 +16,25 @@ fn bench_build(criterion: &mut Criterion) {
             bencher.iter_with_large_drop(|| {
                 GraphIndex::new_at(black_box(snapshot), "benchmark-frontier".to_owned())
                     .expect("benchmark index should build")
+            });
+        });
+    }
+    group.finish();
+}
+
+fn bench_cold_stream(criterion: &mut Criterion) {
+    let mut group = criterion.benchmark_group("index/cold_stream");
+    for block_count in BLOCK_COUNTS {
+        configure_large_sample(&mut group, block_count);
+        group.throughput(Throughput::Elements(block_count as u64));
+        group.bench_function(BenchmarkId::from_parameter(block_count), move |bencher| {
+            bencher.iter_with_large_drop(|| {
+                GraphIndex::from_units(
+                    graph_id(),
+                    "benchmark-frontier".to_owned(),
+                    streaming_units(block_count),
+                )
+                .expect("streaming benchmark index should build")
             });
         });
     }
@@ -125,6 +144,7 @@ fn configure_large_sample<M: criterion::measurement::Measurement>(
 criterion_group!(
     benches,
     bench_build,
+    bench_cold_stream,
     bench_full_refresh_noop,
     bench_apply_one_page
 );

@@ -13,7 +13,7 @@ use loro::{
     LoroMap, LoroText, LoroTree, LoroValue, Subscription, TreeID, TreeParentId, UndoManager,
     ValueOrContainer, VersionVector, event::Diff,
 };
-use query::IndexDelta;
+use query::{IndexDelta, IndexUnit};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -871,6 +871,60 @@ impl GraphCore {
             removed_tags,
             frontier: self.frontier(),
         }))
+    }
+
+    /// Streams the validated projection units without materializing a complete
+    /// `GraphSnapshot`. Tags are emitted first, followed by live pages in ID
+    /// order; each page owns its complete visible block tree.
+    pub fn index_units(
+        &self,
+    ) -> Result<impl Iterator<Item = Result<IndexUnit, CoreError>> + '_, CoreError> {
+        let mut quarantined = Vec::new();
+        let tags = tag_snapshots(&self.doc, &mut quarantined);
+        let live_tags = tags
+            .iter()
+            .map(|tag| tag.id.clone())
+            .collect::<BTreeSet<_>>();
+        let pages = self.doc.get_map("pages");
+        let mut page_ids = BTreeSet::new();
+        pages.for_each(|raw_id, value| {
+            if value_into_map(value).is_some()
+                && let Ok(page_id) = PageId::new(raw_id)
+            {
+                page_ids.insert(page_id);
+            }
+        });
+
+        let tag_units = tags.into_iter().map(|tag| Ok(IndexUnit::Tag(tag)));
+        let page_units = page_ids.into_iter().filter_map(move |page_id| {
+            match self.projection_page_snapshot(&page_id, &live_tags) {
+                Ok(Some(page)) => Some(Ok(IndexUnit::Page(page))),
+                Ok(None) => None,
+                Err(error) => Some(Err(error)),
+            }
+        });
+        Ok(tag_units.chain(page_units))
+    }
+
+    fn projection_page_snapshot(
+        &self,
+        page_id: &PageId,
+        live_tags: &BTreeSet<TagId>,
+    ) -> Result<Option<PageSnapshot>, CoreError> {
+        let page = self.require_page(page_id)?;
+        let mut quarantined = Vec::new();
+        let Some(mut snapshot) = page_metadata(page_id, &page, live_tags, &mut quarantined) else {
+            return Ok(None);
+        };
+        let Some(outline) = page.get("outline").and_then(value_into_tree) else {
+            return Ok(Some(snapshot));
+        };
+        for root in outline.roots() {
+            snapshot
+                .blocks
+                .push(block_snapshot(&outline, root, live_tags, &mut quarantined)?);
+        }
+        Ok(Some(snapshot))
     }
 
     fn snapshot_metadata(&self) -> Result<GraphSnapshot, CoreError> {
@@ -3604,6 +3658,23 @@ mod tests {
         let delta = right.index_delta(&remote).unwrap().unwrap();
         assert_eq!(delta.pages.len(), 1);
         assert_eq!(delta.pages[0].blocks[0].markdown, "after");
+    }
+
+    #[test]
+    fn streaming_index_units_match_a_complete_snapshot_build() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        insert_root(&mut core, "block", &page(), 0, "streamed");
+        let frontier = core.frontier();
+        let streamed = query::GraphIndex::from_units(
+            core.graph_id().clone(),
+            frontier.clone(),
+            core.index_units().unwrap(),
+        )
+        .unwrap();
+        let rebuilt = query::GraphIndex::new_at(&core.snapshot().unwrap(), frontier).unwrap();
+        assert_eq!(streamed.semantic_triples(), rebuilt.semantic_triples());
+        assert_eq!(streamed.triple_count(), rebuilt.triple_count());
     }
 
     #[test]

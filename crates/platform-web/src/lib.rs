@@ -38,13 +38,22 @@ fn apply_index_changes(
     match inner.index_delta(changes).map_err(js_error)? {
         Some(delta) => {
             if index.apply_delta(delta).is_err() {
-                *index = GraphIndex::new_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
+                index
+                    .rebuild_from_units(
+                        inner.graph_id().clone(),
+                        inner.frontier(),
+                        inner.index_units().map_err(js_error)?,
+                    )
                     .map_err(js_error)?;
             }
         }
         None => {
             index
-                .refresh_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
+                .rebuild_from_units(
+                    inner.graph_id().clone(),
+                    inner.frontier(),
+                    inner.index_units().map_err(js_error)?,
+                )
                 .map_err(js_error)?;
         }
     }
@@ -64,8 +73,12 @@ impl WasmGraphCore {
     pub fn new(graph_id: &str, peer_id: u64, now: &str) -> Result<WasmGraphCore, JsValue> {
         let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
         let inner = GraphCore::new(graph_id, peer_id, now).map_err(js_error)?;
-        let index = GraphIndex::new_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
-            .map_err(js_error)?;
+        let index = GraphIndex::from_units(
+            inner.graph_id().clone(),
+            inner.frontier(),
+            inner.index_units().map_err(js_error)?,
+        )
+        .map_err(js_error)?;
         Ok(Self {
             inner,
             index,
@@ -81,8 +94,12 @@ impl WasmGraphCore {
     ) -> Result<WasmGraphCore, JsValue> {
         let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
         let inner = GraphCore::from_snapshot(graph_id, peer_id, snapshot).map_err(js_error)?;
-        let index = GraphIndex::new_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
-            .map_err(js_error)?;
+        let index = GraphIndex::from_units(
+            inner.graph_id().clone(),
+            inner.frontier(),
+            inner.index_units().map_err(js_error)?,
+        )
+        .map_err(js_error)?;
         Ok(Self {
             inner,
             index,

@@ -5,18 +5,18 @@ use domain::{
     TagSnapshot,
 };
 use oxigraph::model::{
-    GraphNameRef, Literal, NamedNode, QuadRef, Term, Triple, Variable,
+    GraphNameRef, Literal, NamedNode, Quad, QuadRef, Term, Triple, Variable,
     vocab::{rdf, xsd},
 };
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
-use oxigraph::store::{Store, Transaction};
+use oxigraph::store::{StorageError, Store, Transaction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use spargebra::algebra::GraphPattern;
 use spargebra::term::GroundTerm;
 use spargebra::{Query, SparqlParser};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 use thiserror::Error;
@@ -112,6 +112,13 @@ pub struct IndexDelta {
     pub frontier: String,
 }
 
+/// One independently projected unit consumed by the cold index builder.
+#[derive(Debug, Clone)]
+pub enum IndexUnit {
+    Page(PageSnapshot),
+    Tag(TagSnapshot),
+}
+
 #[derive(Debug, Error)]
 pub enum QueryError {
     #[error("unsupported query language: {0}")]
@@ -136,18 +143,24 @@ pub enum QueryError {
     Evaluation(String),
 }
 
+impl From<StorageError> for QueryError {
+    fn from(error: StorageError) -> Self {
+        Self::Index(error.to_string())
+    }
+}
+
 /// One open graph's derived RDF index. Oxigraph's in-memory store provides the
-/// dictionary and SPO/POS/OSP-family indexes. `entities` is the projection
-/// ledger used to retract and replace an entity atomically.
+/// dictionary and SPO/POS/OSP-family indexes. The compact page ledger names
+/// subjects to retract and replace atomically without duplicating their triples.
 pub struct GraphIndex {
     graph_id: GraphId,
     store: Store,
-    entities: BTreeMap<String, HashSet<Triple>>,
-    entity_refs: BTreeMap<String, QueryEntityRef>,
-    page_entities: BTreeMap<PageId, BTreeSet<String>>,
-    entity_text: BTreeMap<String, String>,
-    text_ref_counts: BTreeMap<String, usize>,
-    normalized_text: Arc<BTreeMap<String, String>>,
+    entity_refs: HashMap<String, QueryEntityRef>,
+    page_entities: HashMap<PageId, BTreeSet<String>>,
+    page_text: HashMap<PageId, Vec<String>>,
+    text_ref_counts: HashMap<String, usize>,
+    normalized_text: Arc<HashMap<String, String>>,
+    triple_count: usize,
     revision: u64,
     frontier: String,
 }
@@ -159,37 +172,55 @@ impl GraphIndex {
     }
 
     pub fn new_at(snapshot: &GraphSnapshot, frontier: String) -> Result<Self, QueryError> {
-        let projected = project(snapshot)?;
+        let units = snapshot
+            .tags
+            .iter()
+            .cloned()
+            .map(IndexUnit::Tag)
+            .chain(snapshot.pages.iter().cloned().map(IndexUnit::Page))
+            .map(Ok::<_, String>);
+        Self::from_units(snapshot.graph_id.clone(), frontier, units)
+    }
+
+    /// Builds an index while retaining at most one projected page outside the
+    /// RDF store and its bounded bulk-loader buffers.
+    pub fn from_units<E>(
+        graph_id: GraphId,
+        frontier: String,
+        units: impl IntoIterator<Item = Result<IndexUnit, E>>,
+    ) -> Result<Self, QueryError>
+    where
+        E: std::fmt::Display,
+    {
         let store = Store::new().map_err(index_error)?;
-        let mut transaction = store.start_transaction().map_err(index_error)?;
-        for triples in projected.entities.values() {
-            for triple in triples {
-                transaction.insert(QuadRef::new(
-                    triple.subject.as_ref(),
-                    triple.predicate.as_ref(),
-                    triple.object.as_ref(),
-                    GraphNameRef::DefaultGraph,
-                ));
-            }
+        let units = units
+            .into_iter()
+            .map(|unit| unit.map_err(|error| QueryError::Index(error.to_string())));
+        let mut projected = ProjectionStream::new(graph_id.clone(), units);
+        {
+            let mut loader = store
+                .bulk_loader()
+                .with_num_threads(1)
+                .with_max_memory_size_in_megabytes(256);
+            loader.load_ok_quads::<QueryError, QueryError>(&mut projected)?;
+            loader.commit().map_err(index_error)?;
         }
-        transaction.commit().map_err(index_error)?;
-        let (text_ref_counts, normalized_text) = text_cache(&projected.entity_text);
+        let projected = projected.finish();
         Ok(Self {
-            graph_id: snapshot.graph_id.clone(),
+            graph_id,
             store,
-            entities: projected.entities,
             entity_refs: projected.entity_refs,
             page_entities: projected.page_entities,
-            entity_text: projected.entity_text,
-            text_ref_counts,
-            normalized_text: Arc::new(normalized_text),
+            page_text: projected.page_text,
+            text_ref_counts: projected.text_ref_counts,
+            normalized_text: Arc::new(projected.normalized_text),
+            triple_count: projected.triple_count,
             revision: 1,
             frontier,
         })
     }
 
-    /// Reprojects the immutable domain snapshot, but applies only entity-level
-    /// triple differences. The store transaction is the publication boundary.
+    /// Rebuilds from an immutable domain snapshot when its frontier changed.
     pub fn refresh(&mut self, snapshot: &GraphSnapshot) -> Result<bool, QueryError> {
         let frontier = snapshot_fingerprint(snapshot)?;
         self.refresh_at(snapshot, frontier)
@@ -205,26 +236,40 @@ impl GraphIndex {
                 "snapshot belongs to another graph".into(),
             ));
         }
-        let projected = project(snapshot)?;
-        let triples_changed = self.entities != projected.entities;
-        if !triples_changed && self.frontier == next_frontier {
+        if self.frontier == next_frontier {
             return Ok(false);
         }
+        let units = snapshot
+            .tags
+            .iter()
+            .cloned()
+            .map(IndexUnit::Tag)
+            .chain(snapshot.pages.iter().cloned().map(IndexUnit::Page))
+            .map(Ok::<_, String>);
+        self.rebuild_from_units(snapshot.graph_id.clone(), next_frontier, units)
+    }
 
-        if triples_changed {
-            let mut transaction = self.store.start_transaction().map_err(index_error)?;
-            write_map_diff(&mut transaction, &self.entities, &projected.entities);
-            transaction.commit().map_err(index_error)?;
+    pub fn rebuild_from_units<E>(
+        &mut self,
+        graph_id: GraphId,
+        next_frontier: String,
+        units: impl IntoIterator<Item = Result<IndexUnit, E>>,
+    ) -> Result<bool, QueryError>
+    where
+        E: std::fmt::Display,
+    {
+        if graph_id != self.graph_id {
+            return Err(QueryError::Index(
+                "projection units belong to another graph".into(),
+            ));
         }
-        let (text_ref_counts, normalized_text) = text_cache(&projected.entity_text);
-        self.entities = projected.entities;
-        self.entity_refs = projected.entity_refs;
-        self.page_entities = projected.page_entities;
-        self.entity_text = projected.entity_text;
-        self.text_ref_counts = text_ref_counts;
-        self.normalized_text = Arc::new(normalized_text);
-        self.frontier = next_frontier;
-        self.revision = self.revision.saturating_add(1);
+        if self.frontier == next_frontier {
+            return Ok(false);
+        }
+        let revision = self.revision.saturating_add(1);
+        let mut rebuilt = Self::from_units(graph_id, next_frontier, units)?;
+        rebuilt.revision = revision;
+        *self = rebuilt;
         Ok(true)
     }
 
@@ -262,42 +307,65 @@ impl GraphIndex {
             );
         }
 
+        let mut previous = BTreeMap::new();
+        for key in &replaced {
+            let triples = triples_for_subject(&self.store, key)?;
+            if !triples.is_empty() {
+                previous.insert(key.clone(), triples);
+            }
+        }
         let triples_changed = replaced
             .iter()
-            .any(|key| self.entities.get(key) != projected.entities.get(key));
+            .any(|key| previous.get(key) != projected.entities.get(key));
         if !triples_changed && self.frontier == delta.frontier {
             return Ok(false);
         }
 
+        let next_triple_count = if triples_changed {
+            let removed = previous.values().map(HashSet::len).sum::<usize>();
+            let inserted = projected.entities.values().map(HashSet::len).sum::<usize>();
+            self.triple_count
+                .checked_sub(removed)
+                .and_then(|count| count.checked_add(inserted))
+                .ok_or_else(|| QueryError::Index("triple count overflow".into()))?
+        } else {
+            self.triple_count
+        };
         if triples_changed {
             let mut transaction = self.store.start_transaction().map_err(index_error)?;
             for key in &replaced {
                 write_entity_diff(
                     &mut transaction,
-                    self.entities.get(key),
+                    previous.get(key),
                     projected.entities.get(key),
                 );
             }
             transaction.commit().map_err(index_error)?;
         }
+        self.triple_count = next_triple_count;
 
         for key in &replaced {
-            self.entities.remove(key);
             self.entity_refs.remove(key);
-            self.remove_entity_text(key);
-        }
-        for (key, triples) in projected.entities {
-            self.entities.insert(key, triples);
         }
         for (key, entity_ref) in projected.entity_refs {
             self.entity_refs.insert(key, entity_ref);
         }
-        for (key, value) in projected.entity_text {
-            self.insert_entity_text(key, value);
-        }
         for page_id in page_ids {
+            if let Some(values) = self.page_text.remove(&page_id) {
+                for value in values {
+                    self.remove_text(&value);
+                }
+            }
             self.page_entities.remove(&page_id);
             if let Some(keys) = projected.page_entities.remove(&page_id) {
+                let values = keys
+                    .iter()
+                    .filter_map(|key| projected.entity_text.get(key).cloned())
+                    .collect::<Vec<_>>();
+                for value in &values {
+                    self.insert_text(value);
+                }
+                self.page_text.insert(page_id.clone(), values);
                 self.page_entities.insert(page_id, keys);
             }
         }
@@ -306,27 +374,24 @@ impl GraphIndex {
         Ok(true)
     }
 
-    fn remove_entity_text(&mut self, key: &str) {
-        let Some(value) = self.entity_text.remove(key) else {
-            return;
-        };
-        let Some(count) = self.text_ref_counts.get_mut(&value) else {
+    fn remove_text(&mut self, value: &str) {
+        let Some(count) = self.text_ref_counts.get_mut(value) else {
             return;
         };
         *count -= 1;
         if *count == 0 {
-            self.text_ref_counts.remove(&value);
-            Arc::make_mut(&mut self.normalized_text).remove(&value);
+            self.text_ref_counts.remove(value);
+            Arc::make_mut(&mut self.normalized_text).remove(value);
         }
     }
 
-    fn insert_entity_text(&mut self, key: String, value: String) {
-        let count = self.text_ref_counts.entry(value.clone()).or_default();
+    fn insert_text(&mut self, value: &str) {
+        let count = self.text_ref_counts.entry(value.to_owned()).or_default();
         *count += 1;
         if *count == 1 {
-            Arc::make_mut(&mut self.normalized_text).insert(value.clone(), normalize_text(&value));
+            Arc::make_mut(&mut self.normalized_text)
+                .insert(value.to_owned(), normalize_text(value));
         }
-        self.entity_text.insert(key, value);
     }
 
     pub fn execute(&self, request: QueryRequest) -> Result<QueryResult, QueryError> {
@@ -423,13 +488,15 @@ impl GraphIndex {
     }
 
     pub fn triple_count(&self) -> usize {
-        self.entities.values().map(HashSet::len).sum()
+        self.triple_count
     }
 
     pub fn semantic_triples(&self) -> Vec<String> {
-        let mut triples = flatten(&self.entities)
-            .into_iter()
-            .map(|triple| triple.to_string())
+        let mut triples = self
+            .store
+            .iter()
+            .map(|quad| quad.expect("in-memory RDF store should remain readable"))
+            .map(|quad| Triple::new(quad.subject, quad.predicate, quad.object).to_string())
             .collect::<Vec<_>>();
         triples.sort();
         triples
@@ -461,15 +528,134 @@ struct Projection {
     entity_text: BTreeMap<String, String>,
 }
 
-fn project(snapshot: &GraphSnapshot) -> Result<Projection, QueryError> {
-    let mut projection = Projection::default();
-    for page in &snapshot.pages {
-        project_page(&mut projection, &snapshot.graph_id, page)?;
+struct ProjectionStream<I> {
+    graph_id: GraphId,
+    units: I,
+    pending: std::vec::IntoIter<Quad>,
+    entity_refs: HashMap<String, QueryEntityRef>,
+    page_entities: HashMap<PageId, BTreeSet<String>>,
+    page_text: HashMap<PageId, Vec<String>>,
+    text_ref_counts: HashMap<String, usize>,
+    normalized_text: HashMap<String, String>,
+    triple_count: usize,
+}
+
+struct ProjectionBuild {
+    entity_refs: HashMap<String, QueryEntityRef>,
+    page_entities: HashMap<PageId, BTreeSet<String>>,
+    page_text: HashMap<PageId, Vec<String>>,
+    text_ref_counts: HashMap<String, usize>,
+    normalized_text: HashMap<String, String>,
+    triple_count: usize,
+}
+
+impl<I> ProjectionStream<I>
+where
+    I: Iterator<Item = Result<IndexUnit, QueryError>>,
+{
+    fn new(graph_id: GraphId, units: I) -> Self {
+        Self {
+            graph_id,
+            units,
+            pending: Vec::new().into_iter(),
+            entity_refs: HashMap::new(),
+            page_entities: HashMap::new(),
+            page_text: HashMap::new(),
+            text_ref_counts: HashMap::new(),
+            normalized_text: HashMap::new(),
+            triple_count: 0,
+        }
     }
-    for tag in &snapshot.tags {
-        project_tag(&mut projection, &snapshot.graph_id, tag)?;
+
+    fn finish(self) -> ProjectionBuild {
+        ProjectionBuild {
+            entity_refs: self.entity_refs,
+            page_entities: self.page_entities,
+            page_text: self.page_text,
+            text_ref_counts: self.text_ref_counts,
+            normalized_text: self.normalized_text,
+            triple_count: self.triple_count,
+        }
     }
-    Ok(projection)
+
+    fn project_unit(&mut self, unit: IndexUnit) -> Result<(), QueryError> {
+        let mut projected = Projection::default();
+        let page_id = match unit {
+            IndexUnit::Page(page) => {
+                let page_id = page.id.clone();
+                project_page(&mut projected, &self.graph_id, &page)?;
+                Some(page_id)
+            }
+            IndexUnit::Tag(tag) => {
+                project_tag(&mut projected, &self.graph_id, &tag)?;
+                None
+            }
+        };
+        if projected
+            .entity_refs
+            .keys()
+            .any(|key| self.entity_refs.contains_key(key))
+        {
+            return Err(QueryError::Index(
+                "projection contains a duplicate entity subject".into(),
+            ));
+        }
+
+        if let Some(page_id) = page_id {
+            let keys = projected.page_entities.remove(&page_id).unwrap_or_default();
+            let values = keys
+                .iter()
+                .filter_map(|key| projected.entity_text.get(key).cloned())
+                .collect::<Vec<_>>();
+            for value in &values {
+                insert_text_cache(&mut self.text_ref_counts, &mut self.normalized_text, value);
+            }
+            self.page_entities.insert(page_id.clone(), keys);
+            self.page_text.insert(page_id, values);
+        }
+        self.entity_refs.extend(projected.entity_refs);
+        self.triple_count = self
+            .triple_count
+            .checked_add(projected.entities.values().map(HashSet::len).sum())
+            .ok_or_else(|| QueryError::Index("triple count overflow".into()))?;
+        self.pending = projected
+            .entities
+            .into_values()
+            .flatten()
+            .map(|triple| {
+                Quad::new(
+                    triple.subject,
+                    triple.predicate,
+                    triple.object,
+                    GraphNameRef::DefaultGraph,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_iter();
+        Ok(())
+    }
+}
+
+impl<I> Iterator for ProjectionStream<I>
+where
+    I: Iterator<Item = Result<IndexUnit, QueryError>>,
+{
+    type Item = Result<Quad, QueryError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(quad) = self.pending.next() {
+                return Some(Ok(quad));
+            }
+            let unit = match self.units.next()? {
+                Ok(unit) => unit,
+                Err(error) => return Some(Err(error)),
+            };
+            if let Err(error) = self.project_unit(unit) {
+                return Some(Err(error));
+            }
+        }
+    }
 }
 
 fn project_page(
@@ -836,26 +1022,20 @@ fn named_ref(local: &str) -> Result<NamedNode, QueryError> {
     named(&format!("{NEO_NS}{local}"))
 }
 
-fn flatten(entities: &BTreeMap<String, HashSet<Triple>>) -> HashSet<Triple> {
-    entities
-        .values()
-        .flat_map(|triples| triples.iter().cloned())
+fn triples_for_subject(store: &Store, key: &str) -> Result<HashSet<Triple>, QueryError> {
+    let subject = NamedNode::new(key).map_err(term_error)?;
+    store
+        .quads_for_pattern(
+            Some(subject.as_ref().into()),
+            None,
+            None,
+            Some(GraphNameRef::DefaultGraph),
+        )
+        .map(|quad| {
+            let quad = quad.map_err(index_error)?;
+            Ok(Triple::new(quad.subject, quad.predicate, quad.object))
+        })
         .collect()
-}
-
-fn write_map_diff(
-    transaction: &mut Transaction<'_>,
-    previous: &BTreeMap<String, HashSet<Triple>>,
-    next: &BTreeMap<String, HashSet<Triple>>,
-) {
-    for (key, triples) in previous {
-        write_entity_diff(transaction, Some(triples), next.get(key));
-    }
-    for (key, triples) in next {
-        if !previous.contains_key(key) {
-            write_entity_diff(transaction, None, Some(triples));
-        }
-    }
 }
 
 fn write_entity_diff(
@@ -889,18 +1069,16 @@ fn write_entity_diff(
     }
 }
 
-fn text_cache(
-    entity_text: &BTreeMap<String, String>,
-) -> (BTreeMap<String, usize>, BTreeMap<String, String>) {
-    let mut counts = BTreeMap::<String, usize>::new();
-    for value in entity_text.values() {
-        *counts.entry(value.clone()).or_default() += 1;
+fn insert_text_cache(
+    counts: &mut HashMap<String, usize>,
+    normalized: &mut HashMap<String, String>,
+    value: &str,
+) {
+    let count = counts.entry(value.to_owned()).or_default();
+    *count += 1;
+    if *count == 1 {
+        normalized.insert(value.to_owned(), normalize_text(value));
     }
-    let normalized = counts
-        .keys()
-        .map(|value| (value.clone(), normalize_text(value)))
-        .collect();
-    (counts, normalized)
 }
 
 fn snapshot_fingerprint(snapshot: &GraphSnapshot) -> Result<String, QueryError> {

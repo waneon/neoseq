@@ -67,7 +67,7 @@ Each open graph owns an Oxigraph in-memory store backed by:
 
 - an RDF-term dictionary and the store's triple permutations;
 - Oxigraph's SPARQL parser, optimizer, and evaluator;
-- an entity-to-emitted-triples ledger grouped by page and tag publication unit;
+- a compact page-to-entity-subject ledger for targeted retraction;
 - a normalized-text cache used by the versioned `neo:matchesText` function.
 
 The RDF store is the semantic index. V1 evaluates text matching over candidate
@@ -79,10 +79,11 @@ Every runtime revision records the graph ID and sorted Loro state frontier and
 exposes projection/profile/analyzer version constants. Standalone projection
 tests use the validated snapshot fingerprint as a deterministic frontier.
 The current client does not persist the index: every open deterministically
-rebuilds it. Cold construction projects each entity directly into one store
-transaction without first cloning a graph-wide flattened triple set. A future
-persisted cache must key all profile versions and the Loro frontier and fall
-back to this same rebuild path on any mismatch.
+rebuilds it. Cold construction streams validated tags and one complete page at
+a time from Loro into a bounded Oxigraph bulk loader. It does not materialize a
+complete domain snapshot, graph-wide projection, or duplicate triple ledger.
+A future persisted cache must key all profile versions and the Loro frontier
+and fall back to this same streaming rebuild path on any mismatch.
 
 ## Index Maintenance and Consistency
 
@@ -91,8 +92,9 @@ from its committed Loro diffs. Pages and tags are the publication units. A page
 replacement includes its complete visible block tree because structural edits
 can change parent and sibling-index triples beyond the directly targeted block.
 The runtime materializes snapshots only for the named units, reprojects those
-units, and atomically retracts and inserts their entity-level triple differences.
-Text normalization cache entries use the same replacement ledger.
+units, reads their previous outgoing triples through the RDF subject index, and
+atomically retracts and inserts their entity-level triple differences. Text
+normalization cache entries use a compact page ledger and reference counts.
 
 Diffs that cannot be classified safely trigger the complete snapshot rebuild
 path. Full reprojection is therefore a recovery path, not the normal edit or
