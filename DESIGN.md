@@ -1121,6 +1121,29 @@ something was floating over the page only dismisses. Whether something was float
 sampled on `pointerdown` at the `window` in the capture phase, which is the only listener
 that runs before Radix's own dismisser has already removed the layer being asked about.
 
+### Markdown blocks
+
+A block with Markdown syntax reads as formatted content while it is not being edited and
+returns to its exact source in the outline's textarea when its body is pressed. Links are
+the exception: they follow their destination rather than opening the editor. The focused
+block remains source, so the accent caret, IME boundary, slash and tag menus, Enter split,
+and document undo keep one owner. Plain text is permitted to remain on the textarea fast
+path because formatting it would produce the same pixels and words.
+
+Markdown inherits the block's 16/26 body voice. A first-level Markdown heading becomes a
+real section heading beneath the page's `<h1>`; lower levels keep the body size and gain
+weight, never another display scale. Inline code and fenced code use the existing mono
+voice on `--surface-2` and `--surface-1`. A quote borrows one inset thread line: depth is
+still the only graphic device. Links use the one accent and an underline. No imported
+prose theme, syntax-highlighting palette, bordered callout, or Markdown-specific card is
+allowed.
+
+Raw HTML never becomes interface. An image becomes its alternative text instead of a
+network request, preserving the local graph's privacy boundary and the outline's measured
+width. Query results use the same parser and safety policy in a compact inline reading;
+their cell remains the single edit/open control, so rendered Markdown never nests an
+interactive link inside it.
+
 ### Selection
 
 The outline has two kinds of "current", and they are deliberately different things. The

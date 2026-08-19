@@ -88,6 +88,8 @@ import {
 } from "./clipboard";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { fuzzyScore } from "../commands/registry";
+import { BlockMarkdown } from "../markdown/BlockMarkdown";
+import { hasMarkdownSyntax } from "../markdown/profile";
 import {
   buildSlashItems,
   filterSlashItems,
@@ -2643,6 +2645,7 @@ function BlockRow({
   const peers = editor.presence.filter((peer) => peer.block_id === row.block.id);
   const projected = useRef(value);
   const revision = useRef(editor.revision);
+  const previewMarkdown = !isFocused && !pending && hasMarkdownSyntax(value);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -2920,6 +2923,8 @@ function BlockRow({
           className="outline-input"
           rows={1}
           value={value}
+          hidden={previewMarkdown}
+          tabIndex={previewMarkdown ? -1 : undefined}
           readOnly={editor.readonly}
           aria-label={message("outline.blockText")}
           aria-controls={
@@ -2954,6 +2959,15 @@ function BlockRow({
             editor.pasteOutline(row, items);
           }}
         />
+        {previewMarkdown && (
+          <BlockMarkdown
+            markdown={value}
+            className="outline-markdown"
+            onActivate={
+              editor.readonly ? undefined : () => editor.setFocus(row.block.id, value.length)
+            }
+          />
+        )}
         {peers.length > 0 && (
           <span className="remote-presence">
             {peers.map((peer) => peer.principal).join(", ")}

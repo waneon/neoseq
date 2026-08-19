@@ -160,7 +160,7 @@ describe("the query builder", () => {
 });
 
 describe("query result views", () => {
-  async function withResult(): Promise<Harness> {
+  async function withResult(markdown = "Ship the builder"): Promise<Harness> {
     const harness = await mountPage();
     await createQuery(harness);
     harness.port.queryResult = {
@@ -175,7 +175,7 @@ describe("query result views", () => {
           },
           text: {
             kind: "literal",
-            value: "Ship the builder",
+            value: markdown,
             datatype: "http://www.w3.org/2001/XMLSchema#string",
           },
           page: {
@@ -196,7 +196,7 @@ describe("query result views", () => {
       page_id: "home",
       parent: null,
       index: 1,
-      markdown: "Ship the builder",
+      markdown,
     });
     return harness;
   }
@@ -216,6 +216,18 @@ describe("query result views", () => {
     // page's name, not as its entity IRI.
     expect(within(table).getByRole("button", { name: "Ship the builder" })).toBeInTheDocument();
     expect(within(table).getByRole("button", { name: "Home" })).toBeInTheDocument();
+  });
+
+  it("uses the shared compact Markdown projection in table and list results", async () => {
+    await withResult("Ship **the builder**");
+    const user = userEvent.setup();
+
+    const table = await screen.findByTestId("query-table");
+    expect(within(table).getByText("the builder").tagName).toBe("STRONG");
+
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
+    const list = await screen.findByTestId("query-list");
+    expect(within(list).getByText("the builder").tagName).toBe("STRONG");
   });
 
   it("hides a column into the saved view, so the choice survives a reload", async () => {

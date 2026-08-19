@@ -71,6 +71,16 @@ the authoritative core event while preserving the selection. Structural commands
 cross CorePort immediately and may render optimistically only when the inverse
 is known.
 
+Inactive blocks with Markdown syntax use the shared CommonMark reading projection;
+activating non-interactive rendered content restores the existing source textarea.
+Plain text may stay on the textarea fast path because its projection is identical.
+The renderer is disposable client state: it never persists an AST or HTML, and it
+does not infer properties, tags, tasks, references, or other graph semantics. Raw
+HTML is not interpreted, external images never load, and links pass through the
+profile's protocol allowlist. Query content cells reuse the same policy through a
+compact phrasing-only projection. See
+[`markdown-rendering.md`](markdown-rendering.md).
+
 Builder-authored block query results reuse that text intent and the shared
 property/tag controls through a query-level edit coordinator. The coordinator
 hydrates only the active result's page, owns one draft across Table/List view
@@ -180,6 +190,7 @@ app/                composition, routing, lifecycle
 features/           graph, outline, query, task, settings, and navigation UI
 features/commands/  registry, bindings, arbitration, palette, shortcut sheet
 features/history/   semantic undo/redo routing and reveal coordination
+features/markdown/  safe block and compact Markdown reading projections
 features/notify/    transient failure reporting
 features/sync/      remote API, credentials, transport, membership, presence
 entities/           view models and browser-local settings

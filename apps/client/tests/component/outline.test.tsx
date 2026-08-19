@@ -31,6 +31,24 @@ async function mountOutline(markdowns: string[] = ["alpha"]) {
 }
 
 describe("outliner keyboard commands", () => {
+  it("shows Markdown at rest and restores the source editor on activation", async () => {
+    await mountOutline(["Read **bold** text", "plain"]);
+    const user = userEvent.setup();
+    const [markdownSource, plainSource] = screen.getAllByLabelText("Block text");
+
+    expect(markdownSource).toHaveAttribute("hidden");
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+
+    await user.click(screen.getByTestId("block-markdown"));
+    expect(markdownSource).not.toHaveAttribute("hidden");
+    expect(markdownSource).toHaveFocus();
+    expect(markdownSource).toHaveValue("Read **bold** text");
+
+    await user.click(plainSource);
+    await waitFor(() => expect(markdownSource).toHaveAttribute("hidden"));
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+  });
+
   it("flushes text edits as splices on blur", async () => {
     const { session } = await mountOutline(["alpha"]);
     const user = userEvent.setup();

@@ -1775,6 +1775,228 @@ button.chip:focus-visible .chip-glyph .chip-x {
   outline: none;
 }
 
+.outline-input[hidden] {
+  display: none;
+}
+
+/* Markdown is a reading projection of the same source the textarea edits. It
+   occupies exactly the textarea's place in the flex row, so entering or leaving
+   source mode never moves tags, properties, or the outline's thread. */
+.outline-markdown {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 60%;
+  min-height: var(--lh-md);
+  padding: 0 var(--sp-1);
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.outline-text[data-task-status] > .outline-markdown {
+  padding-left: 28px;
+}
+
+.outline-text[data-task-status="done"] > .outline-markdown,
+.outline-text[data-task-status="cancelled"] > .outline-markdown {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+/* ── Markdown content ──
+   User-authored structure uses the product's existing voices: headings take
+   the real section scale, quoted depth borrows the indent thread, and code is
+   the one inset writing surface. No library theme or new decorative palette is
+   allowed into the outline. */
+.block-markdown > :first-child {
+  margin-top: 0;
+}
+
+.block-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.block-markdown p {
+  margin: 0;
+}
+
+.block-markdown p + p,
+.block-markdown p + ul,
+.block-markdown p + ol,
+.block-markdown p + blockquote,
+.block-markdown p + pre,
+.block-markdown ul + p,
+.block-markdown ol + p,
+.block-markdown blockquote + p,
+.block-markdown pre + p {
+  margin-top: var(--sp-2);
+}
+
+.block-markdown .markdown-heading {
+  margin: var(--sp-3) 0 var(--sp-1);
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  font-weight: var(--weight-strong);
+  letter-spacing: 0;
+}
+
+.block-markdown .markdown-heading[data-level="1"] {
+  font-size: var(--text-lg);
+  line-height: var(--lh-lg);
+  letter-spacing: -0.012em;
+}
+
+.block-markdown strong {
+  font-weight: var(--weight-strong);
+}
+
+.block-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.block-markdown a:hover,
+.block-markdown a:focus-visible {
+  outline: none;
+  color: var(--accent-hover);
+  text-decoration-thickness: 2px;
+}
+
+.block-markdown code {
+  padding: 1px var(--sp-1);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  font-weight: var(--weight-normal);
+}
+
+.block-markdown pre {
+  max-width: 100%;
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  white-space: pre;
+}
+
+.block-markdown pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.block-markdown blockquote {
+  margin: var(--sp-2) 0;
+  padding-inline-start: var(--sp-3);
+  box-shadow: inset 1px 0 0 var(--thread);
+  color: var(--ink-2);
+}
+
+.block-markdown ul,
+.block-markdown ol {
+  margin: var(--sp-1) 0;
+  padding-inline-start: var(--sp-5);
+}
+
+.block-markdown li + li {
+  margin-top: var(--sp-0);
+}
+
+.markdown-image-alt,
+.markdown-link-blocked {
+  color: var(--ink-2);
+}
+
+.markdown-image-alt {
+  font-style: italic;
+}
+
+.markdown-thematic-break {
+  margin: var(--sp-2) 0;
+  color: var(--ink-3);
+  text-align: center;
+  letter-spacing: 0.16em;
+}
+
+/* Query cells use the same parser and security profile but keep a phrasing-only
+   DOM. That lets the surrounding cell remain the one edit/open control instead
+   of nesting links or block boxes inside a button. */
+.block-markdown[data-variant="compact"] {
+  display: inline;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.block-markdown[data-variant="compact"] code {
+  padding: 0 var(--sp-0);
+}
+
+.markdown-compact-paragraph + .markdown-compact-paragraph::before,
+.markdown-compact-list + .markdown-compact-paragraph::before,
+.markdown-compact-paragraph + .markdown-compact-list::before {
+  content: " · ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-quote::before {
+  content: "“";
+  color: var(--ink-3);
+}
+
+.markdown-compact-quote::after {
+  content: "”";
+  color: var(--ink-3);
+}
+
+.markdown-compact-list[data-kind="ordered"] {
+  counter-reset: markdown-item;
+}
+
+.markdown-compact-list-item {
+  display: inline;
+}
+
+.markdown-compact-list-item + .markdown-compact-list-item::before {
+  content: " · ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-list[data-kind="unordered"] > .markdown-compact-list-item:first-child::before {
+  content: "• ";
+}
+
+.markdown-compact-list[data-kind="ordered"] > .markdown-compact-list-item {
+  counter-increment: markdown-item;
+}
+
+.markdown-compact-list[data-kind="ordered"] > .markdown-compact-list-item::before {
+  content: counter(markdown-item) ". ";
+}
+
+.markdown-compact-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-compact-break {
+  color: var(--ink-3);
+  letter-spacing: 0.12em;
+}
+
 /* Gathered at the right of the block's own line, not a line beneath it: a
    22px chip inside a 26px text line, padded so the two share a centre. */
 .outline-tags {

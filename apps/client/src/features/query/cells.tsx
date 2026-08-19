@@ -21,6 +21,8 @@ import {
 import type { MessageFunction } from "../../i18n";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
+import { BlockMarkdown } from "../markdown/BlockMarkdown";
+import { hasMarkdownSyntax } from "../markdown/profile";
 
 /** One result row: the terms one solution bound, keyed by variable. */
 export type ResultRow = Record<string, RdfTerm>;
@@ -206,13 +208,16 @@ export function CellValue({
   // nothing written in it still needs an accessible name of its own.
   if (column.source?.kind === "content" && subject && term?.kind === "literal") {
     const empty = term.value.trim().length === 0;
+    const content = hasMarkdownSyntax(term.value)
+      ? <BlockMarkdown markdown={term.value} variant="compact" />
+      : term.value;
     return (
       <EntityLink
         entity={subject}
         context={context}
         name={empty ? context.message("query.openEmptyResult") : undefined}
       >
-        {empty ? <span className="query-empty-cell">—</span> : term.value}
+        {empty ? <span className="query-empty-cell">—</span> : content}
       </EntityLink>
     );
   }
