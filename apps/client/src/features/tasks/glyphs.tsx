@@ -1,12 +1,17 @@
-// Status and priority carried by shape, never by colour.
+// Status and priority carried by shape first, then by colour.
 //
-// DESIGN.md allows exactly one chroma in the interface, so a status set cannot
-// borrow the traffic-light palette other outliners use. Each state is instead a
-// distinct mark inside the same 20px circle language — empty, half-filled,
-// checked, crossed — and priority is a count of filled bars. Every glyph is
-// monochrome `currentColor`, drawn at the outline icon stroke, and always sits
-// beside (or inside the accessible name of) a text label; the shape is a faster
-// read, never the only one.
+// Each state is a distinct mark inside the same 20px circle language — empty,
+// half-filled, checked, crossed — and priority is a count of filled bars, so the
+// set survives monochrome, greyscale printing and any form of colour blindness.
+// Every glyph also sits beside (or inside the accessible name of) a text label.
+//
+// On top of that the state palette gives each step its own tone, keyed off the
+// `data-status-glyph` / `data-priority-glyph` attribute in app.css. Colour is
+// therefore the second reading of a state and never the first, which is what
+// makes it safe: a reader who cannot tell amber from green still has the shape,
+// the label, and the strike through a settled line. `data-plain` opts a glyph
+// out of the tone for the one case that is not a value — the mark that stands
+// beside a *key*'s name in the picker.
 
 import type { SVGProps } from "react";
 

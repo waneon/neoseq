@@ -50,6 +50,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Kbd } from "@/ui/kbd";
+import { useAnchoredPosition } from "@/ui/anchored";
 import { useCommands } from "../commands/context";
 import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
@@ -125,6 +126,12 @@ const PRESENCE_PUBLISH_MS = 150;
 // dispatched in order once each anchor id becomes real. They render
 // optimistically only because the inverse (drop the row) is known.
 const PENDING_PREFIX = "pending-";
+
+// The caret's two menus share one shape and one placement: they open under the
+// line they were typed on, and flip above it when the caret is near the bottom
+// of the window (see `ui/anchored`).
+const MENU_PLACEMENT = { width: 320, minWidth: 260, maxHeight: 320 } as const;
+
 type InputMethod = "keyboard" | "pointer" | "context_menu";
 
 function isPendingId(id: string): boolean {
@@ -2065,11 +2072,7 @@ function TagMenu({
         focusedInput.classList.contains("outline-input")
       ? focusedInput
       : request.anchor;
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(320, Math.max(260, window.innerWidth - 24));
-  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
-  const maxHeight = 320;
-  const top = Math.max(12, Math.min(rect.bottom + 4, window.innerHeight - maxHeight - 12));
+  const position = useAnchoredPosition(anchor, MENU_PLACEMENT, results.length);
 
   useEffect(() => {
     listRef.current
@@ -2082,7 +2085,7 @@ function TagMenu({
       id="tag-suggest-menu"
       ref={listRef}
       className="slash-menu tag-menu"
-      style={{ left, top, width, maxHeight }}
+      style={position}
       role="listbox"
       aria-label={message("tags.menuLabel")}
       data-testid="tag-menu"
@@ -2139,11 +2142,7 @@ function SlashMenu({
         focusedInput.classList.contains("outline-input")
       ? focusedInput
       : request.anchor;
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(320, Math.max(260, window.innerWidth - 24));
-  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
-  const maxHeight = 320;
-  const top = Math.max(12, Math.min(rect.bottom + 4, window.innerHeight - maxHeight - 12));
+  const position = useAnchoredPosition(anchor, MENU_PLACEMENT, results.length);
 
   // The keyboard moves the highlight while the list scrolls to keep it in view;
   // the pointer moves it directly. Same one-highlight rule as the palette.
@@ -2190,7 +2189,7 @@ function SlashMenu({
       id="slash-command-menu"
       ref={listRef}
       className="slash-menu"
-      style={{ left, top, width, maxHeight }}
+      style={position}
       role="listbox"
       aria-label={message("slash.menuLabel")}
       data-testid="slash-menu"

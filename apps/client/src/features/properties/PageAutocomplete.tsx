@@ -6,9 +6,7 @@
 // container and virtualized stacking context (which otherwise clipped it).
 
 import {
-  useCallback,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,6 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
+import { useAnchoredPosition } from "@/ui/anchored";
 import { Input } from "@/ui/shadcn/input";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
@@ -50,7 +49,6 @@ export function PageAutocomplete({
   const [active, setActive] = useState(0);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [anchor, setAnchor] = useState<{ left: number; top: number; width: number } | null>(null);
   const listId = useId();
   const notify = useNotify();
   const { message, compare } = useI18n();
@@ -78,24 +76,13 @@ export function PageAutocomplete({
     return result;
   }, [state.snapshot, query, allowCreate, kind, compare]);
 
-  const reposition = useCallback(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setAnchor({ left: rect.left, top: rect.bottom + 4, width: rect.width });
-  }, []);
-
-  // Keep the portaled list glued to the input while open.
-  useLayoutEffect(() => {
-    if (!open) return;
-    reposition();
-    window.addEventListener("scroll", reposition, true);
-    window.addEventListener("resize", reposition);
-    return () => {
-      window.removeEventListener("scroll", reposition, true);
-      window.removeEventListener("resize", reposition);
-    };
-  }, [open, reposition, options.length]);
+  // The list sizes to its own content between the field's width and 320px, and
+  // it flips above the field when the field sits near the bottom of the window.
+  const position = useAnchoredPosition(
+    open ? inputRef.current : null,
+    { matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 },
+    options.length,
+  );
 
   const pick = async (option: Option) => {
     try {
@@ -173,17 +160,8 @@ export function PageAutocomplete({
         onKeyDown={onKeyDown}
       />
       {open &&
-        anchor &&
         createPortal(
-          <div
-            className="ac-popover"
-            style={{
-              left: anchor.left,
-              top: anchor.top,
-              minWidth: anchor.width,
-              maxWidth: Math.max(anchor.width, 320),
-            }}
-          >
+          <div className="ac-popover" style={position}>
             {options.length === 0 ? (
               <div role="status" className="ac-hint">
                 {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}

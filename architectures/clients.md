@@ -187,7 +187,7 @@ core-port/          session, command builders, DTO mapping, graph lease/director
 generated/          generated CorePort types
 i18n/               typed catalogs, locale runtime, Intl formatters
 lib/                framework-agnostic helpers
-ui/                 design tokens and shared primitives
+ui/                 design tokens, one anchored-panel placement, shared primitives
 ```
 
 Features depend inward on entities, CorePort, i18n, lib, and UI. Cross-feature
@@ -199,11 +199,12 @@ locale, journal timezone/date format, and shortcut overrides. Graph display
 names belong to the browser graph directory; graph content and metadata belong
 to the core.
 
-Shared saved-view definitions, their column layout, and the graph's default view
-belong to the query document, as does the builder plan behind a built query. A
-person's last-opened view remains browser-local until a separate user-private
-preference sync unit exists. Query results, a table's own header sort, selection,
-scroll, loading state, and drafts are session-only.
+Shared saved-view definitions — their column layout and the order the reader put
+the rows in — and the graph's default view belong to the query document, as does
+the builder plan behind a built query. A person's last-opened view remains
+browser-local until a separate user-private preference sync unit exists. Query
+results, selection, scroll, loading state, and drafts are session-only, as is a
+sort chosen on a graph the reader cannot write to.
 
 The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script

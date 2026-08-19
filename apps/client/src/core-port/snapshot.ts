@@ -11,9 +11,21 @@ export interface QueryViewColumn {
   width: number | null;
 }
 
+/**
+ * The order a saved view lays its rows out in — presentation, not semantics: it
+ * reorders the rows the query already returned. The query's own ordering, the
+ * one a `LIMIT` cuts against, lives in the builder's sort row.
+ */
+export interface QueryViewSort {
+  variable: string;
+  descending: boolean;
+}
+
 export interface QueryViewOptions {
   compact: boolean;
   wrap: boolean;
+  /** Absent means the order the query returned. */
+  sort?: QueryViewSort | null;
 }
 
 export interface QueryView {

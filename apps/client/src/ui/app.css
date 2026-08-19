@@ -47,6 +47,11 @@
   --danger: oklch(0.495 0.14 35);
   --danger-soft: color-mix(in oklab, var(--danger) 10%, transparent);
   --ok: oklch(0.5 0.12 150);
+  /* The third tone, and the only one that is not also a verdict: "underway, and
+     it needs you". It is the neutrals' own warm hue taken to chroma, so it reads
+     as this palette rather than as a borrowed traffic light, and it exists for
+     the enumerated task states and nothing else (DESIGN.md § The state palette). */
+  --attention: oklch(0.545 0.13 75);
 
   --scrim: oklch(0.255 0.009 75 / 0.28);
   --rail-edge: color-mix(in oklab, var(--ink) 10%, transparent);
@@ -66,6 +71,21 @@
   --thread: color-mix(in oklab, var(--ink) 8%, transparent);
   --thread-active: color-mix(in oklab, var(--ink) 26%, transparent);
   --halo: color-mix(in oklab, var(--ink) 9%, transparent);
+  /* The state palette. Task status and priority are closed enumerations, so each
+     step can name a tone — and because these are aliases over tones already
+     declared per mode, one declaration serves both. The first step of each set
+     declines a tone and takes the ink around it, so an unstarted task keeps
+     answering hover and focus the way every other glyph does. */
+  --status-todo: currentColor;
+  --status-doing: var(--attention);
+  --status-done: var(--ok);
+  --status-cancelled: var(--danger);
+  --priority-low: currentColor;
+  --priority-medium: var(--attention);
+  --priority-high: var(--danger);
+
+  --scroll-thumb: color-mix(in oklab, var(--ink) 20%, transparent);
+  --scroll-thumb-hover: color-mix(in oklab, var(--ink) 34%, transparent);
   --e1: inset 0 0 0 1px var(--line);
 
   /* type — self-hosted Pretendard first, system faces as resilient fallbacks */
@@ -171,6 +191,7 @@
     --danger: oklch(0.715 0.13 35);
     --danger-soft: color-mix(in oklab, var(--danger) 16%, transparent);
     --ok: oklch(0.76 0.13 150);
+    --attention: oklch(0.795 0.125 78);
 
     --scrim: oklch(0 0 0 / 0.55);
     /* the luminance step separates the rail; a line would read as a drawn box */
@@ -205,6 +226,7 @@
   --danger: oklch(0.715 0.13 35);
   --danger-soft: color-mix(in oklab, var(--danger) 16%, transparent);
   --ok: oklch(0.76 0.13 150);
+  --attention: oklch(0.795 0.125 78);
 
   --scrim: oklch(0 0 0 / 0.55);
   --rail-edge: transparent;
@@ -254,6 +276,55 @@ a:hover {
 
 ::selection {
   background: var(--accent-soft);
+}
+
+/* ── The one scrollbar ──
+   A scroll container is a surface with more to say, not a widget: the platform
+   scrollbar arrived as a grey chrome bar with a filled track and a square thumb,
+   and it was the last piece of foreign UI left in an interface that draws
+   nothing else it did not choose. So the product declares one — here, once,
+   globally — and no component ever declares another. It is the same in the
+   outline, in a menu, in a dialog and on the page itself.
+
+   Thin, no track, an ink-relative thumb that darkens under the pointer. Both
+   modes come free: the thumb is a percentage of `--ink`, so it inverts with it.
+
+   Two declarations, one appearance. The standard properties are what engines
+   that have them use — and Chromium ignores the `::-webkit-scrollbar` rules
+   below whenever they are set — while the pseudo-elements serve the engines
+   that do not, and pay for their extra fidelity with a rounded, inset thumb. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The transparent border plus `padding-box` clipping is what floats the thumb
+   inside the gutter instead of filling it edge to edge. */
+::-webkit-scrollbar-thumb {
+  border: 4px solid transparent;
+  border-radius: var(--r-full);
+  background-color: var(--scroll-thumb);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scroll-thumb-hover);
+}
+
+/* The stepper arrows are a scroll affordance no pointer or key needs. */
+::-webkit-scrollbar-button {
+  display: none;
 }
 
 /* Everything pressable invites the press. Tailwind's preflight leaves buttons
@@ -496,12 +567,16 @@ h2 {
 /* A tag chip is bare text — no fill, no drawn box, no reserved remove slot.
    The whole chip is one button whose only verb is removal, and it announces
    that in place: hover or focus swaps the `#` for an `×` inside the same
-   glyph column, so nothing shifts and no space waits empty. */
+   glyph column, so nothing shifts and no space waits empty.
+
+   It reads at `sm`, not at the `xs` the other chips use, because a tag is not
+   metadata *about* the block — it is a name the reader wrote and navigates by,
+   and at 12px beside 16px body text it read as a footnote to its own line. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  height: var(--slot);
+  height: 22px;
   max-width: 100%;
   padding: 0;
   border: none;
@@ -509,8 +584,9 @@ h2 {
   background: transparent;
   color: var(--ink-2);
   font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
   font-weight: var(--weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -544,8 +620,8 @@ button.chip:focus-visible {
 }
 
 .chip-glyph .chip-x {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   opacity: 0;
   color: var(--danger);
 }
@@ -1700,7 +1776,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* Gathered at the right of the block's own line, not a line beneath it: a
-   20px chip inside a 26px text line, top-padded so the two share a centre. */
+   22px chip inside a 26px text line, padded so the two share a centre. */
 .outline-tags {
   display: flex;
   flex: 0 1 auto;
@@ -1709,15 +1785,67 @@ button.chip:focus-visible .chip-glyph .chip-x {
   gap: var(--sp-1);
   min-width: 0;
   margin-left: auto;
-  padding: 3px var(--sp-1) 3px 0;
+  padding: 2px var(--sp-1) 2px 0;
 }
 
 /* ── The task lens ──
    Property-driven projections stay inside the block's text column: lenses over
    the graph, not detached cards or a second document surface. Status sits at
-   the head of the line as a shape (never a colour — DESIGN.md § Color); the
+   the head of the line as a shape, tinted by the state palette below; the
    remaining task facts are quiet chips underneath, each a pointer route into
    the property picker on its own key. */
+
+/* ── The state palette on a glyph ──
+   Status and priority are closed sets, so each step may name a tone: an empty
+   ring in the glyph ink for `todo`, amber for the one being worked, green for
+   `done`, the danger tone for `cancelled` — and the same three steps for
+   priority. The shape still carries the state on its own, and so does the label
+   beside it and the strike through a settled line, so nothing here is
+   colour-only (§ Colour / the state palette).
+
+   The tone travels as a custom property rather than as `color` directly, so a
+   surface that has its own opinion about glyph ink — the picker's metadata
+   marks — can honour it with one `var()` fallback instead of a specificity
+   fight. */
+[data-status-glyph="todo"] {
+  --glyph-tone: var(--status-todo);
+}
+
+[data-status-glyph="doing"] {
+  --glyph-tone: var(--status-doing);
+}
+
+[data-status-glyph="done"] {
+  --glyph-tone: var(--status-done);
+}
+
+[data-status-glyph="cancelled"] {
+  --glyph-tone: var(--status-cancelled);
+}
+
+[data-priority-glyph="low"] {
+  --glyph-tone: var(--priority-low);
+}
+
+[data-priority-glyph="medium"] {
+  --glyph-tone: var(--priority-medium);
+}
+
+[data-priority-glyph="high"] {
+  --glyph-tone: var(--priority-high);
+}
+
+/* A key's own mark is not one of its values — it names the property — so it
+   declines the tone and takes the ink around it. */
+[data-status-glyph][data-plain],
+[data-priority-glyph][data-plain] {
+  --glyph-tone: initial;
+}
+
+[data-status-glyph],
+[data-priority-glyph] {
+  color: var(--glyph-tone, currentColor);
+}
 
 .task-status-toggle {
   position: absolute;
@@ -2214,18 +2342,30 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* ── The result table ──
    Header separation is luminance, never a rule (§ The three legal lines): the
-   header row sits on --surface-2 in the --ink-3 voice and stays put while the
-   body scrolls under it. */
+   header row sits on --surface-2 in the --ink-3 voice.
+
+   An answer is shown in full. The table used to cap itself at 60vh and scroll
+   its own rows, which put a second scrollbar inside a document that already
+   scrolls and hid how much the query had actually found — the reader had to
+   discover the rest. Only the *sideways* overflow is the table's now: rows run
+   to the end and the page carries them. That is also why the header no longer
+   sticks — with no vertical scrollport of its own there is nothing for it to
+   stick to, and a sticky header per query block on a page of query blocks would
+   be a stack of floating bars. */
 .query-table-wrap {
   max-width: 100%;
-  max-height: 60vh;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
+/* `fixed`, and the widths live in the <colgroup>. Under the auto algorithm a
+   cell's `width` is only a suggestion, so dragging one column's handle made the
+   browser redistribute the difference across its neighbours — the column being
+   dragged was never the only one that moved. */
 .query-table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: max-content;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--text-sm);
@@ -2233,10 +2373,16 @@ button.chip:focus-visible .chip-glyph .chip-x {
   text-align: left;
 }
 
-.query-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+/* The last column is declared with no width, so it takes exactly the space the
+   real columns left over: the table still spans the block when the answer is
+   narrow, and still overflows it — sideways, with a scrollbar — when the reader
+   has widened the columns past the edge. */
+.query-cell-filler {
+  padding: 0;
+}
+
+.query-table thead th,
+.query-table thead .query-cell-filler {
   padding: 0;
   background: var(--surface-2);
   /* The header band is --surface-2, so its 12px text is --ink-2 (§ Contrast). */
@@ -2439,6 +2585,78 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: inherit;
   text-align: inherit;
   cursor: text;
+}
+
+/* ── An editable cell is editable everywhere ──
+   In a table the words are not the target, the cell is. A trigger sized to its
+   own text left most of a column dead: a two-character value in a 180px column
+   answered a press across 20px of it and ignored the other 160, and the reader
+   had to aim at the text to open something the whole cell claimed to be. So an
+   editable cell hands its padding to its control and the control fills the cell,
+   which is also what makes the hover wash read as "this cell", not "these
+   words". */
+.query-table tbody td:has(
+  > .query-edit-trigger,
+  > .query-editable-route,
+  > .query-result-editor
+) {
+  padding: 0;
+}
+
+.query-table tbody td > .query-editable-route {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: stretch;
+}
+
+.query-table tbody td > .query-edit-trigger,
+.query-table tbody td > .query-editable-route > .query-edit-trigger,
+.query-table tbody td > .query-result-editor {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: 0;
+}
+
+/* The route out of the cell floats over its end rather than taking a column of
+   its own, so the press target does not shrink when the pointer arrives; the
+   reserved padding is there at rest, so nothing shifts either. */
+.query-table tbody td > .query-editable-route > .query-edit-trigger {
+  padding-right: var(--sp-6);
+}
+
+.query-table tbody td > .query-editable-route > .query-cell-open {
+  position: absolute;
+  top: var(--sp-1);
+  right: var(--sp-1);
+}
+
+.query-table[data-compact="true"] tbody td > .query-edit-trigger,
+.query-table[data-compact="true"] tbody td > .query-editable-route > .query-edit-trigger,
+.query-table[data-compact="true"] tbody td > .query-result-editor {
+  padding-block: 0;
+}
+
+/* A trigger standing on its own now owns the cell's clipping too — the cell's
+   own `text-overflow` cannot reach text inside a block child. */
+.query-table tbody td > .query-edit-trigger {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The cell gave its padding away; the sentence that shares the cell needs it. */
+.query-table tbody td > .query-result-stale {
+  padding: var(--sp-1) var(--sp-2) 0;
+}
+
+/* And where that sentence is present the control is no longer alone in the cell,
+   so it stops claiming the cell's full height and simply sits under it. */
+.query-table tbody td:has(> .query-result-stale) > .query-editable-route,
+.query-table tbody td:has(> .query-result-stale) > .query-edit-trigger {
+  height: auto;
 }
 
 .query-edit-trigger:hover,
@@ -2778,10 +2996,6 @@ button.query-list-status[data-active="true"] {
   .qb-operator {
     max-width: 100%;
   }
-
-  .query-table-wrap {
-    max-height: 50vh;
-  }
 }
 
 
@@ -2897,11 +3111,14 @@ button.query-list-status[data-active="true"] {
   animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
+/* Height and placement are the anchored positioner's (`ui/anchored`): it hands
+   every summoned panel a `max-height` equal to the room actually left on the
+   side it chose, so the panel scrolls inside itself instead of off-screen. */
 .property-picker {
   display: flex;
-  max-height: min(420px, calc(100dvh - 24px));
   flex-direction: column;
   gap: var(--sp-2);
+  overflow: hidden;
 }
 
 .property-picker-head {
@@ -2991,13 +3208,15 @@ button.query-list-status[data-active="true"] {
 }
 
 /* Type and value glyphs are metadata marks, not actions: they rest at the
-   glyph ink, never the accent (that stays with the existing-value check). */
+   glyph ink, never the accent (that stays with the existing-value check) —
+   unless the row *is* a state, in which case the state's own tone is the point
+   of the row and arrives through `--glyph-tone`. */
 .property-picker-option svg[data-type-glyph],
 .property-picker-option svg[data-status-glyph],
 .property-picker-option svg[data-priority-glyph] {
   width: 16px;
   height: 16px;
-  color: var(--ink-2);
+  color: var(--glyph-tone, var(--ink-2));
 }
 
 .property-picker-candidate {
@@ -3025,6 +3244,8 @@ button.query-list-status[data-active="true"] {
   min-height: 0;
   flex-direction: column;
   gap: var(--sp-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .property-current-value {
@@ -3090,6 +3311,8 @@ button.query-list-status[data-active="true"] {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .tag-picker > strong {
@@ -4296,11 +4519,11 @@ button.query-list-status[data-active="true"] {
 }
 
 /* Portaled so it escapes the outline's scroll container, clipping, and the
-   virtualizer's transformed stacking context. Positioned in viewport space. */
+   virtualizer's transformed stacking context. Placed by `ui/anchored`, which
+   owns its position, its width band and its max-height. */
 .ac-popover {
   position: fixed;
   z-index: var(--z-popover);
-  max-height: 264px;
   margin: 0;
   padding: var(--sp-1);
   border-radius: var(--r-3);

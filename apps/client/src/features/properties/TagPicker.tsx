@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { BlockSnapshot } from "../../core-port/snapshot";
+import { useAnchoredPosition } from "@/ui/anchored";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -23,25 +24,7 @@ export function TagPicker({
   const notify = useNotify();
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: 24, top: 96, width: 340 });
-
-  const reposition = useCallback(() => {
-    const rect = anchor?.getBoundingClientRect();
-    const width = Math.min(340, Math.max(280, window.innerWidth - 24));
-    const left = Math.max(12, Math.min(rect?.left ?? 24, window.innerWidth - width - 12));
-    const top = Math.max(12, Math.min((rect?.bottom ?? 72) + 6, window.innerHeight - 260));
-    setPosition({ left, top, width });
-  }, [anchor]);
-
-  useLayoutEffect(() => {
-    reposition();
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-    };
-  }, [reposition]);
+  const position = useAnchoredPosition(anchor, { width: 340, minWidth: 280, maxHeight: 320 });
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {

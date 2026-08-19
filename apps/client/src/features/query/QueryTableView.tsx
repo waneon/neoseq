@@ -1,10 +1,20 @@
 // The table view.
 //
-// Column order, width, and visibility are the reader's, and they persist in the
-// saved view so the shape of a table survives a reload and reaches everyone on
-// the graph. Sorting is not: a header click reorders what is already on screen
-// (DESIGN.md § Query block — switching views changes only presentation), while
-// the query's own order lives in the builder's Sort row.
+// Column order, width, visibility **and sort** are the reader's, and they persist
+// in the saved view so the shape of a table survives a reload and reaches
+// everyone on the graph. Sort is presentation like the rest of them: it reorders
+// what is already on screen, while the query's own order — the one a `LIMIT` cuts
+// against — lives in the builder's Sort row. A reader on a read-only graph can
+// still sort; there is simply nowhere to write the choice, so it lasts as long as
+// the block is mounted.
+//
+// Widths are declared once, in a `<colgroup>`, on a `table-layout: fixed` table.
+// That is the whole fix for a defect the auto table algorithm caused: `width` on
+// a cell is only a *suggestion* to it, so dragging one column's handle made the
+// browser redistribute the difference across every other column. A fixed table
+// honours the declared width exactly, and a final `<col>` with no width absorbs
+// whatever space is left over — which is also what lets the table exceed its
+// container and scroll sideways instead of squeezing its columns.
 //
 // TanStack Table owns the models — order, sizing, visibility, sorting — and this
 // file owns every pixel, because the design system, not a library's stylesheet,
@@ -36,6 +46,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
+import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
 import {
   cellText,
@@ -67,6 +78,8 @@ export function QueryTableView({
   pinnedRowKey,
   compact,
   wrap,
+  sort,
+  onSort,
   onResize,
   onHide,
   onMove,
@@ -78,13 +91,24 @@ export function QueryTableView({
   pinnedRowKey?: string;
   compact: boolean;
   wrap: boolean;
+  /** The order saved in the view. */
+  sort?: QueryViewSort | null;
+  /** Persist a header click. Absent while the graph is read-only. */
+  onSort?: (sort: QueryViewSort | null) => void;
   /** Persist a dragged width. Absent while the graph is read-only. */
   onResize?: (variable: string, width: number) => void;
   onHide?: (variable: string) => void;
   onMove?: (variable: string, delta: -1 | 1) => void;
 }) {
   const { message } = useI18n();
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // Reading is never read-only: without somewhere to persist the choice, the
+  // sort simply lives here for as long as the block is mounted.
+  const [localSort, setLocalSort] = useState<QueryViewSort | null>(null);
+  const effectiveSort = onSort ? (sort ?? null) : localSort;
+  const sorting = useMemo<SortingState>(
+    () => (effectiveSort ? [{ id: effectiveSort.variable, desc: effectiveSort.descending }] : []),
+    [effectiveSort],
+  );
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
@@ -108,18 +132,44 @@ export function QueryTableView({
     columns: definitions,
     getRowId: (row) => row.key,
     state: { sorting },
-    onSortingChange: setSorting,
+    // One sorted column: the saved view holds one order, and a table whose
+    // header clicks silently accumulate is a table nobody can read back.
+    enableMultiSort: false,
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      const first = next[0];
+      const chosen = first ? { variable: first.id, descending: first.desc } : null;
+      if (onSort) onSort(chosen);
+      else setLocalSort(chosen);
+    },
     columnResizeMode: "onChange",
     enableColumnResizing: Boolean(onResize),
   });
 
   const byVariable = new Map(columns.map((column) => [column.variable, column]));
+  const headers = table.getHeaderGroups();
 
   return (
     <div className="query-table-wrap" data-testid="query-table">
-      <table className="query-table" data-compact={compact} data-wrap={wrap}>
+      <table
+        className="query-table"
+        data-compact={compact}
+        data-wrap={wrap}
+        // The filler column is layout, not data: it carries no heading and holds
+        // no value, so the count of real columns is stated for assistive
+        // technology rather than counted off the DOM.
+        aria-colcount={columns.length}
+      >
+        <colgroup>
+          {headers[0]?.headers.map((header) => (
+            <col key={header.id} style={{ width: header.getSize() }} />
+          ))}
+          {/* Takes whatever width the declared columns did not, so a narrow
+              result still fills the block and a wide one still overflows it. */}
+          <col className="query-col-filler" />
+        </colgroup>
         <thead>
-          {table.getHeaderGroups().map((group) => (
+          {headers.map((group) => (
             <tr key={group.id}>
               {group.headers.map((header, index) => {
                 const column = byVariable.get(header.column.id);
@@ -128,7 +178,7 @@ export function QueryTableView({
                   <th
                     key={header.id}
                     scope="col"
-                    style={{ width: header.getSize() }}
+                    aria-colindex={index + 1}
                     data-numeric={column?.numeric || undefined}
                     aria-sort={
                       direction === "asc"
@@ -250,6 +300,7 @@ export function QueryTableView({
                   </th>
                 );
               })}
+              <td className="query-cell-filler" aria-hidden />
             </tr>
           ))}
         </thead>
@@ -265,7 +316,7 @@ export function QueryTableView({
                 return (
                   <td
                     key={cell.id}
-                    style={{ width: cell.column.getSize() }}
+                    aria-colindex={cellIndex + 1}
                     data-numeric={column?.numeric || undefined}
                   >
                     {cellIndex === 0 && row.original.key === pinnedRowKey && (
@@ -286,6 +337,7 @@ export function QueryTableView({
                   </td>
                 );
               })}
+              <td className="query-cell-filler" aria-hidden />
             </tr>
           ))}
         </tbody>

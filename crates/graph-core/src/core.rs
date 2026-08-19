@@ -3549,7 +3549,7 @@ fn map_bool(map: &LoroMap, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::{CommandId, LocalDate};
+    use domain::{CommandId, LocalDate, QueryViewSort};
 
     fn graph() -> GraphId {
         GraphId::new("test-graph").unwrap()
@@ -4027,6 +4027,10 @@ mod tests {
                         options: QueryViewOptions {
                             compact: true,
                             wrap: false,
+                            sort: Some(QueryViewSort {
+                                variable: "status".into(),
+                                descending: true,
+                            }),
                         },
                     },
                 },
@@ -4054,6 +4058,13 @@ mod tests {
         assert_eq!(table.columns[0].width, Some(240));
         assert!(table.columns[1].hidden);
         assert!(table.options.compact);
+        let sort = table
+            .options
+            .sort
+            .as_ref()
+            .expect("sort survived the round trip");
+        assert_eq!(sort.variable, "status");
+        assert!(sort.descending);
     }
 
     #[test]

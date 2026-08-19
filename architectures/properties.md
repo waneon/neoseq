@@ -78,11 +78,16 @@ and writing source by hand clears the plan, so a stored plan always describes
 what runs.
 
 `columns` is a per-view ordered list of `{variable, hidden, width}` records, and
-`options` carries presentation switches (`compact`, `wrap`). Both decode
-leniently: a variable a view has never seen stays visible at its natural
-position, and an unreadable options record falls back to defaults. The current
-built-in views are `table` and `list`. Additional saved views use the same
-record contract rather than adding property keys or storage roots.
+`options` carries presentation switches (`compact`, `wrap`, and an optional
+`sort` of `{variable, descending}`). Both decode leniently: a variable a view has
+never seen stays visible at its natural position, an unreadable options record
+falls back to defaults, and a switch a reader does not know is ignored rather
+than rejected — which is what lets one replica add a switch without invalidating
+the document for another. A `sort` naming a variable the view no longer lists is
+valid and simply stops applying, so narrowing a query never makes its saved view
+unreadable. The current built-in views are `table` and `list`. Additional saved
+views use the same record contract rather than adding property keys or storage
+roots.
 
 ## Owners and Commands
 

@@ -14,7 +14,7 @@ pub use ids::{
 pub use model::{
     BlockSnapshot, Command, CommandEnvelope, CommandResult, EntityId, GraphSnapshot, GraphSummary,
     HistoryEffect, HistoryScope, OutlineItem, PageSnapshot, PageSummary, PropertyOwner, QueryView,
-    QueryViewColumn, QueryViewKind, QueryViewOptions, SplitPlacement, TagSnapshot,
+    QueryViewColumn, QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement, TagSnapshot,
 };
 pub use property::{
     Cardinality, DocumentSpec, PropertyAccess, PropertyBag, PropertyDocument,

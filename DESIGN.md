@@ -24,6 +24,7 @@ colors:
     on-accent: "oklch(1 0 0)"                   # #ffffff
     danger: "oklch(0.495 0.140 35)"             # #a23c23
     ok: "oklch(0.500 0.120 150)"                # #21763c
+    attention: "oklch(0.545 0.130 75)"          # #9b6200 — the warm neutral hue, at chroma
     scrim: "oklch(0.255 0.009 75 / 0.28)"
   dark:
     canvas: "oklch(0.175 0.004 78)"             # #11100f
@@ -40,6 +41,7 @@ colors:
     on-accent: "oklch(0.155 0.004 78)"
     danger: "oklch(0.715 0.130 35)"             # #e8836a
     ok: "oklch(0.760 0.130 150)"                # #6fc884
+    attention: "oklch(0.795 0.125 78)"          # #e8b257
     scrim: "oklch(0 0 0 / 0.55)"
 
   # Derived — one declaration, both modes, because they are ink-relative.
@@ -51,6 +53,19 @@ colors:
     halo: "9% ink"             # ring behind a collapsed bullet
     accent-soft: "10% accent (light) / 18% accent (dark)"
     danger-soft: "10% danger (light) / 16% danger (dark)"
+    scroll-thumb: "20% ink"          # the one scrollbar — see § The one scrollbar
+    scroll-thumb-hover: "34% ink"
+
+  # The state palette — aliases only, so the tones stay declared once per mode.
+  # See § The state palette for the four rules that keep this from decorating.
+  state:
+    status-todo: "currentColor"       # it declines a tone
+    status-doing: "{attention}"
+    status-done: "{ok}"
+    status-cancelled: "{danger}"
+    priority-low: "currentColor"
+    priority-medium: "{attention}"
+    priority-high: "{danger}"
 
 typography:
   family-sans: "\"Pretendard Variable\", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, \"Helvetica Neue\", \"Segoe UI\", \"Apple SD Gothic Neo\", \"Noto Sans KR\", \"Malgun Gothic\", sans-serif"
@@ -58,8 +73,8 @@ typography:
   features: "\"lnum\", \"locl\", \"cv11\""
   optical-sizing: auto
   # Five sizes. Nothing else exists. Weight never exceeds 600.
-  xs:  { size: 12px, line: 16px, track: 0em,       weight: 550 }   # metadata, chips, badges
-  sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 500 }   # UI default — nav, buttons, inputs, menus
+  xs:  { size: 12px, line: 16px, track: 0em,       weight: 550 }   # metadata, task/property chips, badges
+  sm:  { size: 14px, line: 20px, track: -0.005em,  weight: 500 }   # UI default — nav, buttons, inputs, menus, tag chips
   md:  { size: 16px, line: 26px, track: 0em,       weight: 500 }   # block text and page body
   lg:  { size: 19px, line: 25px, track: -0.012em,  weight: 600 }   # section headings (real <h2>)
   xl:  { size: 33px, line: 40px, track: -0.019em,  weight: 600 }   # page and journal titles (<h1>)
@@ -189,9 +204,11 @@ allowed to be decorative.
 step in lightness rather than by borders, so a panel reads as a change in depth
 instead of a drawn box. Self-hosted Pretendard gives Korean and Latin writing one
 consistent voice across platforms. One colour — an ink indigo — carries every action,
-link, caret, and structural drop, and it is the only
-chroma in the interface. Both a light and a dark mode ship from a single token
-declaration, because a tool you write in at night is a tool you write in at night.
+link, caret, and structural drop, and it is the only chroma the *chrome* has. Colour
+never decorates and never groups; it only names a state, and the four tones that do
+(`--accent`, `--ok`, `--danger`, `--attention`) are each argued for one at a time.
+Both a light and a dark mode ship from a single token declaration, because a tool you
+write in at night is a tool you write in at night.
 
 **Chrome is small, named, and permanent.** The parts of the interface that are always
 visible were chosen one at a time and are listed in [Disclosure](#disclosure). Every
@@ -208,7 +225,7 @@ opens the palette's own contents for a user who has not met `⌘K` yet.
 - Luminance-only separation; exactly three 1px lines exist in the entire product
 - Two complete modes from one declaration — hue and chroma fixed, only lightness moves
 - Pretendard Variable at five sizes, weight capped at 600, tracking in `em` and only above 19px
-- One accent, ink indigo, and no second structural colour ever
+- One accent, ink indigo, and no second structural colour ever; four state tones, each argued
 - A mono voice reserved for identifiers: property keys, graph ids
 - Silence in the steady state; the interface speaks only on deviation
 - Nothing below the last block is chrome
@@ -227,6 +244,9 @@ opens the palette's own contents for a user who has not met `⌘K` yet.
 4. **One signal per state.** Active is a fill *or* a rule *or* a weight — never all
    three. Focus is component-owned luminance, caret, glyph, thread, or selection;
    a global browser-style outline is never added on top.
+   The one place a second signal is *required* rather than banned is colour: a state
+   may be tinted only where a shape, a label, or a word already says the same thing,
+   so nothing in the product is ever colour-only (§ The state palette).
 5. **Every capability has one canonical command and one pointer route.** A user who
    never learns a shortcut loses speed, never capability. This is enforced by a test.
    A palette row counts as that route only because the palette itself has a permanent
@@ -272,11 +292,51 @@ theme — the single most common tell of a web app that only pretends to have a 
 | `--ink-2` | Secondary text: nav rows, property values, menu items, hints. |
 | `--ink-3` | Metadata, placeholders, group headers, resting icon glyphs. |
 | `--accent` | Links, the primary action, carets, selection/drop state, and the active thread. Nothing else. |
-| `--danger` | Destructive verbs and the unsaved state. Never a fill behind body text. |
-| `--ok` | The one affirmative indicator (persistent-storage granted). A dot, not a fill. |
+| `--danger` | Destructive verbs, the unsaved state, and the last step of a state set. Never a fill behind body text. |
+| `--ok` | Affirmative indicators: persistent storage granted, a task done. A dot or a glyph, never a fill. |
+| `--attention` | "Underway, and it needs you" — the middle step of a state set, and nothing else. A glyph tone. |
 
 There is no second structural accent, and no decorative palette. If a future feature
-needs to distinguish categories, it distinguishes them by shape, position, or label.
+needs to distinguish **categories**, it distinguishes them by shape, position, or
+label — colour is for states, which are closed and ordered, not for categories, which
+are neither.
+
+### The state palette
+
+Task status and priority are closed, ordered enumerations, and that is the whole
+licence: with four statuses and three priorities there is a tone per step and no risk
+of a palette growing to meet a taxonomy. Each set is an alias layer, so the tones stay
+the ones already declared per mode:
+
+| Step | Token | Resolves to |
+|---|---|---|
+| `todo`, `low` | `--status-todo`, `--priority-low` | `currentColor` — it declines a tone |
+| `doing`, `medium` | `--status-doing`, `--priority-medium` | `--attention` |
+| `done` | `--status-done` | `--ok` |
+| `cancelled`, `high` | `--status-cancelled`, `--priority-high` | `--danger` |
+
+Four rules hold this in place, and they are what make it safe rather than decorative.
+
+1. **The shape says it first.** The tone rides a glyph that already distinguishes the
+   state on its own — an empty ring, a half-filled one, a check, a cross; one, two or
+   three filled bars — and that glyph always sits beside a label or inside an
+   accessible name. Nothing in the set is legible *only* in colour, so greyscale,
+   monochrome printing and every form of colour blindness lose the second reading and
+   keep the first. This is the § Accessibility Contract's rule, not an exception to it.
+2. **The first step declines a tone.** `todo` and `low` take the ink around them, which
+   is how an unstarted task keeps answering hover and focus the way every other glyph
+   does — and how "nothing has happened yet" stays quiet rather than being announced in
+   a colour of its own (§ Principles, *silent when steady*).
+3. **Chrome never takes a state tone**, and a state tone never becomes a fill, a pill,
+   or a row background. It colours a glyph, at glyph size, and stops there.
+4. **A key's mark is not a value.** The glyph that stands beside `Priority` in the
+   picker is the property's mark, so it opts out (`data-plain`); a red glyph next to
+   the word would name a priority the property does not have.
+
+`--attention` is a **glyph tone**, held to the 3:1 non-text bar and never used for
+text — the same constraint that governs `--ink-3`. It is the neutrals' own warm hue
+(75 light / 78 dark) taken to chroma, which is why it reads as this palette rather
+than as a borrowed traffic light.
 
 ### Contrast — the committed table
 
@@ -292,6 +352,8 @@ contrast, the table is what you consult, not the component.**
 | `--ink-3` | 5.28 | 5.06 | 4.81 | 4.63 | **4.30** |
 | `--accent` | 6.22 | 5.95 | 5.67 | 5.45 | 5.06 |
 | `--danger` | 6.55 | 6.27 | 5.97 | 5.74 | 5.33 |
+| `--ok` | 5.67 | 5.43 | 5.17 | 4.98 | 4.62 |
+| `--attention` | 5.05 | 4.84 | 4.61 | **4.43** | **4.11** |
 
 **Dark**
 
@@ -302,6 +364,8 @@ contrast, the table is what you consult, not the component.**
 | `--ink-3` | 5.54 | 5.31 | 5.02 | 4.91 | **4.48** | **3.95** |
 | `--accent` | 9.03 | 8.65 | 8.17 | 7.99 | 7.30 | 6.44 |
 | `--danger` | 7.44 | 7.13 | 6.74 | 6.59 | 6.02 | 5.31 |
+| `--ok` | 9.70 | 9.29 | 8.78 | 8.58 | 7.84 | 6.92 |
+| `--attention` | 10.28 | 9.85 | 9.30 | 9.10 | 8.31 | 7.33 |
 
 `--on-accent` on `--accent`: 6.22 light / 8.92 dark. On `--danger`: 6.55 / 7.35.
 
@@ -309,6 +373,11 @@ contrast, the table is what you consult, not the component.**
 > `--overlay` only. On `--surface-2` or `--surface-3` it fails AA, so any 12–14px text
 > sitting on a chip, a shortcut badge, a shortcut key, or an active nav row uses
 > `--ink-2`. Text at 24px+, or 19px+ at weight 600, may use `--ink-3` anywhere.
+>
+> `--attention` is bound by the same rule and one more: it is a **glyph** tone. Every
+> figure above clears the 3:1 non-text bar on every surface, which is the bar a 16px
+> glyph is held to; the two bold figures are below AA for body text, so it never carries
+> any.
 
 ---
 
@@ -495,6 +564,29 @@ pills, and — emphatically — no dashed empty states. A chip is not a card: it
 control (it opens the picker on its key), so it wears the control's `--e1` resting
 ring, not a drawn box.
 
+### The one scrollbar
+
+A scroll container is a surface with more to say, not a widget. The platform scrollbar
+arrived as a grey chrome bar with a filled track and a square thumb — the last piece of
+foreign UI in an interface that draws nothing else it did not choose — so the product
+declares its own, **once, globally, in `app.css`'s base layer**, and no component ever
+declares another. It is the same bar in the outline, in a menu, in a dialog, in a result
+table and on the page itself.
+
+- Thin, no track, and a thumb at 20% `--ink` that goes to 34% under the pointer.
+  Ink-relative, so both modes come from the one declaration.
+- Two declarations, one appearance: `scrollbar-width` / `scrollbar-color` for engines
+  that have the standard properties, and the `::-webkit-scrollbar-*` pseudo-elements —
+  which those engines ignore when the standard properties are set — for the ones that
+  do not. The pseudo-element path spends its extra fidelity on a rounded thumb inset
+  from the gutter by a transparent border.
+- `color-scheme: light dark` on the root stays, because it is what makes the *native*
+  scrollbars this product does not own — inside a `<select>`, a date picker — follow
+  the theme anyway.
+- A component may still choose `scrollbar-gutter: stable both-edges` (the outline
+  viewport does) to stop a scrollbar's arrival from shifting the text under the caret.
+  Reserving space is a layout decision; painting the bar is not the component's.
+
 ---
 
 ## Shape
@@ -620,6 +712,9 @@ the rail and palette, stroke width 2.
   the case: `ⓘ` / `✓` / `⚠` at 16px in the tone's own colour, because a 5px coloured disc
   distinguishes "failed" from "done" only for a reader who has learned which colour is
   which, and not at all for one who cannot tell the two apart. See § Toasts.
+- **A glyph may be tinted, but only where its shape already says the same thing.** The
+  status and priority marks are the case, and the rules that keep it honest are in
+  § The state palette. Outside that closed set, glyphs rest at `--ink-3`.
 - **No emoji, and no fullwidth or ASCII glyph standing in for an icon.** v1 shipped a
   U+FF0B FULLWIDTH PLUS as the "add a block" affordance beside a lucide `PlusIcon` for
   the same concept in the rail.
@@ -1142,8 +1237,10 @@ The picker is the only property-writing surface:
 - Existing rows enter directly at the value stage. Repeated values stay individually
   removable, while Clear removes the whole property.
 - A suggested-string key renders its choices as glyph-led rows — task status and
-  priority use their own shape glyphs (§ Tasks) — and a stored value outside the
-  suggested set stays listed, so opening the editor can never silently rewrite it.
+  priority use their own shape glyphs, tinted (§ Tasks) — and a stored value outside the
+  suggested set stays listed, so opening the editor can never silently rewrite it. The
+  glyph beside a *key*'s name in the first stage is the property's own mark and stays
+  untinted (§ The state palette, rule 4).
 - A date value is one field that reads words. The same parser behind the palette's date
   rows resolves `tomorrow`, `aug 15`, `2026-08-15`, `다음 월요일` into a pressable
   preview row; an empty query offers `Today`, `Tomorrow`, `Next week`; and the
@@ -1190,16 +1287,22 @@ positioned control still routes to the same picker.
 - **Status is a shape at the head of the line** — the position a checkbox has held in
   every list tool. One circle language carries the set: empty (`todo`), half-filled
   (`doing`), checked (`done`), crossed (`cancelled`), dashed for a value outside the
-  suggested four. Shape, never colour: DESIGN.md permits one chroma, so the traffic-light
-  status palette other outliners use is not available, and the glyphs must survive
-  monochrome. Clicking the glyph opens the one dropdown (§ Choice) with `menuitemradio`
-  rows and an explicit `Remove status` item.
+  suggested four. **Shape first, then colour**: each step also takes its tone from
+  § The state palette, and the shape alone still carries the state, so the tint is the
+  second reading and never the only one. Clicking the glyph opens the one dropdown
+  (§ Choice) with `menuitemradio` rows and an explicit `Remove status` item.
 - **Done and cancelled are settled**: the block's text strikes through and steps back
-  one ink level. The glyph and the strike agree; neither is the only signal.
+  one ink level. The glyph, its tone, and the strike agree; none of the three is the
+  only signal.
 - **Priority, scheduled, and deadline are quiet chips** under the text, in the chip
-  metrics, each led by its glyph — priority is one to three filled bars — and each a
-  pointer route into the picker on its own key. Dates are written in the user's own
-  journal date format.
+  metrics, each led by its glyph — priority is one to three filled bars, tinted by the
+  same three steps — and each a pointer route into the picker on its own key. Dates are
+  written in the user's own journal date format.
+- **A priority list is offered strongest first.** The registry states its suggested
+  values in the domain's ascending order, which is the right order to store and the
+  wrong order to read: the reason a person opens a priority list is to *raise*
+  something, so `High` is the row nearest the pointer. Status keeps the registry's
+  progression, because that is the order the work moves in.
 - **A missed deadline says so in words.** When a deadline has passed and the status is
   not settled, the chip carries the word `Overdue` in `--danger` ink — a deviation is
   plain, never colour-only, and it falls silent the moment the task settles.
@@ -1216,13 +1319,22 @@ full-width band on `--surface-2`, and results begin immediately below it.
   ghost-button dropdown with radio rows, never a permanent tab strip.
 - Table and List are presentation modes over the same result. Changing one persists
   the query document's shared default view; it never reruns or rewrites the query.
-- Results, loading, errors, selection, scroll position, and a table's own header sort
-  are not saved view data. Switching views changes only the existing result's
-  presentation. Column order, width, and visibility *are* saved view data, because a
-  reader who shapes a table means it to stay shaped.
-- At narrow widths the editor and result keep the outline width. Tables scroll inline;
-  builder rows and list values wrap. Toolbar controls remain one row and the revision
-  yields space first.
+- Results, loading, errors, and selection are not saved view data. Switching views
+  changes only the existing result's presentation. Column **order, width, visibility and
+  sort** *are* saved view data, because a reader who shapes a table means it to stay
+  shaped — a sort that evaporates on reload is a sort the reader has to re-apply every
+  time they open the page, which is the same defect as a width that forgets itself. Sort
+  is still presentation: it reorders the rows the query already returned, while the
+  query's own ordering — the one a `LIMIT` cuts against — lives in the builder's Sort
+  row. On a read-only graph a header click still sorts; there is simply nowhere to write
+  the choice, so it lasts as long as the block is mounted.
+- **An answer is shown in full.** The result never caps its own height and never scrolls
+  its own rows: the document scrolls, as it does for everything else on the page. A
+  second scrollbar inside a surface that already scrolls hides how much the query found
+  and makes the reader discover the rest.
+- At narrow widths the editor and result keep the outline width. The table scrolls
+  **sideways** and only sideways; builder rows and list values wrap. Toolbar controls
+  remain one row and the revision yields space first.
 
 #### The builder
 
@@ -1252,13 +1364,23 @@ dropdown (§ Choice) at the same 32px form metric as every other field.
 #### The result table
 
 - Headings separate from the body by luminance and ink, never a rule: the header row
-  is `--surface-2` in the 12px `--ink-3` voice and stays put while the body scrolls.
+  is `--surface-2` in the 12px `--ink-2` voice. It does not stick, because the table has
+  no vertical scrollport of its own to stick to, and a sticky header per query block on
+  a page of query blocks would be a stack of floating bars.
 - A heading **is** the sort control and carries no button chrome at rest, because a
   row of headings that all look like buttons reads as a toolbar. Its overflow menu
   holds sort, move, hide, and reset-width, each with a keyboard route.
 - The width handle is the only vertical line in a table and it is `--thread`, so it
   reads as the seam between two columns rather than as a drawn cell border. It is a
   `separator` with a value, so `←`/`→` resize it without a pointer.
+- **Dragging one column resizes one column.** Widths are declared in a `<colgroup>` on a
+  fixed-layout table, so a declared width is honoured exactly rather than treated as a
+  suggestion the auto algorithm may redistribute across its neighbours. A final column
+  with no declared width absorbs the slack: the table still spans the block when the
+  answer is narrow, and overflows it — sideways, with the product's own scrollbar — once
+  the reader has widened the columns past the edge. It carries no heading and no value,
+  so the count of real columns is stated with `aria-colcount` rather than counted off
+  the DOM.
 - Cells read as what the query asked for: a page or block cell is a route to the thing
   it names, a date is in the reader's own journal format, a task status keeps its
   shape glyph, tags are chips, and numbers align to the end of their column in tabular
@@ -1269,6 +1391,12 @@ dropdown (§ Choice) at the same 32px form metric as every other field.
   replaces only that value with its native text, choice, property, or tag control.
   A small hover-revealed arrow beside editable block text retains the route to the
   block's document. Aggregates, relations, and hand-written SPARQL stay plain.
+- **In a table the target is the cell, not the words.** An editable cell hands its
+  padding to its control and the control fills the cell, so a two-character value in a
+  180px column answers a press anywhere across it — and so the raised fill reads as
+  *this cell* rather than as *these words*. The route-out arrow floats over the cell's
+  end on reserved padding, so the press target neither shrinks nor shifts when the
+  pointer arrives.
 
 #### The result list
 
@@ -1445,6 +1573,27 @@ ancestor (the virtualized outline is all three) cannot escape with `z-index` alo
 on the one `--z-*` scale, which replaces four disagreeing definitions where dialog, menu
 and toast were tied at 50. All dismissible by outside click, `Escape`, and selection.
 
+**Placement is one rule, declared once.** Every surface that hangs off something on
+screen — the slash menu, the tag menu, the property picker, the tag picker, the entity
+autocomplete — is placed by the same function, and it never needs to know how tall the
+panel is:
+
+1. **Below the anchor is the preferred side**, because that is where the reader is
+   already looking. The panel is pinned by its `top` and grows downward.
+2. **When the room below cannot hold it and there is more room above, it flips** and is
+   pinned by its `bottom` instead. A box anchored at the bottom grows upward on its own,
+   which is what removes the measurement, the second layout pass, and the first frame in
+   the wrong place.
+3. **The `max-height` it is given is the room actually left on the side it chose**, so a
+   long list scrolls inside itself rather than off the screen. A panel therefore never
+   declares its own height cap in CSS.
+
+> **Why this is a rule and not five implementations.** It used to be five, each with its
+> own guessed panel height, and every one of them clamped the panel's *top* to
+> `innerHeight − guess`. A caret near the bottom of the window therefore opened its menu
+> hundreds of pixels **above itself**, over the text it was about to change. The bug was
+> not in any one of the five; it was in there being five.
+
 **"Outside click" includes the empty space in the editor**, and that needs stating because
 the largest patch of empty space on the page is also a button (§ The outline, Empty and
 append). A press that begins while something is floating only dismisses; it does not also
@@ -1490,7 +1639,8 @@ parks focus outside the panel and the panel's own handler never runs again.
 Non-negotiable, and partly enforced by CI (axe, wcag2a/wcag2aa, serious + critical, in
 both colour schemes):
 
-1. Contrast follows the committed table. `--ink-3` never touches `--surface-2/3`.
+1. Contrast follows the committed table. `--ink-3` never touches `--surface-2/3`, and
+   `--attention` is a glyph tone held to the 3:1 non-text bar, never used for text.
 2. Focus appearance is component-owned: luminance/resting edge for fields,
    caret/thread for writing surfaces, and the control's existing glyph or selection
    treatment elsewhere. Native global outlines are disabled.
@@ -1498,7 +1648,9 @@ both colour schemes):
    lands on the only landmark.
 4. Real headings. Every section that looks like a heading is one; no uppercase `<span>`
    doing the job, and no `aria-label` duplicating a visible heading.
-5. State is never colour-only and never `title`-only.
+5. State is never colour-only and never `title`-only. Where a state *is* tinted
+   (§ The state palette) a shape, a label, or a word already carries it, so the tint is
+   only ever the second reading.
 6. The tree exposes `aria-expanded` and `aria-activedescendant`; the textarea is the
    single tab stop; every collapse affordance is reachable by keyboard.
 7. Live regions match urgency: `off` when saved, `assertive` when unsaved, `alert` for
@@ -1534,10 +1686,15 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   `@import "./app.css" layer(neoseq)`, so a Tailwind utility can override a bespoke
   class. v1 imported `app.css` unlayered, which meant it silently beat every utility —
   the reason a component had to fight its own card with an inline style.
-- **One owner per token.** `app.css` owns `--r-1..4`, the colour ramp and the type
-  scale. `globals.css` maps them onto shadcn's semantic variables through
-  `@theme inline` and declares nothing of its own. v1 declared `--radius-sm/md/lg/xl`,
-  `--font-sans` and `--color-primary` in *both* files with conflicting values.
+- **One owner per token.** `app.css` owns `--r-1..4`, the colour ramp — including the
+  state palette's aliases and `--scroll-thumb` — and the type scale. `globals.css` maps
+  them onto shadcn's semantic variables through `@theme inline` and declares nothing of
+  its own. v1 declared `--radius-sm/md/lg/xl`, `--font-sans` and `--color-primary` in
+  *both* files with conflicting values.
+- **One place per global.** The product's scrollbar (§ The one scrollbar) and its
+  anchored-panel placement (§ Overlays) are each declared once — in `app.css`'s base
+  layer and in `ui/anchored`. A component that wants either of them uses it; a component
+  that reimplements either is the bug those two sections exist to close.
 - **Class names are namespaced by family and never a bare utility name.** A bespoke
   class must contain a hyphen. v1's `<section className="outline">` collided with
   Tailwind's `outline` utility and drew a 1px black box around the entire outliner.
@@ -1564,6 +1721,13 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Declare every colour in both modes in the same block, and keep hue and chroma fixed.
 - Consult the contrast table before styling text on a tinted surface.
 - Reserve `--accent` for actions, links, carets, selection/drop state and the active thread.
+- Tint a state only where its shape or its label already says the same thing, and only
+  inside a closed, ordered set (§ The state palette).
+- Hang a summoned panel off its anchor with the one placement rule, and let it flip above
+  the anchor rather than clamp itself into the middle of the page.
+- Declare a column's width where the layout will honour it exactly, and give the leftover
+  space a column of its own instead of spreading it across the reader's columns.
+- Make the whole cell the target when the whole cell is editable.
 - Keep chrome at 14px and smaller so the user's 16px writing is the largest 500-weight
   text on screen.
 - Use mono only for identifiers: property keys, shortcut badges, ids.
@@ -1592,7 +1756,10 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 - Don't draw a border to separate two surfaces — that is what lightness is for.
 - Don't ship a dashed empty state, a bordered chip, a bordered status pill, or a card
   inside a card inside a card.
-- Don't introduce a second structural accent, or tint a chrome glyph.
+- Don't introduce a second structural accent, or tint a chrome glyph. A state glyph is
+  not chrome; a nav icon, a toolbar icon and a property *key*'s mark are.
+- Don't tint categories. Colour names a state, and a state set has to be closed and
+  ordered before it earns one.
 - Don't put `--ink-3` on `--surface-2` or `--surface-3`.
 - Don't tune a tracking ramp for a font the app does not actually load, and don't set
   tracking in `px` on a size that clamps.
@@ -1623,3 +1790,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
   don't let a fixed notification region take a click while it is empty.
 - Don't hide a system property in the property list — it is page info, not page data.
 - Don't declare a design token in two files.
+- Don't style a scrollbar in a component; there is one, and it is already declared.
+- Don't cap a result's height so it scrolls inside a document that already scrolls, and
+  don't put a second vertical scrollbar inside the content column.
+- Don't write a fifth copy of "position this panel near that element" with a guessed
+  panel height in it.

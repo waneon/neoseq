@@ -28,6 +28,7 @@ import type {
   BlockSnapshot,
   QueryView,
   QueryViewColumn,
+  QueryViewSort,
 } from "../../core-port/snapshot";
 import { queryDocument } from "../../core-port/snapshot";
 import {
@@ -265,6 +266,12 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     putView({ ...activeView, columns: dedupe(next) });
   };
 
+  // A header click is one command, not a debounced stream: the reader clicked
+  // once and expects the order to be theirs from then on.
+  const setSort = (sort: QueryViewSort | null) => {
+    putView({ ...activeView, options: { ...activeView.options, sort } });
+  };
+
   const moveColumn = (variable: string, delta: -1 | 1) => {
     const order = viewColumnOrder(activeView, columns);
     const index = order.findIndex((column) => column.variable === variable);
@@ -483,6 +490,8 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             pinnedRowKey={pinnedRow?.key}
             compact={activeView.options.compact}
             wrap={activeView.options.wrap}
+            sort={activeView.options.sort}
+            onSort={readonly ? undefined : setSort}
             onResize={readonly
               ? undefined
               : (variable, width) => setColumn(variable, { width: width || null })}

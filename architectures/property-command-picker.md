@@ -140,8 +140,11 @@ adapter-owned state.
 Value controls are selected from the property type and definition:
 
 - allowed strings and checkboxes use explicit choice rows; the task status and
-  priority keys lead their rows with the shared shape glyphs and localized
-  labels, and a stored value outside the offered set stays listed;
+  priority keys lead their rows with the shared shape glyphs, tinted by the state
+  palette, and localized labels, and a stored value outside the offered set stays
+  listed. Offer order is a presentation decision made in `entities/tasks.ts`, not
+  a registry one: status keeps the registry's ascending progression and priority
+  is offered strongest-first;
 - strings and numbers use text inputs with explicit commit;
 - dates use one natural-language field (the palette's `parseDateQuery`) whose
   resolved day is a pressable preview row, quick rows for today / tomorrow /
@@ -151,7 +154,8 @@ Value controls are selected from the property type and definition:
 - repeated values show individually removable members plus whole-key clear.
 
 Candidate and type rows lead with a glyph — the feature's own mark for a
-builtin key, the value-type glyph otherwise. Keys present through
+builtin key, the value-type glyph otherwise. A key's mark is untinted, because it
+stands for the property rather than for a value the property holds. Keys present through
 `property-display.tsx`: a builtin key shows its localized product name, a user
 key shows its bare name in the mono voice, and a bare query creates
 `user.<name>` so the storage prefix is never typed or read. Every surface that
@@ -159,8 +163,13 @@ prints a key (picker, block chips, page strip) goes through the same module.
 
 The picker is portaled to `document.body` and positioned in viewport space from
 the invoking element. This avoids clipping by the scroll container and the
-virtualizer's transformed rows. Outside press, `Escape`, or a successful command
-closes it. Closing restores focus to the invoking element when it still exists.
+virtualizer's transformed rows. Placement itself is not the picker's own: every
+anchored panel in the client — this picker, the tag picker, the slash and tag
+menus, `PageAutocomplete` — goes through `ui/anchored`, which prefers the space
+below the anchor, pins the panel by its `bottom` and lets it grow upward when the
+space below cannot hold it, and caps its height at the room actually available on
+the side it chose. Outside press, `Escape`, or a successful command closes it.
+Closing restores focus to the invoking element when it still exists.
 
 ### Property and Tag Presentation
 

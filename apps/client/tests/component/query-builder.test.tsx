@@ -235,6 +235,41 @@ describe("query result views", () => {
     );
   });
 
+  it("keeps a header sort in the saved view, so the order survives a reload", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+
+    const table = await screen.findByTestId("query-table");
+    // The heading *is* the sort control, so its name is the column's name.
+    const heading = () => within(table).getByRole("button", { name: "Text", exact: true });
+    await user.click(heading());
+
+    await waitFor(() => {
+      const view = storedQuery(harness)?.views.find((item) => item.id === "table");
+      expect(view?.options.sort).toEqual({ variable: "text", descending: false });
+    });
+    // The header states the order it is in, so the saved fact and the announced
+    // one cannot disagree.
+    await waitFor(() =>
+      expect(within(table).getByRole("columnheader", { name: /Text/ }))
+        .toHaveAttribute("aria-sort", "ascending"),
+    );
+
+    await user.click(heading());
+    await waitFor(() => {
+      const view = storedQuery(harness)?.views.find((item) => item.id === "table");
+      expect(view?.options.sort).toEqual({ variable: "text", descending: true });
+    });
+  });
+
+  it("declares its real column count, so the width-absorbing filler is not a column", async () => {
+    await withResult();
+    const wrap = await screen.findByTestId("query-table");
+    const table = within(wrap).getByRole("table");
+    expect(table).toHaveAttribute("aria-colcount", "2");
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(2);
+  });
+
   it("renders the list view as outline rows", async () => {
     const harness = await withResult();
     const user = userEvent.setup();

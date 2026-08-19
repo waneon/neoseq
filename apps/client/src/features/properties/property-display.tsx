@@ -74,10 +74,13 @@ export function TypeGlyph({ type }: { type: PropertyValueType | undefined }) {
  */
 export function propertyGlyph(key: string, valueType?: PropertyValueType): ReactNode {
   switch (key) {
+    // `data-plain` because these stand for the *key*, not for a value it holds:
+    // a red "high" glyph beside the word "Priority" would name a priority the
+    // property does not have (app.css § The state palette on a glyph).
     case TASK_STATUS_KEY:
-      return <TaskStatusGlyph status="todo" />;
+      return <TaskStatusGlyph status="todo" data-plain />;
     case TASK_PRIORITY_KEY:
-      return <PriorityGlyph priority="high" />;
+      return <PriorityGlyph priority="high" data-plain />;
     case TASK_SCHEDULED_KEY:
       return <CalendarIcon data-type-glyph aria-hidden />;
     case TASK_DEADLINE_KEY:

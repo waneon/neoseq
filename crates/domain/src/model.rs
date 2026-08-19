@@ -194,9 +194,23 @@ pub struct QueryViewColumn {
     pub width: Option<u32>,
 }
 
+/// The order a saved view lays its rows out in.
+///
+/// Presentation, not semantics: it reorders the rows the query already returned,
+/// which is why it lives beside the other view switches and not in the plan. The
+/// query's own ordering — the one that decides which rows a `LIMIT` keeps — stays
+/// in the builder's sort row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryViewSort {
+    /// The result variable the rows are ordered by.
+    pub variable: String,
+    #[serde(default)]
+    pub descending: bool,
+}
+
 /// Presentation switches that belong to one saved view rather than to the
 /// query. They never change which rows or values the query returns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct QueryViewOptions {
     /// Table rows at the outline's own row height instead of a roomier one.
     #[serde(default)]
@@ -204,6 +218,10 @@ pub struct QueryViewOptions {
     /// Let cell text wrap instead of truncating on one line.
     #[serde(default)]
     pub wrap: bool,
+    /// How the reader has ordered what is on screen. Absent means the order the
+    /// query returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<QueryViewSort>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

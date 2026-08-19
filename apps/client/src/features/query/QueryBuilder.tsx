@@ -16,6 +16,7 @@ import { Input } from "@/ui/shadcn/input";
 import { MenuSelect, type MenuSelectOption } from "@/ui/menu-select";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import { isGenericProperty, stringChoicesOf } from "../../entities/properties";
+import { offeredChoices } from "../../entities/tasks";
 import {
   aggregatesFor,
   appendNode,
@@ -603,7 +604,9 @@ function Operand({
     );
   }
 
-  const choices = field.kind === "property" ? stringChoicesOf(field.key) : [];
+  const choices = field.kind === "property"
+    ? offeredChoices(field.key, stringChoicesOf(field.key))
+    : [];
   if (choices.length > 0) {
     const current = value.type === "text" ? value.value : "";
     const options = current && !choices.includes(current) ? [current, ...choices] : choices;
@@ -653,7 +656,9 @@ function ValueListEditor({
   const [draft, setDraft] = useState("");
   const members = condition.value?.type === "list" ? condition.value.values : [];
   const type = fieldType(condition.field);
-  const choices = condition.field.kind === "property" ? stringChoicesOf(condition.field.key) : [];
+  const choices = condition.field.kind === "property"
+    ? offeredChoices(condition.field.key, stringChoicesOf(condition.field.key))
+    : [];
 
   const setMembers = (next: string[]) =>
     onChange({ ...condition, value: { type: "list", values: next.slice(0, PLAN_ANY_OF_MAX) } });

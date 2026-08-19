@@ -1,8 +1,6 @@
 import {
-  useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,7 +26,8 @@ import {
   VALUE_TYPES,
 } from "../../entities/properties";
 import { addDays, todayLocalDate } from "../../entities/journal";
-import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
+import { offeredChoices, TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
+import { useAnchoredPosition } from "@/ui/anchored";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { moveOptionFocus } from "@/ui/listbox";
@@ -90,7 +89,6 @@ export function PropertyPicker({
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [position, setPosition] = useState({ left: 24, top: 96, width: 360 });
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
@@ -110,25 +108,12 @@ export function PropertyPicker({
     || selectedUnsupported
     || (key !== null && !canUserWrite(key, writeTarget));
 
-  const reposition = useCallback(() => {
-    const rect = anchor?.getBoundingClientRect();
-    const width = Math.min(360, Math.max(280, window.innerWidth - 24));
-    const desiredLeft = rect?.left ?? (window.innerWidth - width) / 2;
-    const left = Math.max(12, Math.min(desiredLeft, window.innerWidth - width - 12));
-    const below = (rect?.bottom ?? 72) + 6;
-    const top = Math.max(12, Math.min(below, window.innerHeight - 420));
-    setPosition({ left, top, width });
-  }, [anchor]);
-
-  useLayoutEffect(() => {
-    reposition();
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-    };
-  }, [reposition, stage]);
+  // A stage change resizes the panel, so it re-places on the way through.
+  const position = useAnchoredPosition(
+    anchor,
+    { width: 360, minWidth: 280, maxHeight: 420 },
+    stage,
+  );
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {
@@ -331,7 +316,7 @@ export function PropertyPicker({
 
   const selectedField = key ? visibleEntries.find((field) => field.key === key) : undefined;
   const selectedValues = selectedField?.values ?? [];
-  const choices = key ? stringChoicesOf(key) : [];
+  const choices = key ? offeredChoices(key, stringChoicesOf(key)) : [];
   // Report a bad key only when it is a dead end — while matches are still on
   // screen the query is a search, not a mistake.
   const queryIssue = stage === "property" && query.trim() && candidates.length === 0

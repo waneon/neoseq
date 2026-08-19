@@ -276,6 +276,19 @@ impl PropertyDocument {
                     "duplicate query view column".to_owned(),
                 ));
             }
+            // A sort names a result variable, and it is bounded exactly as a
+            // column selection is. It is not required to name a variable the
+            // view lists: a query that has since dropped a column keeps the
+            // order it had, and simply stops applying it.
+            if let Some(sort) = &view.options.sort
+                && (sort.variable.is_empty()
+                    || sort.variable.len() > 128
+                    || sort.variable.chars().any(char::is_control))
+            {
+                return Err(PropertyError::InvalidDocument(
+                    "invalid query view sort variable".to_owned(),
+                ));
+            }
         }
         if !ids.contains(&self.default_view_id) {
             return Err(PropertyError::InvalidDocument(
