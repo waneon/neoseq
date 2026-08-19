@@ -25,6 +25,13 @@ is activated. Plain text may keep the textarea fast path because its reading
 projection is identical. Pending blocks and IME composition always stay in the
 source editor.
 
+Activation carries a caret offset. The projection derives it from the pressed
+point by walking the rendered text and the source together, so the boundary needs
+no stored source positions and the parse stays disposable. The projection is also
+the row's tab stop while it stands in for the textarea, and hands keyboard focus
+over to it. The gestures the outline already owns — range selection, text
+selection — are not intercepted: only a press that did not travel activates.
+
 Drafting, debounce, Unicode splice generation, selection transformation, pending
 row handoff, and remote reconciliation remain editor responsibilities. A failed
 write retains the source draft. Rendering never creates an alternate mutation
@@ -32,7 +39,8 @@ path or an optimistic canonical value.
 
 ## Markdown Profile
 
-The v1 profile is CommonMark with these product constraints:
+The v1 profile is CommonMark, plus two presentation extensions, with these product
+constraints:
 
 - raw HTML and executable content are not interpreted;
 - generated elements pass through an explicit sanitation allowlist;
@@ -41,10 +49,25 @@ The v1 profile is CommonMark with these product constraints:
 - headings are nested below the page title;
 - Markdown syntax does not create properties, tags, tasks, pages, or backlinks.
 
-The profile, rather than the parser dependency, is the product contract. GFM,
-math, syntax highlighting, graph references, or other extensions require an
-explicit profile change. Any extension that affects graph semantics also requires
-a core/domain design rather than a renderer-only plugin.
+The two extensions are **GFM** (tables, strikethrough, autolink literals, task
+list items) and **soft breaks as line breaks**. Both are presentation-only: they
+change how the same source is drawn and nothing about what it means. A block is a
+line the author broke, so reflowing its newlines would make the reading disagree
+with the editor above it. A GFM task list item renders as an inert checkbox — the
+block's own task-status property remains the only representation of a task, and
+the projection never writes one.
+
+The profile, rather than the parser dependency, is the product contract. Math,
+syntax highlighting, graph references, or other extensions require an explicit
+profile change. Any extension that affects graph semantics also requires a
+core/domain design rather than a renderer-only plugin.
+
+The syntax detector that chooses between projection and fast path answers one
+question: would parsing change what the reader sees? It is deliberately
+conservative, because a false positive costs a mode switch, a caret to map back,
+and a second layout to measure, and buys nothing. Block constructs are anchored
+to the start of a line and inline delimiters must be paired, so a hyphen, an
+identifier with underscores, or a bare newline stays prose.
 
 ## Presentation Consumers
 
@@ -62,10 +85,15 @@ insufficient.
 
 ## Verification
 
-- profile tests cover CommonMark output, dangerous URLs, raw HTML, and inert images;
+- profile tests cover CommonMark output, the extension set, dangerous URLs, raw
+  HTML, inert images and checkboxes, and the detector's fast path;
+- caret tests cover mapping a rendered offset back through headings, list
+  markers, inline delimiters, and soft breaks;
 - outline tests cover reading-to-source activation, IME, draft retention, and
   authoritative reconciliation;
 - query tests cover compact content and direct-field editing without nested
-  interactive elements;
-- browser tests cover dynamic row measurement, keyboard access, light/dark modes,
-  and the absence of image requests.
+  interactive elements, block boxes, or a second line;
+- browser tests cover the caret landing where the reader pressed, the source
+  editor opening unclipped after a cold load, the projection's tab stop, drags
+  staying the outline's, dynamic row measurement, light/dark modes, and the
+  absence of image requests.

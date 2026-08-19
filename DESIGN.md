@@ -1130,19 +1130,53 @@ block remains source, so the accent caret, IME boundary, slash and tag menus, En
 and document undo keep one owner. Plain text is permitted to remain on the textarea fast
 path because formatting it would produce the same pixels and words.
 
-Markdown inherits the block's 16/26 body voice. A first-level Markdown heading becomes a
-real section heading beneath the page's `<h1>`; lower levels keep the body size and gain
-weight, never another display scale. Inline code and fenced code use the existing mono
-voice on `--surface-2` and `--surface-1`. A quote borrows one inset thread line: depth is
-still the only graphic device. Links use the one accent and an underline. No imported
-prose theme, syntax-highlighting palette, bordered callout, or Markdown-specific card is
-allowed.
+**The projection is a reading of the block, not a different block.** Three rules follow
+from that, and each of them was a defect before it was a rule.
+
+1. **A press opens the editor at the word that was pressed.** Landing the caret at the end
+   of the source instead is the difference between a document you can correct and one you
+   have to navigate: the reader pressed a typo, not a block. The rendered text and its
+   source are the same characters in the same order with syntax interleaved, so the offset
+   is recovered by walking the two together — no stored positions, no second parse.
+2. **A drag is the outline's, not the projection's.** Dragging quiet writing surface
+   already means a text selection, or the block range selection that crossing a row
+   starts. Answering the same gesture by opening an editor would undo whichever one the
+   reader was making, so the projection acts only on a press that did not travel.
+3. **The projection carries the row's tab stop.** It stands in for the textarea, and the
+   textarea is the row's one way in for the keyboard. Focus reached by keyboard hands
+   straight over to the source; focus reached by pointer waits for the press, which knows
+   where the caret goes. A page of rendered blocks is otherwise a page with no way in.
+
+Markdown inherits the block's 16/26 body voice. **Six heading levels get three steps,**
+because that is how many the type system has to spend inside a block: level one takes the
+19/600 section scale as a real heading beneath the page's `<h1>`, level two takes the body
+size at strong weight, and every level below reads as *a heading, quieter* — the same size
+and weight in `--ink-2`. A fourth step at 50 units of weight is a difference nobody reads,
+and the outline's own depth is where deep hierarchy belongs.
+
+A list gets its markers back, at `--ink-3`: a marker is structure rather than writing, and
+a list with no marker is a paragraph. Inline code and fenced code share the mono voice on
+`--surface-2` — one tint, not two, because `--surface-1` against the outline's `--canvas`
+is a 1.5% step and the depth scale asks for 3–5%; the shape already says which is which,
+and a drawn border is not available to say it. A quote borrows one inset rule and `--ink-2`
+text. A thematic break is a 1px `--line` across the measure: a break *inside* the writing,
+which is the one horizontal rule this product draws. A table borrows the query result
+table exactly — a `--surface-2` header band, no row lines, and sideways scrolling of its
+own so a wide table never widens the measure. Links use the one accent and an underline. No
+imported prose theme, syntax-highlighting palette, bordered callout, or Markdown-specific
+card is allowed.
+
+A newline inside a block is a line the author broke, so it renders as a line break. Prose
+reflow is a convention for source files that hard-wrap paragraphs, and it is the opposite
+of what a block editor does: collapsing those lines would make the reading disagree with
+the editor directly above it, and re-wrap the row on every focus change.
 
 Raw HTML never becomes interface. An image becomes its alternative text instead of a
 network request, preserving the local graph's privacy boundary and the outline's measured
-width. Query results use the same parser and safety policy in a compact inline reading;
-their cell remains the single edit/open control, so rendered Markdown never nests an
-interactive link inside it.
+width. A Markdown checkbox is inert text: the row's own status glyph stays the only mark
+in this product that means a task. Query results use the same parser and safety policy in
+a compact inline reading; their cell remains the single edit/open control, so rendered
+Markdown never nests an interactive link, a second line, or a table box inside it.
 
 ### Selection
 

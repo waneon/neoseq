@@ -2654,8 +2654,9 @@ function BlockRow({
     textarea.style.height = `${Math.max(textarea.scrollHeight, 28)}px`;
     // `tags.length` matters because the tag cluster shares the line: chips
     // arriving or leaving change the textarea's width, and width changes what
-    // wraps.
-  }, [value, tags.length]);
+    // wraps. `previewMarkdown` matters because a hidden textarea measures zero:
+    // without it the editor would open clipped to one line.
+  }, [value, tags.length, previewMarkdown]);
 
   useLayoutEffect(() => {
     if (!isFocused) return;
@@ -2963,9 +2964,10 @@ function BlockRow({
           <BlockMarkdown
             markdown={value}
             className="outline-markdown"
-            onActivate={
-              editor.readonly ? undefined : () => editor.setFocus(row.block.id, value.length)
-            }
+            // Read-only blocks hand over too: the textarea is the row's tab stop
+            // and its arrow-key navigation, and `readOnly` is what refuses the
+            // edit — not the absence of a way in.
+            onActivate={(caret) => editor.setFocus(row.block.id, caret)}
           />
         )}
         {peers.length > 0 && (

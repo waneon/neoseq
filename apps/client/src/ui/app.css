@@ -113,6 +113,7 @@
   --track-xl: -0.019em;
   --weight-normal: 500;
   --weight-medium: 550;
+  --weight-strong: 600;
 
   --sp-0: 2px;
   --sp-1: 4px;
@@ -1791,8 +1792,16 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink);
   font-size: var(--text-md);
   line-height: var(--lh-md);
-  overflow-wrap: anywhere;
+  /* `break-word`, not `anywhere`: the textarea this stands in for only breaks a
+     word that cannot fit a line by itself, and the two must wrap alike. */
+  overflow-wrap: break-word;
   cursor: text;
+}
+
+/* The projection is the row's tab stop while it stands in for the textarea, and
+   it hands focus straight over — so a ring here would only ever flash. */
+.outline-markdown:focus {
+  outline: none;
 }
 
 .outline-text[data-task-status] > .outline-markdown {
@@ -1806,37 +1815,46 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* ── Markdown content ──
-   User-authored structure uses the product's existing voices: headings take
-   the real section scale, quoted depth borrows the indent thread, and code is
-   the one inset writing surface. No library theme or new decorative palette is
-   allowed into the outline. */
+   User-authored structure uses the product's existing voices: headings take the
+   real section scale, quoted depth borrows the indent thread, code is the one
+   inset writing surface, and a table borrows the query result's table language.
+   No library theme or new decorative palette is allowed into the outline. */
+
+/* Preflight and the UA both have opinions about margins here. They are cleared
+   at zero specificity, through :where(), so the rhythm rules underneath stay
+   plain class selectors and win by source order rather than by !important. */
+.block-markdown :where(p, ul, ol, li, dl, pre, blockquote, table, hr, h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+}
+
+/* One rhythm rule instead of a list of adjacent pairs. Every pair a block can
+   produce is covered, so no combination lands with no space between it. */
+.block-markdown > * + * {
+  margin-top: var(--sp-2);
+}
+
+/* A heading opens a section, so it takes more room above it than a paragraph
+   does and less below it — except as the block's first line, where the row's
+   bullet already sets the top. */
+.block-markdown > * + .markdown-heading {
+  margin-top: var(--sp-4);
+}
+
+.block-markdown > .markdown-heading + * {
+  margin-top: var(--sp-1);
+}
+
 .block-markdown > :first-child {
   margin-top: 0;
 }
 
-.block-markdown > :last-child {
-  margin-bottom: 0;
-}
-
-.block-markdown p {
-  margin: 0;
-}
-
-.block-markdown p + p,
-.block-markdown p + ul,
-.block-markdown p + ol,
-.block-markdown p + blockquote,
-.block-markdown p + pre,
-.block-markdown ul + p,
-.block-markdown ol + p,
-.block-markdown blockquote + p,
-.block-markdown pre + p {
-  margin-top: var(--sp-2);
-}
-
+/* Three steps, and three is all six levels get. Two type sizes and two weights
+   exist to spend here, and a fourth step at 50 units of weight is a difference
+   nobody reads — so level 1 takes the section scale, level 2 the body at strong
+   weight, and everything below reads as "a heading, quieter". The outline's own
+   depth is where deep hierarchy belongs. */
 .block-markdown .markdown-heading {
-  margin: var(--sp-3) 0 var(--sp-1);
-  color: var(--ink);
+  color: var(--ink-2);
   font-size: var(--text-md);
   line-height: var(--lh-md);
   font-weight: var(--weight-strong);
@@ -1844,13 +1862,27 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .block-markdown .markdown-heading[data-level="1"] {
+  color: var(--ink);
   font-size: var(--text-lg);
   line-height: var(--lh-lg);
-  letter-spacing: -0.012em;
+  letter-spacing: var(--track-lg);
+}
+
+.block-markdown .markdown-heading[data-level="2"] {
+  color: var(--ink);
 }
 
 .block-markdown strong {
   font-weight: var(--weight-strong);
+}
+
+.block-markdown em {
+  font-style: italic;
+}
+
+.block-markdown del {
+  color: var(--ink-2);
+  text-decoration: line-through;
 }
 
 .block-markdown a {
@@ -1867,6 +1899,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
   text-decoration-thickness: 2px;
 }
 
+/* Code is a surface, and a surface separates by lightness. --surface-1 against
+   the outline's --canvas is a 1.5% step, under the 3-5% the depth scale asks
+   for, so both the inline run and the fenced block take --surface-2 — the shape
+   already says which is which, and a drawn border is not available. */
 .block-markdown code {
   padding: 1px var(--sp-1);
   border-radius: var(--r-1);
@@ -1879,10 +1915,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .block-markdown pre {
   max-width: 100%;
-  margin: var(--sp-2) 0;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-2);
-  background: var(--surface-1);
+  background: var(--surface-2);
   overflow-x: auto;
   color: var(--ink);
   font-family: var(--font-mono);
@@ -1899,20 +1934,112 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .block-markdown blockquote {
-  margin: var(--sp-2) 0;
   padding-inline-start: var(--sp-3);
-  box-shadow: inset 1px 0 0 var(--thread);
+  box-shadow: inset 1px 0 0 var(--line);
   color: var(--ink-2);
 }
 
+/* Preflight clears the marker, and a list with no marker is a paragraph. The
+   marker is structure rather than writing, so it sits at --ink-3, and the three
+   depths differ the way a printed list does. */
 .block-markdown ul,
 .block-markdown ol {
-  margin: var(--sp-1) 0;
   padding-inline-start: var(--sp-5);
+  list-style-position: outside;
+}
+
+.block-markdown ul {
+  list-style-type: disc;
+}
+
+.block-markdown ul ul {
+  list-style-type: circle;
+}
+
+.block-markdown ul ul ul {
+  list-style-type: square;
+}
+
+.block-markdown ol {
+  list-style-type: decimal;
+}
+
+.block-markdown li::marker {
+  color: var(--ink-3);
+}
+
+.block-markdown li > ul,
+.block-markdown li > ol {
+  margin-top: var(--sp-0);
 }
 
 .block-markdown li + li {
   margin-top: var(--sp-0);
+}
+
+/* A task written in Markdown is text, not a graph task: the box is inert, and
+   the row's own status glyph remains the only one that means anything. */
+.block-markdown li:has(> input[type="checkbox"]),
+.block-markdown li.task-list-item {
+  list-style-type: none;
+}
+
+.block-markdown input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0 var(--sp-1) 0 0;
+  accent-color: var(--accent);
+  vertical-align: -1px;
+}
+
+/* The one horizontal rule the product draws, and it is the thread's own tone:
+   a break inside the writing, not a border around it. */
+.block-markdown hr {
+  height: 0;
+  margin: var(--sp-3) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Tables borrow the query result's language exactly: a --surface-2 header band,
+   --ink-2 body text, no row lines, and sideways scrolling of its own so a wide
+   table never widens the measure. */
+.markdown-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.block-markdown table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: left;
+}
+
+.block-markdown th {
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.block-markdown td {
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--ink);
+  vertical-align: top;
+}
+
+.block-markdown th:first-child {
+  border-start-start-radius: var(--r-1);
+}
+
+.block-markdown th:last-child {
+  border-start-end-radius: var(--r-1);
 }
 
 .markdown-image-alt,
@@ -1922,13 +2049,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .markdown-image-alt {
   font-style: italic;
-}
-
-.markdown-thematic-break {
-  margin: var(--sp-2) 0;
-  color: var(--ink-3);
-  text-align: center;
-  letter-spacing: 0.16em;
 }
 
 /* Query cells use the same parser and security profile but keep a phrasing-only
@@ -1947,7 +2067,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .markdown-compact-paragraph + .markdown-compact-paragraph::before,
 .markdown-compact-list + .markdown-compact-paragraph::before,
-.markdown-compact-paragraph + .markdown-compact-list::before {
+.markdown-compact-paragraph + .markdown-compact-list::before,
+.markdown-compact-table + .markdown-compact-paragraph::before,
+.markdown-compact-paragraph + .markdown-compact-table::before {
   content: " · ";
   color: var(--ink-3);
 }
@@ -1985,6 +2107,24 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .markdown-compact-list[data-kind="ordered"] > .markdown-compact-list-item::before {
   content: counter(markdown-item) ". ";
+}
+
+/* A flattened table keeps the same separator as a flattened list, so one row of
+   a result reads as one sentence however the author wrote it. */
+.markdown-compact-cell + .markdown-compact-cell::before,
+.markdown-compact-row + .markdown-compact-row::before,
+.markdown-compact-row-group + .markdown-compact-row-group::before {
+  content: " · ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-task::before {
+  content: "☐ ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-task[data-checked="true"]::before {
+  content: "☑ ";
 }
 
 .markdown-compact-link {
