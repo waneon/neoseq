@@ -1,4 +1,4 @@
-use crate::{CoreError, GraphCore};
+use crate::{CoreError, GraphChangeSet, GraphCore};
 use domain::{CommandEnvelope, CommandResult, GraphSnapshot, GraphSummary, PageId, PageSnapshot};
 use query::{GraphIndex, QueryError, QueryRequest, QueryResult};
 use serde::{Deserialize, Serialize};
@@ -139,8 +139,7 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         let now = self.clock.now();
         let command_id = command.command_id.to_string();
         let execution = self.core.execute(command, &now)?;
-        self.index
-            .refresh_at(&self.core.snapshot()?, self.core.frontier())?;
+        self.apply_index_changes(&execution.changes)?;
         if !execution.duplicate && !execution.update.is_empty() {
             self.pending = Some(PendingWrite {
                 update: execution.update,
@@ -156,9 +155,8 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), RuntimeError> {
         self.require_clean()?;
-        self.core.import_remote(update)?;
-        self.index
-            .refresh_at(&self.core.snapshot()?, self.core.frontier())?;
+        let changes = self.core.import_remote_with_changes(update)?;
+        self.apply_index_changes(&changes)?;
         self.pending = Some(PendingWrite {
             update: update.to_vec(),
             created_at: self.clock.now(),
@@ -231,6 +229,21 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             return Ok(());
         }
         self.persist_pending()
+    }
+
+    fn apply_index_changes(&mut self, changes: &GraphChangeSet) -> Result<(), RuntimeError> {
+        match self.core.index_delta(changes)? {
+            Some(delta) => {
+                if self.index.apply_delta(delta).is_err() {
+                    self.index = GraphIndex::new_at(&self.core.snapshot()?, self.core.frontier())?;
+                }
+            }
+            None => {
+                self.index
+                    .refresh_at(&self.core.snapshot()?, self.core.frontier())?;
+            }
+        }
+        Ok(())
     }
 
     pub fn close(self) -> Result<(R, C), RuntimeError> {
@@ -392,6 +405,58 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn runtime_queries_publish_the_page_delta_after_an_edit() {
+        let graph = GraphId::new("runtime-query").unwrap();
+        let page_id = PageId::new("home").unwrap();
+        let mut runtime = new_runtime(&graph, InMemoryRepository::default(), 8);
+        runtime
+            .execute(CommandEnvelope {
+                graph_id: graph.clone(),
+                command_id: CommandId::new("page").unwrap(),
+                command: Command::EnsurePage {
+                    page_id: page_id.clone(),
+                    title: "Home".into(),
+                },
+            })
+            .unwrap();
+        let block_id = runtime
+            .execute(CommandEnvelope {
+                graph_id: graph.clone(),
+                command_id: CommandId::new("block").unwrap(),
+                command: Command::InsertBlock {
+                    page_id: page_id.clone(),
+                    parent: None,
+                    index: 0,
+                    markdown: "before".into(),
+                },
+            })
+            .unwrap()
+            .created_block
+            .unwrap();
+        runtime
+            .execute(CommandEnvelope {
+                graph_id: graph,
+                command_id: CommandId::new("edit").unwrap(),
+                command: Command::EditMarkdown {
+                    page_id,
+                    block_id,
+                    markdown: "after".into(),
+                },
+            })
+            .unwrap();
+
+        let result = runtime
+            .query(QueryRequest {
+                language: query::QUERY_LANGUAGE.into(),
+                source: format!("ASK {{ ?block <{}content> \"after\" }}", query::NEO_NS),
+                bindings: Default::default(),
+                budget: Default::default(),
+            })
+            .unwrap();
+        assert!(matches!(result, QueryResult::Ask { value: true, .. }));
     }
 
     #[derive(Debug, Error)]

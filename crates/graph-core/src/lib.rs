@@ -6,7 +6,9 @@ mod core;
 mod persistence;
 mod runtime;
 
-pub use core::{CoreError, CoreExecution, GraphCore, SCHEMA_VERSION, empty_version_vector};
+pub use core::{
+    CoreError, CoreExecution, GraphChangeSet, GraphCore, SCHEMA_VERSION, empty_version_vector,
+};
 pub use persistence::{
     AppendReceipt, CheckpointRecord, GraphLocator, GraphMetadata, LocalGraphRepository,
     QuarantineRecord, RecoveryError, RecoveryReport, StorageCapabilities, UpdateRecord, checksum,

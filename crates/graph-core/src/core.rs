@@ -9,11 +9,16 @@ use domain::{
     validate_property_target, validate_property_write,
 };
 use loro::{
-    Container, ExportMode, LoroDoc, LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree,
-    LoroValue, TreeID, TreeParentId, UndoManager, ValueOrContainer, VersionVector,
+    Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
+    LoroMap, LoroText, LoroTree, LoroValue, Subscription, TreeID, TreeParentId, UndoManager,
+    ValueOrContainer, VersionVector, event::Diff,
 };
+use query::IndexDelta;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::{Arc, Mutex},
+};
 use thiserror::Error;
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -126,6 +131,29 @@ pub struct CoreExecution {
     pub update: Vec<u8>,
     pub semantic: String,
     pub duplicate: bool,
+    pub changes: GraphChangeSet,
+}
+
+/// Projection publication units affected by one local command or remote
+/// import. An unclassifiable relevant diff requests a safe full rebuild.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GraphChangeSet {
+    pub pages: BTreeSet<PageId>,
+    pub tags: BTreeSet<TagId>,
+    pub rebuild: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CapturedChange {
+    target: ContainerID,
+    path: Vec<(ContainerID, Index)>,
+    map_keys: Vec<String>,
+    unknown: bool,
+}
+
+struct ProjectionChangeTracker {
+    captured: Arc<Mutex<Vec<CapturedChange>>>,
+    subscription: Subscription,
 }
 
 pub struct GraphCore {
@@ -375,6 +403,124 @@ impl OutlineState {
     }
 }
 
+impl ProjectionChangeTracker {
+    fn new(doc: &LoroDoc) -> Self {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let callback_captured = Arc::clone(&captured);
+        let subscription = doc.subscribe_root(Arc::new(move |event| {
+            let mut batch = callback_captured
+                .lock()
+                .expect("projection change tracker mutex poisoned");
+            for change in event.events {
+                let map_keys = match change.diff {
+                    Diff::Map(delta) => delta.updated.keys().map(|key| key.to_string()).collect(),
+                    _ => Vec::new(),
+                };
+                batch.push(CapturedChange {
+                    target: change.target.clone(),
+                    path: change.path.to_vec(),
+                    map_keys,
+                    unknown: change.is_unknown,
+                });
+            }
+        }));
+        Self {
+            captured,
+            subscription,
+        }
+    }
+
+    fn finish(self, doc: &LoroDoc) -> GraphChangeSet {
+        drop(self.subscription);
+        let captured = self
+            .captured
+            .lock()
+            .expect("projection change tracker mutex poisoned")
+            .clone();
+        let pages = doc.get_map("pages");
+        let tags = doc.get_map("tags");
+        let pages_id = pages.id();
+        let tags_id = tags.id();
+        let mut result = GraphChangeSet::default();
+
+        for change in captured {
+            let page_scope =
+                change.target == pages_id || path_is_below_root(&change.path, &pages_id, "pages");
+            let tag_scope =
+                change.target == tags_id || path_is_below_root(&change.path, &tags_id, "tags");
+            if !page_scope && !tag_scope {
+                continue;
+            }
+            if change.unknown {
+                result.rebuild = true;
+                continue;
+            }
+
+            let mut resolved = false;
+            if change.target == pages_id {
+                resolved = true;
+                for key in &change.map_keys {
+                    if let Ok(page_id) = PageId::new(key) {
+                        result.pages.insert(page_id);
+                    }
+                }
+            }
+            if change.target == tags_id {
+                resolved = true;
+                for key in &change.map_keys {
+                    if let Ok(tag_id) = TagId::new(key) {
+                        result.tags.insert(tag_id);
+                    }
+                }
+            }
+
+            for (container_id, index) in &change.path {
+                let Index::Key(key) = index else {
+                    continue;
+                };
+                let key = key.to_string();
+                if page_scope
+                    && pages
+                        .get(&key)
+                        .and_then(value_into_map)
+                        .is_some_and(|page| page.id() == *container_id)
+                {
+                    if let Ok(page_id) = PageId::new(&key) {
+                        result.pages.insert(page_id);
+                    }
+                    resolved = true;
+                }
+                if tag_scope
+                    && tags
+                        .get(&key)
+                        .and_then(value_into_map)
+                        .is_some_and(|tag| tag.id() == *container_id)
+                {
+                    if let Ok(tag_id) = TagId::new(&key) {
+                        result.tags.insert(tag_id);
+                    }
+                    resolved = true;
+                }
+            }
+
+            if !resolved {
+                result.rebuild = true;
+            }
+        }
+        result
+    }
+}
+
+fn path_is_below_root(
+    path: &[(ContainerID, Index)],
+    root_id: &ContainerID,
+    root_name: &str,
+) -> bool {
+    path.iter().any(|(container_id, index)| {
+        container_id == root_id && matches!(index, Index::Key(key) if key.to_string() == root_name)
+    })
+}
+
 impl GraphCore {
     pub fn new(graph_id: GraphId, peer_id: u64, now: &str) -> Result<Self, CoreError> {
         let doc = LoroDoc::new();
@@ -442,6 +588,7 @@ impl GraphCore {
                 update: Vec::new(),
                 semantic: "CommandDeduplicated".to_owned(),
                 duplicate: true,
+                changes: GraphChangeSet::default(),
             });
         }
 
@@ -456,6 +603,7 @@ impl GraphCore {
             changed: true,
             history_effect: None,
         };
+        let change_tracker = ProjectionChangeTracker::new(&self.doc);
 
         match &envelope.command {
             Command::Undo => {
@@ -516,6 +664,7 @@ impl GraphCore {
             }
         }
 
+        let changes = change_tracker.finish(&self.doc);
         let update = self.doc.export(ExportMode::updates(&before))?;
         if !update.is_empty()
             && let Some(plan) = history_plan
@@ -530,15 +679,24 @@ impl GraphCore {
             update,
             semantic,
             duplicate: false,
+            changes,
         })
     }
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), CoreError> {
+        self.import_remote_with_changes(update).map(|_| ())
+    }
+
+    pub fn import_remote_with_changes(
+        &mut self,
+        update: &[u8],
+    ) -> Result<GraphChangeSet, CoreError> {
         self.validate_remote(update)?;
 
+        let change_tracker = ProjectionChangeTracker::new(&self.doc);
         self.doc.set_next_commit_origin("remote:import");
         self.doc.import(update)?;
-        Ok(())
+        Ok(change_tracker.finish(&self.doc))
     }
 
     /// Validates a remote update without mutating canonical state. Persistence
@@ -675,6 +833,44 @@ impl GraphCore {
             )?);
         }
         Ok(snapshot)
+    }
+
+    /// Materializes only the projection units named by a change set. `None`
+    /// means the Loro diff could not be classified safely and the caller must
+    /// rebuild from a complete snapshot.
+    pub fn index_delta(&self, changes: &GraphChangeSet) -> Result<Option<IndexDelta>, CoreError> {
+        if changes.rebuild {
+            return Ok(None);
+        }
+        let mut pages = Vec::with_capacity(changes.pages.len());
+        let mut removed_pages = Vec::new();
+        for page_id in &changes.pages {
+            match self.page_snapshot(page_id) {
+                Ok(page) => pages.push(page),
+                Err(CoreError::PageNotFound(_)) | Err(CoreError::PageDeleted(_)) => {
+                    removed_pages.push(page_id.clone());
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let mut tags = Vec::with_capacity(changes.tags.len());
+        let mut removed_tags = Vec::new();
+        for tag_id in &changes.tags {
+            let mut quarantined = Vec::new();
+            if let Some(tag) = tag_snapshot_by_id(&self.doc, tag_id, &mut quarantined) {
+                tags.push(tag);
+            } else {
+                removed_tags.push(tag_id.clone());
+            }
+        }
+        Ok(Some(IndexDelta {
+            pages,
+            removed_pages,
+            tags,
+            removed_tags,
+            frontier: self.frontier(),
+        }))
     }
 
     fn snapshot_metadata(&self) -> Result<GraphSnapshot, CoreError> {
@@ -3108,35 +3304,53 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
             quarantined.push(format!("tag:{raw_id}:not-map"));
             return;
         };
-        let Some(name) = map_string(&tag, "name") else {
-            quarantined.push(format!("tag:{raw_id}:missing-name"));
-            return;
-        };
-        let (mut properties, mut issues) = decode_bag_child(&tag, "properties");
-        quarantined.append(&mut issues);
-        if bag_has_key(&properties, "builtin.deleted-at") {
-            return;
+        if let Some(snapshot) = tag_snapshot(&tag_id, &tag, quarantined) {
+            snapshots.insert(tag_id, snapshot);
         }
-        properties.retain(|entry| {
-            validate_property_target(&entry.key, PropertyTarget::TagMetadata).is_ok()
-        });
-        let (mut defaults, mut issues) = decode_bag_child(&tag, "defaults");
-        quarantined.append(&mut issues);
-        defaults.retain(|field| {
-            validate_property_write(&field.key, PropertyTarget::TagDefault).is_ok()
-                && validate_property_field(field).is_ok()
-        });
-        snapshots.insert(
-            tag_id.clone(),
-            TagSnapshot {
-                id: tag_id,
-                name,
-                properties,
-                defaults,
-            },
-        );
     });
     snapshots.into_values().collect()
+}
+
+fn tag_snapshot_by_id(
+    doc: &LoroDoc,
+    tag_id: &TagId,
+    quarantined: &mut Vec<String>,
+) -> Option<TagSnapshot> {
+    let tag = doc
+        .get_map("tags")
+        .get(tag_id.as_str())
+        .and_then(value_into_map)?;
+    tag_snapshot(tag_id, &tag, quarantined)
+}
+
+fn tag_snapshot(
+    tag_id: &TagId,
+    tag: &LoroMap,
+    quarantined: &mut Vec<String>,
+) -> Option<TagSnapshot> {
+    let Some(name) = map_string(tag, "name") else {
+        quarantined.push(format!("tag:{tag_id}:missing-name"));
+        return None;
+    };
+    let (mut properties, mut issues) = decode_bag_child(tag, "properties");
+    quarantined.append(&mut issues);
+    if bag_has_key(&properties, "builtin.deleted-at") {
+        return None;
+    }
+    properties
+        .retain(|entry| validate_property_target(&entry.key, PropertyTarget::TagMetadata).is_ok());
+    let (mut defaults, mut issues) = decode_bag_child(tag, "defaults");
+    quarantined.append(&mut issues);
+    defaults.retain(|field| {
+        validate_property_write(&field.key, PropertyTarget::TagDefault).is_ok()
+            && validate_property_field(field).is_ok()
+    });
+    Some(TagSnapshot {
+        id: tag_id.clone(),
+        name,
+        properties,
+        defaults,
+    })
 }
 
 fn decode_tag_refs(
@@ -3345,6 +3559,110 @@ mod tests {
                 _ => None,
             }
         })
+    }
+
+    #[test]
+    fn projection_changes_track_local_and_remote_page_edits() {
+        let mut left = GraphCore::new(graph(), 1, "t0").unwrap();
+        let created = left
+            .execute(
+                envelope(
+                    "page",
+                    Command::EnsurePage {
+                        page_id: page(),
+                        title: "Home".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        assert_eq!(created.changes.pages, BTreeSet::from([page()]));
+        assert!(!created.changes.rebuild);
+
+        let block = insert_root(&mut left, "block", &page(), 0, "before");
+        let baseline = left.export_snapshot().unwrap();
+        let mut right = GraphCore::from_snapshot(graph(), 2, &baseline).unwrap();
+        let edited = left
+            .execute(
+                envelope(
+                    "edit",
+                    Command::EditMarkdown {
+                        page_id: page(),
+                        block_id: block,
+                        markdown: "after".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        assert_eq!(edited.changes.pages, BTreeSet::from([page()]));
+        assert!(edited.changes.tags.is_empty());
+        assert!(!edited.changes.rebuild);
+
+        let remote = right.import_remote_with_changes(&edited.update).unwrap();
+        assert_eq!(remote, edited.changes);
+        let delta = right.index_delta(&remote).unwrap().unwrap();
+        assert_eq!(delta.pages.len(), 1);
+        assert_eq!(delta.pages[0].blocks[0].markdown, "after");
+    }
+
+    #[test]
+    fn projection_changes_track_tags_separately() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag_id = TagId::new("project").unwrap();
+        let created = core
+            .execute(
+                envelope(
+                    "tag",
+                    Command::EnsureTag {
+                        tag_id: tag_id.clone(),
+                        name: "Project".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        assert_eq!(created.changes.tags, BTreeSet::from([tag_id.clone()]));
+        assert!(created.changes.pages.is_empty());
+        let delta = core.index_delta(&created.changes).unwrap().unwrap();
+        assert_eq!(delta.tags[0].id, tag_id);
+
+        ensure_regular_page(&mut core, "page", &page());
+        let block_id = insert_root(&mut core, "block", &page(), 0, "tagged");
+        let tagged = core
+            .execute(
+                envelope(
+                    "add-tag",
+                    Command::AddTag {
+                        entity: EntityId::Block {
+                            page_id: page(),
+                            id: block_id,
+                        },
+                        tag_id: tag_id.clone(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        assert_eq!(tagged.changes.pages, BTreeSet::from([page()]));
+        assert!(tagged.changes.tags.is_empty());
+
+        let deleted = core
+            .execute(
+                envelope(
+                    "delete-tag",
+                    Command::DeleteTag {
+                        tag_id: tag_id.clone(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+        assert_eq!(deleted.changes.pages, BTreeSet::from([page()]));
+        assert_eq!(deleted.changes.tags, BTreeSet::from([tag_id.clone()]));
+        let delta = core.index_delta(&deleted.changes).unwrap().unwrap();
+        assert_eq!(delta.pages.len(), 1);
+        assert_eq!(delta.removed_tags, [tag_id]);
     }
 
     #[test]

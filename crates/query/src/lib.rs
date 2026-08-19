@@ -1,19 +1,22 @@
 //! Reproducible RDF projection and read-only SPARQL execution.
 
-use domain::{BlockSnapshot, GraphId, GraphSnapshot, PageId, PropertyBag, PropertyValue, TagId};
+use domain::{
+    BlockSnapshot, GraphId, GraphSnapshot, PageId, PageSnapshot, PropertyBag, PropertyValue, TagId,
+    TagSnapshot,
+};
 use oxigraph::model::{
     GraphNameRef, Literal, NamedNode, QuadRef, Term, Triple, Variable,
     vocab::{rdf, xsd},
 };
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
-use oxigraph::store::Store;
+use oxigraph::store::{Store, Transaction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use spargebra::algebra::GraphPattern;
 use spargebra::term::GroundTerm;
 use spargebra::{Query, SparqlParser};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
 };
 use thiserror::Error;
@@ -97,6 +100,18 @@ pub enum QueryResult {
     },
 }
 
+/// A validated, bounded replacement set for the derived index. Pages are the
+/// structural publication unit because a tree edit may change parent and
+/// sibling-index triples for more than the command's directly targeted block.
+#[derive(Debug, Clone)]
+pub struct IndexDelta {
+    pub pages: Vec<PageSnapshot>,
+    pub removed_pages: Vec<PageId>,
+    pub tags: Vec<TagSnapshot>,
+    pub removed_tags: Vec<TagId>,
+    pub frontier: String,
+}
+
 #[derive(Debug, Error)]
 pub enum QueryError {
     #[error("unsupported query language: {0}")]
@@ -129,6 +144,9 @@ pub struct GraphIndex {
     store: Store,
     entities: BTreeMap<String, HashSet<Triple>>,
     entity_refs: BTreeMap<String, QueryEntityRef>,
+    page_entities: BTreeMap<PageId, BTreeSet<String>>,
+    entity_text: BTreeMap<String, String>,
+    text_ref_counts: BTreeMap<String, usize>,
     normalized_text: Arc<BTreeMap<String, String>>,
     revision: u64,
     frontier: String,
@@ -141,17 +159,33 @@ impl GraphIndex {
     }
 
     pub fn new_at(snapshot: &GraphSnapshot, frontier: String) -> Result<Self, QueryError> {
-        let mut index = Self {
+        let projected = project(snapshot)?;
+        let store = Store::new().map_err(index_error)?;
+        let mut transaction = store.start_transaction().map_err(index_error)?;
+        for triples in projected.entities.values() {
+            for triple in triples {
+                transaction.insert(QuadRef::new(
+                    triple.subject.as_ref(),
+                    triple.predicate.as_ref(),
+                    triple.object.as_ref(),
+                    GraphNameRef::DefaultGraph,
+                ));
+            }
+        }
+        transaction.commit().map_err(index_error)?;
+        let (text_ref_counts, normalized_text) = text_cache(&projected.entity_text);
+        Ok(Self {
             graph_id: snapshot.graph_id.clone(),
-            store: Store::new().map_err(index_error)?,
-            entities: BTreeMap::new(),
-            entity_refs: BTreeMap::new(),
-            normalized_text: Arc::new(BTreeMap::new()),
-            revision: 0,
-            frontier: String::new(),
-        };
-        index.refresh_at(snapshot, frontier)?;
-        Ok(index)
+            store,
+            entities: projected.entities,
+            entity_refs: projected.entity_refs,
+            page_entities: projected.page_entities,
+            entity_text: projected.entity_text,
+            text_ref_counts,
+            normalized_text: Arc::new(normalized_text),
+            revision: 1,
+            frontier,
+        })
     }
 
     /// Reprojects the immutable domain snapshot, but applies only entity-level
@@ -172,36 +206,127 @@ impl GraphIndex {
             ));
         }
         let projected = project(snapshot)?;
-        let previous_triples = flatten(&self.entities);
-        let next_triples = flatten(&projected.entities);
-        if previous_triples == next_triples && self.frontier == next_frontier {
+        let triples_changed = self.entities != projected.entities;
+        if !triples_changed && self.frontier == next_frontier {
             return Ok(false);
         }
 
-        let mut transaction = self.store.start_transaction().map_err(index_error)?;
-        for triple in previous_triples.difference(&next_triples) {
-            transaction.remove(QuadRef::new(
-                triple.subject.as_ref(),
-                triple.predicate.as_ref(),
-                triple.object.as_ref(),
-                GraphNameRef::DefaultGraph,
-            ));
+        if triples_changed {
+            let mut transaction = self.store.start_transaction().map_err(index_error)?;
+            write_map_diff(&mut transaction, &self.entities, &projected.entities);
+            transaction.commit().map_err(index_error)?;
         }
-        for triple in next_triples.difference(&previous_triples) {
-            transaction.insert(QuadRef::new(
-                triple.subject.as_ref(),
-                triple.predicate.as_ref(),
-                triple.object.as_ref(),
-                GraphNameRef::DefaultGraph,
-            ));
-        }
-        transaction.commit().map_err(index_error)?;
+        let (text_ref_counts, normalized_text) = text_cache(&projected.entity_text);
         self.entities = projected.entities;
         self.entity_refs = projected.entity_refs;
-        self.normalized_text = Arc::new(projected.normalized_text);
+        self.page_entities = projected.page_entities;
+        self.entity_text = projected.entity_text;
+        self.text_ref_counts = text_ref_counts;
+        self.normalized_text = Arc::new(normalized_text);
         self.frontier = next_frontier;
         self.revision = self.revision.saturating_add(1);
         Ok(true)
+    }
+
+    /// Applies page/tag replacements without walking or cloning the rest of the
+    /// graph. One store transaction remains the publication boundary.
+    pub fn apply_delta(&mut self, delta: IndexDelta) -> Result<bool, QueryError> {
+        let mut projected = Projection::default();
+        let mut replaced = BTreeSet::new();
+        let mut page_ids = delta.removed_pages.into_iter().collect::<BTreeSet<_>>();
+        for page in &delta.pages {
+            page_ids.insert(page.id.clone());
+            project_page(&mut projected, &self.graph_id, page)?;
+        }
+        for page_id in &page_ids {
+            if let Some(keys) = self.page_entities.get(page_id) {
+                replaced.extend(keys.iter().cloned());
+            }
+            if let Some(keys) = projected.page_entities.get(page_id) {
+                replaced.extend(keys.iter().cloned());
+            }
+        }
+
+        for tag in &delta.tags {
+            let key = entity_iri(&self.graph_id, "tag", tag.id.as_str())?
+                .as_str()
+                .to_owned();
+            replaced.insert(key);
+            project_tag(&mut projected, &self.graph_id, tag)?;
+        }
+        for tag_id in delta.removed_tags {
+            replaced.insert(
+                entity_iri(&self.graph_id, "tag", tag_id.as_str())?
+                    .as_str()
+                    .to_owned(),
+            );
+        }
+
+        let triples_changed = replaced
+            .iter()
+            .any(|key| self.entities.get(key) != projected.entities.get(key));
+        if !triples_changed && self.frontier == delta.frontier {
+            return Ok(false);
+        }
+
+        if triples_changed {
+            let mut transaction = self.store.start_transaction().map_err(index_error)?;
+            for key in &replaced {
+                write_entity_diff(
+                    &mut transaction,
+                    self.entities.get(key),
+                    projected.entities.get(key),
+                );
+            }
+            transaction.commit().map_err(index_error)?;
+        }
+
+        for key in &replaced {
+            self.entities.remove(key);
+            self.entity_refs.remove(key);
+            self.remove_entity_text(key);
+        }
+        for (key, triples) in projected.entities {
+            self.entities.insert(key, triples);
+        }
+        for (key, entity_ref) in projected.entity_refs {
+            self.entity_refs.insert(key, entity_ref);
+        }
+        for (key, value) in projected.entity_text {
+            self.insert_entity_text(key, value);
+        }
+        for page_id in page_ids {
+            self.page_entities.remove(&page_id);
+            if let Some(keys) = projected.page_entities.remove(&page_id) {
+                self.page_entities.insert(page_id, keys);
+            }
+        }
+        self.frontier = delta.frontier;
+        self.revision = self.revision.saturating_add(1);
+        Ok(true)
+    }
+
+    fn remove_entity_text(&mut self, key: &str) {
+        let Some(value) = self.entity_text.remove(key) else {
+            return;
+        };
+        let Some(count) = self.text_ref_counts.get_mut(&value) else {
+            return;
+        };
+        *count -= 1;
+        if *count == 0 {
+            self.text_ref_counts.remove(&value);
+            Arc::make_mut(&mut self.normalized_text).remove(&value);
+        }
+    }
+
+    fn insert_entity_text(&mut self, key: String, value: String) {
+        let count = self.text_ref_counts.entry(value.clone()).or_default();
+        *count += 1;
+        if *count == 1 {
+            Arc::make_mut(&mut self.normalized_text).insert(value.clone(), normalize_text(&value));
+        }
+        self.entity_text.insert(key, value);
     }
 
     pub fn execute(&self, request: QueryRequest) -> Result<QueryResult, QueryError> {
@@ -328,100 +453,112 @@ impl GraphIndex {
     }
 }
 
+#[derive(Default)]
 struct Projection {
     entities: BTreeMap<String, HashSet<Triple>>,
     entity_refs: BTreeMap<String, QueryEntityRef>,
-    normalized_text: BTreeMap<String, String>,
+    page_entities: BTreeMap<PageId, BTreeSet<String>>,
+    entity_text: BTreeMap<String, String>,
 }
 
 fn project(snapshot: &GraphSnapshot) -> Result<Projection, QueryError> {
-    let mut projection = Projection {
-        entities: BTreeMap::new(),
-        entity_refs: BTreeMap::new(),
-        normalized_text: BTreeMap::new(),
-    };
+    let mut projection = Projection::default();
     for page in &snapshot.pages {
-        let page_iri = entity_iri(&snapshot.graph_id, "page", page.id.as_str())?;
-        projection.entity_refs.insert(
-            page_iri.as_str().to_owned(),
-            QueryEntityRef::Page {
-                id: page.id.to_string(),
-            },
-        );
-        let mut triples = HashSet::new();
-        triples.insert(Triple::new(
-            page_iri.clone(),
-            rdf::TYPE,
-            named(&format!("{NEO_NS}Page"))?,
-        ));
-        triples.insert(Triple::new(
-            page_iri.clone(),
-            named_ref("content")?,
-            Literal::new_simple_literal(&page.title),
-        ));
-        add_properties(
-            &mut triples,
-            &page_iri,
-            &page.properties,
-            PROPERTY_NS,
-            &snapshot.graph_id,
-        )?;
-        add_tags(&mut triples, &page_iri, &page.tags, &snapshot.graph_id)?;
-        projection
-            .normalized_text
-            .insert(page.title.clone(), normalize_text(&page.title));
-        projection
-            .entities
-            .insert(page_iri.as_str().to_owned(), triples);
-        for (index, block) in page.blocks.iter().enumerate() {
-            project_block(
-                &mut projection,
-                &snapshot.graph_id,
-                &page.id,
-                &page_iri,
-                block,
-                index,
-            )?;
-        }
+        project_page(&mut projection, &snapshot.graph_id, page)?;
     }
     for tag in &snapshot.tags {
-        let tag_iri = entity_iri(&snapshot.graph_id, "tag", tag.id.as_str())?;
-        projection.entity_refs.insert(
-            tag_iri.as_str().to_owned(),
-            QueryEntityRef::Tag {
-                id: tag.id.to_string(),
-            },
-        );
-        let mut triples = HashSet::new();
-        triples.insert(Triple::new(
-            tag_iri.clone(),
-            rdf::TYPE,
-            named(&format!("{NEO_NS}Tag"))?,
-        ));
-        triples.insert(Triple::new(
-            tag_iri.clone(),
-            named_ref("name")?,
-            Literal::new_simple_literal(&tag.name),
-        ));
-        add_properties(
-            &mut triples,
-            &tag_iri,
-            &tag.properties,
-            PROPERTY_NS,
-            &snapshot.graph_id,
-        )?;
-        add_properties(
-            &mut triples,
-            &tag_iri,
-            &tag.defaults,
-            DEFAULT_PROPERTY_NS,
-            &snapshot.graph_id,
-        )?;
-        projection
-            .entities
-            .insert(tag_iri.as_str().to_owned(), triples);
+        project_tag(&mut projection, &snapshot.graph_id, tag)?;
     }
     Ok(projection)
+}
+
+fn project_page(
+    projection: &mut Projection,
+    graph_id: &GraphId,
+    page: &PageSnapshot,
+) -> Result<(), QueryError> {
+    let page_iri = entity_iri(graph_id, "page", page.id.as_str())?;
+    let key = page_iri.as_str().to_owned();
+    projection.entity_refs.insert(
+        key.clone(),
+        QueryEntityRef::Page {
+            id: page.id.to_string(),
+        },
+    );
+    let mut triples = HashSet::new();
+    triples.insert(Triple::new(
+        page_iri.clone(),
+        rdf::TYPE,
+        named(&format!("{NEO_NS}Page"))?,
+    ));
+    triples.insert(Triple::new(
+        page_iri.clone(),
+        named_ref("content")?,
+        Literal::new_simple_literal(&page.title),
+    ));
+    add_properties(
+        &mut triples,
+        &page_iri,
+        &page.properties,
+        PROPERTY_NS,
+        graph_id,
+    )?;
+    add_tags(&mut triples, &page_iri, &page.tags, graph_id)?;
+    projection
+        .page_entities
+        .entry(page.id.clone())
+        .or_default()
+        .insert(key.clone());
+    projection
+        .entity_text
+        .insert(key.clone(), page.title.clone());
+    projection.entities.insert(key, triples);
+    for (index, block) in page.blocks.iter().enumerate() {
+        project_block(projection, graph_id, &page.id, &page_iri, block, index)?;
+    }
+    Ok(())
+}
+
+fn project_tag(
+    projection: &mut Projection,
+    graph_id: &GraphId,
+    tag: &TagSnapshot,
+) -> Result<(), QueryError> {
+    let tag_iri = entity_iri(graph_id, "tag", tag.id.as_str())?;
+    let key = tag_iri.as_str().to_owned();
+    projection.entity_refs.insert(
+        key.clone(),
+        QueryEntityRef::Tag {
+            id: tag.id.to_string(),
+        },
+    );
+    let mut triples = HashSet::new();
+    triples.insert(Triple::new(
+        tag_iri.clone(),
+        rdf::TYPE,
+        named(&format!("{NEO_NS}Tag"))?,
+    ));
+    triples.insert(Triple::new(
+        tag_iri.clone(),
+        named_ref("name")?,
+        Literal::new_simple_literal(&tag.name),
+    ));
+    add_properties(
+        &mut triples,
+        &tag_iri,
+        &tag.properties,
+        PROPERTY_NS,
+        graph_id,
+    )?;
+    add_properties(
+        &mut triples,
+        &tag_iri,
+        &tag.defaults,
+        DEFAULT_PROPERTY_NS,
+        graph_id,
+    )?;
+    projection.entities.insert(key, triples);
+    Ok(())
 }
 
 fn project_block(
@@ -434,8 +571,9 @@ fn project_block(
 ) -> Result<(), QueryError> {
     let block_iri = entity_iri(graph_id, "block", block.id.as_str())?;
     let page_iri = entity_iri(graph_id, "page", page_id.as_str())?;
+    let key = block_iri.as_str().to_owned();
     projection.entity_refs.insert(
-        block_iri.as_str().to_owned(),
+        key.clone(),
         QueryEntityRef::Block {
             page_id: page_id.to_string(),
             id: block.id.to_string(),
@@ -472,11 +610,14 @@ fn project_block(
     )?;
     add_tags(&mut triples, &block_iri, &block.tags, graph_id)?;
     projection
-        .normalized_text
-        .insert(block.markdown.clone(), normalize_text(&block.markdown));
+        .page_entities
+        .entry(page_id.clone())
+        .or_default()
+        .insert(key.clone());
     projection
-        .entities
-        .insert(block_iri.as_str().to_owned(), triples);
+        .entity_text
+        .insert(key.clone(), block.markdown.clone());
+    projection.entities.insert(key, triples);
     for (index, child) in block.children.iter().enumerate() {
         project_block(projection, graph_id, page_id, &block_iri, child, index)?;
     }
@@ -700,6 +841,66 @@ fn flatten(entities: &BTreeMap<String, HashSet<Triple>>) -> HashSet<Triple> {
         .values()
         .flat_map(|triples| triples.iter().cloned())
         .collect()
+}
+
+fn write_map_diff(
+    transaction: &mut Transaction<'_>,
+    previous: &BTreeMap<String, HashSet<Triple>>,
+    next: &BTreeMap<String, HashSet<Triple>>,
+) {
+    for (key, triples) in previous {
+        write_entity_diff(transaction, Some(triples), next.get(key));
+    }
+    for (key, triples) in next {
+        if !previous.contains_key(key) {
+            write_entity_diff(transaction, None, Some(triples));
+        }
+    }
+}
+
+fn write_entity_diff(
+    transaction: &mut Transaction<'_>,
+    previous: Option<&HashSet<Triple>>,
+    next: Option<&HashSet<Triple>>,
+) {
+    if let Some(previous) = previous {
+        for triple in previous {
+            if next.is_none_or(|next| !next.contains(triple)) {
+                transaction.remove(QuadRef::new(
+                    triple.subject.as_ref(),
+                    triple.predicate.as_ref(),
+                    triple.object.as_ref(),
+                    GraphNameRef::DefaultGraph,
+                ));
+            }
+        }
+    }
+    if let Some(next) = next {
+        for triple in next {
+            if previous.is_none_or(|previous| !previous.contains(triple)) {
+                transaction.insert(QuadRef::new(
+                    triple.subject.as_ref(),
+                    triple.predicate.as_ref(),
+                    triple.object.as_ref(),
+                    GraphNameRef::DefaultGraph,
+                ));
+            }
+        }
+    }
+}
+
+fn text_cache(
+    entity_text: &BTreeMap<String, String>,
+) -> (BTreeMap<String, usize>, BTreeMap<String, String>) {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for value in entity_text.values() {
+        *counts.entry(value.clone()).or_default() += 1;
+    }
+    let normalized = counts
+        .keys()
+        .map(|value| (value.clone(), normalize_text(value)))
+        .collect();
+    (counts, normalized)
 }
 
 fn snapshot_fingerprint(snapshot: &GraphSnapshot) -> Result<String, QueryError> {
@@ -1044,6 +1245,54 @@ mod tests {
         assert_eq!(incremental_variables, rebuilt_variables);
         assert_eq!(incremental_rows, rebuilt_rows);
         assert_eq!(incremental_frontier, rebuilt_frontier);
+    }
+
+    #[test]
+    fn page_and_tag_delta_matches_rebuild_and_retracts_removed_entities() {
+        let mut source = snapshot();
+        let mut incremental = GraphIndex::new(&source).unwrap();
+        source.pages[0].blocks[0].markdown = "Delta text".into();
+        source.tags[0].name = "Renamed".into();
+        let frontier = snapshot_fingerprint(&source).unwrap();
+        assert!(
+            incremental
+                .apply_delta(IndexDelta {
+                    pages: vec![source.pages[0].clone()],
+                    removed_pages: vec![],
+                    tags: vec![source.tags[0].clone()],
+                    removed_tags: vec![],
+                    frontier,
+                })
+                .unwrap()
+        );
+        let rebuilt = GraphIndex::new(&source).unwrap();
+        assert_eq!(incremental.semantic_triples(), rebuilt.semantic_triples());
+        assert_eq!(incremental.frontier(), rebuilt.frontier());
+        assert!(matches!(
+            incremental
+                .execute(request(
+                    "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { ?item neo:content ?content . FILTER(neo:matchesText(?content, \"delta text\")) }",
+                ))
+                .unwrap(),
+            QueryResult::Ask { value: true, .. }
+        ));
+
+        let page_id = source.pages.remove(0).id;
+        let tag_id = source.tags.remove(0).id;
+        let frontier = snapshot_fingerprint(&source).unwrap();
+        incremental
+            .apply_delta(IndexDelta {
+                pages: vec![],
+                removed_pages: vec![page_id],
+                tags: vec![],
+                removed_tags: vec![tag_id],
+                frontier,
+            })
+            .unwrap();
+        let rebuilt = GraphIndex::new(&source).unwrap();
+        assert_eq!(incremental.semantic_triples(), rebuilt.semantic_triples());
+        assert_eq!(incremental.frontier(), rebuilt.frontier());
+        assert_eq!(incremental.triple_count(), 0);
     }
 
     #[test]

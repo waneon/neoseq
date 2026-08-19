@@ -1,6 +1,6 @@
 //! Browser Wasm adapter for the graph core.
 
-use graph_core::GraphCore;
+use graph_core::{GraphChangeSet, GraphCore};
 use query::{GraphIndex, QueryRequest};
 use sync_protocol::{Message, decode, encode};
 use wasm_bindgen::prelude::*;
@@ -28,6 +28,27 @@ pub fn empty_version_vector() -> Vec<u8> {
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
+}
+
+fn apply_index_changes(
+    inner: &GraphCore,
+    index: &mut GraphIndex,
+    changes: &GraphChangeSet,
+) -> Result<(), JsValue> {
+    match inner.index_delta(changes).map_err(js_error)? {
+        Some(delta) => {
+            if index.apply_delta(delta).is_err() {
+                *index = GraphIndex::new_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
+                    .map_err(js_error)?;
+            }
+        }
+        None => {
+            index
+                .refresh_at(&inner.snapshot().map_err(js_error)?, inner.frontier())
+                .map_err(js_error)?;
+        }
+    }
+    Ok(())
 }
 
 #[wasm_bindgen]
@@ -76,12 +97,7 @@ impl WasmGraphCore {
         }
         let envelope = serde_json::from_str(command).map_err(js_error)?;
         let execution = self.inner.execute(envelope, now).map_err(js_error)?;
-        self.index
-            .refresh_at(
-                &self.inner.snapshot().map_err(js_error)?,
-                self.inner.frontier(),
-            )
-            .map_err(js_error)?;
+        apply_index_changes(&self.inner, &mut self.index, &execution.changes)?;
         self.pending_update = Some(execution.update);
         serde_json::to_string(&serde_json::json!({
             "result": execution.result,
@@ -98,13 +114,11 @@ impl WasmGraphCore {
 
     #[wasm_bindgen(js_name = importUpdate)]
     pub fn import_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
-        self.inner.import_remote(update).map_err(js_error)?;
-        self.index
-            .refresh_at(
-                &self.inner.snapshot().map_err(js_error)?,
-                self.inner.frontier(),
-            )
+        let changes = self
+            .inner
+            .import_remote_with_changes(update)
             .map_err(js_error)?;
+        apply_index_changes(&self.inner, &mut self.index, &changes)?;
         Ok(())
     }
 

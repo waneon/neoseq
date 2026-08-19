@@ -67,7 +67,7 @@ Each open graph owns an Oxigraph in-memory store backed by:
 
 - an RDF-term dictionary and the store's triple permutations;
 - Oxigraph's SPARQL parser, optimizer, and evaluator;
-- an entity-to-emitted-triples ledger for precise retraction and replacement;
+- an entity-to-emitted-triples ledger grouped by page and tag publication unit;
 - a normalized-text cache used by the versioned `neo:matchesText` function.
 
 The RDF store is the semantic index. V1 evaluates text matching over candidate
@@ -78,25 +78,34 @@ query contract.
 Every runtime revision records the graph ID and sorted Loro state frontier and
 exposes projection/profile/analyzer version constants. Standalone projection
 tests use the validated snapshot fingerprint as a deterministic frontier.
-The current client does not persist the index: every open deterministically rebuilds it. A
-future persisted cache must key all those versions and the Loro frontier and
-fall back to this same rebuild path on any mismatch.
+The current client does not persist the index: every open deterministically
+rebuilds it. Cold construction projects each entity directly into one store
+transaction without first cloning a graph-wide flattened triple set. A future
+persisted cache must key all profile versions and the Loro frontier and fall
+back to this same rebuild path on any mismatch.
 
 ## Index Maintenance and Consistency
 
-After each validated local or remote Loro change, `GraphRuntime` obtains one
-immutable domain snapshot and reprojects it. The entity ledger computes the
-semantic triple difference, and one store transaction retracts and inserts that
-difference before the revision is published. This deliberately simple path
-prioritizes correctness; field-level change sets can later avoid
-reprojecting unchanged entities without changing query results.
+Each validated local command or remote import produces a projection change set
+from its committed Loro diffs. Pages and tags are the publication units. A page
+replacement includes its complete visible block tree because structural edits
+can change parent and sibling-index triples beyond the directly targeted block.
+The runtime materializes snapshots only for the named units, reprojects those
+units, and atomically retracts and inserts their entity-level triple differences.
+Text normalization cache entries use the same replacement ledger.
+
+Diffs that cannot be classified safely trigger the complete snapshot rebuild
+path. Full reprojection is therefore a recovery path, not the normal edit or
+sync path. The initial build, full fallback, and single-page delta are measured
+separately so regression tests preserve both correctness and edit-time scaling.
 
 A query sees exactly one published revision. It may continue on the prior
 revision while the next one is built, but never observes a partial delta. The
 revision carries its Loro frontier, and query results report both revision and
 frontier so callers can reject stale work. If delta application fails, the
-runtime marks querying unavailable, rebuilds from the current validated
-snapshot, and leaves canonical Loro data untouched.
+runtime replaces the derived index from the current validated snapshot rather
+than publishing a partial delta. Index recovery never mutates canonical Loro
+data.
 
 ## SPARQL Profile and API
 
@@ -226,11 +235,11 @@ graphs are enabled.
 
 - Projection fixtures cover entity relations, all property types, repeated
   values, default predicates, dangling references, deletions, and tree moves.
-- Rebuild tests compare semantic triples and frontier fingerprints after an
-  incremental refresh and a clean construction.
+- Rebuild tests compare semantic triples and frontier fingerprints after page
+  and tag deltas, entity retractions, and clean construction.
 - SPARQL tests cover typed bindings, custom text matching, stable ordering, and
   rejection of graph-producing, dataset, named-graph, and federated forms.
-- Differential tests compare query rows from refreshed and clean indexes;
+- Differential tests compare query rows from incrementally updated and clean indexes;
   native CorePort and browser E2E suites exercise the same public query shape.
 - Budget tests prove typed failure before partial rows are returned.
 
