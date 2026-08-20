@@ -138,8 +138,10 @@ Only after commit does it publish semantic and saved events.
 Open chooses the newest checkpoint with the current schema and a valid checksum,
 then replays the verified update tail in sequence order. Invalid checkpoints are
 quarantined and the next older checkpoint is considered. Once an update tail is
-invalid, that record and the remaining tail are quarantined rather than partly
-applied. If checkpoints exist but none are valid, open fails explicitly.
+invalid or has unresolved causal dependencies, that record and the remaining
+tail are quarantined rather than partly applied. If checkpoints exist but none
+are valid, open fails explicitly. After all accepted Tail records are applied,
+the runtime establishes a fresh local undo boundary at the recovered frontier.
 
 Recovery state is one Base checkpoint plus its verified Tail updates. A normal
 snapshot retains operation history for interchange. A GC checkpoint is a Loro

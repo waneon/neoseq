@@ -128,10 +128,10 @@ pub fn valid_checksum(expected: &str, bytes: &[u8]) -> bool {
 pub fn recover_graph<R: LocalGraphRepository>(
     repository: &mut R,
     graph_id: GraphId,
-    peer_id: u64,
     now: &str,
 ) -> Result<(GraphCore, RecoveryReport), RecoveryError> {
     let metadata = repository.metadata().map_err(repository_error)?;
+    let peer_id = metadata.replica_id;
     if metadata.schema_version != SCHEMA_VERSION {
         return Err(RecoveryError::Core(CoreError::UnsupportedSchema(
             i64::from(metadata.schema_version),
@@ -222,6 +222,11 @@ pub fn recover_graph<R: LocalGraphRepository>(
             quarantined.push(export_handle);
         }
     }
+
+    // Recovery is a hard session-local undo boundary. Tail updates may carry
+    // this replica's peer ID, but they were already durable before this runtime
+    // opened and have no ephemeral HistoryEntry in the new process.
+    core.reset_local_history();
 
     Ok((
         core,

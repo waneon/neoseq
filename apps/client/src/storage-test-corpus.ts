@@ -89,6 +89,88 @@ export async function runIndexedDbPersistenceCorpus() {
   await restorer.closeGraph({ graph_handle: reopened.graph_handle });
   await restorer.deleteGraph(graph);
   restorer.terminate();
+
+  // Keep a real Base+Tail across an abrupt Worker restart. Replayed updates
+  // use the persisted replica id, but belong before the new session's undo
+  // boundary. The first new edit must undo alone and must not poison the next
+  // durable edit.
+  const historyGraph = graphId("indexeddb-reopen-undo");
+  const historyWriter = new TestCoreWorker();
+  const historyOpened = await historyWriter.openGraph(openRequest(historyGraph, 203));
+  await historyWriter.execute({
+    graph_handle: historyOpened.graph_handle,
+    command: ensurePage(historyGraph, "history-home", "home"),
+    timeout_ms: 1_000,
+  });
+  historyWriter.terminate();
+
+  const historyReopened = new TestCoreWorker();
+  const recoveredHistory = await historyReopened.openGraph(openRequest(historyGraph, 204));
+  assert(recoveredHistory.recovery.replayed_updates === 1, "history regression did not replay a same-replica Tail");
+  await historyReopened.execute({
+    graph_handle: recoveredHistory.graph_handle,
+    command: renamePage(historyGraph, "transient-after-reopen", "home", "Transient"),
+    timeout_ms: 1_000,
+  });
+  const firstSessionUndo = await historyReopened.execute({
+    graph_handle: recoveredHistory.graph_handle,
+    command: {
+      graph_id: historyGraph,
+      command_id: "first-session-undo",
+      command: { type: "undo" },
+    },
+    timeout_ms: 1_000,
+  });
+  assert((firstSessionUndo.result as { changed: boolean }).changed, "first edit after reopen was not undoable");
+  const restoredAfterUndo = await historyReopened.read({ graph_handle: recoveredHistory.graph_handle });
+  assert(
+    (restoredAfterUndo.summary as { pages: { title: string }[] }).pages[0].title === "home",
+    "first undo after reopen crossed into the durable Tail",
+  );
+  await historyReopened.execute({
+    graph_handle: recoveredHistory.graph_handle,
+    command: renamePage(historyGraph, "after-reopen", "home", "After reopen"),
+    timeout_ms: 1_000,
+  });
+  historyReopened.terminate();
+
+  const historyDurable = new TestCoreWorker();
+  const durableHistory = await historyDurable.openGraph(openRequest(historyGraph, 205));
+  const durablePage = (durableHistory.summary as { pages: { title: string }[] }).pages[0];
+  assert(durablePage.title === "After reopen", "edit after reopen undo did not survive another restart");
+  const oldSessionUndo = await historyDurable.execute({
+    graph_handle: durableHistory.graph_handle,
+    command: {
+      graph_id: historyGraph,
+      command_id: "old-session-undo",
+      command: { type: "undo" },
+    },
+    timeout_ms: 1_000,
+  });
+  assert(!(oldSessionUndo.result as { changed: boolean }).changed, "reopen exposed durable Tail as undoable history");
+  await historyDurable.execute({
+    graph_handle: durableHistory.graph_handle,
+    command: renamePage(historyGraph, "current-session", "home", "Current session"),
+    timeout_ms: 1_000,
+  });
+  const currentSessionUndo = await historyDurable.execute({
+    graph_handle: durableHistory.graph_handle,
+    command: {
+      graph_id: historyGraph,
+      command_id: "current-session-undo",
+      command: { type: "undo" },
+    },
+    timeout_ms: 1_000,
+  });
+  assert((currentSessionUndo.result as { changed: boolean }).changed, "new-session edit was not undoable");
+  const afterUndo = await historyDurable.read({ graph_handle: durableHistory.graph_handle });
+  assert(
+    (afterUndo.summary as { pages: { title: string }[] }).pages[0].title === "After reopen",
+    "current-session undo crossed the recovery boundary",
+  );
+  await historyDurable.closeGraph({ graph_handle: durableHistory.graph_handle });
+  await historyDurable.deleteGraph(historyGraph);
+  historyDurable.terminate();
   return { graph, local_sequence: saved.save_status.status === "saved_locally" ? saved.save_status.local_sequence : 0 };
 }
 
@@ -284,6 +366,16 @@ export async function runRemoteOutboxCorpus() {
   const replaced = await writer.syncState(opened.graph_handle);
   assert(replaced.history_epoch === 1, "server history epoch was not installed");
   assert(replaced.pending === 1, "unacknowledged local intent was lost during rebase");
+  const rebaseUndo = await writer.execute({
+    graph_handle: opened.graph_handle,
+    command: {
+      graph_id: graph,
+      command_id: "post-rebase-undo",
+      command: { type: "undo" },
+    },
+    timeout_ms: 1_000,
+  });
+  assert(!(rebaseUndo.result as { changed: boolean }).changed, "history replacement exposed replayed intent as undoable");
   const rebased = await writer.nextOutbox(opened.graph_handle);
   assert(rebased?.history_epoch === 1, "rebased outbox retained a stale epoch");
   const replacedStats = await writer.storageStats(graph);

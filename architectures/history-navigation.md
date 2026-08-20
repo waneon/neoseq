@@ -6,9 +6,10 @@ Undo and redo can change an entity outside the visible page. The product makes
 that result discoverable without coupling the Rust core to routes, viewport
 state, or focus policy.
 
-This architecture covers local undo/redo navigation only. Browser history,
-remote-change attribution, and persisted history across graph reopen are outside
-the current boundary.
+This architecture covers local undo/redo navigation only. Browser history and
+remote-change attribution are outside the current boundary. Reopening a graph
+starts a fresh local undo session after complete Base+Tail recovery: recovered
+commands remain canonical state but are not undoable in the new session.
 
 ## Contract
 
@@ -29,8 +30,9 @@ client stays where it is.
 `GraphCore` keeps one ephemeral `HistoryEntry` beside each local Loro undo item.
 The undo and redo metadata stacks move in lockstep with Loro's stacks. A new
 changed command clears redo metadata; a no-op creates neither a Loro item nor an
-entry. A stack mismatch rejects the history command and rolls the Loro operation
-back instead of publishing an uncorrelated effect.
+entry. A stack mismatch rejects the history command and restores the exact
+pre-command causal frontier, then starts a fresh local history boundary instead
+of publishing an uncorrelated effect.
 
 Each entry records:
 

@@ -66,9 +66,8 @@ impl NativeCorePort {
             request.peer_id,
         )
         .map_err(map_storage_error)?;
-        let replica_id = repository.metadata().map_err(map_storage_error)?.replica_id;
         let recovered_at = self.now();
-        let (core, recovery) = recover_graph(&mut repository, graph_id, replica_id, &recovered_at)
+        let (core, recovery) = recover_graph(&mut repository, graph_id, &recovered_at)
             .map_err(|error| map_recovery_error(&error.to_string()))?;
         if repository
             .checkpoints_descending()

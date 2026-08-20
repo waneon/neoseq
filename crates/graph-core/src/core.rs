@@ -123,6 +123,8 @@ pub enum CoreError {
     UnsupportedSchema(i64),
     #[error("local history metadata is not aligned with the undo manager")]
     HistoryMetadataMismatch,
+    #[error("Loro update is missing causal dependencies")]
+    MissingDependencies,
 }
 
 #[derive(Debug, Clone)]
@@ -571,6 +573,30 @@ impl GraphCore {
         &self.graph_id
     }
 
+    /// Starts a new session-local undo boundary at the document's current
+    /// frontier. Persistence recovery must call this only after the complete
+    /// Base+Tail has been replayed: imported operations from this replica are
+    /// durable graph state, not commands from the newly opened session.
+    pub fn reset_local_history(&mut self) {
+        self.undo = UndoManager::new(&self.doc);
+        self.undo_history.clear();
+        self.redo_history.clear();
+    }
+
+    /// Restores the exact pre-command document after a history operation was
+    /// rejected. Loro has no transactional undo preview; replacing the fork
+    /// prevents compensating undo/redo operations from leaking into the local
+    /// causal frontier. The rare rejection deliberately starts a fresh history
+    /// boundary because Loro's old stacks are bound to the discarded document.
+    fn restore_history_backup(&mut self, backup: LoroDoc) -> Result<(), CoreError> {
+        let peer_id = self.doc.peer_id();
+        self.doc = backup;
+        self.doc.set_peer_id(peer_id)?;
+        enable_page_outlines(&self.doc)?;
+        self.reset_local_history();
+        Ok(())
+    }
+
     pub fn execute(
         &mut self,
         envelope: CommandEnvelope,
@@ -607,45 +633,99 @@ impl GraphCore {
 
         match &envelope.command {
             Command::Undo => {
-                result.changed = self.undo.undo()?;
+                if self.undo_history.is_empty() {
+                    if self.undo.can_undo() {
+                        self.reset_local_history();
+                        return Err(CoreError::HistoryMetadataMismatch);
+                    }
+                    result.changed = false;
+                    self.doc.commit();
+                    let changes = change_tracker.finish(&self.doc);
+                    self.remember(envelope.command_id.as_str(), result.clone());
+                    return Ok(CoreExecution {
+                        result,
+                        update: Vec::new(),
+                        semantic,
+                        duplicate: false,
+                        changes,
+                    });
+                }
+                if !self.undo.can_undo() {
+                    self.reset_local_history();
+                    return Err(CoreError::HistoryMetadataMismatch);
+                }
+                let backup = self.doc.fork();
+                result.changed = match self.undo.undo() {
+                    Ok(changed) => changed,
+                    Err(error) => {
+                        self.restore_history_backup(backup)?;
+                        return Err(error.into());
+                    }
+                };
+                if !result.changed {
+                    self.restore_history_backup(backup)?;
+                    return Err(CoreError::HistoryMetadataMismatch);
+                }
                 if result.changed
                     && let Err(error) = validate_unique_entity_names(&self.doc)
                 {
-                    self.undo.redo()?;
-                    self.doc.commit();
+                    self.restore_history_backup(backup)?;
                     return Err(error);
                 }
-                if result.changed {
-                    let Some(entry) = self.undo_history.pop() else {
-                        self.undo.redo()?;
-                        self.doc.commit();
-                        return Err(CoreError::HistoryMetadataMismatch);
-                    };
-                    result.history_effect =
-                        Some(self.history_effect(&entry, HistoryDirection::Undo));
-                    self.redo_history.push(entry);
-                }
+                let entry = self
+                    .undo_history
+                    .pop()
+                    .expect("history metadata was checked before undo");
+                result.history_effect = Some(self.history_effect(&entry, HistoryDirection::Undo));
+                self.redo_history.push(entry);
                 self.doc.commit();
             }
             Command::Redo => {
-                result.changed = self.undo.redo()?;
+                if self.redo_history.is_empty() {
+                    if self.undo.can_redo() {
+                        self.reset_local_history();
+                        return Err(CoreError::HistoryMetadataMismatch);
+                    }
+                    result.changed = false;
+                    self.doc.commit();
+                    let changes = change_tracker.finish(&self.doc);
+                    self.remember(envelope.command_id.as_str(), result.clone());
+                    return Ok(CoreExecution {
+                        result,
+                        update: Vec::new(),
+                        semantic,
+                        duplicate: false,
+                        changes,
+                    });
+                }
+                if !self.undo.can_redo() {
+                    self.reset_local_history();
+                    return Err(CoreError::HistoryMetadataMismatch);
+                }
+                let backup = self.doc.fork();
+                result.changed = match self.undo.redo() {
+                    Ok(changed) => changed,
+                    Err(error) => {
+                        self.restore_history_backup(backup)?;
+                        return Err(error.into());
+                    }
+                };
+                if !result.changed {
+                    self.restore_history_backup(backup)?;
+                    return Err(CoreError::HistoryMetadataMismatch);
+                }
                 if result.changed
                     && let Err(error) = validate_unique_entity_names(&self.doc)
                 {
-                    self.undo.undo()?;
-                    self.doc.commit();
+                    self.restore_history_backup(backup)?;
                     return Err(error);
                 }
-                if result.changed {
-                    let Some(entry) = self.redo_history.pop() else {
-                        self.undo.undo()?;
-                        self.doc.commit();
-                        return Err(CoreError::HistoryMetadataMismatch);
-                    };
-                    result.history_effect =
-                        Some(self.history_effect(&entry, HistoryDirection::Redo));
-                    self.undo_history.push(entry);
-                }
+                let entry = self
+                    .redo_history
+                    .pop()
+                    .expect("history metadata was checked before redo");
+                result.history_effect = Some(self.history_effect(&entry, HistoryDirection::Redo));
+                self.undo_history.push(entry);
                 self.doc.commit();
             }
             command => {
@@ -695,7 +775,10 @@ impl GraphCore {
 
         let change_tracker = ProjectionChangeTracker::new(&self.doc);
         self.doc.set_next_commit_origin("remote:import");
-        self.doc.import(update)?;
+        let status = self.doc.import(update)?;
+        if status.pending.is_some() {
+            return Err(CoreError::MissingDependencies);
+        }
         Ok(change_tracker.finish(&self.doc))
     }
 
@@ -706,7 +789,10 @@ impl GraphCore {
         // Validate on a deep fork first: a rejected remote update must not
         // partially enter the canonical document.
         let candidate = self.doc.fork();
-        candidate.import(update)?;
+        let status = candidate.import(update)?;
+        if status.pending.is_some() {
+            return Err(CoreError::MissingDependencies);
+        }
         verify_schema(&candidate, &self.graph_id)?;
         validate_unique_entity_names(&candidate)?;
         Ok(())
@@ -5469,6 +5555,240 @@ mod tests {
             .find(|item| item.id == page())
             .unwrap();
         assert_eq!(home.title, "Home");
+    }
+
+    #[test]
+    fn recovery_history_boundary_excludes_replayed_same_peer_tail() {
+        let mut writer = GraphCore::new(graph(), 1, "t0").unwrap();
+        let base = writer.export_gc_checkpoint().unwrap();
+        let tail = writer
+            .execute(
+                envelope(
+                    "page",
+                    Command::EnsurePage {
+                        page_id: page(),
+                        title: "Home".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap()
+            .update;
+
+        let mut recovered = GraphCore::from_snapshot(graph(), 1, &base).unwrap();
+        recovered.import_remote(&tail).unwrap();
+        recovered.reset_local_history();
+
+        let old_session = recovered
+            .execute(envelope("old-session-undo", Command::Undo), "t2")
+            .unwrap();
+        assert!(!old_session.result.changed);
+        assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
+
+        recovered
+            .execute(
+                envelope(
+                    "new-session-rename",
+                    Command::RenamePage {
+                        page_id: page(),
+                        title: "Current".into(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+        let current_session = recovered
+            .execute(envelope("new-session-undo", Command::Undo), "t4")
+            .unwrap();
+        assert!(current_session.result.changed);
+        assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
+    }
+
+    #[test]
+    fn history_metadata_mismatch_discards_unpaired_loro_history() {
+        let mut recovered = GraphCore::new(graph(), 1, "t0").unwrap();
+        recovered
+            .execute(
+                envelope(
+                    "page",
+                    Command::EnsurePage {
+                        page_id: page(),
+                        title: "Home".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        recovered.undo_history.clear();
+        let frontier = recovered.doc.oplog_vv();
+        assert!(matches!(
+            recovered.execute(envelope("unpaired-undo", Command::Undo), "t2"),
+            Err(CoreError::HistoryMetadataMismatch)
+        ));
+        assert_eq!(recovered.doc.oplog_vv(), frontier);
+
+        recovered
+            .execute(
+                envelope(
+                    "new-session-rename",
+                    Command::RenamePage {
+                        page_id: page(),
+                        title: "Current".into(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+        assert!(
+            recovered
+                .execute(envelope("new-session-undo", Command::Undo), "t4")
+                .unwrap()
+                .result
+                .changed
+        );
+        let exhausted = recovered
+            .execute(envelope("exhausted-undo", Command::Undo), "t5")
+            .unwrap();
+        assert!(!exhausted.result.changed);
+        assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
+    }
+
+    #[test]
+    fn incomplete_remote_update_is_rejected_without_entering_pending_state() {
+        let mut writer = GraphCore::new(graph(), 1, "t0").unwrap();
+        let base = writer.export_snapshot().unwrap();
+        let first = writer
+            .execute(
+                envelope(
+                    "page",
+                    Command::EnsurePage {
+                        page_id: page(),
+                        title: "Home".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap()
+            .update;
+        let second = writer
+            .execute(
+                envelope(
+                    "rename",
+                    Command::RenamePage {
+                        page_id: page(),
+                        title: "Renamed".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap()
+            .update;
+
+        let mut recipient = GraphCore::from_snapshot(graph(), 2, &base).unwrap();
+        assert!(matches!(
+            recipient.import_remote(&second),
+            Err(CoreError::MissingDependencies)
+        ));
+        assert!(recipient.summary().unwrap().pages.is_empty());
+
+        recipient.import_remote(&first).unwrap();
+        recipient.import_remote(&second).unwrap();
+        assert_eq!(recipient.summary().unwrap().pages[0].title, "Renamed");
+    }
+
+    #[test]
+    fn rejected_history_operation_restores_the_exact_causal_frontier() {
+        let other_page = PageId::new("other").unwrap();
+        let mut left = GraphCore::new(graph(), 1, "t0").unwrap();
+        left.execute(
+            envelope(
+                "home",
+                Command::EnsurePage {
+                    page_id: page(),
+                    title: "Alpha".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        left.execute(
+            envelope(
+                "other",
+                Command::EnsurePage {
+                    page_id: other_page.clone(),
+                    title: "Beta".into(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+        let base = left.export_snapshot().unwrap();
+        let mut right = GraphCore::from_snapshot(graph(), 2, &base).unwrap();
+
+        let local_rename = left
+            .execute(
+                envelope(
+                    "local-rename",
+                    Command::RenamePage {
+                        page_id: page(),
+                        title: "Gamma".into(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap()
+            .update;
+        right.import_remote(&local_rename).unwrap();
+        let remote_rename = right
+            .execute(
+                CommandEnvelope {
+                    graph_id: graph(),
+                    command_id: CommandId::new("remote-rename").unwrap(),
+                    command: Command::RenamePage {
+                        page_id: other_page,
+                        title: "Alpha".into(),
+                    },
+                },
+                "t4",
+            )
+            .unwrap()
+            .update;
+        left.import_remote(&remote_rename).unwrap();
+
+        let frontier = left.doc.oplog_vv();
+        assert!(matches!(
+            left.execute(envelope("conflicting-undo", Command::Undo), "t5"),
+            Err(CoreError::PageNameConflict { .. })
+        ));
+        assert_eq!(left.doc.oplog_vv(), frontier);
+        let snapshot = left.summary().unwrap();
+        assert!(snapshot.pages.iter().any(|item| item.title == "Gamma"));
+        assert!(snapshot.pages.iter().any(|item| item.title == "Alpha"));
+
+        let no_history = left
+            .execute(envelope("after-rejection-undo", Command::Undo), "t6")
+            .unwrap();
+        assert!(!no_history.result.changed);
+        left.execute(
+            envelope(
+                "after-rejection-edit",
+                Command::RenamePage {
+                    page_id: page(),
+                    title: "Delta".into(),
+                },
+            ),
+            "t7",
+        )
+        .unwrap();
+        left.execute(envelope("after-rejection-edit-undo", Command::Undo), "t8")
+            .unwrap();
+        assert!(
+            left.summary()
+                .unwrap()
+                .pages
+                .iter()
+                .any(|item| item.title == "Gamma")
+        );
     }
 
     #[test]

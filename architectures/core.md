@@ -191,18 +191,20 @@ Its lifecycle is:
 1. load the latest valid Base checkpoint and verified update Tail using the
    replica ID persisted by the platform repository;
 2. validate the document schema;
-3. rebuild the RDF index from the validated Loro snapshot, then emit the initial view;
-4. accept local commands and remote imports;
-5. periodically install a shallow GC checkpoint for local-only history, or
+3. establish a fresh local undo boundary at the recovered causal frontier;
+4. rebuild the RDF index from the validated Loro snapshot, then emit the initial view;
+5. accept local commands and remote imports;
+6. periodically install a shallow GC checkpoint for local-only history, or
    adopt a server-authorized checkpoint when a remote history epoch changes;
-6. flush pending persistence work on suspension/close.
+7. flush pending persistence work on suspension/close.
 
 A successfully planned command is applied as one Loro transaction. The runtime
 groups all of its operations into one local undo item, exports one binary update,
 and emits one semantic event. Undo only tracks local command groups; imported
-remote changes are never undone by another user's local undo action. Loro does
-not provide transactional rollback, so every user-rejectable structural
-condition is checked by the read-only plan before the first CRDT mutation.
+remote changes and replayed durable Tail changes are never undone by a new local
+session. Loro does not provide transactional rollback, so every user-rejectable
+structural condition is checked by the read-only plan before the first CRDT
+mutation.
 
 The runtime keeps ephemeral semantic metadata beside each local Loro undo item.
 An undo or redo result includes its scope, affected page IDs, and at most one

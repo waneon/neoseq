@@ -1,7 +1,8 @@
 use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
 use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use graph_core::{
-    GraphLocator, GraphRepository, GraphRuntime, InMemoryClock, LocalGraphRepository, recover_graph,
+    GraphCore, GraphLocator, GraphRepository, GraphRuntime, InMemoryClock, LocalGraphRepository,
+    recover_graph,
 };
 use std::path::{Path, PathBuf};
 
@@ -56,7 +57,7 @@ fn open(
     )
     .unwrap();
     let (core, report) =
-        recover_graph(&mut repository, graph.clone(), peer, "2026-08-03T12:00:01Z").unwrap();
+        recover_graph(&mut repository, graph.clone(), "2026-08-03T12:00:01Z").unwrap();
     if repository.checkpoints_descending().unwrap().is_empty() {
         repository
             .install_checkpoint(
@@ -151,6 +152,73 @@ fn persistence_acknowledged_tail_survives_abrupt_runtime_drop() {
 }
 
 #[test]
+fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
+    let database = TempDb::new("reopen-undo-boundary");
+    let graph = GraphId::new("reopen-undo-boundary").unwrap();
+    let (mut writer, _) = open(database.path(), &graph, 46);
+    ensure_page(&mut writer, &graph);
+    drop(writer);
+
+    let (mut reopened, report) = open(database.path(), &graph, 47);
+    assert_eq!(report.replayed_updates, 1);
+    reopened
+        .execute(envelope(
+            &graph,
+            "transient-after-reopen",
+            Command::RenamePage {
+                page_id: PageId::new("home").unwrap(),
+                title: "Transient".to_owned(),
+            },
+        ))
+        .unwrap();
+    let first_session_undo = reopened
+        .execute(envelope(&graph, "first-session-undo", Command::Undo))
+        .unwrap();
+    assert!(first_session_undo.changed);
+    assert_eq!(reopened.core().summary().unwrap().pages[0].title, "Home");
+    reopened
+        .execute(envelope(
+            &graph,
+            "after-reopen",
+            Command::RenamePage {
+                page_id: PageId::new("home").unwrap(),
+                title: "After reopen".to_owned(),
+            },
+        ))
+        .unwrap();
+    drop(reopened);
+
+    let (mut durable, report) = open(database.path(), &graph, 48);
+    assert_eq!(report.replayed_updates, 4);
+    assert_eq!(
+        durable.core().summary().unwrap().pages[0].title,
+        "After reopen"
+    );
+    let old_session = durable
+        .execute(envelope(&graph, "old-session-undo", Command::Undo))
+        .unwrap();
+    assert!(!old_session.changed);
+    durable
+        .execute(envelope(
+            &graph,
+            "current-session",
+            Command::RenamePage {
+                page_id: PageId::new("home").unwrap(),
+                title: "Current session".to_owned(),
+            },
+        ))
+        .unwrap();
+    let current_session = durable
+        .execute(envelope(&graph, "current-session-undo", Command::Undo))
+        .unwrap();
+    assert!(current_session.changed);
+    assert_eq!(
+        durable.core().summary().unwrap().pages[0].title,
+        "After reopen"
+    );
+}
+
+#[test]
 fn persistence_append_faults_preserve_dirty_bytes_and_after_commit_is_idempotent() {
     let database = TempDb::new("append-faults");
     let graph = GraphId::new("append-faults").unwrap();
@@ -238,6 +306,61 @@ fn recovery_corrupt_tail_is_quarantined_and_graph_remains_writable() {
             },
         ))
         .unwrap();
+}
+
+#[test]
+fn recovery_quarantines_a_causally_incomplete_tail() {
+    let database = TempDb::new("missing-tail-dependency");
+    let graph = GraphId::new("missing-tail-dependency").unwrap();
+    let (mut runtime, _) = open(database.path(), &graph, 66);
+    let checkpoint = runtime.repository_mut().checkpoints_descending().unwrap()[0]
+        .bytes
+        .clone();
+    let replica_id = runtime.repository_mut().metadata().unwrap().replica_id;
+    let mut producer = GraphCore::from_snapshot(graph.clone(), replica_id, &checkpoint).unwrap();
+    producer
+        .execute(
+            envelope(
+                &graph,
+                "missing-page",
+                Command::EnsurePage {
+                    page_id: PageId::new("home").unwrap(),
+                    title: "Home".to_owned(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+    let dependent = producer
+        .execute(
+            envelope(
+                &graph,
+                "dependent-rename",
+                Command::RenamePage {
+                    page_id: PageId::new("home").unwrap(),
+                    title: "Missing dependency".to_owned(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap()
+        .update;
+    runtime
+        .repository_mut()
+        .append_update(&dependent, "2026-08-03T12:02:30Z")
+        .unwrap();
+    drop(runtime);
+
+    let (mut restored, report) = open(database.path(), &graph, 67);
+    assert!(restored.core().summary().unwrap().pages.is_empty());
+    assert_eq!(report.quarantined_records, vec!["update-1"]);
+    let quarantined = restored.repository_mut().quarantined().unwrap();
+    assert_eq!(quarantined.len(), 1);
+    assert!(
+        quarantined[0]
+            .reason
+            .contains("missing causal dependencies")
+    );
 }
 
 #[test]

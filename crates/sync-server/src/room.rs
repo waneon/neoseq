@@ -298,6 +298,7 @@ impl<S: GraphStore> RoomManager<S> {
             core.import_remote(&update.bytes)
                 .map_err(|_| StoreError::Corrupt("durable Loro update is invalid"))?;
         }
+        core.reset_local_history();
         self.metrics.room_opened();
         let graph_log_id = telemetry_id(graph_id);
         tracing::info!(

@@ -197,6 +197,10 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
       quarantinedRecords.push(exportHandle);
     }
   }
+  // Replayed same-replica Tail operations are durable graph state, not local
+  // commands from this browser session. Start undo only after recovery reaches
+  // its final frontier so Loro and the semantic history stacks share a boundary.
+  core.resetLocalHistory();
   return {
     core,
     report: {
@@ -455,6 +459,7 @@ async function syncReplace(payload: {
   for (const record of await state.repository.outbox(state.graphId)) {
     candidate.importUpdate(new Uint8Array(record.payload));
   }
+  candidate.resetLocalHistory();
   const rebasedTail = ownedBuffer(
     candidate.exportUpdatesSince(new Uint8Array(serverVersionVector)),
   );

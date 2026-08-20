@@ -107,6 +107,11 @@ impl WasmGraphCore {
         })
     }
 
+    #[wasm_bindgen(js_name = resetLocalHistory)]
+    pub fn reset_local_history(&mut self) {
+        self.inner.reset_local_history();
+    }
+
     #[wasm_bindgen(js_name = executeJson)]
     pub fn execute_json(&mut self, command: &str, now: &str) -> Result<String, JsValue> {
         if self.pending_update.is_some() {
