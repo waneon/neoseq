@@ -63,7 +63,7 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await taskText.press("End");
   await taskText.press("Enter");
   await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Blocks/ }).click();
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
 
   const query = page.getByTestId("query-block");
   await expect(query.getByTestId("query-builder")).toBeVisible();
@@ -111,4 +111,57 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   const reloaded = page.getByTestId("query-block");
   await expect(reloaded.getByTestId("query-table")).toBeVisible();
   await expect(reloaded.getByRole("columnheader", { name: /Page/ })).toHaveCount(0);
+});
+
+// The order a reader puts a result in is a list, and it is saved view data like
+// every other shape they give a table.
+test("a result's order accumulates across headings and survives a reload", async ({ page }) => {
+  await createGraph(page, "Query Sort Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "alpha");
+  const first = page.getByLabel("Block text").first();
+  await first.click();
+  await first.press("End");
+  await first.press("Enter");
+  await typeInFocusedBlock(page, "beta");
+
+  const line = page.getByLabel("Block text").nth(1);
+  await line.click();
+  await line.press("End");
+  await line.press("Enter");
+  await page.keyboard.type("/query");
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
+
+  const query = page.getByTestId("query-block");
+  const table = query.getByTestId("query-table");
+  await expect(table).toBeVisible();
+
+  // One press orders by that column; the next adds a tie-breaker rather than
+  // replacing the first choice.
+  await table.getByRole("button", { name: "Text", exact: true }).click();
+  await table.getByRole("button", { name: "Page", exact: true }).click();
+  await expect(table.getByRole("columnheader", { name: /Text/ })).toHaveAttribute(
+    "aria-sort", "ascending",
+  );
+  await expect(table.getByRole("columnheader", { name: /Page/ })).toHaveAttribute(
+    "aria-sort", "ascending",
+  );
+  // Precedence is stated, because two arrows cannot say which column wins.
+  await expect(table.getByRole("columnheader", { name: /Text/ })).toContainText("1");
+  await expect(table.getByRole("columnheader", { name: /Page/ })).toContainText("2");
+  await expect(query.getByTestId("query-sort-trigger")).toHaveAttribute("data-sorted", "true");
+  await awaitSaved(page);
+
+  // The panel is where precedence can be moved, and where it can be dropped.
+  await query.getByTestId("query-sort-trigger").click();
+  const panel = page.getByTestId("query-sort-panel");
+  await panel.getByRole("button", { name: "Move Page earlier" }).click();
+  await expect(table.getByRole("columnheader", { name: /Page/ })).toContainText("1");
+  await awaitSaved(page);
+  await page.keyboard.press("Escape");
+
+  await page.reload();
+  const reloaded = page.getByTestId("query-block");
+  await expect(reloaded.getByRole("columnheader", { name: /Page/ })).toContainText("1");
+  await expect(reloaded.getByRole("columnheader", { name: /Text/ })).toContainText("2");
 });

@@ -5,8 +5,14 @@
 // everyone on the graph. Sort is presentation like the rest of them: it reorders
 // what is already on screen, while the query's own order — the one a `LIMIT` cuts
 // against — lives in the builder's Sort row. A reader on a read-only graph can
-// still sort; there is simply nowhere to write the choice, so it lasts as long as
-// the block is mounted.
+// still sort; there is simply nowhere to write the choice, so the block holds it
+// for as long as it is mounted.
+//
+// The order is a **list**. A header press cycles its own column and leaves the
+// rest standing, so a second press adds a tie-breaker instead of discarding the
+// first choice; each sorted heading states its rank once there is a second term
+// for it to come before. The list itself — its precedence, and the buttons that
+// move a term through it — lives in the header's sort panel.
 //
 // Widths are declared once, in a `<colgroup>`, on a `table-layout: fixed` table.
 // That is the whole fix for a defect the auto table algorithm caused: `width` on
@@ -20,9 +26,10 @@
 // file owns every pixel, because the design system, not a library's stylesheet,
 // decides what a row looks like.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   ArrowDownIcon,
+  ArrowUpDownIcon,
   ArrowUpIcon,
   ChevronsLeftRightIcon,
   EyeOffIcon,
@@ -48,6 +55,7 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
+import { cycleSort, SORT_LIMIT } from "./QuerySortControl";
 import {
   cellText,
   type CellContext,
@@ -78,7 +86,7 @@ export function QueryTableView({
   pinnedRowKey,
   compact,
   wrap,
-  sort,
+  sorts,
   onSort,
   onResize,
   onHide,
@@ -91,24 +99,21 @@ export function QueryTableView({
   pinnedRowKey?: string;
   compact: boolean;
   wrap: boolean;
-  /** The order saved in the view. */
-  sort?: QueryViewSort | null;
-  /** Persist a header click. Absent while the graph is read-only. */
-  onSort?: (sort: QueryViewSort | null) => void;
+  /** The ordering terms in force, most significant first. */
+  sorts: QueryViewSort[];
+  /** Where a header press goes. Never absent: reading is never read-only. */
+  onSort: (sorts: QueryViewSort[]) => void;
   /** Persist a dragged width. Absent while the graph is read-only. */
   onResize?: (variable: string, width: number) => void;
   onHide?: (variable: string) => void;
   onMove?: (variable: string, delta: -1 | 1) => void;
 }) {
   const { message } = useI18n();
-  // Reading is never read-only: without somewhere to persist the choice, the
-  // sort simply lives here for as long as the block is mounted.
-  const [localSort, setLocalSort] = useState<QueryViewSort | null>(null);
-  const effectiveSort = onSort ? (sort ?? null) : localSort;
   const sorting = useMemo<SortingState>(
-    () => (effectiveSort ? [{ id: effectiveSort.variable, desc: effectiveSort.descending }] : []),
-    [effectiveSort],
+    () => sorts.map((sort) => ({ id: sort.variable, desc: sort.descending })),
+    [sorts],
   );
+  const rankOf = (variable: string) => sorts.findIndex((sort) => sort.variable === variable);
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
@@ -131,17 +136,12 @@ export function QueryTableView({
     data: rows,
     columns: definitions,
     getRowId: (row) => row.key,
+    // The order is this component's input, not its state: every press goes
+    // through `cycleSort`, so the header and the sort panel compute the next
+    // list the same way and neither can disagree with the saved view.
     state: { sorting },
-    // One sorted column: the saved view holds one order, and a table whose
-    // header clicks silently accumulate is a table nobody can read back.
-    enableMultiSort: false,
-    onSortingChange: (updater) => {
-      const next = typeof updater === "function" ? updater(sorting) : updater;
-      const first = next[0];
-      const chosen = first ? { variable: first.id, descending: first.desc } : null;
-      if (onSort) onSort(chosen);
-      else setLocalSort(chosen);
-    },
+    enableMultiSort: true,
+    maxMultiSortColCount: SORT_LIMIT,
     columnResizeMode: "onChange",
     enableColumnResizing: Boolean(onResize),
   });
@@ -173,7 +173,9 @@ export function QueryTableView({
             <tr key={group.id}>
               {group.headers.map((header, index) => {
                 const column = byVariable.get(header.column.id);
-                const direction = header.column.getIsSorted();
+                const label = column?.label ?? header.column.id;
+                const rank = rankOf(header.column.id);
+                const term = rank < 0 ? null : sorts[rank];
                 return (
                   <th
                     key={header.id}
@@ -181,23 +183,29 @@ export function QueryTableView({
                     aria-colindex={index + 1}
                     data-numeric={column?.numeric || undefined}
                     aria-sort={
-                      direction === "asc"
-                        ? "ascending"
-                        : direction === "desc"
+                      term === null
+                        ? "none"
+                        : term.descending
                           ? "descending"
-                          : "none"
+                          : "ascending"
                     }
                   >
                     <div className="query-th">
                       <button
                         type="button"
                         className="query-th-sort"
-                        onClick={header.column.getToggleSortingHandler()}
-                        title={message("query.sortBy", { column: column?.label ?? header.column.id })}
+                        onClick={() => onSort(cycleSort(sorts, header.column.id))}
+                        title={message("query.sortBy", { column: label })}
                       >
-                        <span>{column?.label ?? header.column.id}</span>
-                        {direction === "asc" && <ArrowUpIcon aria-hidden />}
-                        {direction === "desc" && <ArrowDownIcon aria-hidden />}
+                        <span>{label}</span>
+                        {term && (term.descending
+                          ? <ArrowDownIcon aria-hidden />
+                          : <ArrowUpIcon aria-hidden />)}
+                        {/* Rank, not decoration: with a second term in the list,
+                            an arrow alone cannot say which column wins. */}
+                        {term && sorts.length > 1 && (
+                          <span className="query-th-rank">{rank + 1}</span>
+                        )}
                       </button>
                       {(onHide || onMove) && (
                         <DropdownMenu modal={false}>
@@ -214,16 +222,30 @@ export function QueryTableView({
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
+                            {/* A direction chosen here joins the list at the end
+                                if it is not already in it, and changes in place
+                                if it is — the same rule the header press keeps. */}
                             <DropdownMenuItem
-                              onSelect={() => header.column.toggleSorting(false)}
+                              onSelect={() => onSort(withDirection(sorts, header.column.id, false))}
                             >
                               <ArrowUpIcon aria-hidden />
                               {message("query.sortAscending")}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => header.column.toggleSorting(true)}>
+                            <DropdownMenuItem
+                              onSelect={() => onSort(withDirection(sorts, header.column.id, true))}
+                            >
                               <ArrowDownIcon aria-hidden />
                               {message("query.sortDescending")}
                             </DropdownMenuItem>
+                            {term && (
+                              <DropdownMenuItem
+                                onSelect={() => onSort(
+                                  sorts.filter((sort) => sort.variable !== header.column.id))}
+                              >
+                                <ArrowUpDownIcon aria-hidden />
+                                {message("query.stopSorting")}
+                              </DropdownMenuItem>
+                            )}
                             {onMove && (
                               <>
                                 <DropdownMenuSeparator />
@@ -344,4 +366,21 @@ export function QueryTableView({
       </table>
     </div>
   );
+}
+
+/**
+ * The list after a column is given an explicit direction: it keeps its place if
+ * it already has one and joins the end if it does not, so choosing `Ascending`
+ * from a heading's menu never silently discards the terms before it.
+ */
+function withDirection(
+  sorts: QueryViewSort[],
+  variable: string,
+  descending: boolean,
+): QueryViewSort[] {
+  if (sorts.some((sort) => sort.variable === variable)) {
+    return sorts.map((sort) => (sort.variable === variable ? { variable, descending } : sort));
+  }
+  if (sorts.length >= SORT_LIMIT) return sorts;
+  return [...sorts, { variable, descending }];
 }

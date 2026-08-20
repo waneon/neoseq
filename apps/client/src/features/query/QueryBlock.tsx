@@ -21,14 +21,10 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CodeIcon,
-  EyeIcon,
-  EyeOffIcon,
   ListIcon,
   MoreHorizontalIcon,
-  PlayIcon,
   Table2Icon,
   Trash2Icon,
-  WandSparklesIcon,
 } from "lucide-react";
 import type { QueryEntityRef, SparqlQueryResult } from "../../generated/core-port";
 import type {
@@ -40,6 +36,7 @@ import type {
 import { queryDocument } from "../../core-port/snapshot";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -49,7 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { todayLocalDate } from "../../entities/journal";
-import { compilePlan, inlinePlan, planBindings } from "../../entities/query-compile";
+import { compilePlan, planBindings } from "../../entities/query-compile";
 import {
   columnVariable,
   decodePlan,
@@ -66,6 +63,7 @@ import { failureReason } from "../notify/errors";
 import { diffSplice } from "../outline/text-diff";
 import { QueryBuilder } from "./QueryBuilder";
 import { QueryListView } from "./QueryListView";
+import { QuerySortControl } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
@@ -73,6 +71,21 @@ import { columnLabel } from "./labels";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
+
+/**
+ * What an empty SPARQL editor shows instead of a blank box: the shape of the one
+ * query everything else is a variation on. It is not localized, because SPARQL is
+ * not a language anyone reads in their own — and it is a placeholder rather than
+ * a prefilled source, so `/ Advanced query` lands on an editor waiting for the
+ * person who asked for it rather than on a result they did not write.
+ */
+const SOURCE_PLACEHOLDER = `PREFIX neo: <urn:neoseq:vocab:v1:>
+
+SELECT ?block ?text WHERE {
+  ?block a neo:Block ;
+         neo:content ?text .
+}
+LIMIT 100`;
 const RUN_DEBOUNCE_MS = 300;
 const PLAN_SAVE_DEBOUNCE_MS = 600;
 
@@ -105,6 +118,11 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   // it is, is theirs from the first press — never re-derived under their hands.
   const [editing, setEditing] = useState(() => unwritten(storedPlan, source));
   const [showSource, setShowSource] = useState(false);
+  // Reading is never read-only. Without a document to write the order into, it
+  // lives here for as long as the block is mounted — and it has to live *here*
+  // rather than in the table, because the header's sort panel edits the same
+  // list the header row does.
+  const [localSorts, setLocalSorts] = useState<QueryViewSort[]>([]);
   const [result, setResult] = useState<SparqlQueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -259,21 +277,6 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     void session.execute({ type: "put_query_view", owner, view: next }).catch(report);
   };
 
-  /** Leaves the builder for its own output, which then stands on its own. */
-  const editAsSparql = () => {
-    if (!plan) return;
-    void session
-      .execute({ type: "set_query_source", owner, source: inlinePlan(plan, runtime) })
-      .then(() => {
-        setPlan(null);
-        // A one-way door opens onto what is behind it: the SPARQL it just wrote
-        // is now the only editor, so it is the thing to be looking at.
-        setEditing(true);
-        setShowSource(false);
-      })
-      .catch(report);
-  };
-
   const removeQuery = () => {
     void session.execute({ type: "remove_property", owner, key: "builtin.query" }).catch(report);
   };
@@ -295,8 +298,10 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
-  const setSort = (sort: QueryViewSort | null) => {
-    putView({ ...activeView, options: { ...activeView.options, sort } });
+  const sorts = readonly ? localSorts : (activeView.options.sort ?? []);
+  const setSorts = (next: QueryViewSort[]) => {
+    if (readonly) setLocalSorts(next);
+    else putView({ ...activeView, options: { ...activeView.options, sort: next } });
   };
 
   const moveColumn = (variable: string, delta: -1 | 1) => {
@@ -355,6 +360,11 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         )}
 
         <div className="query-header-actions">
+          {/* Order comes before layout, because it is the one a reader changes
+              while reading. It is only offered once there is something to order. */}
+          {columns.length > 0 && (
+            <QuerySortControl columns={visible} sorts={sorts} onChange={setSorts} />
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               {/* The header controls are the bespoke 24px icon-btn, not a shadcn
@@ -377,14 +387,20 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
               </button>
             </DropdownMenuTrigger>
             {/* One menu, because table-or-list, which columns, and how tall the
-                rows are answer one question: how this answer is laid out. Two
-                triggers for two halves of it was a toolbar pretending to be two. */}
+                rows are answer one question: how this answer is laid out.
+                
+                Every row in it is a **state**, so every row is checkable and
+                every label starts at the same left edge. Before this, the two
+                views were radio rows with icons and the switches below them were
+                plain rows with none — three left edges and two idioms in a menu
+                of eight lines, which is why Table and List looked like a
+                different kind of thing from everything under them. Verbs carry
+                icons (see the block's own `⋯`); states carry a check. */}
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>{message("query.view")}</DropdownMenuLabel>
               <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
                 {document.views.map((view) => (
                   <DropdownMenuRadioItem key={view.id} value={view.id}>
-                    {view.kind === "table" ? <Table2Icon aria-hidden /> : <ListIcon aria-hidden />}
                     {viewLabel(view, message)}
                   </DropdownMenuRadioItem>
                 ))}
@@ -393,28 +409,26 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>{message("query.columns")}</DropdownMenuLabel>
-                  {/* Two glyphs, not one glyph with a dead `data-checked`: the
-                      state has to be in the shape, or a hidden column and a shown
-                      one read identically (§ Iconography — an icon may carry
-                      meaning where a colour alone could not). */}
                   {columns.map((column) => (
-                    <DropdownMenuItem
+                    <DropdownMenuCheckboxItem
                       key={column.variable}
+                      checked={!hidden.has(column.variable)}
                       disabled={!hidden.has(column.variable) && visible.length <= 1}
                       onSelect={(event) => {
                         event.preventDefault();
                         setColumn(column.variable, { hidden: !hidden.has(column.variable) });
                       }}
                     >
-                      {hidden.has(column.variable)
-                        ? <EyeOffIcon aria-hidden />
-                        : <EyeIcon aria-hidden />}
                       {column.label}
-                    </DropdownMenuItem>
+                    </DropdownMenuCheckboxItem>
                   ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>{message("query.rows")}</DropdownMenuLabel>
-                  <DropdownMenuItem
+                  {/* A checked switch says what is on. The label used to flip
+                      between `Compact rows` and `Roomy rows`, which left the
+                      reader guessing whether it named the state or the verb. */}
+                  <DropdownMenuCheckboxItem
+                    checked={activeView.options.compact}
                     onSelect={(event) => {
                       event.preventDefault();
                       putView({
@@ -423,12 +437,11 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
                       });
                     }}
                   >
-                    {activeView.options.compact
-                      ? message("query.densityCozy")
-                      : message("query.densityCompact")}
-                  </DropdownMenuItem>
+                    {message("query.densityCompact")}
+                  </DropdownMenuCheckboxItem>
                   {activeView.kind === "table" && (
-                    <DropdownMenuItem
+                    <DropdownMenuCheckboxItem
+                      checked={activeView.options.wrap}
                       onSelect={(event) => {
                         event.preventDefault();
                         putView({
@@ -437,8 +450,8 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
                         });
                       }}
                     >
-                      {activeView.options.wrap ? message("query.noWrap") : message("query.wrap")}
-                    </DropdownMenuItem>
+                      {message("query.wrap")}
+                    </DropdownMenuCheckboxItem>
                   )}
                 </>
               )}
@@ -456,42 +469,26 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
                 <MoreHorizontalIcon aria-hidden />
               </button>
             </DropdownMenuTrigger>
+            {/* Verbs only. Running is not one — the block reruns on every edit
+                and every canonical revision, so a `Run` row was a button for a
+                thing that already happens. Neither is the index revision: it is
+                a diagnostic, and `data-revision` is where a diagnostic goes. */}
             <DropdownMenuContent align="end">
-              {/* Run is a fallback, not the way a query runs: the block reruns on
-                  every edit and on every canonical revision. A stale run is
-                  superseded by its generation guard, so re-pressing is safe. */}
-              <DropdownMenuItem onSelect={() => run()}>
-                <PlayIcon aria-hidden />
-                {message("query.run")}
-              </DropdownMenuItem>
               {/* In source mode the SPARQL is already the editor, so there is
-                  nothing to disclose and nothing to eject from. */}
+                  nothing to disclose. */}
               {plan && (
                 <>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
                     <CodeIcon aria-hidden />
                     {showSource ? message("query.hideSource") : message("query.showSource")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={readonly} onSelect={editAsSparql}>
-                    <WandSparklesIcon aria-hidden />
-                    {message("query.editAsSparql")}
-                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                 </>
               )}
-              <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" disabled={readonly} onSelect={removeQuery}>
                 <Trash2Icon aria-hidden />
                 {message("query.remove")}
               </DropdownMenuItem>
-              {result && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>
-                    {message("query.revision", { revision: result.revision })}
-                  </DropdownMenuLabel>
-                </>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -510,6 +507,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
           value={draft}
           readOnly={readonly}
           spellCheck={false}
+          placeholder={SOURCE_PLACEHOLDER}
           aria-label={message("query.source")}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={() => void commitSource()}
@@ -551,8 +549,8 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             pinnedRowKey={pinnedRow?.key}
             compact={activeView.options.compact}
             wrap={activeView.options.wrap}
-            sort={activeView.options.sort}
-            onSort={readonly ? undefined : setSort}
+            sorts={sorts}
+            onSort={setSorts}
             onResize={readonly
               ? undefined
               : (variable, width) => setColumn(variable, { width: width || null })}

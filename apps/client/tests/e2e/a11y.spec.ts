@@ -52,7 +52,7 @@ test("the query builder and its result table pass the basic audit", async ({ pag
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Blocks/ }).click();
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
 
   const query = page.getByTestId("query-block");
   await expect(query.getByTestId("query-builder")).toBeVisible();

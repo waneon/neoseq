@@ -169,6 +169,17 @@ builder plan behind it, stable-ID saved views with their column layout, and the
 shared default view synchronize inside the graph. Table and list are the current
 renderers.
 
+A view's ordering is a bounded list of distinct result variables, most
+significant term first, and the domain validates it as one: at most eight terms,
+each naming a variable within the same bounds a column selection is held to, and
+no variable twice. Presentation, not semantics — it reorders rows the query has
+already returned, so a term is allowed to name a variable the view no longer
+lists and simply stops applying. Deserialization accepts the single-object form
+earlier builds wrote as a one-term list, so an order a reader saved then still
+applies after the upgrade. A document with no plan is the hand-written kind:
+there is no command that converts a planned query into one, only a separate
+route that creates one.
+
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view

@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import { PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Input } from "@/ui/shadcn/input";
 import { MenuSelect, type MenuSelectOption } from "@/ui/menu-select";
+import { cn } from "@/lib/utils";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import { isGenericProperty, stringChoicesOf } from "../../entities/properties";
 import { offeredChoices } from "../../entities/tasks";
@@ -76,6 +77,16 @@ const FIELD_PROPERTY_PREFIX = "property:";
 const COLUMN_PROPERTY_PREFIX = "property:";
 const EXACT_DATE = "exact";
 
+/**
+ * A field in the builder is a word until someone reaches for it. `Input`'s own
+ * ring and ground are Tailwind utilities, and the `utilities` layer outranks the
+ * one `app.css` writes in — so a ghost field is stated here, at the call site,
+ * where `tailwind-merge` can resolve it, rather than in a stylesheet that could
+ * never win. Its focus state is the base field's already: `--surface-2` plus the
+ * resting `--e1` edge.
+ */
+const GHOST_FIELD = "bg-transparent shadow-none hover:bg-[var(--surface-2)]";
+
 /** Every property key this graph actually uses, plus the registry's own. */
 export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
   const present = new Set<string>();
@@ -120,8 +131,8 @@ export function QueryBuilder({
           and the root group's match used to take a row each, which put two lead
           words and a line break inside a single sentence; the root group's head
           is this line, and only a nested group draws its own. */}
+      <span className="qb-lead">{message("query.find")}</span>
       <div className="qb-line qb-head">
-        <span className="qb-lead">{message("query.find")}</span>
         <MenuSelect
           value={plan.subject}
           label={message("query.subjectLabel")}
@@ -148,6 +159,8 @@ export function QueryBuilder({
         <span className="qb-lead">{message("query.ofTheFollowing")}</span>
       </div>
 
+      {/* Column 2, with no lead of its own: the tree is the `Find` clause going
+          on, not a new one. */}
       <GroupEditor
         group={plan.where}
         plan={plan}
@@ -166,8 +179,8 @@ export function QueryBuilder({
         onChange={onChange}
       />
 
+      <span className="qb-lead">{message("query.sort")}</span>
       <div className="qb-line qb-tail">
-        <span className="qb-lead">{message("query.sort")}</span>
         <MenuSelect
           value={plan.sort[0]?.column ?? ""}
           label={message("query.sortLabel")}
@@ -205,9 +218,9 @@ export function QueryBuilder({
               })}
           />
         )}
-        <span className="qb-lead">{message("query.limit")}</span>
+        <span className="qb-lead qb-limit">{message("query.limit")}</span>
         <Input
-          className="w-20"
+          className={cn(GHOST_FIELD, "w-16")}
           type="number"
           min={1}
           max={PLAN_LIMIT_MAX}
@@ -562,7 +575,7 @@ function Operand({
         {value.type === "date" && (
           <Input
             type="date"
-            className="w-40"
+            className={cn(GHOST_FIELD, "w-36")}
             value={value.value}
             readOnly={readonly}
             aria-label={message("query.exactDate")}
@@ -578,7 +591,7 @@ function Operand({
   if (type === "number" || type === "integer") {
     return (
       <Input
-        className="w-24"
+        className={cn(GHOST_FIELD, "w-20")}
         type="number"
         value={value.type === "number" ? value.value : 0}
         readOnly={readonly}
@@ -646,7 +659,7 @@ function Operand({
 
   return (
     <Input
-      className="w-60 max-w-full"
+      className={cn(GHOST_FIELD, "w-56 max-w-full")}
       value={value.type === "text" ? value.value : ""}
       readOnly={readonly}
       placeholder={message("query.valuePlaceholder")}
@@ -732,7 +745,7 @@ function ValueListEditor({
         />
       ) : (
         <Input
-          className="w-60 max-w-full"
+          className={cn(GHOST_FIELD, "w-56 max-w-full")}
           value={draft}
           readOnly={readonly}
           placeholder={message("query.addValue")}
@@ -817,32 +830,34 @@ function ColumnsEditor({
     });
 
   return (
-    <div className="qb-line qb-columns">
+    <>
       <span className="qb-lead">{message("query.show")}</span>
-      {plan.columns.map((column) => (
-        <ColumnChip
-          key={column.id}
-          column={column}
-          subject={plan.subject}
-          readonly={readonly}
-          removable={plan.columns.length > 1}
-          onChange={(next) => update(column.id, next)}
-          onRemove={() => remove(column.id)}
-        />
-      ))}
-      {available.length > 0 && (
-        <MenuSelect
-          className="qb-add-column"
-          value=""
-          label={message("query.addColumn")}
-          placeholder={message("query.addColumn")}
-          testId="qb-add-column"
-          disabled={readonly}
-          options={available}
-          onValueChange={addColumn}
-        />
-      )}
-    </div>
+      <div className="qb-line qb-columns">
+        {plan.columns.map((column) => (
+          <ColumnChip
+            key={column.id}
+            column={column}
+            subject={plan.subject}
+            readonly={readonly}
+            removable={plan.columns.length > 1}
+            onChange={(next) => update(column.id, next)}
+            onRemove={() => remove(column.id)}
+          />
+        ))}
+        {available.length > 0 && (
+          <MenuSelect
+            className="qb-add-column"
+            value=""
+            label={message("query.addColumn")}
+            placeholder={message("query.addColumn")}
+            testId="qb-add-column"
+            disabled={readonly}
+            options={available}
+            onValueChange={addColumn}
+          />
+        )}
+      </div>
+    </>
   );
 }
 

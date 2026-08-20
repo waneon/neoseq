@@ -12,9 +12,9 @@ export interface QueryViewColumn {
 }
 
 /**
- * The order a saved view lays its rows out in — presentation, not semantics: it
- * reorders the rows the query already returned. The query's own ordering, the
- * one a `LIMIT` cuts against, lives in the builder's sort row.
+ * One term of the order a saved view lays its rows out in — presentation, not
+ * semantics: it reorders the rows the query already returned. The query's own
+ * ordering, the one a `LIMIT` cuts against, lives in the builder's sort row.
  */
 export interface QueryViewSort {
   variable: string;
@@ -24,8 +24,12 @@ export interface QueryViewSort {
 export interface QueryViewOptions {
   compact: boolean;
   wrap: boolean;
-  /** Absent means the order the query returned. */
-  sort?: QueryViewSort | null;
+  /**
+   * The ordering terms, most significant first. Absent or empty means the order
+   * the query returned. The domain reads the single object earlier builds wrote
+   * as a one-term list, so an order saved then still applies.
+   */
+  sort?: QueryViewSort[] | null;
 }
 
 export interface QueryView {

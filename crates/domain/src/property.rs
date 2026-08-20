@@ -10,6 +10,9 @@ pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
 pub const QUERY_LANGUAGE: &str = "sparql-1.1/neoseq-v1";
 pub const QUERY_PLAN_LIMIT: usize = 32_768;
+/// How many columns one saved view may order by. A reader who needs a ninth
+/// tie-breaker needs a different query, not a longer list.
+pub const QUERY_VIEW_SORT_LIMIT: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -276,18 +279,32 @@ impl PropertyDocument {
                     "duplicate query view column".to_owned(),
                 ));
             }
-            // A sort names a result variable, and it is bounded exactly as a
-            // column selection is. It is not required to name a variable the
-            // view lists: a query that has since dropped a column keeps the
-            // order it had, and simply stops applying it.
-            if let Some(sort) = &view.options.sort
-                && (sort.variable.is_empty()
-                    || sort.variable.len() > 128
-                    || sort.variable.chars().any(char::is_control))
-            {
+            // A sort names a result variable, and each term is bounded exactly
+            // as a column selection is. A term is not required to name a
+            // variable the view lists: a query that has since dropped a column
+            // keeps the order it had, and simply stops applying it. One variable
+            // may appear once — ordering by the same column twice says nothing
+            // the first term did not already say.
+            if view.options.sort.len() > QUERY_VIEW_SORT_LIMIT {
                 return Err(PropertyError::InvalidDocument(
-                    "invalid query view sort variable".to_owned(),
+                    "too many query view sort terms".to_owned(),
                 ));
+            }
+            let mut sorted = std::collections::BTreeSet::new();
+            for sort in &view.options.sort {
+                if sort.variable.is_empty()
+                    || sort.variable.len() > 128
+                    || sort.variable.chars().any(char::is_control)
+                {
+                    return Err(PropertyError::InvalidDocument(
+                        "invalid query view sort variable".to_owned(),
+                    ));
+                }
+                if !sorted.insert(sort.variable.as_str()) {
+                    return Err(PropertyError::InvalidDocument(
+                        "duplicate query view sort variable".to_owned(),
+                    ));
+                }
             }
         }
         if !ids.contains(&self.default_view_id) {
@@ -801,6 +818,61 @@ mod tests {
         assert!(document.validate().is_ok());
         document.views[0].columns[1].variable = "task".to_owned();
         assert!(document.validate().is_err());
+    }
+
+    #[test]
+    fn query_view_sort_is_a_bounded_list_of_distinct_variables() {
+        let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
+        document.views[0].options.sort = vec![
+            crate::QueryViewSort {
+                variable: "status".to_owned(),
+                descending: true,
+            },
+            crate::QueryViewSort {
+                variable: "task".to_owned(),
+                descending: false,
+            },
+        ];
+        assert!(document.validate().is_ok());
+        // Ordering by one column twice says nothing the first term did not.
+        document.views[0].options.sort[1].variable = "status".to_owned();
+        assert!(document.validate().is_err());
+        document.views[0].options.sort = (0..=QUERY_VIEW_SORT_LIMIT)
+            .map(|index| crate::QueryViewSort {
+                variable: format!("v{index}"),
+                descending: false,
+            })
+            .collect();
+        assert!(document.validate().is_err());
+    }
+
+    /// A reader who had ordered a table before the order became a list keeps
+    /// that order: the single object earlier builds wrote still deserializes.
+    #[test]
+    fn query_view_sort_reads_the_single_form_earlier_builds_wrote() {
+        let legacy = serde_json::json!({
+            "compact": true,
+            "wrap": false,
+            "sort": { "variable": "status", "descending": true },
+        });
+        let options: crate::QueryViewOptions = serde_json::from_value(legacy).unwrap();
+        assert_eq!(options.sort.len(), 1);
+        assert_eq!(options.sort[0].variable, "status");
+        assert!(options.sort[0].descending);
+
+        let list = serde_json::json!({
+            "sort": [{ "variable": "a" }, { "variable": "b", "descending": true }],
+        });
+        let options: crate::QueryViewOptions = serde_json::from_value(list).unwrap();
+        assert_eq!(options.sort.len(), 2);
+        assert!(options.sort[1].descending);
+
+        let absent: crate::QueryViewOptions = serde_json::from_value(json_object()).unwrap();
+        assert!(absent.sort.is_empty());
+    }
+
+    fn json_object() -> serde_json::Value {
+        serde_json::json!({})
     }
 
     #[test]

@@ -194,7 +194,7 @@ pub struct QueryViewColumn {
     pub width: Option<u32>,
 }
 
-/// The order a saved view lays its rows out in.
+/// One term of the order a saved view lays its rows out in.
 ///
 /// Presentation, not semantics: it reorders the rows the query already returned,
 /// which is why it lives beside the other view switches and not in the plan. The
@@ -208,6 +208,29 @@ pub struct QueryViewSort {
     pub descending: bool,
 }
 
+/// Accepts the single sort earlier builds wrote as well as the list this one
+/// does, so a reader who had ordered a table keeps that order across the
+/// upgrade instead of watching it silently vanish.
+fn query_view_sorts<'de, D>(deserializer: D) -> Result<Vec<QueryViewSort>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Declaration order is the order serde tries: a list must be matched as a
+    // list before the single-object form is considered.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        Many(Vec<QueryViewSort>),
+        One(QueryViewSort),
+    }
+
+    Ok(match Option::<OneOrMany>::deserialize(deserializer)? {
+        None => Vec::new(),
+        Some(OneOrMany::Many(sorts)) => sorts,
+        Some(OneOrMany::One(sort)) => vec![sort],
+    })
+}
+
 /// Presentation switches that belong to one saved view rather than to the
 /// query. They never change which rows or values the query returns.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -218,10 +241,14 @@ pub struct QueryViewOptions {
     /// Let cell text wrap instead of truncating on one line.
     #[serde(default)]
     pub wrap: bool,
-    /// How the reader has ordered what is on screen. Absent means the order the
-    /// query returned.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sort: Option<QueryViewSort>,
+    /// How the reader has ordered what is on screen, most significant term
+    /// first. Empty means the order the query returned.
+    #[serde(
+        default,
+        deserialize_with = "query_view_sorts",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub sort: Vec<QueryViewSort>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -14,14 +14,12 @@ import type { ReactNode } from "react";
 import {
   AlarmClockIcon,
   CalendarIcon,
-  FileTextIcon,
-  HashIcon,
+  CodeIcon,
   ListTreeIcon,
   RepeatIcon,
   Settings2Icon,
 } from "lucide-react";
 import type { PropertyValue } from "../../core-port/snapshot";
-import type { PlanSubject } from "../../entities/query-plan";
 import {
   TASK_DEADLINE_KEY,
   TASK_PRIORITIES,
@@ -39,7 +37,9 @@ type SlashAction =
   | { kind: "set"; key: string; value: PropertyValue }
   | { kind: "picker"; key?: string }
   /** Turns the block into a query and opens the builder on a starting plan. */
-  | { kind: "query"; subject: PlanSubject };
+  | { kind: "query" }
+  /** Turns the block into a query with no plan, so its editor is the SPARQL. */
+  | { kind: "query-source" };
 
 export type SlashGroup = "status" | "priority" | "date" | "query" | "property";
 
@@ -134,34 +134,31 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
   });
   // `/` is the only route to a query: the property picker does not offer
   // `builtin.query`, because a query is built, not filled in.
-  // The three share one alias — `query` — so typing the word ranks them in the
-  // order declared here rather than by how long their labels happen to be.
+  //
+  // One item, not three. Blocks / Pages / Tags were three menu rows for one
+  // object whose *first dropdown* already asks which of them you meant — three
+  // ways to reach the same builder, differing only in a default. Blocks is that
+  // default, because a query is nearly always looking for lines of writing.
   items.push({
-    id: "query-blocks",
+    id: "query",
     group: "query",
-    label: message("query.slashBlocks"),
-    hint: message("query.slashBlocksHint"),
-    aliases: ["query", "search", "filter", "쿼리", "검색", "찾기"],
+    label: message("query.slashQuery"),
+    hint: message("query.slashQueryHint"),
+    aliases: ["query", "search", "filter", "find", "쿼리", "검색", "찾기", "필터"],
     glyph: <ListTreeIcon aria-hidden />,
-    action: { kind: "query", subject: "block" },
+    action: { kind: "query" },
   });
+  // The escape hatch is its own door in, rather than a one-way door out of the
+  // builder: hand-written SPARQL is a *kind* of query someone chooses to write,
+  // not a state a built query gets converted into and can never come back from.
   items.push({
-    id: "query-pages",
+    id: "query-advanced",
     group: "query",
-    label: message("query.slashPages"),
-    hint: message("query.slashPagesHint"),
-    aliases: ["query", "search", "쿼리", "검색"],
-    glyph: <FileTextIcon aria-hidden />,
-    action: { kind: "query", subject: "page" },
-  });
-  items.push({
-    id: "query-tags",
-    group: "query",
-    label: message("query.slashTags"),
-    hint: message("query.slashTagsHint"),
-    aliases: ["query", "search", "쿼리", "검색"],
-    glyph: <HashIcon aria-hidden />,
-    action: { kind: "query", subject: "tag" },
+    label: message("query.slashAdvanced"),
+    hint: message("query.slashAdvancedHint"),
+    aliases: ["sparql", "advanced", "raw", "고급", "쿼리", "스파클"],
+    glyph: <CodeIcon aria-hidden />,
+    action: { kind: "query-source" },
   });
   items.push({
     id: "property",

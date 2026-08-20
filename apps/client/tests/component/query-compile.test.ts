@@ -10,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import {
   compilePlan,
   entityIri,
-  inlinePlan,
   planBindings,
   resolveRelativeDate,
 } from "../../src/entities/query-compile";
@@ -188,10 +187,6 @@ describe("query plan compilation", () => {
     expect(planBindings(compilePlan(plan).parameters, RUNTIME)).toEqual({
       q_p0: { kind: "iri", value: iri },
     });
-    // Ejecting to SPARQL has to stand on its own: no unbound parameters left.
-    const standalone = inlinePlan(plan, RUNTIME);
-    expect(standalone).toContain(`<${iri}>`);
-    expect(standalone).not.toContain("?q_p");
   });
 
   it("keeps a graph id with spaces percent-encoded, as the projection does", () => {

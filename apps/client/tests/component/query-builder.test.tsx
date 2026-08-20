@@ -32,7 +32,7 @@ async function createQuery(harness: Harness): Promise<void> {
   await user.click(textarea);
   await user.type(textarea, "/query");
   const menu = await screen.findByTestId("slash-menu");
-  await user.click(within(menu).getByRole("option", { name: /^Blocks/ }));
+  await user.click(within(menu).getByRole("option", { name: /^Query/ }));
   await screen.findByTestId("query-builder");
   await waitFor(() => expect(storedQuery(harness)?.plan).toBeTruthy());
 }
@@ -117,18 +117,46 @@ describe("the query builder", () => {
     });
   });
 
-  it("leaves the builder for standalone SPARQL, and stays there", async () => {
+  // Hand-written SPARQL is its own door in, not a one-way door out. A built
+  // query can always be read as SPARQL and never converted into it, so nothing
+  // a person builds can be made unbuildable by one press of a menu row.
+  it("has no route that turns a built query into a hand-written one", async () => {
     const harness = await mountPage();
     await createQuery(harness);
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId("query-actions-trigger"));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit as SPARQL…" }));
+    expect(await screen.findByRole("menuitem", { name: "Show SPARQL" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /SPARQL…/ })).not.toBeInTheDocument();
+    // Neither is running one a verb: the block reruns itself.
+    expect(screen.queryByRole("menuitem", { name: "Run query" })).not.toBeInTheDocument();
 
-    await waitFor(() => expect(storedQuery(harness)?.plan).toBeFalsy());
-    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("menuitem", { name: "Show SPARQL" }));
+    expect(await screen.findByTestId("query-compiled")).toHaveTextContent(
+      "?q_subject a neo:Block .",
+    );
+    expect(storedQuery(harness)?.plan).toBeTruthy();
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+  });
+
+  // `/ Advanced query` is that door: a query with no plan, whose editor is the
+  // SPARQL and whose caption says so.
+  it("creates a hand-written query straight from the slash menu", async () => {
+    const harness = await mountPage();
+    const user = userEvent.setup();
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/sparql");
+    const menu = await screen.findByTestId("slash-menu");
+    await user.click(within(menu).getByRole("option", { name: /^Advanced query/ }));
+
     const source = await screen.findByLabelText<HTMLTextAreaElement>("SPARQL source");
-    expect(source.value).toContain("?q_subject a neo:Block .");
+    expect(source.value).toBe("");
+    // The empty editor teaches the shape rather than leaving a blank box.
+    expect(source.placeholder).toContain("SELECT ?block ?text WHERE");
+    expect(screen.getByTestId("query-summary")).toHaveAccessibleName("SPARQL");
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    await waitFor(() => expect(storedQuery(harness)?.plan).toBeFalsy());
   });
 
   it("removes the whole query from its own menu", async () => {
@@ -303,16 +331,15 @@ describe("query result views", () => {
   it("keeps a header sort in the saved view, so the order survives a reload", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
+    const savedSort = () =>
+      storedQuery(harness)?.views.find((item) => item.id === "table")?.options.sort;
 
     const table = await screen.findByTestId("query-table");
     // The heading *is* the sort control, so its name is the column's name.
     const heading = () => within(table).getByRole("button", { name: "Text", exact: true });
     await user.click(heading());
 
-    await waitFor(() => {
-      const view = storedQuery(harness)?.views.find((item) => item.id === "table");
-      expect(view?.options.sort).toEqual({ variable: "text", descending: false });
-    });
+    await waitFor(() => expect(savedSort()).toEqual([{ variable: "text", descending: false }]));
     // The header states the order it is in, so the saved fact and the announced
     // one cannot disagree.
     await waitFor(() =>
@@ -320,11 +347,45 @@ describe("query result views", () => {
         .toHaveAttribute("aria-sort", "ascending"),
     );
 
+    // A press cycles the column it is on: ascending, descending, then out.
     await user.click(heading());
-    await waitFor(() => {
-      const view = storedQuery(harness)?.views.find((item) => item.id === "table");
-      expect(view?.options.sort).toEqual({ variable: "text", descending: true });
-    });
+    await waitFor(() => expect(savedSort()).toEqual([{ variable: "text", descending: true }]));
+    await user.click(heading());
+    await waitFor(() => expect(savedSort()).toEqual([]));
+  });
+
+  // An order is a list, so a second heading is a tie-breaker rather than a
+  // replacement — and precedence is stated, because an arrow cannot say it.
+  it("accumulates an order across headings and lets the panel reorder it", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+    const savedSort = () =>
+      storedQuery(harness)?.views.find((item) => item.id === "table")?.options.sort;
+
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByRole("button", { name: "Text", exact: true }));
+    await user.click(within(table).getByRole("button", { name: "Page", exact: true }));
+    await waitFor(() => expect(savedSort()).toEqual([
+      { variable: "text", descending: false },
+      { variable: "page", descending: false },
+    ]));
+    // Rank appears exactly when there is a second term for it to precede.
+    const heading = (name: RegExp) => within(table).getByRole("columnheader", { name });
+    expect(heading(/Text/)).toHaveTextContent("Text1");
+    expect(heading(/Page/)).toHaveTextContent("Page2");
+
+    await user.click(screen.getByTestId("query-sort-trigger"));
+    const panel = await screen.findByTestId("query-sort-panel");
+    await user.click(within(panel).getByRole("button", { name: "Move Page earlier" }));
+    await waitFor(() => expect(savedSort()).toEqual([
+      { variable: "page", descending: false },
+      { variable: "text", descending: false },
+    ]));
+
+    await user.click(within(panel).getByRole("button", { name: "Stop sorting by Text" }));
+    await waitFor(() => expect(savedSort()).toEqual([{ variable: "page", descending: false }]));
+    await user.click(within(panel).getByRole("button", { name: "Clear sort" }));
+    await waitFor(() => expect(savedSort()).toEqual([]));
   });
 
   it("declares its real column count, so the width-absorbing filler is not a column", async () => {

@@ -4027,10 +4027,16 @@ mod tests {
                         options: QueryViewOptions {
                             compact: true,
                             wrap: false,
-                            sort: Some(QueryViewSort {
-                                variable: "status".into(),
-                                descending: true,
-                            }),
+                            sort: vec![
+                                QueryViewSort {
+                                    variable: "status".into(),
+                                    descending: true,
+                                },
+                                QueryViewSort {
+                                    variable: "item".into(),
+                                    descending: false,
+                                },
+                            ],
                         },
                     },
                 },
@@ -4058,13 +4064,12 @@ mod tests {
         assert_eq!(table.columns[0].width, Some(240));
         assert!(table.columns[1].hidden);
         assert!(table.options.compact);
-        let sort = table
-            .options
-            .sort
-            .as_ref()
-            .expect("sort survived the round trip");
-        assert_eq!(sort.variable, "status");
-        assert!(sort.descending);
+        // Every term survives, in order: the precedence is the list's own.
+        assert_eq!(table.options.sort.len(), 2);
+        assert_eq!(table.options.sort[0].variable, "status");
+        assert!(table.options.sort[0].descending);
+        assert_eq!(table.options.sort[1].variable, "item");
+        assert!(!table.options.sort[1].descending);
     }
 
     #[test]

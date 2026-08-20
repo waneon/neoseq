@@ -872,12 +872,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
    left edge is added here so a block menu, a select's menu, the palette and the
    slash menu all mark "where am I" identically. */
 [data-slot="dropdown-menu-item"],
-[data-slot="dropdown-menu-radio-item"] {
+[data-slot="dropdown-menu-radio-item"],
+[data-slot="dropdown-menu-checkbox-item"] {
   position: relative;
 }
 
 [data-slot="dropdown-menu-item"][data-highlighted]::before,
-[data-slot="dropdown-menu-radio-item"][data-highlighted]::before {
+[data-slot="dropdown-menu-radio-item"][data-highlighted]::before,
+[data-slot="dropdown-menu-checkbox-item"][data-highlighted]::before {
   content: "";
   position: absolute;
   left: 0;
@@ -2733,6 +2735,165 @@ button.chip:focus-visible .chip-glyph .chip-x {
   height: 14px;
 }
 
+/* A sorted table says so on the control that sorted it, so the reader does not
+   have to open a panel to learn that the order is not the query's own. */
+.query-header-actions .icon-btn[data-sorted] {
+  color: var(--accent);
+}
+
+.query-header-actions .icon-btn[data-sorted]:hover:not(:disabled) {
+  color: var(--accent-hover);
+}
+
+/* ── The sort panel ──
+   The order is a list, and a list has precedence. An arrow on a heading can say
+   *which way*; only this panel can say *which first*, and only it can move a term
+   through the queue. It is a floating surface (§ Depth level 2) rather than a
+   menu, because a menu row may not hold four controls of its own — and the moves
+   are buttons rather than a drag, so the keyboard reaches every one of them. */
+.query-sort-panel {
+  z-index: var(--z-menu);
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.query-sort-panel > .group-label {
+  margin: 0 0 var(--sp-0);
+  padding-inline: var(--sp-1);
+}
+
+.query-sort-empty {
+  margin: 0;
+  padding: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.query-sort-list {
+  display: grid;
+  gap: var(--sp-0);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.query-sort-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+  padding-left: var(--sp-1);
+}
+
+/* Precedence as a figure, in the same voice the heading states it in. */
+.query-sort-rank {
+  flex: none;
+  width: 12px;
+  color: var(--ink-3);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.query-sort-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-sort-panel .query-sort-direction {
+  flex: none;
+  width: auto;
+  height: var(--sp-5);
+  padding-inline: var(--sp-2) var(--sp-1);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.query-sort-panel .query-sort-direction:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.query-sort-panel .query-sort-direction:focus-visible,
+.query-sort-panel .query-sort-direction[data-state="open"] {
+  background: var(--surface-2);
+  box-shadow: var(--e1);
+}
+
+.query-sort-panel .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+.query-sort-panel .icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.query-sort-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.query-sort-panel .query-sort-add {
+  flex: 1;
+  width: auto;
+  height: var(--sp-5);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.query-sort-panel .query-sort-add:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+/* `--ink-3` would fail AA once the row takes its hover wash, so the placeholder
+   this control always shows starts one level up (§ Contrast, the hard rule). */
+.query-sort-panel .query-sort-add[data-placeholder="true"] .value {
+  color: var(--ink-2);
+}
+
+.query-sort-clear {
+  flex: none;
+  height: var(--sp-5);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  cursor: pointer;
+}
+
+.query-sort-clear:hover,
+.query-sort-clear:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
 .query-source {
   display: block;
   width: 100%;
@@ -2786,48 +2947,110 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* ── The query builder ──
    A query reads as a sentence, so its rows are sentence rows: a lead word in the
-   metadata voice, then the fields that finish the clause. Everything is the
-   product's one dropdown or one input, at the 20px choice metric, on the
-   source panel's own --surface-2 ground. No card, no border: a group is set
-   apart by an indent and one thread line, the same language the outline uses for
-   depth (DESIGN.md § Depth — no bordered cards). */
+   metadata voice, then the controls that finish the clause. Two things separate
+   that from a form out of 2012, and v2 got both wrong.
+
+   **No drawn boxes.** Every choice was a white `--e1` field on a grey slab — nine
+   of them on one screen, each announcing itself as a control before any of them
+   said what the query asked. A builder is a *sentence made of controls*, so its
+   controls read as words at rest and as controls under the pointer: they are
+   transparent, and they take the one hover colour when a pointer or a caret
+   arrives. The band went with them; the block's own ground is enough, and it
+   leaves the result's `--surface-2` header as the step that separates the two.
+
+   **One left edge.** The leads and the clauses were ragged — `Find` at one
+   indent, its conditions at another, `Show` back at the first — so the sentence
+   zig-zagged down the page. It is a two-column grid now, lead and clause, and
+   every control in the builder starts at the same x. */
 .query-builder {
   display: grid;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3) var(--sp-3);
-  background: var(--surface-2);
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--sp-3);
+  row-gap: var(--sp-1);
+  align-items: start;
+  padding: var(--sp-1) var(--sp-2) var(--sp-3);
+  min-width: 0;
+}
+
+/* The condition tree is the `Find` clause continued, so it lines up under the
+   clause rather than taking a lead word of its own. */
+.query-builder > .qb-group {
+  grid-column: 2;
 }
 
 .qb-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   min-width: 0;
 }
 
-/* *Find blocks — all of the following.* One clause on one line, with a wider gap
-   where the sentence turns: the space between the two dropdowns is the comma. */
-.qb-head > .menu-select + .menu-select {
-  margin-left: var(--sp-2);
-}
-
-/* The connective tissue of the sentence: never a control, never a label for
-   one. The 12px metadata voice — at --ink-2, because this band is --surface-2
-   and § Contrast's one hard rule puts --ink-3 out of bounds there. */
+/* The connective tissue of the sentence: never a control, never a label for one.
+   The 12px metadata voice at `--ink-3`, which the block's own ground allows and
+   the old grey band did not (§ Contrast — the one hard rule). It holds the
+   control row's height so a lead word sits on its clause's centre line. */
 .qb-lead {
+  display: inline-flex;
+  align-items: center;
   flex: none;
-  color: var(--ink-2);
+  min-height: var(--row-h);
+  color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
 
-/* Controls keep the product's 32px form metric (§ Components / Choice and
-   § Touch); only their width is the builder's business. Their size utilities
-   would win over this file anyway — the layer order is explicit. */
+/* Inside a clause the lead is punctuation between two controls, so it needs no
+   row height of its own and steps in one ink level to read beside them. */
+.qb-line .qb-lead {
+  min-height: 0;
+  color: var(--ink-2);
+}
+
+.qb-head > .menu-select + .menu-select {
+  margin-left: var(--sp-1);
+}
+
+/* ── A control that reads as a word ──
+   Transparent at rest, the one hover colour under the pointer, and the field's
+   resting ring only once the caret is actually in it. Controls keep the product's
+   32px form metric (§ Components / Choice and § Touch); only their width and
+   their ground are the builder's business. */
 .query-builder .menu-select {
   width: auto;
   max-width: 220px;
+  padding-inline: var(--sp-2);
+  background: transparent;
+  box-shadow: none;
+  font-weight: var(--weight-medium);
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out);
+}
+
+.query-builder .menu-select:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.query-builder .menu-select:focus-visible,
+.query-builder .menu-select[data-state="open"] {
+  background: var(--surface-2);
+  box-shadow: var(--e1);
+}
+
+/* --ink-3 fails AA on --surface-2, so a placeholder steps up one level for as
+   long as the control is lit — the same carve-out the base field makes on focus. */
+.query-builder .menu-select:hover[data-placeholder="true"] .value {
+  color: var(--ink-2);
+}
+
+/* The chevron is the only thing that says "this word opens something", so it
+   stays visible; it strengthens with the control rather than appearing with it. */
+.query-builder .menu-select:hover svg,
+.query-builder .menu-select:focus-visible svg,
+.query-builder .menu-select[data-state="open"] svg {
+  color: var(--ink-2);
 }
 
 .qb-field {
@@ -2854,20 +3077,15 @@ button.chip:focus-visible .chip-glyph .chip-x {
   min-width: 0;
 }
 
-.qb-group:not([data-depth="0"]) {
-  margin-left: var(--sp-1);
-}
-
 .qb-group:not([data-depth="0"]) > .qb-children {
+  margin-left: var(--sp-1);
   padding-left: var(--sp-3);
-  /* The thread language at the weight a --surface-2 ground actually shows:
-     --thread reads on --canvas, and disappears here. */
-  box-shadow: inset 1px 0 0 var(--line);
+  box-shadow: inset 1px 0 0 var(--thread);
 }
 
 .qb-children {
   display: grid;
-  gap: var(--sp-1);
+  gap: var(--sp-0);
   min-width: 0;
 }
 
@@ -2875,7 +3093,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-1);
+  gap: var(--sp-0);
   min-width: 0;
 }
 
@@ -2883,7 +3101,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    forward on hover or focus (§ Disclosure). It never leaves the layout. */
 .qb-remove {
   opacity: 0;
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
 
 .qb-condition:hover .qb-remove,
@@ -2905,6 +3123,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* Adding a row is a quiet verb, not a primary action: the metadata voice with
    the menu row's hover wash, and no filled button inside a form. */
+.qb-add {
+  gap: var(--sp-0);
+  margin-top: var(--sp-0);
+}
+
 .qb-add-btn {
   display: inline-flex;
   align-items: center;
@@ -2914,15 +3137,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   border: 0;
   border-radius: var(--r-2);
   background: transparent;
-  color: var(--ink-2);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
   cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
 }
 
 .qb-add-btn:hover:not(:disabled) {
-  background: var(--surface-3);
+  background: var(--surface-2);
   color: var(--ink);
 }
 
@@ -2937,45 +3163,84 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* A column is a chip that opens its own summary menu, so it takes the chip's
-   resting ring rather than the field ground. */
+   resting ring rather than the field ground — and the ring is the chip's own
+   1.5px, so a 24px control carrying 12px text does not wear the thinnest line in
+   the product (§ The legal lines). */
 .qb-column {
   display: inline-flex;
   align-items: center;
   min-width: 0;
   border-radius: var(--r-2);
-  box-shadow: var(--e1);
-  background: var(--canvas);
+  box-shadow: var(--e1-chip);
 }
 
 .query-builder .qb-column-select {
   max-width: 200px;
+  padding-inline: var(--sp-2) var(--sp-1);
   box-shadow: none;
   background: transparent;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  height: var(--sp-5);
 }
 
+.qb-column:hover {
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+
+.query-builder .qb-column-select:focus-visible,
+.query-builder .qb-column-select[data-state="open"] {
+  box-shadow: none;
+  background: var(--surface-2);
+}
+
+/* Revealed, not summoned: a strip of columns is a list of things, and a row of
+   `×` beside every one of them is a row of ways to destroy the list. It never
+   leaves the layout, so the chip does not change width when the pointer lands. */
 .qb-column-remove {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: var(--sp-5);
+  width: var(--sp-4);
   height: var(--sp-5);
   padding: 0;
   border: 0;
   border-radius: 0 var(--r-2) var(--r-2) 0;
   background: transparent;
-  color: var(--ink-2);
+  color: var(--ink-3);
+  opacity: 0;
   cursor: pointer;
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.qb-column:hover .qb-column-remove,
+.qb-column-remove:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .qb-column-remove {
+    opacity: 1;
+  }
 }
 
 .qb-column-remove:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
   color: var(--ink);
 }
 
 .qb-column-remove svg {
   width: 12px;
   height: 12px;
+}
+
+/* The `Add column` chooser is the only control in the row that is not yet a
+   column, so it says so by staying a ghost rather than wearing a chip's ring. */
+.query-builder .qb-add-column {
+  height: var(--sp-5);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
 }
 
 .qb-chip {
@@ -2986,7 +3251,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   max-width: 180px;
   padding: 0 var(--sp-1) 0 var(--sp-2);
   border-radius: var(--r-2);
-  box-shadow: var(--e1);
+  box-shadow: var(--e1-chip);
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
@@ -3009,12 +3274,25 @@ button.chip:focus-visible .chip-glyph .chip-x {
   border: 0;
   border-radius: var(--r-1);
   background: transparent;
-  color: var(--ink-2);
+  color: var(--ink-3);
+  opacity: 0;
   cursor: pointer;
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.qb-chip:hover button,
+.qb-chip button:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .qb-chip button {
+    opacity: 1;
+  }
 }
 
 .qb-chip button:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
   color: var(--ink);
 }
 
@@ -3023,14 +3301,33 @@ button.chip:focus-visible .chip-glyph .chip-x {
   height: 10px;
 }
 
+/* The tail of the sentence carries two knobs most queries never touch, so they
+   sit at the end of the line rather than beside the order that precedes them. */
+.qb-tail {
+  gap: var(--sp-2);
+}
+
+.qb-tail .qb-limit {
+  margin-left: auto;
+}
+
 .qb-check {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
+  min-height: var(--row-h);
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.qb-check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 /* The SPARQL the builder wrote. A disclosure, not a second editor: the mono
@@ -3047,6 +3344,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-xs);
   white-space: pre;
 }
+
 
 /* ── The result table ──
    Header separation is luminance, never a rule (§ The three legal lines): the
@@ -3144,6 +3442,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .query-th-sort:focus-visible {
   outline: none;
   color: var(--ink);
+}
+
+/* Where a heading stands in the order. An arrow says which way; with a second
+   term in the list only a number can say which column wins, so the rank appears
+   exactly when there is a second term for it to come before. Tabular figures,
+   for the same reason every other count in the product has them. */
+.query-th-rank {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .query-th svg {

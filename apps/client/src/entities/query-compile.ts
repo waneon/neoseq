@@ -460,10 +460,3 @@ export function compilePlan(plan: QueryPlan): CompiledPlan {
   return compile(plan, null);
 }
 
-/**
- * The standalone form, for the moment a person leaves the builder for the
- * source: every parameter is written out, so the SPARQL runs on its own.
- */
-export function inlinePlan(plan: QueryPlan, runtime: PlanRuntime): string {
-  return compile(plan, runtime).source;
-}

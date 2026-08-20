@@ -976,6 +976,11 @@ are not there. See § Toasts for what is allowed to raise one.
   where the user was about to type.
 - The `Write something…` placeholder on an empty line. An empty line now says it with a
   fainter bullet; the document belongs to the user, including when it is empty.
+- `Edit as SPARQL…`, and the whole idea of a query that can be converted into one it
+  cannot be converted back from. `/ Advanced query` replaces it as an entrance.
+- Two of the three query slash rows. One object, one row.
+- The `Run query` row and the `revision 16` label from the query block's `⋯`, which left
+  it holding verbs only.
 - The query block's permanent toolbar. Its mode word became the caption, its view name
   became the icon the answer below it already makes obvious, its second `⋯`-shaped menu
   merged into the first, its Run button became a menu row for a thing that reruns by
@@ -983,6 +988,7 @@ are not there. See § Toasts for what is allowed to raise one.
   sentence and a count.
 - The builder's `Every one of them — add a condition to narrow it down.` hint, and the
   line break inside `Find blocks / all of the following`.
+- Every drawn box in the query builder, and the grey slab they sat on.
 - The `No results` paragraph under an empty result. The header's count is the empty state;
   the paragraph was the same fact 34px lower.
 
@@ -1599,15 +1605,25 @@ full-width band on `--surface-2`, and results begin immediately below it.
   in tabular figures, and no second sentence below saying it again. On the first run it
   reads `running`; a rerun afterwards updates the number in place rather than flickering
   `running` over it on every debounced keystroke.
-- **The revision is a diagnostic, not a fact about the answer.** It is a quiet label at
-  the foot of `⋯` and a `data-revision` attribute — never a permanent word in the header.
-  Run lives in `⋯` too: the block reruns on every edit and every canonical revision, so a
-  permanent Run button was a verb for a thing that already happens.
-- **One menu for layout.** Table-or-list, which columns show, and how tall the rows are
-  answer one question — how this answer is laid out — so they are one icon-only dropdown
-  with group labels, not two triggers for two halves of it. Its icon is the state it
-  carries. A column's shown/hidden state is two glyphs (`eye` / `eye-off`), because state
-  carried by a single glyph with a dead attribute is state nobody can see.
+- **The revision is a diagnostic, not a fact about the answer**, and running is not a
+  verb. Both left the header *and* the menu: the revision is a `data-revision` attribute,
+  and the block reruns on every edit and every canonical revision, so a `Run` row was a
+  control for a thing that already happens. What is left in `⋯` is three verbs — show the
+  SPARQL, hide it, remove the query — and verbs are the only thing in it.
+- **Two menus and a panel, in the order a reader reaches for them**: the sort panel, the
+  layout menu, then `⋯`. The sort control shows `--accent` while an order is in force, so
+  a table whose rows are not in the query's own order says so without being opened.
+- **One menu for layout, and every row in it is a state.** Table-or-list, which columns
+  show, and how tall the rows are answer one question — how this answer is laid out — so
+  they are one icon-only dropdown with group labels rather than two triggers for two
+  halves of it, and its icon is the state it carries. Inside it, **every row is checkable
+  and every label starts at one left edge**: the views were radio rows with icons and the
+  switches under them were plain rows with none, which is three left edges and two idioms
+  in a menu of eight lines. The rule that follows is general: **a menu of verbs carries
+  icons; a menu of states carries checks.** A switch also states what is *on* rather than
+  flipping its own label — `Compact rows`, checked or not, instead of alternating with
+  `Roomy rows`, which left the reader guessing whether the label named the state or the
+  action.
 - Table and List are presentation modes over the same result. Changing one persists
   the query document's shared default view; it never reruns or rewrites the query.
 - Results, loading, errors, and selection are not saved view data. Switching views
@@ -1619,6 +1635,20 @@ full-width band on `--surface-2`, and results begin immediately below it.
   query's own ordering — the one a `LIMIT` cuts against — lives in the builder's Sort
   row. On a read-only graph a header click still sorts; there is simply nowhere to write
   the choice, so it lasts as long as the block is mounted.
+- **The order is a list, not a column.** *By status, then by date* is one of the most
+  ordinary things to want from a table, and a view that holds one term at a time makes
+  the reader give up their first choice to express their second. A heading press cycles
+  its own column — ascending, descending, gone — and leaves the other terms standing, so
+  a second press is a tie-breaker rather than a reset. A sorted heading states its
+  **rank** once there is a second term for it to come before, because two arrows cannot
+  say which column wins. Eight terms is the ceiling; a ninth tie-breaker is a different
+  query.
+- **Precedence needs a place to be seen and moved**, so the sort control opens a panel
+  rather than a menu: a menu row may not hold four controls of its own. Each term is one
+  row — rank, column, direction, earlier, later, remove — and moving is two buttons
+  rather than a drag, because a drag is not reachable from a keyboard and this list is
+  never longer than a few rows. The heading's own menu writes into the same list: choosing
+  `Ascending` there keeps the terms before it instead of silently discarding them.
 - **An answer is shown in full.** The result never caps its own height and never scrolls
   its own rows: the document scrolls, as it does for everything else on the page. A
   second scrollbar inside a surface that already scrolls hides how much the query found
@@ -1630,11 +1660,32 @@ full-width band on `--surface-2`, and results begin immediately below it.
 
 #### The builder
 
-The builder is the default and the only thing `/` creates, because most people who
-want a query do not want a language. It reads as a **sentence in rows** — *Find blocks,
-all of the following … / show … / sort by … / limit …* — where the connectives are
-12px `--ink-3` words that are never controls, and every choice is the product's one
-dropdown (§ Choice) at the same 32px form metric as every other field.
+The builder is the default and what `/ Query` creates, because most people who want a
+query do not want a language. It reads as a **sentence in rows** — *Find blocks, all of
+the following … / show … / sort by … / limit …* — where the connectives are 12px
+`--ink-3` words that are never controls, and every choice is the product's one dropdown
+(§ Choice) at the same 32px form metric as every other field.
+
+> **Why it stopped looking like a form.** v2 put every one of those choices in a white
+> `--e1` field on a grey `--surface-2` slab: nine drawn boxes on one screen, each
+> announcing itself as a control before any of them said what the query asked, at three
+> different widths, over leads and clauses that started at three different left edges. It
+> was a 2012 web form wearing 2026 tokens. Two rules fix it, and they are the section's
+> own:
+>
+> 1. **A control in the builder reads as a word.** Transparent at rest; the one hover
+>    colour under the pointer; the field's resting `--e1` edge only once a caret is
+>    actually in it. Its chevron stays visible — it is the only thing that says the word
+>    opens something — and strengthens from `--ink-3` to `--ink-2` with the control.
+> 2. **One left edge.** The builder is a two-column grid, lead and clause, so `Find`,
+>    `Show` and `Sort by` line up and every control in the builder starts at the same x.
+>    The condition tree takes column two with no lead of its own, because it is the `Find`
+>    clause going on rather than a new one.
+>
+> The grey slab went with the boxes. The block's own ground is enough, and it leaves the
+> result's `--surface-2` header as the one step that separates the question from the
+> answer. `--ink-3` becomes legal there (§ Contrast), which is what lets the connectives
+> be as quiet as they should have been.
 
 - **One clause is one line.** The subject and the root group's match are the same
   sentence, so they are the same row, with a wider gap where it turns. Splitting them
@@ -1654,10 +1705,20 @@ dropdown (§ Choice) at the same 32px form metric as every other field.
 - **A column is a chip whose dropdown is its summary.** Its resting option is the
   plain field; choosing `count of` or `all` renames the chip to say so, so summarizing
   is a property of the column rather than a separate mode.
-- **The SPARQL is available, never in the way.** `Show SPARQL` discloses exactly what
-  the builder will run, read-only in the mono voice; `Edit as SPARQL…` writes that
-  query out in full and hands it over, which is a one-way door and says so by leaving
-  the builder.
+- **The SPARQL is available, never in the way, and never a one-way door.** `Show SPARQL`
+  discloses exactly what the builder will run, read-only in the mono voice. There is no
+  `Edit as SPARQL…`: converting a built query into a hand-written one destroyed the plan
+  and could not be undone, which made one menu row the most consequential press in the
+  block — and the thing it produced is a *kind of query someone chooses to write*, not a
+  state an existing one gets pushed into. So it is its own door in. **`/ Advanced query`**
+  makes a query with no plan, whose editor is the SPARQL and whose caption is `SPARQL`; it
+  opens empty, with the shape of the one query everything else varies on as its
+  placeholder, because a person who asked to write SPARQL should land on an editor rather
+  than on a result they did not write.
+- **One slash row, not three.** `Blocks` / `Pages` / `Tags` were three menu rows for one
+  object whose *first dropdown* already asks which of them you meant — three ways to the
+  same builder, differing only in a default. Blocks is that default, because a query is
+  nearly always looking for lines of writing.
 
 #### The result table
 
@@ -1666,8 +1727,9 @@ dropdown (§ Choice) at the same 32px form metric as every other field.
   no vertical scrollport of its own to stick to, and a sticky header per query block on
   a page of query blocks would be a stack of floating bars.
 - A heading **is** the sort control and carries no button chrome at rest, because a
-  row of headings that all look like buttons reads as a toolbar. Its overflow menu
-  holds sort, move, hide, and reset-width, each with a keyboard route.
+  row of headings that all look like buttons reads as a toolbar. It carries its own
+  arrow, and its rank once the order has a second term. Its overflow menu holds the two
+  directions, `Don't sort`, move, hide, and reset-width, each with a keyboard route.
 - The width handle is the only vertical line in a table and it is `--thread`, so it
   reads as the seam between two columns rather than as a drawn cell border. It is a
   `separator` with a value, so `←`/`→` resize it without a pointer.
