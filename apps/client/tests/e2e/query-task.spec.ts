@@ -78,6 +78,12 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   const table = query.getByTestId("query-table");
   await expect(table).toContainText("Ship the query engine");
   await expect(table.getByRole("columnheader", { name: /Text/ })).toBeVisible();
+  // `Status is Done` matches exactly one block, so waiting for one row is what
+  // "the condition narrowed the answer" actually means. Waiting only for the
+  // task's own text to appear does not: the unfiltered answer contains it too,
+  // alongside the empty block the query itself lives on, and the next line
+  // addresses "the text cell" in the singular.
+  await expect(table.getByTestId("query-edit-text")).toHaveCount(1);
 
   // A result cell edits the canonical block; the query remains only the lens
   // that finds it. Its query-level draft also survives a presentation change.
