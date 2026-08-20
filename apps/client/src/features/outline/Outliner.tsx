@@ -2384,6 +2384,37 @@ function cssEscape(value: string): string {
   return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value;
 }
 
+/**
+ * Runs a caret operation without letting the page follow the caret.
+ *
+ * `setSelectionRange` reveals the new caret, and "reveal" walks the whole scroll
+ * chain: on a block long enough to outgrow the window — a pasted document, a
+ * query result, a day's worth of notes in one bullet — restoring the selection
+ * after an authoritative refresh scrolled the outline several hundred pixels,
+ * seconds after the reader had pressed a line and started reading somewhere
+ * else. The intent of the refresh is to keep the caret where it was, and the
+ * page is part of where it was.
+ *
+ * Every ancestor scroller is captured, not just the page's, because the same
+ * call also moves a dialog body or a query panel the editor happens to be in.
+ */
+function keepingPageStill(node: HTMLElement, run: () => void): void {
+  const saved: { element: Element; top: number; left: number }[] = [];
+  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+    if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth) {
+      saved.push({ element: parent, top: parent.scrollTop, left: parent.scrollLeft });
+    }
+  }
+  const pageX = window.scrollX;
+  const pageY = window.scrollY;
+  run();
+  for (const entry of saved) {
+    if (entry.element.scrollTop !== entry.top) entry.element.scrollTop = entry.top;
+    if (entry.element.scrollLeft !== entry.left) entry.element.scrollLeft = entry.left;
+  }
+  if (window.scrollX !== pageX || window.scrollY !== pageY) window.scrollTo(pageX, pageY);
+}
+
 interface AncestorPath {
   /** Row indices of the focused block's ancestors, outermost first. */
   indices: number[];
@@ -2740,7 +2771,16 @@ function BlockRow({
     if (!isFocused) return;
     const textarea = textareaRef.current;
     if (!textarea || document.activeElement === textarea) return;
-    textarea.focus();
+    // `preventScroll`, like every other focus call in this file. A block carrying
+    // a long body or a query result is routinely taller than the window, and the
+    // browser's own "reveal the focused element" — followed here by a
+    // setSelectionRange that reveals the caret as well — will happily scroll a
+    // row that is already on screen until one of its edges is aligned. That is
+    // the page moving out from under the caret the reader just placed, which is
+    // exactly what § Component Rules / Outline forbids; whether it fired at all
+    // depended on the row's height against the viewport's, so it was a bug that
+    // came and went with the type metrics.
+    textarea.focus({ preventScroll: true });
     const caret = editor.pendingCaret.current;
     if (caret !== null) {
       const offset = Math.min(caret, textarea.value.length);
@@ -2761,7 +2801,18 @@ function BlockRow({
       anchor: textarea.selectionStart,
       head: textarea.selectionEnd,
     });
-    textarea.setSelectionRange(transformed.anchor, transformed.head);
+    if (
+      transformed.anchor === textarea.selectionStart &&
+      transformed.head === textarea.selectionEnd
+    ) {
+      // Nothing moved. Returning here is not just an optimisation: the call
+      // below has a side effect, and making it unconditionally meant every
+      // authoritative refresh of an untouched selection paid for it.
+      return;
+    }
+    keepingPageStill(textarea, () => {
+      textarea.setSelectionRange(transformed.anchor, transformed.head);
+    });
   }, [editor.revision, isFocused, value]);
 
   return (
@@ -2849,7 +2900,7 @@ function BlockRow({
                 // next thing typed into the row the menu was opened on rather than
                 // into the block the user just asked for.
                 if (editor.focusedId === null || editor.focusedId === row.block.id) {
-                  textareaRef.current?.focus();
+                  textareaRef.current?.focus({ preventScroll: true });
                 }
               }}
             >
