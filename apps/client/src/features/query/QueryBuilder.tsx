@@ -86,7 +86,8 @@ const EXACT_DATE = "exact";
  * never win. Its focus state is the base field's already: `--surface-2` plus the
  * resting `--e1` edge.
  */
-const GHOST_FIELD = "bg-transparent shadow-none hover:bg-[var(--surface-2)]";
+const GHOST_FIELD =
+  "bg-transparent shadow-none hover:bg-[var(--surface-2)] hover:shadow-none";
 
 /** Every property key this graph actually uses, plus the registry's own. */
 export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
@@ -219,31 +220,37 @@ export function QueryBuilder({
               })}
           />
         )}
-        <span className="qb-lead qb-limit">{message("query.limit")}</span>
-        <Input
-          className={cn(GHOST_FIELD, "w-16")}
-          type="number"
-          min={1}
-          max={PLAN_LIMIT_MAX}
-          value={plan.limit}
-          readOnly={readonly}
-          aria-label={message("query.limit")}
-          data-testid="qb-limit"
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (!Number.isFinite(next)) return;
-            onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
-          }}
-        />
-        <label className="qb-check">
-          <input
-            type="checkbox"
-            checked={plan.distinct}
-            disabled={readonly}
-            onChange={(event) => onChange({ ...plan, distinct: event.target.checked })}
+        {/* The two knobs most queries never touch. They are held at the end of
+            the line, and grouped, so the space before them reads as "and then
+            these" rather than as two controls that drifted apart from the
+            sentence they belong to. */}
+        <div className="qb-knobs">
+          <span className="qb-lead qb-limit">{message("query.limit")}</span>
+          <Input
+            className={cn(GHOST_FIELD, "w-16")}
+            type="number"
+            min={1}
+            max={PLAN_LIMIT_MAX}
+            value={plan.limit}
+            readOnly={readonly}
+            aria-label={message("query.limit")}
+            data-testid="qb-limit"
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              if (!Number.isFinite(next)) return;
+              onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
+            }}
           />
-          {message("query.uniqueRows")}
-        </label>
+          <label className="qb-check">
+            <input
+              type="checkbox"
+              checked={plan.distinct}
+              disabled={readonly}
+              onChange={(event) => onChange({ ...plan, distinct: event.target.checked })}
+            />
+            {message("query.uniqueRows")}
+          </label>
+        </div>
       </div>
     </div>
   );

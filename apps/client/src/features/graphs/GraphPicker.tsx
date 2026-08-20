@@ -103,20 +103,25 @@ export function GraphPicker() {
                   onClick={() => navigate(`/g/${graph.id}`)}
                   data-testid={`open-graph-${graph.name}`}
                 >
-                  <span className="name">{graph.name}</span>
-                  <span className="meta">
-                    {graph.kind === "remote" && (
-                      <>
-                        <span className="graph-remote-label">
-                          <CloudIcon aria-hidden />
-                          {message("graph.remote")}
-                        </span>
-                        {" · "}
-                      </>
-                    )}
-                    {message("graph.created", {
-                      date: formatInstant(graph.created_at, configuredTimezone(), CREATED),
-                    })}
+                  <span className="graph-card-avatar" aria-hidden>
+                    {[...graph.name.trim()][0] ?? "·"}
+                  </span>
+                  <span className="graph-card-text">
+                    <span className="name">{graph.name}</span>
+                    <span className="meta">
+                      {graph.kind === "remote" && (
+                        <>
+                          <span className="graph-remote-label">
+                            <CloudIcon aria-hidden />
+                            {message("graph.remote")}
+                          </span>
+                          {" · "}
+                        </>
+                      )}
+                      {message("graph.created", {
+                        date: formatInstant(graph.created_at, configuredTimezone(), CREATED),
+                      })}
+                    </span>
                   </span>
                 </button>
                 {/* Both verbs live behind one named menu, so a destructive
@@ -150,19 +155,31 @@ export function GraphPicker() {
             ))}
           </ul>
         )}
+        {/* Name it, then make it: the field and the verb it answers to sit on
+            one line, so the primary path through this screen is a single
+            gesture. The remote graph is the second path and reads as one —
+            below, quiet, and behind a rule. */}
         <form className="picker-new" onSubmit={create}>
-          <Input
-            placeholder={message("graph.newName")}
-            aria-label={message("graph.newName")}
-            value={newName}
-            onChange={(event) => setNewName(event.target.value)}
-            data-testid="new-graph-name"
-          />
-          <div className="picker-new-actions">
+          <div className="picker-new-row">
+            <Input
+              placeholder={message("graph.newName")}
+              aria-label={message("graph.newName")}
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              data-testid="new-graph-name"
+            />
             <button className="btn btn-primary" type="submit" data-testid="create-graph">
               {message("graph.createLocal")}
             </button>
-            <button className="btn" type="button" onClick={() => setRemoteCreate(true)} data-testid="create-remote-graph">
+          </div>
+          <div className="picker-new-actions">
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => setRemoteCreate(true)}
+              data-testid="create-remote-graph"
+            >
+              <CloudIcon aria-hidden />
               {message("graph.createRemote")}
             </button>
           </div>

@@ -4,7 +4,8 @@
 //
 // Hand-rolled rather than pulled from a package: it needs direct control of
 // aria-activedescendant, of caret restoration on close, and of the two motion
-// constraints this codebase enforces (opacity-only entrance, immediate unmount).
+// constraints this codebase enforces (one arrival that finishes opaque early,
+// and immediate unmount with no exit).
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -244,7 +245,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
         }}
       >
       <div
-        className="cmdk"
+        className="cmdk enter-rise"
         role="dialog"
         aria-modal="true"
         aria-label={message("commands.palette")}
@@ -324,6 +325,26 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
             </li>
           ))}
         </ul>
+        {/* The keys the palette answers to, stated where the palette is. It is
+            the one overlay a reader is expected to drive entirely from the
+            keyboard, and three eleven-pixel pairs at the foot of it is what
+            every application this one competes with uses to teach that — and
+            what closes the panel visually, so the last row no longer runs off a
+            rounded edge into nothing. */}
+        <div className="cmdk-footer" aria-hidden>
+          <span className="cmdk-hint">
+            <Kbd parts={["↑", "↓"]} />
+            {message("commands.hintKeysNavigate")}
+          </span>
+          <span className="cmdk-hint">
+            <Kbd parts={["⏎"]} />
+            {message("commands.hintKeysSelect")}
+          </span>
+          <span className="cmdk-hint">
+            <Kbd parts={["esc"]} />
+            {message("commands.hintKeysClose")}
+          </span>
+        </div>
       </div>
       </div>
     </>,

@@ -2,20 +2,22 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Field focus is a quiet luminance step with the same resting edge. Indigo is
-// reserved for actions and carets, so ordinary form navigation never draws a
-// blue frame around the control.
+// A field is an inset thing, so it carries the resting ring and no cast — the
+// opposite of a button, which is raised. Focus is a luminance step plus the
+// accent halo the whole product uses to say "the keys land here"; the ring
+// itself stays the resting hairline, so the control never changes silhouette.
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       type={type}
       data-slot="input"
       className={cn(
-        "flex h-8 w-full min-w-0 rounded-md bg-background px-2.5 text-sm text-foreground shadow-[var(--e1)]",
-        "placeholder:text-[var(--ink-3)] caret-[var(--accent)]",
-        // Focus fills --surface-2, where --ink-3 fails AA — the placeholder
-        // steps up one ink level while the field is lit.
-        "focus-visible:bg-[var(--surface-2)] focus-visible:shadow-[var(--e1)] focus-visible:placeholder:text-[var(--ink-2)]",
+        "flex h-8 w-full min-w-0 rounded-[var(--r-2)] bg-background px-2.5 text-sm text-foreground shadow-[var(--e1)]",
+        "transition-shadow placeholder:text-[var(--ink-3)] caret-[var(--accent)]",
+        "hover:shadow-[inset_0_0_0_1px_var(--line-strong)]",
+        // Focus fills --surface-1 — one step, so --ink-3 stays legal for the
+        // placeholder — and adds the accent halo every focused control shares.
+        "focus-visible:bg-[var(--surface-1)] focus-visible:shadow-[var(--e1),0_0_0_3px_var(--accent-soft)]",
         "read-only:text-[var(--ink-2)] disabled:cursor-not-allowed disabled:opacity-50",
         "file:inline-flex file:border-0 file:bg-transparent file:text-sm file:font-medium",
         className,

@@ -74,8 +74,8 @@ export function JournalView() {
 
   const go = (target: string) => navigate(`/g/${graphId}/journal/${target}`);
 
-  // One title row. The heading is the date; the stepper is summoned on hover or
-  // focus; `Today` appears only when the answer is not "today". The native date
+  // One title row. The heading is the date; the stepper is permanent; `Today`
+  // appears only when the answer is not "today". The native date
   // input stays mounted, focusable and value-synced but clipped — it is a real
   // keyboard tab stop and the target of showPicker(), without restating the date
   // a third time in the platform's own locale format. Right-clicking the row
@@ -89,7 +89,12 @@ export function JournalView() {
             {message("journal.today")}
           </button>
         )}
-        <div className="revealed">
+        {/* Moving through the days is what a journal *is*, so the stepper is
+            permanent and reads as one control with three keys rather than as
+            three glyphs that appear when the pointer happens to pass. It was
+            hover-gated, which meant the primary verb of the primary surface was
+            invisible until you already knew it was there. */}
+        <div className="date-stepper">
           <button
             className="icon-btn"
             aria-label={message("journal.previousDay")}

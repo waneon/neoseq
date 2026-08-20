@@ -608,32 +608,37 @@ SELECT ?entity ?content ?page WHERE {
           aria-label={message("shell.graphNavigation")}
           data-testid="sidebar"
         >
-          <p className="rail-brand" data-testid="brand">
-            <Wordmark name={message("app.title")} />
-          </p>
-          <GraphSwitcher
-            graphId={graphId}
-            name={name}
-            remote={remote !== null}
-            onManageMembers={() => setMembersOpen(true)}
-            onExit={onExit}
-          />
+          {/* The mark and the graph read as one head: the product's name small
+              and quiet above, the graph — the thing a reader actually switches —
+              as the row with weight and an initial beside it. */}
+          <div className="rail-head">
+            <p className="rail-brand" data-testid="brand">
+              <Wordmark name={message("app.title")} />
+            </p>
+            <GraphSwitcher
+              graphId={graphId}
+              name={name}
+              remote={remote !== null}
+              onManageMembers={() => setMembersOpen(true)}
+              onExit={onExit}
+            />
+          </div>
+          {/* Search is the affordance that licenses how bare the rest of the
+              interface is, so it stays permanent — and it wears the shape of the
+              field it stands in for, with its key badge always showing, rather
+              than passing for one more place you can go. */}
+          <button
+            className="rail-search"
+            onClick={() => setPaletteOpen(true)}
+            aria-label={message("commands.searchLabel")}
+            aria-keyshortcuts={formatBinding(bindings.palette)}
+            data-testid="open-palette"
+          >
+            <SearchIcon aria-hidden />
+            <span className="nav-label">{message("shell.search")}</span>
+            <Shortcut binding={bindings.palette} />
+          </button>
           <div className="shell-nav">
-            {/* Search is the affordance that licenses how bare the rest of the
-                interface is, so it stays permanent — it just belongs beside the
-                other places you can go rather than in the writing surface's
-                own top bar. */}
-            <button
-              className="shell-nav-item"
-              onClick={() => setPaletteOpen(true)}
-              aria-label={message("commands.searchLabel")}
-              aria-keyshortcuts={formatBinding(bindings.palette)}
-              data-testid="open-palette"
-            >
-              <SearchIcon aria-hidden />
-              <span className="nav-label">{message("shell.search")}</span>
-              <Shortcut binding={bindings.palette} className="nav-kbd" />
-            </button>
             <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
               <CalendarDaysIcon aria-hidden />
               <span className="nav-label">{message("shell.journal")}</span>
@@ -915,6 +920,9 @@ function GraphSwitcher({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="rail-switcher" data-testid="graph-switcher">
+          <span className="rail-avatar" aria-hidden>
+            {[...name.trim()][0] ?? "·"}
+          </span>
           <span className="name">{name}</span>
           <ChevronsUpDownIcon aria-hidden />
         </button>

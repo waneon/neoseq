@@ -30,10 +30,12 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         className={cn(
           "z-[var(--z-menu)] min-w-[12rem] overflow-hidden rounded-lg bg-[var(--overlay)] p-1 text-popover-foreground shadow-[var(--e2)]",
-          // Opacity-only entrance and no exit animation, so the menu is
-          // positionally stable while the pointer travels to it and Radix
-          // unmounts it immediately on close rather than leaving a low-opacity
-          // ghost that is neither clickable nor contrast-safe.
+          // One arrival, no exit: the menu rises the system's `--rise` and
+          // settles, and Radix unmounts it immediately on close rather than
+          // leaving a low-opacity ghost that is neither clickable nor
+          // contrast-safe. Opacity finishes in the first 40% of the animation,
+          // so the surface is never read — by a person or by the contrast
+          // audit — while it is still translucent.
           "enter-fade-fast",
           className,
         )}

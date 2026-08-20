@@ -30,6 +30,9 @@ export interface MessageArgumentMap {
   "commands.group.pages": undefined;
   "commands.group.search": undefined;
   "commands.hintJournal": undefined;
+  "commands.hintKeysClose": undefined;
+  "commands.hintKeysNavigate": undefined;
+  "commands.hintKeysSelect": undefined;
   "commands.hintPage": undefined;
   "commands.hintToday": undefined;
   "commands.label.allGraphs": undefined;

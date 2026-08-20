@@ -121,13 +121,14 @@ function ToastRow({
 
   return (
     <div
-      // No entrance animation, and none was a close call: a toast reads like a
-      // surface whose arrival is the message, which `enter-fade` exists for. But
-      // it is also read the instant it appears — by the user, by a live region,
-      // and by the contrast audit, which caught it mid-fade compositing its text
-      // against the page behind it. DESIGN.md § Motion rule 3 decides it: prefer
-      // no animation to one that has to finish before the surface is legible.
-      className="toast"
+      // The arrival is a translate and nothing else. A toast reads like a
+      // surface whose arrival is the message, so it should move — but it is also
+      // read the instant it appears, by the user, by a live region, and by the
+      // contrast audit, which caught an earlier fade compositing its text
+      // against the page behind it. `enter-drop` is the answer DESIGN.md
+      // § Motion names for exactly this case: full opacity on the first frame,
+      // and the movement carries the arrival on its own.
+      className="toast enter-drop"
       data-tone={toast.tone}
       data-paused={paused}
       data-testid="toast"
