@@ -116,7 +116,11 @@ export function QueryBuilder({
 
   return (
     <div className="query-builder" data-testid="query-builder">
-      <div className="qb-line">
+      {/* One clause, one line. *Find blocks — all of the following.* The subject
+          and the root group's match used to take a row each, which put two lead
+          words and a line break inside a single sentence; the root group's head
+          is this line, and only a nested group draws its own. */}
+      <div className="qb-line qb-head">
         <span className="qb-lead">{message("query.find")}</span>
         <MenuSelect
           value={plan.subject}
@@ -129,6 +133,19 @@ export function QueryBuilder({
           }))}
           onValueChange={(value) => onChange(retarget(plan, value as PlanSubject))}
         />
+        <MenuSelect
+          value={plan.where.match}
+          label={message("query.matchLabel")}
+          testId="qb-match"
+          disabled={readonly}
+          options={(["all", "any", "none"] as const).map((match) => ({
+            value: match,
+            label: matchLabel(match, message),
+          }))}
+          onValueChange={(value) =>
+            setWhere({ ...plan.where, match: value as PlanGroup["match"] })}
+        />
+        <span className="qb-lead">{message("query.ofTheFollowing")}</span>
       </div>
 
       <GroupEditor
@@ -269,37 +286,37 @@ function GroupEditor({
 
   return (
     <div className="qb-group" data-depth={depth} data-testid="qb-group">
-      <div className="qb-line qb-group-head">
-        <MenuSelect
-          value={group.match}
-          label={message("query.matchLabel")}
-          disabled={readonly}
-          testId={depth === 0 ? "qb-match" : undefined}
-          options={(["all", "any", "none"] as const).map((match) => ({
-            value: match,
-            label: matchLabel(match, message),
-          }))}
-          onValueChange={(value) =>
-            onChange({ ...group, match: value as PlanGroup["match"] })}
-        />
-        <span className="qb-lead">{message("query.ofTheFollowing")}</span>
-        {onRemove && (
-          <button
-            type="button"
-            className="icon-btn qb-remove"
+      {/* The root group's head is the builder's first line, so it draws none of
+          its own; a nested one is a clause inside a clause and says so. */}
+      {depth > 0 && (
+        <div className="qb-line qb-group-head">
+          <MenuSelect
+            value={group.match}
+            label={message("query.matchLabel")}
             disabled={readonly}
-            aria-label={message("query.removeGroup")}
-            onClick={onRemove}
-          >
-            <Trash2Icon aria-hidden />
-          </button>
-        )}
-      </div>
+            options={(["all", "any", "none"] as const).map((match) => ({
+              value: match,
+              label: matchLabel(match, message),
+            }))}
+            onValueChange={(value) =>
+              onChange({ ...group, match: value as PlanGroup["match"] })}
+          />
+          <span className="qb-lead">{message("query.ofTheFollowing")}</span>
+          {onRemove && (
+            <button
+              type="button"
+              className="icon-btn qb-remove"
+              disabled={readonly}
+              aria-label={message("query.removeGroup")}
+              onClick={onRemove}
+            >
+              <Trash2Icon aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="qb-children">
-        {group.children.length === 0 && (
-          <p className="qb-hint">{message("query.noConditions")}</p>
-        )}
         {group.children.map((child) =>
           child.kind === "group" ? (
             <GroupEditor

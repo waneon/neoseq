@@ -2599,51 +2599,136 @@ button.chip:focus-visible .chip-glyph .chip-x {
   overflow: hidden;
 }
 
-.query-toolbar {
+/* ── The query header ──
+   One line above the answer: what the query asks, how much it found, and — only
+   once a pointer or the keyboard arrives — the two menus that shape it. The old
+   toolbar stated six things at rest (a mode word, the view's name, a sliders
+   icon, the index revision, Run, and `⋯`) above five permanent rows of builder;
+   on a journal page that was ~500px of authoring chrome over a six-row answer.
+   Everything that is about *writing* the query now lives behind the sentence,
+   and the revision — a diagnostic, not a fact about the answer — lives in `⋯`. */
+.query-header {
   display: flex;
   align-items: center;
+  gap: var(--sp-2);
   min-height: var(--row-h);
-  padding: 0 var(--sp-1) 0 var(--sp-2);
+  padding: 0 var(--sp-1);
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
 
-.query-language {
+/* The plan read back as a phrase, and the control that opens the editor that
+   wrote it. Ghost at rest — a caption over the answer, not a button on a bar —
+   and it takes the one hover colour when the pointer says it is pressable.
+   `--ink-2`, not `--ink-3`: the hover wash is --surface-2, where § Contrast's
+   one hard rule puts --ink-3 out of bounds. */
+.query-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  /* Shrink-to-fit, and the first thing to shrink: the hover wash has to hug the
+     sentence, or a 900px band lights up under 200px of text and the caption reads
+     as a toolbar again. */
+  flex: 0 1 auto;
+  min-width: 0;
+  height: var(--sp-5);
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
   color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.query-summary:hover,
+.query-summary:focus-visible {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.query-summary svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* What it looks for carries the weight; what narrows it is the qualifier, so it
+   steps back one and yields the line first when the block is narrow. */
+.query-summary-lead {
+  flex: none;
   font-weight: var(--weight-medium);
 }
 
-/* The revision yields space first when the toolbar tightens (§ Query block). */
-.query-revision {
+.query-summary-detail {
   min-width: 0;
-  margin-left: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.query-toolbar .icon-btn {
-  margin-left: var(--sp-1);
+/* Punctuation between the two halves of one sentence — generated, because it is
+   decoration rather than part of the control's name. */
+.query-summary-detail::before {
+  content: "·";
+  margin-right: var(--sp-1);
+  color: var(--ink-3);
 }
 
-/* The view chooser is a small ghost button in the icon-btn's own metrics,
-   widened to carry its label. */
-.query-toolbar .query-view-trigger {
-  width: auto;
-  max-width: 148px;
-  gap: var(--sp-1);
-  padding-inline: var(--sp-1);
-  overflow: hidden;
+.query-summary:hover .query-summary-detail::before,
+.query-summary:focus-visible .query-summary-detail::before {
   color: var(--ink-2);
+}
+
+/* How much it found. Tabular figures because a count that shifts a pixel as it
+   changes reads as the layout moving rather than as the number. */
+.query-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.query-view-trigger svg {
+/* Revealed on hover, focus, or an open menu — § Disclosure, with `opacity` so
+   the keyboard and automation can always reach them, and pinned visible where
+   there is no pointer to reveal them with. */
+.query-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-0);
   flex: none;
+  /* Held at the end of the line whether they are showing or not, so the count
+     does not slide sideways when the pointer arrives. */
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--dur-view) var(--ease-out);
 }
 
-.query-toolbar svg {
+.query-block:hover .query-header-actions,
+.query-header-actions:focus-within,
+.query-header-actions:has([data-state="open"]) {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .query-header-actions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .query-header-actions {
+    opacity: 1;
+  }
+}
+
+.query-header svg {
   width: 14px;
   height: 14px;
 }
@@ -2673,18 +2758,20 @@ button.chip:focus-visible .chip-glyph .chip-x {
   box-shadow: var(--e1);
 }
 
+/* No reserved height and no padding of its own: an empty answer is stated by the
+   header's count, so the band under it must be able to be nothing at all rather
+   than a 34px blank strip under every query that found nothing. Its children pad
+   themselves. */
 .query-output {
-  min-height: 34px;
-  padding: var(--sp-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
 }
 
 .query-diagnostic,
-.query-empty,
 .query-ask {
   margin: 0;
+  padding: var(--sp-2);
 }
 
 .query-diagnostic {
@@ -2717,6 +2804,12 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
+}
+
+/* *Find blocks — all of the following.* One clause on one line, with a wider gap
+   where the sentence turns: the space between the two dropdowns is the comma. */
+.qb-head > .menu-select + .menu-select {
+  margin-left: var(--sp-2);
 }
 
 /* The connective tissue of the sentence: never a control, never a label for
@@ -2784,13 +2877,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: center;
   gap: var(--sp-1);
   min-width: 0;
-}
-
-.qb-hint {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
 }
 
 /* Remove is revealed, not summoned: it lives on the row it acts on and steps

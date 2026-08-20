@@ -110,6 +110,26 @@ function DropdownMenuRadioItem({
   );
 }
 
+/**
+ * The heading over a section of a menu. It takes `.group-label`, which is the
+ * product's one group-divider rule (DESIGN.md § The group label): four signals in
+ * agreement — smaller, heavier, tracked out, a step quieter — because one step of
+ * anything reads as the first item of its own list rather than as its heading.
+ * No menu is allowed to invent its own.
+ */
+function DropdownMenuLabel({
+  className,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
+  return (
+    <DropdownMenuPrimitive.Label
+      data-slot="dropdown-menu-label"
+      className={cn("group-label flex min-h-[24px] items-center px-2 pt-1", className)}
+      {...props}
+    />
+  );
+}
+
 function DropdownMenuSeparator({
   className,
   ...props
@@ -152,6 +172,7 @@ export {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,

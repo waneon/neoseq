@@ -44,18 +44,28 @@ describe("query and task projections", () => {
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 
-    expect(await screen.findByLabelText("SPARQL source")).toHaveValue(
-      "SELECT ?block ?status WHERE { ?block ?p ?status }",
-    );
+    // A query that has already been written opens on its answer, not on its
+    // editor: the caption names the language and the rows are there to read.
+    const summary = await screen.findByTestId("query-summary");
+    expect(summary).toHaveAccessibleName("SPARQL");
+    expect(summary).toHaveAttribute("aria-expanded", "false");
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
-    expect(screen.getByTestId("query-block")).toHaveTextContent("revision 3");
+    // Which revision answered is a diagnostic, so it is written where a test or a
+    // console can read it rather than into the caption.
+    expect(screen.getByTestId("query-block")).toHaveAttribute("data-revision", "3");
     // Result values do not imply a write target: source-mode SPARQL has no
     // builder provenance, even when a term happens to identify a real block.
     expect(screen.getByTestId("query-block").querySelector(
       '[data-testid^="query-edit-"]',
     )).toBeNull();
 
-    await chooseFromMenu(userEvent.setup(), screen.getByTestId("query-view-trigger"), "List");
+    const user = userEvent.setup();
+    await user.click(summary);
+    expect(await screen.findByLabelText("SPARQL source")).toHaveValue(
+      "SELECT ?block ?status WHERE { ?block ?p ?status }",
+    );
+
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && queryDocument(block.properties)?.default_view_id).toBe("list");

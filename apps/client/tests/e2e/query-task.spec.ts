@@ -99,8 +99,10 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await page.getByRole("menuitem", { name: "Show SPARQL" }).click();
   await expect(query.getByTestId("query-compiled")).toContainText("prop:builtin.task-status");
 
-  // Hiding a column is saved view data, so it survives a reload.
-  await expect(query.getByTestId("query-view-trigger")).toContainText("List");
+  // Hiding a column is saved view data, so it survives a reload. The view control
+  // is icon-only now — the answer below it already says whether it is a table —
+  // so the state it carries is the icon it draws.
+  await expect(query.getByTestId("query-view-trigger")).toHaveAttribute("data-view", "list");
   await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "Table");
   await query.getByTestId("query-col-menu-page").click();
   await page.getByRole("menuitem", { name: "Hide column" }).click();

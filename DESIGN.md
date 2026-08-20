@@ -921,10 +921,18 @@ rail (`Search`) or gave up its button for a keyboard binding and a palette row (
 
 Date stepper and calendar trigger · collapse chevron · a tag chip's remove state (the
 `#` swaps to `×`) · a tag card's delete · graph card `⋯` ·
-the rail's `⌘K` badge · the append zone's faint bullet · a shortcut row's reset. Every
+the rail's `⌘K` badge · the append zone's faint bullet · a shortcut row's reset ·
+a query block's view menu and its `⋯`. Every
 one of these is also in the palette or in Settings, pinned visible at or below 600px, and
 revealed on `:focus-within` — and revealed with `opacity`, never `display` or
 `visibility`, so keyboard and automation can always reach it.
+
+> A query block's two menus are the one entry on this list whose object is not already a
+> permanent control. What makes them honest is that the block's own caption *is* one: the
+> sentence naming the query is permanently visible, permanently pressable, and opens the
+> editor — so the only thing revealing hides is *layout* and the overflow, and never the
+> route to the query itself. An open menu keeps its trigger showing, so the pointer may
+> leave the block without the control it opened disappearing under the menu.
 
 ### Summoned only
 
@@ -968,6 +976,15 @@ are not there. See § Toasts for what is allowed to raise one.
   where the user was about to type.
 - The `Write something…` placeholder on an empty line. An empty line now says it with a
   fainter bullet; the document belongs to the user, including when it is empty.
+- The query block's permanent toolbar. Its mode word became the caption, its view name
+  became the icon the answer below it already makes obvious, its second `⋯`-shaped menu
+  merged into the first, its Run button became a menu row for a thing that reruns by
+  itself, and its `revision 16` became a `⋯` label and an attribute. What is left is a
+  sentence and a count.
+- The builder's `Every one of them — add a condition to narrow it down.` hint, and the
+  line break inside `Find blocks / all of the following`.
+- The `No results` paragraph under an empty result. The header's count is the empty state;
+  the paragraph was the same fact 34px lower.
 
 ### The budget that justifies this
 
@@ -1554,10 +1571,43 @@ A query is a tool embedded in the outline, not a dashboard card. Its quiet
 `--surface-1` frame follows the block's width; the editor — builder or source — is a
 full-width band on `--surface-2`, and results begin immediately below it.
 
-- The toolbar reads the editor's name (`Query` for a built one, `SPARQL` for a
-  hand-written one), then the saved result view, then a columns-and-density menu,
-  then revision, Run, and the block's own overflow menu. The view is a small
-  ghost-button dropdown with radio rows, never a permanent tab strip.
+> **The answer is the block; the question is a disclosure.** v1 stated six things in a
+> toolbar (a mode word, the view's name, a sliders icon, the index revision, Run, `⋯`)
+> above five permanent rows of builder — on a journal page, ~500px of authoring chrome
+> over a six-row answer, every time the page opened, whether or not anyone was authoring.
+> A query is read far more often than it is written, so the block now rests as **one
+> caption line and its result**, and everything about *writing* it is behind the caption.
+
+- The header is one line: **the plan read back as a phrase**, then how much it found,
+  then — revealed — the view menu and the block's `⋯`. Nothing else.
+- **The sentence is the disclosure.** `Blocks · Status is Done` is both what the query
+  says and the control that opens the editor that wrote it, with a chevron and
+  `aria-expanded`. That is what licenses revealing the two menus: the phrase is a
+  permanent, labelled pointer route in, so the block needs no `Edit` button beside it.
+  The caption follows the *draft* plan, so it is already true when the editor closes.
+- The caption is a summary, not a transcript: two conditions per level, then `+N more`;
+  a nested group keeps its parentheses, because `or` inside `and` is the one thing a
+  flattened list would misreport. A hand-written query's caption is `SPARQL`. Because the
+  middot is drawn in CSS, the disclosure states its accessible name rather than letting
+  two adjacent spans compute one.
+- **The editor opens for a query nobody has written yet, and stays shut for one that has
+  been.** A plan with no conditions has nothing to caption and a blank source has nothing
+  to answer, so `/` lands on the builder; a shaped query reopens on the answer it was
+  shaped for. Which it is becomes the reader's from their first press, and never
+  re-derives under their hands. It is local state — never saved view data.
+- **The count is the empty state.** `No results` / `1 result` / `6 results` in the header,
+  in tabular figures, and no second sentence below saying it again. On the first run it
+  reads `running`; a rerun afterwards updates the number in place rather than flickering
+  `running` over it on every debounced keystroke.
+- **The revision is a diagnostic, not a fact about the answer.** It is a quiet label at
+  the foot of `⋯` and a `data-revision` attribute — never a permanent word in the header.
+  Run lives in `⋯` too: the block reruns on every edit and every canonical revision, so a
+  permanent Run button was a verb for a thing that already happens.
+- **One menu for layout.** Table-or-list, which columns show, and how tall the rows are
+  answer one question — how this answer is laid out — so they are one icon-only dropdown
+  with group labels, not two triggers for two halves of it. Its icon is the state it
+  carries. A column's shown/hidden state is two glyphs (`eye` / `eye-off`), because state
+  carried by a single glyph with a dead attribute is state nobody can see.
 - Table and List are presentation modes over the same result. Changing one persists
   the query document's shared default view; it never reruns or rewrites the query.
 - Results, loading, errors, and selection are not saved view data. Switching views
@@ -1574,17 +1624,24 @@ full-width band on `--surface-2`, and results begin immediately below it.
   second scrollbar inside a surface that already scrolls hides how much the query found
   and makes the reader discover the rest.
 - At narrow widths the editor and result keep the outline width. The table scrolls
-  **sideways** and only sideways; builder rows and list values wrap. Toolbar controls
-  remain one row and the revision yields space first.
+  **sideways** and only sideways; builder rows and list values wrap. The header stays one
+  row: the caption's qualifier truncates first, and the count and both menus keep their
+  places — the menus are pinned visible at or below 600px, where no pointer reveals them.
 
 #### The builder
 
 The builder is the default and the only thing `/` creates, because most people who
-want a query do not want a language. It reads as a **sentence in rows** — *Find
-blocks / where all of … / show … / sort by … / limit …* — where the connectives are
+want a query do not want a language. It reads as a **sentence in rows** — *Find blocks,
+all of the following … / show … / sort by … / limit …* — where the connectives are
 12px `--ink-3` words that are never controls, and every choice is the product's one
 dropdown (§ Choice) at the same 32px form metric as every other field.
 
+- **One clause is one line.** The subject and the root group's match are the same
+  sentence, so they are the same row, with a wider gap where it turns. Splitting them
+  put a lead word and a line break inside one clause; the root group draws no head of
+  its own, and only a nested group does.
+- **An empty group says nothing.** Its `Condition` button is the affordance; a sentence
+  explaining that no conditions means everything was a paragraph of chrome inside a form.
 - **A condition is one row**: field, comparison, value. The value editor is the one
   its field's type deserves — the shape-led rows for a task status, a relative-day
   menu (`Today`, `In 7 days`, `Start of next week`) for a date with the native picker

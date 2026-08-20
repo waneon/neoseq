@@ -142,6 +142,59 @@ describe("the query builder", () => {
     expect(screen.queryByTestId("query-block")).not.toBeInTheDocument();
   });
 
+  // The block is the answer; the question is a disclosure. A query nobody has
+  // said anything about yet is the one case where that is backwards, so it opens
+  // on its editor — and the caption it collapses to is the plan read back.
+  it("reads the plan back as a caption, and the caption puts the editor away", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    const user = userEvent.setup();
+
+    harness.port.queryResult = {
+      kind: "select",
+      variables: ["q_subject", "text"],
+      rows: [{
+        q_subject: {
+          kind: "iri",
+          value: "urn:neoseq:entity:test-graph:block:b-2",
+          entity: { kind: "block", page_id: "home", id: "b-2" },
+        },
+        text: {
+          kind: "literal",
+          value: "Ship the builder",
+          datatype: "http://www.w3.org/2001/XMLSchema#string",
+        },
+      }],
+      revision: 7,
+      frontier: "fake-7",
+    };
+
+    const summary = screen.getByTestId("query-summary");
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(summary).toHaveAccessibleName("Blocks");
+
+    await user.click(screen.getByTestId("qb-add-condition"));
+    const condition = await screen.findByTestId("qb-condition");
+    await chooseFromMenu(user, within(condition).getByTestId("qb-field"), "Status");
+    await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
+
+    // Word for word the builder's own vocabulary, and it tracks the plan in hand
+    // rather than the one last written to the document.
+    await waitFor(() => expect(summary).toHaveAccessibleName("Blocks · Status is Doing"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
+
+    await user.click(summary);
+    expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    // What the reader kept is what the query found — and how much of it.
+    expect(screen.getByTestId("query-count")).toHaveTextContent("1 result");
+    expect(screen.getByTestId("query-table")).toBeInTheDocument();
+    // The revision moved off the caption, but not out of reach.
+    expect(screen.getByTestId("query-block")).toHaveAttribute("data-revision", "7");
+  });
+
   it("never offers the query property through the picker", async () => {
     const harness = await mountPage();
     await createQuery(harness);

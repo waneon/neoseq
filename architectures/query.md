@@ -172,7 +172,7 @@ renderers.
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view
-overrides, and editor drafts do not synchronize.
+overrides, whether the editor is open, and editor drafts do not synchronize.
 
 ## Editable Result Projection
 

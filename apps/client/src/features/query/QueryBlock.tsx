@@ -6,6 +6,12 @@
 // tomorrow. **Source** is the escape hatch — hand-written SPARQL, which detaches
 // the plan because the builder no longer describes what runs.
 //
+// **The answer is the block; the question is a disclosure.** At rest a query is
+// one caption line and its result — the plan read back as a phrase, how much it
+// found, and nothing else. The editor that wrote the phrase opens from the phrase
+// itself, so the five rows of authoring that used to sit permanently above every
+// answer are there when someone is authoring and absent when nobody is.
+//
 // The block owns everything stateful: the draft plan, the debounce that turns
 // it into one command, the run and its generation guard, and the saved views
 // that decide how the answer is laid out.
@@ -13,12 +19,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
+  ChevronRightIcon,
   CodeIcon,
   EyeIcon,
+  EyeOffIcon,
   ListIcon,
   MoreHorizontalIcon,
   PlayIcon,
-  SlidersHorizontalIcon,
   Table2Icon,
   Trash2Icon,
   WandSparklesIcon,
@@ -35,6 +42,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -62,6 +70,7 @@ import { QueryTableView } from "./QueryTableView";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { columnLabel } from "./labels";
+import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 const RUN_DEBOUNCE_MS = 300;
@@ -89,6 +98,12 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   const [plan, setPlan] = useState<QueryPlan | null>(storedPlan);
   const [draft, setDraft] = useState(source);
+  // The editor opens for a query that has not been written yet and stays shut for
+  // one that has: a query with no conditions has nothing to say in its caption, so
+  // showing it the builder is the only honest first screen. Once a reader has
+  // shaped it, reopening the page shows them the answer they shaped it for. Which
+  // it is, is theirs from the first press — never re-derived under their hands.
+  const [editing, setEditing] = useState(() => unwritten(storedPlan, source));
   const [showSource, setShowSource] = useState(false);
   const [result, setResult] = useState<SparqlQueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +229,15 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   const pinnedRow = activeOrigin && !activeRowPresent ? activeOrigin : null;
   const visibleRows = pinnedRow ? [...resultRows, pinnedRow] : resultRows;
 
+  // The caption follows the plan in hand, not the saved one, so the phrase tracks
+  // the builder keystroke for keystroke and is already true when it closes.
+  const summary = useMemo<QuerySummary>(
+    () => (plan
+      ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
+      : { lead: "SPARQL", detail: null }),
+    [plan, state.snapshot, message, formatJournalDate],
+  );
+
   if (!document || !activeView) return null;
 
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
@@ -242,7 +266,10 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       .execute({ type: "set_query_source", owner, source: inlinePlan(plan, runtime) })
       .then(() => {
         setPlan(null);
-        setShowSource(true);
+        // A one-way door opens onto what is behind it: the SPARQL it just wrote
+        // is now the only editor, so it is the thing to be looking at.
+        setEditing(true);
+        setShowSource(false);
       })
       .catch(report);
   };
@@ -287,156 +314,190 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       className="query-block"
       aria-label={message("query.section")}
       data-testid="query-block"
+      // Diagnostic, not chrome. Which index revision answered is the first thing
+      // to know when a result looks stale and the last thing a reader of the
+      // answer cares about, so it is written where a test or a console can read
+      // it and the caption stays a sentence about the query.
+      data-revision={result?.revision}
     >
-      <div className="query-toolbar">
-        <span className="query-language">
-          {plan ? message("query.builderMode") : "SPARQL"}
-        </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            {/* The toolbar controls are the bespoke 24px icon-btn, not a shadcn
-                Button: its size utilities live in the `utilities` layer, which
-                outranks `neoseq`, so no toolbar CSS could ever size them. */}
-            <button
-              type="button"
-              className="icon-btn query-view-trigger"
-              disabled={readonly}
-              aria-label={message("query.view")}
-              data-testid="query-view-trigger"
-              onPointerDown={() => resultEditor.preserveDraftForViewChange()}
-            >
-              {activeView.kind === "table"
-                ? <Table2Icon aria-hidden />
-                : <ListIcon aria-hidden />}
-              {viewLabel(activeView, message)}
-              <ChevronDownIcon aria-hidden />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
-              {document.views.map((view) => (
-                <DropdownMenuRadioItem key={view.id} value={view.id}>
-                  {view.kind === "table" ? <Table2Icon aria-hidden /> : <ListIcon aria-hidden />}
-                  {viewLabel(view, message)}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className="query-header">
+        {/* The sentence *is* the disclosure. A query whose caption reads
+            `Blocks · Status is Done` needs no `Edit` button beside it: the phrase
+            names the thing it opens, which is the one permanent pointer route in
+            (§ Disclosure) and the reason the two menus may be revealed. */}
+        <button
+          type="button"
+          className="query-summary"
+          aria-expanded={editing}
+          aria-label={summaryLabel(summary)}
+          data-testid="query-summary"
+          onClick={() => setEditing((open) => !open)}
+        >
+          {/* A swap, not a rotation: § Motion allows no transform animation on
+              anything a pointer must hit or an audit must read. */}
+          {editing ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
+          <span className="query-summary-lead">{summary.lead}</span>
+          {summary.detail && (
+            <span className="query-summary-detail">{summary.detail}</span>
+          )}
+        </button>
 
-        {columns.length > 0 && (
+        {/* How much it found — the one fact about a result that is not in the
+            result. On the first run there is nothing to count yet and it says so;
+            afterwards a rerun updates the number in place rather than flickering
+            `running` over it on every debounced keystroke. */}
+        {!error && (select || loading) && (
+          <span className="query-count" data-testid="query-count">
+            {select
+              ? message("query.results", { count: visibleRows.length })
+              : message("query.running")}
+          </span>
+        )}
+
+        <div className="query-header-actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {/* The header controls are the bespoke 24px icon-btn, not a shadcn
+                  Button: its size utilities live in the `utilities` layer, which
+                  outranks `neoseq`, so no header CSS could ever size them. */}
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={readonly}
+                // The menu is wider than the view it opens on, so the name is the
+                // whole question it answers, not just its first group.
+                aria-label={message("query.display")}
+                data-testid="query-view-trigger"
+                data-view={activeView.kind}
+                onPointerDown={() => resultEditor.preserveDraftForViewChange()}
+              >
+                {activeView.kind === "table"
+                  ? <Table2Icon aria-hidden />
+                  : <ListIcon aria-hidden />}
+              </button>
+            </DropdownMenuTrigger>
+            {/* One menu, because table-or-list, which columns, and how tall the
+                rows are answer one question: how this answer is laid out. Two
+                triggers for two halves of it was a toolbar pretending to be two. */}
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{message("query.view")}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
+                {document.views.map((view) => (
+                  <DropdownMenuRadioItem key={view.id} value={view.id}>
+                    {view.kind === "table" ? <Table2Icon aria-hidden /> : <ListIcon aria-hidden />}
+                    {viewLabel(view, message)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              {columns.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{message("query.columns")}</DropdownMenuLabel>
+                  {/* Two glyphs, not one glyph with a dead `data-checked`: the
+                      state has to be in the shape, or a hidden column and a shown
+                      one read identically (§ Iconography — an icon may carry
+                      meaning where a colour alone could not). */}
+                  {columns.map((column) => (
+                    <DropdownMenuItem
+                      key={column.variable}
+                      disabled={!hidden.has(column.variable) && visible.length <= 1}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setColumn(column.variable, { hidden: !hidden.has(column.variable) });
+                      }}
+                    >
+                      {hidden.has(column.variable)
+                        ? <EyeOffIcon aria-hidden />
+                        : <EyeIcon aria-hidden />}
+                      {column.label}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{message("query.rows")}</DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      putView({
+                        ...activeView,
+                        options: { ...activeView.options, compact: !activeView.options.compact },
+                      });
+                    }}
+                  >
+                    {activeView.options.compact
+                      ? message("query.densityCozy")
+                      : message("query.densityCompact")}
+                  </DropdownMenuItem>
+                  {activeView.kind === "table" && (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        putView({
+                          ...activeView,
+                          options: { ...activeView.options, wrap: !activeView.options.wrap },
+                        });
+                      }}
+                    >
+                      {activeView.options.wrap ? message("query.noWrap") : message("query.wrap")}
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 className="icon-btn"
-                disabled={readonly}
-                aria-label={message("query.layout")}
-                data-testid="query-layout-trigger"
+                aria-label={message("query.actions")}
+                data-testid="query-actions-trigger"
               >
-                <SlidersHorizontalIcon aria-hidden />
+                <MoreHorizontalIcon aria-hidden />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {columns.map((column) => (
-                <DropdownMenuItem
-                  key={column.variable}
-                  disabled={!hidden.has(column.variable) && visible.length <= 1}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setColumn(column.variable, { hidden: !hidden.has(column.variable) });
-                  }}
-                >
-                  <EyeIcon aria-hidden data-checked={!hidden.has(column.variable)} />
-                  {column.label}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  putView({
-                    ...activeView,
-                    options: { ...activeView.options, compact: !activeView.options.compact },
-                  });
-                }}
-              >
-                {activeView.options.compact
-                  ? message("query.densityCozy")
-                  : message("query.densityCompact")}
+            <DropdownMenuContent align="end">
+              {/* Run is a fallback, not the way a query runs: the block reruns on
+                  every edit and on every canonical revision. A stale run is
+                  superseded by its generation guard, so re-pressing is safe. */}
+              <DropdownMenuItem onSelect={() => run()}>
+                <PlayIcon aria-hidden />
+                {message("query.run")}
               </DropdownMenuItem>
-              {activeView.kind === "table" && (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    putView({
-                      ...activeView,
-                      options: { ...activeView.options, wrap: !activeView.options.wrap },
-                    });
-                  }}
-                >
-                  {activeView.options.wrap ? message("query.noWrap") : message("query.wrap")}
-                </DropdownMenuItem>
+              {/* In source mode the SPARQL is already the editor, so there is
+                  nothing to disclose and nothing to eject from. */}
+              {plan && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
+                    <CodeIcon aria-hidden />
+                    {showSource ? message("query.hideSource") : message("query.showSource")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={readonly} onSelect={editAsSparql}>
+                    <WandSparklesIcon aria-hidden />
+                    {message("query.editAsSparql")}
+                  </DropdownMenuItem>
+                </>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={readonly} onSelect={removeQuery}>
+                <Trash2Icon aria-hidden />
+                {message("query.remove")}
+              </DropdownMenuItem>
+              {result && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>
+                    {message("query.revision", { revision: result.revision })}
+                  </DropdownMenuLabel>
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
-
-        <span className="query-revision">
-          {result
-            ? message("query.revision", { revision: result.revision })
-            : loading
-              ? message("query.running")
-              : message("query.notRun")}
-        </span>
-        {/* The revision slot already says "running"; swapping or disabling the
-            control on every debounced auto-run would flicker it while typing
-            (§ Loading — below the flash threshold, show nothing). A stale run
-            is superseded by its generation guard, so re-pressing is safe. */}
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={run}
-          aria-label={message("query.run")}
-        >
-          <PlayIcon aria-hidden />
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={message("query.actions")}
-              data-testid="query-actions-trigger"
-            >
-              <MoreHorizontalIcon aria-hidden />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {/* In source mode the SPARQL is already the editor, so there is
-                nothing to disclose and nothing to eject from. */}
-            {plan && (
-              <>
-                <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
-                  <CodeIcon aria-hidden />
-                  {showSource ? message("query.hideSource") : message("query.showSource")}
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={readonly} onSelect={editAsSparql}>
-                  <WandSparklesIcon aria-hidden />
-                  {message("query.editAsSparql")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuItem variant="destructive" disabled={readonly} onSelect={removeQuery}>
-              <Trash2Icon aria-hidden />
-              {message("query.remove")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        </div>
       </div>
 
-      {plan ? (
+      {editing && (plan ? (
         <QueryBuilder
           plan={plan}
           snapshot={state.snapshot}
@@ -459,7 +520,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             }
           }}
         />
-      )}
+      ))}
 
       {plan && showSource && (
         <pre className="query-compiled" data-testid="query-compiled">
@@ -478,9 +539,9 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             {result.value ? message("query.askTrue") : message("query.askFalse")}
           </p>
         )}
-        {!error && select && visibleRows.length === 0 && (
-          <p className="query-empty">{message("query.noResults")}</p>
-        )}
+        {/* An empty answer needs no sentence of its own: the count in the header
+            already says `No results`, and saying it twice is the redundancy this
+            block was full of. */}
         {!error && select && visibleRows.length > 0 && activeView.kind === "table" && (
           <QueryTableView
             columns={inViewOrder(visible, activeView)}
@@ -513,6 +574,16 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       <QueryEditPortals editor={resultEditor} />
     </section>
   );
+}
+
+/**
+ * Whether nobody has said what this query looks for yet — which is the one case
+ * where the answer is not the interesting part of the block. A plan with no
+ * conditions matches everything, and a blank source matches nothing; either way
+ * the editor is what the reader came for.
+ */
+function unwritten(plan: QueryPlan | null, source: string): boolean {
+  return plan ? plan.where.children.length === 0 : source.trim().length === 0;
 }
 
 /**
