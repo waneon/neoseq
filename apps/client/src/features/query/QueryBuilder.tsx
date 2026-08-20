@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import { isGenericProperty, stringChoicesOf } from "../../entities/properties";
 import { offeredChoices } from "../../entities/tasks";
+import { isOrderableColumn } from "../../entities/query-ordering";
 import {
   aggregatesFor,
   appendNode,
@@ -189,7 +190,7 @@ export function QueryBuilder({
           disabled={readonly}
           options={[
             { value: "", label: message("query.sortNone") },
-            ...plan.columns.map((column) => ({
+            ...plan.columns.filter(isOrderableColumn).map((column) => ({
               value: column.id,
               label: columnLabel(column, plan.subject, message),
             })),

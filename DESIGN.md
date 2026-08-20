@@ -1643,6 +1643,12 @@ full-width band on `--surface-2`, and results begin immediately below it.
   **rank** once there is a second term for it to come before, because two arrows cannot
   say which column wins. Eight terms is the ceiling; a ninth tie-breaker is a different
   query.
+- **A value is not ordered by its label.** Labels are localized presentation;
+  ordering comes from the column's semantic type. Numbers and dates compare as
+  typed values, references by the name they show, and an ordered choice such as
+  status or priority by the registry's stored-value rank. Unknown choices follow
+  the declared domain and an empty cell stays last in either direction. A folded
+  list has no honest member order, so it offers no sort control.
 - **Precedence needs a place to be seen and moved**, so the sort control opens a panel
   rather than a menu: a menu row may not hold four controls of its own. Each term is one
   row — rank, column, direction, earlier, later, remove — and moving is two buttons

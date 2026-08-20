@@ -354,6 +354,54 @@ describe("query result views", () => {
     await waitFor(() => expect(savedSort()).toEqual([]));
   });
 
+  it("sorts priority rows by the registry rank rather than their labels", async () => {
+    const harness = await withResult();
+    const query = storedQuery(harness)!;
+    const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
+    const nextPlan = {
+      ...plan,
+      columns: [{
+        id: "priority",
+        source: { kind: "property" as const, key: "builtin.task-priority" },
+      }],
+    };
+    harness.port.queryResult = {
+      kind: "select",
+      variables: ["q_subject", "priority"],
+      rows: ["high", "low", "medium"].map((priority) => ({
+        q_subject: {
+          kind: "iri" as const,
+          value: "urn:neoseq:entity:test-graph:block:b-2",
+          entity: { kind: "block" as const, page_id: "home", id: "b-2" },
+        },
+        priority: {
+          kind: "literal" as const,
+          value: priority,
+          datatype: "http://www.w3.org/2001/XMLSchema#string",
+        },
+      })),
+      revision: 5,
+      frontier: "fake-5",
+    };
+    await harness.session.execute({
+      type: "set_query_plan",
+      owner: { kind: "block", page_id: "home", id: "b-1" },
+      plan: { version: 1, payload: JSON.stringify(nextPlan) },
+      source: compilePlan(nextPlan).source,
+    });
+
+    const table = await screen.findByTestId("query-table");
+    await userEvent.setup().click(within(table).getByRole("button", {
+      name: "Priority",
+      exact: true,
+    }));
+    await waitFor(() => {
+      const labels = within(table).getAllByText(/^(Low|Medium|High)$/u)
+        .map((node) => node.textContent);
+      expect(labels).toEqual(["Low", "Medium", "High"]);
+    });
+  });
+
   // An order is a list, so a second heading is a tie-breaker rather than a
   // replacement — and precedence is stated, because an arrow cannot say it.
   it("accumulates an order across headings and lets the panel reorder it", async () => {

@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import { CheckIcon, MinusIcon } from "lucide-react";
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSnapshot } from "../../core-port/snapshot";
+import type { OrderSemantics } from "../../entities/query-ordering";
 import { findPage, findTag, journalDate, pageTitle } from "../../core-port/snapshot";
 import { valueTypeOf } from "../../entities/properties";
 import { LIST_SEPARATOR } from "../../entities/query-compile";
@@ -47,6 +48,9 @@ export interface ResultColumn {
   /** What the plan asked for. Absent for a hand-written query. */
   source?: PlanColumnSource;
   aggregate?: PlanAggregate;
+  /** The value's semantic order, kept separate from the words rendered below. */
+  ordering: OrderSemantics;
+  sortable: boolean;
   /** Numbers align to the end of their column; everything else to the start. */
   numeric: boolean;
   width: number | null;
@@ -58,6 +62,7 @@ export interface CellContext {
   subjectVariable?: string | null;
   message: MessageFunction;
   formatDate: (date: string) => string;
+  compare: (left: string, right: string) => number;
   /** Opens the thing a cell names. */
   onOpen?: (entity: QueryEntityRef) => void;
 }

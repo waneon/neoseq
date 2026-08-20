@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "properties": {
     "builtin.query": {
       "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
@@ -7,6 +7,7 @@
     },
     "builtin.task-status": {
       "shape": {"single": {"string": {"suggested": ["todo", "doing", "done", "cancelled"]}}},
+      "ordering": {"kind": "choice_order"},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
     "builtin.task-scheduled": {
@@ -31,6 +32,7 @@
     },
     "builtin.task-priority": {
       "shape": {"single": {"string": {"suggested": ["low", "medium", "high"]}}},
+      "ordering": {"kind": "choice_order"},
       "placements": {"page": "user", "block": "user", "tag_default": "user"}
     },
     "builtin.page-kind": {

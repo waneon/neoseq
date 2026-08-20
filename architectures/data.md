@@ -75,7 +75,7 @@ replacing one serialized object. Removing any property deletes its marker and
 all atomic slots or document containers owned by the key.
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
-the v1 authority for built-in shapes, placements, and `user` versus `core`
+the v2 authority for built-in shapes, semantic ordering, placements, and `user` versus `core`
 access. Every key is `builtin.<lowercase-kebab-name>` or
 `user.<lowercase-kebab-name>`. Unknown built-ins are retained read-only so newer
 data does not disappear in an older client; unknown user keys remain generic

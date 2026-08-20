@@ -40,7 +40,6 @@ import {
   columnSizingFeature,
   createSortedRowModel,
   rowSortingFeature,
-  sortFn_alphanumeric,
   tableFeatures,
   useTable,
   type ColumnDef,
@@ -57,12 +56,12 @@ import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
 import { cycleSort, SORT_LIMIT } from "./QuerySortControl";
 import {
-  cellText,
   type CellContext,
   type ResultColumn,
   type ResultViewRow,
 } from "./cells";
 import { EditableCellValue, type QueryResultEditor } from "./edit";
+import { compareResultTerms } from "./ordering";
 
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
@@ -75,7 +74,6 @@ const FEATURES = tableFeatures({
   columnSizingFeature,
   columnResizingFeature,
   sortedRowModel: createSortedRowModel(),
-  sortFns: { alphanumeric: sortFn_alphanumeric },
 });
 
 export function QueryTableView({
@@ -117,18 +115,29 @@ export function QueryTableView({
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
-      columns.map((column) => ({
-        id: column.variable,
-        // Sorting runs on the words the reader sees, not on the raw lexical form
-        // of the term underneath them.
-        accessorFn: (row: ResultViewRow) => cellText(row.values[column.variable], column, context),
-        header: column.label,
-        size: column.width ?? DEFAULT_WIDTH,
-        minSize: MIN_WIDTH,
-        enableSorting: true,
-        sortFn: "alphanumeric",
-      })),
-    [columns, context],
+      columns.map((column) => {
+        const descending = sorts.find((sort) => sort.variable === column.variable)?.descending
+          ?? false;
+        return {
+          id: column.variable,
+          // Display words belong to the renderer. Ordering reads the original
+          // RDF term through the column's semantic descriptor.
+          accessorFn: (row: ResultViewRow) => row.values[column.variable],
+          header: column.label,
+          size: column.width ?? DEFAULT_WIDTH,
+          minSize: MIN_WIDTH,
+          enableSorting: column.sortable,
+          sortUndefined: "last" as const,
+          sortFn: (left, right) => compareResultTerms(
+            left.original.values[column.variable],
+            right.original.values[column.variable],
+            column.ordering,
+            context,
+            descending,
+          ),
+        };
+      }),
+    [columns, context, sorts],
   );
 
   const table = useTable({
@@ -175,7 +184,8 @@ export function QueryTableView({
                 const column = byVariable.get(header.column.id);
                 const label = column?.label ?? header.column.id;
                 const rank = rankOf(header.column.id);
-                const term = rank < 0 ? null : sorts[rank];
+                const canSort = header.column.getCanSort();
+                const term = !canSort || rank < 0 ? null : sorts[rank];
                 return (
                   <th
                     key={header.id}
@@ -194,7 +204,8 @@ export function QueryTableView({
                       <button
                         type="button"
                         className="query-th-sort"
-                        onClick={() => onSort(cycleSort(sorts, header.column.id))}
+                        disabled={!canSort}
+                        onClick={() => canSort && onSort(cycleSort(sorts, header.column.id))}
                         title={message("query.sortBy", { column: label })}
                       >
                         <span>{label}</span>
@@ -226,12 +237,14 @@ export function QueryTableView({
                                 if it is not already in it, and changes in place
                                 if it is — the same rule the header press keeps. */}
                             <DropdownMenuItem
+                              disabled={!canSort}
                               onSelect={() => onSort(withDirection(sorts, header.column.id, false))}
                             >
                               <ArrowUpIcon aria-hidden />
                               {message("query.sortAscending")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
+                              disabled={!canSort}
                               onSelect={() => onSort(withDirection(sorts, header.column.id, true))}
                             >
                               <ArrowDownIcon aria-hidden />

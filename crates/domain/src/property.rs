@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 1;
+pub const REGISTRY_VERSION: u32 = 2;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -46,6 +46,15 @@ pub enum PropertyTarget {
 pub enum PropertyAccess {
     User,
     Core,
+}
+
+/// A property's semantic order. Display labels and picker placement are client
+/// concerns; this contract says when the declared choices themselves are an
+/// ordered domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PropertyOrdering {
+    ChoiceOrder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -359,6 +368,7 @@ pub type PropertyBag = Vec<PropertyField>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PropertySpec {
     pub shape: PropertyShape,
+    pub ordering: Option<PropertyOrdering>,
     pub placements: &'static [PropertyPlacement],
 }
 
@@ -402,6 +412,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
                 schema: QUERY_DOCUMENT_SCHEMA,
                 version: QUERY_DOCUMENT_VERSION,
             })),
+            ordering: None,
             placements: USER_PAGE_BLOCK,
         },
     ),
@@ -411,6 +422,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
                 TASK_STATUSES,
             ))),
+            ordering: Some(PropertyOrdering::ChoiceOrder),
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -418,6 +430,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.task-scheduled",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
+            ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -425,6 +438,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.task-scheduled-time",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -432,6 +446,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.task-deadline",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
+            ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -439,6 +454,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.task-deadline-time",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -446,6 +462,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.task-repeat",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -455,6 +472,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
                 TASK_PRIORITIES,
             ))),
+            ordering: Some(PropertyOrdering::ChoiceOrder),
             placements: USER_PAGE_BLOCK_DEFAULT,
         },
     ),
@@ -462,6 +480,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.page-kind",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::OneOf(PAGE_KINDS))),
+            ordering: None,
             placements: CORE_PAGE,
         },
     ),
@@ -469,6 +488,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.journal-date",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Date),
+            ordering: None,
             placements: CORE_PAGE,
         },
     ),
@@ -476,6 +496,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.created-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
             placements: CORE_PAGE_BLOCK_TAG,
         },
     ),
@@ -483,6 +504,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.updated-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
             placements: CORE_PAGE_BLOCK_TAG,
         },
     ),
@@ -490,6 +512,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.deleted-at",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
             placements: CORE_PAGE_TAG,
         },
     ),
@@ -690,7 +713,14 @@ pub fn registry_fixture() -> serde_json::Value {
                 .collect();
             (
                 (*key).to_owned(),
-                serde_json::json!({"shape": spec.shape, "placements": placements}),
+                match spec.ordering {
+                    Some(ordering) => serde_json::json!({
+                        "shape": spec.shape,
+                        "ordering": ordering,
+                        "placements": placements,
+                    }),
+                    None => serde_json::json!({"shape": spec.shape, "placements": placements}),
+                },
             )
         })
         .collect();

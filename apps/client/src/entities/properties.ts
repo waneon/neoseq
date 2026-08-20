@@ -27,8 +27,12 @@ type PropertyShape =
   | { single: PropertyValueSpec }
   | { set: PropertyValueSpec };
 
+export type PropertyOrdering = { kind: "choice_order" };
+
 export interface PropertySpec {
   shape: PropertyShape;
+  /** Semantic ordering, independent of localized labels and picker order. */
+  ordering?: PropertyOrdering;
   placements: Partial<Record<PropertyTarget, PropertyAccess>>;
 }
 
@@ -93,6 +97,10 @@ export function stringChoicesOf(key: string): string[] {
   const value = shapeValue(spec.shape);
   if (typeof value === "string" || "document" in value || value.string === "any") return [];
   return "suggested" in value.string ? value.string.suggested : value.string.one_of;
+}
+
+export function orderingOf(key: string): PropertyOrdering | undefined {
+  return definition(key)?.ordering;
 }
 
 export function visibilityOf(key: string): PropertyVisibility {

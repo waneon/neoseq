@@ -46,6 +46,35 @@ describe("query plan compilation", () => {
     expect(source).toContain("LIMIT 100");
   });
 
+  it("compiles a declared choice order instead of lexical priority text", () => {
+    const plan: QueryPlan = {
+      ...defaultPlan("block"),
+      columns: [{
+        id: "priority",
+        source: { kind: "property", key: "builtin.task-priority" },
+      }],
+      sort: [{ column: "priority", direction: "asc" }],
+    };
+    const { source } = compilePlan(plan);
+    expect(source).toContain(
+      'ASC(IF(!BOUND(?priority), 2, IF(?priority IN ("low", "medium", "high"), 0, 1)))',
+    );
+    expect(source).toContain(
+      'ASC(IF(BOUND(?priority), IF(?priority = "low", 0, IF(?priority = "medium", 1, IF(?priority = "high", 2, 0))), 0))',
+    );
+  });
+
+  it("binds a reference label as the sort key instead of ordering its IRI", () => {
+    const plan: QueryPlan = {
+      ...defaultPlan("block"),
+      columns: [{ id: "page", source: { kind: "page" } }],
+      sort: [{ column: "page", direction: "asc" }],
+    };
+    const { source } = compilePlan(plan);
+    expect(source).toMatch(/OPTIONAL \{ \?page neo:content \?q_o\d+ \}/);
+    expect(source).toMatch(/ASC\(LCASE\(COALESCE\(STR\(\?q_o\d+\), STR\(\?page\)\)\)\)/);
+  });
+
   it("sends every user value as a bound parameter, never as spliced text", () => {
     const plan = withWhere(defaultPlan("block"), {
       ...emptyGroup("all"),

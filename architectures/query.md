@@ -180,6 +180,16 @@ applies after the upgrade. A document with no plan is the hand-written kind:
 there is no command that converts a planned query into one, only a separate
 route that creates one.
 
+Column ordering is derived rather than stored in a view. The plan's column
+source and the property registry resolve to one semantic order: declared choices
+use their stored-value rank, numbers and dates use typed value order, references
+use their resolved label, and ordinary text uses text collation. Rendering is a
+separate projection, so a translated label cannot change a ranked order. The
+builder compiles the same semantics into `ORDER BY` before `LIMIT`; the table
+compares raw result terms after execution. Both keep unknown choices behind the
+declared domain and unbound values last. Folded lists have no defined member
+order and are not sortable.
+
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view

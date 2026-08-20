@@ -103,7 +103,8 @@ export function QuerySortControl({
     columns.find((column) => column.variable === variable)?.label ?? `?${variable}`;
 
   const remaining = columns.filter(
-    (column) => !sorts.some((sort) => sort.variable === column.variable),
+    (column) => column.sortable
+      && !sorts.some((sort) => sort.variable === column.variable),
   );
 
   const move = (index: number, delta: -1 | 1) => {

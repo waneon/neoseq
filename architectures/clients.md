@@ -111,7 +111,8 @@ multiline text stays in the editor.
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
 imported directly by the client and Rust domain. Placement access determines
-whether a property is hidden, read-only, or editable. Sparse renderer maps add
+whether a property is hidden, read-only, or editable; semantic ordering keeps
+query sort independent of localized display labels. Sparse renderer maps add
 specialized controls without becoming a schema authority:
 
 - `builtin.query` provides the query builder, a SPARQL escape hatch, and

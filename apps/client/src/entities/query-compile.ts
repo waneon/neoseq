@@ -9,6 +9,7 @@
 
 import type { RdfTerm } from "../generated/core-port";
 import { addDays } from "./journal";
+import { orderSemanticsForColumn } from "./query-ordering";
 import { valueTypeOf } from "./properties";
 import {
   columnVariable,
@@ -373,6 +374,65 @@ function aggregateExpression(column: PlanColumn, inner: string): string {
   }
 }
 
+function directed(expression: string, direction: "asc" | "desc"): string {
+  return `${direction.toUpperCase()}(${expression})`;
+}
+
+function boundLast(variable: string): string {
+  return `ASC(IF(BOUND(?${variable}), 0, 1))`;
+}
+
+function textOrder(variable: string, direction: "asc" | "desc"): string[] {
+  return [
+    boundLast(variable),
+    directed(`LCASE(STR(?${variable}))`, direction),
+    directed(`STR(?${variable})`, direction),
+  ];
+}
+
+/** The standard-SPARQL order expressions for one semantic column. */
+function columnOrder(
+  column: PlanColumn,
+  variable: string,
+  direction: "asc" | "desc",
+  emitter: Emitter,
+  where: string[],
+): string[] {
+  const semantics = orderSemanticsForColumn(column);
+  if (semantics.kind === "unsupported_list") return [];
+
+  if (semantics.kind === "ranked" && semantics.values.length > 0) {
+    const known = semantics.values.map(quote).join(", ");
+    let rank = "0";
+    for (let index = semantics.values.length - 1; index >= 0; index -= 1) {
+      rank = `IF(?${variable} = ${quote(semantics.values[index])}, ${index}, ${rank})`;
+    }
+    return [
+      // Known choices first, open-choice fallbacks next, and unbound last in
+      // both directions. Only the value inside each bucket reverses.
+      `ASC(IF(!BOUND(?${variable}), 2, IF(?${variable} IN (${known}), 0, 1)))`,
+      directed(`IF(BOUND(?${variable}), ${rank}, 0)`, direction),
+      directed(`LCASE(STR(?${variable}))`, direction),
+      directed(`STR(?${variable})`, direction),
+    ];
+  }
+
+  if (semantics.kind === "entity_label") {
+    const label = emitter.local("o");
+    where.push(`  OPTIONAL { ?${variable} neo:content ?${label} }`);
+    const key = `COALESCE(STR(?${label}), STR(?${variable}))`;
+    return [
+      boundLast(variable),
+      directed(`LCASE(${key})`, direction),
+      directed(key, direction),
+      directed(`STR(?${variable})`, direction),
+    ];
+  }
+
+  if (semantics.kind === "text") return textOrder(variable, direction);
+  return [boundLast(variable), directed(`?${variable}`, direction)];
+}
+
 /**
  * The variable the subject travels under. It is the compiler's own, never a
  * column's, so a result always identifies its rows the same way whatever the
@@ -423,14 +483,11 @@ function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
     variables.unshift(self);
   }
 
-  const order = plan.sort
-    .map((entry) => {
-      const column = plan.columns.find((item) => item.id === entry.column);
-      if (!column) return null;
-      const variable = columnVariable(column);
-      return entry.direction === "desc" ? `DESC(?${variable})` : `?${variable}`;
-    })
-    .filter((entry): entry is string => entry !== null);
+  const order = plan.sort.flatMap((entry) => {
+    const column = plan.columns.find((item) => item.id === entry.column);
+    if (!column) return [];
+    return columnOrder(column, columnVariable(column), entry.direction, emitter, where);
+  });
   // Unordered SPARQL results are a set; a stable presentation needs the subject
   // as its final tie-break (architectures/query.md § SPARQL Profile).
   if (carriesSubject) order.push(`?${self}`);
@@ -459,4 +516,3 @@ function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
 export function compilePlan(plan: QueryPlan): CompiledPlan {
   return compile(plan, null);
 }
-

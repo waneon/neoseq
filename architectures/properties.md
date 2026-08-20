@@ -33,7 +33,10 @@ properties; they may remove the complete field.
 ## Registry and Schema Ownership
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json)
-defines shape, placement, and write access. Known built-ins have a compiled
+defines shape, semantic ordering, placement, and write access. Ordering is
+separate from presentation: `choice_order` makes the declared string choices an
+ordered domain while localized labels and picker placement remain client concerns.
+Known built-ins have a compiled
 domain schema. Unknown built-ins remain preserved and read-only; unknown
 `user.*` fields remain atomic and editable with their command-selected shape.
 

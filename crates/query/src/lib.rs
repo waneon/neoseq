@@ -1366,6 +1366,39 @@ mod tests {
     }
 
     #[test]
+    fn ranked_choice_order_keeps_unknown_and_unbound_values_last() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        let run = |direction: &str| {
+            let source = format!(
+                "SELECT ?priority WHERE {{\n\
+                   VALUES ?priority {{ \"high\" UNDEF \"urgent\" \"low\" \"medium\" }}\n\
+                 }}\n\
+                 ORDER BY\n\
+                   ASC(IF(!BOUND(?priority), 2, IF(?priority IN (\"low\", \"medium\", \"high\"), 0, 1)))\n\
+                   {direction}(IF(BOUND(?priority), IF(?priority = \"low\", 0, IF(?priority = \"medium\", 1, IF(?priority = \"high\", 2, 0))), 0))\n\
+                   {direction}(LCASE(STR(?priority)))\n\
+                   {direction}(STR(?priority))"
+            );
+            let QueryResult::Select { rows, .. } = index.execute(request(&source)).unwrap() else {
+                panic!("expected SELECT")
+            };
+            rows.into_iter()
+                .map(|row| match row.get("priority") {
+                    Some(RdfTerm::Literal { value, .. }) => value.clone(),
+                    None => "<unbound>".to_owned(),
+                    _ => panic!("expected a literal or unbound value"),
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(run("ASC"), ["low", "medium", "high", "urgent", "<unbound>"]);
+        assert_eq!(
+            run("DESC"),
+            ["high", "medium", "low", "urgent", "<unbound>"]
+        );
+    }
+
+    #[test]
     fn sparql_rejects_non_local_or_graph_producing_forms() {
         let index = GraphIndex::new(&snapshot()).unwrap();
         for source in [

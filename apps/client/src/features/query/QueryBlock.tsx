@@ -48,6 +48,10 @@ import {
 import { todayLocalDate } from "../../entities/journal";
 import { compilePlan, planBindings } from "../../entities/query-compile";
 import {
+  inferOrderSemantics,
+  orderSemanticsForColumn,
+} from "../../entities/query-ordering";
+import {
   columnVariable,
   decodePlan,
   encodePlan,
@@ -94,7 +98,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   const state = useSessionState();
   const notify = useNotify();
   const history = useHistoryActions();
-  const { message, formatJournalDate } = useI18n();
+  const { message, formatJournalDate, compare } = useI18n();
   const document = queryDocument(block.properties);
   const readonly = state.mode === "readonly";
   const owner = { kind: "block", page_id: pageId, id: block.id } as const;
@@ -212,6 +216,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     subjectVariable: compiled?.subjectVariable ?? null,
     message,
     formatDate: formatJournalDate,
+    compare,
     onOpen: (entity: QueryEntityRef) => {
       if (entity.kind === "tag") return;
       history.reveal(
@@ -220,7 +225,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
           : { kind: "block", page_id: entity.page_id, id: entity.id },
       );
     },
-  }), [state.snapshot, compiled?.subjectVariable, message, formatJournalDate, history]);
+  }), [state.snapshot, compiled?.subjectVariable, message, formatJournalDate, compare, history]);
 
   const resultEditor = useQueryResultEditor({
     session,
@@ -298,7 +303,11 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
-  const sorts = readonly ? localSorts : (activeView.options.sort ?? []);
+  const storedSorts = readonly ? localSorts : (activeView.options.sort ?? []);
+  const orderableVariables = new Set(
+    columns.filter((column) => column.sortable).map((column) => column.variable),
+  );
+  const sorts = storedSorts.filter((sort) => orderableVariables.has(sort.variable));
   const setSorts = (next: QueryViewSort[]) => {
     if (readonly) setLocalSorts(next);
     else putView({ ...activeView, options: { ...activeView.options, sort: next } });
@@ -362,7 +371,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         <div className="query-header-actions">
           {/* Order comes before layout, because it is the one a reader changes
               while reading. It is only offered once there is something to order. */}
-          {columns.length > 0 && (
+          {columns.some((column) => column.sortable) && (
             <QuerySortControl columns={visible} sorts={sorts} onChange={setSorts} />
           )}
           <DropdownMenu>
@@ -388,7 +397,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             </DropdownMenuTrigger>
             {/* One menu, because table-or-list, which columns, and how tall the
                 rows are answer one question: how this answer is laid out.
-                
+
                 Every row in it is a **state**, so every row is checkable and
                 every label starts at the same left edge. Before this, the two
                 views were radio rows with icons and the switches below them were
@@ -602,18 +611,17 @@ function resultColumns(
   // Row identity is carried, not shown: it is what a text cell links to.
   return select.variables.filter((variable) => variable !== subjectVariable).map((variable) => {
     const column = planned.get(variable);
-    const numeric = column
-      ? column.aggregate !== undefined && column.aggregate !== "list"
-      : select.rows.some((row) => {
-          const term = row[variable];
-          return term?.kind === "literal" && /#(double|decimal|integer)$/.test(term.datatype);
-        });
+    const ordering = column
+      ? orderSemanticsForColumn(column)
+      : inferOrderSemantics(select.rows.map((row) => row[variable]));
     return {
       variable,
       label: column && plan ? columnLabel(column, plan.subject, message) : `?${variable}`,
       source: column?.source,
       aggregate: column?.aggregate,
-      numeric,
+      ordering,
+      sortable: ordering.kind !== "unsupported_list",
+      numeric: ordering.kind === "number",
       width: widths.get(variable) ?? null,
     };
   });

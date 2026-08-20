@@ -124,7 +124,7 @@ deletion, retry, and test controls are deliberately outside CorePort.
   document. Empty atomic fields are first-class; repeated values and document
   children have stable identities and independent merge granularity.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
-  current v1 registry shared by core and client. Property keys have exactly two
+  current v2 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined
   `user.<name>`. Unknown built-ins remain readable but core-managed; unknown user
   properties remain readable and editable.
