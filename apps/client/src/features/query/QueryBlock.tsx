@@ -278,8 +278,14 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
       .catch(report);
   };
 
-  const putView = (next: QueryView) => {
-    void session.execute({ type: "put_query_view", owner, view: next }).catch(report);
+  const putView = async (next: QueryView): Promise<boolean> => {
+    try {
+      await session.execute({ type: "put_query_view", owner, view: next });
+      return true;
+    } catch (cause) {
+      report(cause);
+      return false;
+    }
   };
 
   const removeQuery = () => {
@@ -298,7 +304,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     const next = base.some((column) => column.variable === variable)
       ? base.map((column) => (column.variable === variable ? { ...column, ...patch } : column))
       : [...base, { variable, hidden: false, width: null, ...patch }];
-    putView({ ...activeView, columns: dedupe(next) });
+    return putView({ ...activeView, columns: dedupe(next) });
   };
 
   // A header click is one command, not a debounced stream: the reader clicked

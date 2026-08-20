@@ -26,7 +26,7 @@
 // file owns every pixel, because the design system, not a library's stylesheet,
 // decides what a row looks like.
 
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
@@ -43,6 +43,7 @@ import {
   tableFeatures,
   useTable,
   type ColumnDef,
+  type ColumnSizingState,
   type SortingState,
 } from "@tanstack/react-table";
 import {
@@ -101,8 +102,8 @@ export function QueryTableView({
   sorts: QueryViewSort[];
   /** Where a header press goes. Never absent: reading is never read-only. */
   onSort: (sorts: QueryViewSort[]) => void;
-  /** Persist a dragged width. Absent while the graph is read-only. */
-  onResize?: (variable: string, width: number) => void;
+  /** Persist a dragged width. Resolves after the authoritative view reconciles. */
+  onResize?: (variable: string, width: number) => Promise<boolean>;
   onHide?: (variable: string) => void;
   onMove?: (variable: string, delta: -1 | 1) => void;
 }) {
@@ -112,6 +113,23 @@ export function QueryTableView({
     [sorts],
   );
   const rankOf = (variable: string) => sorts.findIndex((sort) => sort.variable === variable);
+  const canonicalSizing = useMemo<ColumnSizingState>(
+    () => Object.fromEntries(
+      columns.map((column) => [column.variable, column.width ?? DEFAULT_WIDTH]),
+    ),
+    [columns],
+  );
+  // Column identities and saved widths are the complete canonical sizing
+  // boundary. Result rows and unrelated graph revisions may rebuild `columns`,
+  // but they must not interrupt a live drag when those values did not change.
+  const canonicalSizingKey = JSON.stringify(
+    columns.map((column) => [column.variable, column.width ?? DEFAULT_WIDTH]),
+  );
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(canonicalSizing);
+  const canonicalSizingRef = useRef(canonicalSizing);
+  const canonicalSizingKeyRef = useRef(canonicalSizingKey);
+  const resizeCommitPending = useRef(false);
+  canonicalSizingRef.current = canonicalSizing;
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
@@ -148,12 +166,48 @@ export function QueryTableView({
     // The order is this component's input, not its state: every press goes
     // through `cycleSort`, so the header and the sort panel compute the next
     // list the same way and neither can disagree with the saved view.
-    state: { sorting },
+    // Saved widths are canonical; this controlled slice is only the live drag
+    // overlay. Without it TanStack retains an uncontrolled size override after
+    // undo, so `columnDef.size` changes while `header.getSize()` stays stale.
+    state: { sorting, columnSizing },
+    onColumnSizingChange: setColumnSizing,
     enableMultiSort: true,
     maxMultiSortColCount: SORT_LIMIT,
     columnResizeMode: "onChange",
     enableColumnResizing: Boolean(onResize),
   });
+
+  useLayoutEffect(() => {
+    if (canonicalSizingKeyRef.current === canonicalSizingKey) return;
+    canonicalSizingKeyRef.current = canonicalSizingKey;
+    // Undo, redo, a remote edit, and an ordinary local command all reconcile
+    // through the same saved view. An authoritative change also cancels a drag
+    // based on the superseded width.
+    table.resetHeaderSizeInfo(true);
+    setColumnSizing(canonicalSizing);
+  }, [canonicalSizing, canonicalSizingKey, table]);
+
+  const restoreCanonicalSizing = () => {
+    table.resetHeaderSizeInfo(true);
+    setColumnSizing(canonicalSizingRef.current);
+  };
+
+  const commitSize = (variable: string, width: number) => {
+    if (!onResize || resizeCommitPending.current) return;
+    setColumnSizing((current) => ({
+      ...current,
+      [variable]: width || DEFAULT_WIDTH,
+    }));
+    resizeCommitPending.current = true;
+    void onResize(variable, width)
+      .then((saved) => {
+        if (!saved) restoreCanonicalSizing();
+      })
+      .catch(restoreCanonicalSizing)
+      .finally(() => {
+        resizeCommitPending.current = false;
+      });
+  };
 
   const byVariable = new Map(columns.map((column) => [column.variable, column]));
   const headers = table.getHeaderGroups();
@@ -277,7 +331,7 @@ export function QueryTableView({
                               </>
                             )}
                             {onResize && (
-                              <DropdownMenuItem onSelect={() => onResize(header.column.id, 0)}>
+                              <DropdownMenuItem onSelect={() => commitSize(header.column.id, 0)}>
                                 <ChevronsLeftRightIcon aria-hidden />
                                 {message("query.resetWidth")}
                               </DropdownMenuItem>
@@ -311,22 +365,24 @@ export function QueryTableView({
                           className="query-resize"
                           data-resizing={header.column.getIsResizing() || undefined}
                           onPointerDown={(event) => {
+                            if (resizeCommitPending.current) return;
                             header.getResizeHandler()(event);
                             const commit = () => {
                               window.removeEventListener("pointerup", commit);
-                              onResize?.(header.column.id, Math.round(header.column.getSize()));
+                              commitSize(header.column.id, Math.round(header.column.getSize()));
                             };
                             window.addEventListener("pointerup", commit);
                           }}
                           onKeyDown={(event) => {
+                            if (resizeCommitPending.current) return;
                             const step = event.shiftKey ? 32 : 8;
                             const current = header.column.getSize();
                             if (event.key === "ArrowLeft") {
                               event.preventDefault();
-                              onResize?.(header.column.id, Math.max(MIN_WIDTH, current - step));
+                              commitSize(header.column.id, Math.max(MIN_WIDTH, current - step));
                             } else if (event.key === "ArrowRight") {
                               event.preventDefault();
-                              onResize?.(header.column.id, current + step);
+                              commitSize(header.column.id, current + step);
                             }
                           }}
                         />

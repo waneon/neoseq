@@ -59,6 +59,22 @@ SQLite, recovery, and DTO behavior. It is not yet a desktop or mobile UI.
 
 ## Editor State and Input
 
+Canonical and interaction state have one owner each. Graph content and shared
+saved views come only from the reconciled Core snapshot; browser-local durable
+preferences come only from their subscribed store. React and headless UI
+libraries may hold focus, open layers, drafts, optimistic overlays, and an active
+pointer gesture, but must not retain a second stable copy of a durable value.
+
+Persistent controls are controlled adapters: they render the authoritative
+value plus an explicitly transient overlay, emit one semantic command at the
+interaction boundary, and reconcile the overlay when that command, undo/redo,
+or a remote import publishes a new authoritative value. A command rejected
+before applying drops its overlay; an applied but non-durable command reconciles
+to the in-memory canonical value and remains visibly unsaved. Text and
+composition drafts may instead preserve or rebase newer input, but that conflict
+policy must be explicit; initialization from a prop or library `initialState`
+alone is not reconciliation.
+
 The outline has two mutually exclusive interaction modes: a text caret in one
 editor or structural selection of block IDs. Taking one clears the other so text
 deletion and subtree deletion cannot be confused. Pure selection arithmetic

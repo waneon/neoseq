@@ -1,15 +1,21 @@
 // The two app-wide preferences that reach into the rest of the interface: how a
 // journal day is written, and which keys do what.
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { journalDateFormat, setJournalDateFormat } from "../../src/entities/journal";
+import {
+  configuredTimezone,
+  journalDateFormat,
+  setConfiguredTimezone,
+  setJournalDateFormat,
+} from "../../src/entities/journal";
 import {
   dueTiers,
   resetAppSettingsCache,
   threadTone,
 } from "../../src/entities/settings";
+import { graphName, renameGraph } from "../../src/core-port/directory";
 import {
   DEFAULT_BINDINGS,
   resolveBindings,
@@ -17,7 +23,7 @@ import {
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
-function mountSettings(section: "journal" | "keyboard" | "appearance" | "tasks") {
+function mountSettings(section: "journal" | "keyboard" | "appearance" | "tasks" | "graph") {
   return mountAt(
     `/g/${GRAPH_ID}/custom`,
     <SettingsDialog
@@ -62,6 +68,16 @@ describe("journal date format", () => {
     await waitFor(() =>
       expect(screen.getByTestId("journal-title")).toHaveTextContent("Jan 15, 2026"),
     );
+  });
+
+  it("keeps the mounted timezone control synchronized with the preference store", async () => {
+    await mountSettings("journal");
+    const chooser = screen.getByTestId("settings-timezone");
+
+    act(() => setConfiguredTimezone("America/New_York"));
+
+    await waitFor(() => expect(chooser).toHaveTextContent("America/New_York"));
+    expect(configuredTimezone()).toBe("America/New_York");
   });
 });
 
@@ -167,5 +183,23 @@ describe("presentation preferences", () => {
     fireEvent.change(screen.getByTestId("due-days-soon"), { target: { value: "30" } });
     await waitFor(() => expect(dueTiers().soonDays).toBe(30));
     expect(dueTiers().upcomingDays).toBe(30);
+  });
+});
+
+describe("graph directory settings", () => {
+  it("shows directory changes while clean and preserves an active name draft", async () => {
+    await mountSettings("graph");
+    const input = screen.getByTestId("settings-graph-name");
+
+    act(() => renameGraph(GRAPH_ID, "Changed elsewhere"));
+    await waitFor(() => expect(input).toHaveValue("Changed elsewhere"));
+
+    fireEvent.change(input, { target: { value: "My active draft" } });
+    act(() => renameGraph(GRAPH_ID, "Another change"));
+    expect(input).toHaveValue("My active draft");
+
+    fireEvent.blur(input);
+    await waitFor(() => expect(input).toHaveValue("My active draft"));
+    expect(graphName(GRAPH_ID)).toBe("My active draft");
   });
 });

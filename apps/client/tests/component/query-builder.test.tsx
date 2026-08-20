@@ -1,6 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { CorePortFailure } from "../../src/core-worker";
 import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
 import { compilePlan } from "../../src/entities/query-compile";
 import { decodePlan } from "../../src/entities/query-plan";
@@ -287,6 +288,22 @@ describe("query result views", () => {
     return page ? findBlock(page, "b-2") : undefined;
   }
 
+  function dragColumn(handle: HTMLElement, from: number, to: number): void {
+    fireEvent.pointerDown(handle, { clientX: from });
+    fireEvent.mouseMove(document, { clientX: to });
+    // The component commits on the pointer boundary; TanStack's mouse listener
+    // then closes its transient resize gesture, matching the browser's event
+    // sequence for a mouse-backed pointer.
+    fireEvent.pointerUp(window, { clientX: to });
+    fireEvent.mouseUp(document, { clientX: to });
+  }
+
+  function firstColumnWidth(table: HTMLElement): string {
+    const column = within(table).getByRole("table").querySelector("col");
+    if (!(column instanceof HTMLTableColElement)) throw new Error("query table has no column");
+    return column.style.width;
+  }
+
   it("names its columns in the product's words, not as SPARQL variables", async () => {
     await withResult();
     const table = await screen.findByTestId("query-table");
@@ -442,6 +459,64 @@ describe("query result views", () => {
     const table = within(wrap).getByRole("table");
     expect(table).toHaveAttribute("aria-colcount", "2");
     expect(within(table).getAllByRole("columnheader")).toHaveLength(2);
+  });
+
+  it("reconciles a resized column from the saved view on undo, redo, and later changes", async () => {
+    const harness = await withResult();
+    const table = await screen.findByTestId("query-table");
+    const handle = within(table).getByRole("separator", { name: "Resize Text" });
+    const savedWidth = () => storedQuery(harness)?.views
+      .find((view) => view.id === "table")?.columns
+      .find((column) => column.variable === "text")?.width;
+
+    expect(firstColumnWidth(table)).toBe("180px");
+    dragColumn(handle, 180, 260);
+    await waitFor(() => expect(savedWidth()).toBe(260));
+    expect(firstColumnWidth(table)).toBe("260px");
+
+    await harness.session.execute({ type: "undo" });
+    await waitFor(() => expect(savedWidth()).toBeUndefined());
+    await waitFor(() => expect(firstColumnWidth(table)).toBe("180px"));
+
+    await harness.session.execute({ type: "redo" });
+    await waitFor(() => expect(savedWidth()).toBe(260));
+    await waitFor(() => expect(firstColumnWidth(table)).toBe("260px"));
+
+    const current = storedQuery(harness)!.views.find((view) => view.id === "table")!;
+    await harness.session.execute({
+      type: "put_query_view",
+      owner: { kind: "block", page_id: "home", id: "b-1" },
+      view: {
+        ...current,
+        columns: current.columns.map((column) =>
+          column.variable === "text" ? { ...column, width: 224 } : column),
+      },
+    });
+    await waitFor(() => expect(firstColumnWidth(table)).toBe("224px"));
+  });
+
+  it("drops a transient resize when the view command is rejected", async () => {
+    const harness = await withResult();
+    const table = await screen.findByTestId("query-table");
+    harness.port.beforeExecute = async (command) => {
+      if (command.type === "put_query_view") {
+        throw new CorePortFailure({
+          code: "invalid_request",
+          message: "rejected resize",
+          retryable: false,
+        });
+      }
+    };
+
+    dragColumn(
+      within(table).getByRole("separator", { name: "Resize Text" }),
+      180,
+      260,
+    );
+
+    await waitFor(() => expect(firstColumnWidth(table)).toBe("180px"));
+    expect(storedQuery(harness)?.views.find((view) => view.id === "table")?.columns)
+      .toEqual([]);
   });
 
   it("renders the list view as outline rows", async () => {

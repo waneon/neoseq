@@ -52,6 +52,13 @@ export function subscribeGraphDirectory(listener: () => void): () => void {
   };
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== null && event.key !== DIRECTORY_KEY) return;
+    for (const listener of listeners) listener();
+  });
+}
+
 export function registerGraph(name: string): GraphSummary {
   const entries = readEntries();
   const id = `g-${crypto.randomUUID()}`;

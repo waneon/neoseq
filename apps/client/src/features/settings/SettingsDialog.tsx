@@ -3,12 +3,17 @@
 // section in the URL makes sections linkable and lets Back close the dialog
 // without losing editor context.
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router";
-import { graphName, renameGraph, schedulePendingDelete } from "../../core-port/directory";
 import {
+  graphName,
+  renameGraph,
+  schedulePendingDelete,
+  subscribeGraphDirectory,
+} from "../../core-port/directory";
+import {
+  addDays,
   availableTimezones,
-  configuredTimezone,
   setConfiguredTimezone,
   setJournalDateFormat,
   todayLocalDate,
@@ -24,10 +29,9 @@ import {
   type JournalDateFormat,
   type ToneName,
 } from "../../entities/settings";
-import { addDays } from "../../entities/journal";
 import { DUE_TIERS, type DueTier } from "../../entities/tasks";
 import { CalendarIcon } from "lucide-react";
-import { useDueTiers, useThreadTone } from "./preferences";
+import { useConfiguredTimezone, useDueTiers, useThreadTone } from "./preferences";
 import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
@@ -317,7 +321,7 @@ function LanguageSection() {
  */
 function JournalSection() {
   const { message, compare, formatLocalDate, journalDateFormat } = useI18n();
-  const [timezone, setTimezone] = useState(configuredTimezone);
+  const timezone = useConfiguredTimezone();
   const today = todayLocalDate();
 
   const example = (format: JournalDateFormat) => {
@@ -357,10 +361,7 @@ function JournalSection() {
             options={[...availableTimezones()]
               .sort(compare)
               .map((zone) => ({ value: zone, label: zone }))}
-            onValueChange={(value) => {
-              setTimezone(value);
-              setConfiguredTimezone(value);
-            }}
+            onValueChange={setConfiguredTimezone}
           />
         </div>
       </section>
@@ -562,7 +563,12 @@ function GraphSection({ graphId }: { graphId: string }) {
   const state = useSessionState();
   const notify = useNotify();
   const { message } = useI18n();
-  const [name, setName] = useState(() => graphName(graphId));
+  const authoritativeName = useSyncExternalStore(
+    subscribeGraphDirectory,
+    () => graphName(graphId),
+    () => graphName(graphId),
+  );
+  const [draftName, setDraftName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   // The copy acknowledgement is a plain label swap on a timer — no animation,
@@ -594,11 +600,13 @@ function GraphSection({ graphId }: { graphId: string }) {
       <div className="field">
         <Input
           aria-label={message("graph.graphName")}
-          value={name}
+          value={draftName ?? authoritativeName}
           data-testid="settings-graph-name"
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => setDraftName(event.target.value)}
           onBlur={() => {
-            if (name.trim()) renameGraph(graphId, name);
+            const next = draftName?.trim();
+            if (next) renameGraph(graphId, next);
+            setDraftName(null);
           }}
         />
       </div>

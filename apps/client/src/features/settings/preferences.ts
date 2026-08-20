@@ -19,6 +19,15 @@ import {
   type DueTierSettings,
   type ToneName,
 } from "../../entities/settings";
+import { configuredTimezone } from "../../entities/journal";
+
+export function useConfiguredTimezone(): string {
+  return useSyncExternalStore(
+    subscribeAppSettings,
+    configuredTimezone,
+    configuredTimezone,
+  );
+}
 
 export function useThreadTone(): ToneName {
   return useSyncExternalStore(subscribeAppSettings, threadTone, threadTone);
