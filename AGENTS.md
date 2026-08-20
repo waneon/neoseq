@@ -1,8 +1,10 @@
 # AI Agent Instructions
 
-## Coding Guidelines
-- Prefer modern approaches and established best practices.
-- Favor a minimal architecture and implementation that meets the requirements.
+## General Guidelines
+
+Prefer the **simplest mature modern approach**: favor well-established contemporary tools, patterns, and practices over legacy ones, while avoiding novelty or abstraction that adds disproportionate complexity. When multiple strong approaches exist, optimize for **simplicity first, modernity second**.
+
+The sole exception is frontend design. In that case, prioritize visual polish over simplicity.
 
 ## Documents
 
