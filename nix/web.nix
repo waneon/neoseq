@@ -14,6 +14,8 @@
 let
   pname = "neoseq-web";
   version = (builtins.fromJSON (builtins.readFile ../apps/client/package.json)).version;
+  cargoLockDigest = builtins.hashFile "sha256" ../Cargo.lock;
+  pnpmLockDigest = builtins.hashFile "sha256" ../pnpm-lock.yaml;
   applicationFiles = lib.fileset.unions [
     ../Cargo.lock
     ../Cargo.toml
@@ -51,16 +53,16 @@ stdenv.mkDerivation {
 
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    name = "${pname}-${version}";
+    name = "${pname}-${version}-${cargoLockDigest}";
     hash = "sha256-lQ1mDcfyiVzhMQnsxqbPRoPQGwHENA/ITYJfZGLl8Yk=";
   };
   pnpmDeps = fetchPnpmDeps {
     inherit
-      pname
       version
       src
       pnpm
       ;
+    pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
     hash = "sha256-tcK06qkcm2uHTN/zW1ejwUowTw9Gy+H5CgG1R7OFxiU=";
   };

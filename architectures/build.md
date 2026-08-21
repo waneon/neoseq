@@ -19,12 +19,14 @@ provenance enter only in the stages that implement them.
 
 `outputs.web` and `outputs.sync-server` own the deployable artifacts. They build
 from Git-tracked sources inside the Nix sandbox with dependencies fetched from
-the lockfiles. The `release-serve` profile runs those artifacts behind one Web
-origin with a profile-local managed PostgreSQL instance. Its process ports and
-persistent state are isolated from the base development runtime, so both
-environments can run concurrently. Base processes and services own the
-development runtime; tasks own checks and ephemeral database or browser-test
-setup. Package scripts do not define repository-wide build or verification flow.
+the lockfiles. Fixed-output dependency names include their lockfile digest, so a
+lockfile change cannot reuse a previously validated store path. The
+`release-serve` profile runs those artifacts behind one Web origin with a
+profile-local managed PostgreSQL instance. Its process ports and persistent
+state are isolated from the base development runtime, so both environments can
+run concurrently. Base processes and services own the development runtime;
+tasks own checks and ephemeral database or browser-test setup. Package scripts
+do not define repository-wide build or verification flow.
 
 ## Build flow
 
@@ -58,6 +60,7 @@ named database.
 
 `devenv test` runs the portable gate:
 
+- fixed-output Cargo and pnpm dependency hashes for both production outputs;
 - Rust formatting, strict Clippy, workspace and PostgreSQL integration tests,
   and dependency policy;
 - generated CorePort and locale drift checks;

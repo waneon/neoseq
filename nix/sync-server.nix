@@ -11,6 +11,7 @@ let
   pname = "neoseq-sync-server";
   manifest = builtins.fromTOML (builtins.readFile ../Cargo.toml);
   version = manifest.workspace.package.version;
+  cargoLockDigest = builtins.hashFile "sha256" ../Cargo.lock;
   applicationFiles = lib.fileset.unions [
     ../Cargo.lock
     ../Cargo.toml
@@ -30,7 +31,7 @@ stdenv.mkDerivation {
 
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    name = "${pname}-${version}";
+    name = "${pname}-${version}-${cargoLockDigest}";
     hash = "sha256-lQ1mDcfyiVzhMQnsxqbPRoPQGwHENA/ITYJfZGLl8Yk=";
   };
 

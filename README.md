@@ -48,7 +48,7 @@ Run the portable verification gate by default. The `browser-test` profile adds
 pinned Chromium, IndexedDB contracts, and end-to-end scenarios.
 
 ```sh
-devenv test                         # Rust, generated files, TypeScript, and components
+devenv test                         # hashes, Rust, generated files, TypeScript, and components
 devenv --profile browser-test test  # portable gate plus browser-backed tests
 ```
 

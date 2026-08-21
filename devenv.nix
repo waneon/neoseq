@@ -156,6 +156,17 @@ in
       ];
       before = [ "devenv:enterTest" ];
     };
+
+    "nix:hash-check" = {
+      description = "Check fixed-output dependency hashes";
+      exec = ''
+        devenv build \
+          outputs.web.cargoDeps \
+          outputs.web.pnpmDeps \
+          outputs.sync-server.cargoDeps
+      '';
+      before = [ "devenv:enterTest" ];
+    };
   };
 
   outputs = {
