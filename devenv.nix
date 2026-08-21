@@ -54,7 +54,7 @@ in
   };
 
   profiles = {
-    "browser-test".module = ./nix/devenv/browser-test.nix;
+    browser.module = ./nix/devenv/browser.nix;
     "release-serve".module.neoseq.runtime = "release";
   };
 }

@@ -26,8 +26,8 @@ lockfile change cannot reuse a previously validated store path. The
 profile-local managed PostgreSQL instance. Its process ports and persistent
 state are isolated from the base development runtime, so both environments can
 run concurrently. Base processes and services own the development runtime;
-tasks own checks and ephemeral database or browser-test setup. Package scripts
-do not define repository-wide build or verification flow.
+tasks own checks and ephemeral database or browser setup. Package scripts do
+not define repository-wide build or verification flow.
 
 ## Build flow
 
@@ -42,7 +42,7 @@ sync-protocol ──> sync-server ──> PostgreSQL / WebSocket verification
 The `web` output compiles `platform-web`, generates Wasm bindings, checks the
 client, and installs the static site as one Nix store artifact. Production Wasm
 uses the `wasm-release` profile with size optimization, LTO, one codegen unit,
-aborting panics, and stripped symbols. Development and browser-test builds use
+aborting panics, and stripped symbols. Development and browser test builds use
 the regular release profile for a faster loop.
 
 Normal Vite builds contain product routes and real adapters. Test mode adds the
@@ -71,21 +71,23 @@ named database.
 production artifacts. Keeping artifact construction separate from tasks makes
 it reproducible and cacheable.
 
-`devenv --profile browser-test test` adds pinned Chromium-based IndexedDB contracts,
-parallel desktop E2E, focused mobile and dark-mode coverage, and a real
-two-profile collaboration scenario. The scenario uses a test-only sync-server
-process with an allocated port and an isolated database on the managed
-PostgreSQL service. The separate profile prevents normal shell users from
-paying the browser and service-orchestration cost. CI builds the deployable Web
-output, runs this full gate, and uploads the checkout-local Playwright failure
+`devenv --profile browser test` runs the browser gate independently: pinned
+Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and
+dark-mode coverage, and a real two-profile collaboration scenario. One
+Playwright run owns the preview server and schedules every browser project. The
+scenario uses a test-only sync-server process with an allocated port and an
+isolated database on the managed PostgreSQL service. The profile selects this
+gate and keeps the browser runtime out of the normal shell. CI runs the portable
+and browser gates explicitly and uploads checkout-local Playwright failure
 artifacts.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored migration, authorization, idempotency, fault, and
 restore integration test against its own database.
-Portable checks run in the task-backed test phase. Process-backed suites run
-after the managed process graph is ready, so each dependency starts only once.
+Portable checks run in the task-backed test phase. Browser build prerequisites
+finish before devenv starts the managed collaboration process; Playwright runs
+after process readiness, so each dependency starts only once.
 
 The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab

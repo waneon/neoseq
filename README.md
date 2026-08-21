@@ -44,12 +44,13 @@ devenv build outputs.web          # Rust/Wasm core and static Web client
 devenv build outputs.sync-server  # PostgreSQL-backed sync server binary
 ```
 
-Run the portable verification gate by default. The `browser-test` profile adds
-pinned Chromium, IndexedDB contracts, and end-to-end scenarios.
+Run the portable verification gate independently from the browser suite. The
+`browser` profile supplies pinned Chromium and the isolated collaboration
+service, then builds and runs only the browser prerequisites.
 
 ```sh
-devenv test                         # hashes, Rust, generated files, TypeScript, and components
-devenv --profile browser-test test  # portable gate plus browser-backed tests
+devenv test                    # portable verification gate
+devenv --profile browser test  # browser-backed tests only
 ```
 
 ## Performance benchmarks
