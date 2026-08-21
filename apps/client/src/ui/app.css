@@ -39,6 +39,14 @@
   --surface-3: oklch(0.931 0.007 264);
   --rail: oklch(0.974 0.004 264);
   --overlay: oklch(1 0 0);
+  /* The fill of a control that is *raised out of* something — a button on a
+     panel, the chosen key of a segmented track. It cannot be `--canvas`: the
+     canvas is the lightest surface in light mode and the darkest in dark mode,
+     because panels lift above it there, so a button painted `--canvas` lifted in
+     one mode and sank in the other. `--raised` is defined as "lighter than any
+     ground a control sits on" in both. */
+  --raised: oklch(1 0 0);
+  --raised-hover: oklch(0.981 0.003 264);
 
   --ink: oklch(0.235 0.014 264);
   --ink-2: oklch(0.462 0.014 264);
@@ -225,6 +233,23 @@
   --target: 24px;
   --append-h: min(40vh, 320px);
 
+  /* ── Glyphs ──
+     Both sizes are even, and every box that centres one is even too, because a
+     15px icon in a 24px button lands on a half pixel and a half-pixel glyph is
+     a blurred glyph at every zoom level a reader is likely to use. `--icon` is
+     dense chrome (an icon button, a chip, a column heading); `--icon-lg` is a
+     row someone reads (the rail, the palette, a menu).
+
+     `--mark-slot` is the rail's one glyph column and `--mark-gap` the distance
+     from it to the label, so the wordmark, the graph, search and every nav row
+     put their text at exactly one x. A mark wider than the slot — the graph's
+     initial tile — is centred on it with negative margins rather than given a
+     column of its own. */
+  --icon: 14px;
+  --icon-lg: 16px;
+  --mark-slot: 16px;
+  --mark-gap: 9px;
+
   --r-1: 4px;
   --r-2: 7px;
   --r-3: 12px;
@@ -309,6 +334,8 @@
     --surface-3: oklch(0.318 0.011 264);
     --rail: oklch(0.178 0.007 264);
     --overlay: oklch(0.253 0.009 264);
+    --raised: oklch(0.3 0.01 264);
+    --raised-hover: oklch(0.34 0.011 264);
 
     --ink: oklch(0.955 0.004 264);
     --ink-2: oklch(0.762 0.011 264);
@@ -363,6 +390,8 @@
   --surface-3: oklch(0.318 0.011 264);
   --rail: oklch(0.178 0.007 264);
   --overlay: oklch(0.253 0.009 264);
+  --raised: oklch(0.3 0.01 264);
+  --raised-hover: oklch(0.34 0.011 264);
 
   --ink: oklch(0.955 0.004 264);
   --ink-2: oklch(0.762 0.011 264);
@@ -576,7 +605,7 @@ h2 {
 
 .skip-link {
   position: absolute;
-  left: var(--sp-2);
+  inset-inline-start: var(--sp-2);
   top: -100px;
   z-index: var(--z-toast);
   padding: var(--sp-2) var(--sp-3);
@@ -616,7 +645,7 @@ h2 {
   padding: 0 var(--sp-3);
   border: none;
   border-radius: var(--r-2);
-  background: var(--canvas);
+  background: var(--raised);
   box-shadow: var(--e1-raised);
   color: var(--ink);
   font: inherit;
@@ -633,7 +662,7 @@ h2 {
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--surface-1);
+  background: var(--raised-hover);
 }
 
 /* Pressed is a shorter shadow, not a smaller box: the control settles onto the
@@ -743,14 +772,25 @@ h2 {
   color: var(--ink);
 }
 
+/* The icon button had no focus state at all, which is most of the chrome in the
+   product invisible to a keyboard. The ring is inset because these sit inside
+   clipping parents — the date stepper's seamed group, a query header — where an
+   outset halo would lose an edge. */
+.icon-btn:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+}
+
 .icon-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
 .icon-btn svg {
-  width: 15px;
-  height: 15px;
+  width: var(--icon);
+  height: var(--icon);
 }
 
 /* A keyboard hint, laid out one part per key.
@@ -821,11 +861,15 @@ h2 {
    It reads at `sm`, not at the `xs` the other chips use, because a tag is not
    metadata *about* the block — it is a name the reader wrote and navigates by,
    and at 12px beside 16px body text it read as a footnote to its own line. */
+/* Every chip in the product is `--target` tall, not 22px. A chip is a control,
+   the contract's floor for a control is 24px, and at 22 the whole family sat two
+   pixels under its own rule — a row of them 4px apart cannot claim WCAG's
+   spacing exception either. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  height: 22px;
+  height: var(--target);
   max-width: 100%;
   padding: 0;
   border: none;
@@ -1148,7 +1192,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   min-height: 0;
   padding: var(--sp-2) 10px;
   background: var(--rail);
-  border-right: 1px solid var(--rail-edge);
+  border-inline-end: 1px solid var(--rail-edge);
   /* The x axis is clipped so the rail's own content cannot spill out of a track
      that is on its way to zero. */
   overflow: hidden auto;
@@ -1173,7 +1217,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .rail-brand {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--mark-gap);
   height: 20px;
   padding: 0 var(--sp-2);
   margin: 0;
@@ -1184,10 +1228,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-weight: var(--weight-medium);
 }
 
+/* 14px centred in the 16px mark column, so the wordmark's text starts on the
+   same x as every label under it and the mark itself stays crisp. */
 .rail-brand svg {
   flex: none;
-  width: 13px;
-  height: 13px;
+  width: var(--icon);
+  height: var(--icon);
+  margin: 0 calc((var(--mark-slot) - var(--icon)) / 2);
   color: var(--accent);
 }
 
@@ -1201,10 +1248,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .rail-switcher {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--mark-gap);
   width: 100%;
   height: 38px;
-  padding: 0 var(--sp-1) 0 var(--sp-1);
+  padding: 0 var(--sp-1) 0 var(--sp-2);
   border: none;
   border-radius: var(--r-2);
   background: none;
@@ -1223,6 +1270,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background: var(--surface-2);
 }
 
+/* The one control in the rail that said nothing at all when the keyboard reached
+   it. Same halo as the search field beneath it. */
+.rail-switcher:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 /* The graph's initial, in the accent at a tint. It is the one place in the
    interface where a piece of the user's own data becomes a mark, and it is what
    makes two open graphs distinguishable at a glance rather than by reading. */
@@ -1230,8 +1285,12 @@ button.chip:focus-visible .chip-glyph .chip-x {
   display: grid;
   place-items: center;
   flex: none;
-  width: 26px;
-  height: 26px;
+  /* Wider than the mark column and centred on it: the tile reads as the biggest
+     thing in the rail's head without pushing the graph's name off the one x
+     every other label in the rail starts at. */
+  width: 24px;
+  height: 24px;
+  margin: 0 calc((var(--mark-slot) - 24px) / 2);
   border-radius: var(--r-2);
   background: var(--accent-soft);
   color: var(--accent);
@@ -1264,11 +1323,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .rail-search {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--mark-gap);
   width: 100%;
   height: 32px;
   margin-bottom: var(--sp-2);
-  padding: 0 var(--sp-1) 0 9px;
+  padding: 0 var(--sp-1) 0 var(--sp-2);
   border: none;
   border-radius: var(--r-2);
   background: var(--canvas);
@@ -1300,8 +1359,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .rail-search svg {
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
   color: var(--ink-3);
 }
 
@@ -1329,7 +1388,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .shell-nav-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--mark-gap);
   width: 100%;
   min-height: 30px;
   padding: 0 var(--sp-2);
@@ -1375,8 +1434,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .shell-nav-item svg {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: var(--mark-slot);
+  height: var(--mark-slot);
   color: var(--ink-3);
   transition: color var(--dur-press) var(--ease-out);
 }
@@ -1536,7 +1595,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* A nav row's own shortcut badge, for the rows that have one. It reveals
@@ -1763,8 +1822,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink);
 }
 
-/* The title is an input; it should look like text and behave like a field. */
+/* The title is a field; it should look like text. It is a textarea rather than an
+   input because a name wraps (see `EditableTitle`), so it also has to give up the
+   things a textarea brings with it: a resize grip, a scrollbar, and a height of
+   its own. Its height is set from its content in JS; `overflow: hidden` is what
+   keeps a mid-measure line from producing a scrollbar for one frame. */
 .page-title {
+  display: block;
   width: 100%;
   margin: 0 calc(var(--sp-2) * -1);
   padding: 0 var(--sp-2);
@@ -1774,6 +1838,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-family: inherit;
   caret-color: var(--accent);
   cursor: pointer;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
   transition: background-color var(--dur-press) var(--ease-out);
 }
 
@@ -1805,7 +1872,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   flex: none;
   height: 28px;
   border-radius: var(--r-2);
-  background: var(--canvas);
+  background: var(--raised);
   box-shadow: var(--e1-raised);
   overflow: hidden;
 }
@@ -1859,6 +1926,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   }
 
   .today-pill {
+    height: var(--sp-6);
+  }
+}
+
+/* The contract's floor is 32px at or below 600px, and the icon button is the one
+   control that sits at exactly the desktop floor of 24 — which on a phone is the
+   whole rail toggle, the new-page verb and every revealed action in a query
+   header. Widening the box rather than the glyph, so nothing about the icon
+   changes except how much of it is reachable. */
+@media (max-width: 600px), (hover: none) {
+  .icon-btn {
+    width: var(--sp-6);
     height: var(--sp-6);
   }
 }
@@ -2058,7 +2137,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 40%;
-  margin-left: auto;
+  margin-inline-start: auto;
   padding: 5px var(--sp-1) 5px 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2073,7 +2152,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 /* When tags follow, presence hands the auto margin over and the two read as
    one right-aligned cluster. */
 .remote-presence + .outline-tags {
-  margin-left: 0;
+  margin-inline-start: 0;
 }
 
 /* Everything left of the bullet, at every depth. No background of its own — the
@@ -2735,7 +2814,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   justify-content: flex-end;
   gap: var(--sp-1);
   min-width: 0;
-  margin-left: auto;
+  margin-inline-start: auto;
   padding: 2px var(--sp-1) 2px 0;
 }
 
@@ -2914,7 +2993,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  height: 22px;
+  height: var(--target);
   max-width: 100%;
   padding: 0 var(--sp-2);
   border: 0;
@@ -3153,7 +3232,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   flex: none;
   /* Held at the end of the line whether they are showing or not, so the count
      does not slide sideways when the pointer arrives. */
-  margin-left: auto;
+  margin-inline-start: auto;
   opacity: 0;
   transition: opacity var(--dur-view) var(--ease-out);
 }
@@ -3282,8 +3361,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .query-sort-panel .icon-btn {
-  width: 22px;
-  height: 22px;
+  width: var(--target);
+  height: var(--target);
 }
 
 .query-sort-panel .icon-btn svg {
@@ -3770,7 +3849,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: center;
   gap: var(--sp-2);
   flex: none;
-  margin-left: auto;
+  margin-inline-start: auto;
   padding-left: var(--sp-3);
   box-shadow: inset 1px 0 0 var(--thread);
 }
@@ -4053,7 +4132,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
    product's one link voice: the accent only on hover, never a resting colour
    that competes with the text around it. */
 .query-link {
+  display: inline-flex;
+  align-items: center;
   max-width: 100%;
+  /* A 16px run of text is not a target. The link keeps its inline appearance —
+     no fill, no ring, the accent only on hover — and takes the control floor as
+     its height, which also puts it on the fact chips' line in a list row. */
+  min-height: var(--target);
   padding: 0;
   border: 0;
   background: none;
@@ -4069,6 +4154,24 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* A cell that names something is a route to it, and § An editable cell is
+   editable everywhere applies here for the same reason: a 16px-tall run of text
+   in a 28px cell left most of the row dead and asked the reader to aim at the
+   words. The link fills the cell and takes the cell's padding, so the whole cell
+   is the target and the hover wash reads as "this cell". */
+.query-table tbody td:has(> .query-link) {
+  padding: 0;
+}
+
+.query-table tbody td > .query-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  padding: 6px var(--sp-2);
 }
 
 /* Query cells remain result cells at rest. Editability appears only on hover or
@@ -4451,7 +4554,7 @@ button.query-list-status[data-active="true"] {
   align-items: center;
   gap: var(--sp-1);
   max-width: 100%;
-  height: 22px;
+  height: var(--target);
   padding: 0 var(--sp-2);
   border-radius: var(--r-2);
   box-shadow: var(--e1);
@@ -4568,9 +4671,17 @@ button.query-list-status[data-active="true"] {
   opacity: 0;
 }
 
-.outline-append:hover::before,
-.outline-append:focus-visible::before {
+.outline-append:hover::before {
   opacity: 0.4;
+}
+
+/* Focus is not hover. The pointer is already at the dot it just raised, so 40% of
+   `--ink-3` is enough to confirm it; a keyboard arriving at a 320px-tall region
+   has nothing else to go on, so the mark comes up to full strength and takes the
+   accent — the same thing the caret would say once a line existed. */
+.outline-append:focus-visible::before {
+  opacity: 1;
+  background: var(--accent);
 }
 
 /* Nothing to hover with: the affordance has to be there already, or the region
@@ -4778,7 +4889,7 @@ button.query-list-status[data-active="true"] {
 }
 
 .property-picker-actions > :first-child:not(:last-child) {
-  margin-right: auto;
+  margin-inline-end: auto;
 }
 
 /* The date editor: one field that reads words, the day it resolved to as a
@@ -4949,7 +5060,7 @@ button.query-list-status[data-active="true"] {
 .tag-no-defaults {
   color: var(--ink-3);
   font-size: var(--text-xs);
-  line-height: 22px;
+  line-height: var(--target);
 }
 
 /* Quiet by default, a control on approach — same grammar as every icon
@@ -4958,7 +5069,7 @@ button.query-list-status[data-active="true"] {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  height: 22px;
+  height: var(--target);
   padding: 0 var(--sp-2);
   border: 0;
   border-radius: var(--r-2);
@@ -5114,7 +5225,7 @@ button.query-list-status[data-active="true"] {
 /* A tag the block already carries: the check is the chosen-value mark, so it
    takes the accent like the picker's own check — never a second wash. */
 .tag-menu .tag-opt-check {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--accent);
 }
 
@@ -5149,7 +5260,7 @@ button.query-list-status[data-active="true"] {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  height: 22px;
+  height: var(--target);
   max-width: 260px;
   padding: 0 var(--sp-2);
   border: none;
@@ -5237,7 +5348,11 @@ button.query-list-status[data-active="true"] {
   display: flex;
   flex-direction: column;
   width: min(620px, 100%);
-  max-height: min(520px, 68vh);
+  /* The pixel side wins at every ordinary window height, so the panel is exactly
+     520px tall and its bottom edge is a hairline rather than a half-pixel smear.
+     The `vh` term is the guard for a short window, where the panel is scrolling
+     anyway and a fractional height is the least of it. */
+  max-height: min(520px, 76vh);
   border-radius: var(--r-4);
   background: var(--overlay);
   box-shadow: var(--e3);
@@ -5250,13 +5365,14 @@ button.query-list-status[data-active="true"] {
   gap: 10px;
   flex: none;
   height: 50px;
+  /* `--sp-4` here equals the list's `--sp-1` plus a row's `--sp-3`. */
   padding: 0 var(--sp-4);
 }
 
 .cmdk-input-row svg {
   flex: none;
-  width: 17px;
-  height: 17px;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
   color: var(--ink-3);
 }
 
@@ -5290,21 +5406,27 @@ button.query-list-status[data-active="true"] {
   overscroll-behavior: contain;
 }
 
+/* Aligned with the rows' own glyph column, so a group's name starts where the
+   icons under it start. */
 .cmdk-group-title {
-  padding: 10px var(--sp-2) var(--sp-1);
+  padding: 10px var(--sp-3) var(--sp-1);
 }
 
 .cmdk-results > li:first-child > .cmdk-group-title {
   padding-top: var(--sp-1);
 }
 
+/* `--sp-3` inside the list's own `--sp-1` of padding puts a row's glyph at 16px
+   from the panel's edge — exactly where the search field's glyph is, so the
+   query and every answer it produces start on one x. At `--sp-2` the results sat
+   four pixels left of the thing that produced them. */
 .cmdk-row {
   display: flex;
   align-items: center;
   gap: 10px;
   position: relative;
   height: 38px;
-  padding: 0 var(--sp-2);
+  padding: 0 var(--sp-3);
   border-radius: var(--r-2);
   color: var(--ink);
   font-size: var(--text-sm);
@@ -5315,8 +5437,8 @@ button.query-list-status[data-active="true"] {
 
 .cmdk-row svg {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
   color: var(--ink-3);
 }
 
@@ -5803,13 +5925,15 @@ button.query-list-status[data-active="true"] {
   display: grid;
   grid-template-columns: 172px minmax(0, 1fr);
   gap: var(--sp-5);
-  min-height: min(46vh, 372px);
-  max-height: min(72vh, 560px);
+  /* Both clamps are ordered so the pixel side wins at ordinary window heights —
+     see the palette's `max-height` for the argument. */
+  min-height: min(340px, 60vh);
+  max-height: min(560px, 78vh);
 }
 
 .settings-shell > .settings-pane {
   padding-left: var(--sp-5);
-  border-left: 1px solid var(--thread);
+  border-inline-start: 1px solid var(--thread);
 }
 
 .settings-nav {
@@ -5874,16 +5998,22 @@ button.query-list-status[data-active="true"] {
   position: relative;
 }
 
+/* Focus takes the halo every other control in the product takes — inset, because
+   the nav is a scroll container and an outset ring would push a horizontal
+   scrollbar into it — and *not* the accent rule. The rule belongs to
+   `aria-current` alone: when both wore it, a reader tabbing through the list saw
+   two identical accent marks and no way to tell which one was the pane they were
+   looking at. */
 .settings-tab:focus-visible {
   outline: none;
   background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
 }
 
-.settings-tab[aria-current="true"]::before,
-.settings-tab:focus-visible::before {
+.settings-tab[aria-current="true"]::before {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 5px;
   bottom: 5px;
   width: 2px;
@@ -6008,6 +6138,27 @@ button.query-list-status[data-active="true"] {
   color: var(--danger);
 }
 
+/* At 390px the five tone swatches were 375px of row inside a 322px pane, which
+   is a horizontal scrollbar in a settings dialog — and the one place a reader
+   cannot dismiss it by making the window wider. They keep the shape they preview
+   and give back twelve pixels each. */
+@media (max-width: 600px) {
+  .tone-swatch {
+    width: 48px;
+    height: 36px;
+  }
+
+  .tone-swatch-thread {
+    width: 30px;
+    height: 24px;
+  }
+
+  .tone-choice-name {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}
+
 /* The one segmented control: a track with the chosen key raised out of it. The
    raise is what tells a reader which of three adjacent words is the answer,
    without a second signal — no rule, no accent, no weight change. */
@@ -6048,9 +6199,16 @@ button.query-list-status[data-active="true"] {
 }
 
 .segmented button[aria-pressed="true"] {
-  background: var(--canvas);
+  background: var(--raised);
   color: var(--ink);
   box-shadow: var(--e1-raised);
+}
+
+/* Each key is a target, so on a phone each key is a phone-sized target. */
+@media (max-width: 600px), (hover: none) {
+  .segmented button {
+    height: var(--sp-6);
+  }
 }
 
 /* A named sub-setting inside a section: its own small heading and sentence, then
@@ -6088,6 +6246,7 @@ button.query-list-status[data-active="true"] {
   display: inline-flex;
   align-self: flex-start;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-1);
 }
 
@@ -6152,20 +6311,24 @@ button.query-list-status[data-active="true"] {
    Four rows, in the order dates move through them, each previewing itself. The
    grid keeps the name, the preview, the reach and the tone in four columns so the
    four rows read down as one scale rather than across as four settings. */
+/* One grid for the whole scale, and each tier inherits its tracks. The rows were
+   four independent grids sharing a `grid-template-columns` string, which is not
+   the same thing at all: the second track is `auto`, so each row sized it to its
+   own preview chip and `within … days` landed at a different x in every row —
+   237.75px, 184.06px, 167.89px, 182.22px, and sixteen pixels of raggedness down
+   a column whose whole job is to be read down. `subgrid` is what makes four rows
+   actually agree; the previous comment here claimed they did. */
 .due-tiers {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-
-/* Fixed columns rather than `subgrid`: the four rows have to agree, and the
-   widths here are small and known, so the simpler mechanism is also the one that
-   cannot be knocked out of alignment by one row's longer label. */
-.due-tier {
   display: grid;
   grid-template-columns: 84px auto minmax(0, 1fr) 128px;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.due-tier {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: var(--sp-3);
 }
 
 .due-tier-name {
@@ -6203,6 +6366,7 @@ button.query-list-status[data-active="true"] {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* One column per row, so there is no shared track to inherit. */
   .due-tier {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--sp-1);
@@ -6236,12 +6400,17 @@ button.query-list-status[data-active="true"] {
   gap: 1px;
 }
 
+/* The wash needs room around the text; the text needs to start where the section
+   heading above it starts. A negative margin equal to the padding gives both —
+   the same trick the page title uses for its own hover wash. Without it every
+   binding in the list sat four pixels right of the heading it belonged to. */
 .shortcut-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--sp-2);
   min-height: 32px;
+  margin-inline: calc(var(--sp-1) * -1);
   padding: 0 var(--sp-1);
   border-radius: var(--r-2);
 }

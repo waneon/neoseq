@@ -13,6 +13,8 @@ colors:                                # "light / dark" — cool neutrals (hue 2
   surface-3:    "oklch(0.931 0.007 264) #e6e8ed / oklch(0.318 0.011 264) #2f3238"  # active / pressed
   rail:         "oklch(0.974 0.004 264) #f5f6f9 / oklch(0.178 0.007 264) #101114"  # navigation rail
   overlay:      "oklch(1 0 0) #ffffff / oklch(0.253 0.009 264) #202227"       # menus, dialogs, palette
+  raised:       "oklch(1 0 0) / oklch(0.3 0.01 264)"                          # a control lifted off a ground
+  raised-hover: "oklch(0.981 0.003 264) / oklch(0.34 0.011 264)"
   ink:          "oklch(0.235 0.014 264) #1b1e25 / oklch(0.955 0.004 264) #eff0f3"  # the user's words
   ink-2:        "oklch(0.462 0.014 264) #555961 / oklch(0.762 0.011 264) #aeb2b9"  # secondary text
   ink-3:        "oklch(0.548 0.013 264) #6d7179 / oklch(0.632 0.013 264) #868a92"  # metadata, placeholders
@@ -57,8 +59,9 @@ spacing: "sp-0…sp-8 = 2 4 8 12 16 24 32 48 64"
 
 metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar 48 ·
   text-inset 26 (slot + gap + padding — the title's left edge) ·
-  control-row 32 · outline-row 28 · indent 30 · bullet-slot 20 · bullet-disc 20 ·
-  hit-target 24 (32 ≤600px) · append min(40vh, 320px)"
+  mark-slot 16 + mark-gap 9 (the rail's one glyph column) ·
+  control-row 32 · chip 24 · outline-row 28 · indent 30 · bullet-slot 20 · bullet-disc 20 ·
+  hit-target 24 (32 ≤600px, and the icon button grows with it) · append min(40vh, 320px)"
 
 radius: "r-1 4px chips and key badges · r-2 7px controls · r-3 12px panels ·
   r-4 16px dialogs and the palette · r-full the bullet dot only"
@@ -66,7 +69,9 @@ radius: "r-1 4px chips and key badges · r-2 7px controls · r-3 12px panels ·
 elevation:                             # a control is raised or inset, never flat
   e1: "inset ring of {line} — a field, and anything standing in for one"
   e1-chip: "inset ring of 1.5px {line-strong} — a chip, which is too small for a hairline"
-  e1-raised: "ring + a 1px lit top edge + a short contact cast — a button, a card"
+  e1-raised: "ring + a 1px lit top edge + a short contact cast — a button, a card;
+    filled with {raised}, never {canvas}, which is the lightest surface in one mode
+    and the darkest in the other"
   e2: "ring + soft cast — floating: menus, popovers, toasts"
   e3: "ring + deep cast — modal: dialogs, the palette"
   lit-edge: "inset 0 1px 0 white/16% (10% dark) — the top of any filled control"
@@ -81,7 +86,10 @@ motion:
 
 layers: "content 0 · scrim 25 · drawer 30 · dialog 50 · popover 55 · menu 60 · palette 65 · toast 70"
 
-iconography: { library: lucide, size: "15px — 16px in rail, palette and menus", strokeWidth: 2, rest: "{ink-3}", hover: "{ink}", current: "{accent}" }
+iconography: { library: lucide, size: "14px dense chrome · 16px a row someone reads
+    (rail, palette, menus) — both even, and every box that centres one is even too,
+    because an odd glyph in an even box lands on a half pixel", strokeWidth: 2,
+  rest: "{ink-3}", hover: "{ink}", current: "{accent}" }
 ---
 
 ## Overview
@@ -225,6 +233,18 @@ around running text — a focus indicator is a halo of `accent-soft`, never a se
 scrollbar**, declared once globally — thin, trackless, ink-relative; no component declares
 another, components only reserve gutter.
 
+**Whole pixels.** A glyph centred in an odd-sized box, or in a box whose own size is a
+fraction, is a blurred glyph — so icon sizes are even, the boxes that centre them are even,
+and a clamp with both a `px` and a `vh` term is ordered so the `px` side wins at ordinary
+window heights (`min(520px, 76vh)`, not `min(520px, 68vh)`). A control as wide as its own
+text is the one exception: no CSS rounds a run of glyphs, and pinning those widths would be
+the stranger decision.
+
+**Rows of one table share their tracks.** Several sibling grids that repeat the same
+`grid-template-columns` are several grids, not a table: an `auto` track sizes to each row's
+own content and the column they are meant to form comes out ragged. The parent owns the
+tracks and the rows inherit them with `subgrid`.
+
 ## Motion
 
 Motion explains a change; it never decorates one.
@@ -269,7 +289,9 @@ option list, listbox and the palette, with `↑↓` to move it, `⏎` to choose,
 chosen value says so with a check, never a second wash; a destructive row keeps its own ink
 under a `--danger-soft` wash. A **persistent indicator** says which pane is currently on
 screen and must keep saying it while the pointer wanders: a 2px accent rule at the left edge,
-used by the settings rail and nowhere else.
+used by the settings rail and nowhere else — and by `aria-current` alone, never also by
+focus, or a reader tabbing the list sees two identical accent marks and cannot tell which
+one is the pane they are looking at.
 
 ## Disclosure
 
@@ -321,6 +343,9 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   is drawn as virtualized row backgrounds — resting in the reader's tone, lit in the accent
   from the root to the caret; a collapsed row's halo replaces it. No row fill — the caret is
   the signal; an empty line is a 40% bullet; the append zone is the new-line affordance.
+- **Page name.** A field that wraps: a textarea sized to its content, not an input. A name
+  longer than the measure in an input is a name the reader can only get at with the arrow
+  keys, and a page's own name is the last thing that should be unreadable.
 - **Markdown.** A projection of the block, not a second block: a press opens the source at
   the pressed word, the projection carries the row's tab stop, links follow instead of
   editing. No imported prose theme, no bordered callout, no rule under a heading; raw HTML
@@ -382,7 +407,11 @@ Non-negotiable; enforced by CI (axe, wcag2a/aa, serious + critical, light, dark 
 5. The tree exposes `aria-expanded` and `aria-activedescendant`; the textarea is the single
    tab stop; every collapse affordance is keyboard-reachable.
 6. Live regions match urgency: off / status / assertive / alert.
-7. Hit targets ≥ 24px, ≥ 32px at or below 600px.
+7. Hit targets ≥ 24px, ≥ 32px at or below 600px — which the whole chip family answers to
+   as well, and which the icon button and each key of a segmented control grow to on touch.
+   A control wrapped in its own `<label>` is measured as the label. Text that ellipsises
+   carries the whole of itself in a `title`, because an ellipsis with no way to read the
+   rest is a name the reader cannot check.
 8. IME composition is guarded before any key handler; `Escape` alone bypasses the guard.
 9. Localization: one typed catalog, `lang`/`dir` set pre-paint, logical properties,
    `dir="auto"` for user text; components survive the 2× expansion and RTL pseudo-locales.

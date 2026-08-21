@@ -222,17 +222,33 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
       });
   };
 
+  // A page's name wraps. It was an `<input>`, which cannot: a title longer than
+  // the measure had 1836px of text in an 822px box with `overflow: clip`, so more
+  // than half of a page's own name was unreachable except by putting the caret in
+  // and walking across it with the arrow keys. A textarea sized to its content is
+  // the same field with the one behaviour a heading needs.
+  const resize = (element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    element.style.height = "0";
+    element.style.height = `${element.scrollHeight}px`;
+  };
+
   return (
     <div className="page-title-field">
-      <input
+      <textarea
+        ref={resize}
+        rows={1}
         className="page-title"
         value={draft ?? authoritative}
         aria-label={message("page.title")}
         data-testid="page-title"
         readOnly={state.mode === "readonly"}
         onChange={(event) => {
-          pending.current = event.target.value;
-          setDraft(event.target.value);
+          // A title has no lines, so a pasted newline is a space.
+          const next = event.target.value.replace(/[\r\n]+/g, " ");
+          pending.current = next;
+          setDraft(next);
+          resize(event.currentTarget);
         }}
         onBlur={commit}
         onKeyDown={(event) => {

@@ -672,7 +672,15 @@ SELECT ?entity ?content ?page WHERE {
           <div className="shell-nav" data-testid="page-list">
             {pages.length === 0 && <p className="rail-note">{message("shell.noPages")}</p>}
             {pages.map((page) => (
-              <NavLink key={page.id} className="shell-nav-item" to={`/g/${graphId}/p/${page.id}`}>
+              // The rail is 248px wide and a page name is as long as somebody
+              // made it, so the label ellipsises — and an ellipsis with no way to
+              // read the rest is a name the reader cannot check.
+              <NavLink
+                key={page.id}
+                className="shell-nav-item"
+                to={`/g/${graphId}/p/${page.id}`}
+                title={pageTitle(page)}
+              >
                 <FileTextIcon aria-hidden />
                 <span className="nav-label">{pageTitle(page)}</span>
               </NavLink>

@@ -210,6 +210,15 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
       return;
     }
     if (event.nativeEvent.isComposing) return;
+    // The palette is `aria-modal`, and a modal that hands focus to the rail
+    // behind it on ⇥ is not one. It holds exactly one focusable element, so
+    // trapping is simply refusing the key: focus has nowhere else to go inside,
+    // and outside is where it must not land.
+    if (event.key === "Tab") {
+      event.preventDefault();
+      inputRef.current?.focus();
+      return;
+    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((index) => Math.min(index + 1, Math.max(flat.length - 1, 0)));
