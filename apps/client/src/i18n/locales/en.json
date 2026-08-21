@@ -418,8 +418,6 @@
   "save.storageFull": "Storage full — not saved",
   "settings.accent": "Accent colour",
   "settings.accentDescription": "The one colour Neoseq uses for actions, links, the caret, the selection and the live path through the outline. Pick a hue; Neoseq keeps its lightness, so every choice stays legible in both light and dark.",
-  "settings.accentHue": "Accent hue",
-  "settings.accentHueValue": "{hue}°",
   "settings.appearance": "Appearance",
   "settings.appearanceDescription": "Light or dark. System follows whichever mode your operating system is in.",
   "settings.backend": "Durable backend",

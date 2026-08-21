@@ -67,12 +67,24 @@ export interface AnchoredOptions {
 }
 
 /**
- * The fixed-position style for a panel hanging off `rect`. A null rect means the
- * anchor is gone (a remounted textarea, a removed chip); the panel then opens
- * near the top of the window instead of at the origin, which is where a 0×0
- * measurement used to put it.
+ * The fixed-position style for a panel hanging off `anchor`.
+ *
+ * A box with no area is not a position — it is the absence of one, and it is
+ * normalised to `null` here. An element that has left the layout, detached by a
+ * re-render or hidden inside a `display: none` subtree, still answers
+ * `getBoundingClientRect()`, and it answers with zeroes; taken at face value that
+ * is a real anchor sitting in the window's top-left corner, and a 360×420
+ * property picker duly opened there. It happened in a query result and nowhere
+ * else, because a query result is the one surface that replaces its own cells
+ * underneath an open panel: hydrate a block, or write a value and let the query
+ * re-run, and the cell the panel was hung on is a different element by the time
+ * the panel measures it.
+ *
+ * With nothing to hang off, the panel opens near the top of the window rather
+ * than at the origin.
  */
-export function placeAnchored(rect: DOMRect | null, options: AnchoredOptions = {}): CSSProperties {
+export function placeAnchored(anchor: DOMRect | null, options: AnchoredOptions = {}): CSSProperties {
+  const rect = anchor !== null && (anchor.width > 0 || anchor.height > 0) ? anchor : null;
   const gap = options.gap ?? GAP;
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
@@ -135,10 +147,23 @@ export function placeAnchored(rect: DOMRect | null, options: AnchoredOptions = {
       };
 }
 
+/** The anchor's box, or null when there is nothing there to measure. */
+function measureAnchor(element: HTMLElement | null): DOMRect | null {
+  if (!element || !element.isConnected) return null;
+  const rect = element.getBoundingClientRect();
+  return rect.width === 0 && rect.height === 0 ? null : rect;
+}
+
 /**
  * Keeps a panel glued to its anchor for as long as it is open. Placement is
  * computed before the first paint — the panel never appears somewhere else
  * first — and again on any scroll or resize that could have moved the anchor.
+ *
+ * When the anchor stops being measurable while the panel is up, the panel *stays
+ * where it is*. The alternative is to re-place it from nothing, and there is no
+ * better guess available than the position it already holds — which is also the
+ * one the reader is currently looking at. Only a panel that never had an anchor
+ * falls back to the centred placement.
  *
  * `revision` re-places the panel when the caller's own content changed size:
  * the property picker moving between its stages, an autocomplete's list growing.
@@ -150,21 +175,24 @@ export function useAnchoredPosition(
 ): CSSProperties {
   const { width, minWidth, maxWidth, matchAnchorWidth, maxHeight, gap } = options;
   const place = useCallback(
-    () =>
-      placeAnchored(anchor?.getBoundingClientRect() ?? null, {
+    (previous?: CSSProperties) => {
+      const rect = measureAnchor(anchor);
+      if (rect === null && previous !== undefined) return previous;
+      return placeAnchored(rect, {
         width,
         minWidth,
         maxWidth,
         matchAnchorWidth,
         maxHeight,
         gap,
-      }),
+      });
+    },
     [anchor, width, minWidth, maxWidth, matchAnchorWidth, maxHeight, gap],
   );
-  const [style, setStyle] = useState(place);
+  const [style, setStyle] = useState(() => place());
 
   useLayoutEffect(() => {
-    const reposition = () => setStyle(place());
+    const reposition = () => setStyle((current) => place(current));
     reposition();
     // Capture, because the anchor moves with whichever ancestor scrolls.
     window.addEventListener("scroll", reposition, true);

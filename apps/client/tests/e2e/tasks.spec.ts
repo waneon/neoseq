@@ -201,26 +201,32 @@ test("the outline is one hue at two weights, and only the live path is drawn", a
 }) => {
   await createGraph(page, "Branch Graph");
   await startOutline(page);
+  // Four levels, with a sibling above the caret at the deepest one. Three levels
+  // would not do: the defect this measures only appears once the path has turned
+  // off more than one column above the row being drawn.
   await typeInFocusedBlock(page, "Project setup");
-  await page.getByLabel("Block text").press("End");
-  await page.getByLabel("Block text").press("Enter");
-  await page.keyboard.press("Tab");
-  await typeInFocusedBlock(page, "Draft the schema");
-  // A second child of the same parent, so the stroke has a sibling to pass.
-  await page.getByLabel("Block text").nth(1).click();
+  for (const line of ["Draft the schema", "Add the columns", "Name them"]) {
+    await page.getByLabel("Block text").last().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Tab");
+    await typeInFocusedBlock(page, line);
+  }
+  await page.getByLabel("Block text").last().click();
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
-  await typeInFocusedBlock(page, "Write the migration");
+  await typeInFocusedBlock(page, "Order them");
   // `typeInFocusedBlock` blurs when it is done; the caret is what lights a path,
   // so put it back in the block this test is about.
-  await page.getByLabel("Block text").nth(2).click();
+  await page.getByLabel("Block text").last().click();
 
   const rows = page.getByTestId("outline-row");
   const root = rows.first();
-  const passed = rows.nth(1);
-  const caret = rows.nth(2);
-  await expect(rows).toHaveCount(3);
+  const passed = rows.nth(3);
+  const caret = rows.nth(4);
+  await expect(rows).toHaveCount(5);
   await expect(caret).toHaveAttribute("data-focused", "true");
+  await expect(caret).toHaveAttribute("aria-level", "4");
 
   const branch = (locator: Locator) =>
     locator.evaluate((node) => {
@@ -242,10 +248,34 @@ test("the outline is one hue at two weights, and only the live path is drawn", a
   const stroke = await branch(caret);
   expect(stroke.drawn).toBe(true);
   // One indent left of its own bullet, a real rounded corner, and twice the
-  // weight of the guides it runs along.
-  expect(stroke.left).toBe(33);
+  // weight of the guides it runs along. 33 = gutter 24 + slot/2 10 + two indents
+  // for its own depth, less half the stroke's width.
+  expect(stroke.left).toBe(93);
   expect(stroke.radius).toBe("10px");
   expect(stroke.width).toBe("2px");
+
+  // ── Only the path, and only the part of it still in flight ──
+  // The live stroke is a polyline, so at a row it does not reach exactly one
+  // column of it is still descending: the deepest ancestor above that row. Drawn
+  // as "the first N columns" instead, every level the path had already turned off
+  // was redrawn at full weight, and a sibling four levels deep grew three bold
+  // stubs standing in the middle of nowhere.
+  const liveBar = (locator: Locator) =>
+    locator.evaluate((node) => {
+      const style = getComputedStyle(node);
+      const [size] = style.backgroundSize.split(",").slice(1, 2);
+      const [position] = style.backgroundPosition.split(",").slice(1, 2);
+      return { size: size.trim(), position: position.trim() };
+    });
+
+  // The sibling above the caret sits at depth 3 with three ancestors above it, so
+  // it carries exactly one 2px bar, at its parent's column and no further left.
+  const bar = await liveBar(passed);
+  expect(bar.size.split(" ")[0]).toBe("2px");
+  expect(bar.position.split(" ")[0]).toBe("93px");
+  // The rows the path arrives at draw none of it — there the branch is the stroke.
+  expect((await liveBar(caret)).size.split(" ")[0]).toBe("0px");
+  expect((await liveBar(root)).size.split(" ")[0]).toBe("0px");
 
   // One hue, two weights: the guide is the accent held back, the stroke is the
   // accent itself, and the reader chooses neither separately from the other.

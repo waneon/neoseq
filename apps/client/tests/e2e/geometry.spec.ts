@@ -722,11 +722,18 @@ test("the settings dialog is one size, whatever section is open", async ({ page 
   };
 
   const first = await sizeOf();
-  // Taller than the 560px ceiling it used to share with a 340px floor: a fixed box
-  // is sized for the longest thing in it.
-  expect(first.height).toBeGreaterThan(560);
-  // And whole, because this box draws its own edge and the seam inside it.
+  // Whole, because this box draws its own edge and the seam inside it.
   expect(first.height % 1).toBe(0);
+  // Sized for the *nav*, not for the longest pane. Sized for the pane it was five
+  // hundred pixels tall and most sections ended a third of the way down; the
+  // section list is the one thing here that may not scroll, so it is what the
+  // height answers to.
+  const nav = await page.locator(".settings-nav").evaluate((node) => ({
+    scroll: node.scrollHeight,
+    client: node.clientHeight,
+  }));
+  expect(nav.scroll).toBeLessThanOrEqual(nav.client + 1);
+  expect(first.height).toBeLessThan(420);
 
   for (const section of ["language", "tasks", "keyboard", "storage", "graph"]) {
     await page.getByTestId(`settings-tab-${section}`).click();

@@ -418,8 +418,6 @@
   "save.storageFull": "저장소가 가득 참 — 저장되지 않음",
   "settings.accent": "강조색",
   "settings.accentDescription": "동작, 링크, 커서, 선택 영역, 개요의 활성 경로에 쓰이는 단 하나의 색입니다. 색상만 고르면 명도는 그대로 유지되므로 라이트와 다크 모드 모두에서 또렷하게 보입니다.",
-  "settings.accentHue": "강조색 색상",
-  "settings.accentHueValue": "{hue}°",
   "settings.appearance": "화면 모드",
   "settings.appearanceDescription": "라이트 또는 다크 모드를 선택하세요. 시스템은 운영체제 설정을 따릅니다.",
   "settings.backend": "영구 저장 백엔드",

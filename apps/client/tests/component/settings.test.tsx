@@ -189,11 +189,6 @@ describe("presentation preferences", () => {
     // derived from the accent — nothing here computes one.
     expect(document.documentElement.style.getPropertyValue("--accent-h")).toBe("195");
 
-    // The strip is the same preference, continuous: it reaches the angles the
-    // eight steps do not.
-    fireEvent.change(screen.getByTestId("accent-hue"), { target: { value: "212" } });
-    await waitFor(() => expect(storedAccentHue()).toBe(212));
-
     // Back to the default, and the override is removed rather than written out,
     // so a reader who never chose one still follows the shipped iris.
     await user.click(within(accent).getByRole("button", { name: "Iris" }));

@@ -436,8 +436,6 @@ export interface MessageArgumentMap {
   "save.storageFull": undefined;
   "settings.accent": undefined;
   "settings.accentDescription": undefined;
-  "settings.accentHue": undefined;
-  "settings.accentHueValue": { readonly "hue": string | number };
   "settings.appearance": undefined;
   "settings.appearanceDescription": undefined;
   "settings.backend": undefined;

@@ -8,20 +8,23 @@
 // product behind it is the preview: the settings rail's current row, this pane's
 // own tint and the pressed swatch's tick all move the moment the hue does.
 //
-// What is chosen is a *hue*, and only a hue. `app.css` owns the accent's
-// lightness and chroma in each mode, so every angle on this rail lands on the
-// measured row of the contrast table in both modes (§ The accent is a hue) — the
-// reader cannot pick an illegible accent, so nothing here has to warn them about
-// one. That is the whole reason this is a hue rail rather than an `input
-// type="color"`: a free RGB picker offers millions of colours of which most fail
-// AA in one mode or the other, and then either ships an inaccessible interface or
-// spends a validation message telling the reader their colour was refused.
+// What is stored is a *hue*, and only a hue. `app.css` owns the accent's lightness
+// and chroma in each mode, so every angle lands on the measured row of the
+// contrast table in both modes (§ The accent is a hue) — the reader cannot pick an
+// illegible accent, so nothing here has to warn them about one. That is also why
+// this is not an `input type="color"`: a free RGB picker offers millions of colours
+// of which most fail AA in one mode or the other, and then either ships an
+// inaccessible interface or spends a validation message refusing a choice.
 //
-// Two controls, one preference. The eight steps are the named answers, in the same
-// swatch language every colour choice in the product uses; the rail reaches every
-// angle between them. Both are painted from `--accent-l` and `--accent-c`, so they
-// show the colours actually on offer in the current mode rather than a generic
-// rainbow, and they repaint themselves in dark mode for free.
+// Eight named steps, and nothing else. A continuous hue rail sat under them for a
+// while and it was the wrong instrument: the accent is not a quantity anybody
+// tunes, it is one of a handful of answers, and a slider invites a precision that
+// means nothing here — 214° is not a better answer than "Blue", it is the same
+// answer with a decision left dangling. The steps are the whole control now, in
+// the same swatch language every colour choice in the product uses, painted from
+// `--accent-l` and `--accent-c` so they show the colours actually on offer in the
+// current mode and repaint themselves in dark mode for free. A hue stored from
+// before still renders — nothing about the token changed, only what offers it.
 
 import { useState, type CSSProperties } from "react";
 import { CheckIcon } from "lucide-react";
@@ -33,11 +36,7 @@ import {
   storedAccentHue,
 } from "../../ui/theme";
 
-/**
- * Eight steps around the circle, named, with iris where it has always been. The
- * rail below them reaches every angle in between; these are the ones worth a
- * single press, and they double as the legend that says what the rail contains.
- */
+/** Eight steps around the circle, named, with iris where it has always been. */
 const ACCENT_STEPS = [
   { hue: 15, label: "accent.red" },
   { hue: 55, label: "accent.orange" },
@@ -63,47 +62,30 @@ export function AccentField() {
     <div className="settings-field">
       <h3>{message("settings.accent")}</h3>
       <p>{message("settings.accentDescription")}</p>
-      <div className="accent-choice" data-testid="settings-accent">
-        <div
-          className="color-choice"
-          data-kind="hue"
-          role="group"
-          aria-label={message("settings.accent")}
-        >
-          {ACCENT_STEPS.map((step) => (
-            <button
-              key={step.hue}
-              type="button"
-              className="color-swatch"
-              // The swatch is the accent it sets, built from the same lightness
-              // and chroma the token is, so it cannot drift from the result.
-              style={{ "--accent-h": step.hue } as CSSProperties}
-              aria-pressed={hue === step.hue}
-              aria-label={message(step.label)}
-              title={message(step.label)}
-              data-testid={`accent-step-${step.hue}`}
-              onClick={() => apply(step.hue)}
-            >
-              <CheckIcon aria-hidden />
-            </button>
-          ))}
-        </div>
-        {/* Native, because a hue is a continuous scalar and the platform's range
-            is better at one than anything this design system would rebuild:
-            arrow keys, Home/End, Page keys and touch dragging all arrive for
-            free (§ Choice — native stays where the platform is better). */}
-        <input
-          className="accent-rail"
-          type="range"
-          min={0}
-          max={359}
-          step={1}
-          value={hue}
-          aria-label={message("settings.accentHue")}
-          aria-valuetext={message("settings.accentHueValue", { hue })}
-          data-testid="accent-hue"
-          onChange={(event) => apply(Number(event.target.value))}
-        />
+      <div
+        className="color-choice"
+        data-kind="hue"
+        role="group"
+        aria-label={message("settings.accent")}
+        data-testid="settings-accent"
+      >
+        {ACCENT_STEPS.map((step) => (
+          <button
+            key={step.hue}
+            type="button"
+            className="color-swatch"
+            // The swatch is the accent it sets, built from the same lightness
+            // and chroma the token is, so it cannot drift from the result.
+            style={{ "--accent-h": step.hue } as CSSProperties}
+            aria-pressed={hue === step.hue}
+            aria-label={message(step.label)}
+            title={message(step.label)}
+            data-testid={`accent-step-${step.hue}`}
+            onClick={() => apply(step.hue)}
+          >
+            <CheckIcon aria-hidden />
+          </button>
+        ))}
       </div>
     </div>
   );

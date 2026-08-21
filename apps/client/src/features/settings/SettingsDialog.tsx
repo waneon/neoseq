@@ -358,6 +358,10 @@ function TasksSection() {
                 data-due={tier}
                 data-palette={tone}
                 data-testid={`due-preview-${tier}`}
+                // The preview is the column that gives when four do not fit, so
+                // it carries the whole of itself for a reader who lost the end of
+                // it (§ Accessibility 7).
+                title={formatJournalDate(addDays(today, exampleDay[tier]))}
               >
                 <CalendarIcon aria-hidden />
                 <span className="task-chip-value">
@@ -373,7 +377,12 @@ function TasksSection() {
                       number is a control, and which side of it the unit falls on
                       is the language's choice, not the layout's. */}
                   {message("settings.dueWithinLead")}
-                  <Input
+                  {/* A number in a sentence, not a field in a form: bespoke
+                      rather than shadcn's `Input`, which *is* the inset field
+                      this one is deliberately not (app.css § A number that reads
+                      as a word). */}
+                  <input
+                    className="due-tier-input"
                     type="number"
                     min={0}
                     max={MAX_DUE_DAYS}

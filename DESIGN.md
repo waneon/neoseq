@@ -70,7 +70,8 @@ metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar
   mark-slot 16 + mark-gap 9 (the rail's one glyph column) ·
   control-row 32 · chip 24 · outline-row 28 · indent 30 · bullet-slot 20 · bullet-disc 20 ·
   guide 1 · branch 2 · branch-turn 10 · tag-gap 12 ·
-  settings-shell round(down, clamp(272, 100dvh − 128, 720), 1px) — one height, every section ·
+  settings-shell round(down, clamp(272, 100dvh − 128, 340), 1px) — the nav's height,
+    every section ·
   hit-target 24 (32 ≤600px, and the icon button grows with it) · append min(40vh, 320px)"
 
 radius: "r-1 4px chips and key badges · r-2 7px controls · r-3 12px panels ·
@@ -204,7 +205,11 @@ surface: tone-derived tokens are declared on the element carrying `data-palette`
 
 **The accent is a hue.** The accent is declared as a lightness, a chroma and a hue, and the
 hue — `--accent-h`, written on `:root` pre-paint, default 277 — is the one preference in the
-product that names a colour instead of naming a declared step. Nothing else about it is the
+product that names a colour instead of naming a declared step. It is offered as **eight named
+steps and nothing else**. A continuous hue rail sat under them for a while and it was the
+wrong instrument: the accent is not a quantity anybody tunes, it is one of a handful of
+answers, and a slider invites a precision that means nothing here — 214° is not a better
+answer than "Blue", it is the same answer with a decision left dangling. Nothing else about it is the
 reader's, and nothing else needs to be: everything the accent touches is already written in
 terms of `--accent`, so one number moves the caret, the selection, the lit path, every tint
 and every focus halo together.
@@ -219,8 +224,8 @@ therefore no warning, no validation message and no refused colour.
 That is the whole argument against an `input type="color"` here: a free RGB picker offers
 millions of colours of which most fail AA in one mode or the other, and it would have to
 either ship the failures or spend a sentence telling the reader their colour was rejected.
-A hue strip offers only legal answers, and it is painted from `--accent-l` and `--accent-c`
-so it shows the colours actually on offer in the current mode rather than a rainbow.
+The steps offer only legal answers, and they are painted from `--accent-l` and `--accent-c`
+so they show the colours actually on offer in the current mode rather than a rainbow.
 
 **Contrast rules** (verified in CI, both modes). Measured figures on `canvas` at the default
 hue: `ink` 16.7 / 15.7, `ink-2` 7.1 / 8.4, `ink-3` 4.9 / 5.1, `accent` 5.6 / 6.3,
@@ -418,9 +423,12 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   levels deep meant four hooks per row, and a "you are here" instrument drawn everywhere is
   wallpaper. The columns a row merely passes stay quiet 1px guides, drawn as virtualized row
   backgrounds; the branch is one pseudo-element and no DOM, which a virtualized list has
-  none of to spare. A row the path *arrives at* draws no lit column at all — the stroke
-  turns in, and every column left of that one belongs to an ancestor the path left levels
-  ago. The bullets the stroke lands on take the accent with it, and so does the collapse
+  none of to spare. **Only the part of the stroke still in flight is drawn.** The live path is
+  a polyline, so at a row it does not reach exactly one column of it is still descending: the
+  column of the deepest ancestor above that row. Drawn as "the first N lit columns" instead,
+  every level the path had already turned off was redrawn at full weight, and a sibling four
+  levels deep grew three bold stubs standing in the middle of nowhere. A row the path
+  *arrives at* draws none of it — there the branch is the stroke. The bullets the stroke lands on take the accent with it, and so does the collapse
   chevron at each turn, which is shown there without waiting for a hover: the subtree the
   reader is inside is the one they are most likely to fold. A collapsed row's halo replaces
   its own descending line.
@@ -479,20 +487,25 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   appearance choice previews itself at the size it will render. **The dialog is one size,
   whatever section is open**: a `min-height` under a larger `max-height` meant it resized as
   the reader moved down its own nav, so every press in the list moved the list and the row
-  the pointer was travelling toward was somewhere else on arrival. The pane scrolls instead.
+  the pointer was travelling toward was somewhere else on arrival. The pane scrolls instead —
+  and the size is the **nav's**, not the longest pane's. Sized for the pane it stood five
+  hundred pixels tall with most sections ending a third of the way down it, and a fixed box's
+  white space is permanent in a way a growing box's never was. The section list is the one
+  thing here that may not scroll, so it is what the height answers to. **A number in a
+  sentence is not a field in a form**: `within [7] days` takes the control-that-reads-as-a-word
+  treatment the query builder uses, at the height of everything beside it, so four rows of one
+  ordered scale are four rows of one height rather than a scale with a form control in it.
   **A colour is chosen by pressing the colour** — a filled disc per option, all of them on
   screen at once, a tick in `--on-tone` on the chosen one, one press each; never a dropdown
   whose trigger hides the palette behind the word for it. One swatch language for every
-  colour in the product, the accent's eight hue steps included, with a rail beside them for
-  the angles between. The accent has no preview of its own because the product behind the
-  dialog is one.
+  colour in the product, the accent's eight hue steps included — and nothing beside them, no
+  slider: the accent is one of a handful of answers, not a quantity to tune. The accent has
+  no preview of its own because the product behind the dialog is one.
 - **Choice.** Every list of choices opens the same menu the bullet opens — never a native
   `<select>` or `<datalist>`. A trigger keeps the shape of a field and takes an accent ring
   while its popup is up, because that is the only thing that says which control on the line
   the popup belongs to. Native stays where the platform is better: checkboxes, date and time
-  inputs, and the accent's hue — a continuous scalar, where a range brings arrow keys,
-  `Home`/`End` and touch dragging for free. A **colour** is not a list of choices and does
-  not use the menu (§ Settings).
+  inputs. A **colour** is not a list of choices and does not use the menu (§ Settings).
 - **Overlays.** All portaled, on one `--z-` scale, dismissed by outside click, `⎋`, and
   selection. Anchored panels share one placement function: below the anchor, flipped above
   when the room is above, `max-height` the room actually left. **Sideways it opens toward the
@@ -504,6 +517,12 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   under its own input, or a slash menu jumping to the far end of the line the caret is at
   the start of, would be worse than anything this rule fixes. Pinned by the edge rather than
   offset by a guessed width, so a content-sized panel still meets the edge it is meant to.
+  **A box with no area is not a position.** An element that has left the layout still answers
+  `getBoundingClientRect()`, and it answers with zeroes; read as a real anchor that is the
+  window's top-left corner, which is where a 360×420 property picker jumped the moment a
+  query result replaced the cell it was hung on. A panel whose anchor stops being measurable
+  while it is open stays exactly where it is — there is no better guess than the position the
+  reader is already looking at.
 - **First light.** The launch screen is the one surface whose job is a first impression
   rather than a place to work: a narrow centred column, the mark in an accent tile, each
   graph a bounded card with its own initial, the name field and its verb on one line, and the
@@ -551,7 +570,8 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 
 ## Do / Don't
 
-**Do**: draw the branch to the caret and leave every other indent a quiet guide · use one
+**Do**: draw the branch to the caret and leave every other indent a quiet guide · draw only
+the part of a path still in flight · use one
 hue at two weights rather than two colours for one job · separate by lightness and close with
 a hairline · raise a button and inset a field · declare both modes together · reserve the
 accent for actions, references, and where you are · speak it quietly inside a sentence ·
@@ -573,5 +593,6 @@ link-shaped thing on a row · draw a "you are here" device everywhere · offer a
 contrast table cannot vouch for · pick a colour from a dropdown · let a state tone follow the
 accent · put a tile behind a glyph to give it weight · resize a dialog as the reader moves
 down its own nav · open a panel at the window edge it is nearest · state a fact twice on one
-screen · mount a form below the outline · hover-gate a surface's primary verb · toast what
-the user can already see · declare a token in two files.
+screen · mount a form below the outline · hover-gate a surface's primary verb · offer a
+slider for something that is one of eight answers · read a zero-area box as a place · toast
+what the user can already see · declare a token in two files.
