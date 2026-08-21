@@ -65,6 +65,17 @@ test("status and priority are the two marks before the writing", async ({ page }
   );
   expect(Math.abs(statusBox!.y - priorityBox!.y)).toBeLessThan(2);
 
+  // One mark language. Priority used to carry a 24px tinted tile behind its bars
+  // to hold its own beside a filled status disc, and a tile at the head of a line
+  // of writing is the loudest box on the row; the bars grew instead, so neither
+  // mark has a fill of its own at rest.
+  const fills = await Promise.all(
+    [status, priority].map((mark) =>
+      mark.evaluate((node) => getComputedStyle(node).backgroundColor)),
+  );
+  expect(fills[0]).toBe("rgba(0, 0, 0, 0)");
+  expect(fills[1]).toBe(fills[0]);
+
   // The head of the line is also where priority is changed and removed.
   await chooseFromMenu(page, priority, "Low");
   await expect(page.getByTestId("task-priority-toggle")).toHaveAccessibleName("Priority: Low");
@@ -153,10 +164,12 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await expect(picker).toHaveCount(0);
   await awaitSaved(page);
 
-  // Four days out, with the default 1/7 thresholds, is `upcoming`.
+  // Four days out, with the default 1/7 thresholds, is `upcoming` — and blue on
+  // its own account, not the accent's: a step in an ordered scale may not change
+  // colour because somebody chose a different accent.
   const deadline = page.getByTestId("task-chip-deadline");
   await expect(deadline).toHaveAttribute("data-due", "upcoming");
-  await expect(deadline).toHaveAttribute("data-palette", "accent");
+  await expect(deadline).toHaveAttribute("data-palette", "info");
   // The tint is a fill, and the date it is about is still written out in ink
   // that clears AA on it — colour is never the only reading.
   const tinted = await deadline.evaluate((node) => {
@@ -183,41 +196,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("data-palette", "danger");
 });
 
-test("the outline thread takes the tone the reader chose", async ({ page }) => {
-  await createGraph(page, "Thread Tone Graph");
-  await startOutline(page);
-  await typeInFocusedBlock(page, "Project setup");
-  await page.getByLabel("Block text").press("End");
-  await page.getByLabel("Block text").press("Enter");
-  await page.keyboard.press("Tab");
-  await typeInFocusedBlock(page, "Draft the schema");
-
-  const section = page.locator(".outline-section");
-  const parent = page.getByTestId("outline-row").first();
-  // A parent draws its own thread from under its bullet down to its children, so
-  // the tree has no gap between a mark and the line that descends from it.
-  await expect(parent).toHaveAttribute("data-has-children", "true");
-  const threadLayers = await parent.evaluate(
-    (node) => (getComputedStyle(node).backgroundImage.match(/-gradient\(/g) ?? []).length,
-  );
-  expect(threadLayers).toBe(3);
-
-  await expect(section).toHaveAttribute("data-palette", "neutral");
-  await openSettings(page, "appearance");
-  await page.getByTestId("settings-thread-tone").getByRole("button", { name: "Green" }).click();
-  await expect(page.getByTestId("settings-thread-tone").getByRole("button", { name: "Green" }))
-    .toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("Escape");
-
-  await expect(section).toHaveAttribute("data-palette", "ok");
-  // The preference names a tone; `app.css` decides the colour, so the thread
-  // follows and the hairlines elsewhere in the product do not.
-  const threadTone = await section.evaluate((node) =>
-    getComputedStyle(node).getPropertyValue("--thread-line"));
-  expect(threadTone).toContain("oklch");
-});
-
-test("a nested block is joined to its parent by a branch, lit on the path to the caret", async ({
+test("the outline is one hue at two weights, and only the live path is drawn", async ({
   page,
 }) => {
   await createGraph(page, "Branch Graph");
@@ -227,8 +206,7 @@ test("a nested block is joined to its parent by a branch, lit on the path to the
   await page.getByLabel("Block text").press("Enter");
   await page.keyboard.press("Tab");
   await typeInFocusedBlock(page, "Draft the schema");
-  // A second child of the same parent, so one sibling has the column carrying on
-  // below it and the other does not.
+  // A second child of the same parent, so the stroke has a sibling to pass.
   await page.getByLabel("Block text").nth(1).click();
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
@@ -239,48 +217,74 @@ test("a nested block is joined to its parent by a branch, lit on the path to the
 
   const rows = page.getByTestId("outline-row");
   const root = rows.first();
-  const first = rows.nth(1);
-  const second = rows.nth(2);
+  const passed = rows.nth(1);
+  const caret = rows.nth(2);
   await expect(rows).toHaveCount(3);
+  await expect(caret).toHaveAttribute("data-focused", "true");
 
-  // What makes an outline a tree rather than a stack of indents: the stroke that
-  // leaves the parent's column, turns, and lands on the child's own dot.
   const branch = (locator: Locator) =>
     locator.evaluate((node) => {
       const before = getComputedStyle(node, "::before");
-      const after = getComputedStyle(node, "::after");
       return {
         drawn: before.content !== "none",
         left: Math.round(parseFloat(before.left)),
+        width: before.borderLeftWidth,
         radius: before.borderBottomLeftRadius,
-        column: before.borderLeftColor,
-        turn: before.borderBottomColor,
-        continues: after.content !== "none",
+        colour: before.borderLeftColor,
       };
     });
 
-  // A root has no parent column to branch from.
+  // The branch is a "you are here" instrument, so it is drawn only where the path
+  // actually goes: on the caret's row and on its ancestors, and nowhere else.
+  // Drawn beside every bullet it was wallpaper.
   expect((await branch(root)).drawn).toBe(false);
+  expect((await branch(passed)).drawn).toBe(false);
+  const stroke = await branch(caret);
+  expect(stroke.drawn).toBe(true);
+  // One indent left of its own bullet, a real rounded corner, and twice the
+  // weight of the guides it runs along.
+  expect(stroke.left).toBe(33);
+  expect(stroke.radius).toBe("10px");
+  expect(stroke.width).toBe("2px");
 
-  // Both children branch off the same column — their parent's — and the turn is
-  // a real rounded corner rather than a right angle.
-  const one = await branch(first);
-  const two = await branch(second);
-  expect(one.drawn).toBe(true);
-  expect(one.left).toBe(34);
-  expect(one.radius).toBe("7px");
-  // The first of two siblings carries the column on below its own turn; the last
-  // one stops, so the tree never promises a child that is not there.
-  expect(one.continues).toBe(true);
-  expect(two.continues).toBe(false);
+  // One hue, two weights: the guide is the accent held back, the stroke is the
+  // accent itself, and the reader chooses neither separately from the other.
+  const tones = await page.locator(".outline-section").evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      guide: style.getPropertyValue("--thread-line").trim(),
+      lit: style.getPropertyValue("--thread-lit").trim(),
+    };
+  });
+  expect(tones.guide).toContain("color-mix");
+  expect(tones.guide).toContain("22%");
+  expect(tones.lit).toContain("oklch");
 
-  // The caret is in the last block, so the path down to it is lit — and the
-  // sibling above keeps the lit column running past its bullet while its own
-  // turn stays at rest, because the path does not arrive there.
-  await expect(second).toHaveAttribute("data-focused", "true");
-  expect(two.column).toBe(two.turn);
-  expect(one.column).toBe(two.column);
-  expect(one.turn).not.toBe(one.column);
+  // The path's marks belong to the path, so the accent moves them too. Polled,
+  // because the dot transitions into its new tone and a colour caught mid-way
+  // through an 80ms interpolation is neither of the two it is between.
+  const accent = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--accent)";
+    document.body.append(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved;
+  });
+  const dotOf = (row: Locator) =>
+    row.evaluate((node) =>
+      getComputedStyle(node.querySelector(".outline-bullet")!, "::after").backgroundColor);
+  await expect.poll(() => dotOf(caret)).toBe(accent);
+  await expect.poll(() => dotOf(root)).toBe(accent);
+  // And a row the path does not reach keeps the resting mark.
+  expect(await dotOf(passed)).not.toBe(accent);
+
+  // There is nothing to choose: the thread's own colour preference is gone. This
+  // is last because opening a dialog takes the caret, and the caret is what all
+  // of the above is about.
+  await openSettings(page, "appearance");
+  await expect(page.getByTestId("settings-thread-tone")).toHaveCount(0);
+  await expect(page.getByTestId("settings-accent")).toBeVisible();
 });
 
 test("the accent is a hue the reader owns, applied before the first paint", async ({ page }) => {

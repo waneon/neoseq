@@ -20,6 +20,24 @@
 //   - Either way the returned `maxHeight` is the room actually available on the
 //     chosen side, so a long list scrolls inside itself rather than off-screen.
 //
+// Sideways it is the same idea, and it was missing. Every panel was pinned by its
+// `left` at the anchor's left edge and then shoved back inside the window if it
+// did not fit, so a control near the right edge — a tag at the end of a line, the
+// sort button at the end of a query's header — opened *away* from the writing and
+// then slid back, landing at neither edge of the thing it belonged to. A panel
+// opens toward the middle of the window now:
+//
+//   - A *point-like* anchor — one narrower than the panel: a chip, an icon
+//     button, a mark — is a place, not a field. Its panel grows away from the
+//     nearer window edge, pinned by `left` on the left half of the screen and by
+//     `right` on the right half, and it flips back if the chosen side genuinely
+//     cannot hold it.
+//   - A *field-like* anchor — one at least as wide as the panel, or one the
+//     caller asked to match — keeps its left edge, because the panel is standing
+//     in for it: a combobox list that right-aligned under its own input, or a
+//     slash menu that jumped to the far end of the line the caret is at the start
+//     of, would be worse than anything this rule fixes.
+//
 // Placement is in viewport space throughout: these panels are portaled to the
 // body precisely so they escape the outline's scroll container, its clipping,
 // and the virtualizer's transformed stacking context.
@@ -69,8 +87,23 @@ export function placeAnchored(rect: DOMRect | null, options: AnchoredOptions = {
   const maxWidth = options.maxWidth === undefined ? undefined : clamp(options.maxWidth, floorWidth);
   // The widest the panel could end up, which is what keeps it inside the window.
   const extent = width ?? maxWidth ?? room;
+  // Which edge the panel is pinned by. A field hands over its left edge; a mark
+  // opens away from the window edge it is nearest, and gives that up only when
+  // the side it wanted cannot hold the panel at all.
+  const pointLike = rect !== null && !options.matchAnchorWidth && rect.width < extent;
+  const wantsEnd = pointLike && (rect.left + rect.right) / 2 > viewportWidth / 2;
+  const fitsEnd = rect !== null && rect.right - INSET >= extent;
+  const fitsStart = rect !== null && viewportWidth - INSET - rect.left >= extent;
+  const alignEnd = pointLike && (wantsEnd ? fitsEnd || !fitsStart : !fitsStart && fitsEnd);
   const desiredLeft = rect ? rect.left : (viewportWidth - extent) / 2;
   const left = Math.max(INSET, Math.min(desiredLeft, viewportWidth - extent - INSET));
+  // Pinned by `right`, so the browser lines the panel's real edge up with the
+  // anchor's — the same trick the vertical flip uses, and for the same reason: a
+  // content-sized panel is narrower than `extent` and subtracting the guess would
+  // leave it short of the edge it is meant to meet.
+  const horizontal = alignEnd && rect
+    ? { right: Math.max(INSET, viewportWidth - rect.right) }
+    : { left };
 
   const wanted = options.maxHeight ?? viewportHeight;
   const anchorTop = rect ? rect.top : INSET + gap;
@@ -90,13 +123,13 @@ export function placeAnchored(rect: DOMRect | null, options: AnchoredOptions = {
   return flip
     ? {
         position: "fixed",
-        left,
+        ...horizontal,
         bottom: Math.max(INSET, viewportHeight - anchorTop + gap),
         ...size,
       }
     : {
         position: "fixed",
-        left,
+        ...horizontal,
         top: Math.min(Math.max(INSET, anchorBottom + gap), viewportHeight - INSET - FLOOR),
         ...size,
       };

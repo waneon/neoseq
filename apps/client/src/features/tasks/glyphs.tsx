@@ -82,12 +82,18 @@ export function TaskStatusGlyph({ status, ...props }: { status: string } & SVGPr
   }
 }
 
+// Three bars, sized to the same box the status ring fills. They used to be 3px
+// wide across 63% of the glyph, which is why priority needed a tinted tile behind
+// it to hold its own beside a status disc that fills 80% — the mark was small and
+// the fix was a rectangle. At 4px across 75%, with the tallest bar reaching the
+// ring's own top and bottom, the two marks read at one weight and the tile is
+// gone (app.css § .task-priority-toggle).
 export function PriorityGlyph({ priority, ...props }: { priority: string } & SVGProps<SVGSVGElement>) {
   const level = ["low", "medium", "high"].indexOf(priority) + 1;
   const bars = [
-    { x: 3.7, y: 11, h: 5.5 },
-    { x: 8.5, y: 7.8, h: 8.7 },
-    { x: 13.3, y: 4.6, h: 11.9 },
+    { x: 2.5, y: 10 },
+    { x: 8, y: 6 },
+    { x: 13.5, y: 2.5 },
   ];
   return (
     <svg {...BASE} {...props} strokeWidth={0} data-priority-glyph={priority}>
@@ -96,9 +102,9 @@ export function PriorityGlyph({ priority, ...props }: { priority: string } & SVG
           key={bar.x}
           x={bar.x}
           y={bar.y}
-          width="3"
-          height={bar.h}
-          rx="1.5"
+          width="4"
+          height={17.5 - bar.y}
+          rx="2"
           fill="currentColor"
           // The bars above the level are the same mark held back, not a second
           // colour: they are what makes "one of three" legible without a label.

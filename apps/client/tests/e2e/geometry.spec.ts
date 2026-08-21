@@ -22,6 +22,7 @@ import {
   openSettings,
   openSidebar,
   startOutline,
+  typeInFocusedBlock,
 } from "./helpers";
 import type { Page } from "@playwright/test";
 
@@ -699,4 +700,86 @@ test("every surface is measured and square on a phone", async ({ page }) => {
   await page.keyboard.press("Escape");
   await page.getByTestId("outline-row").first().hover();
   await audit(page, "390px outline (pointer)");
+});
+
+// A dialog that resizes as the reader moves down its own nav makes them chase the
+// row they were travelling toward. This is the one surface in the product with a
+// list of sections and a body that differs in length per section, so it is the
+// one that has to be measured.
+test("the settings dialog is one size, whatever section is open", async ({ page }) => {
+  await createGraph(page, "Settings Size Graph");
+  await openSettings(page, "appearance");
+  const shell = page.getByTestId("settings-dialog");
+  await expect(shell).toBeVisible();
+
+  const sizeOf = async () => {
+    // The dialog arrives from 0.985 scale, and a scaled box measures scaled.
+    await still(page);
+    return shell.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return { height: box.height, width: box.width };
+    });
+  };
+
+  const first = await sizeOf();
+  // Taller than the 560px ceiling it used to share with a 340px floor: a fixed box
+  // is sized for the longest thing in it.
+  expect(first.height).toBeGreaterThan(560);
+  // And whole, because this box draws its own edge and the seam inside it.
+  expect(first.height % 1).toBe(0);
+
+  for (const section of ["language", "tasks", "keyboard", "storage", "graph"]) {
+    await page.getByTestId(`settings-tab-${section}`).click();
+    const next = await sizeOf();
+    expect(next.height, section).toBe(first.height);
+    expect(next.width, section).toBe(first.width);
+  }
+});
+
+// A panel opens toward the middle of the window, not toward the nearest edge.
+// Every summoned surface used to be pinned by its left edge and then shoved back
+// inside the viewport, so a control at the right of the measure — a tag at the end
+// of a line, the sort button at the end of a query header — opened outwards and
+// then slid, landing aligned with neither edge of the thing it belonged to.
+test("a summoned panel opens toward the middle of the window", async ({ page }) => {
+  await createGraph(page, "Placement Graph");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag-name").fill("Placement");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
+  await startOutline(page);
+  await typeInFocusedBlock(page, "a line with a tag at its end");
+  await openBlockTags(page);
+  await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Placement");
+  await page.getByRole("option", { name: "Placement", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await awaitSaved(page);
+
+  // The chip lives at the right of the block's own line, so its panel grows left
+  // and their right edges meet.
+  const chip = page.locator(".outline-tags").getByTestId("tag-chip");
+  const chipBox = (await chip.boundingBox())!;
+  const width = page.viewportSize()!.width;
+  expect(chipBox.x + chipBox.width / 2).toBeGreaterThan(width / 2);
+  await chip.click();
+  const picker = page.getByTestId("tag-picker");
+  await expect(picker).toBeVisible();
+  const pickerBox = (await picker.boundingBox())!;
+  expect(Math.abs((pickerBox.x + pickerBox.width) - (chipBox.x + chipBox.width))).toBeLessThan(2);
+  expect(pickerBox.x).toBeLessThan(chipBox.x);
+  await page.keyboard.press("Escape");
+
+  // A field is the exception: the panel stands in for it, so it keeps its left
+  // edge however far right the field sits.
+  const line = page.getByLabel("Block text").first();
+  await line.click();
+  await line.press("End");
+  await page.keyboard.type(" #Pl");
+  const menu = page.getByTestId("tag-menu");
+  await expect(menu).toBeVisible();
+  const [lineBox, menuBox] = [(await line.boundingBox())!, (await menu.boundingBox())!];
+  expect(Math.abs(menuBox.x - lineBox.x)).toBeLessThan(2);
 });

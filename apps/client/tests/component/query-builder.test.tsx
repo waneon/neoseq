@@ -549,7 +549,7 @@ describe("query result views", () => {
     await waitFor(() => expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument());
   });
 
-  it("uses the same property editor from a list result", async () => {
+  it("opens the outline's own status menu from a list result", async () => {
     const harness = await withResult();
     const query = storedQuery(harness)!;
     const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
@@ -591,11 +591,29 @@ describe("query result views", () => {
     });
 
     const user = userEvent.setup();
+    // Both renderers reach the same control. In the table the cell *is* the
+    // trigger, so it says so in the DOM before anything is pressed.
+    const table = await screen.findByTestId("query-table");
+    expect(within(table).getByTestId("query-edit-status")).toHaveAttribute(
+      "data-slot",
+      "dropdown-menu-trigger",
+    );
+
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
     await user.click(within(list).getByTitle("Edit Status"));
-    const picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: "Done" }));
+
+    // A closed enumeration has one popup wherever it is reached from: the four
+    // radio rows the outline's own mark opens, not the generic two-stage key and
+    // value picker (§ Choice).
+    const menu = await screen.findByRole("menu");
+    expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+    // The four radio rows and the explicit removal row — the outline's menu,
+    // not a key/value stage.
+    expect(within(menu).getAllByRole("menuitemradio").map((row) => row.textContent))
+      .toEqual(["To-do", "Doing", "Done", "Cancelled"]);
+    expect(within(menu).getByRole("menuitem", { name: "Remove status" })).toBeInTheDocument();
+    await user.click(within(menu).getByRole("menuitemradio", { name: "Done" }));
 
     await waitFor(() => {
       expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe("done");

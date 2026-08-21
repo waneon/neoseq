@@ -22,9 +22,16 @@ import { findBlock, findPage } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import type { MessageFunction } from "../../i18n";
 import { cn } from "../../lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+} from "@/ui/shadcn/dropdown-menu";
+import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { TagPicker } from "../properties/TagPicker";
 import { TaskStatusGlyph } from "../tasks/glyphs";
+import { TaskStatusMenu } from "../tasks/StatusControl";
+import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
 import { diffSplice } from "../outline/text-diff";
 import {
@@ -83,6 +90,8 @@ type ActiveEdit =
 export interface QueryResultEditor {
   active: ActiveEdit | null;
   activeBlock?: BlockSnapshot;
+  /** The canonical block a binding points at, for a cell that edits it in place. */
+  blockOf(binding: QueryEditBinding): BlockSnapshot | undefined;
   message: MessageFunction;
   bindingFor(subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null;
   isActive(binding: QueryEditBinding, row: ResultViewRow): boolean;
@@ -369,9 +378,15 @@ export function useQueryResultEditor({
     [active, state],
   );
 
+  const blockOf = useCallback(
+    (binding: QueryEditBinding) => blockFrom(state, binding.block),
+    [state],
+  );
+
   return {
     active,
     activeBlock,
+    blockOf,
     message,
     bindingFor,
     isActive,
@@ -487,6 +502,45 @@ function QueryMarkdownField({
   );
 }
 
+/**
+ * A closed enumeration edits in place, from the same menu the outline opens.
+ *
+ * Status and priority used to route through the generic property picker like
+ * every other bound cell, which meant one value had two popups: four radio rows
+ * when the reader pressed the mark on a line, and a two-stage key/value panel
+ * when they pressed the same value in a table. § Choice forbids two look-alike
+ * controls that open different popups; a single value with two of them is the
+ * same defect from the other end.
+ *
+ * `null` when this is not one of the two, or when the block is not hydrated yet —
+ * the caller falls back to its own trigger and the picker.
+ */
+function TaskMenuFor({
+  binding,
+  block,
+  value,
+}: {
+  binding: Extract<QueryEditBinding, { kind: "property" }>;
+  block: BlockSnapshot;
+  value: string;
+}): ReactNode {
+  if (binding.key === TASK_STATUS_KEY) {
+    return <TaskStatusMenu pageId={binding.block.page_id} block={block} status={value} />;
+  }
+  if (binding.key === TASK_PRIORITY_KEY) {
+    return <TaskPriorityMenu pageId={binding.block.page_id} block={block} priority={value} />;
+  }
+  return null;
+}
+
+/** Whether a binding is one of the two the menu above serves. */
+function isTaskChoice(
+  binding: QueryEditBinding,
+): binding is Extract<QueryEditBinding, { kind: "property" }> {
+  return binding.kind === "property"
+    && (binding.key === TASK_STATUS_KEY || binding.key === TASK_PRIORITY_KEY);
+}
+
 export function EditableCellValue({
   term,
   column,
@@ -521,6 +575,32 @@ export function EditableCellValue({
         <button type="button" onClick={editor.retry}>{context.message("common.retryShort")}</button>
         <button type="button" onClick={editor.cancel}>{context.message("common.cancel")}</button>
       </span>
+    );
+  }
+
+  // A closed enumeration opens its own menu straight from the cell, with no
+  // hydration round-trip and no picker in between (see `TaskMenuFor`).
+  const taskBlock = isTaskChoice(binding) ? editor.blockOf(binding) : undefined;
+  if (isTaskChoice(binding) && taskBlock) {
+    return (
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={cn("query-edit-trigger", className)}
+            data-query-column={column.variable}
+            data-testid={`query-edit-${column.variable}`}
+            title={context.message("query.editResult", { column: column.label })}
+          >
+            {value}
+          </button>
+        </DropdownMenuTrigger>
+        <TaskMenuFor
+          binding={binding}
+          block={taskBlock}
+          value={term?.kind === "literal" ? term.value : ""}
+        />
+      </DropdownMenu>
     );
   }
 
@@ -578,6 +658,27 @@ export function EditableStatusValue({
     return <span className="query-list-status"><TaskStatusGlyph status={status} /></span>;
   }
   const current = editor.isActive(binding, row) ? editor.active : null;
+  // The same menu the outline's own mark opens — a list result is a row of
+  // blocks, so pressing the mark on one has to do what pressing it on a line
+  // does (see `TaskMenuFor`).
+  const block = isTaskChoice(binding) ? editor.blockOf(binding) : undefined;
+  if (isTaskChoice(binding) && block) {
+    return (
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="query-list-status query-edit-trigger"
+            data-query-column={column.variable}
+            title={context.message("query.editResult", { column: column.label })}
+          >
+            <TaskStatusGlyph status={status} />
+          </button>
+        </DropdownMenuTrigger>
+        <TaskMenuFor binding={binding} block={block} value={status} />
+      </DropdownMenu>
+    );
+  }
   return (
     <button
       type="button"

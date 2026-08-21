@@ -1,7 +1,7 @@
 ---
-version: 5
+version: 6
 name: Neoseq Design System
-description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the lit path of the outline's branches. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the branch that joins a block to its parent is the graphic signature of the interface. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast.
+description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast.
 
 # Tokens are the contract, declared once per mode in `apps/client/src/ui/app.css`
 # (the implementation of record). Every figure below is measured — see § Contrast.
@@ -23,17 +23,19 @@ colors:                                # "light / dark" — cool neutrals (hue 2
   accent-l:     "0.535 / 0.705 — never the reader's; this is what holds the contrast table"
   accent-c:     "0.208 / 0.185"
   accent-hover: "oklch(0.472 0.203 {accent-h}) / oklch(0.775 0.155 {accent-h})"
+  accent-quiet: "oklch(0.5 0.115 {accent-h}) / oklch(0.755 0.095 {accent-h})"  # the accent in a sentence
   on-accent:    "oklch(1 0 0) / oklch(0.17 0.008 264)"
   danger:       "oklch(0.516 0.187 26) #bb2427 / oklch(0.712 0.155 26) #f4776e"
   ok:           "oklch(0.508 0.128 152) #10793e / oklch(0.762 0.13 152) #6cc988"
   attention:    "oklch(0.58 0.135 62) #b16400 / oklch(0.805 0.13 78) #edb454"  # glyph tone only
+  info:         "oklch(0.535 0.17 255) / oklch(0.72 0.14 255)"  # the fourth state tone; never the accent
   scrim:        "32% ink / 62% near-black — plus a 3px backdrop blur"
   derived:                             # declared once — ink-, accent- or tone-relative
     line: "11.5% ink / 15% — closes a floating surface, separates a table's cells"
     line-strong: "19% ink / 24% — the ring on a control standing in for a field"
     thread: "8% ink / 11% — the hairline inside a panel"
-    thread-line: "30% tone — the outline's resting column and branch, reader-toned"
-    thread-lit: "55% accent — the path to the caret, never the reader's to choose"
+    thread-line: "22% accent / 28% — the indent guides, 1px"
+    thread-lit: "{accent} — the branch to the caret, 2px, opaque so it covers the guide it runs on"
     halo: "10% ink / 14% — the ring behind a collapsed bullet"
     accent-soft: "12% accent / 20% — the selection ribbon, the current nav row, a focus halo"
     accent-tint: "7% accent / 11% — the current settings pane, an inviting empty tile"
@@ -42,7 +44,8 @@ colors:                                # "light / dark" — cool neutrals (hue 2
   state:                               # aliases only — see The state palette
     status: "todo currentColor · doing {attention} · done {ok} · cancelled {danger}"
     priority: "low {ink-3} · medium {attention} · high {danger}"
-    tag: "{accent} — a tag is a reference, and a reference is a link (§ The accent)"
+    tag: "{accent-quiet} — a reference is a link, spoken at the volume of a sentence"
+    tones: "neutral {ink-2} · info · ok · attention · danger — the five a preference may name"
 
 typography:
   family-sans: '"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif'
@@ -66,8 +69,9 @@ metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar
     material starts at the gutter, § Two edges) ·
   mark-slot 16 + mark-gap 9 (the rail's one glyph column) ·
   control-row 32 · chip 24 · outline-row 28 · indent 30 · bullet-slot 20 · bullet-disc 20 ·
-  branch-turn 7 (r-2) · hit-target 24 (32 ≤600px, and the icon button grows with it) ·
-  append min(40vh, 320px)"
+  guide 1 · branch 2 · branch-turn 10 · tag-gap 12 ·
+  settings-shell round(down, clamp(272, 100dvh − 128, 720), 1px) — one height, every section ·
+  hit-target 24 (32 ≤600px, and the icon button grows with it) · append min(40vh, 320px)"
 
 radius: "r-1 4px chips and key badges · r-2 7px controls · r-3 12px panels ·
   r-4 16px dialogs and the palette · r-full the bullet dot only"
@@ -104,14 +108,19 @@ Neoseq is a local-first outliner. Its subject is structure — a thought indente
 another thought, a day that holds what happened in it, a tag that turns a line into a
 record — and the interface is built from that material.
 
-- **The branch is the signature.** A block is joined to its parent by a drawn stroke —
-  down the parent's column, a turn, and a run that lands on the child's own dot — in a
-  tone the reader chooses; the path from the root to the caret is lit in the accent,
-  always. Columns alone say "these are indented"; a branch says "this one is mine".
+- **The branch is the signature, and it is drawn where it says something.** The indents a
+  row merely passes are quiet 1px guides. The path from the root to the caret is one
+  continuous 2px stroke — down each ancestor's column, a turn, a run onto the next bullet,
+  level after level. Columns alone say "these are indented"; a branch says "this one is
+  mine", and drawn beside *every* bullet it says nothing at all.
 - **Graphite and one accent.** Everything that is not the writing is a cool neutral that
   never competes with ink. One accent carries every action, the caret, the selection, the
-  current place, a tag, and the lit path. There is no second structural chroma — and the
+  current place, a tag, and the branch. There is no second structural chroma — and the
   reader may move that accent's hue, never its lightness.
+- **One hue, two weights.** Structure and attention are not different colours; they are
+  the same colour turned down and turned up. Which is also why the outline's guides have
+  no preference of their own: there was one, its only possible answer was "some grey", and
+  it left the product with two unrelated colours doing one job.
 - **Luminance separates; a hairline closes.** Surfaces step 2–4% apart. A surface that
   *floats* or that the reader *acts on* is also bounded by one hairline, because a large
   pale rectangle with no edge is a boundary the reader has to infer.
@@ -154,16 +163,31 @@ JavaScript never decides a colour; `color-scheme: light dark` keeps native contr
 **Roles.** `canvas` is the writing surface; `surface-1/2/3` step inward for panels, hover,
 and pressed; `rail` sinks below the canvas in both modes so chrome recedes; `overlay` is
 anything floating; the three inks are the text strengths. `accent` is reserved for actions,
-links, carets, selection and drop, the current place, and the lit path. `danger`, `ok`,
-`attention` name states; categories are distinguished by shape, position, or label.
+links, carets, selection and drop, the current place, and the branch. `danger`, `ok`,
+`attention` and `info` name states; categories are distinguished by shape, position, or
+label.
 
 **Where the accent appears at rest.** The current rail row (a tint plus an accent glyph),
-a primary button, a caret, the selection ribbon, the lit path through the outline, an open
-control's ring, a focus halo, and a tag under a block. Nowhere else — it is not a hover
-colour and not a decoration. A tag earns it on the same grounds a link does: it is the one
-run of characters in a line of writing that is a *reference* rather than words, and the
-product has exactly one colour for "this leads somewhere". Which is also why a tag chip's
-press may not destroy anything — see § Component Rules / Tags.
+a primary button, a caret, the selection ribbon, the branch through the outline and the
+bullets it lands on, an open control's ring, a focus halo, and a tag under a block. Nowhere
+else — it is not a hover colour and not a decoration. A tag earns it on the same grounds a
+link does: it is the one run of characters in a line of writing that is a *reference*
+rather than words, and the product has exactly one colour for "this leads somewhere". Which
+is also why a tag chip's press may not destroy anything — see § Component Rules / Tags.
+
+**Two strengths, and they are not interchangeable.** `accent` is tuned for a *mark* — a
+caret, a filled button, a 2px stroke. `accent-quiet` is the same hue with the chroma pulled
+back and the lightness stepped the other way, for the one place the accent lands inside a
+sentence: a tag. At full strength a tag became the loudest thing on a line whose subject is
+the writing. It is the more legible of the two, not the less — 5.66–6.40 on `canvas` across
+the whole hue circle in light mode, 7.81–8.51 in dark.
+
+**A state tone is never the accent.** The five steps a preference may name are `neutral`,
+`info`, `ok`, `attention` and `danger` — and `info` exists precisely so that none of them
+is the accent. A tone names a step in a closed ordered scale (how soon a date is, how urgent
+a task is); the accent names where the reader is and what they can act on. While a tier
+could name the accent, the shipped `upcoming` default moved every time somebody chose a
+different accent, and two unrelated meanings shared one colour.
 
 **The state palette.** Task status and priority earn tones because they are closed, ordered
 enumerations — one tone per step, aliased from the tokens above. Five rules: the shape says
@@ -172,12 +196,11 @@ tone may fill its own mark and tint its own chip, never a row, band, panel, or b
 text; a settled state inverts (`done`/`cancelled` fill their disc and cut the mark out in
 `--on-tone` — the one two-colour glyph); a key's mark is untinted.
 
-**The tone map.** A colour preference (the branch's resting tone, date-urgency tints) stores
-the *name* of a declared step — `neutral | accent | ok | attention | danger` — carried as
-`data-palette` and resolved to `--tone` in CSS. A preference can never leave the palette and
-tints exactly one surface: tone-derived tokens are declared on the element carrying
-`data-palette`, never on `:root`. The `accent` step follows the reader's own accent hue, so
-the palette is five *steps* and not five colours.
+**The tone map.** A colour preference (the date-urgency tints) stores the *name* of a
+declared step — `neutral | info | ok | attention | danger` — carried as `data-palette` and
+resolved to `--tone` in CSS. A preference can never leave the palette and tints exactly one
+surface: tone-derived tokens are declared on the element carrying `data-palette`, never on
+`:root`.
 
 **The accent is a hue.** The accent is declared as a lightness, a chroma and a hue, and the
 hue — `--accent-h`, written on `:root` pre-paint, default 277 — is the one preference in the
@@ -386,17 +409,21 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   gesture in the product has a target; the textarea is the row's single tab stop. No row
   fill — the caret is the signal; an empty line is a 40% bullet; the append zone is the
   new-line affordance.
-- **The branch.** The last leg of the path to a block is drawn, not implied: down the
-  parent's column, a `branch-turn` corner, and a horizontal run that ends on the child's own
-  dot. Columns alone left the relationship to be inferred from x-position, and at three
+- **The branch.** The path from the root to the caret is drawn, not implied: down each
+  ancestor's column, a `branch-turn` corner, a run that ends on the next bullet, level after
+  level. Guides alone left the relationship to be inferred from x-position, and at three
   levels deep with siblings between, "which line is mine" is a question the picture did not
-  answer. The ancestor columns above it stay virtualized row backgrounds; the branch is two
-  pseudo-elements per row, dividing at the *tangent* of the turn so the two never overlap —
-  a 30% hairline drawn twice on one pixel is a 51% hairline. A branch ends at its own bullet
-  when nothing follows, so the tree never promises a sibling that is not there. The column
-  lights whenever the live path runs past the row, including past a sibling the caret is not
-  in; the turn lights only where the path arrives. A collapsed row's halo replaces its own
-  descending line.
+  answer. It is drawn **only** on the rows the path reaches — the caret's row and its
+  ancestors. An elbow beside every bullet was the first attempt and it was worse: four
+  levels deep meant four hooks per row, and a "you are here" instrument drawn everywhere is
+  wallpaper. The columns a row merely passes stay quiet 1px guides, drawn as virtualized row
+  backgrounds; the branch is one pseudo-element and no DOM, which a virtualized list has
+  none of to spare. A row the path *arrives at* draws no lit column at all — the stroke
+  turns in, and every column left of that one belongs to an ancestor the path left levels
+  ago. The bullets the stroke lands on take the accent with it, and so does the collapse
+  chevron at each turn, which is shown there without waiting for a hover: the subtree the
+  reader is inside is the one they are most likely to fold. A collapsed row's halo replaces
+  its own descending line.
 - **Page name.** A field that wraps: a textarea sized to its content, not an input. A name
   longer than the measure in an input is a name the reader can only get at with the arrow
   keys, and a page's own name is the last thing that should be unreadable.
@@ -420,8 +447,13 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   better. A tag whose page is gone is struck through, says so in its accessible name, and
   gives up the accent, because it no longer leads anywhere.
 - **Tasks.** Any block with `builtin.task-*` keys — no separate storage or generic rows.
-  Status and priority are shape-first glyphs before the text; done and cancelled strike the
-  line. A moment is a day plus an optional time; a missed one says `Overdue` in words;
+  Status and priority are shape-first glyphs before the text, at one weight and with no fill
+  of their own: priority carried a tinted tile for a while, on the argument that three thin
+  bars lost against a filled disc, and a tile at the head of a line of writing is the
+  loudest box on the row. The bars grew instead. Both marks open the *same* menu wherever
+  they are reached from — a line, a list result, a table cell — because one value may not
+  have two popups any more than two controls may open different ones (§ Choice); done and
+  cancelled strike the line. A moment is a day plus an optional time; a missed one says `Overdue` in words;
   urgency thresholds and tones are the reader's, the step order is not.
 - **Query block.** The answer is an *object*: the canvas shows through and one hairline
   closes it, so the question can take the inset `surface-1` fill and the answer can sit on
@@ -444,12 +476,16 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   An action on a toast is always a second route.
 - **Settings.** A dialog, not a route (`?settings=…`; Back closes it); two labelled scopes —
   browser-wide and this-graph — as two panes with the seam between them drawn. Every
-  appearance choice previews itself at the size it will render. **A colour is chosen by
-  pressing the colour** — every option on screen at once, one press each, never a dropdown
-  whose trigger hides the palette behind the word for it. What a swatch shows is the
-  surface's own business: the branch's swatches draw indent lines at the outline's spacing
-  and weight, a row that already carries a live chip beside it needs only the colour, and the
-  accent's strip has no preview of its own because the product behind the dialog is one.
+  appearance choice previews itself at the size it will render. **The dialog is one size,
+  whatever section is open**: a `min-height` under a larger `max-height` meant it resized as
+  the reader moved down its own nav, so every press in the list moved the list and the row
+  the pointer was travelling toward was somewhere else on arrival. The pane scrolls instead.
+  **A colour is chosen by pressing the colour** — a filled disc per option, all of them on
+  screen at once, a tick in `--on-tone` on the chosen one, one press each; never a dropdown
+  whose trigger hides the palette behind the word for it. One swatch language for every
+  colour in the product, the accent's eight hue steps included, with a rail beside them for
+  the angles between. The accent has no preview of its own because the product behind the
+  dialog is one.
 - **Choice.** Every list of choices opens the same menu the bullet opens — never a native
   `<select>` or `<datalist>`. A trigger keeps the shape of a field and takes an accent ring
   while its popup is up, because that is the only thing that says which control on the line
@@ -459,7 +495,15 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   not use the menu (§ Settings).
 - **Overlays.** All portaled, on one `--z-` scale, dismissed by outside click, `⎋`, and
   selection. Anchored panels share one placement function: below the anchor, flipped above
-  when the room is above, `max-height` the room actually left.
+  when the room is above, `max-height` the room actually left. **Sideways it opens toward the
+  middle of the window.** A *point-like* anchor — one narrower than the panel: a chip, an
+  icon button, a mark — is a place rather than a field, so its panel grows away from the
+  nearer window edge, pinned by `left` on the left half of the screen and by `right` on the
+  right half, flipping back only if the chosen side cannot hold it. A *field-like* anchor
+  keeps its left edge, because the panel is standing in for it: a combobox list right-aligned
+  under its own input, or a slash menu jumping to the far end of the line the caret is at
+  the start of, would be worse than anything this rule fixes. Pinned by the edge rather than
+  offset by a guessed width, so a content-sized panel still meets the edge it is meant to.
 - **First light.** The launch screen is the one surface whose job is a first impression
   rather than a place to work: a narrow centred column, the mark in an accent tile, each
   graph a bounded card with its own initial, the name field and its verb on one line, and the
@@ -507,14 +551,16 @@ Tailwind CSS v4 + shadcn/ui over Radix, layered over these tokens.
 
 ## Do / Don't
 
-**Do**: draw the branch that joins a block to its parent and light it to the caret ·
-separate by lightness and close with a hairline · raise a button and inset a field · declare
-both modes together · reserve the accent for actions, references, and where you are · render
-nothing when steady · give every verb a key, a palette row, and a pointer route · keep a
-surface's primary verb permanent · reveal with opacity, instantly · let a floating surface
-arrive · hang menus on the object they act on · store colour preferences as tone names, and
-free the one dimension the system can guarantee · let a reader choose a colour by pressing
-it · give a result cell the ink of the writing it quotes · keep chrome ≤ 14px at weight 400.
+**Do**: draw the branch to the caret and leave every other indent a quiet guide · use one
+hue at two weights rather than two colours for one job · separate by lightness and close with
+a hairline · raise a button and inset a field · declare both modes together · reserve the
+accent for actions, references, and where you are · speak it quietly inside a sentence ·
+render nothing when steady · give every verb a key, a palette row, and a pointer route · keep
+a surface's primary verb permanent · reveal with opacity, instantly · open a panel toward the
+middle of the window · let a floating surface arrive · hang menus on the object they act on ·
+store colour preferences as tone names, and free the one dimension the system can guarantee ·
+let a reader choose a colour by pressing it · give a result cell the ink of the writing it
+quotes · keep chrome ≤ 14px at weight 400.
 
 **Don't**: separate two regions with a line alone · leave an object the reader acts on
 unbounded · ship a flat `surface-2` rectangle as a control · tint categories or chrome glyphs ·
@@ -522,7 +568,10 @@ let a tone fill more than its own mark and chip · put `--ink-3` on `surface-2/3
 under a heading inside an outline · animate a transform on anything already on screen · fade a
 surface that is read on the frame it mounts · put a `backdrop-filter` over the writing · add a
 focus ring that changes a control's silhouette · ship two look-alike controls that open
-different popups · put a destructive verb on the most link-shaped thing on a row · offer a
-colour the contrast table cannot vouch for · pick a colour from a dropdown · state a fact
-twice on one screen · mount a form below the outline · hover-gate a surface's primary verb ·
-toast what the user can already see · declare a token in two files.
+different popups · give one value two popups · put a destructive verb on the most
+link-shaped thing on a row · draw a "you are here" device everywhere · offer a colour the
+contrast table cannot vouch for · pick a colour from a dropdown · let a state tone follow the
+accent · put a tile behind a glyph to give it weight · resize a dialog as the reader moves
+down its own nav · open a panel at the window edge it is nearest · state a fact twice on one
+screen · mount a form below the outline · hover-gate a surface's primary verb · toast what
+the user can already see · declare a token in two files.

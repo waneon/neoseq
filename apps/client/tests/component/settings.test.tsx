@@ -10,11 +10,7 @@ import {
   setConfiguredTimezone,
   setJournalDateFormat,
 } from "../../src/entities/journal";
-import {
-  dueTiers,
-  resetAppSettingsCache,
-  threadTone,
-} from "../../src/entities/settings";
+import { dueTiers, resetAppSettingsCache } from "../../src/entities/settings";
 import { graphName, renameGraph } from "../../src/core-port/directory";
 import {
   DEFAULT_BINDINGS,
@@ -148,33 +144,16 @@ describe("editable shortcuts", () => {
 });
 
 describe("presentation preferences", () => {
-  it("records the outline thread tone as a tone name, never a colour", async () => {
-    const user = userEvent.setup();
-    await mountSettings("appearance");
-
-    const group = screen.getByTestId("settings-thread-tone");
-    const accent = screen.getByRole("button", { name: "Accent", pressed: false });
-    await user.click(accent);
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Accent" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      ),
-    );
-    // The stored preference is the *name* of a declared tone. `app.css` owns what
-    // it looks like, which is what keeps both modes and the contrast table valid.
-    expect(threadTone()).toBe("accent");
-    expect(group.querySelector('[data-palette="accent"]')).not.toBeNull();
-  });
-
   it("keeps the due tiers ordered and previews each one in its own tone", async () => {
     const user = userEvent.setup();
     await mountSettings("tasks");
 
-    // Each row previews itself with the real chip in the real tone.
+    // Each row previews itself with the real chip in the real tone. `upcoming`
+    // is blue on its own account and not the accent's: a step in an ordered scale
+    // may not move because somebody chose a different accent.
     expect(screen.getByTestId("due-preview-overdue")).toHaveAttribute("data-palette", "danger");
-    expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "accent");
+    expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "info");
+    expect(screen.queryByRole("button", { name: "Accent" })).not.toBeInTheDocument();
 
     // A colour is chosen by pressing the colour, not by reading its name out of
     // a dropdown: all five steps are on screen, one press each.

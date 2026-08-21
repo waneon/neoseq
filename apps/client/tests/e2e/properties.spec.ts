@@ -172,22 +172,27 @@ test("a tag under a block is an accent reference that opens the picker, never a 
 
   const chip = page.locator(".outline-tags").getByTestId("tag-chip");
   await expect(chip).toContainText("#Design");
-  // A tag is the one thing in the writing that leads somewhere, so it is the one
-  // thing in the writing that carries the accent.
-  const tone = await chip.evaluate((node) => ({
-    chip: getComputedStyle(node).color,
-    accent: getComputedStyle(document.documentElement).getPropertyValue("--accent"),
-  }));
-  expect(tone.chip).toBe(
-    await page.evaluate((accent) => {
+  // A tag is the one thing in the writing that leads somewhere, so it carries the
+  // accent's hue — but not the accent's own strength. `--accent` is tuned for a
+  // mark; on a run of words inside a sentence it shouted, so the tag takes the
+  // same hue with the chroma pulled back (§ The accent, spoken quietly).
+  const tones = await chip.evaluate((node) => {
+    const resolve = (value: string) => {
       const probe = document.createElement("span");
-      probe.style.color = accent;
+      probe.style.color = value;
       document.body.append(probe);
       const resolved = getComputedStyle(probe).color;
       probe.remove();
       return resolved;
-    }, tone.accent),
-  );
+    };
+    return {
+      chip: getComputedStyle(node).color,
+      quiet: resolve("var(--accent-quiet)"),
+      accent: resolve("var(--accent)"),
+    };
+  });
+  expect(tones.chip).toBe(tones.quiet);
+  expect(tones.chip).not.toBe(tones.accent);
 
   // …and pressing it opens the one surface that writes tags rather than silently
   // detaching the name the reader just wrote.

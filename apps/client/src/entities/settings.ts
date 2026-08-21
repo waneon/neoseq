@@ -23,10 +23,16 @@ export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
  * steps and nothing else — a preference chooses *which* declared tone a surface
  * takes, never a colour of its own, so both modes and the contrast table keep
  * holding for every choice (DESIGN.md § The state palette).
+ *
+ * `accent` is not among them, and `info` is the blue that used to stand in for
+ * it. A tone names a step in a closed ordered scale; the accent names where the
+ * reader is and what they can act on. While a tier could name the accent, the
+ * default `upcoming` step moved with every accent the reader chose and two
+ * unrelated meanings shared one colour.
  */
-export type ToneName = "neutral" | "accent" | "ok" | "attention" | "danger";
+export type ToneName = "neutral" | "info" | "ok" | "attention" | "danger";
 
-export const TONE_NAMES: ToneName[] = ["neutral", "accent", "ok", "attention", "danger"];
+export const TONE_NAMES: ToneName[] = ["neutral", "info", "ok", "attention", "danger"];
 
 export function isToneName(value: unknown): value is ToneName {
   return TONE_NAMES.includes(value as ToneName);
@@ -52,7 +58,7 @@ export const DEFAULT_DUE_TIERS: DueTierSettings = {
   upcomingDays: 7,
   overdueTone: "danger",
   soonTone: "attention",
-  upcomingTone: "accent",
+  upcomingTone: "info",
   laterTone: "neutral",
 };
 
@@ -67,8 +73,6 @@ export interface AppSettings {
   journalDateFormat?: JournalDateFormat;
   /** Action id → serialized binding. Only overrides are stored. */
   shortcuts?: Record<string, string>;
-  /** Which declared tone the outline's indent thread takes. */
-  threadTone?: ToneName;
   /** Day thresholds and tones for the scheduled/deadline tint. */
   dueTiers?: Partial<DueTierSettings>;
 }
@@ -142,15 +146,6 @@ export function isJournalDateFormat(value: unknown): value is JournalDateFormat 
 export function journalDateFormat(): JournalDateFormat {
   const stored = appSettings().journalDateFormat;
   return isJournalDateFormat(stored) ? stored : "full";
-}
-
-export function threadTone(): ToneName {
-  const stored = appSettings().threadTone;
-  return isToneName(stored) ? stored : "neutral";
-}
-
-export function setThreadTone(tone: ToneName): void {
-  updateAppSettings({ threadTone: tone });
 }
 
 /**

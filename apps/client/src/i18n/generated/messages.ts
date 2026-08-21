@@ -643,9 +643,9 @@ export interface MessageArgumentMap {
   "theme.dark": undefined;
   "theme.light": undefined;
   "theme.system": undefined;
-  "tone.accent": undefined;
   "tone.attention": undefined;
   "tone.danger": undefined;
+  "tone.info": undefined;
   "tone.neutral": undefined;
   "tone.ok": undefined;
   "validation.controlCharacter": undefined;

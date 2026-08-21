@@ -80,10 +80,27 @@
   --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
   --accent-tint: color-mix(in oklab, var(--accent) 7%, transparent);
   --on-accent: oklch(1 0 0);
+  /* ── The accent, spoken quietly ──
+     The accent's own lightness and chroma are tuned for a *mark*: a caret, a
+     filled button, a 2px branch. On a run of words inside a line of writing it
+     was too much colour — the tag shouted where the sentence around it spoke.
+     This is the same hue at the reader's own choice, pulled down in chroma and
+     one step darker in light mode (lighter in dark), so a tag reads as ink that
+     happens to be a reference rather than as a highlight. It is *more* legible
+     than the accent, not less: 5.66–6.40 on `canvas` across the whole hue circle
+     in light mode and 7.81–8.51 in dark, against the accent's 5.6 and 6.3. */
+  --accent-quiet: oklch(0.5 0.115 var(--accent-h));
 
   --danger: oklch(0.516 0.187 26);
   --danger-soft: color-mix(in oklab, var(--danger) 11%, transparent);
   --ok: oklch(0.508 0.128 152);
+  /* The fourth state tone, and the reason the tone palette no longer contains
+     `accent`: "how soon" is not "where you are". A due tier that named the accent
+     moved every time the reader chose a different one, and a step in a closed
+     ordered scale cannot afford to be whatever colour the interface's actions
+     happen to be this week. Blue is the step that used to borrow the accent, now
+     declared on its own — 5.24 on `canvas` light, 7.18 dark. */
+  --info: oklch(0.535 0.17 255);
   /* The third tone, and the only one that is not also a verdict: "underway, and
      it needs you". It is held to the 3:1 non-text bar and never carries text. */
   --attention: oklch(0.58 0.135 62);
@@ -316,14 +333,20 @@
 }
 
 /* The tone map itself. Five rules, one per name a preference may hold, and every
-   surface that offers a choice of tone — the outline thread, a due chip, the
-   swatches that set them — resolves through exactly these. */
+   surface that offers a choice of tone — a due chip, the swatches that set them —
+   resolves through exactly these.
+
+   `accent` is deliberately not one of them. A tone names a step in a closed,
+   ordered scale — how soon a date is, how urgent a task is — and the accent names
+   where the reader is and what they can act on. While `accent` was offered, the
+   default `upcoming` tier moved every time somebody chose a different accent, and
+   two unrelated meanings shared a colour. `info` is the blue that step wanted. */
 [data-palette="neutral"] {
   --tone: var(--ink-2);
 }
 
-[data-palette="accent"] {
-  --tone: var(--accent);
+[data-palette="info"] {
+  --tone: var(--info);
 }
 
 [data-palette="ok"] {
@@ -371,11 +394,13 @@
     --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
     --accent-tint: color-mix(in oklab, var(--accent) 11%, transparent);
     --on-accent: oklch(0.17 0.008 264);
+    --accent-quiet: oklch(0.755 0.095 var(--accent-h));
 
     --danger: oklch(0.712 0.155 26);
     --danger-soft: color-mix(in oklab, var(--danger) 18%, transparent);
     --ok: oklch(0.762 0.13 152);
     --attention: oklch(0.805 0.13 78);
+    --info: oklch(0.72 0.14 255);
 
     --scrim: oklch(0.07 0.006 264 / 0.62);
 
@@ -428,11 +453,13 @@
   --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
   --accent-tint: color-mix(in oklab, var(--accent) 11%, transparent);
   --on-accent: oklch(0.17 0.008 264);
+  --accent-quiet: oklch(0.755 0.095 var(--accent-h));
 
   --danger: oklch(0.712 0.155 26);
   --danger-soft: color-mix(in oklab, var(--danger) 18%, transparent);
   --ok: oklch(0.762 0.13 152);
   --attention: oklch(0.805 0.13 78);
+  --info: oklch(0.72 0.14 255);
 
   --scrim: oklch(0.07 0.006 264 / 0.62);
 
@@ -939,24 +966,32 @@ button.chip:focus-visible {
   opacity: 0.55;
 }
 
-/* ── A tag is the one accent in the writing ──
+/* ── A tag is the accent, spoken quietly ──
    Every other name in a block is the reader's own text and takes ink. A tag is
    not text: it is a reference the reader can follow, and the product has exactly
    one colour for "this leads somewhere" (§ Where the accent appears at rest). At
    `--ink-2` a tag was a slightly quieter word at the end of a line — the one
    piece of structure in the writing that looked like an afterthought about it.
 
-   The chip stays bare. It takes the accent, the `#` stays at 55% so the name
-   reads before the sigil, and hover adds the product's link underline rather
-   than a fill: this is a run of text in a line of writing, and a box around it
-   would be the drawn silhouette § Depth & Shape refuses. */
+   At the accent's own strength it was the opposite problem. The accent is tuned
+   for a *mark* — a caret, a filled button, a 2px branch — and on a run of words
+   inside a sentence it shouted: the tag became the loudest thing on a line whose
+   subject is the writing. `--accent-quiet` is the same hue at the reader's own
+   choice with the chroma pulled down and the lightness stepped one the other way,
+   so the tag reads as ink that happens to be a reference. It is the more legible
+   of the two, not the less (§ The accent, spoken quietly).
+
+   The chip stays bare: a run of text in a line of writing, and a box around it
+   would be the drawn silhouette § Depth & Shape refuses. Hover adds the
+   product's link underline and steps up to the accent proper, which is the one
+   moment the tag is the thing being acted on. */
 .chip[data-variant="reference"] {
-  color: var(--accent);
+  color: var(--accent-quiet);
 }
 
 button.chip[data-variant="reference"]:hover,
 button.chip[data-variant="reference"]:focus-visible {
-  color: var(--accent-hover);
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -2049,26 +2084,21 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .outline-section {
   position: relative;
   margin-top: var(--sp-6);
-  /* The outline's own thread, in whichever tone the reader chose. It is resolved
-     *here*, on the element that carries `data-palette`, and not at the root: a
-     custom property is substituted where it is declared, so a token written on
-     `:root` would have baked in the root's tone and no preference could reach it.
-     The rows inherit the finished colours.
+  /* ── One hue, two weights ──
+     The outline's structure used to be drawn in a tone the reader picked from a
+     list of five, and the live path in the accent — two unrelated colours doing
+     one job, and a preference whose only possible answer was "some grey". It is
+     one hue now, the reader's own accent, at two weights: a 1px guide at 22% for
+     the columns a row merely passes through, and a 2px opaque stroke for the
+     branch that actually reaches the caret. Structure and attention stop being
+     different colours and become the same colour turned up, which is what the
+     eye reads as "this one, of those".
 
-     At the old 8% of ink the resting line was a rumour — present in a screenshot
-     and absent on a screen, which is why the one piece of structure an outliner
-     draws for free had to be asked for. 30% of `--ink-2` is about three times
-     that and still quieter than `--line`, so the outline reads as threaded
-     without the thread becoming the subject.
-
-     The *lit* path is not the reader's to choose, and is deliberately not
-     derived from `--tone`. It is the accent, always: the line from the root down
-     to the caret is the product's one "you are here" signal in the writing
-     itself, and the accent is what the rest of the interface has already taught
-     means "this is the live one". A reader who tones the resting thread green is
-     choosing the colour of structure, not the colour of attention. */
-  --thread-line: color-mix(in oklab, var(--tone) 30%, transparent);
-  --thread-lit: color-mix(in oklab, var(--accent) 55%, transparent);
+     The lit stroke is the accent itself and not a fraction of it, because at 2px
+     it has to cover the guide underneath rather than blend with it — two
+     translucent lines on one pixel is a third colour nobody chose. */
+  --thread-line: color-mix(in oklab, var(--accent) 22%, transparent);
+  --thread-lit: var(--accent);
 }
 
 .outline-viewport {
@@ -2124,15 +2154,15 @@ button.chip:focus-visible .chip-glyph .chip-x {
      each of its children (§ The branch), and a gap at the top of that stroke is
      the one place the eye has to guess whether the two are connected. */
   --thread-head: 17px;
-  /* The branch beside this row's bullet is two claims, and they are not the same
-     claim, so they are two tokens. `--thread-branch` is the *column* — the
-     parent's line, which lights whenever the live path runs down past this row,
-     including past a sibling the caret is not in. `--thread-turn` is the arc and
-     the run into this row's own dot, which lights only when the path actually
-     arrives *here*. Between them, a sibling above the caret shows the lit line
-     going by and a resting stub of its own, which is the truth. */
-  --thread-branch: var(--thread-line);
-  --thread-turn: var(--thread-line);
+  /* How wide the live stroke is, and how far its corner turns. Both are the
+     branch's own metrics and nothing else uses them. */
+  --branch-w: 2px;
+  --branch-turn: 10px;
+  /* How many of this row's ancestor columns the *lit gradient* draws, and how
+     wide the row's own descending segment is. Both change on a row the live path
+     reaches — see § The branch. */
+  --lit-cols: var(--lit);
+  --own-w: 1px;
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -2155,98 +2185,101 @@ button.chip:focus-visible .chip-glyph .chip-x {
     linear-gradient(var(--thread-own, transparent), var(--thread-own, transparent)),
     repeating-linear-gradient(
       to right,
-      var(--thread-lit) 0 1px,
-      transparent 1px var(--indent)
+      var(--thread-lit) 0 var(--branch-w),
+      transparent var(--branch-w) var(--indent)
     ),
     repeating-linear-gradient(
       to right,
       var(--thread-line) 0 1px,
       transparent 1px var(--indent)
     );
+  /* Every layer is centred on the same column x: the 1px guide sits on it, and
+     the 2px stroke and the row's own segment are pulled back half their width so
+     they grow around it rather than off it. */
   background-position:
-    calc(var(--gutter) + var(--depth) * var(--indent) + var(--slot) / 2)
-      var(--thread-head),
-    calc(var(--gutter) + var(--slot) / 2) 0,
+    calc(var(--gutter) + var(--depth) * var(--indent) + var(--slot) / 2
+      - var(--own-w) / 2) var(--thread-head),
+    calc(var(--gutter) + var(--slot) / 2 - var(--branch-w) / 2) 0,
     calc(var(--gutter) + var(--slot) / 2) 0;
-  /* One column short of the row's depth in both ancestor layers: the last one —
-     the row's own parent — is the branch, and it is drawn by the pseudo-elements
-     below so it can turn into the bullet instead of running past it. `max(0, …)`
-     keeps a root row's size a length rather than a negative one, which would
-     invalidate the whole declaration rather than just its layer. */
+  /* `max(0, …)` keeps a root row's size a length rather than a negative one,
+     which would invalidate the whole declaration rather than just its layer. */
   background-size:
-    1px calc(100% - var(--thread-head)),
-    calc(max(0, min(var(--lit), var(--depth) - 1)) * var(--indent)) 100%,
-    calc(max(0, var(--depth) - 1) * var(--indent)) 100%;
+    var(--own-w) calc(100% - var(--thread-head)),
+    calc(max(0, var(--lit-cols)) * var(--indent)) 100%,
+    calc(var(--depth) * var(--indent)) 100%;
   background-repeat: no-repeat, no-repeat, no-repeat;
 }
 
 /* ── The branch ──
-   What makes an outline read as a tree rather than as a stack of indents is the
-   stroke that leaves a parent and *arrives* at each child. Drawn as columns
-   alone — one vertical line per level, which is what this was — the relationship
-   is left to the reader to infer from x-position: a bullet two indents in sits
-   near a line that never touches it, and at three levels deep, with siblings
-   between, "which line is mine" is a question the picture does not answer.
+   The one drawn thing in the writing, and it is drawn only where it says
+   something. Indentation already tells the reader that a row is inside another
+   one; what it cannot tell them is *which* of the lines to their left is the one
+   they came down. So the columns stay quiet 1px guides — a stack of indents, and
+   nothing more — and the path from the root to the caret is drawn as a single
+   continuous stroke: down each ancestor's column, a `--branch-turn` corner, and a
+   run that ends on the next bullet, level after level, until it lands on the row
+   the caret is in.
 
-   So the last leg of the path is drawn as a real branch: down the parent's
-   column, a `--r-2` turn, and a horizontal run that ends on the child's own dot.
-   Two pseudo-elements, because a border-radius corner is a crisp, hinted arc and
-   a 1px ring cut out of a radial gradient is not — and no DOM, which a
-   virtualized list has none of to spare.
+   Elbows on *every* row was the first attempt and it was worse. Every bullet grew
+   a hook, four levels deep meant four hooks per row, and the device that was
+   supposed to answer "which line is mine" was drawn identically beside every line
+   on the screen. A tree connector is a "you are here" instrument; drawn
+   everywhere it is wallpaper.
 
-   They divide at the *tangent* of the turn rather than at the bullet's line:
-   `::before` owns the column from the row's top down to where the arc leaves it
-   and the arc itself; `::after` continues the column from that same point to the
-   row's bottom, and exists only while a later sibling is there to reach. So the
-   two never overlap — which matters, because the thread is a 30% hairline and
-   two of them on one pixel is a 51% hairline — and a last child's branch ends at
-   its own bullet instead of promising a sibling underneath it that never comes.
+   One pseudo-element, no DOM — a virtualized list has none to spare — and no
+   overlap to reason about, because on a row the path arrives at, `--lit-cols`
+   holds the lit gradient one column back and the branch owns that column
+   outright. The stroke is opaque for the same reason: it has to cover the guide
+   it runs along instead of blending with it.
 
-   `aria-level` is the gate rather than a `data-` attribute of its own: it is the
+   `aria-level` gates it rather than a `data-` attribute of its own: it is the
    row's depth, the tree role requires it on every row, and a root has no parent
-   column to branch from. */
-.outline-row:not([aria-level="1"])::before {
+   column to come down. */
+.outline-row:is([data-ancestor="true"], [data-focused="true"]):not([aria-level="1"])::before {
   content: "";
   position: absolute;
   top: 0;
-  left: calc(var(--gutter) + var(--slot) / 2 + (var(--depth) - 1) * var(--indent));
-  /* Stops on the dot: the bullet's centre is one indent along and its mark is
-     6px, so 3px short of the centre is exactly its left edge. */
-  width: calc(var(--indent) - 3px);
-  height: calc(1px + var(--lh-md) / 2);
-  /* The column and the turn are separate tones, so they are separate borders of
-     one box: CSS splits a rounded corner between its two edges at 45°, which is
-     the only join in the product where a stroke changes what it means halfway
-     through — the line goes past, and the stub comes in. */
-  border-left: 1px solid var(--thread-branch);
-  border-bottom: 1px solid var(--thread-turn);
-  border-bottom-left-radius: var(--r-2);
+  left: calc(
+    var(--gutter) + var(--slot) / 2 + (var(--depth) - 1) * var(--indent)
+      - var(--branch-w) / 2
+  );
+  /* Ends on the dot: the bullet's centre is one indent along and its mark is 6px,
+     so 3px short of that centre is exactly its left edge. */
+  width: calc(var(--indent) - 3px + var(--branch-w) / 2);
+  height: calc(1px + var(--lh-md) / 2 + var(--branch-w) / 2);
+  border-left: var(--branch-w) solid var(--thread-lit);
+  border-bottom: var(--branch-w) solid var(--thread-lit);
+  border-bottom-left-radius: var(--branch-turn);
   pointer-events: none;
 }
 
-.outline-row:not([aria-level="1"])[data-continues="true"]::after {
-  content: "";
-  position: absolute;
-  top: calc(1px + var(--lh-md) / 2 - var(--r-2));
-  bottom: 0;
-  left: calc(var(--gutter) + var(--slot) / 2 + (var(--depth) - 1) * var(--indent));
-  width: 1px;
-  background: var(--thread-branch);
-  pointer-events: none;
-}
+/* A row the path *arrives at* has no lit column passing through it at all: the
+   stroke comes down its parent's column and turns in, and every column left of
+   that one belongs to a higher ancestor the path turned off levels ago. So the
+   branch is the whole of the live stroke here and the lit gradient draws nothing.
 
-/* The column lights with the path, which is what keeps the stroke unbroken past
-   the siblings between an ancestor and the caret — the lit gradient layer above
-   already refuses to break there, and the branch must not undo it. */
-.outline-row[data-thread-lit="true"] {
-  --thread-branch: var(--thread-lit);
-}
-
-/* The turn lights only where the path ends up. `data-ancestor` and
-   `data-focused` are exactly the rows on it. */
+   Every other row keeps its full run — the siblings the stroke merely passes on
+   its way down are exactly what the lit gradient is for, and holding it back
+   there would break the stroke between an ancestor and the caret. */
 .outline-row[data-ancestor="true"],
 .outline-row[data-focused="true"] {
-  --thread-turn: var(--thread-lit);
+  --lit-cols: 0;
+}
+
+/* The collapse chevron sits at `--indent / 2`, which is exactly where the branch's
+   horizontal run passes — so on the path it becomes a badge on the stroke rather
+   than a glyph floating near it, and it is shown without waiting for a hover: the
+   subtree the reader is inside is the one they are most likely to fold.
+
+   `--canvas` behind it is not the fill § Component Rules argued against — that was
+   a grey square drawn around an icon that was already legible. This is the ground,
+   put back where a 2px line would otherwise run through the middle of a glyph. */
+.outline-row[data-ancestor="true"] .outline-toggle,
+.outline-row[data-focused="true"] .outline-toggle {
+  opacity: 1;
+  border-radius: var(--r-full);
+  background: var(--canvas);
+  color: var(--thread-lit);
 }
 
 /* A row draws its own thread only while there is something under it to reach.
@@ -2257,9 +2290,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
   --thread-own: var(--thread-line);
 }
 
-/* On the path from the root to the caret, a parent's own segment lights with the
-   ancestor columns below it — otherwise the lit path has a one-row gap at every
-   level it passes through.
+/* On the path from the root to the caret, a parent's own segment lights and
+   thickens with the branch below it — otherwise the live stroke has a one-row gap
+   at every level it passes through.
    The `:not()` is there for the specificity and not for the state: written as
    `.outline-row[data-ancestor="true"]` this rule was one compound lighter than
    the one above it and lost the cascade to it at every row that had children,
@@ -2270,6 +2303,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    are now the same weight, and source order decides. */
 .outline-row[data-ancestor="true"]:not([data-collapsed="true"]) {
   --thread-own: var(--thread-lit);
+  --own-w: var(--branch-w);
 }
 
 /* The one row fill in the product. A hover or focus wash was rejected because
@@ -2467,8 +2501,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background: var(--ink-2);
 }
 
-.outline-row[data-focused="true"] .outline-bullet::after {
-  background: var(--ink);
+/* ── The path's own marks ──
+   The stroke lands on a bullet, so the bullets it lands on are part of it. Left
+   in `--ink-3` the branch arrived at a grey dot and stopped meaning anything at
+   its own destination; in the accent the whole chain — root, every level, the
+   caret's row — reads as one object.
+
+   These sit after the hover tone deliberately, and they have to: all three
+   selectors weigh the same, so being on the path wins only because it is claimed
+   last. Which is right — it is the stronger claim. */
+.outline-row[data-focused="true"] .outline-bullet::after,
+.outline-row[data-ancestor="true"] .outline-bullet::after {
+  background: var(--thread-lit);
 }
 
 /* The persistent collapsed signal: the halo. It is what still says "there is
@@ -2958,13 +3002,19 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* Gathered at the right of the block's own line, not a line beneath it: a
-   22px chip inside a 26px text line, padded so the two share a centre. */
+   22px chip inside a 26px text line, padded so the two share a centre.
+
+   12px between them, not 4. A boxed chip carries its own edge and needs only a
+   seam; a *bare* one is a run of words, and at 4px `#design #infra` read as one
+   token with punctuation in it. The gap is what separates them now, so it has to
+   be wider than the space inside a word — the same reason a list of links is not
+   set solid. */
 .outline-tags {
   display: flex;
   flex: 0 1 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: var(--sp-1);
+  gap: var(--sp-3);
   min-width: 0;
   margin-inline-start: auto;
   padding: 2px var(--sp-1) 2px 0;
@@ -3078,30 +3128,21 @@ button.chip:focus-visible .chip-glyph .chip-x {
   pointer-events: none;
 }
 
-/* Priority carries its own tone as a wash behind the bars as well as in them.
-   Three 3px bars is a small mark to hang a distinction on, and beside a filled
-   status disc it lost every time; the wash gives it the same visual weight
-   without inventing a second shape. The tone is still the second reading — the
-   count of filled bars is the first, and the label is in the accessible name. */
-.task-priority-toggle[data-priority="low"] {
-  --priority-tone: var(--priority-low);
-}
+/* Priority used to carry its own tone as a *wash* behind the bars, on the
+   argument that three 3px bars lost against a filled status disc. It did — but
+   the answer was a 24px tinted tile at the head of the line, and a tile is not a
+   mark. Beside a bare glyph it read as the one thing on the row with a box around
+   it, which at the head of a line of writing is exactly where a box is loudest;
+   at rest the whole row looked like it had a button stuck to it.
 
-.task-priority-toggle[data-priority="medium"] {
-  --priority-tone: var(--priority-medium);
-}
-
-.task-priority-toggle[data-priority="high"] {
-  --priority-tone: var(--priority-high);
-}
-
-.task-priority-toggle {
-  background: color-mix(in oklab, var(--priority-tone, var(--ink-3)) 12%, transparent);
-}
-
-.task-priority-toggle:hover {
-  background: color-mix(in oklab, var(--priority-tone, var(--ink-3)) 22%, transparent);
-}
+   So the mark competes on shape, where it should have all along: the bars are
+   wider and reach as far across their box as the status ring reaches across its
+   own (§ Tasks — status and priority are shape-first glyphs, and they are the
+   same size). The tone still fills the bars, the count of filled ones is still
+   the first reading, and the label is still in the accessible name — the only
+   thing that went is the rectangle, including the tinted version of it that
+   hover used to raise: the two marks now answer the pointer the same way, with
+   the one hover colour. */
 
 /* The hanging indent the mark cluster stands in. One rule per count, because
    there are exactly two counts a block can have. */
@@ -6125,19 +6166,28 @@ button.query-list-status[data-active="true"] {
    statement: one group per scope, headed by a real heading. */
 /* Two panes, and the seam between them is drawn. The nav used to float in the
    same white as the section beside it with 24px of nothing in between, so the
-   dialog read as one region with a list of words loose at its left. A `min-height`
-   still holds — sections differ in length and a dialog that resizes under a
-   pointer already travelling to a control is worse than one that is sometimes
-   roomy — but 440px was tall enough that the shortest section left half a panel
-   of white below it. */
+   dialog read as one region with a list of words loose at its left.
+
+   One height, and it does not depend on which section is open. A `min-height` and
+   a larger `max-height` meant the dialog resized as the reader moved down the
+   nav — Appearance is three fields, Storage is two lines — so every press in the
+   list moved the list, and the row the pointer was travelling toward was
+   somewhere else by the time it arrived. That is the one thing § Motion forbids
+   outright, and it cannot be fixed with a transition: the reader is not being
+   shown a change, they are being made to chase one. The pane scrolls instead.
+
+   It is also taller than it was. 560 was set when the longest section was a list
+   of shortcuts; the appearance pane now carries a palette, and a fixed box has to
+   be sized for the longest thing in it rather than the shortest. The window is the
+   ceiling: 128px is the dialog's own 90px of header and padding plus the 32px
+   inset every other dialog in the product keeps from the window edge, so this one
+   never sits closer to it than they do. `round()` keeps the result whole, because
+   this box's own edge and the seam inside it both land on it (§ Whole pixels). */
 .settings-shell {
   display: grid;
   grid-template-columns: 172px minmax(0, 1fr);
   gap: var(--sp-5);
-  /* Both clamps are ordered so the pixel side wins at ordinary window heights —
-     see the palette's `max-height` for the argument. */
-  min-height: min(340px, 60vh);
-  max-height: min(560px, 78vh);
+  height: round(down, clamp(272px, 100dvh - 128px, 720px), 1px);
 }
 
 .settings-shell > .settings-pane {
@@ -6351,27 +6401,6 @@ button.query-list-status[data-active="true"] {
   color: var(--danger);
 }
 
-/* At 390px the five tone swatches were 375px of row inside a 322px pane, which
-   is a horizontal scrollbar in a settings dialog — and the one place a reader
-   cannot dismiss it by making the window wider. They keep the shape they preview
-   and give back twelve pixels each. */
-@media (max-width: 600px) {
-  .tone-swatch {
-    width: 48px;
-    height: 36px;
-  }
-
-  .tone-swatch-thread {
-    width: 30px;
-    height: 24px;
-  }
-
-  .tone-choice-name {
-    margin-left: 0;
-    flex-basis: 100%;
-  }
-}
-
 /* The one segmented control: a track with the chosen key raised out of it. The
    raise is what tells a reader which of three adjacent words is the answer,
    without a second signal — no rule, no accent, no weight change. */
@@ -6451,179 +6480,139 @@ button.query-list-status[data-active="true"] {
 }
 
 /* ── Choosing a colour ──
-   Every colour in Settings is chosen by pressing the colour, never by reading its
-   name out of a dropdown: all the options are on screen at once, each one showing
-   what it will do, one press each. Two skins, because § Settings asks each choice
-   to preview itself at the size it will render — the thread's swatches draw
-   indent threads at the outline's own spacing and weight, and a row that already
-   carries a live chip beside it needs only the colour. */
-.tone-choice {
+   One control, wherever a colour is chosen. Every option is a filled disc of the
+   colour it sets, all of them on screen at once, one press each — never a
+   dropdown, whose trigger hides the palette behind the word for it and asks the
+   reader to pick a colour by reading its name.
+
+   Three states, and the chosen one is not carried by colour: a tick in
+   `--on-tone` sits inside the disc, so the answer survives greyscale and a reader
+   who cannot separate two of the five. Hover is a halo of the disc's own colour,
+   which is the one place in the product where a tone may leave its own mark —
+   it is not a fill on a row or a panel, it is the shadow of the object itself. */
+.color-choice {
   display: inline-flex;
   align-self: flex-start;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--sp-1);
+  gap: var(--sp-2);
 }
 
-.tone-choice-name {
-  margin-left: var(--sp-2);
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  font-weight: var(--weight-medium);
+/* The palette's five steps resolve through the tone map; the accent's eight steps
+   are composed from the same two per-mode numbers `--accent` is built from, in
+   the declaration that uses them — a custom property's `var()`s are substituted
+   where the property is *declared*, so `var(--accent)` would have arrived already
+   resolved to the root's hue and all eight discs would be one colour. */
+.color-choice[data-kind="tone"] .color-swatch {
+  --swatch: var(--tone);
 }
 
-/* The swatch stands on `--canvas`, not on the dialog's own surface: a thread is
-   drawn on the writing ground, and a 30% hairline previewed against a darker
-   fill reads as a different, weaker colour than the one being chosen. */
-.tone-swatch {
+.color-choice[data-kind="hue"] .color-swatch {
+  --swatch: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+}
+
+.color-swatch {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Roomier than it was. A 30% hairline is a faint thing by design, and in a
-     48×34 box with two of them there was not enough of the colour on screen to
-     tell four of the five choices apart — the swatch previewed the right thing
-     at the wrong scale. */
-  width: 60px;
-  height: 40px;
+  flex: none;
+  width: var(--target);
+  height: var(--target);
   padding: 0;
   border: 0;
-  border-radius: var(--r-2);
-  background: var(--canvas);
-  box-shadow: var(--e1);
+  border-radius: var(--r-full);
+  background: var(--swatch);
+  /* One hairline of ink, inset, so the palest disc in either mode still reads as
+     an object on the pane rather than as a smudge of colour (§ Depth & Shape — a
+     bounded object gets one line). */
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
   cursor: pointer;
   transition: box-shadow var(--dur-press) var(--ease-out);
 }
 
-.tone-swatch:hover {
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+.color-swatch:hover:not([aria-pressed="true"]) {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent),
+    0 0 0 4px color-mix(in oklab, var(--swatch) 22%, transparent);
 }
 
-.tone-swatch[aria-pressed="true"] {
+.color-swatch:focus-visible {
+  outline: none;
   box-shadow:
-    inset 0 0 0 1px var(--accent),
+    inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent),
     0 0 0 3px var(--accent-soft);
 }
 
-/* The colour alone, at the size of a control. The disc is the pure tone rather
-   than the tint it will fill, because what is being chosen is the *step* — how
-   far it is diluted is the chip's business, and the chip is in the same row. */
-.tone-choice[data-variant="dot"] .tone-swatch {
-  width: var(--target);
-  height: var(--target);
-  border-radius: var(--r-full);
-  background: transparent;
-  box-shadow: none;
+/* Chosen: a ring in the page's own ground, then the disc's colour again outside
+   it. A ring drawn in the accent would be invisible on the accent's own swatch,
+   and a ring drawn in ink would read as "disabled" on the neutral step. */
+.color-swatch[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--canvas),
+    0 0 0 4px var(--swatch);
 }
 
-.tone-swatch-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--r-full);
-  background: var(--tone);
-  /* The neutral step is `--ink-2`, which on a light panel is a dark grey disc
-     and needs no help; every other step is chroma against a near-white ground.
-     One inset hairline of ink at 12% closes all five without tinting any of
-     them (§ Depth & Shape — a bounded object gets one line). */
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
+.color-swatch svg {
+  width: 14px;
+  height: 14px;
+  color: var(--on-tone);
+  opacity: 0;
+  stroke-width: 3;
 }
 
-.tone-choice[data-variant="dot"] .tone-swatch:hover .tone-swatch-dot {
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 26%, transparent);
+.color-swatch[aria-pressed="true"] svg {
+  opacity: 1;
 }
 
-.tone-choice[data-variant="dot"] .tone-swatch[aria-pressed="true"] {
-  box-shadow: 0 0 0 2px var(--accent);
+/* The neutral step is `--ink-2`, the one tone whose own `--on-tone` is the wrong
+   ink: in light mode both are near-white against a mid grey. It takes the canvas
+   instead, which is what a tick on a grey disc has always been. */
+.color-choice[data-kind="tone"] .color-swatch[data-palette="neutral"] svg {
+  color: var(--canvas);
 }
 
-.tone-swatch-thread {
-  width: 40px;
-  height: 28px;
-  /* The resting thread, at exactly the strength and the 1px-per-indent rhythm
-     the outline draws it with, so the swatch cannot drift from what it previews.
-     Only the resting line: the *lit* path is the accent for every reader and is
-     not this preference's to show (§ The thread). */
-  background-image: repeating-linear-gradient(
-    to right,
-    color-mix(in oklab, var(--tone) 30%, transparent) 0 1px,
-    transparent 1px 13px
-  );
-  background-position: 0 0;
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
+@media (max-width: 600px), (hover: none) {
+  .color-swatch {
+    width: var(--sp-6);
+    height: var(--sp-6);
+  }
 }
 
 /* ── The accent ──
-   One colour, chosen as a hue. Eight named steps for a single press and a strip
-   for everything between them; no preview panel, because the accent is what the
+   One colour, chosen as a hue: eight named steps for a single press and a rail for
+   everything between them. No preview panel, because the accent is what the
    settings rail's current row, this pane's tint and the pressed swatch's own ring
    are already drawn in — the product behind the dialog is the preview, and it
-   moves while the reader drags.
-
-   Both the swatches and the strip are painted from `--accent-l` and `--accent-c`,
-   so they show the colours actually on offer in the current mode rather than a
-   generic rainbow, and they repaint themselves in dark mode for free. */
+   moves while the reader drags. */
 .accent-choice {
   display: flex;
   flex-direction: column;
   align-self: flex-start;
-  gap: var(--sp-2);
-  /* The strip is as wide as the row of steps above it, so the two read as one
-     control: eight targets, seven gaps. */
-  width: calc(8 * var(--sp-6) + 7 * var(--sp-1));
+  gap: var(--sp-3);
+  /* As wide as the row of steps above it, so the two read as one control: eight
+     discs and seven gaps. */
+  width: calc(8 * var(--target) + 7 * var(--sp-2));
   max-width: 100%;
 }
 
-.accent-steps {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: var(--sp-1);
-}
-
-/* The fill is written out here rather than taken from `var(--accent)`, and that
-   is not a style choice. A custom property's `var()`s are substituted on the
-   element where the property is *declared* — `--accent` is declared on `:root`,
-   so it had already resolved to the root's hue by the time it reached a swatch,
-   and eight swatches carrying eight `--accent-h` overrides all painted the same
-   colour. Composing the colour in the declaration that uses it is what lets the
-   local hue reach it, and it still cannot drift from the token: the lightness and
-   the chroma are the same two per-mode numbers `--accent` is built from. */
-.accent-swatch {
-  height: var(--sp-6);
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-2);
-  background: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
-  box-shadow: var(--e1-raised);
-  cursor: pointer;
-  transition: box-shadow var(--dur-press) var(--ease-out);
-}
-
-.accent-swatch:hover {
-  box-shadow:
-    var(--e1-raised),
-    inset 0 0 0 2px var(--canvas);
-}
-
-/* The chosen step says so with a ring in the page's own ground rather than in the
-   accent: a swatch *is* the accent, so an accent ring on it would be invisible.
-   The gap reads as "this one" at any hue. */
-.accent-swatch[aria-pressed="true"] {
-  box-shadow:
-    var(--e1-raised),
-    inset 0 0 0 3px var(--canvas),
-    inset 0 0 0 4px var(--ink);
-}
-
-/* The hue strip. A native range, styled down to a track and a thumb: the track
-   is the accent sweep, the thumb is a lens on it — the current colour, ringed in
-   the ground so it stays visible against its own track at every angle. */
-.accent-strip {
+/* A native range, styled down to a track and a thumb. The input is the control
+   floor tall so the whole strip is a target; the *track* is the 12px band the
+   reader sees, and the thumb is a lens on it — the current colour, ringed in the
+   page's ground so it stays legible against its own track at every angle. */
+.accent-rail {
   width: 100%;
   height: var(--target);
   margin: 0;
   padding: 0;
-  border-radius: var(--r-2);
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.accent-rail::-webkit-slider-runnable-track {
+  height: 12px;
+  border-radius: var(--r-full);
   background: linear-gradient(
     to right,
     oklch(var(--accent-l) var(--accent-c) 0),
@@ -6636,45 +6625,68 @@ button.query-list-status[data-active="true"] {
     oklch(var(--accent-l) var(--accent-c) 315),
     oklch(var(--accent-l) var(--accent-c) 360)
   );
-  box-shadow: var(--e1);
-  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+.accent-rail::-webkit-slider-thumb {
+  /* -4px centres a 20px thumb on a 12px track; both are even, so the circle
+     lands on whole pixels (§ Whole pixels). */
+  width: 20px;
+  height: 20px;
+  margin-top: -4px;
+  border: 3px solid var(--canvas);
+  border-radius: var(--r-full);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--ink) 16%, transparent),
+    0 1px 2px -1px oklch(0 0 0 / 0.25);
+  cursor: grab;
   appearance: none;
   -webkit-appearance: none;
 }
 
-.accent-strip:focus-visible {
+.accent-rail:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+.accent-rail::-moz-range-track {
+  height: 12px;
+  border-radius: var(--r-full);
+  background: linear-gradient(
+    to right,
+    oklch(var(--accent-l) var(--accent-c) 0),
+    oklch(var(--accent-l) var(--accent-c) 90),
+    oklch(var(--accent-l) var(--accent-c) 180),
+    oklch(var(--accent-l) var(--accent-c) 270),
+    oklch(var(--accent-l) var(--accent-c) 360)
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+.accent-rail::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--canvas);
+  border-radius: var(--r-full);
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--ink) 16%, transparent);
+  cursor: grab;
+}
+
+.accent-rail:focus-visible {
   outline: none;
-  box-shadow:
-    var(--e1),
-    0 0 0 3px var(--accent-soft);
 }
 
-.accent-strip::-webkit-slider-thumb {
-  width: 18px;
-  height: var(--target);
-  border-radius: var(--r-1);
-  background: var(--accent);
-  /* A lens, drawn inward so nothing is clipped by the track: two pixels of the
-     page's own ground lift the thumb off the sweep it is sitting on, one pixel of
-     ink closes it, and what is left in the middle is the colour being chosen. */
+.accent-rail:focus-visible::-webkit-slider-thumb {
   box-shadow:
-    inset 0 0 0 2px var(--canvas),
-    inset 0 0 0 3px var(--ink);
-  cursor: grab;
-  appearance: none;
-  -webkit-appearance: none;
+    0 0 0 1px color-mix(in oklab, var(--ink) 16%, transparent),
+    0 0 0 4px var(--accent-soft);
 }
 
-.accent-strip::-moz-range-thumb {
-  width: 18px;
-  height: var(--target);
-  border: 0;
-  border-radius: var(--r-1);
-  background: var(--accent);
+.accent-rail:focus-visible::-moz-range-thumb {
   box-shadow:
-    inset 0 0 0 2px var(--canvas),
-    inset 0 0 0 3px var(--ink);
-  cursor: grab;
+    0 0 0 1px color-mix(in oklab, var(--ink) 16%, transparent),
+    0 0 0 4px var(--accent-soft);
 }
 
 /* ── The due tiers ──
@@ -6688,9 +6700,17 @@ button.query-list-status[data-active="true"] {
    237.75px, 184.06px, 167.89px, 182.22px, and sixteen pixels of raggedness down
    a column whose whole job is to be read down. `subgrid` is what makes four rows
    actually agree; the previous comment here claimed they did. */
+/* Four tracks, and the *chip* is the elastic one. It used to be `auto` with the
+   reach cell taking `1fr`, which held while the reach cell's neighbour was a
+   128px dropdown and broke the moment it became five swatches: the chip sized
+   itself to the longest date in the scale, the swatches took what they needed, and
+   `within [ ] days` was left with 33 pixels to put a 64px field in — a number
+   input squeezed until its own value was invisible. The chip is the one thing here
+   that can afford to give, because it already ellipsises and it is a preview
+   rather than a control. */
 .due-tiers {
   display: grid;
-  grid-template-columns: 84px auto minmax(0, 1fr) max-content;
+  grid-template-columns: 84px minmax(0, 1fr) max-content max-content;
   gap: var(--sp-2) var(--sp-3);
 }
 
@@ -6719,8 +6739,14 @@ button.query-list-status[data-active="true"] {
   white-space: nowrap;
 }
 
+/* The basis is declared, not the width, and neither shrinks nor grows: a field
+   that shrinks below its own content is not a field — the flex default handed the
+   whole squeeze to the one item in the row with a value to show — and `width`
+   alone is not enough here, because shadcn's own `w-full` lives in the utilities
+   layer and outranks anything this file says. `flex-basis` is the one term that
+   layer does not set. */
 .due-tier-days input {
-  width: 64px;
+  flex: 0 0 64px;
   text-align: center;
 }
 
@@ -6729,7 +6755,7 @@ button.query-list-status[data-active="true"] {
    them in the third track — a row with three children fills the first three
    columns — and `overdue` and `later` wrapped their five swatches onto two lines
    in a column narrower than the other two rows'. */
-.due-tier > .tone-choice {
+.due-tier > .color-choice {
   grid-column: 4;
 }
 
@@ -6745,7 +6771,7 @@ button.query-list-status[data-active="true"] {
     padding-bottom: var(--sp-2);
   }
 
-  .due-tier > .tone-choice {
+  .due-tier > .color-choice {
     grid-column: 1;
   }
 }

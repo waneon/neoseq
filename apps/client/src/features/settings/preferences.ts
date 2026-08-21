@@ -5,19 +5,19 @@
 // outline in the same commit the dialog updates in — no reload, no prop drilling
 // through the shell.
 //
-// Preferences name *tones*, never colours. A surface receives the chosen tone's
-// name as `data-palette` and `app.css` § The tone map decides what that name
-// looks like in each mode, which is what keeps a user preference inside the
-// committed palette and its contrast table (DESIGN.md § Colour).
+// A tone preference names a *step*, never a colour: a surface receives the
+// chosen tone's name as `data-palette` and `app.css` § The tone map decides what
+// that name looks like in each mode, which is what keeps the preference inside
+// the committed palette and its contrast table. The one preference that does name
+// a colour is the accent's hue, and `ui/theme.ts` owns it — see § The accent is a
+// hue for why that one is safe (DESIGN.md § Colour).
 
 import { useSyncExternalStore } from "react";
 import {
   appSettings,
   dueTiers,
   subscribeAppSettings,
-  threadTone,
   type DueTierSettings,
-  type ToneName,
 } from "../../entities/settings";
 import { configuredTimezone } from "../../entities/journal";
 
@@ -27,10 +27,6 @@ export function useConfiguredTimezone(): string {
     configuredTimezone,
     configuredTimezone,
   );
-}
-
-export function useThreadTone(): ToneName {
-  return useSyncExternalStore(subscribeAppSettings, threadTone, threadTone);
 }
 
 /**

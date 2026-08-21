@@ -22,7 +22,6 @@ import {
   DEFAULT_DUE_TIERS,
   JOURNAL_DATE_FORMATS,
   MAX_DUE_DAYS,
-  setThreadTone,
   updateDueTiers,
   type DueTierSettings,
   type JournalDateFormat,
@@ -30,7 +29,7 @@ import {
 } from "../../entities/settings";
 import { DUE_TIERS, type DueTier } from "../../entities/tasks";
 import { CalendarIcon } from "lucide-react";
-import { useConfiguredTimezone, useDueTiers, useThreadTone } from "./preferences";
+import { useConfiguredTimezone, useDueTiers } from "./preferences";
 import { AccentField } from "./AccentField";
 import { ToneChoice } from "./ToneChoice";
 import { Callout, Dialog } from "../../ui/components";
@@ -229,38 +228,7 @@ function AppearanceSection() {
         ))}
       </div>
       <AccentField />
-      <ThreadToneField />
     </section>
-  );
-}
-
-/**
- * Which tone the outline's indent thread takes. It is the one line the product
- * draws on every screen of writing, so it is also the one line worth letting a
- * person choose — and the choice is a *tone name*, never a colour: `app.css`
- * § The tone map decides what each name looks like in each mode, so no setting
- * can leave the committed palette or its contrast table.
- */
-function ThreadToneField() {
-  const { message } = useI18n();
-  const heading = useId();
-  const tone = useThreadTone();
-  return (
-    <div className="settings-field">
-      <h3 id={heading}>{message("settings.threadTone")}</h3>
-      <p>{message("settings.threadToneDescription")}</p>
-      {/* The swatch is the thing it sets: indent threads in the tone being
-          offered, on the canvas they are drawn on, at the weight the outline
-          actually draws them. */}
-      <ToneChoice
-        value={tone}
-        onChange={setThreadTone}
-        labelledBy={heading}
-        variant="thread"
-        testId="settings-thread-tone"
-        showName
-      />
-    </div>
   );
 }
 
@@ -433,7 +401,6 @@ function TasksSection() {
                 label={message("settings.dueToneFor", {
                   tier: message(DUE_TIER_MESSAGE[tier]),
                 })}
-                variant="dot"
                 testId={`due-tone-${tier}`}
               />
             </div>

@@ -55,7 +55,6 @@ import { useCommands } from "../commands/context";
 import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
-import { useThreadTone } from "../settings/preferences";
 import { failureReason } from "../notify/errors";
 import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, queryDocument, stringValue } from "../../core-port/snapshot";
@@ -297,7 +296,6 @@ export function Outliner({
   const history = useHistoryActions();
   const notify = useNotify();
   const bindings = useShortcutBindings();
-  const threadTone = useThreadTone();
   const { message, compare } = useI18n();
   const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [historyRevealRevision, bumpHistoryReveal] = useReducer(
@@ -1876,14 +1874,6 @@ export function Outliner({
   // walks the whole list. See DESIGN.md § The outline / Thread.
   const ancestors = ancestorPath(rows, focusedId);
 
-  // Whether each row's parent still has a sibling to reach below it, which is
-  // what decides whether the branch drawn beside the row's bullet carries on past
-  // it (§ The branch). One backward pass over the flattened list, beside the
-  // ancestor walk above, rather than a question asked per rendered row: asked
-  // that way it would walk each row's whole subtree looking for the next sibling,
-  // which on a deep parent is the subtree once per row on screen.
-  const continues = siblingContinuations(rows);
-
   /** The bare keys a selection answers to. They only reach here while the tree
    * itself holds focus, which is exactly when no text field can lose them. */
   const onSelectionKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -1948,10 +1938,6 @@ export function Outliner({
       ref={sectionRef}
       data-dragging={dragging || undefined}
       data-selecting={marqueeing || undefined}
-      // The thread's tone, as the *name* of a declared step. `app.css`
-      // § The tone map turns it into a colour, so the preference cannot leave the
-      // palette and both modes follow for free.
-      data-palette={threadTone}
     >
       {/* The selection has no visible counter — the highlighted rows are the
           count — so this is how it reaches a screen reader. */}
@@ -2021,7 +2007,6 @@ export function Outliner({
                   editor={editor}
                   lit={litFor(ancestors, item.index, row.depth)}
                   ancestor={ancestors.indices.includes(item.index)}
-                  continues={continues[item.index] ?? false}
                   bindings={bindings}
                 />
               </div>
@@ -2503,28 +2488,6 @@ function litFor(path: AncestorPath, index: number, depth: number): number {
   return Math.min(levels, depth);
 }
 
-/**
- * For every row, whether another row at its own depth follows it under the same
- * parent — which is exactly whether the parent's branch continues below it.
- *
- * One backward pass. Walking up the list, `pending[d]` says "a row of depth d has
- * been seen since the last row shallower than d", so it answers the question for
- * the row currently under the cursor; truncating the array at `depth` afterwards
- * is what forgets the deeper levels, because everything below a row of depth `d`
- * belonged to a subtree that has now been left.
- */
-function siblingContinuations(rows: OutlineRow[]): boolean[] {
-  const result = new Array<boolean>(rows.length).fill(false);
-  const pending: boolean[] = [];
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const depth = rows[index].depth;
-    result[index] = pending[depth] ?? false;
-    pending[depth] = true;
-    pending.length = depth + 1;
-  }
-  return result;
-}
-
 function onKeyDown(
   editor: EditorContext,
   row: OutlineRow,
@@ -2799,17 +2762,14 @@ function BlockRow({
   editor,
   lit,
   ancestor,
-  continues,
   bindings,
 }: {
   row: OutlineRow;
   rows: OutlineRow[];
   editor: EditorContext;
   lit: number;
-  /** On the path from the root to the caret: its own thread segment lights too. */
+  /** On the path from the root to the caret: its own branch is drawn and lit. */
   ancestor: boolean;
-  /** A later sibling exists, so the parent's branch runs on past this row. */
-  continues: boolean;
   bindings: ReturnType<typeof useShortcutBindings>;
 }) {
   const { message } = useI18n();
@@ -2907,14 +2867,6 @@ function BlockRow({
       data-revealed={editor.revealed.has(row.block.id) || undefined}
       data-has-children={row.hasChildren}
       data-ancestor={ancestor || undefined}
-      // The branch beside this row's bullet: whether it carries on below the
-      // turn, and whether it is the live path (§ The branch). `lit === depth`
-      // means every column down to this row's own parent is lit, which is the
-      // column the branch is made of — a sibling of the caret's row therefore
-      // keeps the stroke unbroken past its bullet, exactly as the lit layer
-      // above it does.
-      data-continues={continues || undefined}
-      data-thread-lit={lit === row.depth && row.depth > 0 ? true : undefined}
       data-block-id={row.block.id}
       data-testid="outline-row"
       // Depth drives the indent AND the thread gradient; `lit` drives how much

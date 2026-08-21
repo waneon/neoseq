@@ -10,7 +10,9 @@
 // It is the status control's twin in every other respect: the same dropdown
 // (§ Choice), `menuitemradio` rows led by their own shape, the registry's values
 // offered strongest first, a stored value outside that set kept listed, and an
-// explicit removal row.
+// explicit removal row — and, like it, the menu is exported apart from the trigger
+// so a query result's priority cell opens the same rows rather than the generic
+// property picker.
 
 import { MinusIcon } from "lucide-react";
 import type { BlockSnapshot } from "../../core-port/snapshot";
@@ -43,21 +45,8 @@ export function TaskPriorityControl({
   block: BlockSnapshot;
   priority: string;
 }) {
-  const session = useSession();
-  const state = useSessionState();
-  const notify = useNotify();
   const { message } = useI18n();
-  const readonly = state.mode === "readonly";
-  const entity = { kind: "block", page_id: pageId, id: block.id } as const;
-
-  const run = (command: Parameters<typeof session.execute>[0]) =>
-    session.execute(command).catch((error: unknown) => {
-      notify.failure(message("failure.setProperty"), error);
-    });
-
-  const offered = offeredChoices(TASK_PRIORITY_KEY, TASK_PRIORITIES);
-  const options = offered.includes(priority) ? offered : [priority, ...offered];
-
+  const readonly = useSessionState().mode === "readonly";
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -74,33 +63,65 @@ export function TaskPriorityControl({
           <PriorityGlyph priority={priority} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" aria-label={message("task.priority")}>
-        <DropdownMenuRadioGroup
-          value={priority}
-          onValueChange={(value) =>
-            void run({
-              type: "set_property",
-              owner: entity,
-              key: TASK_PRIORITY_KEY,
-              value: { type: "string", value },
-            })}
-        >
-          {options.map((option) => (
-            <DropdownMenuRadioItem key={option} value={option}>
-              <PriorityGlyph priority={option} />
-              {priorityLabel(option, message)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          data-testid="remove-priority"
-          onSelect={() => void run({ type: "remove_property", owner: entity, key: TASK_PRIORITY_KEY })}
-        >
-          <MinusIcon aria-hidden />
-          {message("task.removePriority")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <TaskPriorityMenu pageId={pageId} block={block} priority={priority} />
     </DropdownMenu>
+  );
+}
+
+/** The rows a priority choice offers, for whatever trigger opened them. */
+export function TaskPriorityMenu({
+  pageId,
+  block,
+  priority,
+}: {
+  pageId: string;
+  block: BlockSnapshot;
+  priority: string;
+}) {
+  const session = useSession();
+  const notify = useNotify();
+  const { message } = useI18n();
+  const entity = { kind: "block", page_id: pageId, id: block.id } as const;
+
+  const run = (command: Parameters<typeof session.execute>[0]) =>
+    session.execute(command).catch((error: unknown) => {
+      notify.failure(message("failure.setProperty"), error);
+    });
+
+  const offered = offeredChoices(TASK_PRIORITY_KEY, TASK_PRIORITIES);
+  // As in the status menu: a stored value outside the set stays listed, the
+  // absence of one does not.
+  const options = !priority || offered.includes(priority)
+    ? offered
+    : [priority, ...offered];
+
+  return (
+    <DropdownMenuContent align="start" aria-label={message("task.priority")}>
+      <DropdownMenuRadioGroup
+        value={priority}
+        onValueChange={(value) =>
+          void run({
+            type: "set_property",
+            owner: entity,
+            key: TASK_PRIORITY_KEY,
+            value: { type: "string", value },
+          })}
+      >
+        {options.map((option) => (
+          <DropdownMenuRadioItem key={option} value={option}>
+            <PriorityGlyph priority={option} />
+            {priorityLabel(option, message)}
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        data-testid="remove-priority"
+        onSelect={() => void run({ type: "remove_property", owner: entity, key: TASK_PRIORITY_KEY })}
+      >
+        <MinusIcon aria-hidden />
+        {message("task.removePriority")}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
   );
 }

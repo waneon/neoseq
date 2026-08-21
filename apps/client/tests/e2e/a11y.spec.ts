@@ -106,7 +106,7 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
 
-  for (const tone of ["neutral", "accent", "ok", "attention", "danger"]) {
+  for (const tone of ["neutral", "info", "ok", "attention", "danger"]) {
     await page.evaluate((chosen) => {
       const raw = localStorage.getItem("neoseq.settings.v1");
       const settings = raw ? JSON.parse(raw) : {};
