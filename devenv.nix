@@ -1,7 +1,6 @@
 {
   config,
   pkgs,
-  lib,
   ...
 }:
 
@@ -33,11 +32,6 @@ in
     pkgs.cargo-deny
     pkgs.wasm-bindgen-cli
   ];
-
-  env = lib.optionalAttrs pkgs.stdenv.isDarwin {
-    LIBRARY_PATH = "${pkgs.libiconv}/lib";
-    NIX_LDFLAGS = "-L${pkgs.libiconv}/lib";
-  };
 
   services.postgres = {
     enable = true;

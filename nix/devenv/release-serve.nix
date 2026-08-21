@@ -20,7 +20,7 @@ let
     	bind 127.0.0.1
 
     	handle /v1/* {
-    		reverse_proxy 127.0.0.1:8787
+    		reverse_proxy 127.0.0.1:${toString syncPort}
     	}
 
     	handle {
