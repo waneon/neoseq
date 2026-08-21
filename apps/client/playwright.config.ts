@@ -6,8 +6,9 @@ export default defineConfig({
   testDir: "./tests",
   testMatch: /.*\.spec\.ts/,
   fullyParallel: false,
-  workers: process.env.CI ? 2 : 4,
-  retries: 0,
+  // Keep the gate reproducible everywhere; focused runs can opt into more.
+  workers: 2,
+  retries: 1,
   reporter: "line",
   expect: {
     timeout: 30_000,
