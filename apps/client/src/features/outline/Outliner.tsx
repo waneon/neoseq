@@ -72,6 +72,7 @@ import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { compilePlan } from "../../entities/query-compile";
 import { defaultPlan, encodePlan, QUERY_PLAN_VERSION } from "../../entities/query-plan";
 import { codePointIndex, diffSplice } from "./text-diff";
+import { planAutoPair, type PairSelectionDirection } from "./auto-pair";
 import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
@@ -2488,6 +2489,39 @@ function litFor(path: AncestorPath, index: number, depth: number): number {
   return Math.min(levels, depth);
 }
 
+/** Applies only the paired-delimiter intents that replace native textarea input. */
+function onBeforeInput(
+  editor: EditorContext,
+  row: OutlineRow,
+  textarea: HTMLTextAreaElement,
+  event: InputEvent,
+) {
+  if (editor.readonly) return;
+  const direction = textarea.selectionDirection;
+  const plan = planAutoPair({
+    value: textarea.value,
+    start: textarea.selectionStart,
+    end: textarea.selectionEnd,
+    direction: (direction ?? "none") as PairSelectionDirection,
+    inputType: event.inputType,
+    data: event.data,
+    isComposing: event.isComposing,
+  });
+  if (!plan) return;
+
+  event.preventDefault();
+  const previous = textarea.value;
+  textarea.setRangeText(plan.insert, plan.from, plan.to, "preserve");
+  textarea.setSelectionRange(
+    plan.selectionStart,
+    plan.selectionEnd,
+    plan.selectionDirection,
+  );
+
+  if (textarea.value !== previous) editor.onInput(row, textarea.value, textarea);
+  else editor.publishSelection(row.block.id, textarea);
+}
+
 function onKeyDown(
   editor: EditorContext,
   row: OutlineRow,
@@ -2803,6 +2837,17 @@ function BlockRow({
     // wraps. `previewMarkdown` matters because a hidden textarea measures zero:
     // without it the editor would open clipped to one line.
   }, [value, tags.length, previewMarkdown]);
+
+  // React's synthetic onBeforeInput normalizes older textInput events and does
+  // not expose the native inputType reliably. Pairing needs that distinction so
+  // paste, drop, replacement and composition remain ordinary browser edits.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const handle = (event: InputEvent) => onBeforeInput(editor, row, textarea, event);
+    textarea.addEventListener("beforeinput", handle);
+    return () => textarea.removeEventListener("beforeinput", handle);
+  }, [editor, row]);
 
   useLayoutEffect(() => {
     if (!isFocused) return;

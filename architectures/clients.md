@@ -94,6 +94,13 @@ the authoritative core event while preserving the selection. Structural commands
 cross CorePort immediately and may render optimistically only when the inverse
 is known.
 
+Paired delimiters are a client input transform at the textarea's native
+`beforeinput` boundary. A pure planner handles typed openers, selection wrapping,
+closer overtyping, and paired backspace; composition, paste, drop, and replacement
+input remain native. The transformed value rejoins the ordinary draft and debounce
+path as one text splice, so the core, CRDT document, and Markdown projection carry
+no pairing policy or pair-origin metadata.
+
 Inactive blocks with Markdown syntax use the shared CommonMark reading projection;
 activating non-interactive rendered content restores the existing source textarea.
 Plain text may stay on the textarea fast path because its projection is identical.

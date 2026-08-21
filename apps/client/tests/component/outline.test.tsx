@@ -102,6 +102,52 @@ describe("outliner keyboard commands", () => {
     });
   });
 
+  it("auto-pairs delimiters, steps across closers, and deletes empty pairs", async () => {
+    const { session } = await mountOutline([""]);
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(textarea);
+
+    await user.keyboard("(");
+    expect(textarea).toHaveValue("()");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([1, 1]);
+
+    await user.keyboard("x");
+    expect(textarea).toHaveValue("(x)");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([2, 2]);
+    await user.keyboard("{Backspace}");
+
+    await user.keyboard(")");
+    expect(textarea).toHaveValue("()");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([2, 2]);
+
+    textarea.setSelectionRange(1, 1);
+    await user.keyboard("{Backspace}");
+    expect(textarea).toHaveValue("");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([0, 0]);
+
+    await user.keyboard("[[");
+    await user.tab({ shift: true });
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home");
+      expect(page?.blocks[0].markdown).toBe("[]");
+    });
+  });
+
+  it("wraps selected block text and keeps it selected", async () => {
+    await mountOutline(["alpha"]);
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(textarea);
+    textarea.setSelectionRange(0, textarea.value.length, "backward");
+
+    await user.keyboard("[[");
+
+    expect(textarea).toHaveValue("[alpha]");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([1, 6]);
+    expect(textarea.selectionDirection).toBe("backward");
+  });
+
   it("Enter inserts a sibling and focuses it; Tab indents; Shift+Tab outdents", async () => {
     await mountOutline(["alpha"]);
     const user = userEvent.setup();

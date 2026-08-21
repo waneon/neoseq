@@ -48,3 +48,47 @@ test("block commands never interrupt an active IME composition", async ({ page }
   await page.keyboard.press("Enter");
   await expect(page.locator('[data-testid="outline-row"]')).toHaveCount(2);
 });
+
+test("paired delimiters use native text input while compositions pass through", async ({ page }) => {
+  await createGraph(page, "Pairing Graph");
+  await startOutline(page);
+
+  const textarea = page.locator('[data-testid="outline-row"] textarea').first();
+  await textarea.focus();
+  await page.keyboard.type("(");
+  await expect(textarea).toHaveValue("()");
+  await expect.poll(() => textarea.evaluate((element) => {
+    const input = element as HTMLTextAreaElement;
+    return [input.selectionStart, input.selectionEnd];
+  })).toEqual([1, 1]);
+
+  await page.keyboard.type("x");
+  await expect(textarea).toHaveValue("(x)");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type(")");
+  await expect(textarea).toHaveValue("()");
+  await expect.poll(() => textarea.evaluate((element) => {
+    const input = element as HTMLTextAreaElement;
+    return [input.selectionStart, input.selectionEnd];
+  })).toEqual([2, 2]);
+
+  await textarea.evaluate((element) => {
+    const input = element as HTMLTextAreaElement;
+    input.setSelectionRange(1, 1);
+  });
+  await page.keyboard.press("Backspace");
+  await expect(textarea).toHaveValue("");
+
+  const compositionPrevented = await textarea.evaluate((element) => {
+    const event = new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      data: "(",
+      inputType: "insertCompositionText",
+      isComposing: true,
+    });
+    element.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(compositionPrevented).toBe(false);
+});
