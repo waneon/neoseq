@@ -70,7 +70,7 @@ metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar
   mark-slot 16 + mark-gap 9 (the rail's one glyph column) ·
   control-row 32 · chip 24 · outline-row 28 · indent 30 · bullet-slot 20 · bullet-disc 20 ·
   guide 1 · branch 2 · branch-turn 10 · tag-gap 12 ·
-  settings-shell round(down, clamp(272, 100dvh − 128, 340), 1px) — the nav's height,
+  settings-shell round(down, clamp(272, 100dvh − 128, 408), 1px) — one height,
     every section ·
   hit-target 24 (32 ≤600px, and the icon button grows with it) · append min(40vh, 320px)"
 
@@ -460,8 +460,13 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   bars lost against a filled disc, and a tile at the head of a line of writing is the
   loudest box on the row. The bars grew instead. Both marks open the *same* menu wherever
   they are reached from — a line, a list result, a table cell — because one value may not
-  have two popups any more than two controls may open different ones (§ Choice); done and
-  cancelled strike the line. A moment is a day plus an optional time; a missed one says `Overdue` in words;
+  have two popups any more than two controls may open different ones (§ Choice). *Wherever*
+  includes a row whose block this client has never loaded: a query result names blocks on
+  pages that are not resident, and reading one out of the snapshot to decide which control to
+  open meant the same value offered four radio rows on a one-page graph and a two-stage
+  key/value panel on a real one. The menu is controlled and the press hydrates first, so which
+  control opens never depends on what happens to be in memory. Done and cancelled strike the
+  line. A moment is a day plus an optional time; a missed one says `Overdue` in words;
   urgency thresholds and tones are the reader's, the step order is not.
 - **Query block.** The answer is an *object*: the canvas shows through and one hairline
   closes it, so the question can take the inset `surface-1` fill and the answer can sit on
@@ -491,8 +496,10 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   and the size is the **nav's**, not the longest pane's. Sized for the pane it stood five
   hundred pixels tall with most sections ending a third of the way down it, and a fixed box's
   white space is permanent in a way a growing box's never was. The section list is the one
-  thing here that may not scroll, so it is what the height answers to. **A number in a
-  sentence is not a field in a form**: `within [7] days` takes the control-that-reads-as-a-word
+  thing here that may not scroll, so it is one of the two things the height answers to; the
+  other is the longest pane that is a fixed shape rather than a list, which is the task scale.
+  A height that cleared the nav and no more read as tight. **A number in a sentence is not a
+  field in a form**: `within [7] days` takes the control-that-reads-as-a-word
   treatment the query builder uses, at the height of everything beside it, so four rows of one
   ordered scale are four rows of one height rather than a scale with a form control in it.
   **A colour is chosen by pressing the colour** — a filled disc per option, all of them on
@@ -517,12 +524,17 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   under its own input, or a slash menu jumping to the far end of the line the caret is at
   the start of, would be worse than anything this rule fixes. Pinned by the edge rather than
   offset by a guessed width, so a content-sized panel still meets the edge it is meant to.
-  **A box with no area is not a position.** An element that has left the layout still answers
-  `getBoundingClientRect()`, and it answers with zeroes; read as a real anchor that is the
-  window's top-left corner, which is where a 360×420 property picker jumped the moment a
-  query result replaced the cell it was hung on. A panel whose anchor stops being measurable
-  while it is open stays exactly where it is — there is no better guess than the position the
-  reader is already looking at.
+  **An anchor is a thing with a box, or a box.** An element that has left the layout still
+  answers `getBoundingClientRect()`, and it answers with zeroes; read as a real anchor that is
+  the window's top-left corner, which is where a 360×420 property picker jumped the moment a
+  query result replaced the cell it was hung on. So a box with no area is not a position, it
+  is the absence of one; a panel whose anchor stops being measurable while it is open stays
+  exactly where it is, because there is no better guess than the position the reader is
+  already looking at; and a caller whose anchor *cannot* survive the trip hands over the box
+  instead of the element. A query result's cell is that caller — pressing it hydrates the
+  block it names, hydrating rebuilds the result, and the element the press happened on is gone
+  before the panel has measured anything. The press had a place on screen; that is the
+  anchor.
 - **First light.** The launch screen is the one surface whose job is a first impression
   rather than a place to work: a narrow centred column, the mark in an accent tile, each
   graph a bounded card with its own initial, the name field and its verb on one line, and the
@@ -588,7 +600,9 @@ let a tone fill more than its own mark and chip · put `--ink-3` on `surface-2/3
 under a heading inside an outline · animate a transform on anything already on screen · fade a
 surface that is read on the frame it mounts · put a `backdrop-filter` over the writing · add a
 focus ring that changes a control's silhouette · ship two look-alike controls that open
-different popups · give one value two popups · put a destructive verb on the most
+different popups · give one value two popups · let which control opens depend on what is
+resident in memory · hand a panel an element that will not survive the trip · put a
+destructive verb on the most
 link-shaped thing on a row · draw a "you are here" device everywhere · offer a colour the
 contrast table cannot vouch for · pick a colour from a dropdown · let a state tone follow the
 accent · put a tile behind a glyph to give it weight · resize a dialog as the reader moves

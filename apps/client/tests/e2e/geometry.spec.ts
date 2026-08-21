@@ -733,7 +733,7 @@ test("the settings dialog is one size, whatever section is open", async ({ page 
     client: node.clientHeight,
   }));
   expect(nav.scroll).toBeLessThanOrEqual(nav.client + 1);
-  expect(first.height).toBeLessThan(420);
+  expect(first.height).toBeLessThan(440);
 
   for (const section of ["language", "tasks", "keyboard", "storage", "graph"]) {
     await page.getByTestId(`settings-tab-${section}`).click();

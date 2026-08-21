@@ -51,6 +51,16 @@ describe("placeAnchored", () => {
     expect(style.bottom).toBe(VIEWPORT.height - 600 + 4);
   });
 
+  it("takes a frozen box as an anchor in its own right", () => {
+    // What a query result hands over: the box the press happened in, because the
+    // element it happened on will not survive the hydrate the press starts.
+    const style = placeAnchored(new DOMRect(722, 401, 180, 28), PANEL);
+    expect(style.top).toBe(433);
+    // A 180px cell in the right half of the window is a mark, so it opens
+    // leftwards — the rule above, reached through a box rather than an element.
+    expect(style.right).toBe(VIEWPORT.width - 902);
+  });
+
   it("treats a box with no area as no anchor at all", () => {
     // An element that has left the layout still answers `getBoundingClientRect`,
     // and it answers with zeroes. Read as a position that is the window's

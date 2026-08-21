@@ -42,7 +42,20 @@
 // body precisely so they escape the outline's scroll container, its clipping,
 // and the virtualizer's transformed stacking context.
 
-import { useCallback, useLayoutEffect, useState, type CSSProperties } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+
+/**
+ * What a panel can hang off: a thing with a box, or a box.
+ *
+ * The second form is for a panel whose anchor is *going* to be replaced before
+ * the panel is even mounted. A query result's cell is the case: pressing it
+ * hydrates the block it names, hydrating rebuilds the result, and the element
+ * the press happened on is gone by the time the panel measures anything. The
+ * press had a place on screen, though, and it is the place the reader is looking
+ * at — so the caller captures it and hands that over instead of an element that
+ * will not survive the trip.
+ */
+export type Anchor = HTMLElement | DOMRect | null;
 
 /** Space kept between the panel and the window edge. */
 const INSET = 12;
@@ -84,7 +97,7 @@ export interface AnchoredOptions {
  * than at the origin.
  */
 export function placeAnchored(anchor: DOMRect | null, options: AnchoredOptions = {}): CSSProperties {
-  const rect = anchor !== null && (anchor.width > 0 || anchor.height > 0) ? anchor : null;
+  const rect = hasArea(anchor) ? anchor : null;
   const gap = options.gap ?? GAP;
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
@@ -147,11 +160,17 @@ export function placeAnchored(anchor: DOMRect | null, options: AnchoredOptions =
       };
 }
 
+function hasArea(rect: DOMRect | null): rect is DOMRect {
+  return rect !== null && (rect.width > 0 || rect.height > 0);
+}
+
 /** The anchor's box, or null when there is nothing there to measure. */
-function measureAnchor(element: HTMLElement | null): DOMRect | null {
-  if (!element || !element.isConnected) return null;
-  const rect = element.getBoundingClientRect();
-  return rect.width === 0 && rect.height === 0 ? null : rect;
+function measureAnchor(anchor: Anchor): DOMRect | null {
+  if (anchor === null) return null;
+  if (!(anchor instanceof HTMLElement)) return hasArea(anchor) ? anchor : null;
+  if (!anchor.isConnected) return null;
+  const rect = anchor.getBoundingClientRect();
+  return hasArea(rect) ? rect : null;
 }
 
 /**
@@ -169,30 +188,32 @@ function measureAnchor(element: HTMLElement | null): DOMRect | null {
  * the property picker moving between its stages, an autocomplete's list growing.
  */
 export function useAnchoredPosition(
-  anchor: HTMLElement | null,
+  anchor: Anchor,
   options: AnchoredOptions = {},
   revision?: unknown,
 ): CSSProperties {
   const { width, minWidth, maxWidth, matchAnchorWidth, maxHeight, gap } = options;
-  const place = useCallback(
-    (previous?: CSSProperties) => {
-      const rect = measureAnchor(anchor);
-      if (rect === null && previous !== undefined) return previous;
-      return placeAnchored(rect, {
-        width,
-        minWidth,
-        maxWidth,
-        matchAnchorWidth,
-        maxHeight,
-        gap,
-      });
-    },
-    [anchor, width, minWidth, maxWidth, matchAnchorWidth, maxHeight, gap],
-  );
-  const [style, setStyle] = useState(() => place());
+  // The last box this anchor actually had. An anchor that stops being measurable
+  // while its panel is open — a cell replaced by its own query's next result — is
+  // best answered with where it was: that is where the reader pressed, and there
+  // is no better guess than the position they are already looking at.
+  const known = useRef<DOMRect | null>(null);
+  const place = useCallback(() => {
+    const rect = measureAnchor(anchor) ?? known.current;
+    known.current = rect;
+    return placeAnchored(rect, {
+      width,
+      minWidth,
+      maxWidth,
+      matchAnchorWidth,
+      maxHeight,
+      gap,
+    });
+  }, [anchor, width, minWidth, maxWidth, matchAnchorWidth, maxHeight, gap]);
+  const [style, setStyle] = useState(place);
 
   useLayoutEffect(() => {
-    const reposition = () => setStyle((current) => place(current));
+    const reposition = () => setStyle(place());
     reposition();
     // Capture, because the anchor moves with whichever ancestor scrolls.
     window.addEventListener("scroll", reposition, true);

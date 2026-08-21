@@ -22,6 +22,7 @@ import { findBlock, findPage } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import type { MessageFunction } from "../../i18n";
 import { cn } from "../../lib/utils";
+import type { Anchor } from "@/ui/anchored";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -59,20 +60,20 @@ type ActiveEdit =
       phase: "loading";
       binding: QueryEditBinding;
       origin: EditOrigin;
-      anchor: HTMLElement;
+      anchor: Anchor;
     }
   | {
       phase: "error";
       binding: QueryEditBinding;
       origin: EditOrigin;
-      anchor: HTMLElement;
+      anchor: Anchor;
       error: string;
     }
   | {
       phase: "markdown";
       binding: Extract<QueryEditBinding, { kind: "markdown" }>;
       origin: EditOrigin;
-      anchor: HTMLElement;
+      anchor: Anchor;
       baseline: string;
       draft: string;
       composing: boolean;
@@ -84,18 +85,16 @@ type ActiveEdit =
       phase: "picker";
       binding: Extract<QueryEditBinding, { kind: "property" | "tags" }>;
       origin: EditOrigin;
-      anchor: HTMLElement;
+      anchor: Anchor;
     };
 
 export interface QueryResultEditor {
   active: ActiveEdit | null;
   activeBlock?: BlockSnapshot;
-  /** The canonical block a binding points at, for a cell that edits it in place. */
-  blockOf(binding: QueryEditBinding): BlockSnapshot | undefined;
   message: MessageFunction;
   bindingFor(subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null;
   isActive(binding: QueryEditBinding, row: ResultViewRow): boolean;
-  begin(binding: QueryEditBinding, row: ResultViewRow, anchor: HTMLElement): void;
+  begin(binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor): void;
   setDraft(value: string): void;
   setComposing(composing: boolean): void;
   preserveDraftForViewChange(): void;
@@ -115,6 +114,11 @@ function bindingKey(binding: QueryEditBinding): string {
 function blockFrom(state: SessionState, block: BlockRef): BlockSnapshot | undefined {
   const page = findPage(state.snapshot, block.page_id);
   return page ? findBlock(page, block.id) : undefined;
+}
+
+/** A frozen box, for an anchor that will not outlive the edit it opens. */
+function rectOf(element: HTMLElement): DOMRect {
+  return element.getBoundingClientRect();
 }
 
 /**
@@ -180,7 +184,7 @@ export function useQueryResultEditor({
   );
 
   const begin = useCallback(
-    (binding: QueryEditBinding, row: ResultViewRow, anchor: HTMLElement) => {
+    (binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor) => {
       if (!enabled) return;
       const sequence = ++request.current;
       const origin = { row };
@@ -378,15 +382,9 @@ export function useQueryResultEditor({
     [active, state],
   );
 
-  const blockOf = useCallback(
-    (binding: QueryEditBinding) => blockFrom(state, binding.block),
-    [state],
-  );
-
   return {
     active,
     activeBlock,
-    blockOf,
     message,
     bindingFor,
     isActive,
@@ -405,6 +403,9 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
   const active = editor.active;
   const block = editor.activeBlock;
   if (!active || active.phase !== "picker" || !block) return null;
+  // A task choice draws its own menu in the cell it belongs to; the generic
+  // picker must not open on top of it (see `TaskChoiceCell`).
+  if (active.binding.kind === "property" && isTaskChoiceKey(active.binding.key)) return null;
   if (active.binding.kind === "property") {
     return (
       <PropertyPicker
@@ -533,12 +534,80 @@ function TaskMenuFor({
   return null;
 }
 
-/** Whether a binding is one of the two the menu above serves. */
-function isTaskChoice(
-  binding: QueryEditBinding,
-): binding is Extract<QueryEditBinding, { kind: "property" }> {
-  return binding.kind === "property"
-    && (binding.key === TASK_STATUS_KEY || binding.key === TASK_PRIORITY_KEY);
+/** Whether a property key is one of the two the menu above serves. A key rather
+ *  than a binding, so narrowing a binding stays the caller's own `kind` check:
+ *  a guard that says "one of these two properties" also says "not any other
+ *  property" on its false branch, which is not true. */
+function isTaskChoiceKey(key: string): boolean {
+  return key === TASK_STATUS_KEY || key === TASK_PRIORITY_KEY;
+}
+
+/**
+ * The cell for one of those two, and the reason it is a component rather than a
+ * branch: the menu needs the canonical block, and the canonical block is not
+ * there yet.
+ *
+ * A query result names blocks on pages this client has never loaded, so reading
+ * one out of the snapshot answers `undefined` for most rows in a real graph. The
+ * first version treated that as "not a task choice" and quietly fell through to
+ * the generic property picker — which meant the same value opened four radio rows
+ * on a one-page graph and a two-stage key/value panel on a real one. § Choice
+ * forbids two look-alike controls that open different popups; one value with two
+ * of them, chosen by whether a page happens to be resident, is worse.
+ *
+ * So the menu is *controlled*, and the press runs the editor's own hydrate step
+ * first. That step already exists, already reports its failures, and already
+ * marks the trigger while it is in flight; the menu simply opens on the far side
+ * of it, when there is a block for it to be about.
+ */
+function TaskChoiceCell({
+  binding,
+  row,
+  column,
+  context,
+  editor,
+  className,
+  value,
+  current,
+}: {
+  binding: Extract<QueryEditBinding, { kind: "property" }>;
+  row: ResultViewRow;
+  column: ResultColumn;
+  context: CellContext;
+  editor: QueryResultEditor;
+  className?: string;
+  value: ReactNode;
+  current: string;
+}) {
+  const active = editor.isActive(binding, row) ? editor.active : null;
+  const block = active?.phase === "picker" ? editor.activeBlock : undefined;
+  const trigger = useRef<HTMLButtonElement>(null);
+  return (
+    <DropdownMenu
+      modal={false}
+      open={block !== undefined}
+      onOpenChange={(next) => {
+        if (next) editor.begin(binding, row, trigger.current);
+        else editor.cancel();
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <button
+          ref={trigger}
+          type="button"
+          className={cn("query-edit-trigger", className)}
+          data-query-column={column.variable}
+          data-active={active ? true : undefined}
+          data-testid={`query-edit-${column.variable}`}
+          aria-busy={active?.phase === "loading" || undefined}
+          title={context.message("query.editResult", { column: column.label })}
+        >
+          {value}
+        </button>
+      </DropdownMenuTrigger>
+      {block && <TaskMenuFor binding={binding} block={block} value={current} />}
+    </DropdownMenu>
+  );
 }
 
 export function EditableCellValue({
@@ -578,29 +647,19 @@ export function EditableCellValue({
     );
   }
 
-  // A closed enumeration opens its own menu straight from the cell, with no
-  // hydration round-trip and no picker in between (see `TaskMenuFor`).
-  const taskBlock = isTaskChoice(binding) ? editor.blockOf(binding) : undefined;
-  if (isTaskChoice(binding) && taskBlock) {
+  // A closed enumeration opens its own menu from the cell (see `TaskChoiceCell`).
+  if (binding.kind === "property" && isTaskChoiceKey(binding.key)) {
     return (
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn("query-edit-trigger", className)}
-            data-query-column={column.variable}
-            data-testid={`query-edit-${column.variable}`}
-            title={context.message("query.editResult", { column: column.label })}
-          >
-            {value}
-          </button>
-        </DropdownMenuTrigger>
-        <TaskMenuFor
-          binding={binding}
-          block={taskBlock}
-          value={term?.kind === "literal" ? term.value : ""}
-        />
-      </DropdownMenu>
+      <TaskChoiceCell
+        binding={binding}
+        row={row}
+        column={column}
+        context={context}
+        editor={editor}
+        className={className}
+        value={value}
+        current={term?.kind === "literal" ? term.value : ""}
+      />
     );
   }
 
@@ -614,7 +673,13 @@ export function EditableCellValue({
       dir="auto"
       aria-busy={current?.phase === "loading" || undefined}
       title={context.message("query.editResult", { column: column.label })}
-      onClick={(event) => editor.begin(binding, row, event.currentTarget)}
+      // The *box* the press happened in, not the element it happened on.
+      // Beginning an edit hydrates the block this row names, hydrating rebuilds
+      // the result, and this button is gone before the panel it opens has
+      // measured anything — so the panel would place itself from nothing and
+      // land in the middle of the window's top edge. The press had a place on
+      // screen; that is the anchor (`ui/anchored` § Anchor).
+      onClick={(event) => editor.begin(binding, row, rectOf(event.currentTarget))}
     >
       {value}
     </button>
@@ -660,23 +725,19 @@ export function EditableStatusValue({
   const current = editor.isActive(binding, row) ? editor.active : null;
   // The same menu the outline's own mark opens — a list result is a row of
   // blocks, so pressing the mark on one has to do what pressing it on a line
-  // does (see `TaskMenuFor`).
-  const block = isTaskChoice(binding) ? editor.blockOf(binding) : undefined;
-  if (isTaskChoice(binding) && block) {
+  // does (see `TaskChoiceCell`).
+  if (binding.kind === "property" && isTaskChoiceKey(binding.key)) {
     return (
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="query-list-status query-edit-trigger"
-            data-query-column={column.variable}
-            title={context.message("query.editResult", { column: column.label })}
-          >
-            <TaskStatusGlyph status={status} />
-          </button>
-        </DropdownMenuTrigger>
-        <TaskMenuFor binding={binding} block={block} value={status} />
-      </DropdownMenu>
+      <TaskChoiceCell
+        binding={binding}
+        row={row}
+        column={column}
+        context={context}
+        editor={editor}
+        className="query-list-status"
+        value={<TaskStatusGlyph status={status} />}
+        current={status}
+      />
     );
   }
   return (

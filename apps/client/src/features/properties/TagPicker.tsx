@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { BlockSnapshot } from "../../core-port/snapshot";
-import { useAnchoredPosition } from "@/ui/anchored";
+import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -16,7 +16,7 @@ export function TagPicker({
 }: {
   pageId: string;
   block: BlockSnapshot;
-  anchor: HTMLElement | null;
+  anchor: Anchor;
   onClose: () => void;
 }) {
   const session = useSession();

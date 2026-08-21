@@ -40,7 +40,7 @@ import {
   timeKeyFor,
   type RepeatUnit,
 } from "../../entities/tasks";
-import { useAnchoredPosition } from "@/ui/anchored";
+import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { moveOptionFocus } from "@/ui/listbox";
@@ -82,7 +82,7 @@ export function PropertyPicker({
   onClose,
 }: {
   target: PropertyTarget;
-  anchor: HTMLElement | null;
+  anchor: Anchor;
   initialKey?: string;
   onClose: () => void;
 }) {

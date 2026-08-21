@@ -3296,7 +3296,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
    did — and it carries the whole date in a `title`, because an ellipsis with no
    way to read the rest is § Accessibility 7. */
 .task-chip[data-preview] {
+  /* Shrink-wrapped, not stretched. A grid item fills its track by default, so the
+     three shorter dates in the scale grew a ringed box with thirty pixels of
+     nothing inside it — a chip is an object the size of what it says, and a chip
+     the width of its column is a bar. `max-width` still caps it at the track, so
+     the longest of the four keeps ellipsising rather than overflowing. */
+  justify-self: start;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   cursor: default;
 }
@@ -6192,9 +6199,12 @@ button.query-list-status[data-active="true"] {
    was 500-odd pixels tall and most sections ended a third of the way down it, so
    the dialog read as mostly empty — and a fixed box's white space is permanent in
    a way a growing box's never was. The section list is the one thing here that
-   must not scroll, it measures 294px, and 340 clears it with room for a locale
-   whose labels wrap. Panes shorter than that no longer look abandoned; the two
-   that are longer scroll, which is what a pane is for.
+   must not scroll; it measures 294px, so the height answers to that and to how
+   much of a pane is worth showing before it starts scrolling. At 340 it cleared
+   the nav and no more, which read as tight; 408 keeps the same argument with the
+   Tasks scale — the longest pane that is a fixed shape rather than a list — fitting
+   whole. The two panes that are genuinely lists still scroll, which is what a pane
+   is for.
 
    The window is still the ceiling: 128px is the dialog's own 90px of header and
    padding plus the 32px inset every other dialog in the product keeps from the
@@ -6205,7 +6215,7 @@ button.query-list-status[data-active="true"] {
   display: grid;
   grid-template-columns: 172px minmax(0, 1fr);
   gap: var(--sp-5);
-  height: round(down, clamp(272px, 100dvh - 128px, 340px), 1px);
+  height: round(down, clamp(272px, 100dvh - 128px, 408px), 1px);
 }
 
 .settings-shell > .settings-pane {
@@ -6614,10 +6624,17 @@ button.query-list-status[data-active="true"] {
    `within [ ] days` was left with 33 pixels to put a 64px field in — a number
    input squeezed until its own value was invisible. The chip is the one thing here
    that can afford to give, because it already ellipsises and it is a preview
-   rather than a control. */
+   rather than a control.
+
+   The name column is `max-content` and not the 84px it was. 84 was sized for the
+   longest label in English; in Korean the labels are two syllables and the column
+   held fifty pixels of nothing between the name and the date it names, which read
+   as two separate columns of information rather than one row about one tier. It is
+   as wide as the widest label and no wider — `subgrid` means all four rows still
+   agree on it — and the fifty pixels go to the preview, which wanted them. */
 .due-tiers {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) max-content max-content;
+  grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
   gap: var(--sp-2) var(--sp-3);
 }
 
