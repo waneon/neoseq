@@ -17,6 +17,14 @@ export type TextDirection = (typeof LOCALE_DEFINITIONS)[number]["direction"];
 export const SUPPORTED_LOCALES = LOCALE_DEFINITIONS.map(({ tag }) => tag);
 
 export interface MessageArgumentMap {
+  "accent.blue": undefined;
+  "accent.green": undefined;
+  "accent.iris": undefined;
+  "accent.orange": undefined;
+  "accent.red": undefined;
+  "accent.rose": undefined;
+  "accent.teal": undefined;
+  "accent.violet": undefined;
   "app.title": undefined;
   "commands.appearance": { readonly "theme": string | number };
   "commands.appearanceHint": { readonly "theme": string | number };
@@ -266,6 +274,7 @@ export interface MessageArgumentMap {
   "properties.noPages": undefined;
   "properties.noTags": undefined;
   "properties.noValue": undefined;
+  "properties.openTag": { readonly "name": string | number };
   "properties.pickDate": undefined;
   "properties.pickPage": undefined;
   "properties.propertyKey": undefined;
@@ -425,6 +434,10 @@ export interface MessageArgumentMap {
   "save.saved": undefined;
   "save.saving": undefined;
   "save.storageFull": undefined;
+  "settings.accent": undefined;
+  "settings.accentDescription": undefined;
+  "settings.accentHue": undefined;
+  "settings.accentHueValue": { readonly "hue": string | number };
   "settings.appearance": undefined;
   "settings.appearanceDescription": undefined;
   "settings.backend": undefined;

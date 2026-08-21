@@ -1833,6 +1833,14 @@ export function Outliner({
   // walks the whole list. See DESIGN.md § The outline / Thread.
   const ancestors = ancestorPath(rows, focusedId);
 
+  // Whether each row's parent still has a sibling to reach below it, which is
+  // what decides whether the branch drawn beside the row's bullet carries on past
+  // it (§ The branch). One backward pass over the flattened list, beside the
+  // ancestor walk above, rather than a question asked per rendered row: asked
+  // that way it would walk each row's whole subtree looking for the next sibling,
+  // which on a deep parent is the subtree once per row on screen.
+  const continues = siblingContinuations(rows);
+
   /** The bare keys a selection answers to. They only reach here while the tree
    * itself holds focus, which is exactly when no text field can lose them. */
   const onSelectionKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -1970,6 +1978,7 @@ export function Outliner({
                   editor={editor}
                   lit={litFor(ancestors, item.index, row.depth)}
                   ancestor={ancestors.indices.includes(item.index)}
+                  continues={continues[item.index] ?? false}
                   bindings={bindings}
                 />
               </div>
@@ -2451,6 +2460,28 @@ function litFor(path: AncestorPath, index: number, depth: number): number {
   return Math.min(levels, depth);
 }
 
+/**
+ * For every row, whether another row at its own depth follows it under the same
+ * parent — which is exactly whether the parent's branch continues below it.
+ *
+ * One backward pass. Walking up the list, `pending[d]` says "a row of depth d has
+ * been seen since the last row shallower than d", so it answers the question for
+ * the row currently under the cursor; truncating the array at `depth` afterwards
+ * is what forgets the deeper levels, because everything below a row of depth `d`
+ * belonged to a subtree that has now been left.
+ */
+function siblingContinuations(rows: OutlineRow[]): boolean[] {
+  const result = new Array<boolean>(rows.length).fill(false);
+  const pending: boolean[] = [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const depth = rows[index].depth;
+    result[index] = pending[depth] ?? false;
+    pending[depth] = true;
+    pending.length = depth + 1;
+  }
+  return result;
+}
+
 function onKeyDown(
   editor: EditorContext,
   row: OutlineRow,
@@ -2725,6 +2756,7 @@ function BlockRow({
   editor,
   lit,
   ancestor,
+  continues,
   bindings,
 }: {
   row: OutlineRow;
@@ -2733,6 +2765,8 @@ function BlockRow({
   lit: number;
   /** On the path from the root to the caret: its own thread segment lights too. */
   ancestor: boolean;
+  /** A later sibling exists, so the parent's branch runs on past this row. */
+  continues: boolean;
   bindings: ReturnType<typeof useShortcutBindings>;
 }) {
   const { message } = useI18n();
@@ -2830,6 +2864,14 @@ function BlockRow({
       data-revealed={editor.revealed.has(row.block.id) || undefined}
       data-has-children={row.hasChildren}
       data-ancestor={ancestor || undefined}
+      // The branch beside this row's bullet: whether it carries on below the
+      // turn, and whether it is the live path (§ The branch). `lit === depth`
+      // means every column down to this row's own parent is lit, which is the
+      // column the branch is made of — a sibling of the caret's row therefore
+      // keeps the stroke unbroken past its bullet, exactly as the lit layer
+      // above it does.
+      data-continues={continues || undefined}
+      data-thread-lit={lit === row.depth && row.depth > 0 ? true : undefined}
       data-block-id={row.block.id}
       data-testid="outline-row"
       // Depth drives the indent AND the thread gradient; `lit` drives how much
@@ -3135,7 +3177,14 @@ function BlockRow({
         )}
         {tags.length > 0 && (
           <div className="outline-tags">
-            <TagChips pageId={editor.pageId} block={row.block} />
+            {/* A reference, not a delete button: the chip hangs the tag picker on
+                itself, which is the one surface that writes tags. */}
+            <TagChips
+              pageId={editor.pageId}
+              block={row.block}
+              variant="reference"
+              onOpen={(anchor) => editor.openTags(row.block.id, anchor)}
+            />
           </div>
         )}
         {!pending && (

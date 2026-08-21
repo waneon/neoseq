@@ -6,7 +6,7 @@
 // native time input is a platform control, the tint is computed style, and the
 // preference that drives the tint has to survive a reload.
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import {
   awaitSaved,
   chooseFromMenu,
@@ -168,7 +168,9 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   // The thresholds and the tones belong to the reader.
   await openSettings(page, "tasks");
   await page.getByTestId("due-days-soon").fill("10");
-  await chooseFromMenu(page, page.getByTestId("due-tone-soon"), "Red");
+  // Colours are chosen by pressing the colour: five swatches on screen, one
+  // press each, no dropdown standing between the reader and the palette.
+  await page.getByTestId("due-tone-soon").getByRole("button", { name: "Red" }).click();
   await expect(page.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "danger");
   await page.keyboard.press("Escape");
 
@@ -213,4 +215,121 @@ test("the outline thread takes the tone the reader chose", async ({ page }) => {
   const threadTone = await section.evaluate((node) =>
     getComputedStyle(node).getPropertyValue("--thread-line"));
   expect(threadTone).toContain("oklch");
+});
+
+test("a nested block is joined to its parent by a branch, lit on the path to the caret", async ({
+  page,
+}) => {
+  await createGraph(page, "Branch Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "Project setup");
+  await page.getByLabel("Block text").press("End");
+  await page.getByLabel("Block text").press("Enter");
+  await page.keyboard.press("Tab");
+  await typeInFocusedBlock(page, "Draft the schema");
+  // A second child of the same parent, so one sibling has the column carrying on
+  // below it and the other does not.
+  await page.getByLabel("Block text").nth(1).click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await typeInFocusedBlock(page, "Write the migration");
+  // `typeInFocusedBlock` blurs when it is done; the caret is what lights a path,
+  // so put it back in the block this test is about.
+  await page.getByLabel("Block text").nth(2).click();
+
+  const rows = page.getByTestId("outline-row");
+  const root = rows.first();
+  const first = rows.nth(1);
+  const second = rows.nth(2);
+  await expect(rows).toHaveCount(3);
+
+  // What makes an outline a tree rather than a stack of indents: the stroke that
+  // leaves the parent's column, turns, and lands on the child's own dot.
+  const branch = (locator: Locator) =>
+    locator.evaluate((node) => {
+      const before = getComputedStyle(node, "::before");
+      const after = getComputedStyle(node, "::after");
+      return {
+        drawn: before.content !== "none",
+        left: Math.round(parseFloat(before.left)),
+        radius: before.borderBottomLeftRadius,
+        column: before.borderLeftColor,
+        turn: before.borderBottomColor,
+        continues: after.content !== "none",
+      };
+    });
+
+  // A root has no parent column to branch from.
+  expect((await branch(root)).drawn).toBe(false);
+
+  // Both children branch off the same column — their parent's — and the turn is
+  // a real rounded corner rather than a right angle.
+  const one = await branch(first);
+  const two = await branch(second);
+  expect(one.drawn).toBe(true);
+  expect(one.left).toBe(34);
+  expect(one.radius).toBe("7px");
+  // The first of two siblings carries the column on below its own turn; the last
+  // one stops, so the tree never promises a child that is not there.
+  expect(one.continues).toBe(true);
+  expect(two.continues).toBe(false);
+
+  // The caret is in the last block, so the path down to it is lit — and the
+  // sibling above keeps the lit column running past its bullet while its own
+  // turn stays at rest, because the path does not arrive there.
+  await expect(second).toHaveAttribute("data-focused", "true");
+  expect(two.column).toBe(two.turn);
+  expect(one.column).toBe(two.column);
+  expect(one.turn).not.toBe(one.column);
+});
+
+test("the accent is a hue the reader owns, applied before the first paint", async ({ page }) => {
+  await createGraph(page, "Accent Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "a block to select");
+
+  // Nothing is written to the root until a reader chooses: iris is the default in
+  // `app.css`, so an untouched install carries no override at all.
+  const override = await page.evaluate(() =>
+    document.documentElement.style.getPropertyValue("--accent-h"));
+  expect(override).toBe("");
+  const iris = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--accent-h").trim());
+  expect(iris).toBe("277");
+
+  await openSettings(page, "appearance");
+  await page.getByTestId("settings-accent").getByRole("button", { name: "Teal" }).click();
+  await page.keyboard.press("Escape");
+
+  // One number on the root is the whole mechanism: everything the accent touches
+  // is already written in terms of `--accent`, so nothing else had to change.
+  await expect(page.locator("html")).toHaveAttribute("style", /--accent-h:\s*195/);
+  const teal = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--accent)";
+    document.body.append(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved;
+  });
+
+  // Appearance is browser-wide and has to be on screen before the first frame,
+  // or a chosen accent flashes iris on every launch.
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("style", /--accent-h:\s*195/);
+  const afterReload = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--accent)";
+    document.body.append(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved;
+  });
+  expect(afterReload).toBe(teal);
+
+  // The lightness is not the reader's, which is what keeps every hue on the
+  // measured row of the contrast table: only the hue moved.
+  const light = await page.evaluate(() =>
+    Number(getComputedStyle(document.documentElement).getPropertyValue("--accent-l")));
+  expect(light).toBe(0.535);
 });

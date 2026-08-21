@@ -151,6 +151,56 @@ test("slash, block properties, and tags share the same focused target", async ({
   await expect(picker.getByLabel("Property key")).toBeFocused();
 });
 
+test("a tag under a block is an accent reference that opens the picker, never a delete", async ({
+  page,
+}) => {
+  await createGraph(page, "Tag Reference Graph");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag-name").fill("Design");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
+  await startOutline(page);
+  await typeInFocusedBlock(page, "the tag is a reference");
+  await openBlockTags(page);
+  await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Design");
+  await page.getByRole("option", { name: "Design", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await awaitSaved(page);
+
+  const chip = page.locator(".outline-tags").getByTestId("tag-chip");
+  await expect(chip).toContainText("#Design");
+  // A tag is the one thing in the writing that leads somewhere, so it is the one
+  // thing in the writing that carries the accent.
+  const tone = await chip.evaluate((node) => ({
+    chip: getComputedStyle(node).color,
+    accent: getComputedStyle(document.documentElement).getPropertyValue("--accent"),
+  }));
+  expect(tone.chip).toBe(
+    await page.evaluate((accent) => {
+      const probe = document.createElement("span");
+      probe.style.color = accent;
+      document.body.append(probe);
+      const resolved = getComputedStyle(probe).color;
+      probe.remove();
+      return resolved;
+    }, tone.accent),
+  );
+
+  // …and pressing it opens the one surface that writes tags rather than silently
+  // detaching the name the reader just wrote.
+  await chip.click();
+  const picker = page.getByTestId("tag-picker");
+  await expect(picker).toBeVisible();
+  await expect(picker.getByTestId("tag-chip")).toContainText("#Design");
+  await expect(page.locator(".outline-tags").getByTestId("tag-chip")).toHaveCount(1);
+  // Removal lives in there, where it is what the reader came for.
+  await picker.getByRole("button", { name: "Remove tag Design" }).click();
+  await expect(page.locator(".outline-tags")).toHaveCount(0);
+});
+
 test("deleted page references resolve to a tombstone, not a new page", async ({ page }) => {
   await createGraph(page, "Tombstone Graph");
   await createPage(page, "Ephemeral");

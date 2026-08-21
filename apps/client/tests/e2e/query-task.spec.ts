@@ -171,3 +171,57 @@ test("a result's order accumulates across headings and survives a reload", async
   await expect(reloaded.getByRole("columnheader", { name: /Page/ })).toContainText("1");
   await expect(reloaded.getByRole("columnheader", { name: /Text/ })).toContainText("2");
 });
+
+test("a result cell reads as the writing it quotes, centred on its row", async ({ page }) => {
+  await createGraph(page, "Query Cell Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "a task worth quoting");
+  const first = page.getByLabel("Block text").first();
+  await first.click();
+  await first.press("End");
+  await first.press("Enter");
+  await page.keyboard.type("/query");
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
+
+  const query = page.getByTestId("query-block");
+  const table = query.getByTestId("query-table");
+  await expect(table).toBeVisible();
+
+  const cell = table.locator("tbody td").first();
+  const heading = table.locator("thead th").first();
+  const block = page.getByLabel("Block text").first();
+
+  const inks = await cell.evaluate((node) => {
+    const table_ = node.closest("table");
+    const th = table_.querySelector("thead th");
+    const line = document.querySelector(".outline-text textarea");
+    return {
+      cell: getComputedStyle(node).color,
+      align: getComputedStyle(node).verticalAlign,
+      heading: getComputedStyle(th).color,
+      block: getComputedStyle(line).color,
+    };
+  });
+  // The values in a result *are* blocks, so they take the ink the outline gives
+  // them; the heading stays the quieter of the two.
+  expect(inks.cell).toBe(inks.block);
+  expect(inks.heading).not.toBe(inks.cell);
+  // A row is as tall as its tallest cell, and every other cell sits on its
+  // centre line rather than hanging from its ceiling.
+  expect(inks.align).toBe("middle");
+  await expect(heading).toBeVisible();
+  await expect(block).toBeVisible();
+
+  // Whatever the cell's own content is, it is vertically centred in the cell:
+  // a filled editable trigger claims the whole height, so the centring has to be
+  // inside it rather than left to the cell.
+  const centred = await cell.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const inner = node.querySelector("button, span");
+    const content = inner.getBoundingClientRect();
+    const top = content.top - box.top;
+    const bottom = box.bottom - content.bottom;
+    return Math.abs(top - bottom);
+  });
+  expect(centred).toBeLessThanOrEqual(1.5);
+});

@@ -839,7 +839,10 @@ function ColumnsEditor({
 
   return (
     <>
-      <span className="qb-lead">{message("query.show")}</span>
+      {/* The clause under this lead is a strip of chips, so the lead reserves a
+          chip's height rather than the control row's and the two share a centre
+          line (app.css § .qb-lead). */}
+      <span className="qb-lead" data-clause="chips">{message("query.show")}</span>
       <div className="qb-line qb-columns">
         {plan.columns.map((column) => (
           <ColumnChip

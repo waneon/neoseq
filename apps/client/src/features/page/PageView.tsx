@@ -138,7 +138,7 @@ export function PageBody({
           swap in one frame with nothing to attribute the change to, which reads
           less like arriving somewhere than like the page glitching. `--dur-view`
           is 120ms: enough to be seen, over before anything is read. */}
-      <article className="page-body page-outline enter-fade-view" key={page.id}>
+      <article className="page-body enter-fade-view" key={page.id}>
         {header ? (
           header(menu, openMenu)
         ) : (

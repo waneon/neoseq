@@ -1,7 +1,7 @@
 // The two app-wide preferences that reach into the rest of the interface: how a
 // journal day is written, and which keys do what.
 
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -21,6 +21,7 @@ import {
   resolveBindings,
 } from "../../src/features/commands/shortcuts";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
+import { DEFAULT_ACCENT_HUE, storedAccentHue } from "../../src/ui/theme";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
 function mountSettings(section: "journal" | "keyboard" | "appearance" | "tasks" | "graph") {
@@ -175,14 +176,50 @@ describe("presentation preferences", () => {
     expect(screen.getByTestId("due-preview-overdue")).toHaveAttribute("data-palette", "danger");
     expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "accent");
 
-    await chooseFromMenu(user, screen.getByTestId("due-tone-upcoming"), "Green");
+    // A colour is chosen by pressing the colour, not by reading its name out of
+    // a dropdown: all five steps are on screen, one press each.
+    const tones = screen.getByTestId("due-tone-upcoming");
+    await user.click(within(tones).getByRole("button", { name: "Green" }));
     await waitFor(() => expect(dueTiers().upcomingTone).toBe("ok"));
+    expect(within(tones).getByRole("button", { name: "Green" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
     // A second threshold inside the first would name a step no date can reach, so
     // the reader's number is kept and the ordering is repaired around it.
     fireEvent.change(screen.getByTestId("due-days-soon"), { target: { value: "30" } });
     await waitFor(() => expect(dueTiers().soonDays).toBe(30));
     expect(dueTiers().upcomingDays).toBe(30);
+  });
+
+  it("stores the accent as a hue and never as a colour", async () => {
+    const user = userEvent.setup();
+    await mountSettings("appearance");
+
+    const accent = screen.getByTestId("settings-accent");
+    // Iris is where the product starts, so it is the step already pressed.
+    expect(within(accent).getByRole("button", { name: "Iris" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.click(within(accent).getByRole("button", { name: "Teal" }));
+    await waitFor(() => expect(storedAccentHue()).toBe(195));
+    // One number reaches the root, and `app.css` turns it into every colour
+    // derived from the accent — nothing here computes one.
+    expect(document.documentElement.style.getPropertyValue("--accent-h")).toBe("195");
+
+    // The strip is the same preference, continuous: it reaches the angles the
+    // eight steps do not.
+    fireEvent.change(screen.getByTestId("accent-hue"), { target: { value: "212" } });
+    await waitFor(() => expect(storedAccentHue()).toBe(212));
+
+    // Back to the default, and the override is removed rather than written out,
+    // so a reader who never chose one still follows the shipped iris.
+    await user.click(within(accent).getByRole("button", { name: "Iris" }));
+    await waitFor(() => expect(storedAccentHue()).toBe(DEFAULT_ACCENT_HUE));
+    expect(document.documentElement.style.getPropertyValue("--accent-h")).toBe("");
   });
 });
 

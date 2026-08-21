@@ -17,16 +17,21 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>Neoseq</title>
     <!--
-      Applies a stored theme choice before first paint so an explicit Light or
-      Dark preference never flashes the other mode. "system" stores nothing and
-      leaves resolution to the CSS media query, which is the only place a theme
-      is ever decided.
+      Applies the stored appearance choices before first paint, so neither an
+      explicit Light or Dark preference nor a chosen accent hue flashes the
+      default first. "system" stores nothing and leaves mode resolution to the CSS
+      media query, which is the only place a theme is ever decided; the hue is one
+      number, and `app.css` turns it into every colour derived from the accent.
     -->
     <script>
       try {
         var t = localStorage.getItem("neoseq.theme");
         if (t === "light" || t === "dark") {
           document.documentElement.dataset.theme = t;
+        }
+        var h = Number(localStorage.getItem("neoseq.accent-hue"));
+        if (Number.isFinite(h) && h > 0) {
+          document.documentElement.style.setProperty("--accent-h", String(h % 360));
         }
       } catch (_) {
         /* storage unavailable (private mode) — the OS preference still applies */

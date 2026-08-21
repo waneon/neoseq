@@ -23,7 +23,6 @@ import {
   JOURNAL_DATE_FORMATS,
   MAX_DUE_DAYS,
   setThreadTone,
-  TONE_NAMES,
   updateDueTiers,
   type DueTierSettings,
   type JournalDateFormat,
@@ -32,6 +31,8 @@ import {
 import { DUE_TIERS, type DueTier } from "../../entities/tasks";
 import { CalendarIcon } from "lucide-react";
 import { useConfiguredTimezone, useDueTiers, useThreadTone } from "./preferences";
+import { AccentField } from "./AccentField";
+import { ToneChoice } from "./ToneChoice";
 import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
@@ -61,14 +62,6 @@ const DATE_FORMAT_MESSAGE = {
   short: "settings.dateFormatShort",
   iso: "settings.dateFormatIso",
 } as const satisfies Record<JournalDateFormat, MessageKey>;
-
-const TONE_MESSAGE = {
-  neutral: "tone.neutral",
-  accent: "tone.accent",
-  ok: "tone.ok",
-  attention: "tone.attention",
-  danger: "tone.danger",
-} as const satisfies Record<ToneName, MessageKey>;
 
 const DUE_TIER_MESSAGE = {
   overdue: "task.due.overdue",
@@ -235,6 +228,7 @@ function AppearanceSection() {
           </button>
         ))}
       </div>
+      <AccentField />
       <ThreadToneField />
     </section>
   );
@@ -255,35 +249,17 @@ function ThreadToneField() {
     <div className="settings-field">
       <h3 id={heading}>{message("settings.threadTone")}</h3>
       <p>{message("settings.threadToneDescription")}</p>
-      <div
-        className="tone-choice"
-        role="group"
-        aria-labelledby={heading}
-        data-testid="settings-thread-tone"
-      >
-        {TONE_NAMES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            className="tone-swatch"
-            data-palette={option}
-            aria-pressed={tone === option}
-            aria-label={message(TONE_MESSAGE[option])}
-            title={message(TONE_MESSAGE[option])}
-            onClick={() => setThreadTone(option)}
-          >
-            {/* The swatch is the thing it sets: indent threads in the tone being
-                offered, on the canvas they are drawn on, at the weight the
-                outline actually draws them. */}
-            <span className="tone-swatch-thread" aria-hidden />
-          </button>
-        ))}
-        {/* Five labelled buttons would be a row of words with a hairline in each.
-            The name of the one that is chosen is the only label the row needs —
-            each swatch still carries its own name for the pointer and the screen
-            reader. */}
-        <span className="tone-choice-name">{message(TONE_MESSAGE[tone])}</span>
-      </div>
+      {/* The swatch is the thing it sets: indent threads in the tone being
+          offered, on the canvas they are drawn on, at the weight the outline
+          actually draws them. */}
+      <ToneChoice
+        value={tone}
+        onChange={setThreadTone}
+        labelledBy={heading}
+        variant="thread"
+        testId="settings-thread-tone"
+        showName
+      />
     </div>
   );
 }
@@ -449,18 +425,16 @@ function TasksSection() {
                   {message("settings.dueWithinTrail")}
                 </label>
               )}
-              <MenuSelect
+              {/* The chip two columns left is already this row's preview at full
+                  size, so the swatches need only be the colours themselves. */}
+              <ToneChoice
+                value={tone}
+                onChange={(next) => updateDueTiers({ [DUE_TONE_FIELD[tier]]: next })}
                 label={message("settings.dueToneFor", {
                   tier: message(DUE_TIER_MESSAGE[tier]),
                 })}
+                variant="dot"
                 testId={`due-tone-${tier}`}
-                value={tone}
-                options={TONE_NAMES.map((option) => ({
-                  value: option,
-                  label: message(TONE_MESSAGE[option]),
-                }))}
-                onValueChange={(next) =>
-                  updateDueTiers({ [DUE_TONE_FIELD[tier]]: next as ToneName })}
               />
             </div>
           );
