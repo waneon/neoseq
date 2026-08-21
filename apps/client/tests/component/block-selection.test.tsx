@@ -245,4 +245,56 @@ describe("block selection", () => {
       session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks,
     ).toMatchObject([{ markdown: "", children: [] }]);
   });
+
+  it("round-trips properties and tags through the rich clipboard fragment", async () => {
+    const { session, port } = await mountRows(["source", ""]);
+    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    await session.execute({
+      type: "add_tag",
+      entity: { kind: "block", page_id: "home", id: "b-1" },
+      tag_id: "project",
+    });
+    await session.execute({
+      type: "set_property",
+      owner: { kind: "block", page_id: "home", id: "b-1" },
+      key: "builtin.task-status",
+      value: { type: "string", value: "doing" },
+    });
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
+
+    fireEvent.pointerDown(screen.getAllByTestId("row-grip")[0], {
+      button: 0,
+      clientX: 2,
+      clientY: 10,
+    });
+    fireEvent.pointerUp(window, { button: 0, clientX: 2, clientY: 10 });
+    expect(selectedTexts()).toEqual(["source"]);
+    const values = new Map<string, string>();
+    fireEvent.copy(screen.getByRole("tree"), {
+      clipboardData: {
+        setData: (type: string, value: string) => { values.set(type, value); },
+      },
+    });
+    expect(values.get("text/plain")).toContain("Tags: #Project");
+    expect(values.get("text/html")).toContain("data-neoseq-outline=");
+
+    const commands: string[] = [];
+    port.beforeExecute = async (command) => { commands.push(command.type); };
+    fireEvent.paste(screen.getAllByLabelText("Block text")[1], {
+      clipboardData: { getData: (type: string) => values.get(type) ?? "" },
+    });
+
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["source", "source"]);
+      expect(page?.blocks[1].tags).toEqual(["project"]);
+      expect(page?.blocks[1].properties).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          key: "builtin.task-status",
+          values: [{ type: "string", value: "doing" }],
+        }),
+      ]));
+    });
+    expect(commands).toEqual(["paste_outline"]);
+  });
 });

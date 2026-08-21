@@ -13,15 +13,17 @@ pub use ids::{
 };
 pub use model::{
     BlockSnapshot, Command, CommandEnvelope, CommandResult, EntityId, GraphSnapshot, GraphSummary,
-    HistoryEffect, HistoryScope, OutlineItem, PageSnapshot, PageSummary, PropertyOwner, QueryView,
-    QueryViewColumn, QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement, TagSnapshot,
+    HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
+    OutlineFragmentItem, OutlineFragmentPage, OutlineFragmentTag, OutlineItem, PageSnapshot,
+    PageSummary, PropertyOwner, QueryView, QueryViewColumn, QueryViewKind, QueryViewOptions,
+    QueryViewSort, SplitPlacement, TagSnapshot,
 };
 pub use property::{
-    Cardinality, DocumentSpec, PropertyAccess, PropertyBag, PropertyDocument,
+    Cardinality, DocumentSpec, PropertyAccess, PropertyBag, PropertyCopyPolicy, PropertyDocument,
     PropertyDocumentHeader, PropertyError, PropertyField, PropertyOrdering, PropertyPlacement,
     PropertyShape, PropertySpec, PropertyTarget, PropertyType, PropertyValue, PropertyValueSpec,
     QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PLAN_LIMIT,
-    QUERY_PROPERTY_KEY, QueryPlan, REGISTRY_VERSION, StringSpec, definition, registry_fixture,
-    validate_property, validate_property_field, validate_property_shape, validate_property_target,
-    validate_property_write,
+    QUERY_PROPERTY_KEY, QueryPlan, REGISTRY_VERSION, StringSpec, definition, property_copy_policy,
+    registry_fixture, validate_property, validate_property_field, validate_property_shape,
+    validate_property_target, validate_property_write,
 };

@@ -33,7 +33,9 @@ properties; they may remove the complete field.
 ## Registry and Schema Ownership
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json)
-defines shape, semantic ordering, placement, and write access. Ordering is
+defines shape, semantic ordering, placement, write access, and clipboard copy
+policy. Portable fields cross an outline clipboard fragment; lifecycle fields
+regenerate on the new node and deleted markers are omitted. Ordering is
 separate from presentation: `choice_order` makes the declared string choices an
 ordered domain while localized labels and picker placement remain client concerns.
 Known built-ins have a compiled

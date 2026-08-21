@@ -1,59 +1,72 @@
 {
-  "schema": 2,
+  "schema": 3,
   "properties": {
     "builtin.query": {
       "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
-      "placements": {"page": "user", "block": "user"}
+      "placements": {"page": "user", "block": "user"},
+      "copy": "portable"
     },
     "builtin.task-status": {
       "shape": {"single": {"string": {"suggested": ["todo", "doing", "done", "cancelled"]}}},
       "ordering": {"kind": "choice_order"},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.task-scheduled": {
       "shape": {"single": "date"},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.task-scheduled-time": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.task-deadline": {
       "shape": {"single": "date"},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.task-deadline-time": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.task-repeat": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.task-priority": {
       "shape": {"single": {"string": {"suggested": ["low", "medium", "high"]}}},
       "ordering": {"kind": "choice_order"},
-      "placements": {"page": "user", "block": "user", "tag_default": "user"}
+      "placements": {"page": "user", "block": "user", "tag_default": "user"},
+      "copy": "portable"
     },
     "builtin.page-kind": {
       "shape": {"single": {"string": {"one_of": ["regular", "journal"]}}},
-      "placements": {"page": "core"}
+      "placements": {"page": "core"},
+      "copy": "omit"
     },
     "builtin.journal-date": {
       "shape": {"single": "date"},
-      "placements": {"page": "core"}
+      "placements": {"page": "core"},
+      "copy": "omit"
     },
     "builtin.created-at": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "core", "block": "core", "tag_metadata": "core"}
+      "placements": {"page": "core", "block": "core", "tag_metadata": "core"},
+      "copy": "regenerate"
     },
     "builtin.updated-at": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "core", "block": "core", "tag_metadata": "core"}
+      "placements": {"page": "core", "block": "core", "tag_metadata": "core"},
+      "copy": "regenerate"
     },
     "builtin.deleted-at": {
       "shape": {"single": {"string": "any"}},
-      "placements": {"page": "core", "tag_metadata": "core"}
+      "placements": {"page": "core", "tag_metadata": "core"},
+      "copy": "omit"
     }
   }
 }

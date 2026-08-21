@@ -272,6 +272,49 @@ test("pastes Markdown list items as one outline history step", async ({ page }) 
   await expect.poll(() => blockTexts(page)).toEqual([""]);
 });
 
+test("pastes a rich outline fragment with properties and tags as one history step", async ({ page }) => {
+  await createGraph(page, "Rich Clipboard Graph");
+  await startOutline(page);
+
+  await page.getByLabel("Block text").evaluate((target) => {
+    const fragment = {
+      kind: "neoseq.outline",
+      version: 1,
+      source_graph_id: "external-graph",
+      items: [{
+        depth: 0,
+        markdown: "portable block",
+        properties: [{
+          key: "builtin.task-status",
+          value_type: "string",
+          cardinality: "single",
+          values: [{ type: "string", value: "doing" }],
+        }],
+        tags: ["source-project"],
+      }],
+      tags: [{ id: "source-project", name: "Project" }],
+      pages: [],
+    };
+    const clipboard = new DataTransfer();
+    clipboard.setData("application/vnd.neoseq.outline+json", JSON.stringify(fragment));
+    clipboard.setData("text/plain", "- portable block\n  Tags: #Project");
+    target.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+
+  await expect(page.getByLabel("Block text")).toHaveValue("portable block");
+  await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
+  await expect(page.locator(".outline-tags").getByTestId("tag-chip")).toContainText("#Project");
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.getByLabel("Block text")).toHaveValue("");
+  await expect(page.getByTestId("task-status-toggle")).toHaveCount(0);
+  await expect(page.locator(".outline-tags")).toHaveCount(0);
+});
+
 test("pressing a block taller than the viewport does not move the page", async ({ page }) => {
   await createGraph(page, "Tall Block Graph");
   await startOutline(page);

@@ -34,6 +34,13 @@ export interface PropertySpec {
   /** Semantic ordering, independent of localized labels and picker order. */
   ordering?: PropertyOrdering;
   placements: Partial<Record<PropertyTarget, PropertyAccess>>;
+  copy: "portable" | "regenerate" | "omit";
+}
+
+export function propertyCopyPolicy(key: string): PropertySpec["copy"] {
+  const spec = definition(key);
+  if (spec) return spec.copy;
+  return key.startsWith("user.") ? "portable" : "omit";
 }
 
 export const REGISTRY = registryContract.properties as Record<string, PropertySpec>;

@@ -7,6 +7,7 @@ import type {
   QueryPlanDocument,
   QueryView,
 } from "./snapshot";
+import type { OutlineFragment } from "./fragment";
 
 export type EntityRef =
   | { kind: "page"; id: string }
@@ -43,6 +44,14 @@ export type Command =
       index: number;
       replace: string | null;
       items: OutlineItemInput[];
+    }
+  | {
+      type: "paste_outline";
+      page_id: string;
+      parent: string | null;
+      index: number;
+      replace: string | null;
+      fragment: OutlineFragment;
     }
   | { type: "edit_markdown"; page_id: string; block_id: string; markdown: string }
   | { type: "splice_markdown"; page_id: string; block_id: string; index: number; delete: number; insert: string }

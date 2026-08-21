@@ -126,9 +126,11 @@ until authoritative state agrees.
 
 Bulk move, indent, outdent, and delete send one plural command for the selected
 roots. The core removes duplicate descendants, derives authoritative order, and
-owns the transaction and undo group. Clipboard structure is portable Markdown
-list text; unambiguous lists become one `insert_outline` command, while ordinary
-multiline text stays in the editor.
+owns the transaction and undo group. A structural copy projects one versioned
+outline fragment to lossless Neoseq JSON, readable HTML, and plain Markdown.
+`paste_outline` validates and applies a Neoseq fragment atomically; unambiguous
+external lists use `insert_outline`, while ordinary multiline text stays in the
+editor. See [outline clipboard](clipboard.md).
 
 ## Property-Driven Features
 

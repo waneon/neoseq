@@ -44,7 +44,7 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The property registry is a separately versioned domain contract; registry v2 is
+The property registry is a separately versioned domain contract; registry v3 is
 the checked-in current contract. Each built-in key maps to `shape`, optional
 semantic `ordering`, and `placements`. Shape composes cardinality with an atomic value type or a
 schema/version-tagged document and, for strings, any/suggested/closed choices. Placements map page, block, tag

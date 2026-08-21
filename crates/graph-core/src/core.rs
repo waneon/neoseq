@@ -1,12 +1,14 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
-    GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, PageId, PageSnapshot,
-    PageSummary, PropertyBag, PropertyDocument, PropertyDocumentHeader, PropertyError,
-    PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue,
-    QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryPlan,
-    QueryView, QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement,
-    TagId, TagSnapshot, validate_property, validate_property_field, validate_property_shape,
-    validate_property_target, validate_property_write,
+    GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND,
+    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentPage, PageId, PageSnapshot,
+    PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader,
+    PropertyError, PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType,
+    PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE,
+    QUERY_PROPERTY_KEY, QueryPlan, QueryView, QueryViewColumn, QueryViewId, QueryViewKind,
+    QueryViewOptions, SplitPlacement, TagId, TagSnapshot, property_copy_policy, validate_property,
+    validate_property_field, validate_property_shape, validate_property_target,
+    validate_property_write,
 };
 use loro::{
     Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
@@ -70,6 +72,14 @@ struct HistoryPlan {
     entry: HistoryEntry,
     redo_created_block: bool,
     redo_created_page: bool,
+}
+
+#[derive(Debug)]
+struct FragmentResolution {
+    tags: BTreeMap<TagId, TagId>,
+    pages: BTreeMap<PageId, PageId>,
+    new_tags: Vec<(TagId, String)>,
+    new_pages: Vec<(PageId, OutlineFragmentPage)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1225,6 +1235,30 @@ impl GraphCore {
                     }
                 }
             }
+            Command::PasteOutline {
+                page_id,
+                parent,
+                replace,
+                fragment,
+                ..
+            } => {
+                self.require_live_page(page_id)?;
+                if replace.is_none()
+                    && let Some(parent) = parent
+                {
+                    self.require_block(page_id, parent)?;
+                }
+                self.validate_outline_fragment(fragment)?;
+                let _ = self.resolve_outline_fragment(fragment)?;
+                if let Some(block_id) = replace {
+                    self.require_block(page_id, block_id)?;
+                    if !self.block_is_plain_empty(page_id, block_id)? {
+                        return Err(CoreError::InvalidHierarchy(
+                            "outline replacement block contains content or metadata".into(),
+                        ));
+                    }
+                }
+            }
             Command::EditMarkdown {
                 page_id,
                 block_id,
@@ -1617,6 +1651,121 @@ impl GraphCore {
                     result.created_block = Some(created_id);
                 }
             }
+            Command::PasteOutline {
+                page_id,
+                parent,
+                index,
+                replace,
+                fragment,
+            } => {
+                let resolution = self.resolve_outline_fragment(fragment)?;
+                for (target_id, reference) in &resolution.new_pages {
+                    if let Some(date) = &reference.journal_date {
+                        self.ensure_page(target_id, "journal", None, Some(date.clone()), now)?;
+                    } else {
+                        self.ensure_page(target_id, "regular", Some(&reference.title), None, now)?;
+                    }
+                }
+                for (target_id, name) in &resolution.new_tags {
+                    self.ensure_tag(target_id, name, now)?;
+                }
+
+                let outline = self.page_outline(page_id)?;
+                let requested_parent = parent.as_ref().map(tree_id).transpose()?;
+                let mut base_parent = requested_parent;
+                let mut base_index = *index;
+                let mut levels: Vec<TreeID> = Vec::new();
+                let mut inserted_children: BTreeMap<TreeID, usize> = BTreeMap::new();
+                let mut root_offset = 0;
+
+                if let Some(replace_id) = replace {
+                    let target = require_block_in(&outline, replace_id)?;
+                    let actual_parent = outline
+                        .parent(target)
+                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
+                    let siblings = outline.children(actual_parent).unwrap_or_default();
+                    base_index = siblings
+                        .iter()
+                        .position(|candidate| *candidate == target)
+                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
+                    base_parent = match actual_parent {
+                        TreeParentId::Node(parent) => Some(parent),
+                        TreeParentId::Root => None,
+                        TreeParentId::Deleted | TreeParentId::Unexist => {
+                            return Err(CoreError::BlockNotFound(replace_id.clone()));
+                        }
+                    };
+                    root_offset = 1;
+                }
+
+                for (position, item) in fragment.items.iter().enumerate() {
+                    let node = if position == 0 {
+                        if let Some(replace_id) = replace {
+                            let target = require_block_in(&outline, replace_id)?;
+                            replace_text(&self.block_text(page_id, replace_id)?, &item.markdown)?;
+                            target
+                        } else {
+                            let available = base_parent.map_or_else(
+                                || outline.roots().len(),
+                                |parent| outline.children(parent).map_or(0, |rows| rows.len()),
+                            );
+                            let target =
+                                outline.create_at(base_parent, base_index.min(available))?;
+                            initialize_created_node(
+                                &outline.get_meta(target)?,
+                                &item.markdown,
+                                now,
+                            )?;
+                            root_offset = 1;
+                            target
+                        }
+                    } else if item.depth == 0 {
+                        let available = base_parent.map_or_else(
+                            || outline.roots().len(),
+                            |parent| outline.children(parent).map_or(0, |rows| rows.len()),
+                        );
+                        let target = outline
+                            .create_at(base_parent, (base_index + root_offset).min(available))?;
+                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
+                        root_offset += 1;
+                        target
+                    } else {
+                        let parent_node = *levels.get(item.depth - 1).ok_or_else(|| {
+                            CoreError::InvalidHierarchy("outline paste skips a depth".into())
+                        })?;
+                        let child_index = inserted_children.entry(parent_node).or_default();
+                        let target = outline.create_at(Some(parent_node), *child_index)?;
+                        *child_index += 1;
+                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
+                        target
+                    };
+
+                    let meta = outline.get_meta(node)?;
+                    let bag = meta.ensure_mergeable_map("properties")?;
+                    for field in &item.properties {
+                        write_fragment_property(&bag, field, &resolution.pages)?;
+                    }
+                    let tag_refs = meta.ensure_mergeable_map("tag_refs")?;
+                    for source_tag in &item.tags {
+                        let target_tag = resolution.tags.get(source_tag).ok_or_else(|| {
+                            CoreError::InvalidHierarchy(format!(
+                                "outline fragment tag reference is missing: {source_tag}"
+                            ))
+                        })?;
+                        tag_refs.insert(target_tag.as_str(), true)?;
+                    }
+
+                    if levels.len() <= item.depth {
+                        levels.push(node);
+                    } else {
+                        levels[item.depth] = node;
+                        levels.truncate(item.depth + 1);
+                    }
+                    let created_id = block_id(node);
+                    self.touch_block(page_id, &created_id, now)?;
+                    result.created_block = Some(created_id);
+                }
+            }
             Command::EditMarkdown {
                 page_id,
                 block_id,
@@ -1828,7 +1977,9 @@ impl GraphCore {
                 }
                 self.touch_page(page_id, now)?;
             }
-            Command::InsertOutline { page_id, .. } => self.touch_page(page_id, now)?,
+            Command::InsertOutline { page_id, .. } | Command::PasteOutline { page_id, .. } => {
+                self.touch_page(page_id, now)?
+            }
             Command::EditMarkdown {
                 page_id, block_id, ..
             }
@@ -2029,6 +2180,249 @@ impl GraphCore {
         tag.insert("name", name)?;
         initialize_lifecycle(&properties, now)?;
         Ok(Some(tag_id.clone()))
+    }
+
+    fn validate_outline_fragment(&self, fragment: &OutlineFragment) -> Result<(), CoreError> {
+        if fragment.kind != OUTLINE_FRAGMENT_KIND || fragment.version != OUTLINE_FRAGMENT_VERSION {
+            return Err(CoreError::InvalidHierarchy(
+                "unsupported outline fragment".to_owned(),
+            ));
+        }
+        if fragment.items.is_empty() {
+            return Err(CoreError::InvalidHierarchy(
+                "outline paste requires at least one item".to_owned(),
+            ));
+        }
+        if fragment.items.len() > MAX_STRUCTURAL_TARGETS {
+            return Err(CoreError::InvalidHierarchy(
+                "outline paste exceeds the block target limit".to_owned(),
+            ));
+        }
+        if fragment.tags.len() > MAX_STRUCTURAL_TARGETS
+            || fragment.pages.len() > MAX_STRUCTURAL_TARGETS
+        {
+            return Err(CoreError::InvalidHierarchy(
+                "outline paste exceeds the reference limit".to_owned(),
+            ));
+        }
+        if fragment.items[0].depth != 0 {
+            return Err(CoreError::InvalidHierarchy(
+                "outline paste must start at depth zero".to_owned(),
+            ));
+        }
+        if serde_json::to_vec(fragment)?.len() > 4 * 1_048_576 {
+            return Err(CoreError::InvalidHierarchy(
+                "outline fragment exceeds the payload limit".to_owned(),
+            ));
+        }
+
+        let mut tag_ids = BTreeSet::new();
+        for tag in &fragment.tags {
+            if !tag_ids.insert(tag.id.clone()) {
+                return Err(CoreError::InvalidHierarchy(
+                    "outline fragment contains a duplicate tag reference".to_owned(),
+                ));
+            }
+            validate_text(&tag.name, 1024)?;
+            validate_name(&tag.name, "tag")?;
+        }
+        let mut page_ids = BTreeSet::new();
+        for page in &fragment.pages {
+            if !page_ids.insert(page.id.clone()) {
+                return Err(CoreError::InvalidHierarchy(
+                    "outline fragment contains a duplicate page reference".to_owned(),
+                ));
+            }
+            if page.journal_date.is_none() {
+                validate_text(&page.title, 1024)?;
+                validate_name(&page.title, "page")?;
+            }
+        }
+
+        let same_graph = fragment.source_graph_id == self.graph_id;
+        let mut previous_depth = 0;
+        let mut total_text = 0usize;
+        let mut total_fields = 0usize;
+        let mut referenced_tags = BTreeSet::new();
+        let mut referenced_pages = BTreeSet::new();
+        for item in &fragment.items {
+            if item.depth > previous_depth + 1 {
+                return Err(CoreError::InvalidHierarchy(
+                    "outline paste skips a depth".to_owned(),
+                ));
+            }
+            validate_text(&item.markdown, 1_048_576)?;
+            total_text = total_text.saturating_add(item.markdown.len());
+            if total_text > 1_048_576 {
+                return Err(CoreError::InvalidHierarchy(
+                    "outline paste exceeds the text limit".to_owned(),
+                ));
+            }
+            total_fields = total_fields.saturating_add(item.properties.len());
+            if total_fields > MAX_STRUCTURAL_TARGETS {
+                return Err(CoreError::InvalidHierarchy(
+                    "outline paste exceeds the property limit".to_owned(),
+                ));
+            }
+            let mut property_keys = BTreeSet::new();
+            for field in &item.properties {
+                if !property_keys.insert(&field.key) {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "outline fragment contains a duplicate property: {}",
+                        field.key
+                    )));
+                }
+                if property_copy_policy(&field.key) != PropertyCopyPolicy::Portable {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "property is not portable: {}",
+                        field.key
+                    )));
+                }
+                validate_property_write(&field.key, PropertyTarget::Block)?;
+                validate_property_field(field)?;
+                if field.value_type == PropertyType::Document
+                    && (field.key.as_str() != QUERY_PROPERTY_KEY
+                        || field.cardinality != Cardinality::Single
+                        || !matches!(field.values.as_slice(), [PropertyValue::Document(_)]))
+                {
+                    return Err(CoreError::InvalidHierarchy(
+                        "outline fragment contains an unsupported document property".to_owned(),
+                    ));
+                }
+                for value in &field.values {
+                    if let PropertyValue::Page(page_id) = value {
+                        referenced_pages.insert(page_id.clone());
+                        let resolves_directly =
+                            same_graph && self.require_live_page(page_id).is_ok();
+                        if !resolves_directly && !page_ids.contains(page_id) {
+                            return Err(CoreError::InvalidHierarchy(format!(
+                                "outline fragment page reference is missing: {page_id}"
+                            )));
+                        }
+                    }
+                }
+            }
+            let mut item_tags = BTreeSet::new();
+            for tag_id in &item.tags {
+                if !item_tags.insert(tag_id) || !tag_ids.contains(tag_id) {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "outline fragment tag reference is missing or duplicated: {tag_id}"
+                    )));
+                }
+                referenced_tags.insert(tag_id.clone());
+            }
+            previous_depth = item.depth;
+        }
+        if tag_ids.iter().any(|id| !referenced_tags.contains(id))
+            || page_ids.iter().any(|id| !referenced_pages.contains(id))
+        {
+            return Err(CoreError::InvalidHierarchy(
+                "outline fragment contains an unused reference descriptor".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn resolve_outline_fragment(
+        &self,
+        fragment: &OutlineFragment,
+    ) -> Result<FragmentResolution, CoreError> {
+        let same_graph = fragment.source_graph_id == self.graph_id;
+        let mut tags = BTreeMap::new();
+        let mut new_tags = Vec::new();
+        let mut tag_names = live_tag_names(&self.doc)
+            .into_iter()
+            .map(|(id, name)| (canonical_entity_name(&name), id))
+            .collect::<BTreeMap<_, _>>();
+        let mut reserved_tag_ids = self
+            .doc
+            .get_map("tags")
+            .keys()
+            .filter_map(|id| TagId::new(id.to_string()).ok())
+            .collect::<BTreeSet<_>>();
+        for reference in &fragment.tags {
+            let target = if same_graph && self.require_live_tag(&reference.id).is_ok() {
+                reference.id.clone()
+            } else if let Some(existing) = tag_names.get(&canonical_entity_name(&reference.name)) {
+                existing.clone()
+            } else {
+                let id = fresh_fragment_tag_id(
+                    &self.graph_id,
+                    &fragment.source_graph_id,
+                    &reference.id,
+                    &reserved_tag_ids,
+                )?;
+                reserved_tag_ids.insert(id.clone());
+                tag_names.insert(canonical_entity_name(&reference.name), id.clone());
+                new_tags.push((id.clone(), reference.name.clone()));
+                id
+            };
+            tags.insert(reference.id.clone(), target);
+        }
+
+        let mut pages = BTreeMap::new();
+        let mut new_pages = Vec::new();
+        let mut page_names = live_page_names(&self.doc)
+            .into_iter()
+            .map(|(id, name)| (canonical_entity_name(&name), id))
+            .collect::<BTreeMap<_, _>>();
+        let mut reserved_page_ids = self
+            .doc
+            .get_map("pages")
+            .keys()
+            .filter_map(|id| PageId::new(id.to_string()).ok())
+            .collect::<BTreeSet<_>>();
+        for reference in &fragment.pages {
+            let target = if same_graph && self.require_live_page(&reference.id).is_ok() {
+                reference.id.clone()
+            } else if let Some(date) = &reference.journal_date {
+                let id = self.journal_page_id(date);
+                if self.require_page(&id).is_err() {
+                    new_pages.push((id.clone(), reference.clone()));
+                    reserved_page_ids.insert(id.clone());
+                }
+                id
+            } else if let Some(existing) = page_names.get(&canonical_entity_name(&reference.title))
+            {
+                existing.clone()
+            } else {
+                let id = fresh_fragment_page_id(
+                    &self.graph_id,
+                    &fragment.source_graph_id,
+                    &reference.id,
+                    &reserved_page_ids,
+                )?;
+                reserved_page_ids.insert(id.clone());
+                page_names.insert(canonical_entity_name(&reference.title), id.clone());
+                new_pages.push((id.clone(), reference.clone()));
+                id
+            };
+            pages.insert(reference.id.clone(), target);
+        }
+
+        Ok(FragmentResolution {
+            tags,
+            pages,
+            new_tags,
+            new_pages,
+        })
+    }
+
+    fn block_is_plain_empty(
+        &self,
+        page_id: &PageId,
+        block_id: &BlockId,
+    ) -> Result<bool, CoreError> {
+        let page = self.page_snapshot(page_id)?;
+        let block = find_snapshot_block(&page.blocks, block_id)
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        Ok(block.markdown.is_empty()
+            && block.tags.is_empty()
+            && block.children.is_empty()
+            && block
+                .properties
+                .iter()
+                .all(|field| property_copy_policy(&field.key) != PropertyCopyPolicy::Portable))
     }
 
     fn outline_state(&self, page_id: &PageId) -> Result<OutlineState, CoreError> {
@@ -2239,6 +2633,21 @@ impl GraphCore {
                 false,
             ),
             Command::InsertOutline {
+                page_id, parent, ..
+            } => plan(
+                HistoryScope::Entity,
+                vec![page_id.clone()],
+                parent
+                    .as_ref()
+                    .map(|id| block(page_id, id))
+                    .into_iter()
+                    .chain([page(page_id)])
+                    .collect(),
+                Vec::new(),
+                true,
+                false,
+            ),
+            Command::PasteOutline {
                 page_id, parent, ..
             } => plan(
                 HistoryScope::Entity,
@@ -2995,7 +3404,9 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::RenameTag { .. } => "TagRenamed",
         Command::DeleteTag { .. } => "TagDeleted",
         Command::RestoreTag { .. } => "TagRestored",
-        Command::InsertBlock { .. } | Command::InsertOutline { .. } => "BlockInserted",
+        Command::InsertBlock { .. }
+        | Command::InsertOutline { .. }
+        | Command::PasteOutline { .. } => "BlockInserted",
         Command::SplitBlock { .. } => "BlockSplit",
         Command::EditMarkdown { .. } | Command::SpliceMarkdown { .. } => "BlockTextChanged",
         Command::MoveBlocks { .. }
@@ -3077,6 +3488,157 @@ fn initialize_node(node: &LoroMap, content: &str) -> Result<(), CoreError> {
 fn initialize_created_node(node: &LoroMap, content: &str, now: &str) -> Result<(), CoreError> {
     initialize_node(node, content)?;
     initialize_lifecycle(&node.ensure_mergeable_map("properties")?, now)
+}
+
+fn find_snapshot_block<'a>(
+    blocks: &'a [BlockSnapshot],
+    block_id: &BlockId,
+) -> Option<&'a BlockSnapshot> {
+    for block in blocks {
+        if &block.id == block_id {
+            return Some(block);
+        }
+        if let Some(found) = find_snapshot_block(&block.children, block_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn fresh_fragment_tag_id(
+    target_graph: &GraphId,
+    source_graph: &GraphId,
+    source_id: &TagId,
+    occupied: &BTreeSet<TagId>,
+) -> Result<TagId, CoreError> {
+    let base = fragment_entity_id("t-copy", target_graph, source_graph, source_id.as_str());
+    for suffix in 0..=MAX_STRUCTURAL_TARGETS {
+        let value = if suffix == 0 {
+            base.clone()
+        } else {
+            format!("{base}-{suffix}")
+        };
+        let id =
+            TagId::new(value).map_err(|error| CoreError::InvalidHierarchy(error.to_string()))?;
+        if !occupied.contains(&id) {
+            return Ok(id);
+        }
+    }
+    Err(CoreError::InvalidHierarchy(
+        "cannot allocate a copied tag id".to_owned(),
+    ))
+}
+
+fn fresh_fragment_page_id(
+    target_graph: &GraphId,
+    source_graph: &GraphId,
+    source_id: &PageId,
+    occupied: &BTreeSet<PageId>,
+) -> Result<PageId, CoreError> {
+    let base = fragment_entity_id("p-copy", target_graph, source_graph, source_id.as_str());
+    for suffix in 0..=MAX_STRUCTURAL_TARGETS {
+        let value = if suffix == 0 {
+            base.clone()
+        } else {
+            format!("{base}-{suffix}")
+        };
+        let id =
+            PageId::new(value).map_err(|error| CoreError::InvalidHierarchy(error.to_string()))?;
+        if !occupied.contains(&id) {
+            return Ok(id);
+        }
+    }
+    Err(CoreError::InvalidHierarchy(
+        "cannot allocate a copied page id".to_owned(),
+    ))
+}
+
+fn fragment_entity_id(
+    prefix: &str,
+    target_graph: &GraphId,
+    source_graph: &GraphId,
+    source_id: &str,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"neoseq-outline-fragment-v1\0");
+    digest.update(target_graph.as_str().as_bytes());
+    digest.update(b"\0");
+    digest.update(source_graph.as_str().as_bytes());
+    digest.update(b"\0");
+    digest.update(source_id.as_bytes());
+    format!("{prefix}-{}", hex::encode(&digest.finalize()[..12]))
+}
+
+fn write_fragment_property(
+    bag: &LoroMap,
+    field: &PropertyField,
+    page_resolution: &BTreeMap<PageId, PageId>,
+) -> Result<(), CoreError> {
+    let mut field = field.clone();
+    for value in &mut field.values {
+        if let PropertyValue::Page(source) = value
+            && let Some(target) = page_resolution.get(source)
+        {
+            *source = target.clone();
+        }
+    }
+    validate_property_field(&field)?;
+    ensure_property_field(bag, &field.key, field.value_type, field.cardinality)?;
+    for value in &field.values {
+        match value {
+            PropertyValue::Document(document) => {
+                if field.key.as_str() != QUERY_PROPERTY_KEY
+                    || field.cardinality != Cardinality::Single
+                {
+                    return Err(PropertyError::UnsupportedDocument {
+                        schema: document.schema.clone(),
+                        version: document.version,
+                    }
+                    .into());
+                }
+                write_query_document_snapshot(bag, document)?;
+            }
+            PropertyValue::UnsupportedDocument(document) => {
+                return Err(PropertyError::UnsupportedDocument {
+                    schema: document.schema.clone(),
+                    version: document.version,
+                }
+                .into());
+            }
+            _ => match field.cardinality {
+                Cardinality::Single => set_single(bag, &field.key, value)?,
+                Cardinality::Set => set_repeated(bag, &field.key, value)?,
+            },
+        }
+    }
+    Ok(())
+}
+
+fn write_query_document_snapshot(
+    bag: &LoroMap,
+    snapshot: &PropertyDocument,
+) -> Result<(), CoreError> {
+    snapshot.validate()?;
+    let query_key = key(QUERY_PROPERTY_KEY);
+    let document = bag.ensure_mergeable_map(&document_slot(&query_key))?;
+    document.insert("schema", snapshot.schema.as_str())?;
+    document.insert("version", i64::from(snapshot.version))?;
+    document.insert("language", snapshot.language.as_str())?;
+    document.insert("default_view_id", snapshot.default_view_id.as_str())?;
+    replace_text(&document.ensure_mergeable_text("source")?, &snapshot.source)?;
+    let views = document.ensure_mergeable_map("views")?;
+    for view_id in views.keys() {
+        views.delete(&view_id)?;
+    }
+    for view in &snapshot.views {
+        put_query_view(&document, view)?;
+    }
+    clear_query_plan(&document)?;
+    if let Some(plan) = &snapshot.plan {
+        document.insert("plan_version", i64::from(plan.version))?;
+        document.insert("plan", plan.payload.as_str())?;
+    }
+    Ok(())
 }
 
 fn initialize_lifecycle(properties: &LoroMap, now: &str) -> Result<(), CoreError> {
@@ -4968,6 +5530,311 @@ mod tests {
         assert_eq!(restored.blocks.len(), 1);
         assert_eq!(restored.blocks[0].markdown, "");
         assert!(restored.blocks[0].children.is_empty());
+    }
+
+    #[test]
+    fn outline_fragment_paste_preserves_properties_tags_and_empty_fields() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let empty = insert_root(&mut core, "empty", &page(), 0, "");
+        let tag_id = TagId::new("project").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: tag_id.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+
+        core.execute(
+            envelope(
+                "paste-rich-outline",
+                Command::PasteOutline {
+                    page_id: page(),
+                    parent: None,
+                    index: 0,
+                    replace: Some(empty),
+                    fragment: OutlineFragment {
+                        kind: OUTLINE_FRAGMENT_KIND.into(),
+                        version: OUTLINE_FRAGMENT_VERSION,
+                        source_graph_id: graph(),
+                        items: vec![domain::OutlineFragmentItem {
+                            depth: 0,
+                            markdown: "ship it".into(),
+                            properties: vec![
+                                PropertyField {
+                                    key: key("builtin.task-status"),
+                                    value_type: PropertyType::String,
+                                    cardinality: Cardinality::Single,
+                                    values: vec![PropertyValue::String("doing".into())],
+                                },
+                                PropertyField {
+                                    key: key("user.reviewers"),
+                                    value_type: PropertyType::String,
+                                    cardinality: Cardinality::Set,
+                                    values: Vec::new(),
+                                },
+                                PropertyField {
+                                    key: key(QUERY_PROPERTY_KEY),
+                                    value_type: PropertyType::Document,
+                                    cardinality: Cardinality::Single,
+                                    values: vec![PropertyValue::Document(
+                                        PropertyDocument::default_query(
+                                            "SELECT ?item WHERE {}".into(),
+                                        ),
+                                    )],
+                                },
+                            ],
+                            tags: vec![tag_id.clone()],
+                        }],
+                        tags: vec![domain::OutlineFragmentTag {
+                            id: tag_id.clone(),
+                            name: "Project".into(),
+                        }],
+                        pages: Vec::new(),
+                    },
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let pasted = core.page_snapshot(&page()).unwrap();
+        assert_eq!(pasted.blocks[0].markdown, "ship it");
+        assert_eq!(pasted.blocks[0].tags, [tag_id]);
+        assert!(pasted.blocks[0].properties.iter().any(|field| {
+            field.key.as_str() == "builtin.task-status"
+                && field.values == [PropertyValue::String("doing".into())]
+        }));
+        assert!(
+            pasted.blocks[0]
+                .properties
+                .iter()
+                .any(|field| { field.key.as_str() == "user.reviewers" && field.values.is_empty() })
+        );
+        assert!(pasted.blocks[0].properties.iter().any(|field| {
+            field.key.as_str() == QUERY_PROPERTY_KEY
+                && matches!(
+                    field.values.first(),
+                    Some(PropertyValue::Document(document))
+                        if document.source == "SELECT ?item WHERE {}"
+                )
+        }));
+        assert!(pasted.blocks[0].properties.iter().any(|field| {
+            field.key.as_str() == "builtin.created-at"
+                && field.values == [PropertyValue::String("t2".into())]
+        }));
+        assert!(pasted.blocks[0].properties.iter().any(|field| {
+            field.key.as_str() == "builtin.updated-at"
+                && field.values == [PropertyValue::String("t3".into())]
+        }));
+    }
+
+    #[test]
+    fn outline_fragment_rejects_non_query_documents_and_unused_descriptors() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+
+        let unsupported_document = OutlineFragment {
+            kind: OUTLINE_FRAGMENT_KIND.into(),
+            version: OUTLINE_FRAGMENT_VERSION,
+            source_graph_id: graph(),
+            items: vec![domain::OutlineFragmentItem {
+                depth: 0,
+                markdown: "untrusted".into(),
+                properties: vec![PropertyField {
+                    key: key("user.embedded-document"),
+                    value_type: PropertyType::Document,
+                    cardinality: Cardinality::Single,
+                    values: vec![PropertyValue::Document(PropertyDocument::default_query(
+                        "SELECT * WHERE {}".into(),
+                    ))],
+                }],
+                tags: Vec::new(),
+            }],
+            tags: Vec::new(),
+            pages: Vec::new(),
+        };
+        assert!(matches!(
+            core.execute(
+                envelope(
+                    "reject-document",
+                    Command::PasteOutline {
+                        page_id: page(),
+                        parent: None,
+                        index: 0,
+                        replace: None,
+                        fragment: unsupported_document,
+                    },
+                ),
+                "t2",
+            ),
+            Err(CoreError::InvalidHierarchy(_))
+        ));
+
+        let unused_descriptor = OutlineFragment {
+            kind: OUTLINE_FRAGMENT_KIND.into(),
+            version: OUTLINE_FRAGMENT_VERSION,
+            source_graph_id: graph(),
+            items: vec![domain::OutlineFragmentItem {
+                depth: 0,
+                markdown: "untrusted".into(),
+                properties: Vec::new(),
+                tags: Vec::new(),
+            }],
+            tags: vec![domain::OutlineFragmentTag {
+                id: TagId::new("unused").unwrap(),
+                name: "Unused".into(),
+            }],
+            pages: Vec::new(),
+        };
+        assert!(matches!(
+            core.execute(
+                envelope(
+                    "reject-descriptor",
+                    Command::PasteOutline {
+                        page_id: page(),
+                        parent: None,
+                        index: 0,
+                        replace: None,
+                        fragment: unused_descriptor,
+                    },
+                ),
+                "t3",
+            ),
+            Err(CoreError::InvalidHierarchy(_))
+        ));
+        assert!(core.page_snapshot(&page()).unwrap().blocks.is_empty());
+    }
+
+    #[test]
+    fn cross_graph_fragment_resolves_references_and_undoes_atomically() {
+        let target_graph = GraphId::new("target-graph").unwrap();
+        let mut core = GraphCore::new(target_graph.clone(), 1, "t0").unwrap();
+        let destination = PageId::new("destination").unwrap();
+        core.execute(
+            CommandEnvelope {
+                graph_id: target_graph.clone(),
+                command_id: CommandId::new("page").unwrap(),
+                command: Command::EnsurePage {
+                    page_id: destination.clone(),
+                    title: "Destination".into(),
+                },
+            },
+            "t1",
+        )
+        .unwrap();
+        let empty = core
+            .execute(
+                CommandEnvelope {
+                    graph_id: target_graph.clone(),
+                    command_id: CommandId::new("empty").unwrap(),
+                    command: Command::InsertBlock {
+                        page_id: destination.clone(),
+                        parent: None,
+                        index: 0,
+                        markdown: String::new(),
+                    },
+                },
+                "t2",
+            )
+            .unwrap()
+            .result
+            .created_block
+            .unwrap();
+        let source_page = PageId::new("source-reference").unwrap();
+        let source_tag = TagId::new("source-tag").unwrap();
+
+        core.execute(
+            CommandEnvelope {
+                graph_id: target_graph.clone(),
+                command_id: CommandId::new("paste").unwrap(),
+                command: Command::PasteOutline {
+                    page_id: destination.clone(),
+                    parent: None,
+                    index: 0,
+                    replace: Some(empty),
+                    fragment: OutlineFragment {
+                        kind: OUTLINE_FRAGMENT_KIND.into(),
+                        version: OUTLINE_FRAGMENT_VERSION,
+                        source_graph_id: graph(),
+                        items: vec![domain::OutlineFragmentItem {
+                            depth: 0,
+                            markdown: "portable".into(),
+                            properties: vec![PropertyField {
+                                key: key("user.related"),
+                                value_type: PropertyType::Page,
+                                cardinality: Cardinality::Single,
+                                values: vec![PropertyValue::Page(source_page.clone())],
+                            }],
+                            tags: vec![source_tag.clone()],
+                        }],
+                        tags: vec![domain::OutlineFragmentTag {
+                            id: source_tag,
+                            name: "Project".into(),
+                        }],
+                        pages: vec![OutlineFragmentPage {
+                            id: source_page,
+                            title: "Referenced page".into(),
+                            journal_date: None,
+                        }],
+                    },
+                },
+            },
+            "t3",
+        )
+        .unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        let copied_tag = snapshot
+            .tags
+            .iter()
+            .find(|tag| tag.name == "Project")
+            .unwrap();
+        let copied_page = snapshot
+            .pages
+            .iter()
+            .find(|page| page.title == "Referenced page")
+            .unwrap();
+        let pasted = snapshot
+            .pages
+            .iter()
+            .find(|page| page.id == destination)
+            .unwrap();
+        assert_eq!(pasted.blocks[0].tags, std::slice::from_ref(&copied_tag.id));
+        assert!(pasted.blocks[0].properties.iter().any(|field| {
+            field.key.as_str() == "user.related"
+                && field.values == [PropertyValue::Page(copied_page.id.clone())]
+        }));
+
+        core.execute(
+            CommandEnvelope {
+                graph_id: target_graph,
+                command_id: CommandId::new("undo").unwrap(),
+                command: Command::Undo,
+            },
+            "t4",
+        )
+        .unwrap();
+        let undone = core.snapshot().unwrap();
+        assert!(undone.tags.is_empty());
+        assert!(
+            undone
+                .pages
+                .iter()
+                .all(|page| page.title != "Referenced page")
+        );
+        let destination = undone
+            .pages
+            .iter()
+            .find(|page| page.title == "Destination")
+            .unwrap();
+        assert_eq!(destination.blocks.len(), 1);
+        assert_eq!(destination.blocks[0].markdown, "");
     }
 
     #[test]

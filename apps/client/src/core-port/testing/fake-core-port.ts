@@ -419,6 +419,127 @@ export class FakeCorePort implements SessionPort {
         });
         break;
       }
+      case "paste_outline": {
+        const { fragment } = command;
+        if (fragment.items.length === 0 || fragment.items[0].depth !== 0) {
+          fail("internal", "outline paste must start at depth zero");
+        }
+        fragment.items.forEach((item, index) => {
+          if (index > 0 && item.depth > fragment.items[index - 1].depth + 1) {
+            fail("internal", "outline paste skips a depth");
+          }
+        });
+
+        const tagMap = new Map<string, string>();
+        for (const reference of fragment.tags) {
+          let target = fragment.source_graph_id === this.graphId
+            ? this.tags.find((tag) => tag.id === reference.id)
+            : undefined;
+          target ??= this.tags.find((tag) =>
+            canonicalEntityName(tag.name) === canonicalEntityName(reference.name)
+          );
+          if (!target) {
+            let id = `t-paste-${this.tags.length + 1}`;
+            while (this.tags.some((tag) => tag.id === id)) id += "-copy";
+            target = {
+              id,
+              name: reference.name,
+              properties: lifecycle(timestamp),
+              defaults: [],
+            };
+            this.tags.push(target);
+          }
+          tagMap.set(reference.id, target.id);
+        }
+
+        const pageMap = new Map<string, string>();
+        for (const reference of fragment.pages) {
+          let target = fragment.source_graph_id === this.graphId
+            ? this.pages.find((page) => page.id === reference.id)
+            : undefined;
+          target ??= reference.journal_date
+            ? this.pages.find((page) => page.properties.some((entry) =>
+                entry.key === "builtin.journal-date"
+                && entry.values[0]?.type === "date"
+                && entry.values[0].value === reference.journal_date
+              ))
+            : this.pages.find((page) =>
+                canonicalEntityName(page.title) === canonicalEntityName(reference.title)
+              );
+          if (!target) {
+            let id = `p-paste-${this.pages.length + 1}`;
+            while (this.pages.some((page) => page.id === id)) id += "-copy";
+            target = newPage(
+              id,
+              reference.journal_date ? "journal" : "regular",
+              reference.journal_date ? null : reference.title,
+              reference.journal_date,
+              timestamp,
+            );
+            this.pages.push(target);
+          }
+          pageMap.set(reference.id, target.id);
+        }
+
+        const requestedSiblings = command.parent
+          ? this.requireBlock(command.page_id, command.parent).block.children
+          : this.requirePage(command.page_id).blocks;
+        let baseSiblings = requestedSiblings;
+        let baseIndex = command.index;
+        const levels: BlockSnapshot[] = [];
+        let rootOffset = 0;
+        if (command.replace) {
+          const target = this.requireBlock(command.page_id, command.replace);
+          const portable = target.block.properties.filter((entry) =>
+            entry.key !== "builtin.created-at" && entry.key !== "builtin.updated-at"
+          );
+          if (target.block.markdown !== ""
+            || portable.length > 0
+            || target.block.tags.length > 0
+            || target.block.children.length > 0
+          ) fail("internal", "outline replacement block contains content or metadata");
+          baseSiblings = target.siblings;
+          baseIndex = target.siblings.indexOf(target.block);
+          rootOffset = 1;
+        }
+        fragment.items.forEach((item, position) => {
+          let block: BlockSnapshot;
+          if (position === 0 && command.replace) {
+            block = this.requireBlock(command.page_id, command.replace).block;
+            block.markdown = item.markdown;
+          } else {
+            const id = `b-${(this.blockCounter += 1)}`;
+            block = {
+              id,
+              markdown: item.markdown,
+              properties: lifecycle(timestamp),
+              tags: [],
+              children: [],
+            };
+            if (item.depth === 0) {
+              baseSiblings.splice(Math.min(baseIndex + rootOffset, baseSiblings.length), 0, block);
+              rootOffset += 1;
+            } else {
+              const parent = levels[item.depth - 1];
+              if (!parent) fail("internal", "outline paste skips a depth");
+              parent.children.push(block);
+            }
+          }
+          block.properties.push(...clone(item.properties).map((entry: PropertyField) => ({
+            ...entry,
+            values: entry.values.map((value) => value.type === "page"
+              ? { ...value, value: pageMap.get(value.value) ?? value.value }
+              : value),
+          })));
+          block.tags = item.tags
+            .map((id) => tagMap.get(id))
+            .filter((id): id is string => id !== undefined);
+          levels[item.depth] = block;
+          levels.length = item.depth + 1;
+          result.created_block = block.id;
+        });
+        break;
+      }
       case "edit_markdown":
         this.requireBlock(command.page_id, command.block_id).block.markdown = command.markdown;
         break;
@@ -762,6 +883,7 @@ export class FakeCorePort implements SessionPort {
           redoCreatedBlock: true,
         };
       case "insert_outline":
+      case "paste_outline":
         return {
           ...blockEntry(
             command.page_id,
@@ -907,6 +1029,7 @@ export class FakeCorePort implements SessionPort {
         this.touchPage(command.page_id, timestamp);
         break;
       case "insert_outline":
+      case "paste_outline":
         if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
         this.touchPage(command.page_id, timestamp);
         break;

@@ -84,10 +84,16 @@ import {
   type DropTarget,
 } from "./selection";
 import {
+  buildClipboardBundle,
+  createOutlineFragment,
+  isPlainEmptyBlock,
   parseMarkdownOutline,
-  serializeOutlineSelection,
+  readOutlineFragment,
+  setClipboardData,
+  writeClipboardBundle,
   type OutlineClipboardItem,
 } from "./clipboard";
+import type { OutlineFragment } from "../../core-port/fragment";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { fuzzyScore } from "../commands/registry";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
@@ -264,6 +270,7 @@ interface EditorContext {
   /** Closes what is floating over the outline and drops a selection. */
   dismissTransient(): void;
   pasteOutline(row: OutlineRow, items: OutlineClipboardItem[]): void;
+  pasteFragment(row: OutlineRow, fragment: OutlineFragment): void;
   menu: {
     addChild(row: OutlineRow): void;
     indent(row: OutlineRow): void;
@@ -1190,36 +1197,42 @@ export function Outliner({
 
   const copySelection = useCallback(
     (_inputMethod: InputMethod) => {
-      const markdown = serializeOutlineSelection(rowsRef.current, selectedRef.current);
-      if (!markdown) return;
-      const write = navigator.clipboard?.writeText?.bind(navigator.clipboard);
-      if (!write) {
-        notify.failure(message("failure.copyBlocks"), new Error("Clipboard API unavailable"));
-        return;
-      }
-      void write(markdown).catch((error: unknown) => {
+      const fragment = createOutlineFragment(
+        state.snapshot,
+        authoritativePage,
+        selectedRef.current,
+      );
+      if (!fragment) return;
+      void writeClipboardBundle(buildClipboardBundle(fragment)).catch((error: unknown) => {
         notify.failure(message("failure.copyBlocks"), error);
       });
     },
-    [message, notify],
+    [authoritativePage, message, notify, state.snapshot],
   );
 
   const onCopySelection = useCallback(
     (event: ClipboardEvent<HTMLDivElement>) => {
       if (selectedRef.current.size === 0) return;
-      const markdown = serializeOutlineSelection(rowsRef.current, selectedRef.current);
-      if (!markdown) return;
+      const fragment = createOutlineFragment(
+        state.snapshot,
+        authoritativePage,
+        selectedRef.current,
+      );
+      if (!fragment) return;
       event.preventDefault();
-      event.clipboardData.setData("text/plain", markdown);
+      setClipboardData(event.clipboardData, buildClipboardBundle(fragment));
     },
-    [],
+    [authoritativePage, state.snapshot],
   );
 
   const pasteOutline = useCallback(
     (row: OutlineRow, items: OutlineClipboardItem[]) => {
       if (readonly || isPendingId(row.block.id) || items.length === 0) return;
       flushNow(row.block.id);
-      const replace = (drafts.current.get(row.block.id) ?? row.block.markdown).length === 0
+      const replace = isPlainEmptyBlock(
+          row.block,
+          drafts.current.get(row.block.id) ?? row.block.markdown,
+        )
         ? row.block.id
         : null;
       void session.execute({
@@ -1229,6 +1242,35 @@ export function Outliner({
         index: replace ? row.index : row.index + 1,
         replace,
         items,
+      }).then(
+        (result) => {
+          if (result.created_block) setFocus(result.created_block);
+        },
+        (error: unknown) => {
+          notify.failure(message("failure.pasteBlocks"), error);
+        },
+      );
+    },
+    [authoritativePage.id, flushNow, message, notify, readonly, session, setFocus],
+  );
+
+  const pasteFragment = useCallback(
+    (row: OutlineRow, fragment: OutlineFragment) => {
+      if (readonly || isPendingId(row.block.id) || fragment.items.length === 0) return;
+      flushNow(row.block.id);
+      const replace = isPlainEmptyBlock(
+          row.block,
+          drafts.current.get(row.block.id) ?? row.block.markdown,
+        )
+        ? row.block.id
+        : null;
+      void session.execute({
+        type: "paste_outline",
+        page_id: authoritativePage.id,
+        parent: row.parentId,
+        index: replace ? row.index : row.index + 1,
+        replace,
+        fragment,
       }).then(
         (result) => {
           if (result.created_block) setFocus(result.created_block);
@@ -1523,6 +1565,7 @@ export function Outliner({
       if (selectedRef.current.size > 0) clearSelection();
     },
     pasteOutline,
+    pasteFragment,
     enqueuePendingInsert: (row, tail, asChild, _inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
@@ -3154,6 +3197,12 @@ function BlockRow({
           onCompositionEnd={(event) => editor.onCompositionEnd(row, event.currentTarget)}
           onKeyDown={(event) => editor.onKeyDown(row, rows, event)}
           onPaste={(event) => {
+            const fragment = readOutlineFragment(event.clipboardData);
+            if (fragment && !editor.readonly && !pending) {
+              event.preventDefault();
+              editor.pasteFragment(row, fragment);
+              return;
+            }
             const items = parseMarkdownOutline(event.clipboardData.getData("text/plain"));
             if (!items || editor.readonly || pending) return;
             event.preventDefault();

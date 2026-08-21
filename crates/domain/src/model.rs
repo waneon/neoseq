@@ -72,6 +72,13 @@ pub enum Command {
         replace: Option<BlockId>,
         items: Vec<OutlineItem>,
     },
+    PasteOutline {
+        page_id: PageId,
+        parent: Option<BlockId>,
+        index: usize,
+        replace: Option<BlockId>,
+        fragment: OutlineFragment,
+    },
     EditMarkdown {
         page_id: PageId,
         block_id: BlockId,
@@ -275,6 +282,44 @@ pub enum SplitPlacement {
 pub struct OutlineItem {
     pub depth: usize,
     pub markdown: String,
+}
+
+pub const OUTLINE_FRAGMENT_KIND: &str = "neoseq.outline";
+pub const OUTLINE_FRAGMENT_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutlineFragment {
+    pub kind: String,
+    pub version: u32,
+    pub source_graph_id: GraphId,
+    pub items: Vec<OutlineFragmentItem>,
+    #[serde(default)]
+    pub tags: Vec<OutlineFragmentTag>,
+    #[serde(default)]
+    pub pages: Vec<OutlineFragmentPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutlineFragmentItem {
+    pub depth: usize,
+    pub markdown: String,
+    #[serde(default)]
+    pub properties: PropertyBag,
+    #[serde(default)]
+    pub tags: Vec<TagId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutlineFragmentTag {
+    pub id: TagId,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutlineFragmentPage {
+    pub id: PageId,
+    pub title: String,
+    pub journal_date: Option<LocalDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

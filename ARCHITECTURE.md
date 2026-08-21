@@ -91,6 +91,7 @@ Detailed contracts:
 - [Query and derived index](architectures/query.md)
 - [Client application](architectures/clients.md)
 - [Block Markdown rendering](architectures/markdown-rendering.md)
+- [Outline clipboard](architectures/clipboard.md)
 - [Undo/redo navigation](architectures/history-navigation.md)
 - [Property command picker](architectures/property-command-picker.md)
 - [Internationalization](architectures/i18n.md)
@@ -131,7 +132,7 @@ CorePort.
   document. Empty atomic fields are first-class; repeated values and document
   children have stable identities and independent merge granularity.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
-  current v2 registry shared by core and client. Property keys have exactly two
+  current v3 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined
   `user.<name>`. Unknown built-ins remain readable but core-managed; unknown user
   properties remain readable and editable.

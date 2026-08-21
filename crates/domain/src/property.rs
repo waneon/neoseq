@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 2;
+pub const REGISTRY_VERSION: u32 = 3;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -46,6 +46,14 @@ pub enum PropertyTarget {
 pub enum PropertyAccess {
     User,
     Core,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyCopyPolicy {
+    Portable,
+    Regenerate,
+    Omit,
 }
 
 /// A property's semantic order. Display labels and picker placement are client
@@ -370,6 +378,7 @@ pub struct PropertySpec {
     pub shape: PropertyShape,
     pub ordering: Option<PropertyOrdering>,
     pub placements: &'static [PropertyPlacement],
+    pub copy: PropertyCopyPolicy,
 }
 
 impl PropertySpec {
@@ -414,6 +423,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             })),
             ordering: None,
             placements: USER_PAGE_BLOCK,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -424,6 +434,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             ))),
             ordering: Some(PropertyOrdering::ChoiceOrder),
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -432,6 +443,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::Date),
             ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -440,6 +452,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -448,6 +461,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::Date),
             ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -456,6 +470,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -464,6 +479,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             ordering: None,
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -474,6 +490,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             ))),
             ordering: Some(PropertyOrdering::ChoiceOrder),
             placements: USER_PAGE_BLOCK_DEFAULT,
+            copy: PropertyCopyPolicy::Portable,
         },
     ),
     (
@@ -482,6 +499,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::OneOf(PAGE_KINDS))),
             ordering: None,
             placements: CORE_PAGE,
+            copy: PropertyCopyPolicy::Omit,
         },
     ),
     (
@@ -490,6 +508,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::Date),
             ordering: None,
             placements: CORE_PAGE,
+            copy: PropertyCopyPolicy::Omit,
         },
     ),
     (
@@ -498,6 +517,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             ordering: None,
             placements: CORE_PAGE_BLOCK_TAG,
+            copy: PropertyCopyPolicy::Regenerate,
         },
     ),
     (
@@ -506,6 +526,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             ordering: None,
             placements: CORE_PAGE_BLOCK_TAG,
+            copy: PropertyCopyPolicy::Regenerate,
         },
     ),
     (
@@ -514,6 +535,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
             ordering: None,
             placements: CORE_PAGE_TAG,
+            copy: PropertyCopyPolicy::Omit,
         },
     ),
 ];
@@ -523,6 +545,19 @@ pub fn definition(key: &PropertyKey) -> Option<&'static PropertySpec> {
         .iter()
         .find(|(name, _)| *name == key.as_str())
         .map(|(_, spec)| spec)
+}
+
+pub fn property_copy_policy(key: &PropertyKey) -> PropertyCopyPolicy {
+    definition(key).map_or_else(
+        || {
+            if key.as_str().starts_with("user.") {
+                PropertyCopyPolicy::Portable
+            } else {
+                PropertyCopyPolicy::Omit
+            }
+        },
+        |spec| spec.copy,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -718,8 +753,13 @@ pub fn registry_fixture() -> serde_json::Value {
                         "shape": spec.shape,
                         "ordering": ordering,
                         "placements": placements,
+                        "copy": spec.copy,
                     }),
-                    None => serde_json::json!({"shape": spec.shape, "placements": placements}),
+                    None => serde_json::json!({
+                        "shape": spec.shape,
+                        "placements": placements,
+                        "copy": spec.copy,
+                    }),
                 },
             )
         })

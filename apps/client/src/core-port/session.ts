@@ -426,6 +426,7 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "insert_block":
     case "split_block":
     case "insert_outline":
+    case "paste_outline":
     case "edit_markdown":
     case "splice_markdown":
     case "move_blocks":
