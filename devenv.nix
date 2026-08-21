@@ -67,6 +67,16 @@ in
   };
 
   tasks = {
+    "devenv:enterTest".after = [
+      "frontend:check"
+      "frontend:test"
+      "nix:hash-check"
+      "rust:clippy"
+      "rust:deny"
+      "rust:fmt"
+      "rust:test"
+    ];
+
     # tasks
     "coreport:generate" = {
       description = "Generate CorePort files when stale";
@@ -104,25 +114,21 @@ in
       description = "Check Rust formatting";
       exec = "cargo fmt --all -- --check";
       after = [ "coreport:check" ];
-      before = [ "devenv:enterTest" ];
     };
     "rust:clippy" = {
       description = "Lint the Rust workspace";
       exec = "cargo clippy --workspace --all-targets --all-features -- --deny warnings";
       after = [ "coreport:check" ];
-      before = [ "devenv:enterTest" ];
     };
     "rust:test" = {
       description = "Test the Rust workspace";
       exec = "cargo test --workspace --all-features";
       after = [ "coreport:check" ];
-      before = [ "devenv:enterTest" ];
     };
     "rust:deny" = {
       description = "Check Rust dependency policy";
       exec = "cargo deny --all-features check bans licenses sources";
       after = [ "coreport:check" ];
-      before = [ "devenv:enterTest" ];
     };
 
     "sync-server:test" = {
@@ -139,7 +145,6 @@ in
         "i18n:check"
         "wasm:build-dev"
       ];
-      before = [ "devenv:enterTest" ];
     };
     "frontend:test" = {
       description = "Run component tests";
@@ -148,7 +153,6 @@ in
         "coreport:check"
         "i18n:check"
       ];
-      before = [ "devenv:enterTest" ];
     };
 
     "nix:hash-check" = {
@@ -159,7 +163,6 @@ in
           outputs.web.pnpmDeps \
           outputs.sync-server.cargoDeps
       '';
-      before = [ "devenv:enterTest" ];
     };
   };
 
