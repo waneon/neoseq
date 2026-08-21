@@ -148,6 +148,58 @@ describe("outliner keyboard commands", () => {
     expect(textarea.selectionDirection).toBe("backward");
   });
 
+  it("overtype-repairs a Korean IME closer without mutating the live composition", async () => {
+    await mountOutline([""]);
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(textarea);
+    await user.keyboard("[[");
+
+    const setNativeValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    const compositionInput = (data: string, next: string, caret: number) => {
+      const beforeInput = new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: false,
+        data,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      });
+      expect(textarea.dispatchEvent(beforeInput)).toBe(true);
+      setNativeValue.call(textarea, next);
+      textarea.setSelectionRange(caret, caret);
+      textarea.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+    };
+
+    await act(async () => {
+      fireEvent.compositionStart(textarea);
+      compositionInput("안녕", "[안녕]", 3);
+      compositionInput("]", "[안녕]]", 4);
+      fireEvent.compositionEnd(textarea, { data: "]" });
+    });
+
+    expect(textarea).toHaveValue("[안녕]");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([4, 4]);
+
+    // The repair keeps provenance on the surviving generated closer, so a
+    // later IME overtype at the same boundary is safe as well.
+    textarea.setSelectionRange(3, 3);
+    await act(async () => {
+      fireEvent.compositionStart(textarea);
+      compositionInput("]", "[안녕]]", 4);
+      fireEvent.compositionEnd(textarea, { data: "]" });
+    });
+    expect(textarea).toHaveValue("[안녕]");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([4, 4]);
+  });
+
   it("Enter inserts a sibling and focuses it; Tab indents; Shift+Tab outdents", async () => {
     await mountOutline(["alpha"]);
     const user = userEvent.setup();

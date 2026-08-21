@@ -72,7 +72,14 @@ import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { compilePlan } from "../../entities/query-compile";
 import { defaultPlan, encodePlan, QUERY_PLAN_VERSION } from "../../entities/query-plan";
 import { codePointIndex, diffSplice } from "./text-diff";
-import { planAutoPair, type PairSelectionDirection } from "./auto-pair";
+import {
+  planAutoPair,
+  planAutoPairInputRepair,
+  transformAutoClosers,
+  type AutoCloserMarker,
+  type PairSelectionDirection,
+  type TextEditPlan,
+} from "./auto-pair";
 import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
@@ -239,7 +246,18 @@ interface EditorContext {
   acceptHash(row: OutlineRow, option?: TagOption): void;
   toggleCollapse(id: string): void;
   draftOf(row: OutlineRow): string;
-  onInput(row: OutlineRow, value: string, textarea: HTMLTextAreaElement): void;
+  autoClosersOf(blockId: string): readonly AutoCloserMarker[];
+  isComposing(): boolean;
+  onInput(
+    row: OutlineRow,
+    value: string,
+    textarea: HTMLTextAreaElement,
+    edit?: {
+      autoCloser?: AutoCloserMarker;
+      preferredStart?: number;
+      preferredEnd?: number;
+    },
+  ): void;
   onCompositionStart(row: OutlineRow): void;
   onCompositionEnd(row: OutlineRow, textarea: HTMLTextAreaElement): void;
   onKeyDown(row: OutlineRow, rows: OutlineRow[], event: KeyboardEvent<HTMLTextAreaElement>): void;
@@ -319,6 +337,9 @@ export function Outliner({
   const [drop, setDrop] = useState<(DropTarget & { top: number }) | null>(null);
   const drafts = useRef(new Map<string, string>());
   const baselines = useRef(new Map<string, string>());
+  // Provenance is deliberately editor-local: it distinguishes generated
+  // closers from identical user text without leaking UI state into the graph.
+  const autoClosers = useRef(new Map<string, AutoCloserMarker[]>());
   const composing = useRef(false);
   const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCaret = useRef<number | null>(null);
@@ -378,6 +399,11 @@ export function Outliner({
       if (!block || block.markdown === drafts.current.get(id)) {
         drafts.current.delete(id);
         baselines.current.delete(id);
+      }
+    }
+    for (const id of [...autoClosers.current.keys()]) {
+      if (!isPendingId(id) && !findBlock(pageRef.current, id)) {
+        autoClosers.current.delete(id);
       }
     }
   }, [state.revision, focusedId]);
@@ -481,6 +507,7 @@ export function Outliner({
           // failure that has no home on screen, so it is reported.
           drafts.current.delete(id);
           baselines.current.delete(id);
+          autoClosers.current.delete(id);
           force();
           notify.failure(message("failure.lastEdit"), error);
         });
@@ -534,6 +561,7 @@ export function Outliner({
           }
           drafts.current.delete(id);
           baselines.current.delete(id);
+          autoClosers.current.delete(id);
           force();
         })
         .catch((error: unknown) => {
@@ -545,6 +573,8 @@ export function Outliner({
 
   const focusedRef = useRef<string | null>(null);
   const setFocus = useCallback((id: string | null, caret?: number) => {
+    const previous = focusedRef.current;
+    if (previous !== null && previous !== id) autoClosers.current.delete(previous);
     pendingCaret.current = caret ?? null;
     focusedRef.current = id;
     setFocusedId(id);
@@ -584,6 +614,7 @@ export function Outliner({
         if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
         if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
       }
+      autoClosers.current.delete(id);
       focusedRef.current = null;
       setFocusedId(null);
     });
@@ -595,6 +626,7 @@ export function Outliner({
    * focus with it — otherwise ⌫ reaches a textarea while rows sit highlighted.
    */
   const takeTreeFocus = useCallback(() => {
+    if (focusedRef.current !== null) autoClosers.current.delete(focusedRef.current);
     focusedRef.current = null;
     setFocusedId(null);
     const active = document.activeElement;
@@ -717,6 +749,8 @@ export function Outliner({
             drafts.current.set(realId, typed);
             baselines.current.set(realId, head.baseline);
           }
+          const generatedClosers = autoClosers.current.get(head.tempId);
+          if (generatedClosers) autoClosers.current.set(realId, generatedClosers);
           // Commit removal of the temp row, the real-id focus state, and the
           // reconciled snapshot in one browser task. The layout focus effect
           // runs before flushSync returns, so no key can land between the two
@@ -725,6 +759,7 @@ export function Outliner({
             pendingRows.current.shift();
             drafts.current.delete(head.tempId);
             baselines.current.delete(head.tempId);
+            autoClosers.current.delete(head.tempId);
             if (wasFocused) setFocus(realId, caret);
             // A slash menu opened on the pending row must follow the block to
             // its real identity, or Enter stops meaning "take the highlighted
@@ -803,6 +838,7 @@ export function Outliner({
           pendingRows.current.shift();
           drafts.current.delete(head.tempId);
           baselines.current.delete(head.tempId);
+          autoClosers.current.delete(head.tempId);
           abandonPending(message("outline.engineMissingId"));
         }
         pendingDispatching.current = false;
@@ -831,6 +867,7 @@ export function Outliner({
         if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
         drafts.current.delete(entry.tempId);
         baselines.current.delete(entry.tempId);
+        autoClosers.current.delete(entry.tempId);
       }
       pendingRows.current = [];
       if (focusedRef.current && isPendingId(focusedRef.current)) setFocus(fallback);
@@ -1387,6 +1424,7 @@ export function Outliner({
         baselines.current.set(row.block.id, row.block.markdown);
       }
       drafts.current.set(row.block.id, next);
+      autoClosers.current.delete(row.block.id);
       pendingCaret.current = caret;
       setSlashRequest(null);
       force();
@@ -1447,6 +1485,7 @@ export function Outliner({
         baselines.current.set(row.block.id, row.block.markdown);
       }
       drafts.current.set(row.block.id, next);
+      autoClosers.current.delete(row.block.id);
       pendingCaret.current = head.length;
       setHashRequest(null);
       force();
@@ -1493,7 +1532,31 @@ export function Outliner({
       }
     },
     draftOf: (row) => drafts.current.get(row.block.id) ?? row.block.markdown,
-    onInput: (row, value, textarea) => {
+    autoClosersOf: (blockId) => autoClosers.current.get(blockId) ?? [],
+    isComposing: () => composing.current,
+    onInput: (row, value, textarea, edit) => {
+      const previous = drafts.current.get(row.block.id) ?? row.block.markdown;
+      let nextClosers = transformAutoClosers(
+        previous,
+        value,
+        autoClosers.current.get(row.block.id) ?? [],
+        edit?.preferredStart,
+        edit?.preferredEnd,
+      );
+      const generatedCloser = edit?.autoCloser;
+      if (generatedCloser) {
+        nextClosers = [
+          ...nextClosers.filter(
+            (marker) =>
+              marker.offset !== generatedCloser.offset ||
+              marker.closer !== generatedCloser.closer,
+          ),
+          generatedCloser,
+        ];
+      }
+      if (nextClosers.length > 0) autoClosers.current.set(row.block.id, nextClosers);
+      else autoClosers.current.delete(row.block.id);
+
       draftInputRevision.current += 1;
       if (!baselines.current.has(row.block.id)) {
         baselines.current.set(row.block.id, row.block.markdown);
@@ -2489,14 +2552,37 @@ function litFor(path: AncestorPath, index: number, depth: number): number {
   return Math.min(levels, depth);
 }
 
+interface BeforeInputSnapshot {
+  value: string;
+  start: number;
+  end: number;
+  inputType: string;
+  isComposing: boolean;
+  cancelable: boolean;
+}
+
+interface PendingInputRepair {
+  value: string;
+  plan: TextEditPlan;
+}
+
+function applyTextEdit(textarea: HTMLTextAreaElement, plan: TextEditPlan) {
+  textarea.setRangeText(plan.insert, plan.from, plan.to, "preserve");
+  textarea.setSelectionRange(
+    plan.selectionStart,
+    plan.selectionEnd,
+    plan.selectionDirection,
+  );
+}
+
 /** Applies only the paired-delimiter intents that replace native textarea input. */
 function onBeforeInput(
   editor: EditorContext,
   row: OutlineRow,
   textarea: HTMLTextAreaElement,
   event: InputEvent,
-) {
-  if (editor.readonly) return;
+): boolean {
+  if (editor.readonly) return false;
   const direction = textarea.selectionDirection;
   const plan = planAutoPair({
     value: textarea.value,
@@ -2507,19 +2593,22 @@ function onBeforeInput(
     data: event.data,
     isComposing: event.isComposing,
   });
-  if (!plan) return;
+  if (!plan || !event.cancelable) return false;
 
   event.preventDefault();
+  if (!event.defaultPrevented) return false;
   const previous = textarea.value;
-  textarea.setRangeText(plan.insert, plan.from, plan.to, "preserve");
-  textarea.setSelectionRange(
-    plan.selectionStart,
-    plan.selectionEnd,
-    plan.selectionDirection,
-  );
+  applyTextEdit(textarea, plan);
 
-  if (textarea.value !== previous) editor.onInput(row, textarea.value, textarea);
+  if (textarea.value !== previous) {
+    editor.onInput(row, textarea.value, textarea, {
+      autoCloser: plan.autoCloser,
+      preferredStart: plan.from,
+      preferredEnd: plan.to,
+    });
+  }
   else editor.publishSelection(row.block.id, textarea);
+  return true;
 }
 
 function onKeyDown(
@@ -2820,6 +2909,8 @@ function BlockRow({
   const peers = editor.presence.filter((peer) => peer.block_id === row.block.id);
   const projected = useRef(value);
   const revision = useRef(editor.revision);
+  const beforeInputSnapshot = useRef<BeforeInputSnapshot | null>(null);
+  const pendingInputRepair = useRef<PendingInputRepair | null>(null);
   const previewMarkdown = !isFocused && !pending && hasMarkdownSyntax(value);
   // A pending row has no id a property command can name yet, so it carries no
   // task marks either.
@@ -2844,9 +2935,79 @@ function BlockRow({
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-    const handle = (event: InputEvent) => onBeforeInput(editor, row, textarea, event);
-    textarea.addEventListener("beforeinput", handle);
-    return () => textarea.removeEventListener("beforeinput", handle);
+    const finishPendingRepair = () => {
+      const pendingRepair = pendingInputRepair.current;
+      if (!pendingRepair) return;
+      pendingInputRepair.current = null;
+      if (textarea.value !== pendingRepair.value) return;
+      applyTextEdit(textarea, pendingRepair.plan);
+      editor.onInput(row, textarea.value, textarea, {
+        autoCloser: pendingRepair.plan.autoCloser,
+        preferredStart: pendingRepair.plan.from,
+        preferredEnd: pendingRepair.plan.to,
+      });
+    };
+    const handleBeforeInput = (event: InputEvent) => {
+      beforeInputSnapshot.current = {
+        value: textarea.value,
+        start: textarea.selectionStart,
+        end: textarea.selectionEnd,
+        inputType: event.inputType,
+        isComposing: event.isComposing,
+        cancelable: event.cancelable,
+      };
+      if (onBeforeInput(editor, row, textarea, event)) {
+        beforeInputSnapshot.current = null;
+      }
+    };
+    const handleInput = (nativeEvent: Event) => {
+      const event = nativeEvent as InputEvent;
+      const snapshot = beforeInputSnapshot.current;
+      beforeInputSnapshot.current = null;
+      if (!snapshot || editor.readonly) return;
+      const cameThroughComposition =
+        snapshot.inputType === "insertCompositionText" ||
+        snapshot.isComposing ||
+        event.isComposing ||
+        (snapshot.inputType === "insertText" && !snapshot.cancelable);
+      if (!cameThroughComposition) return;
+
+      const plan = planAutoPairInputRepair(
+        snapshot.value,
+        textarea.value,
+        editor.autoClosersOf(row.block.id),
+        snapshot.start,
+        snapshot.end,
+      );
+      if (!plan) return;
+
+      if (!event.isComposing && !snapshot.isComposing) {
+        // A target listener runs before React's delegated onChange. Repairing
+        // here means React observes only the normalized value.
+        applyTextEdit(textarea, plan);
+        return;
+      }
+
+      // Mutating a live composition can make the platform IME lose its marked
+      // range. Hold the repair until compositionend; the microtask only covers
+      // engines that label this input as composing without opening a lifecycle.
+      const repair = { value: textarea.value, plan };
+      pendingInputRepair.current = repair;
+      queueMicrotask(() => {
+        if (pendingInputRepair.current === repair && !editor.isComposing()) {
+          finishPendingRepair();
+        }
+      });
+    };
+    const handleCompositionEnd = () => finishPendingRepair();
+    textarea.addEventListener("beforeinput", handleBeforeInput);
+    textarea.addEventListener("input", handleInput);
+    textarea.addEventListener("compositionend", handleCompositionEnd);
+    return () => {
+      textarea.removeEventListener("beforeinput", handleBeforeInput);
+      textarea.removeEventListener("input", handleInput);
+      textarea.removeEventListener("compositionend", handleCompositionEnd);
+    };
   }, [editor, row]);
 
   useLayoutEffect(() => {

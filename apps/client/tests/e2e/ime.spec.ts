@@ -91,4 +91,45 @@ test("paired delimiters use native text input while compositions pass through", 
     return event.defaultPrevented;
   });
   expect(compositionPrevented).toBe(false);
+
+  await page.keyboard.type("[");
+  await expect(textarea).toHaveValue("[]");
+  await textarea.evaluate((element) => {
+    const input = element as HTMLTextAreaElement;
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    const compose = (data: string, value: string, caret: number) => {
+      input.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: false,
+        data,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      setValue.call(input, value);
+      input.setSelectionRange(caret, caret);
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+    };
+
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    compose("안녕", "[안녕]", 3);
+    compose("]", "[안녕]]", 4);
+    input.dispatchEvent(new CompositionEvent("compositionend", {
+      bubbles: true,
+      data: "]",
+    }));
+  });
+
+  await expect(textarea).toHaveValue("[안녕]");
+  await expect.poll(() => textarea.evaluate((element) => {
+    const input = element as HTMLTextAreaElement;
+    return [input.selectionStart, input.selectionEnd];
+  })).toEqual([4, 4]);
 });

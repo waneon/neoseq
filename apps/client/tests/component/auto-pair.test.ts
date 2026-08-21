@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  planAutoPairInputRepair,
   planAutoPair,
+  transformAutoClosers,
+  type AutoCloserMarker,
   type AutoPairInput,
   type TextEditPlan,
 } from "../../src/features/outline/auto-pair";
@@ -36,6 +39,7 @@ describe("auto pair planner", () => {
       expect(plan).not.toBeNull();
       expect(apply("", plan!)).toBe(expected);
       expect([plan!.selectionStart, plan!.selectionEnd]).toEqual([1, 1]);
+      expect(plan!.autoCloser).toEqual({ opener, closer: expected[1], offset: 1 });
     }
   });
 
@@ -55,6 +59,7 @@ describe("auto pair planner", () => {
       selectionStart: 8,
       selectionEnd: 16,
       selectionDirection: "backward",
+      autoCloser: { opener: "[", closer: "]", offset: 16 },
     });
     expect(apply("before selected after", plan!)).toBe("before [selected] after");
   });
@@ -106,5 +111,48 @@ describe("auto pair planner", () => {
     expect(plan).not.toBeNull();
     expect(apply("😀", plan!)).toBe("😀()");
     expect(plan!.selectionStart).toBe(3);
+    expect(plan!.autoCloser?.offset).toBe(3);
+  });
+});
+
+describe("auto closer provenance", () => {
+  const squareCloser: AutoCloserMarker = { opener: "[", closer: "]", offset: 1 };
+
+  it("tracks a closer while Korean composition grows before it", () => {
+    expect(transformAutoClosers("[]", "[안녕]", [squareCloser])).toEqual([
+      { opener: "[", closer: "]", offset: 3 },
+    ]);
+  });
+
+  it("repairs an IME closer that is inserted before the tracked closer", () => {
+    const marker = { ...squareCloser, offset: 3 };
+    const repair = planAutoPairInputRepair("[안녕]", "[안녕]]", [marker], 3, 3);
+
+    expect(repair).toEqual({
+      from: 3,
+      to: 4,
+      insert: "",
+      selectionStart: 4,
+      selectionEnd: 4,
+      selectionDirection: "none",
+      autoCloser: { opener: "[", closer: "]", offset: 3 },
+    });
+    expect(apply("[안녕]]", repair!)).toBe("[안녕]");
+  });
+
+  it("repairs a closer delivered with the final Korean composition update", () => {
+    const marker = { ...squareCloser, offset: 3 };
+    const repair = planAutoPairInputRepair("[안녀]", "[안녕]]", [marker]);
+
+    expect(repair).not.toBeNull();
+    expect(apply("[안녕]]", repair!)).toBe("[안녕]");
+  });
+
+  it("does not remove repeated closers without auto-pair provenance", () => {
+    expect(planAutoPairInputRepair("[안녕]", "[안녕]]", [])).toBeNull();
+  });
+
+  it("drops provenance when the generated closer itself is replaced", () => {
+    expect(transformAutoClosers("[]", "[x", [squareCloser])).toEqual([]);
   });
 });
