@@ -1,6 +1,6 @@
 // Properties are visible inline and edited through one contextual picker.
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { stringValue } from "../../src/core-port/snapshot";
@@ -198,7 +198,20 @@ describe("property picker", () => {
     await user.click(textarea);
     await user.type(textarea, "/repeat");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
-    await user.keyboard("{Enter}");
+    // The slash action closes a portaled menu and opens a picker after its
+    // command resolves. Keep that whole transition in one awaited act scope;
+    // userEvent's per-event scope ends before those follow-up updates settle.
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          code: "Enter",
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     const picker = await screen.findByTestId("property-picker");
     fireEvent.change(within(picker).getByTestId("repeat-count"), { target: { value: "3" } });
@@ -211,7 +224,8 @@ describe("property picker", () => {
       button: 0,
       pointerType: "mouse",
     });
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Weeks" }));
+    const weeks = await screen.findByRole("menuitemradio", { name: "Weeks" });
+    fireEvent.click(weeks);
     // The interval reads back in words, which is what confirms the choice.
     expect(within(picker).getByText("Every 3 weeks")).toBeInTheDocument();
     await user.click(within(picker).getByTestId("repeat-set"));

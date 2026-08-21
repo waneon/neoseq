@@ -24,9 +24,39 @@ allow = [
 ignore = true
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
+
+# These exact older versions are pinned by otherwise-current transitive
+# dependencies. Keep the exceptions narrow: an unlisted duplicate fails CI,
+# and cargo-deny warns when an exception becomes stale after an upgrade.
+skip = [
+  { crate = "enum-as-inner@0.5.1", reason = "loro-delta 1.13.0 has not moved to enum-as-inner 0.6" },
+  { crate = "getrandom@0.2.17", reason = "Loro, SQLx 0.8, and rustls still use the rand 0.8 generation" },
+  { crate = "hash32@0.2.1", reason = "postcard 1.1 still uses heapless 0.7" },
+  { crate = "hashbrown@0.14.5", reason = "Oxigraph 0.5 reaches this through dashmap" },
+  { crate = "hashbrown@0.15.5", reason = "rusqlite 0.37 and SQLx 0.8 reach this through hashlink" },
+  { crate = "hashbrown@0.16.1", reason = "Loro 1.13 reaches this through quick_cache" },
+  { crate = "heapless@0.7.17", reason = "postcard 1.1 has not moved to the newer heapless API" },
+  { crate = "heapless@0.8.0", reason = "loro-delta 1.13.0 has not moved to heapless 0.9" },
+  { crate = "heck@0.4.1", reason = "enum-as-inner 0.5 still uses heck 0.4" },
+  { crate = "itertools@0.11.0", reason = "Loro 1.13 uses both generic-btree and serde-columnar" },
+  { crate = "rand@0.8.7", reason = "Loro and SQLx 0.8 have not moved to rand 0.9" },
+  { crate = "rand_chacha@0.3.1", reason = "rand 0.8 requires the 0.3 generation" },
+  { crate = "rand_core@0.6.4", reason = "rand 0.8 requires the 0.6 generation" },
+  { crate = "redox_syscall@0.5.18", reason = "parking_lot and SQLx use different Redox generations" },
+  { crate = "syn@1.0.109", reason = "enum-as-inner 0.5 still uses syn 1" },
+  { crate = "syn@2.0.119", reason = "current proc-macro dependencies straddle syn 2 and syn 3" },
+  { crate = "thiserror@1.0.69", reason = "Loro's serde-columnar stack still uses thiserror 1" },
+  { crate = "thiserror-impl@1.0.69", reason = "thiserror 1 requires its matching derive crate" },
+]
+
+# SQLx 0.8 and rustls deliberately support older Windows bindings. Skipping at
+# the root also covers the matching target-architecture packages.
+skip-tree = [
+  { crate = "windows-sys:<0.61", reason = "SQLx 0.8 and rustls pin Windows binding generations 0.48 and 0.52" },
+]
 
 [sources]
 unknown-registry = "deny"
