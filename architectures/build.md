@@ -8,14 +8,15 @@ resolution. The current build targets are the static Web client, its Rust/Wasm
 core, and the Rust synchronization server. Native shells, signing, and release
 provenance enter only in the stages that implement them.
 
-`devenv.nix` intentionally contains only developer-facing concerns:
+The devenv configuration is composed around three developer-facing concerns:
 
-- the stable Rust toolchain with formatting, Clippy, and the Wasm target;
-- Node 22, pnpm 10, `wasm-bindgen`, and dependency-policy tooling;
-- supervised Web and sync server development processes;
-- a persistent local PostgreSQL service and isolated database-test tooling;
-- reproducible production Web and sync server outputs plus the verification task graph;
-- optional profiles for Playwright verification and serving release artifacts.
+- a shared Rust, Node, pnpm, PostgreSQL, and artifact foundation;
+- one supervised runtime with development and release modes;
+- one verification graph, extended by the optional browser profile.
+
+The release mode serves the reproducible Web and sync-server outputs, while the
+browser profile adds Playwright and its isolated collaboration process. Database
+tests use the shared PostgreSQL service but own a temporary database per suite.
 
 `outputs.web` and `outputs.sync-server` own the deployable artifacts. They build
 from Git-tracked sources inside the Nix sandbox with dependencies fetched from
@@ -83,8 +84,8 @@ Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored migration, authorization, idempotency, fault, and
 restore integration test against its own database.
-Portable checks attach directly to the test lifecycle; process-backed suites
-attach to the managed process graph so their dependencies start only once.
+Portable checks run in the task-backed test phase. Process-backed suites run
+after the managed process graph is ready, so each dependency starts only once.
 
 The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab

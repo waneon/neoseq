@@ -1,16 +1,14 @@
-{
-  config,
-  pkgs,
-  ...
-}:
+{ config, pkgs, ... }:
 
 let
   mkSource = pkgs.callPackage ./nix/mk-source.nix { };
-  withTestDatabase = pkgs.callPackage ./nix/devenv/test-database.nix {
-    postgresql = config.services.postgres.package;
-  };
 in
 {
+  imports = [
+    ./nix/devenv/runtime.nix
+    ./nix/devenv/verification.nix
+  ];
+
   languages = {
     rust = {
       enable = true;
@@ -23,15 +21,9 @@ in
       pnpm = {
         enable = true;
         package = pkgs.pnpm_10;
-        install.enable = true;
       };
     };
   };
-
-  packages = [
-    pkgs.cargo-deny
-    pkgs.wasm-bindgen-cli
-  ];
 
   services.postgres = {
     enable = true;
@@ -39,131 +31,13 @@ in
     initialDatabases = [ { name = "neoseq"; } ];
   };
 
-  processes = {
-    web = {
-      exec = "pnpm --filter @neoseq/client exec vite";
-      after = [ "wasm:build-dev" ];
-      ready.http.get = {
-        port = 4173;
-        path = "/";
-      };
-      restart.on = "never";
-      start.enable = !config.devenv.isTesting;
-    };
-    sync-server = {
-      env = {
-        DATABASE_URL = "postgresql:///neoseq?host=${config.env.PGHOST}";
-        NEOSEQ_TEST_AUTH_SECRET = "neoseq-local-development-only";
-      };
-      exec = "exec cargo run --locked -p sync-server -- serve";
-      after = [ "devenv:processes:postgres" ];
-      ready.http.get = {
-        port = 8787;
-        path = "/readyz";
-      };
-      restart.on = "never";
-      start.enable = !config.devenv.isTesting;
-    };
-  };
-
-  tasks = {
-    "devenv:enterTest".after = [
-      "frontend:check"
-      "frontend:test"
-      "nix:hash-check"
-      "rust:clippy"
-      "rust:deny"
-      "rust:fmt"
-      "rust:test"
+  scripts.with-test-database = {
+    description = "Run a command in an isolated temporary PostgreSQL database";
+    exec = ./scripts/with-test-database.sh;
+    packages = [
+      config.services.postgres.package
+      pkgs.coreutils
     ];
-
-    # tasks
-    "coreport:generate" = {
-      description = "Generate CorePort files when stale";
-      exec = "node scripts/generate-contracts.mjs";
-    };
-    "coreport:check" = {
-      description = "Check generated CorePort files";
-      exec = "node scripts/generate-contracts.mjs --check";
-    };
-    "i18n:generate" = {
-      description = "Generate locale message types when stale";
-      exec = "node scripts/generate-i18n.mjs";
-    };
-    "i18n:check" = {
-      description = "Check generated locale message types";
-      exec = "node scripts/generate-i18n.mjs --check";
-    };
-
-    "wasm:build-dev" = {
-      description = "Build development Wasm bindings";
-      exec = ''
-        set -euo pipefail
-        cargo build --release --target wasm32-unknown-unknown -p platform-web
-        wasm-bindgen \
-          --target web \
-          --out-dir apps/client/src/wasm \
-          --out-name neoseq_core \
-          target/wasm32-unknown-unknown/release/platform_web.wasm
-      '';
-      after = [ "coreport:check" ];
-    };
-
-    # tests
-    "rust:fmt" = {
-      description = "Check Rust formatting";
-      exec = "cargo fmt --all -- --check";
-      after = [ "coreport:check" ];
-    };
-    "rust:clippy" = {
-      description = "Lint the Rust workspace";
-      exec = "cargo clippy --workspace --all-targets --all-features -- --deny warnings";
-      after = [ "coreport:check" ];
-    };
-    "rust:test" = {
-      description = "Test the Rust workspace";
-      exec = "cargo test --workspace --all-features";
-      after = [ "coreport:check" ];
-    };
-    "rust:deny" = {
-      description = "Check Rust dependency policy";
-      exec = "cargo deny --all-features check bans licenses sources";
-      after = [ "coreport:check" ];
-    };
-
-    "sync-server:test" = {
-      description = "Run PostgreSQL migration, persistence, and restore tests";
-      exec = "${withTestDatabase}/bin/with-test-database cargo test -p sync-server --test postgres -- --ignored --nocapture";
-      after = [ "devenv:processes:postgres@ready" ];
-    };
-
-    "frontend:check" = {
-      description = "Check TypeScript";
-      exec = "pnpm --filter @neoseq/client exec tsc -b --pretty false";
-      after = [
-        "coreport:check"
-        "i18n:check"
-        "wasm:build-dev"
-      ];
-    };
-    "frontend:test" = {
-      description = "Run component tests";
-      exec = "pnpm --filter @neoseq/client exec vitest run";
-      after = [
-        "coreport:check"
-        "i18n:check"
-      ];
-    };
-
-    "nix:hash-check" = {
-      description = "Check fixed-output dependency hashes";
-      exec = ''
-        devenv build \
-          outputs.web.cargoDeps \
-          outputs.web.pnpmDeps \
-          outputs.sync-server.cargoDeps
-      '';
-    };
   };
 
   outputs = {
@@ -179,6 +53,8 @@ in
     };
   };
 
-  profiles."browser-test".module = import ./nix/devenv/browser-test.nix { inherit withTestDatabase; };
-  profiles."release-serve".module = import ./nix/devenv/release-serve.nix;
+  profiles = {
+    "browser-test".module = ./nix/devenv/browser-test.nix;
+    "release-serve".module.neoseq.runtime = "release";
+  };
 }
