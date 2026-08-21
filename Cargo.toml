@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/benchmarks",
   "crates/domain",
+  "crates/graph-archive",
   "crates/graph-core",
   "crates/platform-native",
   "crates/platform-web",
@@ -29,6 +30,7 @@ sha2 = "0.10"
 spargebra = "=0.4.6"
 thiserror = "2.0"
 wasm-bindgen = "=0.2.121"
+zip = { version = "=8.6.0", default-features = false }
 
 [profile.wasm-release]
 inherits = "release"

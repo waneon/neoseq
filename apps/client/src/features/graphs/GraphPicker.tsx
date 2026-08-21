@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
-import { CloudIcon, MoreHorizontalIcon } from "lucide-react";
+import { CloudIcon, DownloadIcon, MoreHorizontalIcon, UploadIcon } from "lucide-react";
 import {
   deleteGraph,
+  exportGraphArchive,
+  importGraphArchive,
   listGraphs,
   processPendingDelete,
   registerGraph,
@@ -19,6 +21,7 @@ import { Input } from "@/ui/shadcn/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -44,12 +47,16 @@ const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
  */
 export function GraphPicker() {
   const { message, formatInstant } = useI18n();
+  const notify = useNotify();
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<GraphSummary | null>(null);
   const [deleting, setDeleting] = useState<GraphSummary | null>(null);
   const [remoteCreate, setRemoteCreate] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const archiveInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +76,7 @@ export function GraphPicker() {
 
   const create = (event: FormEvent) => {
     event.preventDefault();
+    if (importing) return;
     const name = newName.trim() || message("graph.defaultName");
     const graph = registerGraph(name);
     navigate(`/g/${graph.id}`);
@@ -124,7 +132,7 @@ export function GraphPicker() {
                     </span>
                   </span>
                 </button>
-                {/* Both verbs live behind one named menu, so a destructive
+                {/* Maintenance verbs live behind one named menu, so a destructive
                     action is never a pixel away from the open target. The class
                     reveals it on hover and on :focus-within. */}
                 <div className="graph-actions">
@@ -138,16 +146,38 @@ export function GraphPicker() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => setRenaming(graph)}>
-                        {message("graph.rename")}
-                      </DropdownMenuItem>
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem onSelect={() => setRenaming(graph)}>
+                          {message("graph.rename")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={exporting !== null}
+                          onSelect={() => {
+                            setExporting(graph.id);
+                            void exportGraphArchive(graph.id, graph.name)
+                              .then((bytes) => downloadArchive(bytes, graph.name))
+                              .catch((cause: unknown) => {
+                                notify.failure(message("failure.exportGraph", { name: graph.name }), cause);
+                              })
+                              .finally(() => setExporting(null));
+                          }}
+                          data-testid={`export-graph-${graph.name}`}
+                        >
+                          <DownloadIcon aria-hidden />
+                          {exporting === graph.id
+                            ? message("graph.exporting")
+                            : message("graph.export")}
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => setDeleting(graph)}
-                      >
-                        {message("graph.delete")}
-                      </DropdownMenuItem>
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setDeleting(graph)}
+                        >
+                          {message("graph.delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -168,7 +198,12 @@ export function GraphPicker() {
               onChange={(event) => setNewName(event.target.value)}
               data-testid="new-graph-name"
             />
-            <button className="btn btn-primary" type="submit" data-testid="create-graph">
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={importing}
+              data-testid="create-graph"
+            >
               {message("graph.createLocal")}
             </button>
           </div>
@@ -176,6 +211,42 @@ export function GraphPicker() {
             <button
               className="btn btn-ghost"
               type="button"
+              disabled={importing}
+              onClick={() => archiveInput.current?.click()}
+              data-testid="import-graph"
+            >
+              <UploadIcon data-icon="inline-start" aria-hidden />
+              {importing ? message("graph.importing") : message("graph.import")}
+            </button>
+            <input
+              ref={archiveInput}
+              className="sr-only"
+              type="file"
+              accept=".neoseq,application/vnd.neoseq.graph+zip"
+              tabIndex={-1}
+              aria-hidden
+              data-testid="import-graph-file"
+              onChange={(event) => {
+                const input = event.currentTarget;
+                const file = input.files?.[0];
+                if (!file) return;
+                setImporting(true);
+                void file.arrayBuffer()
+                  .then((bytes) => importGraphArchive(bytes, message("graph.importedName")))
+                  .then((graph) => navigate(`/g/${graph.id}`))
+                  .catch((cause: unknown) => {
+                    notify.failure(message("failure.importGraph"), cause);
+                  })
+                  .finally(() => {
+                    input.value = "";
+                    setImporting(false);
+                  });
+              }}
+            />
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={importing}
               onClick={() => setRemoteCreate(true)}
               data-testid="create-remote-graph"
             >
@@ -215,6 +286,21 @@ export function GraphPicker() {
       )}
     </main>
   );
+}
+
+function downloadArchive(bytes: ArrayBuffer, graphName: string): void {
+  const blob = new Blob([bytes], { type: "application/vnd.neoseq.graph+zip" });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `${safeFilename(graphName)}.neoseq`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
+function safeFilename(value: string): string {
+  const cleaned = value.trim().replace(/[\\/:*?"<>|]+/gu, "-").replace(/\s+/gu, " ");
+  return cleaned || "graph";
 }
 
 function RemoteCreateDialog({

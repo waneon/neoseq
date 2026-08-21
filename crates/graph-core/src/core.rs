@@ -119,6 +119,8 @@ pub enum CoreError {
     Encode(#[from] LoroEncodeError),
     #[error("snapshot graph id is missing or does not match")]
     SnapshotGraphMismatch,
+    #[error("clone target graph id must differ from its source")]
+    CloneTargetMatchesSource,
     #[error("unsupported schema version {0}")]
     UnsupportedSchema(i64),
     #[error("local history metadata is not aligned with the undo manager")]
@@ -814,6 +816,37 @@ impl GraphCore {
         Ok(self.doc.export(ExportMode::shallow_snapshot(&frontiers))?)
     }
 
+    /// Creates an independent graph baseline with a new graph and replica
+    /// identity while retaining every current CRDT container, including soft
+    /// deleted entities and forward-compatible property data.
+    ///
+    /// Stable entity IDs remain stable across a copy. The new graph ID keeps
+    /// the replica outside the source graph's sync unit, and the shallow export
+    /// intentionally starts the copy at a fresh history-retention boundary.
+    pub fn export_clone_snapshot(
+        &self,
+        target_graph_id: GraphId,
+        target_peer_id: u64,
+    ) -> Result<Vec<u8>, CoreError> {
+        let source_graph_id = self.graph_id.clone();
+        if target_graph_id == source_graph_id {
+            return Err(CoreError::CloneTargetMatchesSource);
+        }
+        let baseline = self.export_gc_checkpoint()?;
+        let doc = LoroDoc::from_snapshot(&baseline)?;
+        doc.set_peer_id(target_peer_id)?;
+        rewrite_graph_scoped_query_iris(&doc, &source_graph_id, &target_graph_id)?;
+        doc.get_map("meta")
+            .insert("graph_id", target_graph_id.as_str())?;
+        doc.set_next_commit_origin("system:clone");
+        doc.set_next_commit_message("clone graph into a new identity");
+        doc.commit();
+        verify_schema(&doc, &target_graph_id)?;
+        validate_unique_entity_names(&doc)?;
+        let frontiers = doc.oplog_frontiers();
+        Ok(doc.export(ExportMode::shallow_snapshot(&frontiers))?)
+    }
+
     pub fn export_all(&self) -> Result<Vec<u8>, CoreError> {
         Ok(self.doc.export(ExportMode::all_updates())?)
     }
@@ -1396,7 +1429,7 @@ impl GraphCore {
                 result.changed = result.created_page.is_some();
             }
             Command::EnsureJournal { date } => {
-                let page_id = PageId::journal(&self.graph_id, date);
+                let page_id = self.journal_page_id(date);
                 result.created_page =
                     self.ensure_page(&page_id, "journal", None, Some(date.clone()), now)?;
                 result.changed = result.created_page.is_some();
@@ -1939,6 +1972,46 @@ impl GraphCore {
         }
     }
 
+    /// Normal graph creation uses the deterministic graph/date ID. A portable
+    /// copy keeps stable entity IDs, so it may contain a journal created under
+    /// the source graph ID. Resolve the semantic journal date first to avoid
+    /// creating a duplicate day after import.
+    fn journal_page_id(&self, date: &domain::LocalDate) -> PageId {
+        let pages = self.doc.get_map("pages");
+        let mut matches = Vec::new();
+        pages.for_each(|raw_id, value| {
+            let Ok(page_id) = PageId::new(raw_id) else {
+                return;
+            };
+            let Some(page) = value_into_map(value) else {
+                return;
+            };
+            let Some(root) = page.get("root").and_then(value_into_map) else {
+                return;
+            };
+            let Some(properties) = root.get("properties").and_then(value_into_map) else {
+                return;
+            };
+            let (fields, _) = decode_bag(&properties);
+            let is_journal = fields.iter().any(|field| {
+                field.key.as_str() == "builtin.page-kind"
+                    && field.values == [PropertyValue::String("journal".to_owned())]
+            });
+            let is_date = fields.iter().any(|field| {
+                field.key.as_str() == "builtin.journal-date"
+                    && field.values == [PropertyValue::Date(date.clone())]
+            });
+            if is_journal && is_date {
+                matches.push(page_id);
+            }
+        });
+        matches.sort();
+        matches
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| PageId::journal(&self.graph_id, date))
+    }
+
     fn ensure_tag(
         &self,
         tag_id: &TagId,
@@ -2084,7 +2157,7 @@ impl GraphCore {
                 true,
             ),
             Command::EnsureJournal { date } => {
-                let page_id = PageId::journal(&self.graph_id, date);
+                let page_id = self.journal_page_id(date);
                 plan(
                     HistoryScope::Page,
                     vec![page_id.clone()],
@@ -2690,6 +2763,77 @@ impl GraphCore {
         }
         Ok(())
     }
+}
+
+fn rewrite_graph_scoped_query_iris(
+    doc: &LoroDoc,
+    source_graph_id: &GraphId,
+    target_graph_id: &GraphId,
+) -> Result<(), CoreError> {
+    let mut property_bags = Vec::new();
+    doc.get_map("pages").for_each(|_, value| {
+        let Some(page) = value_into_map(value) else {
+            return;
+        };
+        if let Some(root) = page.get("root").and_then(value_into_map)
+            && let Some(properties) = root.get("properties").and_then(value_into_map)
+        {
+            property_bags.push(properties);
+        }
+        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
+            for node in outline.nodes() {
+                if let Ok(meta) = outline.get_meta(node)
+                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                {
+                    property_bags.push(properties);
+                }
+            }
+        }
+    });
+    doc.get_map("tags").for_each(|_, value| {
+        let Some(tag) = value_into_map(value) else {
+            return;
+        };
+        for name in ["properties", "defaults"] {
+            if let Some(properties) = tag.get(name).and_then(value_into_map) {
+                property_bags.push(properties);
+            }
+        }
+    });
+
+    let replacements = ["page", "block", "tag"]
+        .into_iter()
+        .map(|kind| {
+            let source = query::entity_iri(source_graph_id, kind, "")
+                .map_err(|error| CoreError::InvalidHierarchy(error.to_string()))?;
+            let target = query::entity_iri(target_graph_id, kind, "")
+                .map_err(|error| CoreError::InvalidHierarchy(error.to_string()))?;
+            Ok((source.as_str().to_owned(), target.as_str().to_owned()))
+        })
+        .collect::<Result<Vec<_>, CoreError>>()?;
+
+    let query_key = key(QUERY_PROPERTY_KEY);
+    for bag in property_bags {
+        let Some(document) = bag.get(&document_slot(&query_key)).and_then(value_into_map) else {
+            continue;
+        };
+        if map_string(&document, "schema").as_deref() != Some(QUERY_DOCUMENT_SCHEMA)
+            || map_i64(&document, "version") != Some(i64::from(QUERY_DOCUMENT_VERSION))
+        {
+            continue;
+        }
+        let Some(source) = document.get("source").and_then(value_into_text) else {
+            continue;
+        };
+        let current = source.to_string();
+        let rewritten = replacements
+            .iter()
+            .fold(current.clone(), |value, (from, to)| value.replace(from, to));
+        if rewritten != current {
+            replace_text(&source, &rewritten)?;
+        }
+    }
+    Ok(())
 }
 
 fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
@@ -3588,6 +3732,13 @@ fn value_into_map(value: ValueOrContainer) -> Option<LoroMap> {
 fn value_into_tree(value: ValueOrContainer) -> Option<LoroTree> {
     match value {
         ValueOrContainer::Container(Container::Tree(tree)) => Some(tree),
+        _ => None,
+    }
+}
+
+fn value_into_text(value: ValueOrContainer) -> Option<LoroText> {
+    match value {
+        ValueOrContainer::Container(Container::Text(text)) => Some(text),
         _ => None,
     }
 }
@@ -5789,6 +5940,90 @@ mod tests {
                 .iter()
                 .any(|item| item.title == "Gamma")
         );
+    }
+
+    #[test]
+    fn clone_snapshot_gets_a_new_graph_identity_without_losing_graph_state() {
+        let mut source = GraphCore::new(graph(), 1, "t0").unwrap();
+        assert!(matches!(
+            source.export_clone_snapshot(graph(), 99),
+            Err(CoreError::CloneTargetMatchesSource)
+        ));
+        ensure_regular_page(&mut source, "page", &page());
+        let block = insert_root(&mut source, "block", &page(), 0, "query");
+        let old_iri = query::entity_iri(&graph(), "page", page().as_str())
+            .unwrap()
+            .as_str()
+            .to_owned();
+        source
+            .execute(
+                envelope(
+                    "query",
+                    Command::SetQuerySource {
+                        owner: PropertyOwner::Block {
+                            page_id: page(),
+                            id: block,
+                        },
+                        source: format!("SELECT ?page WHERE {{ BIND(<{old_iri}> AS ?page) }}"),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        let date = LocalDate::new("2026-08-21").unwrap();
+        source
+            .execute(
+                envelope("journal", Command::EnsureJournal { date: date.clone() }),
+                "t2",
+            )
+            .unwrap();
+        let source_journal_id = PageId::journal(&graph(), &date);
+        source
+            .execute(
+                envelope("delete", Command::DeletePage { page_id: page() }),
+                "t3",
+            )
+            .unwrap();
+
+        let target_id = GraphId::new("cloned-graph").unwrap();
+        let bytes = source.export_clone_snapshot(target_id.clone(), 99).unwrap();
+        let mut cloned = GraphCore::from_snapshot(target_id.clone(), 99, &bytes).unwrap();
+        assert_eq!(cloned.graph_id(), &target_id);
+        assert!(
+            cloned.require_page(&page()).is_ok(),
+            "soft-deleted page is retained"
+        );
+        assert!(cloned.require_page(&source_journal_id).is_ok());
+
+        let result = cloned
+            .execute(
+                CommandEnvelope {
+                    graph_id: target_id.clone(),
+                    command_id: CommandId::new("same-journal").unwrap(),
+                    command: Command::EnsureJournal { date },
+                },
+                "t4",
+            )
+            .unwrap();
+        assert!(!result.result.changed, "the copied journal day is reused");
+
+        let page_map = cloned.require_page(&page()).unwrap();
+        let outline = page_map.get("outline").and_then(value_into_tree).unwrap();
+        let copied_block = outline.nodes().into_iter().next().unwrap();
+        let bag = outline
+            .get_meta(copied_block)
+            .unwrap()
+            .get("properties")
+            .and_then(value_into_map)
+            .unwrap();
+        let document = require_query_document(&bag).unwrap();
+        let source = decode_query_document(&document).unwrap().source;
+        let new_iri = query::entity_iri(&target_id, "page", page().as_str())
+            .unwrap()
+            .as_str()
+            .to_owned();
+        assert!(source.contains(&new_iri));
+        assert!(!source.contains(&old_iri));
     }
 
     #[test]

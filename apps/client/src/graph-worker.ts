@@ -1,7 +1,9 @@
 import init, {
   WasmGraphCore,
+  decodeGraphArchive,
   decodeSyncMessageJson,
   emptyVersionVector,
+  encodeGraphArchive,
   encodeSyncMessageJson,
 } from "./wasm/neoseq_core.js";
 import { CORE_PORT_VERSION } from "./generated/core-port";
@@ -83,6 +85,13 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
         case "list_graphs": value = await createRepository().allMetadata(); break;
         case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
+        case "export_archive": await ensureWasm(); value = exportArchive(payload as {
+          graph_handle: string;
+          suggested_name: string;
+        }); break;
+        case "import_archive": await ensureWasm(); value = await importArchive(payload as {
+          bytes: ArrayBuffer | Uint8Array;
+        }); break;
         case "storage_capabilities": value = await storageCapabilities(payload as { graph_handle: string }); break;
         case "sync_configure": value = await configureSync(payload as { graph_handle: string }); break;
         case "sync_state": value = await syncState(payload as { graph_handle: string }); break;
@@ -364,6 +373,82 @@ async function deleteGraph(payload: { graph_id: string }) {
   return { deleted: true };
 }
 
+function exportArchive(payload: { graph_handle: string; suggested_name: string }): ArrayBuffer {
+  const state = requireState(payload.graph_handle);
+  if (state.pending) {
+    throw failure("dirty_unsaved", "save the pending update before exporting", true);
+  }
+  try {
+    return ownedBuffer(encodeGraphArchive(
+      state.core.exportSnapshot(),
+      state.graphId,
+      `archive-${crypto.randomUUID()}`,
+      now(),
+      payload.suggested_name,
+    ));
+  } catch (error) {
+    throw archiveFailure(error);
+  }
+}
+
+async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
+  try {
+    const decoded = decodeGraphArchive(asUint8Array(payload.bytes));
+    try {
+      const manifest = JSON.parse(decoded.manifestJson()) as {
+        source: { graph_id: string; document_schema: number };
+        suggested_name?: string;
+      };
+      if (manifest.source.document_schema !== 1) {
+        throw failure(
+          "unsupported_schema",
+          `unsupported schema version ${manifest.source.document_schema}`,
+          false,
+        );
+      }
+      const graphId = `g-${crypto.randomUUID()}`;
+      const replicaId = randomReplicaId();
+      const source = WasmGraphCore.fromSnapshot(
+        manifest.source.graph_id,
+        BigInt(replicaId),
+        decoded.snapshot(),
+      );
+      let checkpoint: ArrayBuffer;
+      try {
+        checkpoint = ownedBuffer(source.exportCloneSnapshot(graphId, BigInt(replicaId)));
+      } finally {
+        source.free();
+      }
+      // Validate the exact target bytes before making them durable. Opening the
+      // imported graph should never be the first time its clone is interpreted.
+      const validated = WasmGraphCore.fromSnapshot(
+        graphId,
+        BigInt(replicaId),
+        new Uint8Array(checkpoint),
+      );
+      validated.free();
+      const createdAt = now();
+      await createRepository().installImportedGraph(
+        { graph_id: graphId },
+        replicaId,
+        manifest.source.document_schema,
+        checkpoint,
+        createdAt,
+      );
+      return {
+        graph_id: graphId,
+        suggested_name: manifest.suggested_name,
+        created_at: createdAt,
+      };
+    } finally {
+      decoded.free();
+    }
+  } catch (error) {
+    if (error instanceof StorageError || isCorePortError(error)) throw error;
+    throw archiveFailure(error);
+  }
+}
+
 async function storageCapabilities(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   return state.repository.capabilities(state.graphId);
@@ -541,6 +626,24 @@ function isCorePortError(error: unknown): error is CorePortError {
   return typeof error === "object" && error !== null && "code" in error && "message" in error && "retryable" in error;
 }
 
+function archiveFailure(error: unknown): CorePortError {
+  const message = error instanceof Error ? error.message : String(error);
+  const diagnostic = message.toLowerCase();
+  if (diagnostic.includes("size limit") || diagnostic.includes("too large")) {
+    return failure("archive_too_large", message, false);
+  }
+  if (diagnostic.includes("checksum")) {
+    return failure("archive_checksum_mismatch", message, false);
+  }
+  if (diagnostic.includes("unsupported archive")) {
+    return failure("unsupported_archive", message, false);
+  }
+  if (diagnostic.includes("unsupported schema")) {
+    return failure("unsupported_schema", message, false);
+  }
+  return failure("invalid_archive", message, false);
+}
+
 function ownedBuffer(value: Uint8Array): ArrayBuffer {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
 }
@@ -554,4 +657,9 @@ function now(): string {
     return `2026-08-03T13:00:${String(testTick++ % 60).padStart(2, "0")}Z`;
   }
   return new Date().toISOString();
+}
+
+function randomReplicaId(): number {
+  const words = crypto.getRandomValues(new Uint32Array(2));
+  return (words[0] & 0x1f_ffff) * 0x1_0000_0000 + words[1];
 }

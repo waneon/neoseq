@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neoseq.dev/contracts/graph-archive-v1.json",
+  "title": "Neoseq Graph Archive Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "archive_version",
+    "archive_id",
+    "source",
+    "payload_encoding",
+    "exported_at",
+    "payload"
+  ],
+  "properties": {
+    "format": { "const": "neoseq.graph-archive" },
+    "archive_version": { "const": 1 },
+    "archive_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graph_id", "document_schema"],
+      "properties": {
+        "graph_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+        },
+        "document_schema": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "payload_encoding": { "const": "loro-snapshot/v1" },
+    "exported_at": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
+    "suggested_name": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": { "const": "graph.loro" },
+        "size": { "type": "integer", "minimum": 0, "maximum": 268435456 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

@@ -34,8 +34,13 @@ export interface CloseGraphResponse { closed: boolean; }
 export type CorePortErrorCode =
   | "unsupported_contract"
   | "invalid_request"
+  | "invalid_archive"
+  | "unsupported_archive"
+  | "archive_too_large"
+  | "archive_checksum_mismatch"
   | "graph_not_open"
   | "graph_already_open"
+  | "graph_already_exists"
   | "wrong_graph"
   | "command_timeout"
   | "invalid_query"

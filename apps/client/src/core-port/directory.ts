@@ -3,6 +3,7 @@
 // names) plus the list of locally stored graphs reported by the Worker.
 
 import { CoreWorker } from "../core-worker";
+import { CORE_PORT_VERSION } from "../generated/core-port";
 
 export interface GraphSummary {
   id: string;
@@ -159,12 +160,63 @@ export async function deleteGraph(id: string): Promise<void> {
   writeEntries(entries);
 }
 
-async function withGraphLease(id: string, action: () => Promise<void>): Promise<void> {
-  if (typeof navigator === "undefined" || !navigator.locks) {
-    await action();
-    return;
+/** Exports the latest durable local replica without attaching remote transport
+ * or compacting its history as a local-only graph. */
+export async function exportGraphArchive(id: string, name: string): Promise<ArrayBuffer> {
+  return withGraphLease(id, async () => {
+    const worker = new CoreWorker();
+    try {
+      const opened = await worker.openGraph({
+        contract_version: CORE_PORT_VERSION,
+        locator: { graph_id: id },
+        peer_id: randomPeerId(),
+      });
+      return await worker.exportArchive(opened.graph_handle, name);
+    } finally {
+      // Export is read-only. Terminating avoids running close-time local
+      // compaction on a replica whose remote/local kind lives in the directory.
+      worker.terminate();
+    }
+  });
+}
+
+/** Validates an archive and installs its content under a fresh local graph ID. */
+export async function importGraphArchive(
+  bytes: ArrayBuffer,
+  fallbackName: string,
+): Promise<GraphSummary> {
+  const worker = new CoreWorker();
+  try {
+    const imported = await worker.importArchive(bytes);
+    const entries = readEntries();
+    const name = imported.suggested_name?.trim() || fallbackName.trim();
+    entries[imported.graph_id] = {
+      name,
+      created_at: imported.created_at,
+      kind: "local",
+    };
+    writeEntries(entries);
+    return {
+      id: imported.graph_id,
+      name,
+      created_at: imported.created_at,
+      kind: "local",
+    };
+  } finally {
+    worker.terminate();
   }
-  await navigator.locks.request(`neoseq:graph:${id}`, action);
+}
+
+async function withGraphLease<T>(id: string, action: () => Promise<T>): Promise<T> {
+  if (typeof navigator === "undefined" || !navigator.locks) {
+    return action();
+  }
+  return navigator.locks.request(`neoseq:graph:${id}`, action);
+}
+
+function randomPeerId(): number {
+  const words = crypto.getRandomValues(new Uint32Array(2));
+  return (words[0] & 0x1f_ffff) * 0x1_0000_0000 + words[1];
 }
 
 const PENDING_DELETE_KEY = "neoseq.pending-delete.v1";

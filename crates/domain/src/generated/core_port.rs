@@ -122,8 +122,13 @@ pub struct CloseGraphResponse {
 pub enum CorePortErrorCode {
     UnsupportedContract,
     InvalidRequest,
+    InvalidArchive,
+    UnsupportedArchive,
+    ArchiveTooLarge,
+    ArchiveChecksumMismatch,
     GraphNotOpen,
     GraphAlreadyOpen,
+    GraphAlreadyExists,
     WrongGraph,
     CommandTimeout,
     InvalidQuery,

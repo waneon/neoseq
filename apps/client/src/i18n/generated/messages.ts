@@ -77,11 +77,15 @@ export interface MessageArgumentMap {
   "common.unavailable": undefined;
   "common.unknown": undefined;
   "common.yes": undefined;
+  "error.archiveChecksumMismatch": undefined;
+  "error.archiveTooLarge": undefined;
   "error.commandTimeout": undefined;
   "error.firstSiblingIndent": undefined;
+  "error.graphAlreadyExists": undefined;
   "error.graphAlreadyOpen": undefined;
   "error.graphNotOpen": undefined;
   "error.internal": undefined;
+  "error.invalidArchive": undefined;
   "error.invalidQuery": undefined;
   "error.invalidRequest": undefined;
   "error.pageNameConflict": undefined;
@@ -93,6 +97,7 @@ export interface MessageArgumentMap {
   "error.storageFull": undefined;
   "error.tagNameConflict": undefined;
   "error.unsaved": undefined;
+  "error.unsupportedArchive": undefined;
   "error.unsupportedContract": undefined;
   "error.unsupportedSchema": undefined;
   "error.wrongGraph": undefined;
@@ -109,6 +114,8 @@ export interface MessageArgumentMap {
   "failure.deleteGraph": { readonly "name": string | number };
   "failure.deletePage": { readonly "name": string | number };
   "failure.deleteTag": { readonly "name": string | number };
+  "failure.exportGraph": { readonly "name": string | number };
+  "failure.importGraph": undefined;
   "failure.indentBlock": undefined;
   "failure.lastEdit": undefined;
   "failure.loadJournal": undefined;
@@ -145,7 +152,12 @@ export interface MessageArgumentMap {
   "graph.deleteTitle": undefined;
   "graph.editor": undefined;
   "graph.empty": undefined;
+  "graph.export": undefined;
+  "graph.exporting": undefined;
   "graph.graphName": undefined;
+  "graph.import": undefined;
+  "graph.importedName": undefined;
+  "graph.importing": undefined;
   "graph.invite": undefined;
   "graph.inviteFailed": { readonly "account": string | number };
   "graph.lede": undefined;

@@ -45,6 +45,12 @@ export interface OutboxMessage {
   history_epoch: number;
 }
 
+export interface ImportedGraphArchive {
+  graph_id: string;
+  suggested_name?: string | null;
+  created_at: string;
+}
+
 export type WorkerOperation =
   | "open_graph"
   | "execute"
@@ -56,6 +62,8 @@ export type WorkerOperation =
   | "retry_pending"
   | "list_graphs"
   | "delete_graph"
+  | "export_archive"
+  | "import_archive"
   | "storage_capabilities"
   | "sync_configure"
   | "sync_state"
@@ -126,6 +134,17 @@ export class CoreWorker implements CorePort {
     return this.request("delete_graph", { graph_id: graphId });
   }
 
+  exportArchive(graphHandle: string, suggestedName: string): Promise<ArrayBuffer> {
+    return this.request("export_archive", {
+      graph_handle: graphHandle,
+      suggested_name: suggestedName,
+    });
+  }
+
+  importArchive(bytes: ArrayBuffer): Promise<ImportedGraphArchive> {
+    return this.request("import_archive", { bytes }, [bytes]);
+  }
+
   storageCapabilities(graphHandle: string): Promise<StorageCapabilitiesDto> {
     return this.request("storage_capabilities", { graph_handle: graphHandle });
   }
@@ -176,7 +195,11 @@ export class CoreWorker implements CorePort {
     this.worker.terminate();
   }
 
-  protected request<T>(operation: WorkerOperation, payload: unknown): Promise<T> {
+  protected request<T>(
+    operation: WorkerOperation,
+    payload: unknown,
+    transfer: Transferable[] = [],
+  ): Promise<T> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const workerError = (event: ErrorEvent) => {
@@ -204,7 +227,7 @@ export class CoreWorker implements CorePort {
       };
       this.worker.addEventListener("message", listener);
       this.worker.addEventListener("error", workerError);
-      this.worker.postMessage({ id, operation, payload });
+      this.worker.postMessage({ id, operation, payload }, transfer);
     });
   }
 }

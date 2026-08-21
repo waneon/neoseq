@@ -24,8 +24,8 @@ open_graph, execute, read, read_page, query, subscribe, close_graph
 DTOs are generated from
 [`../contracts/core-port.json`](../contracts/core-port.json). Components never
 call Wasm, IndexedDB, or native APIs directly. Browser-only graph listing,
-deletion, pending-write retry, storage capabilities, and test fault controls are
-adapter operations outside the portable product contract.
+deletion, copy import/export, pending-write retry, storage capabilities, and test
+fault controls are adapter operations outside the portable product contract.
 
 `GraphSession` serializes local commands and remote imports. After either it
 drains semantic events, refreshes the graph summary, and rehydrates affected
@@ -45,6 +45,13 @@ The production build uses the wall clock and ordinary adapter operations. Vite
 test mode adds a storage contract page, deterministic time, and explicit fault
 controls. Those controls and the current CorePort corpus are test-only chunks,
 not public product routes.
+
+The graph picker exports `.neoseq` copies and imports each selected archive as a
+new local graph. The main thread transfers bytes but never decodes graph state;
+the Worker delegates the bounded container to Wasm, validates source and cloned
+documents through the core, and atomically installs the clone before the browser
+directory publishes its suggested display name. See
+[`graph-archive.md`](graph-archive.md).
 
 Graph display names, local/remote kind, and remote server origin are
 browser-directory metadata in localStorage. Credentials are scoped to the

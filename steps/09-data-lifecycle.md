@@ -50,8 +50,8 @@ content가 일치한다. 손상 fixture는 마지막 valid state로 복구되고
 
 - versioned manifest, checksum, Loro snapshot/update bundle을 가진 archive
   format을 구현한다.
-- explicit create 또는 replace semantics를 제공하고 title이 같다는 이유로
-  merge하지 않는다.
+- import는 항상 새 local graph ID를 생성하고 기존 graph를 replace하거나 title이
+  같다는 이유로 merge하지 않는다.
 - decompression/path/size/checksum limit과 untrusted parser fuzz target을
   만든다.
 - archive에 credential, local cursor, presence, derived index를 포함하지 않는다.

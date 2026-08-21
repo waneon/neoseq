@@ -26,6 +26,55 @@ pub fn empty_version_vector() -> Vec<u8> {
     graph_core::empty_version_vector()
 }
 
+#[wasm_bindgen(js_name = encodeGraphArchive)]
+pub fn encode_graph_archive(
+    snapshot: &[u8],
+    source_graph_id: &str,
+    archive_id: &str,
+    exported_at: &str,
+    suggested_name: Option<String>,
+) -> Result<Vec<u8>, JsValue> {
+    let source_graph_id = domain::GraphId::new(source_graph_id).map_err(js_error)?;
+    graph_archive::encode(
+        snapshot,
+        graph_archive::ArchiveMetadata {
+            archive_id: archive_id.to_owned(),
+            source_graph_id,
+            document_schema: graph_core::SCHEMA_VERSION,
+            exported_at: exported_at.to_owned(),
+            suggested_name,
+        },
+    )
+    .map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = decodeGraphArchive)]
+pub fn decode_graph_archive(bytes: &[u8]) -> Result<WasmDecodedGraphArchive, JsValue> {
+    let decoded = graph_archive::decode(bytes).map_err(js_error)?;
+    Ok(WasmDecodedGraphArchive {
+        manifest_json: serde_json::to_string(&decoded.manifest).map_err(js_error)?,
+        snapshot: decoded.snapshot,
+    })
+}
+
+#[wasm_bindgen]
+pub struct WasmDecodedGraphArchive {
+    manifest_json: String,
+    snapshot: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl WasmDecodedGraphArchive {
+    #[wasm_bindgen(js_name = manifestJson)]
+    pub fn manifest_json(&self) -> String {
+        self.manifest_json.clone()
+    }
+
+    pub fn snapshot(&self) -> Vec<u8> {
+        self.snapshot.clone()
+    }
+}
+
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
@@ -195,5 +244,17 @@ impl WasmGraphCore {
     #[wasm_bindgen(js_name = exportGcCheckpoint)]
     pub fn export_gc_checkpoint(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.export_gc_checkpoint().map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = exportCloneSnapshot)]
+    pub fn export_clone_snapshot(
+        &self,
+        target_graph_id: &str,
+        target_peer_id: u64,
+    ) -> Result<Vec<u8>, JsValue> {
+        let target_graph_id = domain::GraphId::new(target_graph_id).map_err(js_error)?;
+        self.inner
+            .export_clone_snapshot(target_graph_id, target_peer_id)
+            .map_err(js_error)
     }
 }

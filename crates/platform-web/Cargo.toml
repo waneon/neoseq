@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 domain = { path = "../domain" }
+graph-archive = { path = "../graph-archive" }
 graph-core = { path = "../graph-core" }
 query = { path = "../query" }
 sync-protocol = { path = "../sync-protocol" }

@@ -25,6 +25,8 @@ Component-level detail lives under [`architectures/`](architectures/), and
 - Rust owns domain rules, CRDT mutation, indexing, and query semantics.
 - Platform code implements storage and binding concerns without domain policy.
 - Canonical graph data remains portable Loro state; every index is disposable.
+- Graph archives are copy-only: every import creates an independent local graph
+  identity and never overwrites or merges an existing graph.
 - User queries cannot access the filesystem, network, processes, or another graph.
 - Presentation preferences and localization never mutate graph semantics.
 - devenv provides reproducible development, build, and verification environments.
@@ -63,6 +65,8 @@ persistence test boundary, not a shipped application shell.
   It has no dependency on Loro, storage, transport, or UI frameworks.
 - `graph-core` owns one graph runtime, Loro projection, transactions, local
   history, persistence coordination, remote-update import, and events.
+- `graph-archive` owns the versioned, bounded portable container and manifest;
+  it does not choose repository identity or interpret graph semantics.
 - `query` owns Loro-to-RDF projection, indexing, constrained SPARQL planning,
   and budgeted read-only execution. It cannot mutate canonical state.
 - `platform-web` exposes the product Wasm boundary.
@@ -82,6 +86,7 @@ Detailed contracts:
 
 - [Core and domain](architectures/core.md)
 - [CRDT data and local persistence](architectures/data.md)
+- [Graph archives](architectures/graph-archive.md)
 - [Property fields](architectures/properties.md)
 - [Query and derived index](architectures/query.md)
 - [Client application](architectures/clients.md)
@@ -110,7 +115,8 @@ close_graph(graph_handle)
 TypeScript DTOs. [`fixtures/core-port/current.json`](fixtures/core-port/current.json)
 is the shared adapter corpus. Large CRDT and archive payloads use transferable
 binary buffers; ordinary values use generated DTOs. Adapter-only graph listing,
-deletion, retry, and test controls are deliberately outside CorePort.
+deletion, copy import/export, retry, and test controls are deliberately outside
+CorePort.
 
 ## Data and Consistency
 
@@ -119,7 +125,8 @@ deletion, retry, and test controls are deliberately outside CorePort.
 - Page roots and blocks share collaborative content, a typed property bag, and
   explicit tag references.
 - Page and tag names are unique in separate normalized graph-wide namespaces.
-- Journal IDs derive deterministically from graph ID and local date.
+- New journal IDs derive deterministically from graph ID and local date. A
+  portable copy retains existing journal IDs and resolves them by semantic date.
 - A property field is either an atomic single/set or a schema-owned CRDT
   document. Empty atomic fields are first-class; repeated values and document
   children have stable identities and independent merge granularity.
@@ -183,6 +190,7 @@ into one referenced Tail/outbox record.
 
 ```text
 crates/domain/             pure domain model and commands
+crates/graph-archive/      bounded portable archive container and manifest
 crates/graph-core/         Loro runtime and application services
 crates/query/              RDF projection and SPARQL execution
 crates/platform-web/       Wasm bindings

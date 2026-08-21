@@ -26,8 +26,13 @@ const DEFAULT_MESSAGE = createLocaleRuntime("en").message;
 const FALLBACK = {
   unsupported_contract: "error.unsupportedContract",
   invalid_request: "error.invalidRequest",
+  invalid_archive: "error.invalidArchive",
+  unsupported_archive: "error.unsupportedArchive",
+  archive_too_large: "error.archiveTooLarge",
+  archive_checksum_mismatch: "error.archiveChecksumMismatch",
   graph_not_open: "error.graphNotOpen",
   graph_already_open: "error.graphAlreadyOpen",
+  graph_already_exists: "error.graphAlreadyExists",
   wrong_graph: "error.wrongGraph",
   command_timeout: "error.commandTimeout",
   invalid_query: "error.invalidQuery",

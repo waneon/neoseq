@@ -35,7 +35,9 @@ NodeData
 ```
 
 The page root's content is a regular page title. Journal display titles derive
-from `builtin.journal-date`; journal IDs derive deterministically from graph ID and date.
+from `builtin.journal-date`. New journal IDs derive deterministically from graph
+ID and date; a portable graph copy keeps existing journal IDs and resolves a day
+by that semantic property before deriving an ID.
 Regular page names are unique after whitespace normalization and Unicode
 lowercasing. Stable IDs, not names, are identity.
 
@@ -185,6 +187,11 @@ update in one transaction. For a remote graph, that transaction also inserts an
 outbox message ID, causal base, and local sequence. Incremental outbox records
 reference the update row instead of duplicating its payload. Only the initial
 sequence-zero bootstrap stores inline bytes because it has no update row.
+
+Portable import generates a new graph and replica ID outside the archive, then
+installs the validated shallow clone as a sequence-zero checkpoint. Metadata and
+checkpoint creation share one IndexedDB transaction and require the target graph
+to be absent, so an import is either a complete new local graph or no graph.
 
 Acknowledgement removes the matching outbox record. A Tail row already covered
 by Base remains pinned while referenced and is deleted with that acknowledgement.
