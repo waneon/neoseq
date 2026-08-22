@@ -6,7 +6,7 @@ import {
   type AutoCloserMarker,
   type AutoPairInput,
   type TextEditPlan,
-} from "../../src/features/outline/auto-pair";
+} from "../../src/features/blocks/editor/auto-pair";
 
 function request(overrides: Partial<AutoPairInput> = {}): AutoPairInput {
   return {

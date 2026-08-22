@@ -75,6 +75,7 @@ import { addDays, todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
   CommandContext,
+  createContextualHandlerRegistry,
   useCommands,
   type CommandBridge,
   type PageActions,
@@ -221,7 +222,7 @@ function ShellBody({
     }
   });
   const [scrolled, setScrolled] = useState(false);
-  const blockProperties = useRef<((key?: string) => void) | null>(null);
+  const blockProperties = useRef(createContextualHandlerRegistry<(key?: string) => void>());
   const pageProperties = useRef<((key?: string) => void) | null>(null);
   const pageActions = useRef<PageActions | null>(null);
   const readonlyAnnounced = useRef(false);
@@ -294,9 +295,7 @@ function ShellBody({
       openPalette: () => setPaletteOpen(true),
       openShortcuts: () => setShortcutsOpen(true),
       openSettings,
-      setBlockProperties: (handler) => {
-        blockProperties.current = handler;
-      },
+      registerBlockProperties: (handler) => blockProperties.current.register(handler),
       setPageProperties: (handler) => {
         pageProperties.current = handler;
       },
@@ -304,7 +303,7 @@ function ShellBody({
         pageActions.current = actions;
       },
       requestProperties: (key?: string) => {
-        const handler = blockProperties.current ?? pageProperties.current;
+        const handler = blockProperties.current.current() ?? pageProperties.current;
         if (!handler) return false;
         handler(key);
         return true;

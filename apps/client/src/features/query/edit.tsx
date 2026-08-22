@@ -20,7 +20,7 @@ import type { GraphSession, SessionState } from "../../core-port/session";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
-import type { MessageFunction } from "../../i18n";
+import { useI18n, type MessageFunction } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { Anchor } from "@/ui/anchored";
 import {
@@ -28,16 +28,43 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
+import { compilePlan } from "../../entities/query-compile";
+import { defaultPlan, encodePlan, QUERY_PLAN_VERSION } from "../../entities/query-plan";
+import { useCommands } from "../commands/context";
+import { bindingMatches, useShortcutBindings } from "../commands/shortcuts";
+import { useHistoryActions } from "../history/context";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { TagPicker } from "../properties/TagPicker";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
-import { diffSplice } from "../outline/text-diff";
+import { useNotify } from "../notify/context";
+import { diffSplice } from "../blocks/editor/text-diff";
+import {
+  transformAutoClosers,
+  type AutoCloserMarker,
+} from "../blocks/editor/auto-pair";
+import { BlockTextArea, type BlockTextEdit } from "../blocks/editor/BlockTextArea";
+import {
+  BlockSlashMenu,
+  BlockTagMenu,
+  detectHash,
+  detectSlash,
+  filterTagOptions,
+  removeCompletionToken,
+  type BlockCompletionRequest,
+  type BlockTagOption,
+} from "../blocks/editor/BlockCompletions";
+import {
+  buildSlashItems,
+  filterSlashItems,
+  type SlashItem,
+} from "../blocks/editor/slash-commands";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
+import { useSessionState } from "../shell/session-context";
 import {
   CellValue,
   type CellContext,
@@ -85,6 +112,7 @@ type ActiveEdit =
       baseline: string;
       draft: string;
       composing: boolean;
+      autoClosers: AutoCloserMarker[];
       saving: boolean;
       closeAfterSave: boolean;
       error: string | null;
@@ -94,6 +122,8 @@ type ActiveEdit =
       binding: Extract<QueryEditBinding, { kind: "property" | "tags" }>;
       origin: EditOrigin;
       anchor: Anchor;
+      /** A status/priority cell owns a dedicated menu; command routes do not. */
+      taskMenu: boolean;
     };
 
 export interface QueryResultEditor {
@@ -107,11 +137,14 @@ export interface QueryResultEditor {
   ): QueryEditBinding | null;
   isActive(binding: QueryEditBinding, row: ResultViewRow): boolean;
   begin(binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor): void;
-  setDraft(value: string): void;
+  setDraft(value: string, edit?: BlockTextEdit): void;
   setComposing(composing: boolean): void;
   preserveDraftForViewChange(): void;
   consumeViewChangeIntent(): boolean;
-  commit(close: boolean): Promise<void>;
+  commit(close: boolean): Promise<boolean>;
+  acceptSlash(request: BlockCompletionRequest, item: SlashItem): void;
+  acceptTag(request: BlockCompletionRequest, option: BlockTagOption): void;
+  runHistory(redo: boolean): void;
   retry(): void;
   cancel(): void;
 }
@@ -148,6 +181,9 @@ export function useQueryResultEditor({
   enabled: boolean;
   message: MessageFunction;
 }): QueryResultEditor {
+  const commands = useCommands();
+  const history = useHistoryActions();
+  const notify = useNotify();
   const [active, setActiveState] = useState<ActiveEdit | null>(null);
   const activeRef = useRef<ActiveEdit | null>(null);
   const request = useRef(0);
@@ -231,12 +267,19 @@ export function useQueryResultEditor({
               baseline: block.markdown,
               draft: block.markdown,
               composing: false,
+              autoClosers: [],
               saving: false,
               closeAfterSave: false,
               error: null,
             });
           } else {
-            setActive({ phase: "picker", binding, origin, anchor });
+            setActive({
+              phase: "picker",
+              binding,
+              origin,
+              anchor,
+              taskMenu: binding.kind === "property" && isTaskChoiceKey(binding.key),
+            });
           }
         } catch (cause) {
           if (sequence !== request.current) return;
@@ -254,25 +297,25 @@ export function useQueryResultEditor({
   );
 
   const commit = useCallback(
-    async (close: boolean) => {
+    async (close: boolean, draftOverride?: string): Promise<boolean> => {
       const current = activeRef.current;
-      if (!current || current.phase !== "markdown") return;
-      if (current.composing) return;
+      if (!current || current.phase !== "markdown") return false;
+      if (current.composing) return false;
       if (current.saving) {
         if (close) {
           setActive((latest) => latest?.phase === "markdown"
             ? { ...latest, closeAfterSave: true }
             : latest);
         }
-        return;
+        return false;
       }
-      const splice = diffSplice(current.baseline, current.draft);
+      const expected = draftOverride ?? current.draft;
+      const splice = diffSplice(current.baseline, expected);
       if (!splice) {
         if (close) cancel();
-        return;
+        return true;
       }
 
-      const expected = current.draft;
       const previousBaseline = current.baseline;
       const targetKey = bindingKey(current.binding);
       setActive((latest) => {
@@ -306,6 +349,7 @@ export function useQueryResultEditor({
           }
           return { ...latest, saving: false };
         });
+        return true;
       } catch (cause) {
         const canonical = blockFrom(session.getState(), current.binding.block)?.markdown
           ?? previousBaseline;
@@ -321,6 +365,7 @@ export function useQueryResultEditor({
             error: failureReason(cause, message),
           };
         });
+        return false;
       }
     },
     [cancel, message, session, setActive],
@@ -349,14 +394,30 @@ export function useQueryResultEditor({
       if (canonical === undefined || current.draft !== current.baseline || canonical === current.baseline) {
         return current;
       }
-      return { ...current, baseline: canonical, draft: canonical };
+      return { ...current, baseline: canonical, draft: canonical, autoClosers: [] };
     });
   }, [setActive, state]);
 
-  const setDraft = useCallback((value: string) => {
-    setActive((current) => current?.phase === "markdown"
-      ? { ...current, draft: value, error: null }
-      : current);
+  const setDraft = useCallback((value: string, edit?: BlockTextEdit) => {
+    setActive((current) => {
+      if (current?.phase !== "markdown") return current;
+      let autoClosers = transformAutoClosers(
+        current.draft,
+        value,
+        current.autoClosers,
+        edit?.preferredStart,
+        edit?.preferredEnd,
+      );
+      if (edit?.autoCloser) {
+        autoClosers = [
+          ...autoClosers.filter((marker) =>
+            marker.offset !== edit.autoCloser?.offset
+            || marker.closer !== edit.autoCloser.closer),
+          edit.autoCloser,
+        ];
+      }
+      return { ...current, draft: value, autoClosers, error: null };
+    });
   }, [setActive]);
 
   const setComposing = useCallback((composing: boolean) => {
@@ -364,6 +425,95 @@ export function useQueryResultEditor({
       ? { ...current, composing }
       : current);
   }, [setActive]);
+
+  const acceptSlash = useCallback((completion: BlockCompletionRequest, item: SlashItem) => {
+    const current = activeRef.current;
+    if (!current || current.phase !== "markdown") return;
+    const next = removeCompletionToken(current.draft, completion).value;
+    setActive({ ...current, draft: next, autoClosers: [], error: null });
+
+    void (async () => {
+      if (!(await commit(false, next))) return;
+      const owner = {
+        kind: "block",
+        page_id: current.binding.block.page_id,
+        id: current.binding.block.id,
+      } as const;
+      try {
+        if (item.action.kind === "set") {
+          await session.execute({
+            type: "set_property",
+            owner,
+            key: item.action.key,
+            value: item.action.value,
+          });
+          return;
+        }
+        if (item.action.kind === "query" || item.action.kind === "query-source") {
+          const plan = defaultPlan();
+          await session.execute(item.action.kind === "query-source"
+            ? { type: "set_query_source", owner, source: "" }
+            : {
+              type: "set_query_plan",
+              owner,
+              plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+              source: compilePlan(plan).source,
+            });
+          return;
+        }
+        const latest = activeRef.current;
+        if (!latest || latest.phase !== "markdown") return;
+        setActive({
+          phase: "picker",
+          binding: {
+            kind: "property",
+            block: current.binding.block,
+            key: item.action.key ?? "",
+          },
+          origin: current.origin,
+          anchor: completion.anchor.getBoundingClientRect(),
+          taskMenu: false,
+        });
+      } catch (cause) {
+        notify.failure(
+          item.action.kind === "query" || item.action.kind === "query-source"
+            ? message("failure.createQuery")
+            : message("failure.setProperty"),
+          cause,
+        );
+      }
+    })();
+  }, [commit, message, notify, session, setActive]);
+
+  const acceptTag = useCallback((completion: BlockCompletionRequest, option: BlockTagOption) => {
+    const current = activeRef.current;
+    if (!current || current.phase !== "markdown") return;
+    const next = removeCompletionToken(current.draft, completion).value;
+    setActive({ ...current, draft: next, autoClosers: [], error: null });
+    void (async () => {
+      if (!(await commit(false, next)) || option.present) return;
+      try {
+        await session.execute({
+          type: "add_tag",
+          entity: {
+            kind: "block",
+            page_id: current.binding.block.page_id,
+            id: current.binding.block.id,
+          },
+          tag_id: option.id,
+        });
+      } catch (cause) {
+        notify.failure(message("failure.addTag"), cause);
+      }
+    })();
+  }, [commit, message, notify, session, setActive]);
+
+  const runHistory = useCallback((redo: boolean) => {
+    void (async () => {
+      if (!(await commit(false))) return;
+      await history.run(redo ? "redo" : "undo", { kind: "global-shortcut" });
+    })();
+  }, [commit, history]);
 
   const preserveDraftForViewChange = useCallback(() => {
     preserveOnNextBlur.current = true;
@@ -407,6 +557,26 @@ export function useQueryResultEditor({
     [active, state],
   );
 
+  const activeBlockKey = activeBlock && active
+    ? `${active.binding.block.page_id}:${active.binding.block.id}`
+    : null;
+  useEffect(() => {
+    if (!activeBlockKey) return;
+    return commands.registerBlockProperties((key?: string) => {
+      const current = activeRef.current;
+      if (!current) return;
+      if (current.phase === "markdown") void commit(false);
+      const focused = document.activeElement;
+      setActive({
+        phase: "picker",
+        binding: { kind: "property", block: current.binding.block, key: key ?? "" },
+        origin: current.origin,
+        anchor: focused instanceof HTMLElement ? focused.getBoundingClientRect() : current.anchor,
+        taskMenu: false,
+      });
+    });
+  }, [activeBlockKey, commands, commit, setActive]);
+
   return {
     active,
     activeBlock,
@@ -420,6 +590,9 @@ export function useQueryResultEditor({
     preserveDraftForViewChange,
     consumeViewChangeIntent,
     commit,
+    acceptSlash,
+    acceptTag,
+    runHistory,
     retry,
     cancel,
   };
@@ -431,7 +604,7 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
   if (!active || active.phase !== "picker" || !block) return null;
   // A task choice draws its own menu in the cell it belongs to; the generic
   // picker must not open on top of it (see `TaskChoiceCell`).
-  if (active.binding.kind === "property" && isTaskChoiceKey(active.binding.key)) return null;
+  if (active.taskMenu) return null;
   if (active.binding.kind === "property") {
     return (
       <PropertyPicker
@@ -442,7 +615,7 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
           bag: block.properties,
         }}
         anchor={active.anchor}
-        initialKey={active.binding.key}
+        initialKey={active.binding.key || undefined}
         onClose={editor.cancel}
       />
     );
@@ -466,9 +639,71 @@ function QueryMarkdownField({
   className?: string;
   label: string;
 }) {
+  const state = useSessionState();
+  const { compare } = useI18n();
+  const bindings = useShortcutBindings();
   const active = editor.active;
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const composing = useRef(false);
   const markdown = active?.phase === "markdown" ? active : null;
+  const block = editor.activeBlock;
+  const blockId = markdown?.binding.block.id ?? "";
+  const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
+  const [slashRequest, setSlashRequest] = useState<BlockCompletionRequest | null>(null);
+  const [slashActive, setSlashActive] = useState(0);
+  const [hashRequest, setHashRequest] = useState<BlockCompletionRequest | null>(null);
+  const [hashActive, setHashActive] = useState(0);
+  const slashResults = useMemo(
+    () => slashRequest ? filterSlashItems(slashItems, slashRequest.query) : [],
+    [slashItems, slashRequest],
+  );
+  const hashResults = useMemo(
+    () => hashRequest
+      ? filterTagOptions(
+        state.snapshot.tags,
+        hashRequest.query,
+        new Set(block?.tags ?? []),
+        compare,
+      )
+      : [],
+    [block?.tags, compare, hashRequest, state.snapshot.tags],
+  );
+  const slashIndex = Math.min(slashActive, Math.max(slashResults.length - 1, 0));
+  const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
+
+  const updateCompletions = useCallback((value: string, element: HTMLTextAreaElement) => {
+    const slash = detectSlash(value, element.selectionStart, element.selectionEnd);
+    setSlashActive(0);
+    setSlashRequest(
+      slash && filterSlashItems(slashItems, slash.query).length > 0
+        ? { blockId, ...slash, anchor: element }
+        : null,
+    );
+    const hash = slash ? null : detectHash(value, element.selectionStart, element.selectionEnd);
+    setHashActive(0);
+    setHashRequest(
+      hash && filterTagOptions(
+        state.snapshot.tags,
+        hash.query,
+        new Set(block?.tags ?? []),
+        compare,
+      ).length > 0
+        ? { blockId, ...hash, anchor: element }
+        : null,
+    );
+  }, [block?.tags, blockId, compare, slashItems, state.snapshot.tags]);
+
+  useEffect(() => {
+    if (!slashRequest && !hashRequest) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      const node = event.target;
+      if (node instanceof Element && node.closest(".slash-menu")) return;
+      setSlashRequest(null);
+      setHashRequest(null);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePress, true);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePress, true);
+  }, [hashRequest, slashRequest]);
 
   useLayoutEffect(() => {
     const element = textarea.current;
@@ -480,19 +715,40 @@ function QueryMarkdownField({
   if (!markdown) return null;
   return (
     <span className={cn("query-result-editor", className)} data-saving={markdown.saving || undefined}>
-      <textarea
+      <BlockTextArea
         ref={textarea}
         autoFocus
         rows={1}
         className="query-result-input"
         value={markdown.draft}
+        autoClosers={markdown.autoClosers}
+        data-block-editor
         dir="auto"
+        spellCheck={false}
         aria-label={label}
         aria-invalid={Boolean(markdown.error) || undefined}
+        aria-controls={slashRequest ? "slash-command-menu" : hashRequest ? "tag-suggest-menu" : undefined}
+        aria-activedescendant={
+          slashRequest && slashResults[slashIndex]
+            ? `slash-opt-${slashResults[slashIndex].id}`
+            : hashRequest && hashResults[hashIndex]
+              ? `tag-opt-${hashIndex}`
+              : undefined
+        }
         data-testid="query-markdown-editor"
-        onChange={(event) => editor.setDraft(event.target.value)}
-        onCompositionStart={() => editor.setComposing(true)}
-        onCompositionEnd={() => editor.setComposing(false)}
+        onValueChange={(value, element, edit) => {
+          editor.setDraft(value, edit);
+          if (!composing.current) updateCompletions(value, element);
+        }}
+        onCompositionStart={() => {
+          composing.current = true;
+          editor.setComposing(true);
+        }}
+        onCompositionEnd={(event) => {
+          composing.current = false;
+          editor.setComposing(false);
+          updateCompletions(event.currentTarget.value, event.currentTarget);
+        }}
         onBlur={(event) => {
           // Opening the saved-view menu is a presentation change. Keep the
           // query-level draft alive so the other renderer adopts it. Radix
@@ -505,6 +761,63 @@ function QueryMarkdownField({
         }}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          if (slashRequest) {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setSlashRequest(null);
+              return;
+            }
+            if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+              event.preventDefault();
+              const chosen = slashResults[slashIndex];
+              if (chosen) {
+                const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
+                editor.acceptSlash(slashRequest, chosen);
+                queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+              }
+              setSlashRequest(null);
+              return;
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setSlashActive(event.key === "ArrowDown"
+                ? Math.min(slashIndex + 1, slashResults.length - 1)
+                : Math.max(slashIndex - 1, 0));
+              return;
+            }
+          }
+          if (hashRequest) {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setHashRequest(null);
+              return;
+            }
+            if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+              event.preventDefault();
+              const chosen = hashResults[hashIndex];
+              if (chosen) {
+                const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
+                editor.acceptTag(hashRequest, chosen);
+                queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+              }
+              setHashRequest(null);
+              return;
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setHashActive(event.key === "ArrowDown"
+                ? Math.min(hashIndex + 1, hashResults.length - 1)
+                : Math.max(hashIndex - 1, 0));
+              return;
+            }
+          }
+          const isUndo = bindingMatches(event, bindings.undo);
+          const isRedo = bindingMatches(event, bindings.redo);
+          if (isUndo || isRedo) {
+            event.preventDefault();
+            editor.runHistory(isRedo);
+            return;
+          }
           if (event.key === "Escape") {
             event.preventDefault();
             editor.cancel();
@@ -514,6 +827,34 @@ function QueryMarkdownField({
           }
         }}
       />
+      {slashRequest && (
+        <BlockSlashMenu
+          request={slashRequest}
+          results={slashResults}
+          active={slashIndex}
+          onHover={setSlashActive}
+          onChoose={(item) => {
+            const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
+            editor.acceptSlash(slashRequest, item);
+            setSlashRequest(null);
+            queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+          }}
+        />
+      )}
+      {hashRequest && (
+        <BlockTagMenu
+          request={hashRequest}
+          results={hashResults}
+          active={hashIndex}
+          onHover={setHashActive}
+          onChoose={(option) => {
+            const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
+            editor.acceptTag(hashRequest, option);
+            setHashRequest(null);
+            queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+          }}
+        />
+      )}
       {markdown.error && (
         <span className="query-result-edit-error" role="alert">
           <span>{markdown.error}</span>

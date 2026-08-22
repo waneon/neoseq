@@ -24,12 +24,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { flushSync } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  CheckIcon,
   ChevronDownIcon,
   CopyIcon,
   CornerDownRightIcon,
@@ -50,13 +49,12 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Kbd } from "@/ui/kbd";
-import { useAnchoredPosition } from "@/ui/anchored";
 import { useCommands } from "../commands/context";
 import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
-import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
+import type { PageSnapshot } from "../../core-port/snapshot";
 import { findBlock, findPage, queryDocument, stringValue } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -71,15 +69,11 @@ import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { compilePlan } from "../../entities/query-compile";
 import { defaultPlan, encodePlan, QUERY_PLAN_VERSION } from "../../entities/query-plan";
-import { codePointIndex, diffSplice } from "./text-diff";
+import { codePointIndex, diffSplice } from "../blocks/editor/text-diff";
 import {
-  planAutoPair,
-  planAutoPairInputRepair,
   transformAutoClosers,
   type AutoCloserMarker,
-  type PairSelectionDirection,
-  type TextEditPlan,
-} from "./auto-pair";
+} from "../blocks/editor/auto-pair";
 import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
@@ -102,16 +96,25 @@ import {
 } from "./clipboard";
 import type { OutlineFragment } from "../../core-port/fragment";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { fuzzyScore } from "../commands/registry";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
+import { BlockTextArea } from "../blocks/editor/BlockTextArea";
+import {
+  BlockSlashMenu,
+  BlockTagMenu,
+  detectHash,
+  detectSlash,
+  filterTagOptions,
+  removeCompletionToken,
+  type BlockCompletionRequest,
+  type BlockTagOption,
+} from "../blocks/editor/BlockCompletions";
 import {
   buildSlashItems,
   filterSlashItems,
-  SLASH_GROUP_ORDER,
   type SlashItem,
-} from "./slash-commands";
+} from "../blocks/editor/slash-commands";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -145,11 +148,6 @@ const PRESENCE_PUBLISH_MS = 150;
 // optimistically only because the inverse (drop the row) is known.
 const PENDING_PREFIX = "pending-";
 
-// The caret's two menus share one shape and one placement: they open under the
-// line they were typed on, and flip above it when the caret is near the bottom
-// of the window (see `ui/anchored`).
-const MENU_PLACEMENT = { width: 320, minWidth: 260, maxHeight: 320 } as const;
-
 type InputMethod = "keyboard" | "pointer" | "context_menu";
 
 function isPendingId(id: string): boolean {
@@ -182,24 +180,8 @@ interface TagRequest {
   anchor: HTMLElement | null;
 }
 
-interface SlashRequest {
-  blockId: string;
-  start: number;
-  end: number;
-  query: string;
-  anchor: HTMLTextAreaElement;
-}
-
-/**
- * One row of the `#` tag menu. The menu attaches *existing* tags only —
- * creating a tag is the tags screen's job. A tag the block already has is
- * listed with its check mark — choosing it just removes the token.
- */
-interface TagOption {
-  id: string;
-  name: string;
-  present: boolean;
-}
+type SlashRequest = BlockCompletionRequest;
+type TagOption = BlockTagOption;
 
 interface EditorContext {
   session: GraphSession;
@@ -248,7 +230,6 @@ interface EditorContext {
   toggleCollapse(id: string): void;
   draftOf(row: OutlineRow): string;
   autoClosersOf(blockId: string): readonly AutoCloserMarker[];
-  isComposing(): boolean;
   onInput(
     row: OutlineRow,
     value: string,
@@ -1410,17 +1391,7 @@ export function Outliner({
       const chosen = item ?? slashResults[slashIndex];
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       const value = drafts.current.get(row.block.id) ?? row.block.markdown;
-      let head = value.slice(0, request.start);
-      let tail = value.slice(request.end);
-      // The token rarely leaves cleanly: accepting "text /due" would keep the
-      // separator space as a permanent trailing gap under the caret. When
-      // nothing meaningful follows the token, the leftover whitespace goes too.
-      if (tail.trim().length === 0) {
-        head = head.replace(/\s+$/u, "");
-        tail = "";
-      }
-      const next = head + tail;
-      const caret = head.length;
+      const { value: next, caret } = removeCompletionToken(value, request);
       if (!baselines.current.has(row.block.id)) {
         baselines.current.set(row.block.id, row.block.markdown);
       }
@@ -1475,19 +1446,13 @@ export function Outliner({
       // The token leaves the Markdown exactly as a slash token does: the tag
       // becomes structural membership, never text.
       const value = drafts.current.get(row.block.id) ?? row.block.markdown;
-      let head = value.slice(0, request.start);
-      let tail = value.slice(request.end);
-      if (tail.trim().length === 0) {
-        head = head.replace(/\s+$/u, "");
-        tail = "";
-      }
-      const next = head + tail;
+      const { value: next, caret } = removeCompletionToken(value, request);
       if (!baselines.current.has(row.block.id)) {
         baselines.current.set(row.block.id, row.block.markdown);
       }
       drafts.current.set(row.block.id, next);
       autoClosers.current.delete(row.block.id);
-      pendingCaret.current = head.length;
+      pendingCaret.current = caret;
       setHashRequest(null);
       force();
       if (isPendingId(row.block.id)) {
@@ -1534,7 +1499,6 @@ export function Outliner({
     },
     draftOf: (row) => drafts.current.get(row.block.id) ?? row.block.markdown,
     autoClosersOf: (blockId) => autoClosers.current.get(blockId) ?? [],
-    isComposing: () => composing.current,
     onInput: (row, value, textarea, edit) => {
       const previous = drafts.current.get(row.block.id) ?? row.block.markdown;
       let nextClosers = transformAutoClosers(
@@ -1891,7 +1855,7 @@ export function Outliner({
   // that is the block; the shell falls back to the page when this slot is empty.
   useEffect(() => {
     if (focusedId && isPendingId(focusedId)) {
-      commands.setBlockProperties((key?: string) => {
+      return commands.registerBlockProperties((key?: string) => {
         const active = document.activeElement;
         pendingProperty.current = {
           blockId: focusedId,
@@ -1902,23 +1866,20 @@ export function Outliner({
         };
         dispatchPending();
       });
-      return () => commands.setBlockProperties(null);
     }
     const selectedId = selected.size === 1 ? [...selected][0] : null;
     const targetId = focusedId ?? selectedId;
     if (!targetId) {
       if (selected.size > 1) {
-        commands.setBlockProperties(() => notify.show({
+        return commands.registerBlockProperties(() => notify.show({
           tone: "info",
           key: "property-selection-count",
           title: message("properties.selectOne"),
         }));
-        return () => commands.setBlockProperties(null);
       }
-      commands.setBlockProperties(null);
       return;
     }
-    commands.setBlockProperties((key?: string) => {
+    return commands.registerBlockProperties((key?: string) => {
       const anchor = document.querySelector<HTMLTextAreaElement>(
         `[data-block-id="${cssEscape(targetId)}"] textarea`,
       );
@@ -1931,7 +1892,6 @@ export function Outliner({
           : undefined,
       });
     });
-    return () => commands.setBlockProperties(null);
   }, [commands, dispatchPending, focusedId, message, notify, selected]);
 
   // Which thread segments to light: the indices of the focused block's ancestors,
@@ -2135,7 +2095,7 @@ export function Outliner({
         />
       )}
       {slashRequest && (
-        <SlashMenu
+        <BlockSlashMenu
           request={slashRequest}
           results={slashResults}
           active={slashIndex}
@@ -2147,7 +2107,7 @@ export function Outliner({
         />
       )}
       {hashRequest && (
-        <TagMenu
+        <BlockTagMenu
           request={hashRequest}
           results={hashResults}
           active={hashIndex}
@@ -2162,230 +2122,8 @@ export function Outliner({
   );
 }
 
-function detectSlash(
-  value: string,
-  selectionStart: number,
-  selectionEnd: number,
-): Omit<SlashRequest, "blockId" | "anchor"> | null {
-  if (selectionStart !== selectionEnd) return null;
-  let start = selectionStart;
-  while (start > 0 && !/\s/u.test(value[start - 1])) start -= 1;
-  const token = value.slice(start, selectionStart);
-  if (!token.startsWith("/") || token.slice(1).includes("/")) return null;
-  return { start, end: selectionStart, query: token.slice(1) };
-}
-
-/** The `#` twin of `detectSlash`: same whitespace-delimited token at a collapsed caret. */
-function detectHash(
-  value: string,
-  selectionStart: number,
-  selectionEnd: number,
-): Omit<SlashRequest, "blockId" | "anchor"> | null {
-  if (selectionStart !== selectionEnd) return null;
-  let start = selectionStart;
-  while (start > 0 && !/\s/u.test(value[start - 1])) start -= 1;
-  const token = value.slice(start, selectionStart);
-  if (!token.startsWith("#") || token.slice(1).includes("#")) return null;
-  return { start, end: selectionStart, query: token.slice(1) };
-}
-
 /** No block resolved yet — the open/closed decision doesn't depend on presence. */
 const NO_TAGS: ReadonlySet<string> = new Set();
-
-/**
- * Tags the `#` query reaches, best match first, capped like the autocomplete.
- * Existing tags only: creating a tag is the tags screen's verb, so a query
- * nothing matches simply closes the menu and the token stays ordinary text.
- */
-function filterTagOptions(
-  tags: readonly TagSnapshot[],
-  query: string,
-  present: ReadonlySet<string>,
-  compare: (left: string, right: string) => number,
-): TagOption[] {
-  const needle = query.trim();
-  let matched: TagSnapshot[];
-  if (!needle) {
-    matched = [...tags].sort((left, right) => compare(left.name, right.name));
-  } else {
-    matched = tags
-      .map((tag) => ({ tag, score: fuzzyScore(tag.name, needle) }))
-      .filter((entry): entry is { tag: TagSnapshot; score: number } => entry.score !== null)
-      .sort((left, right) => right.score - left.score)
-      .map((entry) => entry.tag);
-  }
-  return matched.slice(0, 8).map((tag) => ({
-    id: tag.id,
-    name: tag.name,
-    present: present.has(tag.id),
-  }));
-}
-
-function TagMenu({
-  request,
-  results,
-  active,
-  onHover,
-  onChoose,
-}: {
-  request: SlashRequest;
-  results: TagOption[];
-  active: number;
-  onHover: (index: number) => void;
-  onChoose: (option: TagOption) => void;
-}) {
-  const { message } = useI18n();
-  const listRef = useRef<HTMLDivElement>(null);
-  // Same anchor fallback as the slash menu: a pending row adopting its real id
-  // remounts the textarea under the open menu.
-  const focusedInput = document.activeElement;
-  const anchor = request.anchor.isConnected
-    ? request.anchor
-    : focusedInput instanceof HTMLTextAreaElement &&
-        focusedInput.classList.contains("outline-input")
-      ? focusedInput
-      : request.anchor;
-  const position = useAnchoredPosition(anchor, MENU_PLACEMENT, results.length);
-
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`#tag-opt-${active}`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [active, results]);
-
-  return createPortal(
-    <div
-      id="tag-suggest-menu"
-      ref={listRef}
-      className="slash-menu tag-menu"
-      style={position}
-      role="listbox"
-      aria-label={message("tags.menuLabel")}
-      data-testid="tag-menu"
-    >
-      {results.map((option, index) => (
-        <button
-          id={`tag-opt-${index}`}
-          key={option.id}
-          role="option"
-          aria-selected={index === active}
-          data-active={index === active}
-          tabIndex={-1}
-          onPointerMove={() => onHover(index)}
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => onChoose(option)}
-        >
-          <HashIcon aria-hidden />
-          <span className="slash-item-text">
-            <strong>{option.name}</strong>
-          </span>
-          {/* The tag the block already carries says so with its check mark,
-              never a second wash (DESIGN.md § Interaction States). */}
-          {option.present && <CheckIcon className="tag-opt-check" aria-hidden />}
-        </button>
-      ))}
-    </div>,
-    document.body,
-  );
-}
-
-function SlashMenu({
-  request,
-  results,
-  active,
-  onHover,
-  onChoose,
-}: {
-  request: SlashRequest;
-  results: SlashItem[];
-  active: number;
-  onHover: (index: number) => void;
-  onChoose: (item: SlashItem) => void;
-}) {
-  const { message } = useI18n();
-  const listRef = useRef<HTMLDivElement>(null);
-  // The anchor textarea can be remounted under the menu (a pending row adopting
-  // its real block id swaps textareas); a detached node measures as 0×0 at the
-  // origin, which put the menu in the top-left corner. The caret's current
-  // textarea is the truth the anchor was standing in for.
-  const focusedInput = document.activeElement;
-  const anchor = request.anchor.isConnected
-    ? request.anchor
-    : focusedInput instanceof HTMLTextAreaElement &&
-        focusedInput.classList.contains("outline-input")
-      ? focusedInput
-      : request.anchor;
-  const position = useAnchoredPosition(anchor, MENU_PLACEMENT, results.length);
-
-  // The keyboard moves the highlight while the list scrolls to keep it in view;
-  // the pointer moves it directly. Same one-highlight rule as the palette.
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`#slash-opt-${cssEscape(results[active]?.id ?? "")}`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [active, results]);
-
-  // Group labels only order an unfiltered menu; a query ranks across groups
-  // and grouping a ranked list would un-rank it.
-  const grouped = request.query.trim().length === 0;
-  const sections = grouped
-    ? SLASH_GROUP_ORDER
-        .map((group) => ({ group, items: results.filter((item) => item.group === group) }))
-        .filter((section) => section.items.length > 0)
-    : [{ group: null, items: results }];
-
-  const renderItem = (item: SlashItem) => {
-    const index = results.indexOf(item);
-    return (
-      <button
-        id={`slash-opt-${item.id}`}
-        key={item.id}
-        role="option"
-        aria-selected={index === active}
-        data-active={index === active}
-        tabIndex={-1}
-        onPointerMove={() => onHover(index)}
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={() => onChoose(item)}
-      >
-        {item.glyph}
-        <span className="slash-item-text">
-          <strong>{item.label}</strong>
-          {item.hint && <small>{item.hint}</small>}
-        </span>
-      </button>
-    );
-  };
-
-  return createPortal(
-    <div
-      id="slash-command-menu"
-      ref={listRef}
-      className="slash-menu"
-      style={position}
-      role="listbox"
-      aria-label={message("slash.menuLabel")}
-      data-testid="slash-menu"
-    >
-      {sections.map((section) => (
-        <div key={section.group ?? "ranked"} className="slash-group" role="presentation">
-          {section.group && (
-            <div className="group-label" role="presentation">
-              {message(`slash.group.${section.group}` as
-                | "slash.group.status"
-                | "slash.group.priority"
-                | "slash.group.date"
-                | "slash.group.query"
-                | "slash.group.property")}
-            </div>
-          )}
-          {section.items.map(renderItem)}
-        </div>
-      ))}
-    </div>,
-    document.body,
-  );
-}
 
 /** The collapsed set as it will be after toggling `id`. */
 function nextCollapsed(current: ReadonlySet<string>, id: string): Set<string> {
@@ -2551,65 +2289,6 @@ function litFor(path: AncestorPath, index: number, depth: number): number {
   let levels = 0;
   while (levels < path.indices.length && path.indices[levels] < index) levels += 1;
   return Math.min(levels, depth);
-}
-
-interface BeforeInputSnapshot {
-  value: string;
-  start: number;
-  end: number;
-  inputType: string;
-  isComposing: boolean;
-  cancelable: boolean;
-}
-
-interface PendingInputRepair {
-  value: string;
-  plan: TextEditPlan;
-}
-
-function applyTextEdit(textarea: HTMLTextAreaElement, plan: TextEditPlan) {
-  textarea.setRangeText(plan.insert, plan.from, plan.to, "preserve");
-  textarea.setSelectionRange(
-    plan.selectionStart,
-    plan.selectionEnd,
-    plan.selectionDirection,
-  );
-}
-
-/** Applies only the paired-delimiter intents that replace native textarea input. */
-function onBeforeInput(
-  editor: EditorContext,
-  row: OutlineRow,
-  textarea: HTMLTextAreaElement,
-  event: InputEvent,
-): boolean {
-  if (editor.readonly) return false;
-  const direction = textarea.selectionDirection;
-  const plan = planAutoPair({
-    value: textarea.value,
-    start: textarea.selectionStart,
-    end: textarea.selectionEnd,
-    direction: (direction ?? "none") as PairSelectionDirection,
-    inputType: event.inputType,
-    data: event.data,
-    isComposing: event.isComposing,
-  });
-  if (!plan || !event.cancelable) return false;
-
-  event.preventDefault();
-  if (!event.defaultPrevented) return false;
-  const previous = textarea.value;
-  applyTextEdit(textarea, plan);
-
-  if (textarea.value !== previous) {
-    editor.onInput(row, textarea.value, textarea, {
-      autoCloser: plan.autoCloser,
-      preferredStart: plan.from,
-      preferredEnd: plan.to,
-    });
-  }
-  else editor.publishSelection(row.block.id, textarea);
-  return true;
 }
 
 function onKeyDown(
@@ -2910,8 +2589,6 @@ function BlockRow({
   const peers = editor.presence.filter((peer) => peer.block_id === row.block.id);
   const projected = useRef(value);
   const revision = useRef(editor.revision);
-  const beforeInputSnapshot = useRef<BeforeInputSnapshot | null>(null);
-  const pendingInputRepair = useRef<PendingInputRepair | null>(null);
   const previewMarkdown = !isFocused && !pending && hasMarkdownSyntax(value);
   // A pending row has no id a property command can name yet, so it carries no
   // task marks either.
@@ -2929,87 +2606,6 @@ function BlockRow({
     // wraps. `previewMarkdown` matters because a hidden textarea measures zero:
     // without it the editor would open clipped to one line.
   }, [value, tags.length, previewMarkdown]);
-
-  // React's synthetic onBeforeInput normalizes older textInput events and does
-  // not expose the native inputType reliably. Pairing needs that distinction so
-  // paste, drop, replacement and composition remain ordinary browser edits.
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    const finishPendingRepair = () => {
-      const pendingRepair = pendingInputRepair.current;
-      if (!pendingRepair) return;
-      pendingInputRepair.current = null;
-      if (textarea.value !== pendingRepair.value) return;
-      applyTextEdit(textarea, pendingRepair.plan);
-      editor.onInput(row, textarea.value, textarea, {
-        autoCloser: pendingRepair.plan.autoCloser,
-        preferredStart: pendingRepair.plan.from,
-        preferredEnd: pendingRepair.plan.to,
-      });
-    };
-    const handleBeforeInput = (event: InputEvent) => {
-      beforeInputSnapshot.current = {
-        value: textarea.value,
-        start: textarea.selectionStart,
-        end: textarea.selectionEnd,
-        inputType: event.inputType,
-        isComposing: event.isComposing,
-        cancelable: event.cancelable,
-      };
-      if (onBeforeInput(editor, row, textarea, event)) {
-        beforeInputSnapshot.current = null;
-      }
-    };
-    const handleInput = (nativeEvent: Event) => {
-      const event = nativeEvent as InputEvent;
-      const snapshot = beforeInputSnapshot.current;
-      beforeInputSnapshot.current = null;
-      if (!snapshot || editor.readonly) return;
-      const cameThroughComposition =
-        snapshot.inputType === "insertCompositionText" ||
-        snapshot.isComposing ||
-        event.isComposing ||
-        (snapshot.inputType === "insertText" && !snapshot.cancelable);
-      if (!cameThroughComposition) return;
-
-      const plan = planAutoPairInputRepair(
-        snapshot.value,
-        textarea.value,
-        editor.autoClosersOf(row.block.id),
-        snapshot.start,
-        snapshot.end,
-      );
-      if (!plan) return;
-
-      if (!event.isComposing && !snapshot.isComposing) {
-        // A target listener runs before React's delegated onChange. Repairing
-        // here means React observes only the normalized value.
-        applyTextEdit(textarea, plan);
-        return;
-      }
-
-      // Mutating a live composition can make the platform IME lose its marked
-      // range. Hold the repair until compositionend; the microtask only covers
-      // engines that label this input as composing without opening a lifecycle.
-      const repair = { value: textarea.value, plan };
-      pendingInputRepair.current = repair;
-      queueMicrotask(() => {
-        if (pendingInputRepair.current === repair && !editor.isComposing()) {
-          finishPendingRepair();
-        }
-      });
-    };
-    const handleCompositionEnd = () => finishPendingRepair();
-    textarea.addEventListener("beforeinput", handleBeforeInput);
-    textarea.addEventListener("input", handleInput);
-    textarea.addEventListener("compositionend", handleCompositionEnd);
-    return () => {
-      textarea.removeEventListener("beforeinput", handleBeforeInput);
-      textarea.removeEventListener("input", handleInput);
-      textarea.removeEventListener("compositionend", handleCompositionEnd);
-    };
-  }, [editor, row]);
 
   useLayoutEffect(() => {
     if (!isFocused) return;
@@ -3316,11 +2912,13 @@ function BlockRow({
             )}
           </span>
         )}
-        <textarea
+        <BlockTextArea
           ref={textareaRef}
           className="block-line outline-input"
           rows={1}
           value={value}
+          autoClosers={editor.autoClosersOf(row.block.id)}
+          data-block-editor
           hidden={previewMarkdown}
           // The browser's spell checker has no idea what a graph is. It underlines
           // page names, tags, property keys and code as mistakes, which in a
@@ -3356,7 +2954,8 @@ function BlockRow({
             editor.flushNow(row.block.id);
             editor.releaseFocus(row.block.id);
           }}
-          onChange={(event) => editor.onInput(row, event.target.value, event.target)}
+          onValueChange={(next, textarea, edit) => editor.onInput(row, next, textarea, edit)}
+          onPairSelection={(textarea) => editor.publishSelection(row.block.id, textarea)}
           onCompositionStart={() => editor.onCompositionStart(row)}
           onCompositionEnd={(event) => editor.onCompositionEnd(row, event.currentTarget)}
           onKeyDown={(event) => editor.onKeyDown(row, rows, event)}

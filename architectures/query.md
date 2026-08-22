@@ -219,10 +219,13 @@ the outline. Direct block fields use the native block presentation; selected
 aggregates and structural relations remain supplemental query facts. Embedded
 feature surfaces and children do not render through a result reference.
 
-The outline and query list share presentation, not controllers. Outline focus,
-selection, dragging, structure, and pending rows remain outline-owned; query
-navigation, result drafts, and stale-row pinning remain query-owned. One
-query-level coordinator owns a draft across Table/List presentation changes,
+The outline and query surfaces share block presentation and the content-editing
+kernel described in [Block editing](block-editing.md), but retain separate
+structural controllers. Pairing, IME repair, `/` and `#` completions, document
+history, and entity commands therefore have one behavior. Outline focus,
+selection, dragging, structure, presence, and pending rows remain outline-owned;
+query navigation and stale-row pinning remain query-owned. One query-level
+coordinator owns a canonical draft across Table/List presentation changes,
 keeps identity by entity and field rather than row position, and pins an active
 row if its write makes the row stop matching. The row leaves after the editor
 closes. A failed write keeps its draft and an in-place retry route.

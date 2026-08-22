@@ -3,8 +3,8 @@
 // The slash menu is the editor's own command surface: the fast route from a
 // line of text to the typed metadata that turns it into a task, a date, or a
 // record. Items are declared here — grouped, localized, alias-matched — and the
-// Outliner owns detection, keyboard state, and what accepting an item does,
-// because only it can remove the token and reconcile pending blocks.
+// Each surface owns navigation and structural commands; the shared block input
+// layer owns detection while a surface adapter applies the chosen semantic action.
 //
 // A direct item (`set`) writes one property with one keystroke; an indirect
 // item (`picker`) opens the property picker, optionally already on a key. Both
@@ -19,7 +19,7 @@ import {
   RepeatIcon,
   Settings2Icon,
 } from "lucide-react";
-import type { PropertyValue } from "../../core-port/snapshot";
+import type { PropertyValue } from "../../../core-port/snapshot";
 import {
   TASK_DEADLINE_KEY,
   TASK_PRIORITIES,
@@ -28,10 +28,10 @@ import {
   TASK_SCHEDULED_KEY,
   TASK_STATUS_KEY,
   TASK_STATUSES,
-} from "../../entities/tasks";
-import type { MessageFunction } from "../../i18n";
-import { fuzzyScore } from "../commands/registry";
-import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
+} from "../../../entities/tasks";
+import type { MessageFunction } from "../../../i18n";
+import { fuzzyScore } from "../../commands/registry";
+import { PriorityGlyph, TaskStatusGlyph } from "../../tasks/glyphs";
 
 type SlashAction =
   | { kind: "set"; key: string; value: PropertyValue }

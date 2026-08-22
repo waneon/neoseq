@@ -64,7 +64,7 @@ import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
-import { diffSplice } from "../outline/text-diff";
+import { diffSplice } from "../blocks/editor/text-diff";
 import { QueryBuilder } from "./QueryBuilder";
 import { QueryListView } from "./QueryListView";
 import { QuerySortControl } from "./QuerySortControl";

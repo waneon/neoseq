@@ -1,15 +1,23 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import type { ReactElement } from "react";
 import { CorePortFailure } from "../../src/core-worker";
 import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
 import { compilePlan } from "../../src/entities/query-compile";
 import { decodePlan } from "../../src/entities/query-plan";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 import type { Harness } from "./harness";
+import {
+  CommandContext,
+  createContextualHandlerRegistry,
+  type CommandBridge,
+  type PageActions,
+} from "../../src/features/commands/context";
+import { PageView } from "../../src/features/page/PageView";
 
-async function mountPage(): Promise<Harness> {
-  const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
+async function mountPage(custom?: ReactElement): Promise<Harness> {
+  const harness = await mountAt(`/g/${GRAPH_ID}/p/home`, custom);
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   await harness.session.execute({
     type: "insert_block",
@@ -24,6 +32,28 @@ async function mountPage(): Promise<Harness> {
 function storedQuery(harness: Harness): PropertyDocument | undefined {
   const block = harness.session.getState().snapshot.pages[0]?.blocks[0];
   return block && queryDocument(block.properties);
+}
+
+function commandBridge(): CommandBridge {
+  const blocks = createContextualHandlerRegistry<(key?: string) => void>();
+  let pageProperties: ((key?: string) => void) | null = null;
+  let pageActions: PageActions | null = null;
+  return {
+    openPalette: () => {},
+    openShortcuts: () => {},
+    openSettings: () => {},
+    registerBlockProperties: (handler) => blocks.register(handler),
+    setPageProperties: (handler) => { pageProperties = handler; },
+    setPageActions: (actions) => { pageActions = actions; },
+    requestProperties: (key) => {
+      const handler = blocks.current() ?? pageProperties;
+      if (!handler) return false;
+      handler(key);
+      return true;
+    },
+    requestPageInfo: () => pageActions?.info(),
+    requestPageDelete: () => pageActions?.remove(),
+  };
 }
 
 /** The one route to a query: `/`, never the property picker. */
@@ -242,8 +272,8 @@ describe("the query builder", () => {
 });
 
 describe("query result views", () => {
-  async function withResult(markdown = "Ship the builder"): Promise<Harness> {
-    const harness = await mountPage();
+  async function withResult(markdown = "Ship the builder", custom?: ReactElement): Promise<Harness> {
+    const harness = await mountPage(custom);
     await createQuery(harness);
     harness.port.queryResult = {
       kind: "select",
@@ -590,6 +620,112 @@ describe("query result views", () => {
 
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship the editable result"));
     await waitFor(() => expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument());
+  });
+
+  it("uses the canonical block input pipeline inside query results", async () => {
+    await withResult("");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+    await user.keyboard("(");
+
+    expect(editor).toHaveValue("()");
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([1, 1]);
+  });
+
+  it("uses the same block input pipeline in the list renderer", async () => {
+    await withResult("");
+    const user = userEvent.setup();
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
+    const list = await screen.findByTestId("query-list");
+
+    await user.click(within(list).getByTitle("Edit Text"));
+    const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+    await user.keyboard("[[");
+
+    expect(editor).toHaveValue("[]");
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([1, 1]);
+  });
+
+  it("runs slash commands against the canonical result block", async () => {
+    const harness = await withResult("Ship it");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    await user.type(editor, " /done");
+    expect(await screen.findByTestId("slash-menu")).toBeVisible();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
+    await waitFor(() => {
+      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"))
+        .toBe("done");
+    });
+    expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+  });
+
+  it("uses hash completion to tag the canonical result block", async () => {
+    const harness = await withResult("Ship it");
+    await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    await user.type(editor, " #pro");
+    expect(await screen.findByTestId("tag-menu")).toBeVisible();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
+    await waitFor(() => expect(resultBlock(harness)?.tags).toContain("project"));
+  });
+
+  it("routes undo and redo through document history while the query editor is focused", async () => {
+    const harness = await withResult("Ship");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    await user.type(editor, " it");
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship"));
+    await waitFor(() => expect(editor).toHaveValue("Ship"));
+
+    await user.keyboard("{Meta>}{Shift>}z{/Shift}{/Meta}");
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
+    await waitFor(() => expect(editor).toHaveValue("Ship it"));
+  });
+
+  it("routes contextual property commands to the active query result", async () => {
+    const bridge = commandBridge();
+    const harness = await withResult(
+      "Ship it",
+      <CommandContext.Provider value={bridge}><PageView /></CommandContext.Provider>,
+    );
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByTestId("query-edit-text"));
+    await screen.findByTestId("query-markdown-editor");
+
+    let handled = false;
+    act(() => {
+      handled = bridge.requestProperties("builtin.task-status");
+    });
+    expect(handled).toBe(true);
+    const picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"))
+        .toBe("done");
+    });
+    const page = findPage(harness.session.getState().snapshot, "home");
+    expect(stringValue(page?.properties ?? [], "builtin.task-status")).toBeUndefined();
   });
 
   it("opens the outline's own status menu from a list result", async () => {

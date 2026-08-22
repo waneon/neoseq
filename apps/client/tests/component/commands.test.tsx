@@ -21,6 +21,7 @@ import {
   type ShortcutHandler,
 } from "../../src/features/commands/shortcuts";
 import { parseDateQuery } from "../../src/features/commands/dates";
+import { createContextualHandlerRegistry } from "../../src/features/commands/context";
 
 function key(init: Partial<KeyboardEvent> & { key: string }): KeyboardEvent {
   return {
@@ -148,6 +149,22 @@ describe("command registry contract", () => {
   it("orders navigation groups ahead of action groups", () => {
     expect(GROUP_ORDER.indexOf("Pages")).toBeLessThan(GROUP_ORDER.indexOf("Edit"));
     expect(GROUP_ORDER.indexOf("Journal")).toBeLessThan(GROUP_ORDER.indexOf("App"));
+  });
+});
+
+describe("contextual command targets", () => {
+  it("restores the containing block target when a nested query editor closes", () => {
+    const registry = createContextualHandlerRegistry<string>();
+    const releaseOutline = registry.register("outline block");
+    expect(registry.current()).toBe("outline block");
+
+    const releaseQuery = registry.register("query result block");
+    expect(registry.current()).toBe("query result block");
+
+    releaseQuery();
+    expect(registry.current()).toBe("outline block");
+    releaseOutline();
+    expect(registry.current()).toBeUndefined();
   });
 });
 

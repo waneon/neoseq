@@ -36,8 +36,10 @@ flowchart LR
 
 ### Outline and Slash Commands
 
-`features/outline/Outliner.tsx` owns slash detection because it owns block
-drafts, carets, IME composition, and pending-block reconciliation.
+`features/blocks/editor` owns slash and hash detection, ranking, token removal,
+and menu presentation. Outline and query adapters apply the chosen action to
+their own draft sessions; the outline additionally owns pending-block
+reconciliation.
 
 Detection is a pure scan of the current whitespace-delimited token at a
 collapsed caret. A token beginning with `/` opens the slash menu when its query
@@ -48,7 +50,7 @@ Accepting removes the token and issues `add_tag`; a tag the block already
 carries writes nothing. Pending blocks defer the choice until the real
 `BlockId` lands, exactly like a slash choice. Detection never changes Markdown.
 
-Slash items are declared in `features/outline/slash-commands.tsx`: task
+Slash items are declared in `features/blocks/editor/slash-commands.tsx`: task
 statuses and priorities as **direct** items carrying one `PropertyValue`,
 `Scheduled` / `Deadline` / `Add property` as **picker** items carrying an
 optional initial key, and `Query blocks` / `Query pages` / `Query tags` as
@@ -92,9 +94,11 @@ this to open the same picker directly on a `builtin.task-*` key for the focused
 block or the mounted page; their pointer routes are the slash menu and the task
 chips.
 
-The outliner registers the focused persisted block. `PageProperties` registers
-the mounted page. The bridge gives a block handler precedence and otherwise
-uses the page handler. Pending blocks do not register.
+Every active block editor registers a contextual target. Registrations are
+focus-ordered so a query result nested inside an outline row wins while it is
+active and removing it restores the containing block. `PageProperties`
+registers the mounted page as the fallback. Pending outline blocks register a
+deferred target whose command is replayed after their real ID arrives.
 
 Pointer routes resolve explicitly:
 
