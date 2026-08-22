@@ -2,9 +2,15 @@
 
 ## General Guidelines
 
-Prefer the **simplest mature modern approach**: favor well-established contemporary tools, patterns, and practices over legacy ones, while avoiding novelty or abstraction that adds disproportionate complexity. When multiple strong approaches exist, optimize for **simplicity first, modernity second**.
+Treat programming as art and code as poetry.
 
-The sole exception is frontend design. In that case, prioritize visual polish over simplicity.
+Pursue beauty through restraint, clarity, and coherence—not cleverness or novelty. Good code should feel inevitable: simple to understand, natural to extend, and difficult to misuse.
+
+Prefer solutions in this order:
+1. Simple — choose the smallest design that fully solves the problem.
+2. Elegant — favor clear structure, strong abstractions, and conceptual coherence.
+3. Mature — prefer proven, well-understood technologies and patterns.
+4. Modern — adopt newer approaches when they are established and materially improve the design.
 
 ## Documents
 
