@@ -9,6 +9,7 @@ publish = false
 domain = { path = "../domain" }
 hex.workspace = true
 oxigraph.workspace = true
+roaring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

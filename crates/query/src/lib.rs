@@ -5,18 +5,20 @@ use domain::{
     TagSnapshot,
 };
 use oxigraph::model::{
-    GraphNameRef, Literal, NamedNode, Quad, QuadRef, Term, Triple, Variable,
+    Dataset, GraphNameRef, Literal, NamedNode, Quad, QuadRef, Term, Triple, Variable,
     vocab::{rdf, xsd},
 };
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use oxigraph::store::{StorageError, Store, Transaction};
+use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use spargebra::algebra::GraphPattern;
-use spargebra::term::GroundTerm;
+use spargebra::algebra::{Expression, Function, GraphPattern, OrderExpression};
+use spargebra::term::{GroundTerm, NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::{Query, SparqlParser};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    cmp::{Ordering, Reverse},
+    collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 use thiserror::Error;
@@ -29,6 +31,10 @@ pub const DEFAULT_PROPERTY_NS: &str = "urn:neoseq:default-property:";
 pub const PROPERTY_KEY_NS: &str = "urn:neoseq:property-key:";
 pub const ENTITY_NS: &str = "urn:neoseq:entity:";
 pub const MATCHES_TEXT: &str = "urn:neoseq:vocab:v1:matchesText";
+const NEO_CONTENT: &str = "urn:neoseq:vocab:v1:content";
+const NEO_NAME: &str = "urn:neoseq:vocab:v1:name";
+const MIN_TOP_K_ENTITY_COUNT: usize = 12_000;
+const MIN_TOP_K_CANDIDATE_COUNT: u64 = 5_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -149,6 +155,412 @@ impl From<StorageError> for QueryError {
     }
 }
 
+#[derive(Default)]
+struct TextIndex {
+    by_subject: HashMap<String, u32>,
+    entries: Vec<Option<TextEntry>>,
+    free_ids: Vec<u32>,
+    postings: HashMap<[char; 3], RoaringBitmap>,
+    value_ref_counts: HashMap<String, usize>,
+}
+
+struct TextEntry {
+    subject: String,
+    value: String,
+}
+
+impl TextIndex {
+    fn insert(
+        &mut self,
+        subject: String,
+        value: String,
+        normalized_text: &mut HashMap<String, String>,
+    ) -> Result<(), QueryError> {
+        self.remove(&subject, normalized_text);
+        let id = if let Some(id) = self.free_ids.pop() {
+            id
+        } else {
+            let id = u32::try_from(self.entries.len())
+                .map_err(|_| QueryError::Index("text subject id overflow".into()))?;
+            self.entries.push(None);
+            id
+        };
+        let normalized = normalized_text
+            .entry(value.clone())
+            .or_insert_with(|| normalize_text(&value))
+            .clone();
+        for trigram in text_trigrams(&normalized) {
+            self.postings.entry(trigram).or_default().insert(id);
+        }
+        *self.value_ref_counts.entry(value.clone()).or_default() += 1;
+        self.by_subject.insert(subject.clone(), id);
+        self.entries[id as usize] = Some(TextEntry { subject, value });
+        Ok(())
+    }
+
+    fn remove(&mut self, subject: &str, normalized_text: &mut HashMap<String, String>) {
+        let Some(id) = self.by_subject.remove(subject) else {
+            return;
+        };
+        let Some(entry) = self.entries[id as usize].take() else {
+            return;
+        };
+        if let Some(normalized) = normalized_text.get(&entry.value) {
+            for trigram in text_trigrams(normalized) {
+                if let Some(posting) = self.postings.get_mut(&trigram) {
+                    posting.remove(id);
+                    if posting.is_empty() {
+                        self.postings.remove(&trigram);
+                    }
+                }
+            }
+        }
+        if let Some(count) = self.value_ref_counts.get_mut(&entry.value) {
+            *count -= 1;
+            if *count == 0 {
+                self.value_ref_counts.remove(&entry.value);
+                normalized_text.remove(&entry.value);
+            }
+        }
+        self.free_ids.push(id);
+    }
+
+    /// Returns exact matching subjects after using trigram postings as a
+    /// candidate filter. Short needles deliberately fall back to Oxigraph.
+    fn candidates(
+        &self,
+        needle: &str,
+        normalized_text: &HashMap<String, String>,
+    ) -> Option<Vec<String>> {
+        self.candidate_ids(needle, normalized_text)
+            .map(|candidates| {
+                candidates
+                    .iter()
+                    .filter_map(|id| self.subject(id).map(str::to_owned))
+                    .collect()
+            })
+    }
+
+    fn candidate_ids(
+        &self,
+        needle: &str,
+        normalized_text: &HashMap<String, String>,
+    ) -> Option<RoaringBitmap> {
+        let normalized_needle = normalize_text(needle);
+        let trigrams = text_trigrams(&normalized_needle);
+        if trigrams.is_empty() {
+            return None;
+        }
+        let mut postings = Vec::with_capacity(trigrams.len());
+        for trigram in &trigrams {
+            let Some(posting) = self.postings.get(trigram) else {
+                return Some(RoaringBitmap::new());
+            };
+            postings.push(posting);
+        }
+        postings.sort_by_key(|posting| posting.len());
+        let mut candidates = postings[0].clone();
+        for posting in &postings[1..] {
+            candidates &= *posting;
+            if candidates.is_empty() {
+                break;
+            }
+        }
+        Some(
+            candidates
+                .iter()
+                .filter(|id| {
+                    self.entries
+                        .get(*id as usize)
+                        .and_then(Option::as_ref)
+                        .is_some_and(|entry| {
+                            normalized_text
+                                .get(&entry.value)
+                                .is_some_and(|value| value.contains(&normalized_needle))
+                        })
+                })
+                .collect(),
+        )
+    }
+
+    fn len(&self) -> usize {
+        self.by_subject.len()
+    }
+
+    fn id(&self, subject: &str) -> Option<u32> {
+        self.by_subject.get(subject).copied()
+    }
+
+    fn subject(&self, id: u32) -> Option<&str> {
+        self.entries
+            .get(id as usize)?
+            .as_ref()
+            .map(|entry| entry.subject.as_str())
+    }
+}
+
+fn text_trigrams(value: &str) -> BTreeSet<[char; 3]> {
+    let characters = value.chars().collect::<Vec<_>>();
+    characters
+        .windows(3)
+        .map(|window| [window[0], window[1], window[2]])
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TotalF64(f64);
+
+impl PartialEq for TotalF64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for TotalF64 {}
+
+impl PartialOrd for TotalF64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TotalF64 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum OrderedValue {
+    Number(TotalF64),
+    Integer(i64),
+    Date(String),
+}
+
+#[derive(Default)]
+struct PropertyIndex {
+    presence: HashMap<String, RoaringBitmap>,
+    exact: HashMap<(String, Term), RoaringBitmap>,
+    ordered: HashMap<String, BTreeMap<OrderedValue, RoaringBitmap>>,
+}
+
+impl PropertyIndex {
+    fn insert_subject(&mut self, id: u32, triples: &HashSet<Triple>) {
+        for triple in triples {
+            let predicate = triple.predicate.as_str();
+            if !indexed_predicate(predicate) {
+                continue;
+            }
+            let predicate = predicate.to_owned();
+            let value = triple.object.clone();
+            self.presence
+                .entry(predicate.clone())
+                .or_default()
+                .insert(id);
+            self.exact
+                .entry((predicate.clone(), value.clone()))
+                .or_default()
+                .insert(id);
+            if let Some(value) = ordered_value(&value) {
+                self.ordered
+                    .entry(predicate.clone())
+                    .or_default()
+                    .entry(value)
+                    .or_default()
+                    .insert(id);
+            }
+        }
+    }
+
+    fn remove_subject(&mut self, id: u32, triples: &HashSet<Triple>) {
+        for triple in triples {
+            let predicate = triple.predicate.as_str();
+            if !indexed_predicate(predicate) {
+                continue;
+            }
+            let predicate = predicate.to_owned();
+            let value = triple.object.clone();
+            remove_from_posting(&mut self.presence, &predicate, id);
+            remove_from_posting(&mut self.exact, &(predicate.clone(), value.clone()), id);
+            if let Some(ordered) = ordered_value(&value)
+                && let Some(values) = self.ordered.get_mut(&predicate)
+            {
+                if let Some(posting) = values.get_mut(&ordered) {
+                    posting.remove(id);
+                    if posting.is_empty() {
+                        values.remove(&ordered);
+                    }
+                }
+                if values.is_empty() {
+                    self.ordered.remove(&predicate);
+                }
+            }
+        }
+    }
+
+    fn exact(&self, predicate: &str, value: &Term) -> RoaringBitmap {
+        self.exact
+            .get(&(predicate.to_owned(), value.clone()))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn presence(&self, predicate: &str) -> RoaringBitmap {
+        self.presence.get(predicate).cloned().unwrap_or_default()
+    }
+
+    fn compare(
+        &self,
+        predicate: &str,
+        operator: Comparison,
+        bound: &OrderedValue,
+    ) -> RoaringBitmap {
+        let Some(values) = self.ordered.get(predicate) else {
+            return RoaringBitmap::new();
+        };
+        let mut matches = RoaringBitmap::new();
+        for (value, posting) in values {
+            let ordering = value.cmp(bound);
+            let accepted = match operator {
+                Comparison::Equal => ordering == Ordering::Equal,
+                Comparison::Less => ordering == Ordering::Less,
+                Comparison::LessOrEqual => ordering != Ordering::Greater,
+                Comparison::Greater => ordering == Ordering::Greater,
+                Comparison::GreaterOrEqual => ordering != Ordering::Less,
+            };
+            if accepted {
+                matches |= posting;
+            }
+        }
+        matches
+    }
+
+    fn has_ordered(&self, predicate: &str) -> bool {
+        self.ordered.contains_key(predicate)
+    }
+
+    fn ordered_subjects(
+        &self,
+        predicate: &str,
+        candidates: &RoaringBitmap,
+        descending: bool,
+        limit: usize,
+        text_index: &TextIndex,
+    ) -> Vec<String> {
+        let Some(values) = self.ordered.get(predicate) else {
+            return Vec::new();
+        };
+        let mut subjects = Vec::new();
+        let mut seen = RoaringBitmap::new();
+        {
+            let mut append = |posting: &RoaringBitmap| {
+                let matching = (posting & candidates) - &seen;
+                let mut tied = matching
+                    .iter()
+                    .filter_map(|id| text_index.subject(id).map(|subject| (subject, id)))
+                    .collect::<Vec<_>>();
+                tied.sort_by(|left, right| left.0.cmp(right.0));
+                for (subject, id) in tied {
+                    seen.insert(id);
+                    subjects.push(subject.to_owned());
+                    if subjects.len() == limit {
+                        return true;
+                    }
+                }
+                false
+            };
+            if descending {
+                for posting in values.values().rev() {
+                    if append(posting) {
+                        break;
+                    }
+                }
+            } else {
+                for posting in values.values() {
+                    if append(posting) {
+                        break;
+                    }
+                }
+            }
+        }
+        if subjects.len() < limit {
+            let missing = candidates - &seen;
+            let mut missing = missing
+                .iter()
+                .filter_map(|id| text_index.subject(id))
+                .collect::<Vec<_>>();
+            missing.sort();
+            subjects.extend(
+                missing
+                    .into_iter()
+                    .take(limit - subjects.len())
+                    .map(str::to_owned),
+            );
+        }
+        subjects
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Comparison {
+    Equal,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+}
+
+impl Comparison {
+    fn reverse(self) -> Self {
+        match self {
+            Self::Equal => Self::Equal,
+            Self::Less => Self::Greater,
+            Self::LessOrEqual => Self::GreaterOrEqual,
+            Self::Greater => Self::Less,
+            Self::GreaterOrEqual => Self::LessOrEqual,
+        }
+    }
+}
+
+fn remove_from_posting<K: Eq + std::hash::Hash + Clone>(
+    postings: &mut HashMap<K, RoaringBitmap>,
+    key: &K,
+    id: u32,
+) {
+    if let Some(posting) = postings.get_mut(key) {
+        posting.remove(id);
+        if posting.is_empty() {
+            postings.remove(key);
+        }
+    }
+}
+
+fn indexed_predicate(predicate: &str) -> bool {
+    predicate != NEO_CONTENT && predicate != NEO_NAME
+}
+
+fn ordered_value(value: &Term) -> Option<OrderedValue> {
+    let Term::Literal(value) = value else {
+        return None;
+    };
+    match value.datatype().as_str() {
+        datatype if datatype == xsd::DOUBLE.as_str() => value
+            .value()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .map(TotalF64)
+            .map(OrderedValue::Number),
+        datatype if datatype == xsd::INTEGER.as_str() => {
+            value.value().parse().ok().map(OrderedValue::Integer)
+        }
+        datatype if datatype == xsd::DATE.as_str() => {
+            Some(OrderedValue::Date(value.value().to_owned()))
+        }
+        _ => None,
+    }
+}
+
 /// One open graph's derived RDF index. Oxigraph's in-memory store provides the
 /// dictionary and SPO/POS/OSP-family indexes. The compact page ledger names
 /// subjects to retract and replace atomically without duplicating their triples.
@@ -157,8 +569,8 @@ pub struct GraphIndex {
     store: Store,
     entity_refs: HashMap<String, QueryEntityRef>,
     page_entities: HashMap<PageId, BTreeSet<String>>,
-    page_text: HashMap<PageId, Vec<String>>,
-    text_ref_counts: HashMap<String, usize>,
+    text_index: TextIndex,
+    property_index: PropertyIndex,
     normalized_text: Arc<HashMap<String, String>>,
     triple_count: usize,
     revision: u64,
@@ -211,8 +623,8 @@ impl GraphIndex {
             store,
             entity_refs: projected.entity_refs,
             page_entities: projected.page_entities,
-            page_text: projected.page_text,
-            text_ref_counts: projected.text_ref_counts,
+            text_index: projected.text_index,
+            property_index: projected.property_index,
             normalized_text: Arc::new(projected.normalized_text),
             triple_count: projected.triple_count,
             revision: 1,
@@ -350,48 +762,33 @@ impl GraphIndex {
         for (key, entity_ref) in projected.entity_refs {
             self.entity_refs.insert(key, entity_ref);
         }
-        for page_id in page_ids {
-            if let Some(values) = self.page_text.remove(&page_id) {
-                for value in values {
-                    self.remove_text(&value);
+        if triples_changed {
+            let normalized_text = Arc::make_mut(&mut self.normalized_text);
+            for key in &replaced {
+                if let (Some(id), Some(triples)) = (self.text_index.id(key), previous.get(key)) {
+                    self.property_index.remove_subject(id, triples);
                 }
+                self.text_index.remove(key, normalized_text);
             }
+            for (key, value) in projected.entity_text {
+                self.text_index.insert(key, value, normalized_text)?;
+            }
+            for (key, triples) in &projected.entities {
+                let id = self.text_index.id(key).ok_or_else(|| {
+                    QueryError::Index("projected entity has no text subject".into())
+                })?;
+                self.property_index.insert_subject(id, triples);
+            }
+        }
+        for page_id in page_ids {
             self.page_entities.remove(&page_id);
             if let Some(keys) = projected.page_entities.remove(&page_id) {
-                let values = keys
-                    .iter()
-                    .filter_map(|key| projected.entity_text.get(key).cloned())
-                    .collect::<Vec<_>>();
-                for value in &values {
-                    self.insert_text(value);
-                }
-                self.page_text.insert(page_id.clone(), values);
                 self.page_entities.insert(page_id, keys);
             }
         }
         self.frontier = delta.frontier;
         self.revision = self.revision.saturating_add(1);
         Ok(true)
-    }
-
-    fn remove_text(&mut self, value: &str) {
-        let Some(count) = self.text_ref_counts.get_mut(value) else {
-            return;
-        };
-        *count -= 1;
-        if *count == 0 {
-            self.text_ref_counts.remove(value);
-            Arc::make_mut(&mut self.normalized_text).remove(value);
-        }
-    }
-
-    fn insert_text(&mut self, value: &str) {
-        let count = self.text_ref_counts.entry(value.to_owned()).or_default();
-        *count += 1;
-        if *count == 1 {
-            Arc::make_mut(&mut self.normalized_text)
-                .insert(value.to_owned(), normalize_text(value));
-        }
     }
 
     pub fn execute(&self, request: QueryRequest) -> Result<QueryResult, QueryError> {
@@ -421,8 +818,35 @@ impl GraphIndex {
         let mut query = SparqlParser::new()
             .parse_query(&request.source)
             .map_err(|error| QueryError::Syntax(error.to_string()))?;
-        validate_query(&query, budget.max_algebra_operators)?;
-        inject_query_bindings(&mut query, request.bindings)?;
+        let bindings = request.bindings;
+        let text_calls = validate_query(&query, budget.max_algebra_operators, &bindings)?;
+        let top_k_subjects = select_top_k_candidates(
+            &query,
+            &bindings,
+            &self.text_index,
+            &self.property_index,
+            &self.normalized_text,
+        )?;
+        if top_k_subjects.is_none() {
+            inject_text_candidates(
+                &mut query,
+                &bindings,
+                &self.text_index,
+                &self.normalized_text,
+            )?;
+        }
+        let normalized_needles = text_calls
+            .iter()
+            .filter_map(|call| resolve_text_needle(call, &bindings))
+            .map(|needle| {
+                let normalized = normalize_text(&needle);
+                (needle, normalized)
+            })
+            .collect::<HashMap<_, _>>();
+        inject_query_bindings(&mut query, bindings)?;
+        let candidate_dataset = top_k_subjects
+            .map(|subjects| self.candidate_dataset(subjects))
+            .transpose()?;
 
         let normalized_text = self.normalized_text.clone();
         let matcher = NamedNode::new(MATCHES_TEXT).map_err(term_error)?;
@@ -431,19 +855,30 @@ impl GraphIndex {
                 let [Term::Literal(content), Term::Literal(needle)] = arguments else {
                     return None;
                 };
-                let normalized = normalized_text
-                    .get(content.value())
-                    .cloned()
-                    .unwrap_or_else(|| normalize_text(content.value()));
-                Some(Literal::from(normalized.contains(&normalize_text(needle.value()))).into())
+                let fallback;
+                let normalized_needle = if let Some(needle) = normalized_needles.get(needle.value())
+                {
+                    needle.as_str()
+                } else {
+                    fallback = normalize_text(needle.value());
+                    &fallback
+                };
+                let matches = normalized_text.get(content.value()).map_or_else(
+                    || normalize_text(content.value()).contains(normalized_needle),
+                    |normalized| normalized.contains(normalized_needle),
+                );
+                Some(Literal::from(matches).into())
             })
             .for_query(query);
 
-        match prepared
-            .on_store(&self.store)
-            .execute()
-            .map_err(|error| QueryError::Evaluation(error.to_string()))?
-        {
+        let evaluated = if let Some(dataset) = candidate_dataset.as_ref() {
+            prepared.on_queryable_dataset(dataset).execute()
+        } else {
+            prepared.on_store(&self.store).execute()
+        }
+        .map_err(|error| QueryError::Evaluation(error.to_string()))?;
+
+        match evaluated {
             QueryResults::Boolean(value) => Ok(QueryResult::Ask {
                 value,
                 revision: self.revision,
@@ -502,6 +937,37 @@ impl GraphIndex {
         triples
     }
 
+    fn candidate_dataset(&self, subjects: Vec<String>) -> Result<Dataset, QueryError> {
+        let mut dataset = Dataset::new();
+        let mut pending = subjects
+            .into_iter()
+            .map(|subject| (subject, 0_u8))
+            .collect::<VecDeque<_>>();
+        let mut visited = HashSet::new();
+        while let Some((subject, depth)) = pending.pop_front() {
+            if !visited.insert(subject.clone()) {
+                continue;
+            }
+            let subject = NamedNode::new(subject).map_err(term_error)?;
+            for quad in self.store.quads_for_pattern(
+                Some(subject.as_ref().into()),
+                None,
+                None,
+                Some(GraphNameRef::DefaultGraph),
+            ) {
+                let quad = quad.map_err(index_error)?;
+                if depth < 2
+                    && let Term::NamedNode(object) = &quad.object
+                    && object.as_str().starts_with(ENTITY_NS)
+                {
+                    pending.push_back((object.as_str().to_owned(), depth + 1));
+                }
+                dataset.insert(&quad);
+            }
+        }
+        Ok(dataset)
+    }
+
     fn map_ox_term(&self, term: &Term) -> Result<RdfTerm, QueryError> {
         match term {
             Term::NamedNode(node) => Ok(RdfTerm::Iri {
@@ -534,8 +1000,8 @@ struct ProjectionStream<I> {
     pending: std::vec::IntoIter<Quad>,
     entity_refs: HashMap<String, QueryEntityRef>,
     page_entities: HashMap<PageId, BTreeSet<String>>,
-    page_text: HashMap<PageId, Vec<String>>,
-    text_ref_counts: HashMap<String, usize>,
+    text_index: TextIndex,
+    property_index: PropertyIndex,
     normalized_text: HashMap<String, String>,
     triple_count: usize,
 }
@@ -543,8 +1009,8 @@ struct ProjectionStream<I> {
 struct ProjectionBuild {
     entity_refs: HashMap<String, QueryEntityRef>,
     page_entities: HashMap<PageId, BTreeSet<String>>,
-    page_text: HashMap<PageId, Vec<String>>,
-    text_ref_counts: HashMap<String, usize>,
+    text_index: TextIndex,
+    property_index: PropertyIndex,
     normalized_text: HashMap<String, String>,
     triple_count: usize,
 }
@@ -560,8 +1026,8 @@ where
             pending: Vec::new().into_iter(),
             entity_refs: HashMap::new(),
             page_entities: HashMap::new(),
-            page_text: HashMap::new(),
-            text_ref_counts: HashMap::new(),
+            text_index: TextIndex::default(),
+            property_index: PropertyIndex::default(),
             normalized_text: HashMap::new(),
             triple_count: 0,
         }
@@ -571,8 +1037,8 @@ where
         ProjectionBuild {
             entity_refs: self.entity_refs,
             page_entities: self.page_entities,
-            page_text: self.page_text,
-            text_ref_counts: self.text_ref_counts,
+            text_index: self.text_index,
+            property_index: self.property_index,
             normalized_text: self.normalized_text,
             triple_count: self.triple_count,
         }
@@ -603,15 +1069,18 @@ where
 
         if let Some(page_id) = page_id {
             let keys = projected.page_entities.remove(&page_id).unwrap_or_default();
-            let values = keys
-                .iter()
-                .filter_map(|key| projected.entity_text.get(key).cloned())
-                .collect::<Vec<_>>();
-            for value in &values {
-                insert_text_cache(&mut self.text_ref_counts, &mut self.normalized_text, value);
-            }
             self.page_entities.insert(page_id.clone(), keys);
-            self.page_text.insert(page_id, values);
+        }
+        for (key, value) in projected.entity_text {
+            self.text_index
+                .insert(key, value, &mut self.normalized_text)?;
+        }
+        for (key, triples) in &projected.entities {
+            let id = self
+                .text_index
+                .id(key)
+                .ok_or_else(|| QueryError::Index("projected entity has no text subject".into()))?;
+            self.property_index.insert_subject(id, triples);
         }
         self.entity_refs.extend(projected.entity_refs);
         self.triple_count = self
@@ -743,6 +1212,7 @@ fn project_tag(
         DEFAULT_PROPERTY_NS,
         graph_id,
     )?;
+    projection.entity_text.insert(key.clone(), tag.name.clone());
     projection.entities.insert(key, triples);
     Ok(())
 }
@@ -874,10 +1344,31 @@ fn add_properties(
     Ok(())
 }
 
-fn validate_query(query: &Query, max_operators: usize) -> Result<(), QueryError> {
+#[derive(Clone)]
+struct TextCall {
+    content: Variable,
+    needle: TextNeedle,
+}
+
+#[derive(Clone)]
+enum TextNeedle {
+    Literal(String),
+    Binding(Variable),
+}
+
+fn validate_query(
+    query: &Query,
+    max_operators: usize,
+    bindings: &BTreeMap<String, RdfTerm>,
+) -> Result<Vec<TextCall>, QueryError> {
     let sse = query.to_sse();
-    let dataset = match query {
-        Query::Select { dataset, .. } | Query::Ask { dataset, .. } => dataset,
+    let (dataset, pattern) = match query {
+        Query::Select {
+            dataset, pattern, ..
+        }
+        | Query::Ask {
+            dataset, pattern, ..
+        } => (dataset, pattern),
         Query::Construct { .. } => {
             return Err(QueryError::Disallowed("CONSTRUCT".into()));
         }
@@ -897,7 +1388,1069 @@ fn validate_query(query: &Query, max_operators: usize) -> Result<(), QueryError>
     if sse.bytes().filter(|byte| *byte == b'(').count() > max_operators {
         return Err(QueryError::AlgebraBudget);
     }
+    let mut calls = Vec::new();
+    collect_text_calls(pattern, bindings, &mut calls)?;
+    for call in &calls {
+        if !pattern_has_text_object(pattern, &call.content) {
+            return Err(QueryError::Disallowed(
+                "neo:matchesText first argument must be the object of neo:content or neo:name"
+                    .into(),
+            ));
+        }
+    }
+    Ok(calls)
+}
+
+fn collect_text_calls(
+    pattern: &GraphPattern,
+    bindings: &BTreeMap<String, RdfTerm>,
+    calls: &mut Vec<TextCall>,
+) -> Result<(), QueryError> {
+    match pattern {
+        GraphPattern::Bgp { .. } | GraphPattern::Path { .. } | GraphPattern::Values { .. } => {}
+        GraphPattern::Join { left, right }
+        | GraphPattern::Lateral { left, right }
+        | GraphPattern::Union { left, right }
+        | GraphPattern::Minus { left, right } => {
+            collect_text_calls(left, bindings, calls)?;
+            collect_text_calls(right, bindings, calls)?;
+        }
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
+            collect_text_calls(left, bindings, calls)?;
+            collect_text_calls(right, bindings, calls)?;
+            if let Some(expression) = expression {
+                collect_text_calls_in_expression(expression, bindings, calls)?;
+            }
+        }
+        GraphPattern::Filter { expr, inner } => {
+            collect_text_calls(inner, bindings, calls)?;
+            collect_text_calls_in_expression(expr, bindings, calls)?;
+        }
+        GraphPattern::Graph { inner, .. }
+        | GraphPattern::Service { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. } => collect_text_calls(inner, bindings, calls)?,
+        GraphPattern::Extend {
+            inner, expression, ..
+        } => {
+            collect_text_calls(inner, bindings, calls)?;
+            collect_text_calls_in_expression(expression, bindings, calls)?;
+        }
+        GraphPattern::OrderBy { inner, expression } => {
+            collect_text_calls(inner, bindings, calls)?;
+            for order in expression {
+                let expression = match order {
+                    spargebra::algebra::OrderExpression::Asc(expression)
+                    | spargebra::algebra::OrderExpression::Desc(expression) => expression,
+                };
+                collect_text_calls_in_expression(expression, bindings, calls)?;
+            }
+        }
+        GraphPattern::Group {
+            inner, aggregates, ..
+        } => {
+            collect_text_calls(inner, bindings, calls)?;
+            for (_, aggregate) in aggregates {
+                if let spargebra::algebra::AggregateExpression::FunctionCall { expr, .. } =
+                    aggregate
+                {
+                    collect_text_calls_in_expression(expr, bindings, calls)?;
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+fn collect_text_calls_in_expression(
+    expression: &Expression,
+    bindings: &BTreeMap<String, RdfTerm>,
+    calls: &mut Vec<TextCall>,
+) -> Result<(), QueryError> {
+    match expression {
+        Expression::FunctionCall(Function::Custom(function), arguments)
+            if function.as_str() == MATCHES_TEXT =>
+        {
+            let [Expression::Variable(content), needle] = arguments.as_slice() else {
+                return Err(QueryError::Disallowed(
+                    "neo:matchesText requires a content variable and a literal or bound needle"
+                        .into(),
+                ));
+            };
+            let needle = match needle {
+                Expression::Literal(needle) => TextNeedle::Literal(needle.value().to_owned()),
+                Expression::Variable(variable) if binding_literal(variable, bindings).is_some() => {
+                    TextNeedle::Binding(variable.clone())
+                }
+                _ => {
+                    return Err(QueryError::Disallowed(
+                        "neo:matchesText needle must be a literal or bound literal parameter"
+                            .into(),
+                    ));
+                }
+            };
+            calls.push(TextCall {
+                content: content.clone(),
+                needle,
+            });
+        }
+        Expression::Exists(pattern) => collect_text_calls(pattern, bindings, calls)?,
+        Expression::Or(left, right)
+        | Expression::And(left, right)
+        | Expression::Equal(left, right)
+        | Expression::SameTerm(left, right)
+        | Expression::Greater(left, right)
+        | Expression::GreaterOrEqual(left, right)
+        | Expression::Less(left, right)
+        | Expression::LessOrEqual(left, right)
+        | Expression::Add(left, right)
+        | Expression::Subtract(left, right)
+        | Expression::Multiply(left, right)
+        | Expression::Divide(left, right) => {
+            collect_text_calls_in_expression(left, bindings, calls)?;
+            collect_text_calls_in_expression(right, bindings, calls)?;
+        }
+        Expression::UnaryPlus(inner) | Expression::UnaryMinus(inner) | Expression::Not(inner) => {
+            collect_text_calls_in_expression(inner, bindings, calls)?
+        }
+        Expression::If(condition, left, right) => {
+            collect_text_calls_in_expression(condition, bindings, calls)?;
+            collect_text_calls_in_expression(left, bindings, calls)?;
+            collect_text_calls_in_expression(right, bindings, calls)?;
+        }
+        Expression::In(left, right) => {
+            collect_text_calls_in_expression(left, bindings, calls)?;
+            for expression in right {
+                collect_text_calls_in_expression(expression, bindings, calls)?;
+            }
+        }
+        Expression::Coalesce(expressions) | Expression::FunctionCall(_, expressions) => {
+            for expression in expressions {
+                collect_text_calls_in_expression(expression, bindings, calls)?;
+            }
+        }
+        Expression::NamedNode(_)
+        | Expression::Literal(_)
+        | Expression::Variable(_)
+        | Expression::Bound(_) => {}
+    }
+    Ok(())
+}
+
+fn binding_literal<'a>(
+    variable: &Variable,
+    bindings: &'a BTreeMap<String, RdfTerm>,
+) -> Option<&'a str> {
+    bindings.iter().find_map(|(name, term)| {
+        if name.trim_start_matches(['?', '$']) != variable.as_str() {
+            return None;
+        }
+        match term {
+            RdfTerm::Literal { value, .. } => Some(value.as_str()),
+            RdfTerm::Iri { .. } => None,
+        }
+    })
+}
+
+fn resolve_text_needle(call: &TextCall, bindings: &BTreeMap<String, RdfTerm>) -> Option<String> {
+    match &call.needle {
+        TextNeedle::Literal(value) => Some(value.clone()),
+        TextNeedle::Binding(variable) => binding_literal(variable, bindings).map(str::to_owned),
+    }
+}
+
+fn pattern_has_text_object(pattern: &GraphPattern, variable: &Variable) -> bool {
+    match pattern {
+        GraphPattern::Bgp { patterns } => patterns.iter().any(|pattern| {
+            matches!(
+                (&pattern.predicate, &pattern.object),
+                (NamedNodePattern::NamedNode(predicate), TermPattern::Variable(object))
+                    if (predicate.as_str() == NEO_CONTENT || predicate.as_str() == NEO_NAME)
+                        && object == variable
+            )
+        }),
+        GraphPattern::Path { .. } | GraphPattern::Values { .. } => false,
+        GraphPattern::Join { left, right }
+        | GraphPattern::Lateral { left, right }
+        | GraphPattern::Union { left, right }
+        | GraphPattern::Minus { left, right } => {
+            pattern_has_text_object(left, variable) || pattern_has_text_object(right, variable)
+        }
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
+            pattern_has_text_object(left, variable)
+                || pattern_has_text_object(right, variable)
+                || expression
+                    .as_ref()
+                    .is_some_and(|expression| expression_has_text_object(expression, variable))
+        }
+        GraphPattern::Filter { inner, expr } => {
+            pattern_has_text_object(inner, variable) || expression_has_text_object(expr, variable)
+        }
+        GraphPattern::Extend {
+            inner, expression, ..
+        } => {
+            pattern_has_text_object(inner, variable)
+                || expression_has_text_object(expression, variable)
+        }
+        GraphPattern::OrderBy { inner, expression } => {
+            pattern_has_text_object(inner, variable)
+                || expression.iter().any(|order| match order {
+                    spargebra::algebra::OrderExpression::Asc(expression)
+                    | spargebra::algebra::OrderExpression::Desc(expression) => {
+                        expression_has_text_object(expression, variable)
+                    }
+                })
+        }
+        GraphPattern::Group {
+            inner, aggregates, ..
+        } => {
+            pattern_has_text_object(inner, variable)
+                || aggregates.iter().any(|(_, aggregate)| match aggregate {
+                    spargebra::algebra::AggregateExpression::CountSolutions { .. } => false,
+                    spargebra::algebra::AggregateExpression::FunctionCall { expr, .. } => {
+                        expression_has_text_object(expr, variable)
+                    }
+                })
+        }
+        GraphPattern::Graph { inner, .. }
+        | GraphPattern::Service { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. } => pattern_has_text_object(inner, variable),
+    }
+}
+
+fn expression_has_text_object(expression: &Expression, variable: &Variable) -> bool {
+    match expression {
+        Expression::Exists(pattern) => pattern_has_text_object(pattern, variable),
+        Expression::Or(left, right)
+        | Expression::And(left, right)
+        | Expression::Equal(left, right)
+        | Expression::SameTerm(left, right)
+        | Expression::Greater(left, right)
+        | Expression::GreaterOrEqual(left, right)
+        | Expression::Less(left, right)
+        | Expression::LessOrEqual(left, right)
+        | Expression::Add(left, right)
+        | Expression::Subtract(left, right)
+        | Expression::Multiply(left, right)
+        | Expression::Divide(left, right) => {
+            expression_has_text_object(left, variable)
+                || expression_has_text_object(right, variable)
+        }
+        Expression::UnaryPlus(inner) | Expression::UnaryMinus(inner) | Expression::Not(inner) => {
+            expression_has_text_object(inner, variable)
+        }
+        Expression::If(condition, left, right) => {
+            expression_has_text_object(condition, variable)
+                || expression_has_text_object(left, variable)
+                || expression_has_text_object(right, variable)
+        }
+        Expression::In(left, right) => {
+            expression_has_text_object(left, variable)
+                || right
+                    .iter()
+                    .any(|expression| expression_has_text_object(expression, variable))
+        }
+        Expression::Coalesce(expressions) | Expression::FunctionCall(_, expressions) => expressions
+            .iter()
+            .any(|expression| expression_has_text_object(expression, variable)),
+        Expression::NamedNode(_)
+        | Expression::Literal(_)
+        | Expression::Variable(_)
+        | Expression::Bound(_) => false,
+    }
+}
+
+struct SimpleCore<'a> {
+    mandatory: Vec<&'a TriplePattern>,
+    optional: Vec<&'a TriplePattern>,
+    filters: Vec<&'a Expression>,
+}
+
+enum TopKOrder {
+    Subject { descending: bool },
+    Property { predicate: String, descending: bool },
+}
+
+fn select_top_k_candidates(
+    query: &Query,
+    bindings: &BTreeMap<String, RdfTerm>,
+    text_index: &TextIndex,
+    property_index: &PropertyIndex,
+    normalized_text: &HashMap<String, String>,
+) -> Result<Option<Vec<String>>, QueryError> {
+    // Below this measured crossover, even analyzing and intersecting sidecar
+    // postings costs more than letting Oxigraph execute the full query.
+    if text_index.len() < MIN_TOP_K_ENTITY_COUNT {
+        return Ok(None);
+    }
+    let pattern = match query {
+        Query::Select { pattern, .. } => pattern,
+        Query::Ask { .. } | Query::Construct { .. } | Query::Describe { .. } => return Ok(None),
+    };
+    let Some((core, order, take)) = top_k_parts(pattern) else {
+        return Ok(None);
+    };
+    let Some(simple) = simple_core(core) else {
+        return Ok(None);
+    };
+    let Some(root) = simple_root(&simple) else {
+        return Ok(None);
+    };
+    if !optional_connected(&simple.optional, &root) {
+        return Ok(None);
+    }
+
+    let mut variable_predicates = HashMap::<Variable, String>::new();
+    let mut optional_predicates = HashMap::<Variable, String>::new();
+    let mut candidates = None::<RoaringBitmap>;
+    let mut deferred = Vec::new();
+    let mut has_type = false;
+    for triple in &simple.mandatory {
+        let TermPattern::Variable(subject) = &triple.subject else {
+            return Ok(None);
+        };
+        if *subject != root {
+            return Ok(None);
+        }
+        let NamedNodePattern::NamedNode(predicate) = &triple.predicate else {
+            return Ok(None);
+        };
+        let predicate = predicate.as_str().to_owned();
+        if predicate == rdf::TYPE.as_str() {
+            has_type = true;
+        }
+        match &triple.object {
+            TermPattern::NamedNode(value) => intersect_candidates(
+                &mut candidates,
+                property_index.exact(&predicate, &value.clone().into()),
+            ),
+            TermPattern::Literal(value) => intersect_candidates(
+                &mut candidates,
+                property_index.exact(&predicate, &value.clone().into()),
+            ),
+            TermPattern::Variable(variable) => {
+                if let Some(value) = binding_term(variable, bindings)? {
+                    intersect_candidates(&mut candidates, property_index.exact(&predicate, &value));
+                } else {
+                    if variable_predicates
+                        .insert(variable.clone(), predicate.clone())
+                        .is_some_and(|previous| previous != predicate)
+                    {
+                        return Ok(None);
+                    }
+                    deferred.push((variable.clone(), predicate));
+                }
+            }
+            TermPattern::BlankNode(_) => return Ok(None),
+        }
+    }
+    if !has_type {
+        return Ok(None);
+    }
+    for triple in &simple.optional {
+        let (
+            TermPattern::Variable(subject),
+            NamedNodePattern::NamedNode(predicate),
+            TermPattern::Variable(variable),
+        ) = (&triple.subject, &triple.predicate, &triple.object)
+        else {
+            continue;
+        };
+        if *subject == root {
+            optional_predicates
+                .entry(variable.clone())
+                .or_insert_with(|| predicate.as_str().to_owned());
+        }
+    }
+
+    let mut used_variables = HashSet::new();
+    for filter in &simple.filters {
+        let mut leaves = Vec::new();
+        if !filter_leaves(filter, &mut leaves) {
+            return Ok(None);
+        }
+        for leaf in leaves {
+            match leaf {
+                Expression::FunctionCall(Function::Custom(function), arguments)
+                    if function.as_str() == MATCHES_TEXT =>
+                {
+                    let [Expression::Variable(content), needle] = arguments.as_slice() else {
+                        return Ok(None);
+                    };
+                    let Some(predicate) = variable_predicates.get(content) else {
+                        return Ok(None);
+                    };
+                    if predicate != NEO_CONTENT && predicate != NEO_NAME {
+                        return Ok(None);
+                    }
+                    let Some(needle) = expression_literal(needle, bindings)? else {
+                        return Ok(None);
+                    };
+                    let Some(matches) = text_index.candidate_ids(&needle, normalized_text) else {
+                        return Ok(None);
+                    };
+                    intersect_candidates(&mut candidates, matches);
+                    used_variables.insert(content.clone());
+                }
+                Expression::Equal(left, right)
+                | Expression::Less(left, right)
+                | Expression::LessOrEqual(left, right)
+                | Expression::Greater(left, right)
+                | Expression::GreaterOrEqual(left, right) => {
+                    let comparison = match leaf {
+                        Expression::Equal(_, _) => Comparison::Equal,
+                        Expression::Less(_, _) => Comparison::Less,
+                        Expression::LessOrEqual(_, _) => Comparison::LessOrEqual,
+                        Expression::Greater(_, _) => Comparison::Greater,
+                        Expression::GreaterOrEqual(_, _) => Comparison::GreaterOrEqual,
+                        _ => unreachable!(),
+                    };
+                    let Some((variable, value, comparison)) =
+                        comparison_parts(left, right, comparison, bindings)?
+                    else {
+                        return Ok(None);
+                    };
+                    let Some(predicate) = variable_predicates.get(&variable) else {
+                        return Ok(None);
+                    };
+                    let matches = if let Some(value) = ordered_value(&value) {
+                        property_index.compare(predicate, comparison, &value)
+                    } else if matches!(comparison, Comparison::Equal) {
+                        property_index.exact(predicate, &value)
+                    } else {
+                        return Ok(None);
+                    };
+                    intersect_candidates(&mut candidates, matches);
+                    used_variables.insert(variable);
+                }
+                Expression::In(left, values) => {
+                    let Expression::Variable(variable) = left.as_ref() else {
+                        return Ok(None);
+                    };
+                    let Some(predicate) = variable_predicates.get(variable) else {
+                        return Ok(None);
+                    };
+                    let mut matches = RoaringBitmap::new();
+                    for value in values {
+                        let Some(value) = expression_term(value, bindings)? else {
+                            return Ok(None);
+                        };
+                        if let Some(value) = ordered_value(&value) {
+                            matches |= property_index.compare(predicate, Comparison::Equal, &value);
+                        } else {
+                            matches |= property_index.exact(predicate, &value);
+                        }
+                    }
+                    intersect_candidates(&mut candidates, matches);
+                    used_variables.insert(variable.clone());
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+    for (variable, predicate) in deferred {
+        if used_variables.contains(&variable) {
+            continue;
+        }
+        if predicate == NEO_CONTENT || predicate == NEO_NAME {
+            continue;
+        }
+        intersect_candidates(&mut candidates, property_index.presence(&predicate));
+    }
+    let Some(candidates) = candidates else {
+        return Ok(None);
+    };
+    let order = match top_k_order(
+        order,
+        &root,
+        &variable_predicates,
+        &optional_predicates,
+        property_index,
+    ) {
+        Some(order) => order,
+        None => return Ok(None),
+    };
+    // Building the bounded RDF dataset has a fixed cost. For small candidate
+    // sets Oxigraph's native top-k is cheaper; the sidecar wins beyond this
+    // measured crossover.
+    if candidates.len() < MIN_TOP_K_CANDIDATE_COUNT {
+        return Ok(None);
+    }
+    let selected = match order {
+        TopKOrder::Subject { descending } => {
+            if descending {
+                let mut subjects = BinaryHeap::<Reverse<String>>::new();
+                for subject in candidates.iter().filter_map(|id| text_index.subject(id)) {
+                    if subjects.len() < take {
+                        subjects.push(Reverse(subject.to_owned()));
+                    } else if subjects
+                        .peek()
+                        .is_some_and(|smallest| subject > smallest.0.as_str())
+                    {
+                        subjects.pop();
+                        subjects.push(Reverse(subject.to_owned()));
+                    }
+                }
+                let mut subjects = subjects
+                    .into_iter()
+                    .map(|Reverse(subject)| subject)
+                    .collect::<Vec<_>>();
+                subjects.sort_by(|left, right| right.cmp(left));
+                subjects
+            } else {
+                let mut subjects = BinaryHeap::<String>::new();
+                for subject in candidates.iter().filter_map(|id| text_index.subject(id)) {
+                    if subjects.len() < take {
+                        subjects.push(subject.to_owned());
+                    } else if subjects
+                        .peek()
+                        .is_some_and(|largest| subject < largest.as_str())
+                    {
+                        subjects.pop();
+                        subjects.push(subject.to_owned());
+                    }
+                }
+                let mut subjects = subjects.into_vec();
+                subjects.sort();
+                subjects
+            }
+        }
+        TopKOrder::Property {
+            predicate,
+            descending,
+        } => property_index.ordered_subjects(&predicate, &candidates, descending, take, text_index),
+    };
+    Ok(Some(selected))
+}
+
+fn top_k_parts(pattern: &GraphPattern) -> Option<(&GraphPattern, &[OrderExpression], usize)> {
+    let mut current = pattern;
+    let mut order = None;
+    let mut slice = None;
+    loop {
+        current = match current {
+            GraphPattern::Slice {
+                inner,
+                start,
+                length: Some(length),
+            } if slice.is_none() => {
+                slice = start.checked_add(*length);
+                inner
+            }
+            GraphPattern::OrderBy { inner, expression } if order.is_none() => {
+                order = Some(expression.as_slice());
+                inner
+            }
+            GraphPattern::Project { inner, .. } => inner,
+            GraphPattern::Distinct { .. }
+            | GraphPattern::Reduced { .. }
+            | GraphPattern::Group { .. } => return None,
+            _ => break,
+        };
+    }
+    Some((current, order?, slice?))
+}
+
+fn simple_core(pattern: &GraphPattern) -> Option<SimpleCore<'_>> {
+    let mut result = SimpleCore {
+        mandatory: Vec::new(),
+        optional: Vec::new(),
+        filters: Vec::new(),
+    };
+    if collect_simple_core(pattern, &mut result) {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+fn collect_simple_core<'a>(pattern: &'a GraphPattern, result: &mut SimpleCore<'a>) -> bool {
+    match pattern {
+        GraphPattern::Bgp { patterns } => result.mandatory.extend(patterns),
+        GraphPattern::Join { left, right } => {
+            return collect_simple_core(left, result) && collect_simple_core(right, result);
+        }
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
+            if expression.is_some() {
+                return false;
+            }
+            if !collect_simple_core(left, result)
+                || !collect_optional_triples(right, &mut result.optional)
+            {
+                return false;
+            }
+        }
+        GraphPattern::Filter { expr, inner } => {
+            if !collect_simple_core(inner, result) {
+                return false;
+            }
+            result.filters.push(expr);
+        }
+        GraphPattern::Extend { inner, .. } => return collect_simple_core(inner, result),
+        GraphPattern::Path { .. }
+        | GraphPattern::Values { .. }
+        | GraphPattern::Lateral { .. }
+        | GraphPattern::Union { .. }
+        | GraphPattern::Graph { .. }
+        | GraphPattern::Minus { .. }
+        | GraphPattern::Service { .. }
+        | GraphPattern::OrderBy { .. }
+        | GraphPattern::Project { .. }
+        | GraphPattern::Distinct { .. }
+        | GraphPattern::Reduced { .. }
+        | GraphPattern::Slice { .. }
+        | GraphPattern::Group { .. } => return false,
+    }
+    true
+}
+
+fn collect_optional_triples<'a>(
+    pattern: &'a GraphPattern,
+    triples: &mut Vec<&'a TriplePattern>,
+) -> bool {
+    match pattern {
+        GraphPattern::Bgp { patterns } => triples.extend(patterns),
+        GraphPattern::Join { left, right } => {
+            return collect_optional_triples(left, triples)
+                && collect_optional_triples(right, triples);
+        }
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
+            if expression.is_some() {
+                return false;
+            }
+            return collect_optional_triples(left, triples)
+                && collect_optional_triples(right, triples);
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn optional_connected(triples: &[&TriplePattern], root: &Variable) -> bool {
+    let mut depths = HashMap::from([(root.clone(), 0_u8)]);
+    let mut remaining = (0..triples.len()).collect::<BTreeSet<_>>();
+    loop {
+        let mut resolved = Vec::new();
+        for index in &remaining {
+            let triple = triples[*index];
+            let (TermPattern::Variable(subject), NamedNodePattern::NamedNode(_)) =
+                (&triple.subject, &triple.predicate)
+            else {
+                return false;
+            };
+            let Some(depth) = depths.get(subject).copied() else {
+                continue;
+            };
+            if depth > 2 {
+                return false;
+            }
+            if let TermPattern::Variable(object) = &triple.object {
+                depths.entry(object.clone()).or_insert(depth + 1);
+            }
+            resolved.push(*index);
+        }
+        if resolved.is_empty() {
+            return remaining.is_empty();
+        }
+        for index in resolved {
+            remaining.remove(&index);
+        }
+    }
+}
+
+fn simple_root(simple: &SimpleCore<'_>) -> Option<Variable> {
+    let mut root = None;
+    for triple in &simple.mandatory {
+        let (
+            TermPattern::Variable(subject),
+            NamedNodePattern::NamedNode(predicate),
+            TermPattern::NamedNode(kind),
+        ) = (&triple.subject, &triple.predicate, &triple.object)
+        else {
+            continue;
+        };
+        if predicate.as_str() != rdf::TYPE.as_str()
+            || !matches!(
+                kind.as_str(),
+                "urn:neoseq:vocab:v1:Block"
+                    | "urn:neoseq:vocab:v1:Page"
+                    | "urn:neoseq:vocab:v1:Tag"
+            )
+        {
+            continue;
+        }
+        if root.as_ref().is_some_and(|root| root != subject) {
+            return None;
+        }
+        root = Some(subject.clone());
+    }
+    root
+}
+
+fn filter_leaves<'a>(expression: &'a Expression, leaves: &mut Vec<&'a Expression>) -> bool {
+    if let Expression::And(left, right) = expression {
+        filter_leaves(left, leaves) && filter_leaves(right, leaves)
+    } else if matches!(
+        expression,
+        Expression::FunctionCall(Function::Custom(function), _) if function.as_str() == MATCHES_TEXT
+    ) || matches!(
+        expression,
+        Expression::Equal(_, _)
+            | Expression::Less(_, _)
+            | Expression::LessOrEqual(_, _)
+            | Expression::Greater(_, _)
+            | Expression::GreaterOrEqual(_, _)
+            | Expression::In(_, _)
+    ) {
+        leaves.push(expression);
+        true
+    } else {
+        false
+    }
+}
+
+fn comparison_parts(
+    left: &Expression,
+    right: &Expression,
+    comparison: Comparison,
+    bindings: &BTreeMap<String, RdfTerm>,
+) -> Result<Option<(Variable, Term, Comparison)>, QueryError> {
+    if let Expression::Variable(variable) = left
+        && let Some(value) = expression_term(right, bindings)?
+    {
+        return Ok(Some((variable.clone(), value, comparison)));
+    }
+    if let Expression::Variable(variable) = right
+        && let Some(value) = expression_term(left, bindings)?
+    {
+        return Ok(Some((variable.clone(), value, comparison.reverse())));
+    }
+    Ok(None)
+}
+
+fn expression_literal(
+    expression: &Expression,
+    bindings: &BTreeMap<String, RdfTerm>,
+) -> Result<Option<String>, QueryError> {
+    match expression {
+        Expression::Literal(value) => Ok(Some(value.value().to_owned())),
+        Expression::Variable(variable) => {
+            Ok(binding_literal(variable, bindings).map(str::to_owned))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn expression_term(
+    expression: &Expression,
+    bindings: &BTreeMap<String, RdfTerm>,
+) -> Result<Option<Term>, QueryError> {
+    match expression {
+        Expression::NamedNode(value) => Ok(Some(value.clone().into())),
+        Expression::Literal(value) => Ok(Some(value.clone().into())),
+        Expression::Variable(variable) => binding_term(variable, bindings),
+        _ => Ok(None),
+    }
+}
+
+fn binding_term(
+    variable: &Variable,
+    bindings: &BTreeMap<String, RdfTerm>,
+) -> Result<Option<Term>, QueryError> {
+    let Some((_, value)) = bindings
+        .iter()
+        .find(|(name, _)| name.trim_start_matches(['?', '$']) == variable.as_str())
+    else {
+        return Ok(None);
+    };
+    let value = to_ground_term(value.clone())?;
+    Ok(Some(match value {
+        GroundTerm::NamedNode(value) => value.into(),
+        GroundTerm::Literal(value) => value.into(),
+    }))
+}
+
+fn intersect_candidates(current: &mut Option<RoaringBitmap>, next: RoaringBitmap) {
+    if let Some(current) = current {
+        *current &= next;
+    } else {
+        *current = Some(next);
+    }
+}
+
+fn top_k_order(
+    order: &[OrderExpression],
+    root: &Variable,
+    mandatory: &HashMap<Variable, String>,
+    optional: &HashMap<Variable, String>,
+    property_index: &PropertyIndex,
+) -> Option<TopKOrder> {
+    let mut property = None::<(Variable, bool)>;
+    let mut subject_direction = None;
+    let mut other = Vec::new();
+    for order in order {
+        let (descending, expression) = match order {
+            OrderExpression::Asc(expression) => (false, expression),
+            OrderExpression::Desc(expression) => (true, expression),
+        };
+        if let Expression::Variable(variable) = expression {
+            if variable == root {
+                subject_direction = Some(descending);
+            } else if property
+                .replace((variable.clone(), descending))
+                .is_some_and(|(previous, _)| previous != *variable)
+            {
+                return None;
+            }
+        } else {
+            other.push((descending, expression));
+        }
+    }
+    if let Some((variable, descending)) = property {
+        // Optional property variables can be unbound. The query compiler emits
+        // an explicit BOUND bucket to keep those rows last; without it, SPARQL
+        // has direction-dependent error ordering that this fast path does not
+        // try to reproduce.
+        if optional.contains_key(&variable) && other.is_empty() {
+            return None;
+        }
+        if other
+            .iter()
+            .any(|(descending, expression)| *descending || !is_bound_last(expression, &variable))
+        {
+            return None;
+        }
+        if subject_direction.unwrap_or(false) {
+            return None;
+        }
+        let predicate = mandatory
+            .get(&variable)
+            .or_else(|| optional.get(&variable))?;
+        if !property_index.has_ordered(predicate) {
+            return None;
+        }
+        Some(TopKOrder::Property {
+            predicate: predicate.clone(),
+            descending,
+        })
+    } else {
+        if !other.is_empty() {
+            return None;
+        }
+        Some(TopKOrder::Subject {
+            descending: subject_direction?,
+        })
+    }
+}
+
+fn is_bound_last(expression: &Expression, variable: &Variable) -> bool {
+    matches!(
+        expression,
+        Expression::If(condition, when_bound, when_missing)
+            if matches!(condition.as_ref(), Expression::Bound(bound) if bound == variable)
+                && matches!(when_bound.as_ref(), Expression::Literal(value) if value.value() == "0")
+                && matches!(when_missing.as_ref(), Expression::Literal(value) if value.value() == "1")
+    )
+}
+
+fn inject_text_candidates(
+    query: &mut Query,
+    bindings: &BTreeMap<String, RdfTerm>,
+    index: &TextIndex,
+    normalized_text: &HashMap<String, String>,
+) -> Result<(), QueryError> {
+    let pattern = match query {
+        Query::Select { pattern, .. } | Query::Ask { pattern, .. } => pattern,
+        Query::Construct { .. } | Query::Describe { .. } => return Ok(()),
+    };
+    let core = query_core_pattern(pattern);
+    let mut text_subjects = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    collect_mandatory_text_subjects(core, &mut text_subjects, &mut ambiguous);
+    let mut calls = Vec::new();
+    collect_mandatory_text_calls(core, &mut calls);
+
+    let mut by_subject = BTreeMap::<Variable, BTreeSet<String>>::new();
+    for call in calls {
+        let Some(subject) = text_subjects.get(&call.content) else {
+            continue;
+        };
+        if ambiguous.contains(&call.content) {
+            continue;
+        }
+        let Some(needle) = resolve_text_needle(&call, bindings) else {
+            continue;
+        };
+        let Some(candidates) = index.candidates(&needle, normalized_text) else {
+            continue;
+        };
+        if !candidates.is_empty()
+            && (candidates.len() > 100_000 || candidates.len().saturating_mul(4) > index.len())
+        {
+            continue;
+        }
+        let candidates = candidates.into_iter().collect::<BTreeSet<_>>();
+        by_subject
+            .entry(subject.clone())
+            .and_modify(|current| current.retain(|candidate| candidates.contains(candidate)))
+            .or_insert(candidates);
+    }
+    for (subject, candidates) in by_subject {
+        let rows = candidates
+            .into_iter()
+            .map(|candidate| Ok(vec![Some(named(&candidate)?.into())]))
+            .collect::<Result<Vec<Vec<Option<GroundTerm>>>, QueryError>>()?;
+        inject_values(pattern, vec![subject], rows);
+    }
+    Ok(())
+}
+
+fn query_core_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
+    loop {
+        pattern = match pattern {
+            GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Project { inner, .. }
+            | GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::Group { inner, .. } => inner,
+            _ => return pattern,
+        };
+    }
+}
+
+fn collect_mandatory_text_subjects(
+    pattern: &GraphPattern,
+    subjects: &mut HashMap<Variable, Variable>,
+    ambiguous: &mut HashSet<Variable>,
+) {
+    match pattern {
+        GraphPattern::Bgp { patterns } => {
+            for pattern in patterns {
+                let (
+                    TermPattern::Variable(subject),
+                    NamedNodePattern::NamedNode(predicate),
+                    TermPattern::Variable(content),
+                ) = (&pattern.subject, &pattern.predicate, &pattern.object)
+                else {
+                    continue;
+                };
+                if predicate.as_str() != NEO_CONTENT && predicate.as_str() != NEO_NAME {
+                    continue;
+                }
+                if subjects
+                    .insert(content.clone(), subject.clone())
+                    .is_some_and(|previous| previous != *subject)
+                {
+                    ambiguous.insert(content.clone());
+                }
+            }
+        }
+        GraphPattern::Join { left, right } => {
+            collect_mandatory_text_subjects(left, subjects, ambiguous);
+            collect_mandatory_text_subjects(right, subjects, ambiguous);
+        }
+        GraphPattern::LeftJoin { left, .. }
+        | GraphPattern::Lateral { left, .. }
+        | GraphPattern::Minus { left, .. } => {
+            collect_mandatory_text_subjects(left, subjects, ambiguous);
+        }
+        GraphPattern::Filter { inner, .. } | GraphPattern::Extend { inner, .. } => {
+            collect_mandatory_text_subjects(inner, subjects, ambiguous);
+        }
+        GraphPattern::Path { .. }
+        | GraphPattern::Union { .. }
+        | GraphPattern::Graph { .. }
+        | GraphPattern::Service { .. }
+        | GraphPattern::Values { .. }
+        | GraphPattern::OrderBy { .. }
+        | GraphPattern::Project { .. }
+        | GraphPattern::Distinct { .. }
+        | GraphPattern::Reduced { .. }
+        | GraphPattern::Slice { .. }
+        | GraphPattern::Group { .. } => {}
+    }
+}
+
+fn collect_mandatory_text_calls(pattern: &GraphPattern, calls: &mut Vec<TextCall>) {
+    match pattern {
+        GraphPattern::Join { left, right } => {
+            collect_mandatory_text_calls(left, calls);
+            collect_mandatory_text_calls(right, calls);
+        }
+        GraphPattern::LeftJoin { left, .. }
+        | GraphPattern::Lateral { left, .. }
+        | GraphPattern::Minus { left, .. } => {
+            collect_mandatory_text_calls(left, calls);
+        }
+        GraphPattern::Filter { expr, inner } => {
+            collect_conjunctive_text_calls(expr, calls);
+            collect_mandatory_text_calls(inner, calls);
+        }
+        GraphPattern::Extend { inner, .. } => collect_mandatory_text_calls(inner, calls),
+        GraphPattern::Bgp { .. }
+        | GraphPattern::Path { .. }
+        | GraphPattern::Union { .. }
+        | GraphPattern::Graph { .. }
+        | GraphPattern::Service { .. }
+        | GraphPattern::Values { .. }
+        | GraphPattern::OrderBy { .. }
+        | GraphPattern::Project { .. }
+        | GraphPattern::Distinct { .. }
+        | GraphPattern::Reduced { .. }
+        | GraphPattern::Slice { .. }
+        | GraphPattern::Group { .. } => {}
+    }
+}
+
+fn collect_conjunctive_text_calls(expression: &Expression, calls: &mut Vec<TextCall>) {
+    match expression {
+        Expression::And(left, right) => {
+            collect_conjunctive_text_calls(left, calls);
+            collect_conjunctive_text_calls(right, calls);
+        }
+        Expression::FunctionCall(Function::Custom(function), arguments)
+            if function.as_str() == MATCHES_TEXT =>
+        {
+            if let [Expression::Variable(content), needle] = arguments.as_slice() {
+                let needle = match needle {
+                    Expression::Literal(needle) => {
+                        Some(TextNeedle::Literal(needle.value().to_owned()))
+                    }
+                    Expression::Variable(variable) => Some(TextNeedle::Binding(variable.clone())),
+                    _ => None,
+                };
+                if let Some(needle) = needle {
+                    calls.push(TextCall {
+                        content: content.clone(),
+                        needle,
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn inject_query_bindings(
@@ -921,7 +2474,7 @@ fn inject_query_bindings(
             ));
         }
     };
-    inject_values(pattern, variables, row);
+    inject_values(pattern, variables, vec![row]);
     Ok(())
 }
 
@@ -931,7 +2484,7 @@ fn inject_query_bindings(
 fn inject_values(
     pattern: &mut GraphPattern,
     variables: Vec<Variable>,
-    row: Vec<Option<GroundTerm>>,
+    rows: Vec<Vec<Option<GroundTerm>>>,
 ) {
     match pattern {
         GraphPattern::Filter { inner, .. }
@@ -941,13 +2494,13 @@ fn inject_values(
         | GraphPattern::Distinct { inner }
         | GraphPattern::Reduced { inner }
         | GraphPattern::Slice { inner, .. }
-        | GraphPattern::Group { inner, .. } => inject_values(inner, variables, row),
+        | GraphPattern::Group { inner, .. } => inject_values(inner, variables, rows),
         _ => {
             let original = std::mem::replace(pattern, GraphPattern::Bgp { patterns: vec![] });
             *pattern = GraphPattern::Join {
                 left: Box::new(GraphPattern::Values {
                     variables,
-                    bindings: vec![row],
+                    bindings: rows,
                 }),
                 right: Box::new(original),
             };
@@ -1069,18 +2622,6 @@ fn write_entity_diff(
     }
 }
 
-fn insert_text_cache(
-    counts: &mut HashMap<String, usize>,
-    normalized: &mut HashMap<String, String>,
-    value: &str,
-) {
-    let count = counts.entry(value.to_owned()).or_default();
-    *count += 1;
-    if *count == 1 {
-        normalized.insert(value.to_owned(), normalize_text(value));
-    }
-}
-
 fn snapshot_fingerprint(snapshot: &GraphSnapshot) -> Result<String, QueryError> {
     let bytes =
         serde_json::to_vec(snapshot).map_err(|error| QueryError::Index(error.to_string()))?;
@@ -1170,6 +2711,39 @@ mod tests {
         }
     }
 
+    fn ordered_snapshot(block_count: usize) -> GraphSnapshot {
+        GraphSnapshot {
+            schema_version: 1,
+            graph_id: GraphId::new("ordered-query").unwrap(),
+            pages: vec![PageSnapshot {
+                id: PageId::new("ordered-page").unwrap(),
+                title: "Ordered".into(),
+                properties: vec![],
+                tags: vec![],
+                blocks: (0..block_count)
+                    .map(|index| BlockSnapshot {
+                        id: BlockId::new(format!("block-{index:05}")).unwrap(),
+                        markdown: format!("Block {index}"),
+                        properties: vec![
+                            single("builtin.task-status", PropertyValue::String("todo".into())),
+                            single(
+                                "builtin.task-deadline",
+                                PropertyValue::Date(
+                                    LocalDate::new(format!("2026-08-{:02}", index % 15 + 1))
+                                        .unwrap(),
+                                ),
+                            ),
+                        ],
+                        tags: vec![],
+                        children: vec![],
+                    })
+                    .collect(),
+            }],
+            tags: vec![],
+            quarantined: vec![],
+        }
+    }
+
     fn request(source: &str) -> QueryRequest {
         QueryRequest {
             language: QUERY_LANGUAGE.into(),
@@ -1177,6 +2751,213 @@ mod tests {
             bindings: BTreeMap::new(),
             budget: QueryBudget::default(),
         }
+    }
+
+    #[test]
+    fn trigram_postings_return_exact_candidates_and_track_replacements() {
+        let mut index = TextIndex::default();
+        let mut normalized = HashMap::new();
+        index
+            .insert(
+                "urn:first".into(),
+                "Alpha, Query Engine".into(),
+                &mut normalized,
+            )
+            .unwrap();
+        index
+            .insert(
+                "urn:second".into(),
+                "Alpha elsewhere".into(),
+                &mut normalized,
+            )
+            .unwrap();
+
+        assert_eq!(
+            index.candidates("query engine", &normalized).unwrap(),
+            ["urn:first"]
+        );
+        assert!(
+            index
+                .candidates("missing trigram", &normalized)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(index.candidates("qu", &normalized).is_none());
+
+        index
+            .insert("urn:first".into(), "Replaced text".into(), &mut normalized)
+            .unwrap();
+        assert!(
+            index
+                .candidates("query engine", &normalized)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            index.candidates("replaced", &normalized).unwrap(),
+            ["urn:first"]
+        );
+        index.remove("urn:first", &mut normalized);
+        assert!(
+            index
+                .candidates("replaced", &normalized)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn matches_text_enforces_its_plannable_shape() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        for source in [
+            "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { FILTER(neo:matchesText(\"content\", \"needle\")) }",
+            "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { ?item neo:content ?content . FILTER(neo:matchesText(?content, ?needle)) }",
+            "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { ?item neo:page ?content . FILTER(neo:matchesText(?content, \"needle\")) }",
+        ] {
+            assert!(matches!(
+                index.execute(request(source)),
+                Err(QueryError::Disallowed(_))
+            ));
+        }
+
+        assert!(matches!(
+            index
+                .execute(request(
+                    "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { ?tag neo:name ?name . FILTER(neo:matchesText(?name, \"project\")) }",
+                ))
+                .unwrap(),
+            QueryResult::Ask { value: true, .. }
+        ));
+    }
+
+    #[test]
+    fn top_k_preselection_skips_small_property_candidate_sets() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        let mut request = request(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             PREFIX prop: <urn:neoseq:property:>\n\
+             SELECT ?block ?deadline WHERE {\n\
+               ?block a neo:Block ;\n\
+                      prop:builtin.task-status ?status ;\n\
+                      prop:builtin.task-deadline ?deadline .\n\
+               FILTER (?deadline <= ?today)\n\
+             } ORDER BY ?deadline ?block LIMIT 100",
+        );
+        request.bindings.insert(
+            "status".into(),
+            RdfTerm::Literal {
+                value: "todo".into(),
+                datatype: xsd::STRING.as_str().into(),
+                language: None,
+            },
+        );
+        request.bindings.insert(
+            "today".into(),
+            RdfTerm::Literal {
+                value: "2026-08-15".into(),
+                datatype: xsd::DATE.as_str().into(),
+                language: None,
+            },
+        );
+        let query = SparqlParser::new().parse_query(&request.source).unwrap();
+        assert!(
+            select_top_k_candidates(
+                &query,
+                &request.bindings,
+                &index.text_index,
+                &index.property_index,
+                &index.normalized_text,
+            )
+            .unwrap()
+            .is_none(),
+            "{}",
+            query.to_sse()
+        );
+        assert!(!query.to_sse().contains("(table (vars ?block)"));
+    }
+
+    #[test]
+    fn top_k_shape_rejects_inline_values_and_optional_filters() {
+        for source in [
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             SELECT ?block WHERE {\n\
+               ?block a neo:Block .\n\
+               VALUES ?block { <urn:neoseq:entity:query%20graph:block:todo-1> }\n\
+             } ORDER BY ?block LIMIT 10",
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             PREFIX prop: <urn:neoseq:property:>\n\
+             SELECT ?block ?deadline WHERE {\n\
+               ?block a neo:Block .\n\
+               OPTIONAL { ?block prop:builtin.task-deadline ?deadline .\n\
+                          FILTER(?deadline < \"2026-08-15\"^^<http://www.w3.org/2001/XMLSchema#date>) }\n\
+             } ORDER BY ASC(IF(BOUND(?deadline), 0, 1)) ?deadline ?block LIMIT 10",
+        ] {
+            let query = SparqlParser::new().parse_query(source).unwrap();
+            let Query::Select { pattern, .. } = &query else {
+                panic!("expected SELECT")
+            };
+            let (core, _, _) = top_k_parts(pattern).unwrap();
+            assert!(simple_core(core).is_none(), "{}", query.to_sse());
+        }
+    }
+
+    #[test]
+    fn ordered_property_top_k_matches_the_full_sparql_fallback() {
+        let index = GraphIndex::new(&ordered_snapshot(12_001)).unwrap();
+        let source = "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+                      PREFIX prop: <urn:neoseq:property:>\n\
+                      SELECT ?block ?deadline WHERE {\n\
+                        ?block a neo:Block ;\n\
+                               prop:builtin.task-status ?status ;\n\
+                               prop:builtin.task-deadline ?deadline .\n\
+                        FILTER (?deadline <= ?today)\n\
+                      } ORDER BY ?deadline ?block LIMIT 100";
+        let mut accelerated = request(source);
+        accelerated.bindings.insert(
+            "status".into(),
+            RdfTerm::Literal {
+                value: "todo".into(),
+                datatype: xsd::STRING.as_str().into(),
+                language: None,
+            },
+        );
+        accelerated.bindings.insert(
+            "today".into(),
+            RdfTerm::Literal {
+                value: "2026-08-15".into(),
+                datatype: xsd::DATE.as_str().into(),
+                language: None,
+            },
+        );
+        let parsed = SparqlParser::new().parse_query(source).unwrap();
+        assert_eq!(
+            select_top_k_candidates(
+                &parsed,
+                &accelerated.bindings,
+                &index.text_index,
+                &index.property_index,
+                &index.normalized_text,
+            )
+            .unwrap()
+            .unwrap()
+            .len(),
+            100
+        );
+
+        let mut fallback = accelerated.clone();
+        fallback.source = fallback
+            .source
+            .replace("} ORDER BY", "  FILTER(STRLEN(\"x\") = 1)\n} ORDER BY");
+        let QueryResult::Select {
+            rows: accelerated, ..
+        } = index.execute(accelerated).unwrap()
+        else {
+            panic!("expected SELECT")
+        };
+        let QueryResult::Select { rows: fallback, .. } = index.execute(fallback).unwrap() else {
+            panic!("expected SELECT")
+        };
+        assert_eq!(accelerated, fallback);
     }
 
     #[test]
@@ -1504,6 +3285,38 @@ mod tests {
         assert_eq!(incremental.semantic_triples(), rebuilt.semantic_triples());
         assert_eq!(incremental.frontier(), rebuilt.frontier());
         assert_eq!(incremental.triple_count(), 0);
+    }
+
+    #[test]
+    fn property_postings_track_page_replacements() {
+        let mut source = snapshot();
+        let mut index = GraphIndex::new(&source).unwrap();
+        let block = entity_iri(&source.graph_id, "block", "todo-1")
+            .unwrap()
+            .as_str()
+            .to_owned();
+        let predicate = format!("{PROPERTY_NS}builtin.task-status");
+        let todo: Term = Literal::new_simple_literal("todo").into();
+        let done: Term = Literal::new_simple_literal("done").into();
+        let id = index.text_index.id(&block).unwrap();
+        assert!(index.property_index.exact(&predicate, &todo).contains(id));
+        assert!(!index.property_index.exact(&predicate, &done).contains(id));
+
+        source.pages[0].blocks[0].properties[0] =
+            single("builtin.task-status", PropertyValue::String("done".into()));
+        index
+            .apply_delta(IndexDelta {
+                pages: vec![source.pages[0].clone()],
+                removed_pages: vec![],
+                tags: vec![],
+                removed_tags: vec![],
+                frontier: snapshot_fingerprint(&source).unwrap(),
+            })
+            .unwrap();
+
+        let id = index.text_index.id(&block).unwrap();
+        assert!(!index.property_index.exact(&predicate, &todo).contains(id));
+        assert!(index.property_index.exact(&predicate, &done).contains(id));
     }
 
     #[test]

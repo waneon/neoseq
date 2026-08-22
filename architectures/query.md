@@ -68,12 +68,19 @@ Each open graph owns an Oxigraph in-memory store backed by:
 - an RDF-term dictionary and the store's triple permutations;
 - Oxigraph's SPARQL parser, optimizer, and evaluator;
 - a compact page-to-entity-subject ledger for targeted retraction;
-- a normalized-text cache used by the versioned `neo:matchesText` function.
+- a normalized-text cache and compressed trigram postings used by the versioned
+  `neo:matchesText` function;
+- compressed exact-property postings and typed ordered property values used for
+  bounded candidate selection.
 
-The RDF store is the semantic index. V1 evaluates text matching over candidate
-`neo:content` literals selected by the RDF plan; token/trigram postings and a
-hierarchy reachability cache are compatible future accelerators, not a second
-query contract.
+The RDF store remains the semantic index. The planner recognizes only algebra
+shapes whose restriction is provably equivalent: mandatory text/range/equality
+conditions become compressed candidate intersections, and a simple ordered
+entity query may evaluate its bounded top candidates against a temporary RDF
+dataset. Oxigraph still evaluates the complete query and therefore remains the
+semantic verifier. Unsupported or ambiguous shapes fall back to the complete
+RDF store. A hierarchy reachability cache remains a compatible future
+accelerator, not a second query contract.
 
 Every runtime revision records the graph ID and sorted Loro state frontier and
 exposes projection/profile/analyzer version constants. Standalone projection
@@ -93,8 +100,10 @@ replacement includes its complete visible block tree because structural edits
 can change parent and sibling-index triples beyond the directly targeted block.
 The runtime materializes snapshots only for the named units, reprojects those
 units, reads their previous outgoing triples through the RDF subject index, and
-atomically retracts and inserts their entity-level triple differences. Text
-normalization cache entries use a compact page ledger and reference counts.
+atomically retracts and inserts their entity-level triple differences. Text and
+property postings use the same page/tag publication boundary and are updated
+with the RDF store. Their dense identifiers are private to one in-memory index
+revision and never become entity identity.
 
 Diffs that cannot be classified safely trigger the complete snapshot rebuild
 path. Full reprojection is therefore a recovery path, not the normal edit or
@@ -120,11 +129,12 @@ are rejected before planning. This fixes one local default graph and prevents
 I/O or mutation by construction. Evaluation uses simple entailment only; the
 runtime does not infer additional RDF, RDFS, or OWL triples.
 
-Markdown search uses the sole v1 extension function
+Normalized content search uses the sole v1 extension function
 `neo:matchesText(?content, ?needle)`. The first argument must be the object of an
-`neo:content` pattern and the needle must be a literal or bound parameter, which
-lets the planner use postings. Its normalization and matching rules are part of
-the analyzer-version fixture. All other expressions follow SPARQL 1.1 semantics.
+`neo:content` or `neo:name` pattern and the needle must be a literal or a bound
+literal parameter. The core validates this shape before planning so postings
+cannot change its meaning. Its normalization and matching rules are part of the
+analyzer-version fixture. All other expressions follow SPARQL 1.1 semantics.
 
 The versioned core boundary is:
 

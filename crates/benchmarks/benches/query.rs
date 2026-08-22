@@ -47,7 +47,7 @@ fn bench_query(criterion: &mut Criterion) {
     group.finish();
 }
 
-fn query_cases(block_count: usize) -> [(&'static str, QueryRequest); 4] {
+fn query_cases(block_count: usize) -> Vec<(&'static str, QueryRequest)> {
     let mut lookup_by_id = request(
         "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
          SELECT ?content WHERE { ?block neo:content ?content }",
@@ -69,7 +69,30 @@ fn query_cases(block_count: usize) -> [(&'static str, QueryRequest); 4] {
         .bindings
         .insert("page".to_owned(), iri_binding(page_iri(0)));
 
-    let mut property_filter = request(
+    let mut property_equals = request(
+        "PREFIX prop: <urn:neoseq:property:>\n\
+         SELECT ?block WHERE { ?block prop:builtin.task-status ?status } LIMIT 100",
+    );
+    property_equals
+        .bindings
+        .insert("status".to_owned(), string_binding("todo"));
+
+    let mut property_range = request(
+        "PREFIX prop: <urn:neoseq:property:>\n\
+         SELECT ?block ?deadline WHERE {\n\
+           ?block prop:builtin.task-deadline ?deadline .\n\
+           FILTER (?deadline <= ?today)\n\
+         } LIMIT 100",
+    );
+    property_range
+        .bindings
+        .insert("today".to_owned(), date_binding("2026-08-15"));
+    let mut property_range_ordered = property_range.clone();
+    property_range_ordered.source = property_range_ordered
+        .source
+        .replace("LIMIT 100", "ORDER BY ?deadline ?block LIMIT 100");
+
+    let mut property_filter_ordered = request(
         "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
          PREFIX prop: <urn:neoseq:property:>\n\
          SELECT ?block ?deadline WHERE {\n\
@@ -79,29 +102,44 @@ fn query_cases(block_count: usize) -> [(&'static str, QueryRequest); 4] {
            FILTER (?deadline <= ?today)\n\
          } ORDER BY ?deadline ?block LIMIT 100",
     );
-    property_filter
+    property_filter_ordered
         .bindings
         .insert("status".to_owned(), string_binding("todo"));
-    property_filter
+    property_filter_ordered
         .bindings
         .insert("today".to_owned(), date_binding("2026-08-15"));
 
-    let mut text_match = request(
+    let mut text_match_unordered = request(
+        "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+         SELECT ?block WHERE {\n\
+           ?block a neo:Block ; neo:content ?content .\n\
+           FILTER (neo:matchesText(?content, ?needle))\n\
+         } LIMIT 100",
+    );
+    text_match_unordered
+        .bindings
+        .insert("needle".to_owned(), string_binding("regression needle"));
+
+    let mut text_match_ordered = request(
         "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
          SELECT ?block WHERE {\n\
            ?block a neo:Block ; neo:content ?content .\n\
            FILTER (neo:matchesText(?content, ?needle))\n\
          } ORDER BY ?block LIMIT 100",
     );
-    text_match
+    text_match_ordered
         .bindings
         .insert("needle".to_owned(), string_binding("regression needle"));
 
-    [
+    vec![
         ("lookup_by_id", lookup_by_id),
         ("page_blocks_ordered", page_blocks_ordered),
-        ("property_filter", property_filter),
-        ("text_match", text_match),
+        ("property_equals", property_equals),
+        ("property_range", property_range),
+        ("property_range_ordered", property_range_ordered),
+        ("property_filter_ordered", property_filter_ordered),
+        ("text_match_unordered", text_match_unordered),
+        ("text_match_ordered", text_match_ordered),
     ]
 }
 
