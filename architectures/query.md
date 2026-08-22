@@ -205,7 +205,9 @@ sortable.
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view
-overrides, whether the editor is open, and editor drafts do not synchronize.
+overrides, whether the editor or result is open, and editor drafts do not
+synchronize. Result disclosure has graph-session lifetime: it survives route and
+virtualized-row remounts for one reader, but a new session starts expanded.
 
 ## Editable Result Projection
 

@@ -472,12 +472,15 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
 - **Query block.** The answer is an *object*: the canvas shows through and one hairline
   closes it, so the question can take the inset `surface-1` fill and the answer can sit on
   the page's own ground. At rest the header is one caption phrase (the control that opens the
-  editor) and a filled count that is also the empty state. The builder reads as a sentence in
-  rows — a lead column, controls that read as words, one left edge, groups are depth not
-  cards, and the two knobs most queries never touch are grouped behind a seam at the end of
-  the line; hand-written SPARQL is its own entrance, never a conversion. The result table's
-  header is a hairline, not a band, and its rows are separated by the panel hairline. Column
-  order, width, visibility, and sort are the saved view data. **A cell is the writing it
+  editor) and a filled count that is also the empty state. When an answer has a body, that
+  count is its own disclosure; it never borrows the caption's chevron, so authoring and
+  reading remain independent. An empty count stays inert. Folding hides the mounted answer
+  immediately and never pauses its execution. The builder reads as a sentence in rows — a
+  lead column, controls that read as words, one left edge, groups are depth not cards, and
+  the two knobs most queries never touch are grouped behind a seam at the end of the line;
+  hand-written SPARQL is its own entrance, never a conversion. The result table's header is
+  a hairline, not a band, and its rows are separated by the panel hairline. Column order,
+  width, visibility, and sort are the saved view data. **A cell is the writing it
   quotes**: the values in a result are blocks — often the line the reader wrote a moment ago —
   so they take the same ink the outline gives them and the header stays the quieter of the
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell

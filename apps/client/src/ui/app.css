@@ -3430,13 +3430,15 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* How much it found — which is also the empty state, so it is the one fact in
    the header that is never absent, and it says so by being the one piece of it
-   that carries a fill. Tabular figures because a count that shifts a pixel as it
-   changes reads as the layout moving rather than as the number. */
+   that carries a fill. When there is an answer beneath it, the count is also
+   that answer's disclosure; the sentence to its left remains the separate
+   disclosure for authoring. Tabular figures because a count that shifts a pixel
+   as it changes reads as the layout moving rather than as the number. */
 .query-count {
   display: inline-flex;
   align-items: center;
   flex: none;
-  height: 19px;
+  height: var(--target);
   padding: 0 7px;
   border-radius: var(--r-1);
   background: var(--surface-2);
@@ -3444,6 +3446,63 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+.query-results-toggle {
+  gap: var(--sp-0);
+  border: 0;
+  box-shadow: var(--e1-chip);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .query-results-toggle:hover {
+    background: var(--raised-hover);
+    color: var(--ink);
+  }
+}
+
+.query-results-toggle:active {
+  background: var(--surface-3);
+}
+
+/* Header controls use an inset focus mark because the query block clips its
+   children. The disclosure's chevron already states open/closed; focus adds no
+   second state colour. */
+.query-results-toggle:focus-visible {
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+}
+
+.query-results-toggle[data-state="error"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.query-results-toggle[data-state="error"]:active {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.query-results-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.query-results-toggle svg {
+  flex: none;
+}
+
+@media (max-width: 600px), (hover: none) {
+  .query-results-toggle {
+    height: var(--sp-6);
+  }
 }
 
 /* Revealed on hover, focus, or an open menu — § Disclosure, with `opacity` so

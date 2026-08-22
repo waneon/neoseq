@@ -16,7 +16,7 @@
 // graph-session lifetime: leaving the route or virtualizing this row must not
 // turn a result back into an empty first frame when it returns.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -78,6 +78,10 @@ import {
 } from "./execution";
 import { columnLabel } from "./labels";
 import { orderResultRows } from "./ordering";
+import {
+  queryResultsAreOpen,
+  rememberQueryResultsOpen,
+} from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
@@ -152,6 +156,10 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   );
   const executionStore = queryExecutionStore(session);
   const executionOwner = JSON.stringify([pageId, block.id]);
+  const outputId = useId();
+  const [resultsOpen, setResultsOpen] = useState(
+    () => queryResultsAreOpen(session, executionOwner),
+  );
   const executionRequest = useMemo(() => ({
     language: document?.language ?? LANGUAGE,
     source: runSource,
@@ -408,6 +416,34 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     putView({ ...activeView, columns: next });
   };
 
+  const resultLabel = error
+    ? message("query.failed")
+    : select
+      ? message("query.results", { count: visibleRows.length })
+      : loading
+        ? message("query.running")
+        : result?.kind === "ask"
+          ? message("query.answer")
+          : null;
+  const resultCanCollapse = Boolean(
+    error
+    || result?.kind === "ask"
+    || (select && visibleRows.length > 0),
+  );
+
+  const toggleResults = async () => {
+    const nextOpen = !resultsOpen;
+    if (!nextOpen && resultEditor.active) {
+      if (resultEditor.active.phase === "markdown") {
+        if (!(await resultEditor.commit(true))) return;
+      } else {
+        resultEditor.cancel();
+      }
+    }
+    rememberQueryResultsOpen(session, executionOwner, nextOpen);
+    setResultsOpen(nextOpen);
+  };
+
   return (
     <section
       className="query-block"
@@ -445,13 +481,32 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
             result. On the first run there is nothing to count yet and it says so;
             afterwards a rerun updates the number in place rather than flickering
             `running` over it on every debounced keystroke. */}
-        {!error && (select || loading) && (
-          <span className="query-count" data-testid="query-count">
-            {select
-              ? message("query.results", { count: visibleRows.length })
-              : message("query.running")}
+        {resultLabel && (resultCanCollapse ? (
+          <button
+            type="button"
+            className="query-count query-results-toggle"
+            aria-expanded={resultsOpen}
+            aria-controls={outputId}
+            aria-label={message(
+              resultsOpen ? "query.collapseResults" : "query.expandResults",
+              { result: resultLabel },
+            )}
+            aria-busy={loading || undefined}
+            data-state={error ? "error" : loading ? "loading" : "success"}
+            data-testid="query-count"
+            onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+            onClick={() => void toggleResults()}
+          >
+            <span>{resultLabel}</span>
+            {resultsOpen
+              ? <ChevronDownIcon aria-hidden />
+              : <ChevronRightIcon aria-hidden />}
+          </button>
+        ) : (
+          <span className="query-count" data-testid="query-count" aria-busy={loading || undefined}>
+            {resultLabel}
           </span>
-        )}
+        ))}
 
         <div className="query-header-actions">
           {/* Order comes before layout, because it is the one a reader changes
@@ -473,7 +528,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
                 aria-label={message("query.display")}
                 data-testid="query-view-trigger"
                 data-view={activeView.kind}
-                onPointerDown={() => resultEditor.preserveDraftForViewChange()}
+                onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
               >
                 {activeView.kind === "table"
                   ? <Table2Icon aria-hidden />
@@ -620,7 +675,13 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
         </pre>
       )}
 
-      <div className="query-output" aria-busy={loading}>
+      <div
+        id={outputId}
+        className="query-output"
+        hidden={!resultsOpen}
+        aria-busy={loading}
+        data-testid="query-output"
+      >
         {error && (
           <p className="query-diagnostic" role="alert">
             {error}

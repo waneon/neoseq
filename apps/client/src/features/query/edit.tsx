@@ -139,8 +139,8 @@ export interface QueryResultEditor {
   begin(binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor): void;
   setDraft(value: string, edit?: BlockTextEdit): void;
   setComposing(composing: boolean): void;
-  preserveDraftForViewChange(): void;
-  consumeViewChangeIntent(): boolean;
+  preserveDraftForPresentationChange(): void;
+  consumePresentationChangeIntent(): boolean;
   commit(close: boolean): Promise<boolean>;
   acceptSlash(request: BlockCompletionRequest, item: SlashItem): void;
   acceptTag(request: BlockCompletionRequest, option: BlockTagOption): void;
@@ -529,14 +529,14 @@ export function useQueryResultEditor({
     })();
   }, [commit, history]);
 
-  const preserveDraftForViewChange = useCallback(() => {
+  const preserveDraftForPresentationChange = useCallback(() => {
     preserveOnNextBlur.current = true;
     window.setTimeout(() => {
       preserveOnNextBlur.current = false;
     }, 0);
   }, []);
 
-  const consumeViewChangeIntent = useCallback(() => {
+  const consumePresentationChangeIntent = useCallback(() => {
     const preserve = preserveOnNextBlur.current;
     preserveOnNextBlur.current = false;
     return preserve;
@@ -601,8 +601,8 @@ export function useQueryResultEditor({
     begin,
     setDraft,
     setComposing,
-    preserveDraftForViewChange,
-    consumeViewChangeIntent,
+    preserveDraftForPresentationChange,
+    consumePresentationChangeIntent,
     commit,
     acceptSlash,
     acceptTag,
@@ -806,10 +806,10 @@ function QueryMarkdownField({
           // query-level draft alive so the other renderer adopts it. Radix
           // may focus the menu item directly, so the toolbar marks the intent
           // on pointer down before this blur runs.
-          const switchingView = editor.consumeViewChangeIntent()
+          const changingPresentation = editor.consumePresentationChangeIntent()
             || (event.relatedTarget instanceof Element
               && event.relatedTarget.closest('[data-testid="query-view-trigger"]') !== null);
-          if (switchingView) return;
+          if (changingPresentation) return;
           if (markdown) void editor.commit(true);
           else if (current) editor.cancel();
         }}

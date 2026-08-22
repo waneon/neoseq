@@ -311,10 +311,12 @@ export interface MessageArgumentMap {
   "query.aggregate.sum": undefined;
   "query.aggregateOf": { readonly "aggregate": string | number; readonly "field": string | number };
   "query.and": undefined;
+  "query.answer": undefined;
   "query.ascending": undefined;
   "query.askFalse": undefined;
   "query.askTrue": undefined;
   "query.clearSort": undefined;
+  "query.collapseResults": { readonly "result": string | number };
   "query.column.page": undefined;
   "query.column.parent": undefined;
   "query.column.sibling_index": undefined;
@@ -328,6 +330,8 @@ export interface MessageArgumentMap {
   "query.display": undefined;
   "query.editResult": { readonly "column": string | number };
   "query.exactDate": undefined;
+  "query.expandResults": { readonly "result": string | number };
+  "query.failed": undefined;
   "query.field.ancestor": undefined;
   "query.field.name": undefined;
   "query.field.page": undefined;

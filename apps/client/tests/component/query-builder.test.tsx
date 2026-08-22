@@ -254,6 +254,16 @@ describe("the query builder", () => {
     expect(screen.getByTestId("query-block")).toHaveAttribute("data-revision", "7");
   });
 
+  it("leaves an empty result count as status instead of an empty disclosure", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+
+    const count = await screen.findByTestId("query-count");
+    await waitFor(() => expect(count).toHaveTextContent("No results"));
+    expect(count.tagName).toBe("SPAN");
+    expect(count).not.toHaveAttribute("aria-expanded");
+  });
+
   it("never offers the query property through the picker", async () => {
     const harness = await mountPage();
     await createQuery(harness);
@@ -333,6 +343,39 @@ describe("query result views", () => {
     if (!(column instanceof HTMLTableColElement)) throw new Error("query table has no column");
     return column.style.width;
   }
+
+  it("folds the answer independently and remembers it for the graph session", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+    const toggle = await screen.findByRole("button", { name: "Collapse 1 result" });
+    const queryRequests = harness.port.queryRequests.length;
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("query-output")).not.toHaveAttribute("hidden");
+    // The builder is a different disclosure and does not move with the answer.
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("query-output")).toHaveAttribute("hidden");
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+
+    await act(async () => {
+      await harness.router.navigate(`/g/${GRAPH_ID}/custom`);
+    });
+    await act(async () => {
+      await harness.router.navigate(`/g/${GRAPH_ID}/p/home`);
+    });
+
+    const returned = await screen.findByRole("button", { name: "Expand 1 result" });
+    expect(returned).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("query-output")).toHaveAttribute("hidden");
+
+    await user.click(returned);
+    expect(returned).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("query-table")).toBeVisible();
+    expect(harness.port.queryRequests).toHaveLength(queryRequests);
+  });
 
   it("names its columns in the product's words, not as SPARQL variables", async () => {
     await withResult();
@@ -712,6 +755,22 @@ describe("query result views", () => {
 
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship the editable result"));
     await waitFor(() => expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument());
+  });
+
+  it("saves an active result edit before folding the answer", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    await user.clear(editor);
+    await user.type(editor, "Keep this before folding");
+    await user.click(screen.getByRole("button", { name: "Collapse 1 result" }));
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Keep this before folding"));
+    expect(screen.getByTestId("query-output")).toHaveAttribute("hidden");
+    expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument();
   });
 
   it("uses the canonical block input pipeline inside query results", async () => {
