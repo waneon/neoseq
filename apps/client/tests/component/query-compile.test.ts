@@ -57,10 +57,24 @@ describe("query plan compilation", () => {
     };
     const { source } = compilePlan(plan);
     expect(source).toContain(
-      'ASC(IF(!BOUND(?priority), 2, IF(?priority IN ("low", "medium", "high"), 0, 1)))',
+      'ASC(IF(!BOUND(?priority), 0, IF(?priority IN ("low", "medium", "high"), 0, 1)))',
     );
     expect(source).toContain(
-      'ASC(IF(BOUND(?priority), IF(?priority = "low", 0, IF(?priority = "medium", 1, IF(?priority = "high", 2, 0))), 0))',
+      'ASC(IF(BOUND(?priority), IF(?priority = "low", 0, IF(?priority = "medium", 1, IF(?priority = "high", 2, 0))), -1))',
+    );
+  });
+
+  it("keeps missing status outside its declared progression", () => {
+    const plan: QueryPlan = {
+      ...defaultPlan("block"),
+      columns: [{
+        id: "status",
+        source: { kind: "property", key: "builtin.task-status" },
+      }],
+      sort: [{ column: "status", direction: "asc" }],
+    };
+    expect(compilePlan(plan).source).toContain(
+      'ASC(IF(!BOUND(?status), 2, IF(?status IN ("todo", "doing", "done", "cancelled"), 0, 1)))',
     );
   });
 

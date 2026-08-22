@@ -38,22 +38,39 @@ function sorted(
   const semantics = orderSemanticsForColumn({
     source: { kind: "property", key: "builtin.task-priority" },
   });
-  return [...values]
+  // Array.prototype.sort special-cases undefined array elements and moves them
+  // to the end without calling the comparator. Real query rows are always
+  // objects whose term may be undefined, so wrap terms to exercise that path.
+  return values.map((term) => ({ term }))
     .sort((left, right) => {
-      const comparison = compareResultTerms(left, right, semantics, context, descending);
+      const comparison = compareResultTerms(
+        left.term,
+        right.term,
+        semantics,
+        context,
+        descending,
+      );
       return descending ? -comparison : comparison;
     })
-    .map((term) => term?.value);
+    .map(({ term }) => term?.value);
 }
 
 describe("query column ordering", () => {
   it("derives ranked choices and typed primitives from column semantics", () => {
     expect(orderSemanticsForColumn({
       source: { kind: "property", key: "builtin.task-priority" },
-    })).toEqual({ kind: "ranked", values: ["low", "medium", "high"] });
+    })).toEqual({
+      kind: "ranked",
+      values: ["low", "medium", "high"],
+      missing: "below",
+    });
     expect(orderSemanticsForColumn({
       source: { kind: "property", key: "builtin.task-status" },
-    })).toEqual({ kind: "ranked", values: ["todo", "doing", "done", "cancelled"] });
+    })).toEqual({
+      kind: "ranked",
+      values: ["todo", "doing", "done", "cancelled"],
+      missing: "last",
+    });
     expect(orderSemanticsForColumn({ source: { kind: "sibling_index" } }))
       .toEqual({ kind: "number" });
     expect(orderSemanticsForColumn({ source: { kind: "tags" }, aggregate: "list" }))
@@ -66,10 +83,10 @@ describe("query column ordering", () => {
     expect(sorted(values, true)).toEqual(["high", "medium", "low"]);
   });
 
-  it("keeps open-choice fallbacks and missing values after declared choices", () => {
+  it("orders missing priority below Low while keeping open-choice fallbacks last", () => {
     const values = [undefined, string("urgent"), string("high"), string("low")];
-    expect(sorted(values)).toEqual(["low", "high", "urgent", undefined]);
-    expect(sorted(values, true)).toEqual(["high", "low", "urgent", undefined]);
+    expect(sorted(values)).toEqual([undefined, "low", "high", "urgent"]);
+    expect(sorted(values, true)).toEqual(["high", "low", undefined, "urgent"]);
   });
 
   it("infers typed order for hand-written SPARQL results", () => {

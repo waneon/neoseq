@@ -34,21 +34,30 @@ export function compareResultTerms(
   context: CellContext,
   descending: boolean,
 ): number {
+  if (semantics.kind === "ranked") {
+    if (!left && !right) return 0;
+    if (semantics.missing === "last" && (!left || !right)) {
+      return fixedBucket(left ? -1 : 1, descending);
+    }
+    const leftRank = left ? semantics.values.indexOf(left.value) : -1;
+    const rightRank = right ? semantics.values.indexOf(right.value) : -1;
+    // For priority, absence participates in the rank below Low. An arbitrary
+    // stored fallback is still outside the declared domain and stays last in
+    // either direction.
+    const leftFallback = Boolean(left) && leftRank < 0;
+    const rightFallback = Boolean(right) && rightRank < 0;
+    if (leftFallback !== rightFallback) {
+      return fixedBucket(leftFallback ? 1 : -1, descending);
+    }
+    if (leftFallback && rightFallback) return context.compare(left!.value, right!.value);
+    if (!left || !right) return left ? 1 : -1;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return context.compare(left.value, right.value);
+  }
+
   if (!left || !right) {
     if (!left && !right) return 0;
     return fixedBucket(left ? -1 : 1, descending);
-  }
-
-  if (semantics.kind === "ranked") {
-    const leftRank = semantics.values.indexOf(left.value);
-    const rightRank = semantics.values.indexOf(right.value);
-    const leftKnown = leftRank >= 0;
-    const rightKnown = rightRank >= 0;
-    if (leftKnown !== rightKnown) {
-      return fixedBucket(leftKnown ? -1 : 1, descending);
-    }
-    if (leftKnown && rightKnown && leftRank !== rightRank) return leftRank - rightRank;
-    return context.compare(left.value, right.value);
   }
 
   if (semantics.kind === "number") {

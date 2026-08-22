@@ -188,8 +188,9 @@ separate projection, so a translated label cannot change a ranked order. The
 builder compiles the same semantics into `ORDER BY` before `LIMIT`; after
 execution, the query result projection compares raw terms once and hands the
 same ordered rows to Table and List. Both paths keep unknown choices behind the
-declared domain and unbound values last. Folded lists have no defined member
-order and are not sortable.
+declared domain. Unbound values remain last except task priority, where absence
+is the rank below Low. Folded lists have no defined member order and are not
+sortable.
 
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),

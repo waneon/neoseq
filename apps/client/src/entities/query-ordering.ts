@@ -8,9 +8,10 @@
 import type { RdfTerm } from "../generated/core-port";
 import { orderingOf, stringChoicesOf, valueTypeOf } from "./properties";
 import type { PlanColumn, PlanColumnSource } from "./query-plan";
+import { TASK_PRIORITY_KEY } from "./tasks";
 
 export type OrderSemantics =
-  | { kind: "ranked"; values: readonly string[] }
+  | { kind: "ranked"; values: readonly string[]; missing: "below" | "last" }
   | { kind: "number" }
   | { kind: "date" }
   | { kind: "boolean" }
@@ -29,7 +30,13 @@ function sourceOrderSemantics(source: PlanColumnSource): OrderSemantics {
       return { kind: "entity_label" };
     case "property": {
       if (orderingOf(source.key)?.kind === "choice_order") {
-        return { kind: "ranked", values: stringChoicesOf(source.key) };
+        return {
+          kind: "ranked",
+          values: stringChoicesOf(source.key),
+          // No priority is weaker than Low. Other ranked fields keep absence
+          // outside the declared progression, after open-choice fallbacks.
+          missing: source.key === TASK_PRIORITY_KEY ? "below" : "last",
+        };
       }
       switch (valueTypeOf(source.key)) {
         case "number":

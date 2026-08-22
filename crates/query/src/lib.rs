@@ -1366,7 +1366,7 @@ mod tests {
     }
 
     #[test]
-    fn ranked_choice_order_keeps_unknown_and_unbound_values_last() {
+    fn ranked_priority_order_places_unbound_below_low_and_unknown_last() {
         let index = GraphIndex::new(&snapshot()).unwrap();
         let run = |direction: &str| {
             let source = format!(
@@ -1374,8 +1374,8 @@ mod tests {
                    VALUES ?priority {{ \"high\" UNDEF \"urgent\" \"low\" \"medium\" }}\n\
                  }}\n\
                  ORDER BY\n\
-                   ASC(IF(!BOUND(?priority), 2, IF(?priority IN (\"low\", \"medium\", \"high\"), 0, 1)))\n\
-                   {direction}(IF(BOUND(?priority), IF(?priority = \"low\", 0, IF(?priority = \"medium\", 1, IF(?priority = \"high\", 2, 0))), 0))\n\
+                   ASC(IF(!BOUND(?priority), 0, IF(?priority IN (\"low\", \"medium\", \"high\"), 0, 1)))\n\
+                   {direction}(IF(BOUND(?priority), IF(?priority = \"low\", 0, IF(?priority = \"medium\", 1, IF(?priority = \"high\", 2, 0))), -1))\n\
                    {direction}(LCASE(STR(?priority)))\n\
                    {direction}(STR(?priority))"
             );
@@ -1391,10 +1391,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(run("ASC"), ["low", "medium", "high", "urgent", "<unbound>"]);
+        assert_eq!(run("ASC"), ["<unbound>", "low", "medium", "high", "urgent"]);
         assert_eq!(
             run("DESC"),
-            ["high", "medium", "low", "urgent", "<unbound>"]
+            ["high", "medium", "low", "<unbound>", "urgent"]
         );
     }
 

@@ -407,7 +407,7 @@ describe("query result views", () => {
     await waitFor(() => expect(savedSort()).toEqual([]));
   });
 
-  it("sorts priority rows by the registry rank rather than their labels", async () => {
+  it("sorts missing priority below Low and stored values by registry rank", async () => {
     const harness = await withResult();
     const query = storedQuery(harness)!;
     const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
@@ -421,17 +421,19 @@ describe("query result views", () => {
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "priority"],
-      rows: ["high", "low", "medium"].map((priority) => ({
+      rows: ["high", undefined, "low", "medium"].map((priority) => ({
         q_subject: {
           kind: "iri" as const,
           value: "urn:neoseq:entity:test-graph:block:b-2",
           entity: { kind: "block" as const, page_id: "home", id: "b-2" },
         },
-        priority: {
-          kind: "literal" as const,
-          value: priority,
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
+        ...(priority ? {
+          priority: {
+            kind: "literal" as const,
+            value: priority,
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+        } : {}),
       })),
       revision: 5,
       frontier: "fake-5",
@@ -443,15 +445,19 @@ describe("query result views", () => {
       source: compilePlan(nextPlan).source,
     });
     const table = await screen.findByTestId("query-table");
-    await userEvent.setup().click(within(table).getByRole("button", {
+    const user = userEvent.setup();
+    const heading = within(table).getByRole("button", {
       name: "Priority",
       exact: true,
-    }));
-    await waitFor(() => {
-      const labels = within(table).getAllByText(/^(Low|Medium|High)$/u)
-        .map((node) => node.textContent);
-      expect(labels).toEqual(["Low", "Medium", "High"]);
     });
+    const rowLabels = () => within(table).getAllByTestId("query-row")
+      .map((row) => row.textContent);
+    await user.click(heading);
+    await waitFor(() => {
+      expect(rowLabels()).toEqual(["—", "Low", "Medium", "High"]);
+    });
+    await user.click(heading);
+    await waitFor(() => expect(rowLabels()).toEqual(["High", "Medium", "Low", "—"]));
   });
 
   it("applies the saved presentation order to list rows", async () => {

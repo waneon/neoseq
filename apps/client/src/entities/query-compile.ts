@@ -407,6 +407,17 @@ function columnOrder(
     for (let index = semantics.values.length - 1; index >= 0; index -= 1) {
       rank = `IF(?${variable} = ${quote(semantics.values[index])}, ${index}, ${rank})`;
     }
+    if (semantics.missing === "below") {
+      return [
+        // Priority absence is rank -1: before Low ascending and after Low
+        // descending. Open-choice fallbacks remain outside the declared domain
+        // and therefore last in either direction.
+        `ASC(IF(!BOUND(?${variable}), 0, IF(?${variable} IN (${known}), 0, 1)))`,
+        directed(`IF(BOUND(?${variable}), ${rank}, -1)`, direction),
+        directed(`LCASE(STR(?${variable}))`, direction),
+        directed(`STR(?${variable})`, direction),
+      ];
+    }
     return [
       // Known choices first, open-choice fallbacks next, and unbound last in
       // both directions. Only the value inside each bucket reverses.
