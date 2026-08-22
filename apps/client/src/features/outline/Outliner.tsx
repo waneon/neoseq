@@ -85,6 +85,18 @@ import {
   type DropTarget,
 } from "./selection";
 import {
+  overlayReducer,
+  pointerGestureReducer,
+  type PropertyRequest,
+  type TagRequest,
+} from "./interaction-state";
+import {
+  initialOutlineDraftState,
+  outlineDraftReducer,
+  type OutlineDraftAction,
+  type PendingRow,
+} from "./draft-state";
+import {
   buildClipboardBundle,
   createOutlineFragment,
   isPlainEmptyBlock,
@@ -152,32 +164,6 @@ type InputMethod = "keyboard" | "pointer" | "context_menu";
 
 function isPendingId(id: string): boolean {
   return id.startsWith(PENDING_PREFIX);
-}
-
-interface PendingRow {
-  tempId: string;
-  /** Block this row is positioned relative to — a real BlockId or earlier tempId. */
-  anchorId: string;
-  mode: "before" | "child" | "sibling";
-  /** Present when Enter atomically splits the anchor; absent for plain insertion. */
-  splitIndex?: number;
-  /** Authoritative Markdown expected on the newly created block. */
-  baseline: string;
-  dispatched: boolean;
-  /** Indent/outdent keys typed before the real id arrived. */
-  structural: ("indent" | "outdent")[];
-}
-
-interface PropertyRequest {
-  blockId: string;
-  key?: string;
-  anchor: HTMLElement | null;
-  selection?: { start: number; end: number };
-}
-
-interface TagRequest {
-  blockId: string;
-  anchor: HTMLElement | null;
 }
 
 type SlashRequest = BlockCompletionRequest;
@@ -298,36 +284,81 @@ export function Outliner({
   const notify = useNotify();
   const bindings = useShortcutBindings();
   const { message, compare } = useI18n();
-  const [, force] = useReducer((tick: number) => tick + 1, 0);
   const [historyRevealRevision, bumpHistoryReveal] = useReducer(
     (revision: number) => revision + 1,
     0,
   );
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [propertyRequest, setPropertyRequest] = useState<PropertyRequest | null>(null);
-  const [tagRequest, setTagRequest] = useState<TagRequest | null>(null);
-  const [slashRequest, setSlashRequest] = useState<SlashRequest | null>(null);
-  const [slashActive, setSlashActiveState] = useState(0);
-  const [hashRequest, setHashRequest] = useState<SlashRequest | null>(null);
-  const [hashActive, setHashActiveState] = useState(0);
-  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [overlay, dispatchOverlay] = useReducer(overlayReducer, { kind: "none" });
+  const propertyRequest = overlay.kind === "property" ? overlay.request : null;
+  const tagRequest = overlay.kind === "tag" ? overlay.request : null;
+  const slashRequest = overlay.kind === "slash" ? overlay.request : null;
+  const slashActive = overlay.kind === "slash" ? overlay.active : 0;
+  const hashRequest = overlay.kind === "hash" ? overlay.request : null;
+  const hashActive = overlay.kind === "hash" ? overlay.active : 0;
+  const menuFor = overlay.kind === "menu" ? overlay.blockId : null;
+  const setPropertyRequest = useCallback((request: PropertyRequest | null) => {
+    dispatchOverlay(
+      request
+        ? { type: "open", overlay: { kind: "property", request } }
+        : { type: "close", kind: "property" },
+    );
+  }, []);
+  const setTagRequest = useCallback((request: TagRequest | null) => {
+    dispatchOverlay(
+      request
+        ? { type: "open", overlay: { kind: "tag", request } }
+        : { type: "close", kind: "tag" },
+    );
+  }, []);
+  const setSlashRequest = useCallback((request: SlashRequest | null) => {
+    dispatchOverlay(
+      request
+        ? { type: "open", overlay: { kind: "slash", request, active: 0 } }
+        : { type: "close", kind: "slash" },
+    );
+  }, []);
+  const setHashRequest = useCallback((request: SlashRequest | null) => {
+    dispatchOverlay(
+      request
+        ? { type: "open", overlay: { kind: "hash", request, active: 0 } }
+        : { type: "close", kind: "hash" },
+    );
+  }, []);
+  const setSlashActiveState = useCallback((index: number) => {
+    dispatchOverlay({ type: "activate", kind: "slash", index });
+  }, []);
+  const setHashActiveState = useCallback((index: number) => {
+    dispatchOverlay({ type: "activate", kind: "hash", index });
+  }, []);
+  const setMenuFor = useCallback((blockId: string | null) => {
+    dispatchOverlay(
+      blockId
+        ? { type: "open", overlay: { kind: "menu", blockId } }
+        : { type: "close", kind: "menu" },
+    );
+  }, []);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [dragging, setDragging] = useState(false);
-  const [marqueeing, setMarqueeing] = useState(false);
-  const [drop, setDrop] = useState<(DropTarget & { top: number }) | null>(null);
-  const drafts = useRef(new Map<string, string>());
-  const baselines = useRef(new Map<string, string>());
-  // Provenance is deliberately editor-local: it distinguishes generated
-  // closers from identical user text without leaking UI state into the graph.
-  const autoClosers = useRef(new Map<string, AutoCloserMarker[]>());
+  const [pointerGesture, dispatchPointerGesture] = useReducer(pointerGestureReducer, {
+    kind: "idle",
+  });
+  const dragging = pointerGesture.kind === "dragging";
+  const marqueeing = pointerGesture.kind === "selecting";
+  const drop = pointerGesture.kind === "dragging" ? pointerGesture.drop : null;
+  const [draftState, setDraftState] = useState(initialOutlineDraftState);
+  const draftStateRef = useRef(draftState);
+  const dispatchDraft = useCallback((action: OutlineDraftAction) => {
+    const next = outlineDraftReducer(draftStateRef.current, action);
+    draftStateRef.current = next;
+    setDraftState(next);
+  }, []);
   const composing = useRef(false);
   const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCaret = useRef<number | null>(null);
   const pendingSeq = useRef(0);
   const draftInputRevision = useRef(0);
-  const pendingRows = useRef<PendingRow[]>([]);
   const pendingDispatching = useRef(false);
   const pendingProperty = useRef<{
     blockId: string;
@@ -359,7 +390,7 @@ export function Outliner({
   collapsedRef.current = collapsed;
   selectedRef.current = selected;
 
-  const rows = withPendingRows(flattenOutline(authoritativePage, collapsed), pendingRows.current);
+  const rows = withPendingRows(flattenOutline(authoritativePage, collapsed), draftState.pendingRows);
   rowsRef.current = rows;
   const readonly = state.mode === "readonly";
   const selectionCount = useMemo(
@@ -375,20 +406,22 @@ export function Outliner({
   // the focused draft and queued pending rows survive so IME composition
   // and in-flight typing are never clobbered.
   useEffect(() => {
-    for (const id of [...drafts.current.keys()]) {
+    const draftIds: string[] = [];
+    const autoCloserIds: string[] = [];
+    for (const id of draftStateRef.current.drafts.keys()) {
       if (id === focusedId || isPendingId(id)) continue;
       const block = findBlock(pageRef.current, id);
-      if (!block || block.markdown === drafts.current.get(id)) {
-        drafts.current.delete(id);
-        baselines.current.delete(id);
-      }
+      if (!block || block.markdown === draftStateRef.current.drafts.get(id)) draftIds.push(id);
     }
-    for (const id of [...autoClosers.current.keys()]) {
+    for (const id of draftStateRef.current.autoClosers.keys()) {
       if (!isPendingId(id) && !findBlock(pageRef.current, id)) {
-        autoClosers.current.delete(id);
+        autoCloserIds.push(id);
       }
     }
-  }, [state.revision, focusedId]);
+    if (draftIds.length > 0 || autoCloserIds.length > 0) {
+      dispatchDraft({ type: "reconcile", draftIds, autoCloserIds });
+    }
+  }, [dispatchDraft, state.revision, focusedId]);
 
   // A block that left the page cannot stay selected — a stale id would send the
   // next bulk command at something that is no longer there.
@@ -470,12 +503,12 @@ export function Outliner({
   const flush = useCallback(
     (id: string) => {
       if (isPendingId(id)) return; // transferred when the real id arrives
-      const draft = drafts.current.get(id);
-      const baseline = baselines.current.get(id);
+      const draft = draftStateRef.current.drafts.get(id);
+      const baseline = draftStateRef.current.baselines.get(id);
       if (draft === undefined || baseline === undefined) return;
       const splice = diffSplice(baseline, draft);
       if (!splice) return;
-      baselines.current.set(id, draft);
+      dispatchDraft({ type: "set-baseline", id, value: draft });
       session
         .execute({
           type: "splice_markdown",
@@ -487,14 +520,11 @@ export function Outliner({
           // The core rejected the edit; fall back to authoritative text. The
           // row silently changing back under the caret is exactly the kind of
           // failure that has no home on screen, so it is reported.
-          drafts.current.delete(id);
-          baselines.current.delete(id);
-          autoClosers.current.delete(id);
-          force();
+          dispatchDraft({ type: "clear", ids: [id] });
           notify.failure(message("failure.lastEdit"), error);
         });
     },
-    [message, notify, session],
+    [dispatchDraft, message, notify, session],
   );
 
   const flushNow = useCallback(
@@ -541,29 +571,28 @@ export function Outliner({
           if (draftInputRevision.current !== inputRevision) {
             return;
           }
-          drafts.current.delete(id);
-          baselines.current.delete(id);
-          autoClosers.current.delete(id);
-          force();
+          dispatchDraft({ type: "clear", ids: [id] });
         })
         .catch((error: unknown) => {
           notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
         });
     },
-    [flushNow, history, message, notify],
+    [dispatchDraft, flushNow, history, message, notify],
   );
 
   const focusedRef = useRef<string | null>(null);
   const setFocus = useCallback((id: string | null, caret?: number) => {
     const previous = focusedRef.current;
-    if (previous !== null && previous !== id) autoClosers.current.delete(previous);
+    if (previous !== null && previous !== id) {
+      dispatchDraft({ type: "clear-auto-closers", ids: [previous] });
+    }
     pendingCaret.current = caret ?? null;
     focusedRef.current = id;
     setFocusedId(id);
     // The caret and the block selection are two answers to "what does the next
     // command act on", so only one of them may exist at a time.
     if (id !== null) setSelected((current) => (current.size === 0 ? current : new Set()));
-  }, []);
+  }, [dispatchDraft]);
 
   const clearSelection = useCallback(() => {
     anchorId.current = null;
@@ -596,11 +625,11 @@ export function Outliner({
         if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
         if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
       }
-      autoClosers.current.delete(id);
+      dispatchDraft({ type: "clear-auto-closers", ids: [id] });
       focusedRef.current = null;
       setFocusedId(null);
     });
-  }, []);
+  }, [dispatchDraft]);
 
   /**
    * Hands the keyboard to the tree. A selection and a caret are the two answers
@@ -608,13 +637,15 @@ export function Outliner({
    * focus with it — otherwise ⌫ reaches a textarea while rows sit highlighted.
    */
   const takeTreeFocus = useCallback(() => {
-    if (focusedRef.current !== null) autoClosers.current.delete(focusedRef.current);
+    if (focusedRef.current !== null) {
+      dispatchDraft({ type: "clear-auto-closers", ids: [focusedRef.current] });
+    }
     focusedRef.current = null;
     setFocusedId(null);
     const active = document.activeElement;
     if (active instanceof HTMLTextAreaElement) active.blur();
     viewportRef.current?.focus({ preventScroll: true });
-  }, []);
+  }, [dispatchDraft]);
 
   /** The ⇧-click anchor, resolved against the outline as it is now. */
   const anchorRowIndex = useCallback(
@@ -674,7 +705,7 @@ export function Outliner({
   /** Dispatches the oldest pending creation whose anchor id is real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
-    const head = pendingRows.current[0];
+    const head = draftStateRef.current.pendingRows[0];
     if (!head || head.dispatched || isPendingId(head.anchorId)) return;
     // A preceding queued structural command may have reconciled after the
     // component's last render. Compute the next insert from GraphSession's
@@ -690,7 +721,7 @@ export function Outliner({
       abandonPending("The block it would follow is gone.");
       return;
     }
-    head.dispatched = true;
+    dispatchDraft({ type: "mark-dispatched", tempId: head.tempId });
     pendingDispatching.current = true;
     const placement: SplitPlacement = head.mode === "before"
       ? "before"
@@ -716,47 +747,38 @@ export function Outliner({
       .execute(command)
       .then(async (result) => {
         const realId = result.created_block;
-        const typed = drafts.current.get(head.tempId) ?? head.baseline;
+        const structural = draftStateRef.current.pendingRows
+          .find((row) => row.tempId === head.tempId)
+          ?.structural ?? head.structural;
+        const typed = draftStateRef.current.drafts.get(head.tempId) ?? head.baseline;
         const wasFocused = focusedRef.current === head.tempId;
         const active = document.activeElement;
         const caret =
           active instanceof HTMLTextAreaElement ? active.selectionStart : typed.length;
         if (realId) {
-          for (const entry of pendingRows.current) {
-            if (entry.anchorId === head.tempId) entry.anchorId = realId;
-          }
-          if (typed !== head.baseline) {
-            // Keystrokes that raced the acknowledgement move to the block
-            // and persist immediately (unless an IME composition is open).
-            drafts.current.set(realId, typed);
-            baselines.current.set(realId, head.baseline);
-          }
-          const generatedClosers = autoClosers.current.get(head.tempId);
-          if (generatedClosers) autoClosers.current.set(realId, generatedClosers);
           // Commit removal of the temp row, the real-id focus state, and the
           // reconciled snapshot in one browser task. The layout focus effect
           // runs before flushSync returns, so no key can land between the two
           // textarea identities or hit a handler that still names tempId.
           flushSync(() => {
-            pendingRows.current.shift();
-            drafts.current.delete(head.tempId);
-            baselines.current.delete(head.tempId);
-            autoClosers.current.delete(head.tempId);
+            // Keystrokes and generated closer provenance that raced the
+            // acknowledgement move with the row in the same reducer transition.
+            dispatchDraft({
+              type: "adopt",
+              tempId: head.tempId,
+              blockId: realId,
+              typed,
+              baseline: head.baseline,
+            });
             if (wasFocused) setFocus(realId, caret);
             // A slash menu opened on the pending row must follow the block to
             // its real identity, or Enter stops meaning "take the highlighted
             // command" the moment the acknowledgement lands.
-            setSlashRequest((current) =>
-              current && current.blockId === head.tempId
-                ? { ...current, blockId: realId }
-                : current,
-            );
-            setHashRequest((current) =>
-              current && current.blockId === head.tempId
-                ? { ...current, blockId: realId }
-                : current,
-            );
-            force();
+            dispatchOverlay({
+              type: "replace-pending-block",
+              pendingId: head.tempId,
+              blockId: realId,
+            });
           });
           if (pendingProperty.current?.blockId === head.tempId) {
             const intent = pendingProperty.current;
@@ -800,7 +822,7 @@ export function Outliner({
           // Structural keys typed before acknowledgement replay in order and
           // must reconcile before the next pending insert computes its
           // parent/index from the snapshot.
-          for (const kind of head.structural) {
+          for (const kind of structural) {
             await session
               .execute({
                 type: kind === "indent" ? "indent_blocks" : "outdent_blocks",
@@ -817,14 +839,10 @@ export function Outliner({
               });
           }
         } else {
-          pendingRows.current.shift();
-          drafts.current.delete(head.tempId);
-          baselines.current.delete(head.tempId);
-          autoClosers.current.delete(head.tempId);
+          dispatchDraft({ type: "discard-head", tempId: head.tempId });
           abandonPending(message("outline.engineMissingId"));
         }
         pendingDispatching.current = false;
-        force();
         dispatchPending();
       })
       .catch((error: unknown) => {
@@ -832,7 +850,7 @@ export function Outliner({
         abandonPending(failureReason(error, message));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyTagOption, message, notify, session, scheduleFlush, setFocus]);
+  }, [applyTagOption, dispatchDraft, message, notify, session, scheduleFlush, setFocus]);
 
   /**
    * Drops the optimistic rows an insert never claimed. Whatever the user typed
@@ -840,20 +858,17 @@ export function Outliner({
    */
   const abandonPending = useCallback(
     (reason: string) => {
-      const lost = pendingRows.current.length;
-      const typed = pendingRows.current.some(
-        (entry) => (drafts.current.get(entry.tempId) ?? "").length > 0,
+      const pendingRows = draftStateRef.current.pendingRows;
+      const lost = pendingRows.length;
+      const typed = pendingRows.some(
+        (entry) => (draftStateRef.current.drafts.get(entry.tempId) ?? "").length > 0,
       );
       let fallback: string | null = null;
-      for (const entry of pendingRows.current) {
+      for (const entry of pendingRows) {
         if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
-        drafts.current.delete(entry.tempId);
-        baselines.current.delete(entry.tempId);
-        autoClosers.current.delete(entry.tempId);
       }
-      pendingRows.current = [];
+      dispatchDraft({ type: "abandon-pending" });
       if (focusedRef.current && isPendingId(focusedRef.current)) setFocus(fallback);
-      force();
       if (lost === 0) return;
       notify.show({
         tone: "danger",
@@ -862,7 +877,7 @@ export function Outliner({
         detail: typed ? message("outline.pendingTypedLost", { reason }) : reason,
       });
     },
-    [message, notify, setFocus],
+    [dispatchDraft, message, notify, setFocus],
   );
 
   const run = useCallback(
@@ -986,7 +1001,7 @@ export function Outliner({
         // focused textarea); it must not survive next to a block selection.
         window.getSelection()?.removeAllRanges();
         takeTreeFocus();
-        setMarqueeing(true);
+        dispatchPointerGesture({ type: "select" });
         setSelected(selectableIds(rowsRef.current, anchor, start));
       };
       if (immediate) {
@@ -1022,7 +1037,7 @@ export function Outliner({
             if (!point.shiftKey && selectedRef.current.size > 0) clearSelection();
             return;
           }
-          setMarqueeing(false);
+          dispatchPointerGesture({ type: "end" });
           takeTreeFocus();
         },
       );
@@ -1168,7 +1183,7 @@ export function Outliner({
             started = true;
             takeTreeFocus();
             setSelected(moving);
-            setDragging(true);
+            dispatchPointerGesture({ type: "drag" });
           }
           updateAutoScroll(move.clientY);
           const resolved = resolveDrop(
@@ -1180,11 +1195,10 @@ export function Outliner({
             metrics,
           );
           target = resolved;
-          setDrop(resolved);
+          dispatchPointerGesture({ type: "drop", target: resolved });
         },
         (_event, cancelled) => {
-          setDrop(null);
-          setDragging(false);
+          dispatchPointerGesture({ type: "end" });
           if (cancelled) return;
           if (!started) {
             // A press that never travelled is a click: put the caret in the line.
@@ -1249,7 +1263,7 @@ export function Outliner({
       flushNow(row.block.id);
       const replace = isPlainEmptyBlock(
           row.block,
-          drafts.current.get(row.block.id) ?? row.block.markdown,
+          draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
         )
         ? row.block.id
         : null;
@@ -1278,7 +1292,7 @@ export function Outliner({
       flushNow(row.block.id);
       const replace = isPlainEmptyBlock(
           row.block,
-          drafts.current.get(row.block.id) ?? row.block.markdown,
+          draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
         )
         ? row.block.id
         : null;
@@ -1390,16 +1404,17 @@ export function Outliner({
       const request = slashRequest;
       const chosen = item ?? slashResults[slashIndex];
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
-      const value = drafts.current.get(row.block.id) ?? row.block.markdown;
+      const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
-      if (!baselines.current.has(row.block.id)) {
-        baselines.current.set(row.block.id, row.block.markdown);
-      }
-      drafts.current.set(row.block.id, next);
-      autoClosers.current.delete(row.block.id);
+      dispatchDraft({
+        type: "edit",
+        id: row.block.id,
+        value: next,
+        baselineIfAbsent: row.block.markdown,
+        autoClosers: [],
+      });
       pendingCaret.current = caret;
       setSlashRequest(null);
-      force();
       if (isPendingId(row.block.id)) {
         // The choice waits for the real BlockId; a temp id never crosses into
         // the picker or a command.
@@ -1445,16 +1460,17 @@ export function Outliner({
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       // The token leaves the Markdown exactly as a slash token does: the tag
       // becomes structural membership, never text.
-      const value = drafts.current.get(row.block.id) ?? row.block.markdown;
+      const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
-      if (!baselines.current.has(row.block.id)) {
-        baselines.current.set(row.block.id, row.block.markdown);
-      }
-      drafts.current.set(row.block.id, next);
-      autoClosers.current.delete(row.block.id);
+      dispatchDraft({
+        type: "edit",
+        id: row.block.id,
+        value: next,
+        baselineIfAbsent: row.block.markdown,
+        autoClosers: [],
+      });
       pendingCaret.current = caret;
       setHashRequest(null);
-      force();
       if (isPendingId(row.block.id)) {
         // The choice waits for the real BlockId; a temp id never crosses into
         // a command.
@@ -1497,14 +1513,14 @@ export function Outliner({
         if (kept.size !== selectedRef.current.size) setSelected(kept);
       }
     },
-    draftOf: (row) => drafts.current.get(row.block.id) ?? row.block.markdown,
-    autoClosersOf: (blockId) => autoClosers.current.get(blockId) ?? [],
+    draftOf: (row) => draftState.drafts.get(row.block.id) ?? row.block.markdown,
+    autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? [],
     onInput: (row, value, textarea, edit) => {
-      const previous = drafts.current.get(row.block.id) ?? row.block.markdown;
+      const previous = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       let nextClosers = transformAutoClosers(
         previous,
         value,
-        autoClosers.current.get(row.block.id) ?? [],
+        draftStateRef.current.autoClosers.get(row.block.id) ?? [],
         edit?.preferredStart,
         edit?.preferredEnd,
       );
@@ -1519,15 +1535,14 @@ export function Outliner({
           generatedCloser,
         ];
       }
-      if (nextClosers.length > 0) autoClosers.current.set(row.block.id, nextClosers);
-      else autoClosers.current.delete(row.block.id);
-
       draftInputRevision.current += 1;
-      if (!baselines.current.has(row.block.id)) {
-        baselines.current.set(row.block.id, row.block.markdown);
-      }
-      drafts.current.set(row.block.id, value);
-      force();
+      dispatchDraft({
+        type: "edit",
+        id: row.block.id,
+        value,
+        baselineIfAbsent: row.block.markdown,
+        autoClosers: nextClosers,
+      });
       if (!composing.current) {
         scheduleFlush(row.block.id);
         const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
@@ -1556,7 +1571,7 @@ export function Outliner({
     onCompositionEnd: (row, textarea) => {
       composing.current = false;
       scheduleFlush(row.block.id);
-      const value = drafts.current.get(row.block.id) ?? row.block.markdown;
+      const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
       setSlashActiveState(0);
       setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
@@ -1596,20 +1611,22 @@ export function Outliner({
     enqueuePendingInsert: (row, tail, asChild, _inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
-      drafts.current.set(tempId, tail);
       // Enter must return with the new textarea already mounted and focused;
       // the following key may arrive in the next browser task with no delay.
       flushSync(() => {
-        pendingRows.current.push({
-          tempId,
-          anchorId: row.block.id,
-          mode: asChild ? "child" : "sibling",
-          baseline: tail,
-          dispatched: false,
-          structural: [],
+        dispatchDraft({
+          type: "enqueue",
+          row: {
+            tempId,
+            anchorId: row.block.id,
+            mode: asChild ? "child" : "sibling",
+            baseline: tail,
+            dispatched: false,
+            structural: [],
+          },
+          draft: tail,
         });
         setFocus(tempId, 0);
-        force();
       });
       dispatchPending();
     },
@@ -1618,25 +1635,26 @@ export function Outliner({
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
       const leading = index === 0;
       const baseline = leading ? "" : tail;
-      drafts.current.set(tempId, baseline);
       flushSync(() => {
-        pendingRows.current.push({
-          tempId,
-          anchorId: row.block.id,
-          mode: leading ? "before" : asChild ? "child" : "sibling",
-          splitIndex: index,
-          baseline,
-          dispatched: false,
-          structural: [],
+        dispatchDraft({
+          type: "enqueue",
+          row: {
+            tempId,
+            anchorId: row.block.id,
+            mode: leading ? "before" : asChild ? "child" : "sibling",
+            splitIndex: index,
+            baseline,
+            dispatched: false,
+            structural: [],
+          },
+          draft: baseline,
         });
         setFocus(tempId, 0);
-        force();
       });
       dispatchPending();
     },
     queuePendingStructural: (tempId, kind) => {
-      const pending = pendingRows.current.find((entry) => entry.tempId === tempId);
-      pending?.structural.push(kind);
+      dispatchDraft({ type: "queue-structural", tempId, kind });
     },
     insertRootBlock: (index) => {
       void session
@@ -2535,7 +2553,7 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
 }
 
 /** Injects the optimistic pending rows into the flattened outline. */
-function withPendingRows(rows: OutlineRow[], pending: PendingRow[]): OutlineRow[] {
+function withPendingRows(rows: OutlineRow[], pending: readonly PendingRow[]): OutlineRow[] {
   let result = rows;
   for (const entry of pending) {
     const sourceIndex = result.findIndex((row) => row.block.id === entry.anchorId);

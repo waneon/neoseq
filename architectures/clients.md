@@ -88,6 +88,18 @@ deletion and subtree deletion cannot be confused. Pure selection arithmetic
 lives in `features/outline/selection.ts`; browser tests own geometry-dependent
 marquee and drag behavior.
 
+Transient outline layers and pointer gestures are closed state machines in
+`features/outline/interaction-state.ts`. Exactly one property, tag, completion,
+or block menu overlay may be open, and a pointer is exactly idle, selecting, or
+dragging with an optional drop target. Reducer transitions replace independent
+nullable flags so impossible combinations cannot be rendered or handed to a row.
+
+Editor drafts, generated-closer provenance, and the pending-row queue form one
+immutable reducer state in `features/outline/draft-state.ts`. A pending ID is
+adopted, its later queued anchors are remapped, and its raced input moves to the
+canonical block in one transition. The outliner reads the same latest snapshot
+from async callbacks and React rendering; it has no independent force-render path.
+
 IME composition remains local until a composition boundary. Normal typing uses
 a short debounce, submits block ID plus text-range intent, then reconciles with
 the authoritative core event while preserving the selection. Structural commands

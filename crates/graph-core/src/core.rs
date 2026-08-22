@@ -1,3 +1,6 @@
+mod outline;
+
+use self::outline::OutlinePlan;
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
     GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND,
@@ -32,9 +35,43 @@ pub fn empty_version_vector() -> Vec<u8> {
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 const MAX_STRUCTURAL_TARGETS: usize = 10_000;
 
-#[derive(Debug, Clone)]
-struct OutlinePlan {
-    roots: Vec<BlockId>,
+#[derive(Debug)]
+enum CommandPlan {
+    None,
+    Outline(OutlinePlan),
+    TagDetach(TagDetachPlan),
+    Fragment(FragmentResolution),
+}
+
+#[derive(Debug)]
+struct PreparedCommand<'a> {
+    command: &'a Command,
+    plan: CommandPlan,
+    history: Option<HistoryPlan>,
+    semantic: &'static str,
+}
+
+impl PreparedCommand<'_> {
+    fn outline(&self) -> &OutlinePlan {
+        let CommandPlan::Outline(plan) = &self.plan else {
+            unreachable!("outline command was prepared without an outline plan")
+        };
+        plan
+    }
+
+    fn tag_detach(&self) -> &TagDetachPlan {
+        let CommandPlan::TagDetach(plan) = &self.plan else {
+            unreachable!("tag deletion was prepared without a detach plan")
+        };
+        plan
+    }
+
+    fn fragment(&self) -> &FragmentResolution {
+        let CommandPlan::Fragment(resolution) = &self.plan else {
+            unreachable!("outline paste was prepared without a fragment resolution")
+        };
+        resolution
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -86,13 +123,6 @@ struct FragmentResolution {
 enum HistoryDirection {
     Undo,
     Redo,
-}
-
-#[derive(Debug, Clone)]
-struct OutlineState {
-    parents: BTreeMap<BlockId, Option<BlockId>>,
-    children: BTreeMap<Option<BlockId>, Vec<BlockId>>,
-    document_order: Vec<BlockId>,
 }
 
 #[derive(Debug, Error)]
@@ -221,199 +251,6 @@ impl HistoryPlan {
             );
         }
         self.entry
-    }
-}
-
-impl OutlineState {
-    fn from_page(page: &PageSnapshot) -> Self {
-        let mut state = Self {
-            parents: BTreeMap::new(),
-            children: BTreeMap::new(),
-            document_order: Vec::new(),
-        };
-        state.add_blocks(&page.blocks, None);
-        state
-    }
-
-    fn add_blocks(&mut self, blocks: &[BlockSnapshot], parent: Option<BlockId>) {
-        let ids = blocks
-            .iter()
-            .map(|block| block.id.clone())
-            .collect::<Vec<_>>();
-        self.children.insert(parent.clone(), ids);
-        for block in blocks {
-            self.parents.insert(block.id.clone(), parent.clone());
-            self.document_order.push(block.id.clone());
-            self.add_blocks(&block.children, Some(block.id.clone()));
-        }
-    }
-
-    fn roots(&self, requested: &[BlockId]) -> Result<Vec<BlockId>, CoreError> {
-        if requested.is_empty() {
-            return Err(CoreError::InvalidHierarchy(
-                "structural command requires at least one block".into(),
-            ));
-        }
-        if requested.len() > MAX_STRUCTURAL_TARGETS {
-            return Err(CoreError::InvalidHierarchy(
-                "structural command exceeds the block target limit".into(),
-            ));
-        }
-        let requested = requested.iter().cloned().collect::<BTreeSet<_>>();
-        for block_id in &requested {
-            if !self.parents.contains_key(block_id) {
-                return Err(CoreError::BlockNotFound(block_id.clone()));
-            }
-        }
-
-        Ok(self
-            .document_order
-            .iter()
-            .filter(|block_id| {
-                requested.contains(*block_id) && !self.has_requested_ancestor(block_id, &requested)
-            })
-            .cloned()
-            .collect())
-    }
-
-    fn has_requested_ancestor(&self, block_id: &BlockId, requested: &BTreeSet<BlockId>) -> bool {
-        let mut parent = self.parents.get(block_id).cloned().flatten();
-        while let Some(current) = parent {
-            if requested.contains(&current) {
-                return true;
-            }
-            parent = self.parents.get(&current).cloned().flatten();
-        }
-        false
-    }
-
-    fn move_group(
-        &mut self,
-        roots: &[BlockId],
-        parent: Option<BlockId>,
-        index: usize,
-    ) -> Result<(), CoreError> {
-        if let Some(parent_id) = &parent
-            && !self.parents.contains_key(parent_id)
-        {
-            return Err(CoreError::BlockNotFound(parent_id.clone()));
-        }
-        let root_set = roots.iter().cloned().collect::<BTreeSet<_>>();
-        let stationary = self
-            .children
-            .get(&parent)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|id| !root_set.contains(id))
-            .collect::<Vec<_>>();
-        let mut anchor = index
-            .min(stationary.len())
-            .checked_sub(1)
-            .map(|position| stationary[position].clone());
-
-        for root in roots {
-            let destination = match &anchor {
-                Some(anchor_id) => self
-                    .children
-                    .get(&parent)
-                    .and_then(|siblings| siblings.iter().position(|id| id == anchor_id))
-                    .map(|position| position + 1)
-                    .ok_or_else(|| {
-                        CoreError::InvalidHierarchy("move anchor is not a target sibling".into())
-                    })?,
-                None => 0,
-            };
-            self.move_one(root, parent.clone(), destination)?;
-            anchor = Some(root.clone());
-        }
-        Ok(())
-    }
-
-    fn indent(&mut self, block_id: &BlockId) -> Result<(), CoreError> {
-        let parent = self
-            .parents
-            .get(block_id)
-            .cloned()
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        let siblings = self.children.get(&parent).cloned().unwrap_or_default();
-        let position = siblings
-            .iter()
-            .position(|id| id == block_id)
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        if position == 0 {
-            return Err(CoreError::InvalidHierarchy(
-                "first sibling cannot be indented".into(),
-            ));
-        }
-        self.move_one(block_id, Some(siblings[position - 1].clone()), usize::MAX)
-    }
-
-    fn outdent(&mut self, block_id: &BlockId) -> Result<(), CoreError> {
-        let parent = self
-            .parents
-            .get(block_id)
-            .cloned()
-            .flatten()
-            .ok_or_else(|| CoreError::InvalidHierarchy("root block cannot be outdented".into()))?;
-        let grandparent = self
-            .parents
-            .get(&parent)
-            .cloned()
-            .ok_or_else(|| CoreError::InvalidHierarchy("missing grandparent".into()))?;
-        let position = self
-            .children
-            .get(&grandparent)
-            .and_then(|siblings| siblings.iter().position(|id| id == &parent))
-            .ok_or_else(|| CoreError::InvalidHierarchy("missing parent sibling".into()))?;
-        self.move_one(block_id, grandparent, position + 1)
-    }
-
-    fn move_one(
-        &mut self,
-        block_id: &BlockId,
-        parent: Option<BlockId>,
-        index: usize,
-    ) -> Result<(), CoreError> {
-        if parent.as_ref() == Some(block_id)
-            || parent
-                .as_ref()
-                .is_some_and(|candidate| self.is_descendant(candidate, block_id))
-        {
-            return Err(CoreError::InvalidHierarchy(
-                "move would create a cycle".into(),
-            ));
-        }
-        let old_parent = self
-            .parents
-            .get(block_id)
-            .cloned()
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        let old_siblings = self
-            .children
-            .get_mut(&old_parent)
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        let old_position = old_siblings
-            .iter()
-            .position(|id| id == block_id)
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        old_siblings.remove(old_position);
-
-        let destination = self.children.entry(parent.clone()).or_default();
-        destination.insert(index.min(destination.len()), block_id.clone());
-        self.parents.insert(block_id.clone(), parent);
-        Ok(())
-    }
-
-    fn is_descendant(&self, candidate: &BlockId, ancestor: &BlockId) -> bool {
-        let mut current = Some(candidate.clone());
-        while let Some(block_id) = current {
-            if &block_id == ancestor {
-                return true;
-            }
-            current = self.parents.get(&block_id).cloned().flatten();
-        }
-        false
     }
 }
 
@@ -631,7 +468,7 @@ impl GraphCore {
         }
 
         let before = self.doc.oplog_vv();
-        let semantic = semantic_name(&envelope.command).to_owned();
+        let semantic;
         let mut history_plan = None;
         let mut result = CommandResult {
             command_id: envelope.command_id.clone(),
@@ -645,6 +482,7 @@ impl GraphCore {
 
         match &envelope.command {
             Command::Undo => {
+                semantic = "LocalUndo".to_owned();
                 if self.undo_history.is_empty() {
                     if self.undo.can_undo() {
                         self.reset_local_history();
@@ -693,6 +531,7 @@ impl GraphCore {
                 self.doc.commit();
             }
             Command::Redo => {
+                semantic = "LocalRedo".to_owned();
                 if self.redo_history.is_empty() {
                     if self.undo.can_redo() {
                         self.reset_local_history();
@@ -741,13 +580,14 @@ impl GraphCore {
                 self.doc.commit();
             }
             command => {
-                self.validate(command)?;
-                history_plan = self.plan_history(command)?;
+                let prepared = self.prepare(command)?;
+                semantic = prepared.semantic.to_owned();
+                history_plan = prepared.history.clone();
                 self.undo.group_start()?;
                 self.doc.set_next_commit_origin("local:command");
                 self.doc
                     .set_next_commit_message(envelope.command_id.as_str());
-                let apply_result = self.apply(command, now, &mut result);
+                let apply_result = self.apply(&prepared, now, &mut result);
                 if apply_result.is_ok() {
                     self.doc.commit();
                 }
@@ -1121,6 +961,48 @@ impl GraphCore {
         }
     }
 
+    /// Turns one user intent into the complete, immutable work description the
+    /// transaction will consume. User-rejectable checks and structural reads
+    /// happen here exactly once; history and mutation never re-plan against a
+    /// subtly different view of the document.
+    fn prepare<'a>(&self, command: &'a Command) -> Result<PreparedCommand<'a>, CoreError> {
+        self.validate(command)?;
+        let plan = match command {
+            Command::MoveBlocks {
+                block_ids,
+                page_id,
+                parent,
+                index,
+            } => CommandPlan::Outline(self.plan_move_blocks(
+                page_id,
+                block_ids,
+                parent.as_ref(),
+                *index,
+            )?),
+            Command::IndentBlocks { page_id, block_ids } => {
+                CommandPlan::Outline(self.plan_indent_blocks(page_id, block_ids)?)
+            }
+            Command::OutdentBlocks { page_id, block_ids } => {
+                CommandPlan::Outline(self.plan_outdent_blocks(page_id, block_ids)?)
+            }
+            Command::DeleteBlocks { page_id, block_ids } => {
+                CommandPlan::Outline(self.plan_delete_blocks(page_id, block_ids)?)
+            }
+            Command::DeleteTag { tag_id } => CommandPlan::TagDetach(self.plan_delete_tag(tag_id)?),
+            Command::PasteOutline { fragment, .. } => {
+                CommandPlan::Fragment(self.resolve_outline_fragment(fragment)?)
+            }
+            _ => CommandPlan::None,
+        };
+        let history = self.plan_history(command, &plan)?;
+        Ok(PreparedCommand {
+            command,
+            plan,
+            history,
+            semantic: semantic_name(command),
+        })
+    }
+
     fn validate(&self, command: &Command) -> Result<(), CoreError> {
         match command {
             Command::EnsurePage { page_id, title } => {
@@ -1249,7 +1131,6 @@ impl GraphCore {
                     self.require_block(page_id, parent)?;
                 }
                 self.validate_outline_fragment(fragment)?;
-                let _ = self.resolve_outline_fragment(fragment)?;
                 if let Some(block_id) = replace {
                     self.require_block(page_id, block_id)?;
                     if !self.block_is_plain_empty(page_id, block_id)? {
@@ -1276,23 +1157,10 @@ impl GraphCore {
                 self.require_block(page_id, block_id)?;
                 validate_text(insert, 1_048_576)?;
             }
-            Command::MoveBlocks {
-                block_ids,
-                page_id,
-                parent,
-                index,
-            } => {
-                self.plan_move_blocks(page_id, block_ids, parent.as_ref(), *index)?;
-            }
-            Command::IndentBlocks { page_id, block_ids } => {
-                self.plan_indent_blocks(page_id, block_ids)?;
-            }
-            Command::OutdentBlocks { page_id, block_ids } => {
-                self.plan_outdent_blocks(page_id, block_ids)?;
-            }
-            Command::DeleteBlocks { page_id, block_ids } => {
-                self.plan_delete_blocks(page_id, block_ids)?;
-            }
+            Command::MoveBlocks { .. }
+            | Command::IndentBlocks { .. }
+            | Command::OutdentBlocks { .. }
+            | Command::DeleteBlocks { .. } => {}
             Command::DeletePage { page_id } => {
                 self.require_page(page_id)?;
             }
@@ -1452,10 +1320,11 @@ impl GraphCore {
 
     fn apply(
         &mut self,
-        command: &Command,
+        prepared: &PreparedCommand<'_>,
         now: &str,
         result: &mut CommandResult,
     ) -> Result<(), CoreError> {
+        let command = prepared.command;
         match command {
             Command::EnsurePage { page_id, title } => {
                 result.created_page =
@@ -1493,8 +1362,7 @@ impl GraphCore {
                 self.require_tag(tag_id)?.insert("name", name.as_str())?;
             }
             Command::DeleteTag { tag_id } => {
-                let plan = self.plan_delete_tag(tag_id)?;
-                self.apply_delete_tag(tag_id, &plan, now)?;
+                self.apply_delete_tag(tag_id, prepared.tag_detach(), now)?;
             }
             Command::RestoreTag { tag_id } => {
                 remove_property_field(
@@ -1658,7 +1526,7 @@ impl GraphCore {
                 replace,
                 fragment,
             } => {
-                let resolution = self.resolve_outline_fragment(fragment)?;
+                let resolution = prepared.fragment();
                 for (target_id, reference) in &resolution.new_pages {
                     if let Some(date) = &reference.journal_date {
                         self.ensure_page(target_id, "journal", None, Some(date.clone()), now)?;
@@ -1798,28 +1666,28 @@ impl GraphCore {
                 }
             }
             Command::MoveBlocks {
-                block_ids,
                 page_id,
                 parent,
                 index,
+                ..
             } => {
-                let plan = self.plan_move_blocks(page_id, block_ids, parent.as_ref(), *index)?;
+                let plan = prepared.outline();
                 self.move_blocks(&plan.roots, page_id, parent.as_ref(), *index)?;
             }
-            Command::IndentBlocks { page_id, block_ids } => {
-                let plan = self.plan_indent_blocks(page_id, block_ids)?;
+            Command::IndentBlocks { page_id, .. } => {
+                let plan = prepared.outline();
                 for block_id in &plan.roots {
                     self.indent(page_id, block_id)?;
                 }
             }
-            Command::OutdentBlocks { page_id, block_ids } => {
-                let plan = self.plan_outdent_blocks(page_id, block_ids)?;
+            Command::OutdentBlocks { page_id, .. } => {
+                let plan = prepared.outline();
                 for block_id in &plan.roots {
                     self.outdent(page_id, block_id)?;
                 }
             }
-            Command::DeleteBlocks { page_id, block_ids } => {
-                let plan = self.plan_delete_blocks(page_id, block_ids)?;
+            Command::DeleteBlocks { page_id, .. } => {
+                let plan = prepared.outline();
                 let outline = self.page_outline(page_id)?;
                 for block_id in &plan.roots {
                     self.touch_block(page_id, block_id, now)?;
@@ -2425,62 +2293,11 @@ impl GraphCore {
                 .all(|field| property_copy_policy(&field.key) != PropertyCopyPolicy::Portable))
     }
 
-    fn outline_state(&self, page_id: &PageId) -> Result<OutlineState, CoreError> {
-        Ok(OutlineState::from_page(&self.page_snapshot(page_id)?))
-    }
-
-    fn plan_move_blocks(
+    fn plan_history(
         &self,
-        page_id: &PageId,
-        block_ids: &[BlockId],
-        parent: Option<&BlockId>,
-        index: usize,
-    ) -> Result<OutlinePlan, CoreError> {
-        let mut state = self.outline_state(page_id)?;
-        let roots = state.roots(block_ids)?;
-        state.move_group(&roots, parent.cloned(), index)?;
-        Ok(OutlinePlan { roots })
-    }
-
-    fn plan_indent_blocks(
-        &self,
-        page_id: &PageId,
-        block_ids: &[BlockId],
-    ) -> Result<OutlinePlan, CoreError> {
-        let mut state = self.outline_state(page_id)?;
-        let roots = state.roots(block_ids)?;
-        for block_id in &roots {
-            state.indent(block_id)?;
-        }
-        Ok(OutlinePlan { roots })
-    }
-
-    fn plan_outdent_blocks(
-        &self,
-        page_id: &PageId,
-        block_ids: &[BlockId],
-    ) -> Result<OutlinePlan, CoreError> {
-        let mut state = self.outline_state(page_id)?;
-        let mut roots = state.roots(block_ids)?;
-        roots.reverse();
-        for block_id in &roots {
-            state.outdent(block_id)?;
-        }
-        Ok(OutlinePlan { roots })
-    }
-
-    fn plan_delete_blocks(
-        &self,
-        page_id: &PageId,
-        block_ids: &[BlockId],
-    ) -> Result<OutlinePlan, CoreError> {
-        let state = self.outline_state(page_id)?;
-        Ok(OutlinePlan {
-            roots: state.roots(block_ids)?,
-        })
-    }
-
-    fn plan_history(&self, command: &Command) -> Result<Option<HistoryPlan>, CoreError> {
+        command: &Command,
+        prepared: &CommandPlan,
+    ) -> Result<Option<HistoryPlan>, CoreError> {
         let plan = |scope,
                     mut affected_pages: Vec<PageId>,
                     undo_candidates,
@@ -2595,13 +2412,16 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::DeleteTag { tag_id } => plan(
+            Command::DeleteTag { .. } => plan(
                 HistoryScope::Graph,
-                self.plan_delete_tag(tag_id)?
-                    .pages
-                    .into_iter()
-                    .map(|entry| entry.page_id)
-                    .collect(),
+                match prepared {
+                    CommandPlan::TagDetach(plan) => plan,
+                    _ => unreachable!("tag deletion was prepared without a detach plan"),
+                }
+                .pages
+                .iter()
+                .map(|entry| entry.page_id.clone())
+                .collect(),
                 Vec::new(),
                 Vec::new(),
                 false,
@@ -2675,20 +2495,15 @@ impl GraphCore {
                 false,
                 false,
             ),
-            Command::MoveBlocks {
-                page_id,
-                block_ids,
-                parent,
-                index,
-            } => {
-                let roots = self
-                    .plan_move_blocks(page_id, block_ids, parent.as_ref(), *index)?
-                    .roots;
-                let candidates = roots
-                    .iter()
-                    .map(|id| block(page_id, id))
-                    .chain([page(page_id)])
-                    .collect::<Vec<_>>();
+            Command::MoveBlocks { page_id, .. } => {
+                let candidates = match prepared {
+                    CommandPlan::Outline(plan) => &plan.roots,
+                    _ => unreachable!("block move was prepared without an outline plan"),
+                }
+                .iter()
+                .map(|id| block(page_id, id))
+                .chain([page(page_id)])
+                .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
                     vec![page_id.clone()],
@@ -2698,13 +2513,15 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::IndentBlocks { page_id, block_ids } => {
-                let roots = self.plan_indent_blocks(page_id, block_ids)?.roots;
-                let candidates = roots
-                    .iter()
-                    .map(|id| block(page_id, id))
-                    .chain([page(page_id)])
-                    .collect::<Vec<_>>();
+            Command::IndentBlocks { page_id, .. } => {
+                let candidates = match prepared {
+                    CommandPlan::Outline(plan) => &plan.roots,
+                    _ => unreachable!("block indent was prepared without an outline plan"),
+                }
+                .iter()
+                .map(|id| block(page_id, id))
+                .chain([page(page_id)])
+                .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
                     vec![page_id.clone()],
@@ -2714,13 +2531,15 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::OutdentBlocks { page_id, block_ids } => {
-                let roots = self.plan_outdent_blocks(page_id, block_ids)?.roots;
-                let candidates = roots
-                    .iter()
-                    .map(|id| block(page_id, id))
-                    .chain([page(page_id)])
-                    .collect::<Vec<_>>();
+            Command::OutdentBlocks { page_id, .. } => {
+                let candidates = match prepared {
+                    CommandPlan::Outline(plan) => &plan.roots,
+                    _ => unreachable!("block outdent was prepared without an outline plan"),
+                }
+                .iter()
+                .map(|id| block(page_id, id))
+                .chain([page(page_id)])
+                .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
                     vec![page_id.clone()],
@@ -2730,10 +2549,14 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::DeleteBlocks { page_id, block_ids } => {
-                let state = self.outline_state(page_id)?;
-                let roots = state.roots(block_ids)?;
-                let undo_candidates = roots
+            Command::DeleteBlocks { page_id, .. } => {
+                let outline = match prepared {
+                    CommandPlan::Outline(plan) => plan,
+                    _ => unreachable!("block deletion was prepared without an outline plan"),
+                };
+                let state = &outline.before;
+                let undo_candidates = outline
+                    .roots
                     .iter()
                     .filter_map(|id| {
                         let parent = state.parents.get(id)?.clone();
@@ -2751,7 +2574,7 @@ impl GraphCore {
                     .chain([page(page_id)])
                     .collect::<Vec<_>>();
                 let mut redo_candidates = Vec::new();
-                if let Some(first) = roots.first()
+                if let Some(first) = outline.roots.first()
                     && let Some(parent) = state.parents.get(first).cloned()
                 {
                     if let Some(previous) = state.children.get(&parent).and_then(|siblings| {

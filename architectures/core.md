@@ -92,7 +92,14 @@ actions. Before mutation, the core removes duplicates and descendants already
 carried by a selected ancestor, orders the remaining roots from authoritative
 outline state, and simulates the whole move, indent, or outdent plan. A rejected
 plan leaves no document change or undo item. The UI supplies targets and a move
-destination, but never operation order or undo-group controls.
+destination, but never operation order or undo-group controls. The pure outline
+model and these structural planners live together in `core/outline.rs`.
+
+The runtime prepares a non-history command once before opening its transaction.
+The private `PreparedCommand` owns its semantic event, history plan, and any
+authoritative outline, tag-detach, or fragment-resolution plan. Validation,
+history navigation, and mutation therefore cannot repeat an expensive structural
+read or disagree about the state against which one intent was accepted.
 
 `split_block` is the Enter gesture's atomic boundary. A leading split creates
 an empty sibling before the target and leaves the target `BlockId`, content,

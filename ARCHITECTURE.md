@@ -151,11 +151,12 @@ CorePort.
   their surfaces retain separate structural controllers. Contextual commands
   resolve the most recently focused block target before falling back to a page.
 
-One user intent becomes one domain command, one Loro transaction, one local undo
-item, one durable update, and one semantic event. The runtime validates complete
-structural changes before mutation. An update is reported saved only after the
-repository append commits; a failed append holds the exact bytes for retry and
-blocks additional mutation.
+One user intent becomes one prepared domain command, one Loro transaction, one
+local undo item, one durable update, and one semantic event. Preparation validates
+the complete change and fixes its structural plan and history metadata before
+mutation; later stages consume that same plan rather than deriving it again. An
+update is reported saved only after the repository append commits; a failed append
+holds the exact bytes for retry and blocks additional mutation.
 
 ## Local Write Flow
 
