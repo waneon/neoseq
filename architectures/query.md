@@ -298,10 +298,13 @@ Parsing produces diagnostics and SPARQL algebra. Oxigraph plans that algebra
 over the RDF store. Typed bindings are injected as an algebraic `VALUES` row,
 not source text. Execution never falls back to scanning Loro containers.
 
-The client debounces query blocks and graph search. A canonical session
-revision invalidates every visible query block; generation tokens discard stale
-responses. Predicate-level dependency tracking is a future optimization and
-must preserve this conservative invalidation behavior.
+The client treats a mounted query as a demand read: activation runs immediately,
+while changes to its source, bindings, or canonical session revision are
+debounced. A bounded per-session result cache lets route and virtualized-row
+remounts paint a current answer synchronously and deduplicates identical work;
+signature and revision tags prevent obsolete responses from replacing it.
+Predicate-level dependency tracking is a future optimization and must preserve
+this conservative invalidation behavior.
 
 V1 limits source bytes, algebra operators, initial bindings, and output rows.
 Request budgets may tighten but cannot raise the runtime ceilings. Budget failures

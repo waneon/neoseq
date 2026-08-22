@@ -85,6 +85,7 @@ export class FakeCorePort implements SessionPort {
   private graphId = "";
 
   queryResult: SparqlQueryResult | null = null;
+  readonly queryRequests: QueryRequest[] = [];
 
   /** Set to make the next execute report a non-durable write. */
   failNextSave: CorePortError | null = null;
@@ -164,6 +165,7 @@ export class FakeCorePort implements SessionPort {
   async query(request: QueryRequest): Promise<QueryResponse> {
     if (!this.open) fail("graph_not_open", "graph is not open");
     if (this.pendingSave) fail("dirty_unsaved", "retry pending update before querying", true);
+    this.queryRequests.push(clone(request));
     if (this.queryResult) return { result: clone(this.queryResult) };
     const ask = /^\s*(?:PREFIX\s+[^\n]+\s*)*ASK\b/i.test(request.query.source);
     return {

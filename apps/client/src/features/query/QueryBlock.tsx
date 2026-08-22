@@ -12,11 +12,11 @@
 // itself, so the five rows of authoring that used to sit permanently above every
 // answer are there when someone is authoring and absent when nobody is.
 //
-// The block owns everything stateful: the draft plan, the debounce that turns
-// it into one command, the run and its generation guard, and the saved views
-// that decide how the answer is laid out.
+// The block owns its authoring and presentation state. The answer itself has a
+// graph-session lifetime: leaving the route or virtualizing this row must not
+// turn a result back into an empty first frame when it returns.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -26,7 +26,7 @@ import {
   Table2Icon,
   Trash2Icon,
 } from "lucide-react";
-import type { QueryEntityRef, SparqlQueryResult } from "../../generated/core-port";
+import type { QueryEntityRef } from "../../generated/core-port";
 import type {
   BlockSnapshot,
   QueryView,
@@ -71,6 +71,11 @@ import { QuerySortControl } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
+import {
+  queryExecutionSignature,
+  queryExecutionStore,
+  useQueryExecution,
+} from "./execution";
 import { columnLabel } from "./labels";
 import { orderResultRows } from "./ordering";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
@@ -128,11 +133,6 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
   // rather than in the table, because the header's sort panel edits the same
   // list the header row does.
   const [localSorts, setLocalSorts] = useState<QueryViewSort[]>([]);
-  const [result, setResult] = useState<SparqlQueryResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const generation = useRef(0);
-
   // The authoritative document is the truth after a remote edit or a reload;
   // the local draft is the truth while the reader is typing into it.
   useEffect(() => setDraft(source), [source]);
@@ -150,45 +150,82 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     () => (compiled ? planBindings(compiled.parameters, runtime) : {}),
     [compiled, runtime],
   );
-
-  const run = () => {
-    const current = ++generation.current;
+  const executionStore = queryExecutionStore(session);
+  const executionOwner = JSON.stringify([pageId, block.id]);
+  const executionRequest = useMemo(() => ({
+    language: document?.language ?? LANGUAGE,
+    source: runSource,
+    bindings: runBindings,
+  }), [document?.language, runBindings, runSource]);
+  const executionSignature = useMemo(
+    () => queryExecutionSignature(executionRequest),
+    [executionRequest],
+  );
+  const execution = useQueryExecution(
+    executionStore,
+    executionOwner,
+    executionSignature,
+    state.canonicalRevision,
+  );
+  const executable = runSource.trim().length > 0;
+  const result = executable ? execution.result : null;
+  const error = executable && execution.error !== null
+    ? failureReason(execution.error, message)
+    : null;
+  const loading = executable && execution.loading;
+  const run = useCallback((force = false) => {
     // A blank source is a query the user has not written yet, not a parse
     // failure — it stays quietly at "not run" instead of opening on an error.
-    if (runSource.trim().length === 0) {
-      setResult(null);
-      setError(null);
-      setLoading(false);
+    if (!executable) {
+      executionStore.clear(executionOwner);
       return;
     }
-    setLoading(true);
-    setError(null);
-    void session
-      .query({
-        language: document?.language ?? LANGUAGE,
-        source: runSource,
-        bindings: runBindings,
-      })
-      .then((next) => {
-        if (current === generation.current) setResult(next);
-      })
-      .catch((cause) => {
-        if (current === generation.current) {
-          setResult(null);
-          setError(failureReason(cause, message));
-        }
-      })
-      .finally(() => {
-        if (current === generation.current) setLoading(false);
-      });
-  };
+    void executionStore.run(
+      executionOwner,
+      executionSignature,
+      state.canonicalRevision,
+      executionRequest,
+      { force },
+    );
+  }, [
+    executable,
+    executionOwner,
+    executionRequest,
+    executionSignature,
+    executionStore,
+    state.canonicalRevision,
+  ]);
+  const previousExecution = useRef<{ owner: string; identity: string } | null>(null);
 
   useEffect(() => {
+    const identity = JSON.stringify([executionSignature, state.canonicalRevision]);
+    const previous = previousExecution.current;
+    previousExecution.current = { owner: executionOwner, identity };
+    if (!executable) {
+      executionStore.clear(executionOwner);
+      return;
+    }
+    // Activation is a demand read: a fresh cached answer renders synchronously,
+    // while a missing or stale one starts immediately. Only a change observed by
+    // an already-mounted query is a stream worth coalescing.
+    if (!previous || previous.owner !== executionOwner) {
+      run();
+      return;
+    }
+    // StrictMode repeats an effect setup without changing its input. The store
+    // also deduplicates in-flight work, but avoiding the timer makes the intent
+    // explicit and keeps a failed activation from becoming an automatic retry.
+    if (previous.identity === identity) return;
     const timer = window.setTimeout(run, RUN_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-    // A canonical graph revision invalidates the previous derived result.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runSource, runBindings, state.canonicalRevision, session]);
+  }, [
+    executable,
+    executionOwner,
+    executionSignature,
+    executionStore,
+    run,
+    state.canonicalRevision,
+  ]);
 
   // One command per pause in the editing, never one per keystroke.
   useEffect(() => {
@@ -571,7 +608,7 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
-              run();
+              run(true);
             }
           }}
         />

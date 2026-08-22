@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { dateValue, queryDocument, stringValue } from "../../src/core-port/snapshot";
@@ -18,6 +18,43 @@ async function mountProjection() {
 }
 
 describe("query and task projections", () => {
+  it("keeps a query answer across page navigation and activates without a timer", async () => {
+    const { session, port, router } = await mountProjection();
+    port.queryResult = {
+      kind: "ask",
+      value: true,
+      revision: 3,
+      frontier: "fake-3",
+    };
+
+    await session.execute({
+      type: "set_query_source",
+      owner: { kind: "block", page_id: "home", id: "b-1" },
+      source: "ASK { ?block ?predicate ?value }",
+    });
+    // Activation is a demand read. Microtasks are enough to cross the session
+    // queue; advancing the old 300ms run timer must not be necessary.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(port.queryRequests).toHaveLength(1);
+    expect(screen.getByTestId("query-block")).toHaveTextContent("true");
+
+    await act(async () => {
+      await router.navigate(`/g/${GRAPH_ID}/custom`);
+    });
+    expect(screen.queryByTestId("query-block")).not.toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate(`/g/${GRAPH_ID}/p/home`);
+    });
+    // The result belongs to the graph session rather than the routed component,
+    // so it is present in the first render and a fresh cache hit does no work.
+    expect(screen.getByTestId("query-block")).toHaveTextContent("true");
+    expect(port.queryRequests).toHaveLength(1);
+  });
+
   it("renders a reactive SELECT result inside the source block", async () => {
     const { session, port } = await mountProjection();
     port.queryResult = {
