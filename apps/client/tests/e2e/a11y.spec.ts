@@ -111,14 +111,13 @@ test("a tag's page and its view tabs pass the basic audit", async ({ page }) => 
   await page.getByTestId("tag-row-link").click();
 
   const query = page.getByTestId("query-block");
-  await expect(query.getByRole("tab")).toHaveCount(2);
+  // One view, named for what it shows; a second is what a reader makes.
+  await expect(query.getByRole("tab")).toHaveCount(1);
   expect(await audit(page)).toEqual([]);
 
-  await query.getByRole("tab", { name: "Table" }).click();
-  await expect(query.getByRole("tab", { name: "Table" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await query.getByTestId("query-view-add").click();
+  await page.getByRole("menuitem", { name: "List", exact: true }).click();
+  await expect(query.getByRole("tab")).toHaveCount(2);
   expect(await audit(page)).toEqual([]);
 });
 

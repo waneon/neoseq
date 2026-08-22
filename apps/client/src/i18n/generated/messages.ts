@@ -150,6 +150,8 @@ export interface MessageArgumentMap {
   "failure.selectEntity": { readonly "name": string | number };
   "failure.setProperty": undefined;
   "failure.undo": undefined;
+  "favourites.add": undefined;
+  "favourites.remove": undefined;
   "graph.actionsFor": { readonly "name": string | number };
   "graph.allGraphs": undefined;
   "graph.backToGraphs": undefined;
@@ -445,6 +447,7 @@ export interface MessageArgumentMap {
   "query.valuePlaceholder": undefined;
   "query.view": undefined;
   "query.viewActions": { readonly "name": string | number };
+  "query.viewAll": undefined;
   "query.viewList": undefined;
   "query.viewTable": undefined;
   "query.views": undefined;
@@ -518,6 +521,7 @@ export interface MessageArgumentMap {
   "settings.title": undefined;
   "settings.usage": undefined;
   "shell.closeMenu": undefined;
+  "shell.favourites": undefined;
   "shell.graphNavigation": undefined;
   "shell.journal": undefined;
   "shell.moreActions": undefined;

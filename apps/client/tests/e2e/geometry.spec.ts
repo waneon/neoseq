@@ -774,6 +774,31 @@ test("the settings dialog is one size, whatever section is open", async ({ page 
   }
 });
 
+// The palette is one size whatever is typed into it. It was a `max-height`, so
+// the panel grew and shrank on every keystroke: the row a pointer was travelling
+// toward was somewhere else on arrival, and the foot that states the three keys
+// it answers to walked up and down the screen while the reader read it.
+test("the command palette holds its size as the list narrows", async ({ page }) => {
+  await createGraph(page, "Palette Graph");
+  await createPage(page, "Something to find");
+  await page.keyboard.press("ControlOrMeta+k");
+  const palette = page.locator(".cmdk");
+  await expect(palette).toBeVisible();
+  // Measured after the arrival, or the first reading catches the entrance
+  // translate and every comparison is three pixels of animation.
+  await palette.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished)));
+  const full = (await palette.boundingBox())!;
+  expect(await palette.locator(".cmdk-row").count()).toBeGreaterThan(6);
+
+  await page.keyboard.type("zzzz");
+  await expect(palette.locator(".cmdk-row")).toHaveCount(1);
+  const narrowed = (await palette.boundingBox())!;
+  expect(narrowed.height).toBe(full.height);
+  expect(narrowed.y).toBe(full.y);
+  await audit(page, "command palette (one match)");
+});
+
 // A panel opens toward the middle of the window, not toward the nearest edge.
 // Every summoned surface used to be pinned by its left edge and then shoved back
 // inside the viewport, so a control at the right of the measure — a tag at the end

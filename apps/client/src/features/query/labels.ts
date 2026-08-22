@@ -23,11 +23,14 @@ import type {
 } from "../../entities/query-plan";
 
 /**
- * A view's name. The two a document is born with are the product's own words in
- * the reader's language; every view after them was named by somebody, and a name
- * somebody typed is never translated out from under them.
+ * A view's name. The one a document is born with is the product's own word in the
+ * reader's language — and `table`/`list` are the two a document born before that
+ * carried, kept so their names still read as words rather than as English left
+ * behind. Every view after them was named by somebody, and a name somebody typed
+ * is never translated out from under them.
  */
 export function viewLabel(view: QueryView, message: MessageFunction): string {
+  if (view.id === "all") return message("query.viewAll");
   if (view.id === "table") return message("query.viewTable");
   if (view.id === "list") return message("query.viewList");
   return view.name;

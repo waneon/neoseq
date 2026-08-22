@@ -1,7 +1,8 @@
 use crate::GraphCore;
 use domain::{
     BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, PageId,
-    PropertyKey, PropertyOwner, PropertyValue, QueryViewId, TagId,
+    PropertyKey, PropertyOwner, PropertyValue, QueryView, QueryViewId, QueryViewKind,
+    QueryViewOptions, TagId,
 };
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
@@ -528,9 +529,26 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         &graph,
         3,
         0,
+        Command::PutQueryView {
+            owner: owner.clone(),
+            view: QueryView {
+                id: QueryViewId::new("v-list").unwrap(),
+                name: "As a list".into(),
+                kind: QueryViewKind::List,
+                position: 1,
+                columns: Vec::new(),
+                options: QueryViewOptions::default(),
+            },
+        },
+    );
+    execute(
+        &mut right,
+        &graph,
+        3,
+        1,
         Command::SetQueryDefaultView {
             owner,
-            view_id: QueryViewId::new("list").unwrap(),
+            view_id: QueryViewId::new("v-list").unwrap(),
         },
     );
 
@@ -550,7 +568,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
             panic!("query document was not preserved")
         };
         assert_eq!(document.source, "SELECT * WHERE {} LIMIT 5");
-        assert_eq!(document.default_view_id.as_str(), "list");
+        assert_eq!(document.default_view_id.as_str(), "v-list");
     }
     assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
 }

@@ -3555,9 +3555,9 @@ fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
         document.insert("schema", QUERY_DOCUMENT_SCHEMA)?;
         document.insert("version", i64::from(QUERY_DOCUMENT_VERSION))?;
         document.insert("language", QUERY_LANGUAGE)?;
-        document.insert("default_view_id", "table")?;
-        let _ = document.ensure_mergeable_text("source")?;
         let defaults = PropertyDocument::default_query(String::new());
+        document.insert("default_view_id", defaults.default_view_id.as_str())?;
+        let _ = document.ensure_mergeable_text("source")?;
         for view in &defaults.views {
             put_query_view(&document, view)?;
         }
@@ -4479,7 +4479,7 @@ mod tests {
         };
         assert_eq!(document.source, "SELECT ?item WHERE {}");
         assert_eq!(document.default_view_id.as_str(), "v-open");
-        assert_eq!(document.views.len(), 3);
+        assert_eq!(document.views.len(), 2);
         // A tag's query lives in its metadata, never in the defaults it copies.
         assert!(
             record
@@ -4543,13 +4543,31 @@ mod tests {
         .unwrap();
         core.execute(
             envelope(
-                "query-view",
-                Command::SetQueryDefaultView {
+                "query-add-view",
+                Command::PutQueryView {
                     owner: owner.clone(),
-                    view_id: QueryViewId::new("list").unwrap(),
+                    view: QueryView {
+                        id: QueryViewId::new("v-list").unwrap(),
+                        name: "As a list".into(),
+                        kind: QueryViewKind::List,
+                        position: 1,
+                        columns: Vec::new(),
+                        options: QueryViewOptions::default(),
+                    },
                 },
             ),
             "t5",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "query-view",
+                Command::SetQueryDefaultView {
+                    owner: owner.clone(),
+                    view_id: QueryViewId::new("v-list").unwrap(),
+                },
+            ),
+            "t6",
         )
         .unwrap();
 
@@ -4563,7 +4581,7 @@ mod tests {
             panic!("query property did not decode as a document")
         };
         assert_eq!(document.source, "SELECT ?item WHERE {} LIMIT 10");
-        assert_eq!(document.default_view_id.as_str(), "list");
+        assert_eq!(document.default_view_id.as_str(), "v-list");
         assert_eq!(document.views.len(), 2);
 
         let error = core
@@ -4577,7 +4595,7 @@ mod tests {
                         insert: "😀".repeat(20_000),
                     },
                 ),
-                "t6",
+                "t7",
             )
             .unwrap_err();
         assert!(matches!(error, CoreError::TextTooLong));
@@ -4592,7 +4610,7 @@ mod tests {
                         value: PropertyValue::Document(document.clone()),
                     },
                 ),
-                "t7",
+                "t8",
             )
             .unwrap_err();
         assert!(matches!(

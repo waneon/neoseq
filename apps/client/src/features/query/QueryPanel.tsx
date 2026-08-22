@@ -117,14 +117,18 @@ const PLAN_SAVE_DEBOUNCE_MS = 600;
 const defaultOptions = (): QueryViewOptions => ({ compact: false, wrap: false, sort: [] });
 
 /**
- * The two views every query document is born with, mirrored here so a surface
- * whose document has not been written yet still shows the same two answers it
- * will have the moment anybody shapes it. The ids match the core's, so the seed
- * and the stored document are the same views rather than look-alikes.
+ * The one view every query document is born with, mirrored here so a surface
+ * whose document has not been written yet shows the same answer it will have the
+ * moment anybody shapes it. The id matches the core's, so the seed and the stored
+ * document are the same view rather than look-alikes.
+ *
+ * It is named for what it shows, not for how it is drawn. A document used to be
+ * born with a `Table` and a `List` holding the same rows under two names for
+ * their own shapes — two tabs that were not two answers. Layout is a property of
+ * a view; a second view is what a reader makes when they mean a second question.
  */
 const SEED_VIEWS: QueryView[] = [
-  { id: "table", name: "Table", kind: "table", position: 0, columns: [], options: defaultOptions() },
-  { id: "list", name: "List", kind: "list", position: 1, columns: [], options: defaultOptions() },
+  { id: "all", name: "All", kind: "table", position: 0, columns: [], options: defaultOptions() },
 ];
 
 export interface QueryPanelProps {
@@ -140,12 +144,6 @@ export interface QueryPanelProps {
    * first edit is what brings the document into existence.
    */
   seedPlan?: QueryPlan;
-  /**
-   * Which of the seeded views a surface opens on before it has a document. The
-   * core's own default is the table; a surface whose answer is a set of blocks
-   * rather than a set of cells says so here.
-   */
-  seedViewId?: string;
   variant: "inline" | "page";
   /** The section's accessible name. */
   label: string;
@@ -158,7 +156,6 @@ export function QueryPanel({
   executionKey,
   document,
   seedPlan,
-  seedViewId,
   variant,
   label,
   onRemove,
@@ -341,7 +338,6 @@ export function QueryPanel({
   const views = document?.views ?? SEED_VIEWS;
   const preferredViewId = (readonly ? localViewId : null)
     ?? document?.default_view_id
-    ?? seedViewId
     ?? views[0].id;
   const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
 
@@ -442,16 +438,6 @@ export function QueryPanel({
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
       source: compiled.source,
     });
-    // A fresh document opens on the core's default view — the first seeded one.
-    // The reader was already looking at another one, so the document is written
-    // to agree with the screen rather than the screen with the document.
-    if (activeView.id !== SEED_VIEWS[0].id) {
-      await session.execute({
-        type: "set_query_default_view",
-        owner,
-        view_id: activeView.id,
-      });
-    }
   };
 
   const selectView = (viewId: string) => {
@@ -533,28 +519,30 @@ export function QueryPanel({
   };
 
   /**
-   * Views carry positions rather than an array order, so a move is a swap of the
-   * two positions. Writing both keeps the strip in the order the reader sees even
-   * when a peer has been rearranging it at the same time.
+   * Views carry positions rather than an array order, so the strip hands back the
+   * order it now reads in and this writes the positions that produce it — only
+   * for the views whose place actually changed, which for a drag past one
+   * neighbour is two of them.
    */
+  const reorderViews = (next: QueryView[]) => {
+    void (async () => {
+      await materialize();
+      await Promise.all(next.flatMap((view, position) => (
+        view.position === position
+          ? []
+          : [session.execute({ type: "put_query_view", owner, view: { ...view, position } })]
+      )));
+    })().catch(report);
+  };
+
+  /** The same move from the keyboard: one step, expressed as the whole order. */
   const moveView = (view: QueryView, delta: -1 | 1) => {
     const index = views.findIndex((item) => item.id === view.id);
     const target = index + delta;
     if (index < 0 || target < 0 || target >= views.length) return;
-    const neighbour = views[target];
-    void (async () => {
-      await materialize();
-      await session.execute({
-        type: "put_query_view",
-        owner,
-        view: { ...view, position: neighbour.position },
-      });
-      await session.execute({
-        type: "put_query_view",
-        owner,
-        view: { ...neighbour, position: view.position },
-      });
-    })().catch(report);
+    const next = [...views];
+    [next[index], next[target]] = [next[target], next[index]];
+    reorderViews(next);
   };
 
   const hidden = new Set(
@@ -587,6 +575,23 @@ export function QueryPanel({
     const next = [...order];
     [next[index], next[target]] = [next[target], next[index]];
     void putView({ ...activeView, columns: next });
+  };
+
+  /**
+   * The running order the header just handed back. A column the view has never
+   * met keeps the record the table gave it, so dragging one never drops the width
+   * or the visibility of any of them.
+   */
+  const reorderColumns = (order: string[]) => {
+    const known = new Map(
+      viewColumnOrder(activeView, columns).map((column) => [column.variable, column]),
+    );
+    const next = order.flatMap((variable) => {
+      const column = known.get(variable);
+      return column ? [column] : [];
+    });
+    const rest = [...known.values()].filter((column) => !order.includes(column.variable));
+    void putView({ ...activeView, columns: [...next, ...rest] });
   };
 
   const setOption = (patch: Partial<QueryView["options"]>) =>
@@ -625,23 +630,10 @@ export function QueryPanel({
      view and a second control for it would be a second owner. */
   const layoutItems = (
     <>
-      {tabbed && (
-        <>
-          <DropdownMenuLabel>{message("query.layout")}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={activeView.kind}
-            onValueChange={(kind) => void putView({ ...activeView, kind: kind as QueryViewKind })}
-          >
-            <DropdownMenuRadioItem value="table">
-              {message("query.viewTable")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="list">
-              {message("query.viewList")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </>
-      )}
-      {!tabbed && (
+      {/* A document born with one view has nothing to switch between, and a
+          radio group of one is a statement dressed as a choice. The switcher
+          appears when a second view does. */}
+      {!tabbed && views.length > 1 && (
         <>
           <DropdownMenuLabel>{message("query.view")}</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
@@ -651,8 +643,21 @@ export function QueryPanel({
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
         </>
       )}
+      <DropdownMenuLabel>{message("query.layout")}</DropdownMenuLabel>
+      <DropdownMenuRadioGroup
+        value={activeView.kind}
+        onValueChange={(kind) => void putView({ ...activeView, kind: kind as QueryViewKind })}
+      >
+        <DropdownMenuRadioItem value="table">
+          {message("query.viewTable")}
+        </DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="list">
+          {message("query.viewList")}
+        </DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
       {columns.length > 0 && (
         <>
           <DropdownMenuSeparator />
@@ -721,6 +726,7 @@ export function QueryPanel({
           menu={layoutItems}
           onSelect={selectView}
           onAdd={addView}
+          onReorder={reorderViews}
           onRename={renameView}
           onDuplicate={duplicateView}
           onRemove={removeView}
@@ -931,6 +937,7 @@ export function QueryPanel({
               : (variable, width) => setColumn(variable, { width: width || null })}
             onHide={readonly ? undefined : (variable) => setColumn(variable, { hidden: true })}
             onMove={readonly ? undefined : moveColumn}
+            onReorder={readonly ? undefined : reorderColumns}
           />
         )}
         {!error && select && visibleRows.length > 0 && activeView.kind === "list" && (

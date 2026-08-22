@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 6;
+pub const REGISTRY_VERSION: u32 = 7;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -220,25 +220,21 @@ impl PropertyDocument {
             version: QUERY_DOCUMENT_VERSION,
             source,
             language: QUERY_LANGUAGE.to_owned(),
-            views: vec![
-                QueryView {
-                    id: QueryViewId::new("table").expect("static query view id"),
-                    name: "Table".to_owned(),
-                    kind: QueryViewKind::Table,
-                    position: 0,
-                    columns: Vec::new(),
-                    options: QueryViewOptions::default(),
-                },
-                QueryView {
-                    id: QueryViewId::new("list").expect("static query view id"),
-                    name: "List".to_owned(),
-                    kind: QueryViewKind::List,
-                    position: 1,
-                    columns: Vec::new(),
-                    options: QueryViewOptions::default(),
-                },
-            ],
-            default_view_id: QueryViewId::new("table").expect("static query view id"),
+            // One view, named for what it shows rather than for how it is drawn.
+            // A document used to be born with a `Table` and a `List` holding the
+            // same rows under two names for their own shapes, which is chrome
+            // rather than information: the layout is a *property* of a view, and
+            // a second view is what a reader makes when they mean a second
+            // question — not something the product guesses on their behalf.
+            views: vec![QueryView {
+                id: QueryViewId::new("all").expect("static query view id"),
+                name: "All".to_owned(),
+                kind: QueryViewKind::Table,
+                position: 0,
+                columns: Vec::new(),
+                options: QueryViewOptions::default(),
+            }],
+            default_view_id: QueryViewId::new("all").expect("static query view id"),
             plan: None,
         }
     }
@@ -405,6 +401,11 @@ const USER_PAGE_BLOCK_DEFAULT: &[PropertyPlacement] = &[
 /// What a tag *is* rather than what it copies: how it is filed, and how it looks
 /// wherever it appears. None of these is ever materialized onto a block.
 const USER_TAG: &[PropertyPlacement] = &[PropertyPlacement::user(PropertyTarget::TagMetadata)];
+/// The two things a reader navigates to, and therefore the two a reader stars.
+const USER_PAGE_TAG: &[PropertyPlacement] = &[
+    PropertyPlacement::user(PropertyTarget::Page),
+    PropertyPlacement::user(PropertyTarget::TagMetadata),
+];
 const CORE_PAGE: &[PropertyPlacement] = &[PropertyPlacement::core(PropertyTarget::Page)];
 const CORE_PAGE_TAG: &[PropertyPlacement] = &[
     PropertyPlacement::core(PropertyTarget::Page),
@@ -435,6 +436,19 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             })),
             ordering: None,
             placements: USER_PAGE_BLOCK_TAG,
+            copy: PropertyCopyPolicy::Portable,
+        },
+    ),
+    (
+        // What a reader keeps to hand. It sits on the page or the tag rather than
+        // in a list of its own, so nothing has to be kept in step when one is
+        // deleted, and it travels with the graph rather than with the browser
+        // that starred it.
+        "builtin.favorite",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::Checkbox),
+            ordering: None,
+            placements: USER_PAGE_TAG,
             copy: PropertyCopyPolicy::Portable,
         },
     ),

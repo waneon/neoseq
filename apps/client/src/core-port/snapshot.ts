@@ -189,6 +189,11 @@ export function journalDate(page: PageSnapshot): string | undefined {
   return dateValue(page.properties, "builtin.journal-date");
 }
 
+export function booleanValue(bag: PropertyField[], key: string): boolean {
+  const value = singleValue(bag, key);
+  return value?.type === "checkbox" && value.value;
+}
+
 export function isDeleted(page: PageSnapshot): boolean {
   return singleValue(page.properties, "builtin.deleted-at") !== undefined;
 }

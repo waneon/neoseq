@@ -1,9 +1,14 @@
 {
-  "schema": 6,
+  "schema": 7,
   "properties": {
     "builtin.query": {
       "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
       "placements": {"page": "user", "block": "user", "tag_metadata": "user"},
+      "copy": "portable"
+    },
+    "builtin.favorite": {
+      "shape": {"single": "checkbox"},
+      "placements": {"page": "user", "tag_metadata": "user"},
       "copy": "portable"
     },
     "builtin.tag-group": {

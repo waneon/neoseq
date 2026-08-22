@@ -210,6 +210,41 @@ test("a tag under a block is an accent reference that leads to the tag, never a 
   await expect(page.locator(".outline-tags")).toHaveCount(0);
 });
 
+// What a reader keeps to hand: one checkbox on the thing itself, and one list in
+// the rail that shows pages and tags together, because "the things I come back
+// to" is one thought.
+test("a starred page and a starred tag share one list in the rail", async ({ page }) => {
+  await createGraph(page, "Favourites Graph");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("new-tag").click();
+  await page.getByTestId("new-tag-name").fill("Reading");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await page.keyboard.press("Escape");
+  await createPage(page, "Reading list");
+
+  // Nothing starred, nothing said: an empty heading is a promise the rail has
+  // not been asked to keep.
+  await expect(page.getByTestId("favourite-list")).toHaveCount(0);
+
+  await openPageMenu(page);
+  await page.getByTestId("menu-page-favourite").click();
+  await awaitSaved(page);
+  await expect(page.getByTestId("favourite-item")).toHaveText(["Reading list"]);
+
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("tag-row-menu").click();
+  await page.getByTestId("tag-row-favourite").click();
+  await awaitSaved(page);
+  await expect(page.getByTestId("favourite-item")).toHaveText(["#Reading", "Reading list"]);
+
+  // …and the same row takes it back, saying so in its own label.
+  await page.getByTestId("tag-row-menu").click();
+  await expect(page.getByTestId("tag-row-favourite")).toHaveText("Remove from favourites");
+  await page.getByTestId("tag-row-favourite").click();
+  await expect(page.getByTestId("favourite-item")).toHaveText(["Reading list"]);
+});
+
 // Groups, marks, and colours: everything the manager exists for, from the one
 // panel a tag's mark opens — and the drag that is the other way to file one.
 test("tags are filed into groups, marked, and coloured from one panel", async ({ page }) => {
@@ -300,27 +335,24 @@ test("a tag's page carries its query, and the query's views are its tabs", async
   const query = page.getByTestId("query-block");
   await expect(query.getByTestId("query-summary")).toContainText("#Reading");
   await expect(query.getByTestId("query-count")).toContainText("1 result");
-  // Everything carrying a tag is a set of lines somebody wrote, so the tag opens
-  // on the view that renders them as the outline does.
-  await expect(query.getByTestId("query-list")).toBeVisible();
-
-  // The views are tabs, and the chosen one is raised out of the track rather
-  // than told apart by a second signal (DESIGN.md § Interaction States).
-  const tabs = query.getByRole("tab");
-  await expect(tabs).toHaveText(["Table", "List"]);
-  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
-  await tabs.first().click();
-  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(query.getByTestId("query-table")).toBeVisible();
-  await awaitSaved(page);
+
+  // One view, named for what it shows rather than for how it is drawn — and the
+  // chosen tab is raised out of the track rather than told apart by a second
+  // signal (DESIGN.md § Interaction States).
+  const tabs = query.getByRole("tab");
+  await expect(tabs).toHaveText(["All"]);
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
 
   // A new view opens on itself, and is renamed where it stands.
   await query.getByTestId("query-view-add").click();
-  await page.getByRole("menuitem", { name: "Table", exact: true }).click();
-  await expect(tabs).toHaveCount(3);
-  await expect(tabs.nth(2)).toHaveText("Table 2");
-  await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
-  await tabs.nth(2).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "List", exact: true }).click();
+  await expect(tabs).toHaveCount(2);
+  await expect(tabs.nth(1)).toHaveText("List");
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(query.getByTestId("query-list")).toBeVisible();
+  await awaitSaved(page);
+  await tabs.nth(1).click({ button: "right" });
   await page.getByTestId("query-view-rename").click();
   const field = query.getByTestId("query-view-rename-field");
   await field.fill("Unread");
@@ -334,9 +366,18 @@ test("a tag's page carries its query, and the query's views are its tabs", async
     "aria-selected",
     "true",
   );
+
+  // Dragging a tab past its neighbour is the same move the menu makes.
+  await query.getByRole("tab", { name: "Unread" }).dragTo(
+    query.getByRole("tab", { name: "All" }),
+    { targetPosition: { x: 2, y: 10 } },
+  );
+  await awaitSaved(page);
+  await expect(query.getByRole("tab")).toHaveText(["Unread", "All"]);
+
   await query.getByRole("tab", { name: "Unread" }).click({ button: "right" });
   await page.getByTestId("query-view-delete").click();
-  await expect(query.getByRole("tab")).toHaveText(["Table", "List"]);
+  await expect(query.getByRole("tab")).toHaveText(["All"]);
 });
 
 test("deleted page references resolve to a tombstone, not a new page", async ({ page }) => {

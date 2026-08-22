@@ -105,7 +105,7 @@ describe("query and task projections", () => {
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
-      expect(block && queryDocument(block.properties)?.default_view_id).toBe("list");
+      expect(block && queryDocument(block.properties)?.views[0].kind).toBe("list");
     });
     expect(screen.getByTestId("query-list")).toBeInTheDocument();
   });

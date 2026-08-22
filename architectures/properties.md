@@ -73,6 +73,15 @@ than an accident of history:
 A value either key cannot interpret stays readable and editable as the string it is,
 which is the same tolerance every other unknown property value gets.
 
+## Favourites
+
+`builtin.favorite` is a checkbox on a page or on a tag — the two things a reader
+navigates to. There is no favourites list: the flag lives on the thing itself, so
+nothing has to be kept in step when one is deleted and two replicas starring the
+same thing converge without a merge rule. It is graph data rather than a browser
+preference, so a graph opened elsewhere keeps the handful of places worth
+returning to.
+
 ## Tag Identity Keys
 
 `builtin.tag-group`, `builtin.tag-order`, `builtin.tag-color`, and
@@ -126,10 +135,11 @@ falls back to defaults, and a switch a reader does not know is ignored rather
 than rejected — which is what lets one replica add a switch without invalidating
 the document for another. A `sort` naming a variable the view no longer lists is
 valid and simply stops applying, so narrowing a query never makes its saved view
-unreadable. The two views a document is born with are `table` and `list`; views a
+unreadable. A document is born with one view, `all`, drawn as a table: layout is a
+field of a view rather than a second view, so two views are two questions. Views a
 reader creates carry generated IDs and their own names, and use the same record
 contract rather than adding property keys or storage roots. A document holds
-between one and thirty-two views.
+between one and thirty-two views, ordered by `position`.
 
 ## Owners and Commands
 

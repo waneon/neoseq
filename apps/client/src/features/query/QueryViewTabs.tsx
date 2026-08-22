@@ -15,6 +15,12 @@
 // dropped into the track it would read as a view called "plus". It sits beyond
 // the track's edge, revealed on approach and pinned where there is no pointer.
 //
+// **The order is the reader's, and a drag says where it lands.** A tab is dragged
+// past its neighbours and a seam — the same 2px accent rule the tag directory
+// draws, turned on its side — marks the gap it is about to occupy. Nothing
+// reflows while the pointer travels, and `Move left` / `Move right` in the tab's
+// own menu is the same move from a keyboard.
+//
 // Everything one view *is* — its layout, its columns, its density, its name, its
 // place in the row — lives in that view's own menu, and **the current tab is the
 // control that opens it**. Pressing a tab that is not the answer chooses it;
@@ -62,6 +68,7 @@ export function QueryViewTabs({
   menu,
   onSelect,
   onAdd,
+  onReorder,
   onRename,
   onDuplicate,
   onRemove,
@@ -76,6 +83,8 @@ export function QueryViewTabs({
   menu: ReactNode;
   onSelect: (viewId: string) => void;
   onAdd: (kind: QueryViewKind) => void;
+  /** The views in the order the reader just put them. */
+  onReorder: (views: QueryView[]) => void;
   onRename: (view: QueryView, name: string) => void;
   onDuplicate: (view: QueryView) => void;
   onRemove: (view: QueryView) => void;
@@ -84,6 +93,9 @@ export function QueryViewTabs({
   const { message } = useI18n();
   const [menuAt, setMenuAt] = useState<MenuAt | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  /** The tab the seam is drawn before, or `null` for the end of the strip. */
+  const [seamBefore, setSeamBefore] = useState<string | null | undefined>(undefined);
   const strip = useRef<HTMLDivElement>(null);
 
   const menuView = views.find((view) => view.id === menuAt?.viewId) ?? null;
@@ -108,6 +120,25 @@ export function QueryViewTabs({
         ?.querySelector<HTMLElement>(`[data-view-id="${CSS.escape(views[next].id)}"]`)
         ?.focus();
     });
+  };
+
+  const endDrag = () => {
+    setDragging(null);
+    setSeamBefore(undefined);
+  };
+
+  /** Commit a dropped tab: its new place among the views, as positions. */
+  const commitDrop = () => {
+    const moved = views.find((view) => view.id === dragging);
+    if (!moved || seamBefore === undefined) {
+      endDrag();
+      return;
+    }
+    const rest = views.filter((view) => view.id !== moved.id);
+    const found = seamBefore === null ? -1 : rest.findIndex((view) => view.id === seamBefore);
+    const at = found < 0 ? rest.length : found;
+    endDrag();
+    onReorder([...rest.slice(0, at), moved, ...rest.slice(at)]);
   };
 
   const summon = (view: QueryView, at: { x: number; y: number }) => {
@@ -139,8 +170,20 @@ export function QueryViewTabs({
         aria-orientation="horizontal"
         ref={strip}
         onKeyDown={onKeyDown}
+        onDragOver={(event) => {
+          // Only the track's own padding past the last tab reaches this.
+          if (dragging === null || event.target !== event.currentTarget) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setSeamBefore(null);
+        }}
+        onDrop={(event) => {
+          if (dragging === null) return;
+          event.preventDefault();
+          commitDrop();
+        }}
       >
-        {views.map((view) => {
+        {views.map((view, position) => {
           const current = view.id === activeView.id;
           if (renaming === view.id) {
             return (
@@ -156,6 +199,13 @@ export function QueryViewTabs({
             );
           }
           const opens = current && !readonly;
+          const seam = dragging === null
+            ? undefined
+            : seamBefore === view.id
+              ? "before"
+              : seamBefore === null && view.id === views[views.length - 1]?.id
+                ? "after"
+                : undefined;
           return (
             <button
               key={view.id}
@@ -164,11 +214,29 @@ export function QueryViewTabs({
               className="query-view-tab"
               data-view-id={view.id}
               data-testid="query-view-tab"
+              data-dragging={dragging === view.id || undefined}
+              data-seam={seam}
               aria-selected={current}
               aria-controls={panelId}
               aria-haspopup={opens ? "menu" : undefined}
               aria-expanded={opens ? menuAt?.viewId === view.id : undefined}
               tabIndex={current ? 0 : -1}
+              draggable={!readonly && views.length > 1}
+              onDragStart={(event) => {
+                event.dataTransfer.setData("text/plain", viewLabel(view, message));
+                event.dataTransfer.effectAllowed = "move";
+                setDragging(view.id);
+              }}
+              onDragEnd={endDrag}
+              onDragOver={(event) => {
+                if (dragging === null || dragging === view.id) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = "move";
+                const box = event.currentTarget.getBoundingClientRect();
+                const before = event.clientX < box.left + box.width / 2;
+                setSeamBefore(before ? view.id : (views[position + 1]?.id ?? null));
+              }}
               onClick={(event) =>
                 opens ? summon(view, pointOf(event)) : onSelect(view.id)}
               onContextMenu={(event) => {

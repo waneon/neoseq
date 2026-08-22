@@ -40,10 +40,13 @@ import {
   PencilLineIcon,
   PlusIcon,
   Settings2Icon,
+  StarIcon,
+  StarOffIcon,
   Trash2Icon,
 } from "lucide-react";
 import type { Command } from "../../core-port/commands";
 import type { TagSnapshot } from "../../core-port/snapshot";
+import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { canonicalEntityName } from "../../entities/names";
 import {
   TAG_GROUP_KEY,
@@ -574,6 +577,7 @@ function TagRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const markRef = useRef<HTMLElement | null>(null);
 
+  const starred = isFavourite(tag);
   const summary = tag.defaults
     .map((field) => propertyDisplayName(field.key, message))
     .join(" · ");
@@ -647,6 +651,26 @@ function TagRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              data-testid="tag-row-favourite"
+              onSelect={() => {
+                const owner = { kind: "tag", tag_id: tag.id } as const;
+                void session
+                  .execute(starred
+                    ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                    : {
+                        type: "set_property",
+                        owner,
+                        key: FAVOURITE_KEY,
+                        value: { type: "checkbox", value: true },
+                      })
+                  .catch((cause: unknown) =>
+                    notify.failure(message("failure.customizeTag", { name: tag.name }), cause));
+              }}
+            >
+              {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
+              {message(starred ? "favourites.remove" : "favourites.add")}
+            </DropdownMenuItem>
             <DropdownMenuItem
               data-testid="tag-row-customize"
               onSelect={() => requestAnimationFrame(() => setIdentityAt(markRef.current))}

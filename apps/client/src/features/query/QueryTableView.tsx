@@ -8,6 +8,12 @@
 // still sort; there is simply nowhere to write the choice, so the block holds it
 // for as long as it is mounted.
 //
+// **A column is dragged where it belongs.** Its heading is its handle, and a
+// seam — the same accent rule the tag directory draws between rows, turned on its
+// side — marks the gap it is about to occupy. Nothing reflows while the pointer
+// travels; `Move left` / `Move right` in the heading's menu is the same move from
+// a keyboard, and both hand back the running order rather than a swap.
+//
 // The order is a **list**. A header press cycles its own column and leaves the
 // rest standing, so a second press adds a tie-breaker instead of discarding the
 // first choice; each sorted heading states its rank once there is a second term
@@ -86,6 +92,7 @@ export function QueryTableView({
   onSort,
   onResize,
   onHide,
+  onReorder,
   onMove,
 }: {
   columns: ResultColumn[];
@@ -102,6 +109,8 @@ export function QueryTableView({
   /** Persist a dragged width. Resolves after the authoritative view reconciles. */
   onResize?: (variable: string, width: number) => Promise<boolean>;
   onHide?: (variable: string) => void;
+  /** The columns in the order the reader just dragged them into. */
+  onReorder?: (order: string[]) => void;
   onMove?: (variable: string, delta: -1 | 1) => void;
 }) {
   const { message } = useI18n();
@@ -122,6 +131,9 @@ export function QueryTableView({
   const canonicalSizingRef = useRef(canonicalSizing);
   const canonicalSizingKeyRef = useRef(canonicalSizingKey);
   const resizeCommitPending = useRef(false);
+  const [dragging, setDragging] = useState<string | null>(null);
+  /** The column the seam is drawn before, or `null` for past the last one. */
+  const [seamBefore, setSeamBefore] = useState<string | null | undefined>(undefined);
   canonicalSizingRef.current = canonicalSizing;
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
@@ -188,6 +200,38 @@ export function QueryTableView({
 
   const byVariable = new Map(columns.map((column) => [column.variable, column]));
   const headers = table.getHeaderGroups();
+  const order = columns.map((column) => column.variable);
+  /**
+   * Whether the reader has taken the widths over — by having sized a column, or
+   * by dragging one right now. Until then the table is free to fill its block.
+   */
+  const sized = columns.some((column) => column.width !== null)
+    // A drag in flight: the controlled overlay has left the canonical widths
+    // behind, and the columns have to hold the size the handle is giving them.
+    || columns.some((column) =>
+      columnSizing[column.variable] !== (column.width ?? DEFAULT_WIDTH));
+
+  /** Which side of a column the seam falls on, if it falls on this one at all. */
+  const seamOf = (variable: string): "before" | "after" | undefined => {
+    if (seamBefore === variable) return "before";
+    if (seamBefore === null && variable === order[order.length - 1]) return "after";
+    return undefined;
+  };
+
+  /** Commit a dropped heading: the running order the reader now reads. */
+  const commitDrop = () => {
+    const moved = dragging;
+    const before = seamBefore;
+    setDragging(null);
+    setSeamBefore(undefined);
+    if (!onReorder || moved === null || before === undefined) return;
+    const rest = order.filter((variable) => variable !== moved);
+    const found = before === null ? -1 : rest.indexOf(before);
+    const at = found < 0 ? rest.length : found;
+    const next = [...rest.slice(0, at), moved, ...rest.slice(at)];
+    if (next.every((variable, position) => variable === order[position])) return;
+    onReorder(next);
+  };
 
   return (
     <div className="query-table-wrap" data-testid="query-table">
@@ -195,18 +239,26 @@ export function QueryTableView({
         className="query-table"
         data-compact={compact}
         data-wrap={wrap}
-        // The filler column is layout, not data: it carries no heading and holds
-        // no value, so the count of real columns is stated for assistive
-        // technology rather than counted off the DOM.
+        // The filler column, when there is one, is layout rather than data: it
+        // carries no heading and holds no value, so the count of real columns is
+        // stated for assistive technology rather than counted off the DOM.
         aria-colcount={columns.length}
+        data-sized={sized || undefined}
       >
         <colgroup>
           {headers[0]?.headers.map((header) => (
-            <col key={header.id} style={{ width: header.getSize() }} />
+            // Until the reader takes the layout over, the table lays itself out:
+            // no declared width, so the fixed algorithm shares the block between
+            // the columns. Declaring 180px each instead cut every cell short
+            // while half the table stood empty — a column of clipped text beside
+            // five hundred pixels of nothing.
+            <col key={header.id} style={{ width: sized ? header.getSize() : undefined }} />
           ))}
-          {/* Takes whatever width the declared columns did not, so a narrow
-              result still fills the block and a wide one still overflows it. */}
-          <col className="query-col-filler" />
+          {/* Only once the reader owns the widths: it takes whatever they did not,
+              so a sized column keeps exactly the width it was given. Without one,
+              the fixed algorithm would hand the slack back to the sized columns
+              and the drag would not hold. */}
+          {sized && <col className="query-col-filler" />}
         </colgroup>
         <thead>
           {headers.map((group) => (
@@ -223,6 +275,33 @@ export function QueryTableView({
                     scope="col"
                     aria-colindex={index + 1}
                     data-numeric={column?.numeric || undefined}
+                    data-dragging={dragging === header.column.id || undefined}
+                    data-seam={dragging === null ? undefined : seamOf(header.column.id)}
+                    draggable={Boolean(onReorder) && order.length > 1}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", label);
+                      event.dataTransfer.effectAllowed = "move";
+                      setDragging(header.column.id);
+                    }}
+                    onDragEnd={() => {
+                      setDragging(null);
+                      setSeamBefore(undefined);
+                    }}
+                    onDragOver={(event) => {
+                      if (dragging === null || dragging === header.column.id) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      const box = event.currentTarget.getBoundingClientRect();
+                      const before = event.clientX < box.left + box.width / 2;
+                      setSeamBefore(before
+                        ? header.column.id
+                        : (order[index + 1] ?? null));
+                    }}
+                    onDrop={(event) => {
+                      if (dragging === null) return;
+                      event.preventDefault();
+                      commitDrop();
+                    }}
                     aria-sort={
                       term === null
                         ? "none"
@@ -368,7 +447,7 @@ export function QueryTableView({
                   </th>
                 );
               })}
-              <td className="query-cell-filler" aria-hidden />
+              {sized && <td className="query-cell-filler" aria-hidden />}
             </tr>
           ))}
         </thead>
@@ -386,6 +465,11 @@ export function QueryTableView({
                     key={cell.id}
                     aria-colindex={cellIndex + 1}
                     data-numeric={column?.numeric || undefined}
+                    // The seam runs the height of the column, because a column is
+                    // what is being placed. Every cell draws its own two pixels
+                    // and they stack into one line, which costs nothing and needs
+                    // no measurement of a table that is still being laid out.
+                    data-seam={dragging === null ? undefined : seamOf(cell.column.id)}
                   >
                     {cellIndex === 0 && row.original.key === pinnedRowKey && (
                       <span className="query-result-stale" role="status">
@@ -405,7 +489,7 @@ export function QueryTableView({
                   </td>
                 );
               })}
-              <td className="query-cell-filler" aria-hidden />
+              {sized && <td className="query-cell-filler" aria-hidden />}
             </tr>
           ))}
         </tbody>

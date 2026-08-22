@@ -416,7 +416,7 @@ describe("query result views", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Hide column" }));
 
     await waitFor(() => {
-      const view = storedQuery(harness)?.views.find((item) => item.id === "table");
+      const view = storedQuery(harness)?.views[0];
       expect(view?.columns.find((column) => column.variable === "page")?.hidden).toBe(true);
     });
     await waitFor(() =>
@@ -424,11 +424,37 @@ describe("query result views", () => {
     );
   });
 
+  it("reorders columns by dragging a heading, and says where the column will land", async () => {
+    const harness = await withResult();
+    const table = await screen.findByTestId("query-table");
+    const headings = () => within(table)
+      .getAllByRole("columnheader")
+      .map((heading) => heading.textContent?.replace(/Resize.*/, "").trim());
+    expect(headings()).toEqual(["Text", "Page"]);
+
+    const transfer = { setData: () => {}, getData: () => "", dropEffect: "", effectAllowed: "" };
+    const cells = within(table).getAllByRole("columnheader");
+    fireEvent.dragStart(cells[0], { dataTransfer: transfer });
+    fireEvent.dragOver(cells[1], { dataTransfer: transfer });
+    // The seam runs the height of the column it will land beside, and nothing
+    // moves until it is dropped.
+    expect(cells[1]).toHaveAttribute("data-seam", "after");
+    expect(within(table).getAllByTestId("query-row")[0].children[1])
+      .toHaveAttribute("data-seam", "after");
+    expect(headings()).toEqual(["Text", "Page"]);
+
+    fireEvent.drop(cells[1], { dataTransfer: transfer });
+    await waitFor(() => expect(headings()).toEqual(["Page", "Text"]));
+    // A running order the view now owns, with every column's own record intact.
+    expect(storedQuery(harness)?.views[0]?.columns.map((column) => column.variable))
+      .toEqual(["page", "text"]);
+  });
+
   it("keeps a header sort in the saved view, so the order survives a reload", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
     const savedSort = () =>
-      storedQuery(harness)?.views.find((item) => item.id === "table")?.options.sort;
+      storedQuery(harness)?.views[0]?.options.sort;
 
     const table = await screen.findByTestId("query-table");
     // The heading *is* the sort control, so its name is the column's name.
@@ -565,7 +591,7 @@ describe("query result views", () => {
     expect(values()).toEqual(["Zulu", "Alpha"]);
 
     const putListSort = async (descending: boolean) => {
-      const view = storedQuery(harness)!.views.find((item) => item.id === "list")!;
+      const view = storedQuery(harness)!.views[0]!;
       await harness.session.execute({
         type: "put_query_view",
         owner: { kind: "block", page_id: "home", id: "b-1" },
@@ -589,7 +615,7 @@ describe("query result views", () => {
     const harness = await withResult();
     const user = userEvent.setup();
     const savedSort = () =>
-      storedQuery(harness)?.views.find((item) => item.id === "table")?.options.sort;
+      storedQuery(harness)?.views[0]?.options.sort;
 
     const table = await screen.findByTestId("query-table");
     await user.click(within(table).getByRole("button", { name: "Text", exact: true }));
@@ -629,24 +655,25 @@ describe("query result views", () => {
     const harness = await withResult();
     const table = await screen.findByTestId("query-table");
     const handle = within(table).getByRole("separator", { name: "Resize Text" });
-    const savedWidth = () => storedQuery(harness)?.views
-      .find((view) => view.id === "table")?.columns
+    const savedWidth = () => storedQuery(harness)?.views[0]?.columns
       .find((column) => column.variable === "text")?.width;
 
-    expect(firstColumnWidth(table)).toBe("180px");
+    // Until the reader takes the widths over, the table declares none and fills
+    // its block; the first drag is what hands the layout to them.
+    expect(firstColumnWidth(table)).toBe("");
     dragColumn(handle, 180, 260);
     await waitFor(() => expect(savedWidth()).toBe(260));
     expect(firstColumnWidth(table)).toBe("260px");
 
     await harness.session.execute({ type: "undo" });
     await waitFor(() => expect(savedWidth()).toBeUndefined());
-    await waitFor(() => expect(firstColumnWidth(table)).toBe("180px"));
+    await waitFor(() => expect(firstColumnWidth(table)).toBe(""));
 
     await harness.session.execute({ type: "redo" });
     await waitFor(() => expect(savedWidth()).toBe(260));
     await waitFor(() => expect(firstColumnWidth(table)).toBe("260px"));
 
-    const current = storedQuery(harness)!.views.find((view) => view.id === "table")!;
+    const current = storedQuery(harness)!.views[0]!;
     await harness.session.execute({
       type: "put_query_view",
       owner: { kind: "block", page_id: "home", id: "b-1" },
@@ -678,8 +705,8 @@ describe("query result views", () => {
       260,
     );
 
-    await waitFor(() => expect(firstColumnWidth(table)).toBe("180px"));
-    expect(storedQuery(harness)?.views.find((view) => view.id === "table")?.columns)
+    await waitFor(() => expect(firstColumnWidth(table)).toBe(""));
+    expect(storedQuery(harness)?.views[0]?.columns)
       .toEqual([]);
   });
 
@@ -688,7 +715,7 @@ describe("query result views", () => {
     const user = userEvent.setup();
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
 
-    await waitFor(() => expect(storedQuery(harness)?.default_view_id).toBe("list"));
+    await waitFor(() => expect(storedQuery(harness)?.views[0].kind).toBe("list"));
     const list = await screen.findByTestId("query-list");
     const row = within(list).getByTestId("query-list-row");
     // The outline's own grammar: a treeitem with a bullet that opens the block.

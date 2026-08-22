@@ -19,12 +19,13 @@
 
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { InfoIcon, Settings2Icon, Trash2Icon } from "lucide-react";
+import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { findTag, queryDocument, stringValue } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
 import { configuredTimezone } from "../../entities/journal";
 import { tagPlan } from "../../entities/query-plan";
+import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
 import { Dialog } from "../../ui/components";
@@ -147,10 +148,6 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           executionKey={JSON.stringify(["tag", tag.id])}
           document={document}
           seedPlan={tagPlan(tag.id)}
-          // Everything carrying a tag is a set of *blocks* — lines somebody
-          // wrote — so the tag opens on the view that renders them as the
-          // outline does, not on a grid of cells cut to a column width.
-          seedViewId="list"
           variant="page"
           label={message("tags.queryFor", { name: tag.name })}
         />
@@ -290,6 +287,7 @@ function TagMenu({
   const notify = useNotify();
   const { message } = useI18n();
   const readonly = state.mode === "readonly";
+  const starred = isFavourite(tag);
   const [info, setInfo] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -319,13 +317,35 @@ function TagMenu({
           }}
         >
           {!readonly && (
-            <DropdownMenuItem
-              data-testid="menu-tag-customize"
-              onSelect={() => requestAnimationFrame(onCustomize)}
-            >
-              <Settings2Icon aria-hidden />
-              {message("tags.customize")}
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem
+                data-testid="menu-tag-favourite"
+                onSelect={() => {
+                  const owner = { kind: "tag", tag_id: tag.id } as const;
+                  void session
+                    .execute(starred
+                      ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                      : {
+                          type: "set_property",
+                          owner,
+                          key: FAVOURITE_KEY,
+                          value: { type: "checkbox", value: true },
+                        })
+                    .catch((error: unknown) =>
+                      notify.failure(message("failure.customizeTag", { name: tag.name }), error));
+                }}
+              >
+                {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
+                {message(starred ? "favourites.remove" : "favourites.add")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="menu-tag-customize"
+                onSelect={() => requestAnimationFrame(onCustomize)}
+              >
+                <Settings2Icon aria-hidden />
+                {message("tags.customize")}
+              </DropdownMenuItem>
+            </>
           )}
           <DropdownMenuItem data-testid="menu-tag-info" onSelect={() => setInfo(true)}>
             <InfoIcon aria-hidden />

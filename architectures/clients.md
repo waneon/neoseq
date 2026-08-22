@@ -165,7 +165,8 @@ specialized controls without becoming a schema authority:
   schema-owned saved result views. One surface serves both grounds it appears on:
   embedded in the outline its views stay in a menu, and on a routed tag page —
   where the query *is* the body — they become a permanent tab strip the reader
-  names, arranges, and deletes. It is authored only through `/` on a block or a
+  names, drags into order, and deletes. Result columns are dragged into order the
+  same way, and a table declares no column widths until the reader sizes one. It is authored only through `/` on a block or a
   page: the generic property route never offers it, so a query is never
   half-created by a picker. A tag's query needs no authoring step at all; the tag
   page seeds a plan that asks what the tag is for and writes nothing until a

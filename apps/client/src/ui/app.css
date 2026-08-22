@@ -3415,6 +3415,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    relationship a reader cannot name (§ Layout). */
 .query-view-tab {
   display: inline-flex;
+  position: relative;
   max-width: 220px;
   height: 26px;
   align-items: center;
@@ -3453,6 +3454,41 @@ button.chip:focus-visible .chip-glyph .chip-x {
   box-shadow:
     var(--e1-raised),
     0 0 0 2px var(--accent-soft);
+}
+
+/* ── The seam, on its side ──
+   The same rule the tag directory draws between two rows, drawn between two
+   tabs: where the thing in the reader's hand will land, taking no space, so
+   nothing in the strip moves while the pointer is still deciding. */
+.query-view-tab[data-dragging] {
+  opacity: 0.45;
+}
+
+.query-view-tab[draggable="true"] {
+  cursor: grab;
+}
+
+.query-view-tab[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.query-view-tab[data-seam]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.query-view-tab[data-seam="before"]::before {
+  left: -2px;
+}
+
+.query-view-tab[data-seam="after"]::before {
+  right: -2px;
 }
 
 .query-view-name {
@@ -4421,7 +4457,12 @@ button.chip:focus-visible .chip-glyph .chip-x {
    dragged was never the only one that moved. */
 .query-table {
   width: 100%;
-  min-width: max-content;
+  /* No `min-width: max-content`. Under a *fixed* layout a cell is already cut to
+     its declared width, so the only thing an intrinsic minimum could do was
+     measure the text that is not being shown and stretch the table past its
+     block — a scrollbar with nothing on the other side of it. The declared
+     widths still win when their sum genuinely exceeds the block, which is the
+     one case a sideways scroll is for. */
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -4465,6 +4506,52 @@ button.chip:focus-visible .chip-glyph .chip-x {
   gap: var(--sp-0);
   height: var(--sp-6);
   padding-inline: var(--sp-2);
+}
+
+/* A heading is its column's handle: the cursor says so, and the same seam the
+   view strip and the tag directory draw marks where the column will land. It is
+   drawn on the heading rather than down the whole column — a rule the height of
+   the answer would be a second table drawn over the first — and the header's own
+   hairline is what carries the eye down from it. */
+.query-table th[draggable="true"] .query-th {
+  cursor: grab;
+}
+
+.query-table th[draggable="true"]:active .query-th {
+  cursor: grabbing;
+}
+
+.query-table th[data-dragging] {
+  opacity: 0.45;
+}
+
+/* The seam runs the height of the column, because a column is what is being
+   placed. Every cell draws its own two pixels and they stack into one line — no
+   measurement of a table that is still being laid out, and no overlay to keep in
+   step with a scroll. */
+.query-table th[data-seam] .query-th::after,
+.query-table td[data-seam]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.query-table td[data-seam] {
+  position: relative;
+}
+
+.query-table th[data-seam="before"] .query-th::after,
+.query-table td[data-seam="before"]::after {
+  left: -1px;
+}
+
+.query-table th[data-seam="after"] .query-th::after,
+.query-table td[data-seam="after"]::after {
+  right: -1px;
 }
 
 .query-table[data-compact="true"] .query-th {
@@ -5696,6 +5783,15 @@ button.tag-mark {
   cursor: pointer;
 }
 
+/* In the rail a tag's mark is a rail glyph: it takes the one mark slot every
+   other row's icon takes, so every label in the list still starts at one x. */
+.shell-nav-item .tag-mark {
+  width: var(--mark-slot);
+  height: var(--mark-slot);
+  border-radius: var(--r-1);
+  font-size: var(--text-sm);
+}
+
 button.tag-mark:hover {
   background: var(--surface-2);
 }
@@ -6565,11 +6661,19 @@ button.tag-mark:focus-visible {
   display: flex;
   flex-direction: column;
   width: min(620px, 100%);
-  /* The pixel side wins at every ordinary window height, so the panel is exactly
+  /* **One size, whatever is typed into it.** It was a `max-height`, so the panel
+     grew and shrank on every keystroke: the row a pointer was travelling toward
+     was somewhere else on arrival, and the foot that states the three keys the
+     panel answers to walked up and down the screen while the reader read it. The
+     list scrolls inside instead — the same call § Settings makes for its dialog,
+     for the same reason, and a fixed box's white space is the price of a box that
+     stays where it was put.
+
+     The pixel side wins at every ordinary window height, so the panel is exactly
      520px tall and its bottom edge is a hairline rather than a half-pixel smear.
      The `vh` term is the guard for a short window, where the panel is scrolling
      anyway and a fractional height is the least of it. */
-  max-height: min(520px, 76vh);
+  height: min(520px, 76vh);
   border-radius: var(--r-4);
   background: var(--overlay);
   box-shadow: var(--e3);

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import { InfoIcon, Settings2Icon, Trash2Icon } from "lucide-react";
+import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
 import { findPage, journalDate, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
+import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
@@ -302,6 +303,8 @@ function PageMenu({
   const isJournal = pageKind(page) === "journal";
   const [info, setInfo] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const starred = isFavourite(page);
+  const owner = { kind: "page", id: page.id } as const;
 
   // The palette reaches the same two verbs. Registering them here keeps the
   // menu the single owner of what they do.
@@ -351,6 +354,26 @@ function PageMenu({
               <Shortcut binding={bindings.properties} plain />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
+          {!readonly && (
+            <DropdownMenuItem
+              data-testid="menu-page-favourite"
+              onSelect={() => {
+                void session
+                  .execute(starred
+                    ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                    : {
+                        type: "set_property",
+                        owner,
+                        key: FAVOURITE_KEY,
+                        value: { type: "checkbox", value: true },
+                      })
+                  .catch((error: unknown) => notify.failure(message("failure.saveQuery"), error));
+              }}
+            >
+              {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
+              {message(starred ? "favourites.remove" : "favourites.add")}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setInfo(true)}>
             <InfoIcon aria-hidden />
             {message("page.info")}

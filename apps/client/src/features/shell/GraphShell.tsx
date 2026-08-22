@@ -60,6 +60,8 @@ import {
   type PageSnapshot,
   type TagSnapshot,
 } from "../../core-port/snapshot";
+import { favourites } from "../../entities/favourites";
+import { TagMark } from "../tags/TagIdentity";
 import { Wordmark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
 import { Kbd } from "@/ui/kbd";
@@ -267,6 +269,11 @@ function ShellBody({
 
   const tags = useMemo(
     () => [...state.snapshot.tags].sort((left, right) => compare(left.name, right.name)),
+    [compare, state.snapshot],
+  );
+
+  const starred = useMemo(
+    () => favourites(state.snapshot, compare),
     [compare, state.snapshot],
   );
 
@@ -663,6 +670,36 @@ SELECT ?entity ?content ?page WHERE {
               <span className="nav-label">{message("shell.tags")}</span>
             </NavLink>
           </div>
+          {/* Nothing when nothing is starred: an empty heading is a promise the
+              rail has not been asked to keep (§ System states). */}
+          {starred.length > 0 && (
+            <>
+              <div className="rail-group">
+                <h2>{message("shell.favourites")}</h2>
+              </div>
+              <div className="shell-nav" data-testid="favourite-list">
+                {starred.map((entry) => (
+                  <NavLink
+                    key={`${entry.kind}:${entry.id}`}
+                    className="shell-nav-item"
+                    to={entry.kind === "page"
+                      ? `/g/${graphId}/p/${entry.id}`
+                      : `/g/${graphId}/t/${entry.id}`}
+                    title={entry.name}
+                    data-testid="favourite-item"
+                  >
+                    {/* A tag keeps its own mark here, in its own colour, so the
+                        list reads as the things themselves rather than as rows
+                        that happen to point at them. */}
+                    {entry.kind === "page"
+                      ? <FileTextIcon aria-hidden />
+                      : <TagMark tag={entry.tag} />}
+                    <span className="nav-label">{entry.name}</span>
+                  </NavLink>
+                ))}
+              </div>
+            </>
+          )}
           <div className="rail-group">
             <h2>{message("shell.pages")}</h2>
             <Tooltip>

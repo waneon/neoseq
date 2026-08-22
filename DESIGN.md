@@ -1,5 +1,5 @@
 ---
-version: 9
+version: 10
 name: Neoseq Design System
 description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast. Everything the graph names has a place: a page, a day, and a tag — which also has a mark, a colour drawn from the accent's own eight hues, a group it is filed under and a place inside it, and a query that answers what it is for.
 
@@ -384,7 +384,8 @@ one is the pane they are looking at.
 
 **If a control is not on the always-visible list, it may not be permanently visible.**
 The list: wordmark, graph switcher (with the graph's initial), the `Search ⌘K` field and its
-key badge, `Journal`, `Tags`, page list, `Settings`, the journal's date stepper, the `Today`
+key badge, `Journal`, `Tags`, the favourites list (absent until something is starred), the
+page list, `Settings`, the journal's date stepper, the `Today`
 pill (off-today only), the save/sync/live slots (nothing when steady), the read-only label,
 every bullet, the view strip of a query that is a page (moving between views is what that
 surface is *for* — rule 6), a toast's `×`, and one `⋯` in the top bar generated from the
@@ -412,7 +413,10 @@ The palette pays for the bare interface, so it ships before anything is hover-ga
   listener, the sheet, and every badge); rebinding refuses duplicates, browser-owned keys,
   and text-field keys. The outline's writing keys are not commands and cannot be rebound.
 - **The palette**: it opens on the centre of the window, because that is where the reader is
-  looking when they press the key; navigation ranks first; never blank; dates parse in the
+  looking when they press the key; **it is one size whatever is typed into it**, so the row a
+  pointer is travelling toward is still there on arrival and the foot that states its three
+  keys does not walk up the screen while it is read (§ Settings makes the same call, for the
+  same reason); navigation ranks first; never blank; dates parse in the
   same input (`tomorrow`, `aug 5`, `다음 월요일`); the last row is always a way forward;
   disabled commands are listed with their reasons; closing restores the caret exactly. Its
   foot states the three keys it answers to, which is also what closes the panel so the last
@@ -427,6 +431,13 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   field it stands in for, with its key badge always showing. The current row is an
   `accent-soft` tint with an accent glyph, because the rail is the one surface scanned for
   "where am I" without being read, and a third grey among three greys is not an answer.
+  **Favourites are one list, pages and tags together**, because "the things I come back to"
+  is one thought and two headings would ask which kind a thing was before it could be found.
+  A starred tag keeps its own mark, in its own colour, sized to the rail's one mark slot so
+  every label in the rail still starts at one x. The section is absent until something is
+  starred, and a favourite is one checkbox on the thing itself rather than a list kept
+  somewhere else — nothing to keep in step when a page is deleted, and it travels with the
+  graph rather than with the browser that starred it.
 - **Outline.** The bullet is the block's handle (click focuses, drag moves, right-click
   menus), a real `<button>`, and a 20px disc appears under the pointer so the most-repeated
   gesture in the product has a target; the textarea is the row's single tab stop. No row
@@ -544,7 +555,11 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   immediately and never pauses its execution. The builder reads as a sentence in rows — a
   lead column, controls that read as words, one left edge, groups are depth not cards, and
   the two knobs most queries never touch are grouped behind a seam at the end of the line;
-  hand-written SPARQL is its own entrance, never a conversion. **The views are the product's
+  hand-written SPARQL is its own entrance, never a conversion. **A query is born with one
+  view, named for what it shows** — `All` — rather than with a `Table` and a `List` holding
+  the same rows under two names for their own shapes. Layout is a *property* of a view; a
+  second view is what a reader makes when they mean a second question, and a switcher only
+  appears once there is something to switch between. **The views are the product's
   one segmented control doing the job it was built for**: a recessed track with the chosen key
   raised out of it, which is how this interface says "this one of these" without spending a
   second signal — no rule, no accent, no weight change. The track holds *states*, so `+` may
@@ -559,8 +574,15 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   caption's own edge below it. Its chevron is drawn rather than revealed, because a control that opens
   a menu must say so before it is pressed, and only one tab carries it. The strip wraps
   rather than scrolls: a tab that has to be scrolled to is a tab the reader cannot see is
-  there. The result table's header is
-  a hairline, not a band, and its rows are separated by the panel hairline. Column order,
+  there. Tabs and columns are both **dragged into place**, and each says where it will land
+  with the same seam the tag directory draws, turned on its side — a column's runs the height
+  of the column, because a column is what is being placed. The result table's header is
+  a hairline, not a band, and its rows are separated by the panel hairline. **Until the
+  reader takes the widths over, the table lays itself out**: no declared width, so the
+  columns share the block. Declaring a default width each cut every cell short while half the
+  table stood empty, and measured the text it was not showing into a sideways scrollbar with
+  nothing on the other side of it. A column the reader has sized keeps exactly that width,
+  and only their sum exceeding the block scrolls. Column order,
   width, visibility, and sort are the saved view data. **A cell is the writing it
   quotes**: the values in a result are blocks — often the line the reader wrote a moment ago —
   so they take the same ink the outline gives them and the header stays the quieter of the

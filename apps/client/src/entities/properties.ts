@@ -74,6 +74,10 @@ const FEATURE_ONLY_RENDERERS = new Set([
   "builtin.tag-order",
   "builtin.tag-color",
   "builtin.tag-icon",
+  // Starring something is one press on the thing itself, wherever it is named —
+  // a generic checkbox row beside it would be a second, worse control for a
+  // value that is already a verb in three menus.
+  "builtin.favorite",
 ]);
 const METADATA_RENDERERS = new Set([
   "builtin.page-kind",
@@ -342,11 +346,12 @@ export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type
     version: 1,
     source,
     language: "sparql-1.1/neoseq-v1",
+    // One view, named for what it shows rather than for how it is drawn — the
+    // same shape `domain::PropertyDocument::default_query` writes.
     views: [
-      { id: "table", name: "Table", kind: "table", position: 0, columns: [], options: VIEW_OPTIONS },
-      { id: "list", name: "List", kind: "list", position: 1, columns: [], options: VIEW_OPTIONS },
+      { id: "all", name: "All", kind: "table", position: 0, columns: [], options: VIEW_OPTIONS },
     ],
-    default_view_id: "table",
+    default_view_id: "all",
     plan: null,
   };
 }

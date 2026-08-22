@@ -478,21 +478,18 @@ describe("a tag's own page", () => {
   it("switches between the query's views from the tab strip", async () => {
     const { session } = await mountTagPage();
     const user = userEvent.setup();
+    // One view, named for what it shows. A second is what a reader makes when
+    // they mean a second question.
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Table", "List"]);
-    // Everything carrying a tag is a set of lines somebody wrote, so the tag
-    // opens on the view that renders them as the outline does.
-    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["All"]);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 
-    await user.click(tabs[0]);
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: "Table" })).toHaveAttribute(
-        "aria-selected",
-        "true",
-      ),
-    );
-    // Choosing a view is what writes the tag's query for the first time.
-    await waitFor(() => expect(tagQuery(session)?.default_view_id).toBe("table"));
+    await user.click(await screen.findByTestId("query-view-add"));
+    await user.click(await screen.findByRole("menuitem", { name: "List" }));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    // Adding one is what writes the tag's query for the first time.
+    await waitFor(() => expect(tagQuery(session)?.views).toHaveLength(2));
+    expect(screen.getAllByRole("tab")[1]).toHaveAttribute("aria-selected", "true");
   });
 
   it("adds, renames, and deletes a view of its own", async () => {
@@ -501,14 +498,14 @@ describe("a tag's own page", () => {
 
     await user.click(await screen.findByTestId("query-view-add"));
     await user.click(await screen.findByRole("menuitem", { name: "Table" }));
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(3));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
     // A new view opens on itself — adding one and not landing on it says nothing.
-    const added = screen.getByRole("tab", { name: "Table 2" });
+    const added = screen.getByRole("tab", { name: "Table" });
     expect(added).toHaveAttribute("aria-selected", "true");
     // …and the document it just brought into existence agrees with the screen.
-    expect(tagQuery(session)?.default_view_id).not.toBe("table");
+    expect(tagQuery(session)?.default_view_id).not.toBe("all");
 
-    const menu = await openViewMenu("Table 2");
+    const menu = await openViewMenu("Table");
     await user.click(within(menu).getByTestId("query-view-rename"));
     const field = await screen.findByTestId("query-view-rename-field");
     await user.clear(field);
@@ -516,11 +513,33 @@ describe("a tag's own page", () => {
     await waitFor(() =>
       expect(screen.getByRole("tab", { name: "By status" })).toBeVisible(),
     );
-    expect(tagQuery(session)?.views).toHaveLength(3);
+    expect(tagQuery(session)?.views).toHaveLength(2);
 
     const again = await openViewMenu("By status");
     await user.click(within(again).getByTestId("query-view-delete"));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(1));
+    expect(tagQuery(session)?.views.map((view) => view.id)).toEqual(["all"]);
+  });
+
+  it("reorders its views by drag, and says where the tab will land", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("query-view-add"));
+    await user.click(await screen.findByRole("menuitem", { name: "List" }));
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
-    expect(tagQuery(session)?.views.map((view) => view.id)).toEqual(["table", "list"]);
+    const tabNames = () => screen.getAllByRole("tab").map((tab) => tab.textContent);
+    expect(tabNames()).toEqual(["All", "List"]);
+
+    const tabs = screen.getAllByRole("tab");
+    fireEvent.dragStart(tabs[0], { dataTransfer: transfer() });
+    fireEvent.dragOver(tabs[1], { dataTransfer: transfer() });
+    // The seam says where it lands, and nothing moves until it is dropped.
+    expect(tabs[1]).toHaveAttribute("data-seam", "after");
+    expect(tabNames()).toEqual(["All", "List"]);
+    fireEvent.drop(tabs[1], { dataTransfer: transfer() });
+    await waitFor(() => expect(tabNames()).toEqual(["List", "All"]));
+    // Positions, not an array order — so the document reads back in the order the
+    // strip now shows, with the seeded view second.
+    expect(tagQuery(session)?.views[1].id).toBe("all");
   });
 });
