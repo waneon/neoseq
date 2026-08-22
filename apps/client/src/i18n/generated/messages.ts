@@ -633,6 +633,8 @@ export interface MessageArgumentMap {
   "tags.menuLabel": undefined;
   "tags.missing": undefined;
   "tags.missingDetail": undefined;
+  "tags.moveDown": undefined;
+  "tags.moveUp": undefined;
   "tags.name": undefined;
   "tags.namePlaceholder": undefined;
   "tags.new": undefined;

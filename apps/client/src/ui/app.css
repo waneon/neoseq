@@ -5741,24 +5741,91 @@ button.tag-mark:focus-visible {
   gap: var(--sp-5);
 }
 
-/* The drop target is the group, and it says so with the one wash this interface
-   uses for "the thing under the pointer" — never a dashed outline, which would be
-   a second silhouette around a region (§ Depth & Shape). */
 .tag-group {
+  position: relative;
   border-radius: var(--r-3);
-  transition: background-color var(--dur-press) var(--ease-out);
 }
 
-.tag-group[data-over] {
-  background: var(--accent-tint);
+/* ── The seam ──
+   Where the thing in the reader's hand will land, drawn as one 2px accent rule
+   in the gap it is about to occupy. A wash over the group under the pointer
+   answers "which group" and nothing else, which stopped being the question the
+   moment the list had an order; and a dashed outline would be a second
+   silhouette around a region (§ Depth & Shape). Nothing reflows while the
+   pointer travels — rows sliding out from under a drag is the interface
+   guessing, and the guess is wrong on every frame the reader changes their mind.
+
+   The rule is drawn on a pseudo-element straddling the gap, so it occupies no
+   space and no row moves when it appears. It is instant: a hint about where the
+   pointer is now is late the moment it animates. */
+.tag-row[data-seam]::after,
+.tag-group[data-seam]::after,
+.tag-group-drop[data-seam]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
+.tag-row[data-seam="before"]::after {
+  top: -1px;
+}
+
+.tag-row[data-seam="after"]::after {
+  bottom: -1px;
+}
+
+/* A group's seam sits in the gap between sections, which is `--sp-5` of nothing:
+   half of it either way puts the rule where a reader would draw it. Above the
+   first group there is no such gap — only the note's margin — so the rule comes
+   in to where the list starts rather than reaching up to underline a sentence. */
+.tag-group[data-seam="before"]::after {
+  top: calc(var(--sp-3) * -1);
+}
+
+.tag-group:first-child[data-seam="before"]::after {
+  top: calc(var(--sp-1) * -1);
+}
+
+.tag-group[data-seam="after"]::after {
+  bottom: calc(var(--sp-3) * -1);
+}
+
+/* Being carried, not being read: the same fade a dragged row takes, so a group
+   in the reader's hand looks like one wherever the pointer has got to. */
+.tag-group[data-dragging],
+.tag-row[data-dragging] {
+  opacity: 0.45;
+}
+
+/* An empty group has no gap between rows to mark, so the seam is the row the
+   tag is about to become. */
+.tag-group-drop[data-seam]::after {
+  top: 50%;
+  margin-top: -1px;
+}
+
+/* A heading is the group's handle, so it says so with the cursor rather than
+   with a grip nobody asked for: a grip is a control, and this row already has
+   one control too many for its width. */
 .tag-group-head {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   height: var(--sp-6);
   padding: 0 var(--sp-1);
+}
+
+.tag-group-head[draggable="true"] {
+  cursor: grab;
+}
+
+.tag-group-head[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .tag-group-head h2 {
@@ -5824,9 +5891,11 @@ button.tag-mark:focus-visible {
 }
 
 /* A row is one object made of three controls, so the wash belongs to the row and
-   nothing inside it draws a box of its own. */
+   nothing inside it draws a box of its own. The row is also what a drag picks
+   up, which the cursor says on approach — each control inside it keeps its own. */
 .tag-row {
   display: flex;
+  position: relative;
   align-items: center;
   gap: var(--sp-2);
   min-height: var(--sp-6);
@@ -5835,12 +5904,16 @@ button.tag-mark:focus-visible {
   transition: background-color var(--dur-press) var(--ease-out);
 }
 
-.tag-row:hover {
-  background: var(--surface-2);
+.tag-row[draggable="true"] {
+  cursor: grab;
 }
 
-.tag-row[data-dragging] {
-  opacity: 0.45;
+.tag-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.tag-row:hover {
+  background: var(--surface-2);
 }
 
 .tag-row-mark {
@@ -5851,6 +5924,12 @@ button.tag-mark:focus-visible {
 /* The link is as tall as the row, not as tall as its own line: a 20px target in
    a 32px row is under the contract's floor and misses the half of the row a
    pointer actually aims at. */
+.tag-row-name,
+.tag-row .icon-btn,
+.tag-mark {
+  cursor: pointer;
+}
+
 .tag-row-name {
   display: flex;
   min-width: 0;
@@ -5931,6 +6010,7 @@ button.tag-mark:focus-visible {
 /* An empty group during a drag, and the ungrouped heading that appears for the
    length of one: somewhere to let go of a tag that is filed everywhere. */
 .tag-group-drop {
+  position: relative;
   padding: var(--sp-2) var(--sp-1);
   color: var(--ink-3);
   font-size: var(--text-xs);

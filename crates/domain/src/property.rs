@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 5;
+pub const REGISTRY_VERSION: u32 = 6;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -442,6 +442,15 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.tag-group",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
+            placements: USER_TAG,
+            copy: PropertyCopyPolicy::Portable,
+        },
+    ),
+    (
+        "builtin.tag-order",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::Number),
             ordering: None,
             placements: USER_TAG,
             copy: PropertyCopyPolicy::Portable,

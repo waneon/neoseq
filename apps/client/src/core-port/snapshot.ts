@@ -167,6 +167,11 @@ export function queryDocument(bag: PropertyField[]): PropertyDocument | undefine
     : undefined;
 }
 
+export function numberValue(bag: PropertyField[], key: string): number | undefined {
+  const value = singleValue(bag, key);
+  return value?.type === "number" ? value.value : undefined;
+}
+
 export function dateValue(bag: PropertyField[], key: string): string | undefined {
   const value = singleValue(bag, key);
   return value?.type === "date" ? value.value : undefined;

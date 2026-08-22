@@ -186,7 +186,8 @@ specialized controls without becoming a schema authority:
   inline `#` menu attach existing tags (`add_tag`/`remove_tag`). A tag reference
   under a block is a link to that tag's own route, never a writing surface. The
   routed tags view is the directory — grouped rows, one graph-wide usage count
-  from the derived index, drag-to-file, and the one place a tag is created; a
+  from the derived index, drag to file and to order both tags and groups, and the
+  one place a tag is created; a
   tag's own route owns its name, its `defaults`, and its query. `builtin.tag-*`
   identity keys have exactly one editor, opened from the tag's mark wherever that
   mark appears, so filing and recolouring are not separate surfaces.

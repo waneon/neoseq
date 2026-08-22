@@ -248,9 +248,18 @@ test("tags are filed into groups, marked, and coloured from one panel", async ({
     page.locator(".tag-group").filter({ hasText: "Areas" }).getByTestId("tag-row"),
   ).toHaveCount(2);
 
+  // The order inside a group is the reader's, and a drag says where it lands
+  // before it lands: one seam, and nothing reflows until the drop.
+  const areas = page.locator(".tag-group").filter({ hasText: "Areas" });
+  await expect(areas.getByTestId("tag-row-link")).toHaveText(["Design", "Reading"]);
+  await reading.dragTo(design, { targetPosition: { x: 20, y: 2 } });
+  await awaitSaved(page);
+  await expect(areas.getByTestId("tag-row-link")).toHaveText(["Reading", "Design"]);
+
+  await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
+
   // A group is the name its members carry, so renaming it is rewriting them and
   // emptying it is the group ceasing to exist.
-  const areas = page.locator(".tag-group").filter({ hasText: "Areas" });
   await areas.getByTestId("tag-group-menu").click();
   await page.getByTestId("tag-group-rename").click();
   await page.getByTestId("tag-group-rename-field").fill("Practices");

@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "properties": {
     "builtin.query": {
       "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
@@ -8,6 +8,11 @@
     },
     "builtin.tag-group": {
       "shape": {"single": {"string": "any"}},
+      "placements": {"tag_metadata": "user"},
+      "copy": "portable"
+    },
+    "builtin.tag-order": {
+      "shape": {"single": "number"},
       "placements": {"tag_metadata": "user"},
       "copy": "portable"
     },

@@ -75,15 +75,19 @@ which is the same tolerance every other unknown property value gets.
 
 ## Tag Identity Keys
 
-`builtin.tag-group`, `builtin.tag-color`, and `builtin.tag-icon` are ordinary
-registry entries placed on `tag_metadata` and nowhere else: they describe what a
-tag *is*, and no tag copies them onto a block. There is no group entity — a group
-is the string its members carry, so it exists because a tag is in it, disappears
-with its last member, and is renamed by rewriting them. The colour is one of the
-eight hue names the accent itself offers rather than a colour, so presentation
-stays inside the client's measured token set; the icon is one grapheme of text.
-An unreadable value in any of the three degrades to "unset" rather than
-invalidating the tag.
+`builtin.tag-group`, `builtin.tag-order`, `builtin.tag-color`, and
+`builtin.tag-icon` are ordinary registry entries placed on `tag_metadata` and
+nowhere else: they describe what a tag *is*, and no tag copies them onto a block.
+There is no group entity — a group is the string its members carry, so it exists
+because a tag is in it, disappears with its last member, and is renamed by
+rewriting them. `tag-order` is one number carrying both orders: tags sort by it
+inside a group, and a group sorts by the lowest one its members hold, because a
+name has nowhere of its own to keep a rank. Positions are spaced so an ordinary
+move lands on the midpoint between its new neighbours and writes only the tag it
+moved; an exhausted gap respaces the run. The colour is one of the eight hue
+names the accent itself offers rather than a colour, so presentation stays inside
+the client's measured token set; the icon is one grapheme of text. An unreadable
+value in any of the four degrades to "unset" rather than invalidating the tag.
 
 ## Query Document
 

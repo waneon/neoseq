@@ -615,6 +615,8 @@
   "tags.menuLabel": "Tags",
   "tags.missing": "This tag isn’t available",
   "tags.missingDetail": "It was deleted, or the reference points at a tag this graph never had.",
+  "tags.moveDown": "Move down",
+  "tags.moveUp": "Move up",
   "tags.name": "Tag name",
   "tags.namePlaceholder": "Tag name…",
   "tags.new": "New tag",

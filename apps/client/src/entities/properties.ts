@@ -71,6 +71,7 @@ const FEATURE_ONLY_RENDERERS = new Set([
   // the swatch the tag wears — and a generic key/value row beside it would be a
   // second, worse one for the same three values.
   "builtin.tag-group",
+  "builtin.tag-order",
   "builtin.tag-color",
   "builtin.tag-icon",
 ]);

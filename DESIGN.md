@@ -1,7 +1,7 @@
 ---
-version: 8
+version: 9
 name: Neoseq Design System
-description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast. Everything the graph names has a place: a page, a day, and a tag — which also has a mark, a colour drawn from the accent's own eight hues, a group it is filed under, and a query that answers what it is for.
+description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast. Everything the graph names has a place: a page, a day, and a tag — which also has a mark, a colour drawn from the accent's own eight hues, a group it is filed under and a place inside it, and a query that answers what it is for.
 
 # Tokens are the contract, declared once per mode in `apps/client/src/ui/app.css`
 # (the implementation of record). Every figure below is measured — see § Contrast.
@@ -486,10 +486,19 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   it, vanishes when its last member leaves, is renamed by rewriting its members, and has
   nothing to keep in sync. Everything unfiled gathers under one heading at the end rather
   than being scattered under a made-up one, and that heading is absent while it is the only
-  one there could be. Filing is a **drag** onto a group, and also the group field in the
-  tag's own panel — which is the route that works from a keyboard, on a phone, and for a
-  group that does not exist yet. A drop target says so with the one wash this interface uses
-  for "the thing under the pointer", never a dashed outline.
+  one there could be. **A group's place is its members' places** — one number per tag orders
+  the tags inside a group and the groups among themselves, because a name has nowhere of its
+  own to keep a rank. Filing and ordering are a **drag**: a tag onto a place among rows, a
+  group's heading past its neighbours. Every one of those moves is also a menu row, which is
+  the route that works from a keyboard, on a phone, and for a group that does not exist yet.
+- **A drag says where it will land, not that it is happening.** The answer is a **seam**:
+  one 2px accent rule in the gap the thing is about to occupy, drawn on a pseudo-element so
+  it takes no space. A wash over the region under the pointer answers "which group" and
+  nothing else, which stopped being the question the moment the list had an order; a dashed
+  outline would be a second silhouette around a region. **Nothing reflows while the pointer
+  travels** — rows sliding out from under a drag is the interface guessing, and the guess is
+  wrong on every frame the reader changes their mind. What is being carried says so by
+  fading, and the cursor says what a press would pick up.
 - **The tags screen is a directory, not a grid.** A card can say a tag's name and nothing
   else; forty of them say forty names. Rows under group headings — in the rail's own group
   label — say what each tag is, what it copies onto a block, and how much of the graph is
@@ -672,7 +681,8 @@ let a reader choose a colour by pressing it · give a result cell the ink of the
 quotes · let the one link-shaped thing on a row lead somewhere · make a set of panes one
 raised key in a recessed track · let the current tab be the control that opens what it can be ·
 let an object's own mark be the control that changes it · give a reader a colour by widening
-one dimension a measured token already owns · keep chrome ≤ 14px at weight 400.
+one dimension a measured token already owns · draw a seam where a drop will land ·
+keep chrome ≤ 14px at weight 400.
 
 **Don't**: separate two regions with a line alone · leave an object the reader acts on
 unbounded · ship a flat `surface-2` rectangle as a control · tint categories or chrome glyphs ·
@@ -691,5 +701,5 @@ screen · mount a form below the outline · hover-gate a surface's primary verb 
 slider for something that is one of eight answers · read a zero-area box as a place · put a
 verb inside a track of states · nest a control inside a control · size a field in `ch` and
 call it fitted · make an entity out of something a name already is · draw a dashed outline
-around a drop target · put a tile behind a mark · toast what the user can already see ·
-declare a token in two files.
+around a drop target · reflow a list under a pointer that is still deciding · put a tile
+behind a mark · toast what the user can already see · declare a token in two files.

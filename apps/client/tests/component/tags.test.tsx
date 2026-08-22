@@ -1,6 +1,6 @@
 // First-class tag chips + default materialization from TagRecord defaults.
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openViewMenu } from "./harness";
@@ -176,6 +176,14 @@ describe("the # tag menu in a block", () => {
   });
 });
 
+/** jsdom ships no `DataTransfer`; a drag only needs the three fields we touch. */
+const transfer = () => ({ setData: () => {}, getData: () => "", dropEffect: "", effectAllowed: "" });
+
+const rowNames = () =>
+  screen.getAllByTestId("tag-row-link").map((link) => link.textContent);
+const groupNames = () =>
+  screen.getAllByTestId("tag-group-name").map((heading) => heading.textContent);
+
 describe("the tags screen", () => {
   it("offers only the create action when the graph has no tags", async () => {
     await mountAt(`/g/${GRAPH_ID}/tags`);
@@ -264,6 +272,59 @@ describe("the tags screen", () => {
       { type: "string", value: "Practices" },
       { type: "string", value: "Practices" },
     ]);
+  });
+
+  it("reorders tags inside a group, and says where the drop will land", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    for (const [id, name] of [["a", "Alpha"], ["b", "Bravo"], ["c", "Charlie"]]) {
+      await session.execute({ type: "ensure_tag", tag_id: id, name });
+      await session.execute({
+        type: "set_property",
+        owner: { kind: "tag", tag_id: id },
+        key: "builtin.tag-group",
+        value: { type: "string", value: "Areas" },
+      });
+    }
+    await waitFor(() => expect(screen.getAllByTestId("tag-row")).toHaveLength(3));
+    expect(rowNames()).toEqual(["Alpha", "Bravo", "Charlie"]);
+
+    // The menu is the keyboard's half of the drag, and it moves the same tag the
+    // same distance.
+    await user.click(screen.getAllByTestId("tag-row-menu")[0]);
+    await user.click(await screen.findByTestId("tag-row-down"));
+    await waitFor(() => expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]));
+
+    // A drag says where it will land before it lands: one seam, on the row it is
+    // about to sit beside, and nothing reflows until it is dropped.
+    const rows = screen.getAllByTestId("tag-row");
+    fireEvent.dragStart(rows[0], { dataTransfer: transfer() });
+    fireEvent.dragOver(rows[2], { dataTransfer: transfer() });
+    expect(rows[2]).toHaveAttribute("data-seam");
+    expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]);
+    fireEvent.drop(rows[2], { dataTransfer: transfer() });
+    await waitFor(() => expect(rowNames()).toEqual(["Alpha", "Charlie", "Bravo"]));
+  });
+
+  it("reorders groups among themselves", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    for (const [id, name, group] of [["a", "Alpha", "Areas"], ["b", "Bravo", "Home"]]) {
+      await session.execute({ type: "ensure_tag", tag_id: id, name });
+      await session.execute({
+        type: "set_property",
+        owner: { kind: "tag", tag_id: id },
+        key: "builtin.tag-group",
+        value: { type: "string", value: group },
+      });
+    }
+    await waitFor(() => expect(screen.getAllByTestId("tag-group-name")).toHaveLength(2));
+    expect(groupNames()).toEqual(["Areas", "Home"]);
+
+    await user.click(screen.getAllByTestId("tag-group-menu")[1]);
+    await user.click(await screen.findByTestId("tag-group-up"));
+    // A group has no record of its own, so its place is its members' places.
+    await waitFor(() => expect(groupNames()).toEqual(["Home", "Areas"]));
   });
 
   it("customizes a tag's mark and colour from the one panel its mark opens", async () => {

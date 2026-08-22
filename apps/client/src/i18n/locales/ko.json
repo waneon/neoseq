@@ -615,6 +615,8 @@
   "tags.menuLabel": "태그",
   "tags.missing": "이 태그를 사용할 수 없습니다",
   "tags.missingDetail": "삭제되었거나, 이 그래프에 없던 태그를 가리키고 있습니다.",
+  "tags.moveDown": "아래로 이동",
+  "tags.moveUp": "위로 이동",
   "tags.name": "태그 이름",
   "tags.namePlaceholder": "태그 이름…",
   "tags.new": "새 태그",
