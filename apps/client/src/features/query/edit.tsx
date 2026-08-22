@@ -904,6 +904,7 @@ function QueryMarkdownField({
           active={slashIndex}
           onHover={setSlashActive}
           onChoose={(item) => {
+            if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
             editor.acceptSlash(slashRequest, item);
             setSlashRequest(null);
@@ -918,6 +919,7 @@ function QueryMarkdownField({
           active={hashIndex}
           onHover={setHashActive}
           onChoose={(option) => {
+            if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
             editor.acceptTag(hashRequest, option);
             setHashRequest(null);
@@ -1127,7 +1129,7 @@ export function EditableBlockTaskMark({
     variable: `block-${kind}`,
     label: fallbackLabel,
     source: { kind: "property", key },
-    ordering: { kind: "ranked", values: [] },
+    ordering: { kind: "ranked", values: [], missing: kind === "priority" ? "below" : "last" },
     sortable: true,
     numeric: false,
     width: null,
@@ -1266,23 +1268,7 @@ export function EditableCellValue({
       {value}
     </button>
   );
-
-  if (!showOpen || binding.kind !== "markdown" || !row.subject || !context.onOpen) return trigger;
-  return (
-    <span className="query-editable-route">
-      {trigger}
-      <button
-        type="button"
-        className="query-cell-open"
-        aria-label={context.message("query.openResult", {
-          name: term?.kind === "literal" && term.value ? term.value : column.label,
-        })}
-        onClick={() => context.onOpen?.(row.subject!)}
-      >
-        <ArrowUpRightIcon aria-hidden />
-      </button>
-    </span>
-  );
+  return trigger;
 }
 
 export function EditableStatusValue({
