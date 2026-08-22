@@ -25,7 +25,7 @@ export interface BlockMarkdownProps {
    * with the source offset under the pointer, or `undefined` for the end of the
    * block when the projection was reached by keyboard.
    */
-  onActivate?: (caret?: number) => void;
+  onActivate?: (caret?: number, anchor?: HTMLElement) => void;
 }
 
 /** A soft break inside a block is a line the author broke: `remark-breaks`
@@ -163,7 +163,7 @@ function BlockMarkdownView({
       event.clientY,
       markdown,
     );
-    onActivate(caret ?? undefined);
+    onActivate(caret ?? undefined, event.currentTarget);
   };
 
   // The projection stands in for the textarea, so it has to stand in for its
@@ -172,7 +172,7 @@ function BlockMarkdownView({
   const handOver = (event: FocusEvent<HTMLElement>) => {
     if (!onActivate || event.target !== event.currentTarget) return;
     if (!event.currentTarget.matches(":focus-visible")) return;
-    onActivate();
+    onActivate(undefined, event.currentTarget);
   };
 
   const Root = compact ? "span" : "div";

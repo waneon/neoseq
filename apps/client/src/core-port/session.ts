@@ -194,7 +194,22 @@ export class GraphSession {
   }
 
   hydratePage(pageId: string): Promise<void> {
+    if (this.state.hydratedPages.has(pageId)) return Promise.resolve();
     const run = this.queue.then(() => this.hydratePageNow(pageId));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * Hydrates several canonical pages as one session read. Query entity views use
+   * this to resolve a set of block references without publishing one partial UI
+   * snapshot per page. The CorePort is still page-shaped; each unique page is
+   * read once and the immutable client snapshot is replaced once at the end.
+   */
+  hydratePages(pageIds: readonly string[]): Promise<void> {
+    const missing = [...new Set(pageIds)].filter((id) => !this.state.hydratedPages.has(id));
+    if (missing.length === 0) return Promise.resolve();
+    const run = this.queue.then(() => this.hydratePagesNow(missing));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -349,7 +364,7 @@ export class GraphSession {
   }
 
   private async hydratePageNow(pageId: string): Promise<void> {
-    if (this.state.status !== "ready") return;
+    if (this.state.status !== "ready" || this.state.hydratedPages.has(pageId)) return;
     const response = await this.port.readPage({ graph_handle: this.handle, page_id: pageId });
     const hydratedPages = new Set(this.state.hydratedPages);
     hydratedPages.add(pageId);
@@ -358,6 +373,24 @@ export class GraphSession {
       hydratedPages,
       revision: this.state.revision + 1,
     });
+  }
+
+  private async hydratePagesNow(pageIds: readonly string[]): Promise<void> {
+    if (this.state.status !== "ready") return;
+    const present = new Set(this.state.snapshot.pages.map((page) => page.id));
+    const missing = [...new Set(pageIds)].filter(
+      (id) => present.has(id) && !this.state.hydratedPages.has(id),
+    );
+    if (missing.length === 0) return;
+
+    let snapshot = this.state.snapshot;
+    for (const id of missing) {
+      const response = await this.port.readPage({ graph_handle: this.handle, page_id: id });
+      snapshot = mergePage(snapshot, response.page as PageSnapshot);
+    }
+    const hydratedPages = new Set(this.state.hydratedPages);
+    for (const id of missing) hydratedPages.add(id);
+    this.patch({ snapshot, hydratedPages, revision: this.state.revision + 1 });
   }
 
   /** Drains events, refreshes graph metadata, then rehydrates the command's impact scope. */

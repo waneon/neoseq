@@ -212,11 +212,20 @@ Update is not introduced.
 
 RDF rows are display data rather than edit baselines. Entering an editor lazily
 hydrates the subject's canonical page and reads its `BlockSnapshot`; only the
-active result pays that cost. One query-level coordinator owns the draft across
-Table/List presentation changes, keeps identity by entity and field rather than
-row position, and pins an active row if its write makes the row stop matching.
-The row leaves after the editor closes. A failed write keeps its draft and an
-in-place retry route.
+active table result pays that cost. A block list is an entity projection: it
+deduplicates and hydrates the result subjects' pages as one session operation, then
+renders canonical block snapshots through the same presentation primitives as
+the outline. Direct block fields use the native block presentation; selected
+aggregates and structural relations remain supplemental query facts. Embedded
+feature surfaces and children do not render through a result reference.
+
+The outline and query list share presentation, not controllers. Outline focus,
+selection, dragging, structure, and pending rows remain outline-owned; query
+navigation, result drafts, and stale-row pinning remain query-owned. One
+query-level coordinator owns a draft across Table/List presentation changes,
+keeps identity by entity and field rather than row position, and pins an active
+row if its write makes the row stop matching. The row leaves after the editor
+closes. A failed write keeps its draft and an in-place retry route.
 
 Canonical mutations publish the next index revision and conservatively rerun
 visible queries. Page hydration has a separate snapshot revision and does not

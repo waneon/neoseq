@@ -245,6 +245,37 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     () => resultViewRows((select?.rows ?? []) as ResultRow[], cellContext),
     [select, cellContext],
   );
+  const resultBlockPageIds = useMemo(
+    () => [...new Set(resultRows.flatMap((row) =>
+      row.subject?.kind === "block" ? [row.subject.page_id] : [],
+    ))].sort(),
+    [resultRows],
+  );
+
+  // A list of blocks is an entity projection, not a set of RDF cells. Resolve
+  // its canonical display snapshots by page so the shared block presentation
+  // sees the same markdown, task marks, tags, and property bag as the outline.
+  // Table and non-block results stay query-shaped and pay no hydration cost.
+  useEffect(() => {
+    if (activeView?.kind !== "list" || state.status !== "ready") return;
+    const missing = resultBlockPageIds.filter(
+      (pageId) => !state.hydratedPages.has(pageId)
+        && state.snapshot.pages.some((page) => page.id === pageId),
+    );
+    if (missing.length === 0) return;
+    void session.hydratePages(missing).catch((cause: unknown) => {
+      notify.failure(message("failure.loadPage"), cause);
+    });
+  }, [
+    activeView?.kind,
+    message,
+    notify,
+    resultBlockPageIds,
+    session,
+    state.hydratedPages,
+    state.snapshot.pages,
+    state.status,
+  ]);
   const activeOrigin = resultEditor.active?.origin.row;
   const activeRowPresent = activeOrigin
     ? resultRows.some((row) => row.key === activeOrigin.key)

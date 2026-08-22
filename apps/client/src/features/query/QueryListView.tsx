@@ -1,15 +1,17 @@
-// The list view: results as outline rows.
+// The list view: entity results in the document's own visual grammar.
 //
-// A query over blocks answers with blocks, so it renders in the grammar the
-// document already uses — the same bullet in the same gutter, the same 15px
-// line, the status shape at the head of it, tags gathered right, and the
-// remaining facts as the same chips that sit under a block in the outline. The
-// difference is that these rows are a lens, not a second document: direct
-// fields issue canonical commands, and the bullet opens the block where it
-// actually lives for structural work.
+// A block result resolves its canonical BlockSnapshot and passes through the
+// same row/body presentation as the outline. Query columns are not used to
+// reconstruct a partial block: direct block fields belong to the native block
+// presentation, while genuinely derived fields remain supplemental facts. A
+// page, tag, aggregate, or hand-written row keeps the generic result fallback.
 
-import { TASK_STATUS_KEY } from "../../entities/tasks";
+import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
+import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
+import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
+import { BlockChips } from "../properties/BlockChips";
+import { TagChips } from "../properties/TagChips";
 import {
   CellValue,
   cellText,
@@ -19,6 +21,8 @@ import {
   type ResultViewRow,
 } from "./cells";
 import {
+  EditableBlockContent,
+  EditableBlockTaskMark,
   EditableCellValue,
   EditableStatusValue,
   type QueryResultEditor,
@@ -40,14 +44,12 @@ export function QueryListView({
   compact: boolean;
 }) {
   const { message } = useI18n();
-  // The row's own line is its subject's text; everything else becomes a fact
-  // underneath it, exactly as a block's properties do.
   const lead = columns.find((column) => column.source?.kind === "content")
     ?? columns.find((column) => !column.source && !column.numeric);
-  const status = columns.find(
-    (column) => column.source?.kind === "property" && column.source.key === TASK_STATUS_KEY,
-  );
-  const facts = columns.filter((column) => column !== lead && column !== status);
+  const status = columns.find(isStatusColumn);
+  const priority = columns.find(isPriorityColumn);
+  const genericFacts = columns.filter((column) => column !== lead && column !== status);
+  const blockFacts = columns.filter((column) => !isNativeBlockColumn(column));
 
   return (
     <div
@@ -59,95 +61,277 @@ export function QueryListView({
     >
       {rows.map((row) => {
         const entity = row.subject;
-        const statusValue = status ? row.values[status.variable] : undefined;
-        // A block with nothing written in it renders as the empty line it is,
-        // exactly as the outline draws one. A page or a tag always has a name.
-        const text = (lead ? cellText(row.values[lead.variable], lead, context) : "")
-          || (entity && entity.kind !== "block" ? entityName(entity, context) : "");
+        const page = entity?.kind === "block" ? findPage(context.snapshot, entity.page_id) : undefined;
+        const block = entity?.kind === "block" && page ? findBlock(page, entity.id) : undefined;
+        if (!block || entity?.kind !== "block") {
+          return (
+            <GenericResultRow
+              key={row.key}
+              row={row}
+              lead={lead}
+              status={status}
+              facts={genericFacts}
+              context={context}
+              editor={editor}
+              pinned={row.key === pinnedRowKey}
+            />
+          );
+        }
+
+        const canonicalStatus = stringValue(block.properties, TASK_STATUS_KEY);
+        const canonicalPriority = stringValue(block.properties, TASK_PRIORITY_KEY);
+        // A selected empty task field remains an affordance, as it was before
+        // canonical block rendering: it lets the query create the field when
+        // this surface is writable. RDF values never fill a missing canonical
+        // field — absence in BlockSnapshot is authoritative too.
+        const taskStatus = canonicalStatus ?? (
+          status && editor.bindingForDirect(entity, { kind: "property", key: TASK_STATUS_KEY })
+            ? ""
+            : undefined
+        );
+        const taskPriority = canonicalPriority ?? (
+          priority && editor.bindingForDirect(entity, { kind: "property", key: TASK_PRIORITY_KEY })
+            ? ""
+            : undefined
+        );
+        const markCount = Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
+        const representedTaskKeys = [
+          ...(taskStatus !== undefined ? [TASK_STATUS_KEY] : []),
+          ...(taskPriority !== undefined ? [TASK_PRIORITY_KEY] : []),
+        ];
+        const openLabel = block.markdown
+          ? message("query.openResult", { name: block.markdown })
+          : message("query.openEmptyResult");
+        const openBlock = () => context.onOpen?.(entity);
+
+        const beginDirect = (
+          field: Parameters<QueryResultEditor["bindingForDirect"]>[1],
+          anchor: HTMLElement,
+        ) => {
+          const binding = editor.bindingForDirect(entity, field);
+          if (binding) editor.begin(binding, row, anchor.getBoundingClientRect());
+          else openBlock();
+        };
+
         return (
-          <div
+          <BlockRowFrame
             key={row.key}
             className="query-list-row"
             role="treeitem"
             aria-level={1}
             aria-selected={editor.active?.origin.row.key === row.key}
+            data-empty={block.markdown.length === 0}
             data-pinned={row.key === pinnedRowKey || undefined}
+            data-block-id={block.id}
             data-testid="query-list-row"
+            gutterClassName="outline-gutter"
+            gutter={context.onOpen ? (
+              <button
+                type="button"
+                className="outline-bullet"
+                aria-label={openLabel}
+                onClick={openBlock}
+              />
+            ) : (
+              <span className="outline-bullet" aria-hidden />
+            )}
           >
-            <span className="outline-gutter">
-              {entity && context.onOpen ? (
-                <button
-                  type="button"
-                  className="outline-bullet"
-                  aria-label={text
-                    ? message("query.openResult", { name: text })
-                    : message("query.openEmptyResult")}
-                  onClick={() => context.onOpen?.(entity)}
-                />
-              ) : (
-                <span className="outline-bullet" aria-hidden />
-              )}
-            </span>
-            <div
+            <BlockBody
               className="query-list-text"
-              data-task-status={
-                statusValue?.kind === "literal" ? statusValue.value : undefined
-              }
+              taskStatus={taskStatus}
+              markCount={markCount}
             >
-              {status && (
-                <EditableStatusValue
-                  term={statusValue}
-                  column={status}
-                  context={context}
-                  row={row}
-                  editor={editor}
-                />
+              {markCount > 0 && (
+                <span className="task-marks">
+                  {taskStatus !== undefined && (
+                    <EditableBlockTaskMark
+                      kind="status"
+                      value={taskStatus}
+                      row={row}
+                      column={status}
+                      context={context}
+                      editor={editor}
+                    />
+                  )}
+                  {taskPriority !== undefined && (
+                    <EditableBlockTaskMark
+                      kind="priority"
+                      value={taskPriority}
+                      row={row}
+                      column={priority}
+                      context={context}
+                      editor={editor}
+                    />
+                  )}
+                </span>
               )}
-              {lead && entity ? (
-                <EditableCellValue
-                  term={row.values[lead.variable]}
-                  column={lead}
-                  context={context}
-                  row={row}
-                  editor={editor}
-                  className="query-list-line"
-                />
-              ) : (
-                <span className="query-list-line" dir="auto">{text}</span>
-              )}
+              <EditableBlockContent
+                markdown={block.markdown}
+                row={row}
+                context={context}
+                editor={editor}
+              />
               {row.key === pinnedRowKey && (
                 <span className="query-result-stale" role="status">
                   {message("query.noLongerMatches")}
                 </span>
               )}
-              {facts.length > 0 && (
-                <div className="query-list-facts">
-                  {facts.map((column) => (
-                    <span key={column.variable} className="query-fact">
-                      <span className="query-fact-key">{column.label}</span>
-                      {entity ? (
-                        <EditableCellValue
-                          term={row.values[column.variable]}
-                          column={column}
-                          context={context}
-                          row={row}
-                          editor={editor}
-                        />
-                      ) : (
-                        <CellValue
-                          term={row.values[column.variable]}
-                          column={column}
-                          context={context}
-                        />
-                      )}
-                    </span>
-                  ))}
+              {block.tags.length > 0 && (
+                <div className="outline-tags">
+                  <TagChips
+                    pageId={entity.page_id}
+                    block={block}
+                    variant="reference"
+                    onOpen={(anchor) => beginDirect({ kind: "tags" }, anchor)}
+                  />
                 </div>
               )}
-            </div>
-          </div>
+              <BlockChips
+                block={block}
+                representedKeys={representedTaskKeys}
+                onEdit={(key, anchor) => beginDirect({ kind: "property", key }, anchor)}
+              />
+              <ResultFacts
+                columns={blockFacts}
+                row={row}
+                context={context}
+                editor={editor}
+              />
+            </BlockBody>
+          </BlockRowFrame>
         );
       })}
     </div>
   );
+}
+
+function GenericResultRow({
+  row,
+  lead,
+  status,
+  facts,
+  context,
+  editor,
+  pinned,
+}: {
+  row: ResultViewRow;
+  lead?: ResultColumn;
+  status?: ResultColumn;
+  facts: ResultColumn[];
+  context: CellContext;
+  editor: QueryResultEditor;
+  pinned: boolean;
+}) {
+  const { message } = useI18n();
+  const entity = row.subject;
+  const statusValue = status ? row.values[status.variable] : undefined;
+  const text = (lead ? cellText(row.values[lead.variable], lead, context) : "")
+    || (entity && entity.kind !== "block" ? entityName(entity, context) : "");
+  return (
+    <BlockRowFrame
+      className="query-list-row query-list-row-generic"
+      role="treeitem"
+      aria-level={1}
+      aria-selected={editor.active?.origin.row.key === row.key}
+      data-pinned={pinned || undefined}
+      data-testid="query-list-row"
+      gutterClassName="outline-gutter"
+      gutter={entity && context.onOpen ? (
+        <button
+          type="button"
+          className="outline-bullet"
+          aria-label={text
+            ? message("query.openResult", { name: text })
+            : message("query.openEmptyResult")}
+          onClick={() => context.onOpen?.(entity)}
+        />
+      ) : (
+        <span className="outline-bullet" aria-hidden />
+      )}
+    >
+      <BlockBody className="query-list-text" taskStatus={literalValue(statusValue)}>
+        {status && (
+          <EditableStatusValue
+            term={statusValue}
+            column={status}
+            context={context}
+            row={row}
+            editor={editor}
+          />
+        )}
+        {lead && entity ? (
+          <EditableCellValue
+            term={row.values[lead.variable]}
+            column={lead}
+            context={context}
+            row={row}
+            editor={editor}
+            className="query-list-line"
+          />
+        ) : (
+          <span className="query-list-line" dir="auto">{text}</span>
+        )}
+        {pinned && (
+          <span className="query-result-stale" role="status">
+            {message("query.noLongerMatches")}
+          </span>
+        )}
+        <ResultFacts columns={facts} row={row} context={context} editor={editor} />
+      </BlockBody>
+    </BlockRowFrame>
+  );
+}
+
+function ResultFacts({
+  columns,
+  row,
+  context,
+  editor,
+}: {
+  columns: ResultColumn[];
+  row: ResultViewRow;
+  context: CellContext;
+  editor: QueryResultEditor;
+}) {
+  if (columns.length === 0) return null;
+  return (
+    <div className="query-list-facts">
+      {columns.map((column) => (
+        <span key={column.variable} className="query-fact">
+          <span className="query-fact-key">{column.label}</span>
+          {row.subject ? (
+            <EditableCellValue
+              term={row.values[column.variable]}
+              column={column}
+              context={context}
+              row={row}
+              editor={editor}
+            />
+          ) : (
+            <CellValue term={row.values[column.variable]} column={column} context={context} />
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function literalValue(term: ResultViewRow["values"][string] | undefined): string | undefined {
+  return term?.kind === "literal" ? term.value : undefined;
+}
+
+function isStatusColumn(column: ResultColumn): boolean {
+  return column.source?.kind === "property" && column.source.key === TASK_STATUS_KEY;
+}
+
+function isPriorityColumn(column: ResultColumn): boolean {
+  return column.source?.kind === "property" && column.source.key === TASK_PRIORITY_KEY;
+}
+
+/** Native direct fields come from BlockSnapshot; aggregates and relations stay query facts. */
+function isNativeBlockColumn(column: ResultColumn): boolean {
+  if (!column.source || (column.aggregate && column.aggregate !== "list")) return false;
+  return column.source.kind === "content"
+    || column.source.kind === "property"
+    || column.source.kind === "tags";
 }

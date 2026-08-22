@@ -30,11 +30,14 @@ import {
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { TagPicker } from "../properties/TagPicker";
-import { TaskStatusGlyph } from "../tasks/glyphs";
+import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
 import { diffSplice } from "../outline/text-diff";
+import { BlockMarkdown } from "../markdown/BlockMarkdown";
+import { hasMarkdownSyntax } from "../markdown/profile";
+import { priorityLabel, statusLabel } from "../tasks/labels";
 import {
   CellValue,
   type CellContext,
@@ -50,6 +53,11 @@ export type QueryEditBinding =
   | { kind: "markdown"; block: BlockRef }
   | { kind: "property"; block: BlockRef; key: string }
   | { kind: "tags"; block: BlockRef };
+
+export type DirectBlockField =
+  | { kind: "content" }
+  | { kind: "property"; key: string }
+  | { kind: "tags" };
 
 interface EditOrigin {
   row: ResultViewRow;
@@ -93,6 +101,10 @@ export interface QueryResultEditor {
   activeBlock?: BlockSnapshot;
   message: MessageFunction;
   bindingFor(subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null;
+  bindingForDirect(
+    subject: QueryEntityRef | undefined,
+    field: DirectBlockField,
+  ): QueryEditBinding | null;
   isActive(binding: QueryEditBinding, row: ResultViewRow): boolean;
   begin(binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor): void;
   setDraft(value: string): void;
@@ -163,24 +175,37 @@ export function useQueryResultEditor({
     if (!enabled && activeRef.current) cancel();
   }, [cancel, enabled]);
 
-  const bindingFor = useCallback(
-    (subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null => {
-      if (!enabled || subject?.kind !== "block" || !column.source) return null;
-      if (column.source.kind === "content" && !column.aggregate) {
+  const bindingForDirect = useCallback(
+    (subject: QueryEntityRef | undefined, field: DirectBlockField): QueryEditBinding | null => {
+      if (!enabled || subject?.kind !== "block") return null;
+      if (field.kind === "content") {
         return { kind: "markdown", block: subject };
       }
-      if (column.source.kind === "property") {
-        if (column.aggregate && column.aggregate !== "list") return null;
-        if (valueTypeOf(column.source.key) === "document") return null;
-        if (!canUserWrite(column.source.key, "block")) return null;
-        return { kind: "property", block: subject, key: column.source.key };
+      if (field.kind === "property") {
+        if (valueTypeOf(field.key) === "document") return null;
+        if (!canUserWrite(field.key, "block")) return null;
+        return { kind: "property", block: subject, key: field.key };
       }
-      if (column.source.kind === "tags" && (!column.aggregate || column.aggregate === "list")) {
+      if (field.kind === "tags") {
         return { kind: "tags", block: subject };
       }
       return null;
     },
     [enabled],
+  );
+
+  const bindingFor = useCallback(
+    (subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null => {
+      if (!column.source) return null;
+      if (column.aggregate && column.aggregate !== "list") return null;
+      if (
+        column.source.kind !== "content"
+        && column.source.kind !== "property"
+        && column.source.kind !== "tags"
+      ) return null;
+      return bindingForDirect(subject, column.source);
+    },
+    [bindingForDirect],
   );
 
   const begin = useCallback(
@@ -387,6 +412,7 @@ export function useQueryResultEditor({
     activeBlock,
     message,
     bindingFor,
+    bindingForDirect,
     isActive,
     begin,
     setDraft,
@@ -569,6 +595,7 @@ function TaskChoiceCell({
   className,
   value,
   current,
+  ariaLabel,
 }: {
   binding: Extract<QueryEditBinding, { kind: "property" }>;
   row: ResultViewRow;
@@ -578,6 +605,7 @@ function TaskChoiceCell({
   className?: string;
   value: ReactNode;
   current: string;
+  ariaLabel?: string;
 }) {
   const active = editor.isActive(binding, row) ? editor.active : null;
   const block = active?.phase === "picker" ? editor.activeBlock : undefined;
@@ -600,6 +628,7 @@ function TaskChoiceCell({
           data-active={active ? true : undefined}
           data-testid={`query-edit-${column.variable}`}
           aria-busy={active?.phase === "loading" || undefined}
+          aria-label={ariaLabel}
           title={context.message("query.editResult", { column: column.label })}
         >
           {value}
@@ -607,6 +636,135 @@ function TaskChoiceCell({
       </DropdownMenuTrigger>
       {block && <TaskMenuFor binding={binding} block={block} value={current} />}
     </DropdownMenu>
+  );
+}
+
+/**
+ * A canonical block's content in an entity-style query row.
+ *
+ * The settled projection is the outline's full Markdown renderer, not the
+ * compact phrasing renderer used inside a table cell. Only the edit controller
+ * differs: Enter commits this reference edit instead of splitting structure.
+ */
+export function EditableBlockContent({
+  markdown,
+  row,
+  context,
+  editor,
+}: {
+  markdown: string;
+  row: ResultViewRow;
+  context: CellContext;
+  editor: QueryResultEditor;
+}) {
+  const binding = editor.bindingForDirect(row.subject, { kind: "content" });
+  const current = binding && editor.isActive(binding, row) ? editor.active : null;
+  if (current?.phase === "markdown") {
+    return (
+      <QueryMarkdownField
+        editor={editor}
+        className="block-line query-block-content"
+        label={context.message("outline.blockText")}
+      />
+    );
+  }
+
+  const begin = (anchor: HTMLElement) => {
+    if (binding) editor.begin(binding, row, rectOf(anchor));
+  };
+  const common = {
+    "data-active": current ? true : undefined,
+    "aria-busy": current?.phase === "loading" || undefined,
+  } as const;
+  const content = hasMarkdownSyntax(markdown) ? (
+    <BlockMarkdown
+      markdown={markdown}
+      className="block-line outline-markdown query-block-content"
+      onActivate={binding ? (_caret, anchor) => anchor && begin(anchor) : undefined}
+    />
+  ) : binding ? (
+    <button
+      type="button"
+      className="block-line query-block-content"
+      dir="auto"
+      title={context.message("query.editResult", { column: context.message("query.field.text") })}
+      onClick={(event) => begin(event.currentTarget)}
+      {...common}
+    >
+      {markdown}
+    </button>
+  ) : (
+    <span className="block-line query-block-content" dir="auto">{markdown}</span>
+  );
+
+  if (current?.phase !== "error") return content;
+  return (
+    <span className="query-result-edit-problem query-block-content-problem">
+      {content}
+      <span role="alert">{current.error}</span>
+      <button type="button" onClick={editor.retry}>{context.message("common.retryShort")}</button>
+      <button type="button" onClick={editor.cancel}>{context.message("common.cancel")}</button>
+    </span>
+  );
+}
+
+/** Status and priority occupy the same hanging-indent controls as the outline. */
+export function EditableBlockTaskMark({
+  kind,
+  value,
+  row,
+  column,
+  context,
+  editor,
+}: {
+  kind: "status" | "priority";
+  value: string;
+  row: ResultViewRow;
+  column?: ResultColumn;
+  context: CellContext;
+  editor: QueryResultEditor;
+}) {
+  const key = kind === "status" ? TASK_STATUS_KEY : TASK_PRIORITY_KEY;
+  const fallbackLabel = context.message(kind === "status" ? "task.statusLabel" : "task.priority");
+  const model: ResultColumn = column ?? {
+    variable: `block-${kind}`,
+    label: fallbackLabel,
+    source: { kind: "property", key },
+    ordering: { kind: "ranked", values: [] },
+    sortable: true,
+    numeric: false,
+    width: null,
+  };
+  const binding = editor.bindingForDirect(row.subject, { kind: "property", key });
+  const glyph = kind === "status"
+    ? <TaskStatusGlyph status={value} />
+    : <PriorityGlyph priority={value} />;
+  const label = kind === "status"
+    ? context.message("task.statusIs", { status: statusLabel(value, context.message) })
+    : context.message("task.priorityIs", { priority: priorityLabel(value, context.message) });
+  if (!binding) {
+    return (
+      <span
+        className={kind === "status" ? "task-status-toggle" : "task-priority-toggle"}
+        role="img"
+        aria-label={label}
+      >
+        {glyph}
+      </span>
+    );
+  }
+  return (
+    <TaskChoiceCell
+      binding={binding as Extract<QueryEditBinding, { kind: "property" }>}
+      row={row}
+      column={model}
+      context={context}
+      editor={editor}
+      className={kind === "status" ? "task-status-toggle" : "task-priority-toggle"}
+      value={glyph}
+      current={value}
+      ariaLabel={label}
+    />
   );
 }
 

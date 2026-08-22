@@ -47,9 +47,12 @@ import { propertyDisplayName, propertyGlyph } from "./property-display";
 export function BlockChips({
   block,
   onEdit,
+  representedKeys = [],
 }: {
   block: BlockSnapshot;
   onEdit: (key: string, anchor: HTMLElement) => void;
+  /** Fields already rendered by the owning surface as dedicated controls. */
+  representedKeys?: readonly string[];
 }) {
   const state = useSessionState();
   const { message, formatJournalDate, formatTimeOfDay } = useI18n();
@@ -68,6 +71,7 @@ export function BlockChips({
   const generic = block.properties.filter(
     (field) =>
       isGenericProperty(field.key) &&
+      !representedKeys.includes(field.key) &&
       (!isTaskKey(field.key) || field.values.length === 0) &&
       !(field.key === "builtin.query" && hasQueryBlock),
   );

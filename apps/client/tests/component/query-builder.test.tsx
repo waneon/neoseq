@@ -316,16 +316,19 @@ describe("query result views", () => {
     expect(within(table).getByRole("button", { name: "Home" })).toBeInTheDocument();
   });
 
-  it("uses the shared compact Markdown projection in table and list results", async () => {
+  it("uses compact Markdown in cells and the full block projection in a block list", async () => {
     await withResult("Ship **the builder**");
     const user = userEvent.setup();
 
     const table = await screen.findByTestId("query-table");
     expect(within(table).getByText("the builder").tagName).toBe("STRONG");
+    expect(within(table).getByTestId("block-markdown")).toHaveAttribute("data-variant", "compact");
 
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
     expect(within(list).getByText("the builder").tagName).toBe("STRONG");
+    expect(within(list).getByTestId("block-markdown")).toHaveAttribute("data-variant", "block");
+    expect(within(list).getByTestId("block-markdown")).toHaveClass("outline-markdown");
   });
 
   it("hides a column into the saved view, so the choice survives a reload", async () => {
@@ -406,7 +409,6 @@ describe("query result views", () => {
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
-
     const table = await screen.findByTestId("query-table");
     await userEvent.setup().click(within(table).getByRole("button", {
       name: "Priority",
@@ -533,6 +535,47 @@ describe("query result views", () => {
     expect(row).toHaveTextContent("Ship the builder");
   });
 
+  it("renders a block result from its canonical snapshot through the shared block presentation", async () => {
+    const harness = await withResult("Stale RDF text");
+    const owner = { kind: "block" as const, page_id: "home", id: "b-2" };
+    await harness.session.execute({
+      type: "edit_markdown",
+      page_id: "home",
+      block_id: "b-2",
+      markdown: "Canonical **block** text",
+    });
+    await harness.session.execute({
+      type: "set_property",
+      owner,
+      key: "builtin.task-status",
+      value: { type: "string", value: "done" },
+    });
+    await harness.session.execute({
+      type: "set_property",
+      owner,
+      key: "builtin.task-priority",
+      value: { type: "string", value: "high" },
+    });
+    await harness.session.execute({
+      type: "set_property",
+      owner,
+      key: "user.owner",
+      value: { type: "string", value: "Ada" },
+    });
+
+    const user = userEvent.setup();
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
+    const row = within(await screen.findByTestId("query-list")).getByTestId("query-list-row");
+    expect(row).toHaveClass("block-row");
+    expect(row.querySelector(".block-body")).not.toBeNull();
+    expect(row.querySelector(".block-line.outline-markdown")).not.toBeNull();
+    expect(row).toHaveTextContent("Canonical block text");
+    expect(row).not.toHaveTextContent("Stale RDF text");
+    expect(row.querySelector('[data-status-glyph="done"]')).not.toBeNull();
+    expect(row.querySelector('[data-priority-glyph="high"]')).not.toBeNull();
+    expect(within(row).getByTestId("prop-user.owner")).toHaveTextContent("Ada");
+  });
+
   it("edits canonical block text directly from the table result", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
@@ -589,6 +632,15 @@ describe("query result views", () => {
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
+    // An explicitly retained empty field and an absent field both use the
+    // query's task mark. The retained field must not also leak into BlockChips.
+    await harness.session.execute({
+      type: "ensure_property",
+      owner: { kind: "block", page_id: "home", id: "b-2" },
+      key: "builtin.task-status",
+      value_type: "string",
+      cardinality: "single",
+    });
 
     const user = userEvent.setup();
     // Both renderers reach the same control. In the table the cell *is* the
@@ -601,6 +653,7 @@ describe("query result views", () => {
 
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
+    expect(within(list).queryByTestId("prop-builtin.task-status")).not.toBeInTheDocument();
     await user.click(within(list).getByTitle("Edit Status"));
 
     // A closed enumeration has one popup wherever it is reached from: the four

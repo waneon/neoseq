@@ -105,6 +105,7 @@ import { useI18n, type MessageFunction } from "../../i18n";
 import { fuzzyScore } from "../commands/registry";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
+import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import {
   buildSlashItems,
   filterSlashItems,
@@ -3059,7 +3060,7 @@ function BlockRow({
   }, [editor.revision, isFocused, value]);
 
   return (
-    <div
+    <BlockRowFrame
       id={`row-${row.block.id}`}
       className="outline-row"
       role="treeitem"
@@ -3079,17 +3080,20 @@ function BlockRow({
       // of it is on the active path. Custom properties rather than a paddingLeft
       // shorthand, which silently overrode the row's own padding.
       style={{ "--depth": row.depth, "--lit": lit } as CSSProperties}
-    >
-      {/* Everything left of the bullet. Dragging here selects rows; right-click
-          opens the same menu the bullet does. */}
-      <span
-        className="outline-grip"
-        data-testid="row-grip"
-        aria-hidden
-        onPointerDown={(event) => editor.onGripPointerDown(row, event)}
-        onContextMenu={(event) => editor.onRowContextMenu(row, event)}
-      />
-      <span className="outline-gutter">
+      gutterClassName="outline-gutter"
+      prefix={(
+        /* Everything left of the bullet. Dragging here selects rows; right-click
+           opens the same menu the bullet does. */
+        <span
+          className="outline-grip"
+          data-testid="row-grip"
+          aria-hidden
+          onPointerDown={(event) => editor.onGripPointerDown(row, event)}
+          onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+        />
+      )}
+      gutter={(
+        <>
         <button
           className="outline-toggle"
           aria-label={
@@ -3287,14 +3291,16 @@ function BlockRow({
             </DropdownMenuContent>
           )}
         </DropdownMenu>
-      </span>
-      <div
+        </>
+      )}
+    >
+      <BlockBody
         className="outline-text"
-        data-task-status={taskStatus}
+        taskStatus={taskStatus}
         // How many marks stand before the writing. It drives the text's hanging
         // indent, so a wrapped line still aligns with the first one and adding a
         // priority never leaves the glyph sitting on top of the sentence.
-        data-marks={marks > 0 ? marks : undefined}
+        markCount={marks}
       >
         {marks > 0 && (
           <span className="task-marks">
@@ -3312,7 +3318,7 @@ function BlockRow({
         )}
         <textarea
           ref={textareaRef}
-          className="outline-input"
+          className="block-line outline-input"
           rows={1}
           value={value}
           hidden={previewMarkdown}
@@ -3370,7 +3376,7 @@ function BlockRow({
         {previewMarkdown && (
           <BlockMarkdown
             markdown={value}
-            className="outline-markdown"
+            className="block-line outline-markdown"
             // Read-only blocks hand over too: the textarea is the row's tab stop
             // and its arrow-key navigation, and `readOnly` is what refuses the
             // edit — not the absence of a way in.
@@ -3403,7 +3409,7 @@ function BlockRow({
         {!pending && queryDocument(row.block.properties) !== undefined && (
           <QueryBlock pageId={editor.pageId} block={row.block} />
         )}
-      </div>
-    </div>
+      </BlockBody>
+    </BlockRowFrame>
   );
 }
