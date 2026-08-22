@@ -16,6 +16,9 @@ export type EntityRef =
 export type PropertyOwnerRef =
   | { kind: "page"; id: string }
   | { kind: "block"; page_id: string; id: string }
+  /** The tag itself — where its query lives. */
+  | { kind: "tag"; tag_id: string }
+  /** What the tag copies onto whatever it is added to. */
   | { kind: "tag_default"; tag_id: string };
 
 interface OutlineItemInput {

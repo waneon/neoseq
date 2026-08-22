@@ -1,57 +1,30 @@
-// The graph's tags, and what each one does to a block.
+// The graph's tags, as a directory.
 //
-// A tag is more than a label here: its *defaults* are copied onto a block the
-// moment the tag is added (never overwriting a value the block already has).
-// This screen owns the tag lifecycle — it is the one place a tag is created
-// or deleted; the outline's `#` menu and the block tag picker only attach
-// tags that already exist. One card per tag: the name in the tag's own `#`
-// voice, its defaults in the same chip language the outline speaks, and the
-// same contextual PropertyPicker as everywhere else, opened on a tag-default
-// owner so writes travel through the common property command family.
+// Now that a tag has a page, this screen has one job and stops doing the other:
+// it is the index — every tag in the graph, what each one copies onto a block,
+// and the one place a tag comes into existence. Editing a tag is the tag's own
+// page, the way editing a page is the page's, so a default has exactly one
+// writing surface and a name has exactly one field. Before this the card here
+// was both a listing and an editor, which is why the same defaults could be
+// changed from two places and neither one was where the tag actually lived.
 
 import { useEffect, useRef, useState } from "react";
-import { PlusIcon, Trash2Icon } from "lucide-react";
-import type { PropertyValue, TagSnapshot } from "../../core-port/snapshot";
-import { findPage, findTag, isDeleted, pageTitle } from "../../core-port/snapshot";
+import { Link, useParams } from "react-router";
+import { PlusIcon } from "lucide-react";
+import type { TagSnapshot } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
-import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
-import { PropertyPicker } from "../properties/PropertyPicker";
-import { propertyDisplayName, propertyGlyph } from "../properties/property-display";
-import { priorityLabel, statusLabel } from "../tasks/labels";
-import { Dialog } from "../../ui/components";
 import { Input } from "@/ui/shadcn/input";
-
-interface PickerRequest {
-  tagId: string;
-  key?: string;
-  anchor: HTMLElement | null;
-}
+import { TagDefaults } from "./TagDefaults";
 
 export function TagsView() {
-  const session = useSession();
   const state = useSessionState();
-  const notify = useNotify();
   const { message, compare } = useI18n();
-  const [picker, setPicker] = useState<PickerRequest | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<TagSnapshot | null>(null);
   const readonly = state.mode === "readonly";
 
   const tags = [...state.snapshot.tags].sort((left, right) => compare(left.name, right.name));
-  // The bag is re-read from the snapshot on every render, so the open picker
-  // always edits the authoritative defaults rather than a stale copy.
-  const pickerTag = picker ? findTag(state.snapshot, picker.tagId) : undefined;
-
-  const deleteTag = (tag: TagSnapshot) => {
-    setConfirmDelete(null);
-    void session.execute({ type: "delete_tag", tag_id: tag.id }).catch((error: unknown) => {
-      // The card stays put on failure, which on its own reads as a click
-      // that did not register.
-      notify.failure(message("failure.deleteTag", { name: tag.name }), error);
-    });
-  };
 
   return (
     <div className="page-scroll">
@@ -67,134 +40,34 @@ export function TagsView() {
         ) : (
           <ul className="tag-grid" data-testid="tag-list">
             {tags.map((tag) => (
-              <TagCard
-                key={tag.id}
-                tag={tag}
-                onEdit={(key, anchor) => setPicker({ tagId: tag.id, key, anchor })}
-                onDelete={() => setConfirmDelete(tag)}
-              />
+              <TagCard key={tag.id} tag={tag} />
             ))}
             {!readonly && <NewTagCard existing={tags} />}
           </ul>
         )}
       </article>
-      {picker && pickerTag && (
-        <PropertyPicker
-          target={{ kind: "tag", id: pickerTag.id, bag: pickerTag.defaults }}
-          anchor={picker.anchor}
-          initialKey={picker.key}
-          onClose={() => setPicker(null)}
-        />
-      )}
-      {confirmDelete && (
-        <Dialog title={message("tags.deleteTitle")} onClose={() => setConfirmDelete(null)}>
-          <p>{message("tags.deleteConfirm", { name: confirmDelete.name })}</p>
-          <div className="dialog-actions">
-            <button className="btn" onClick={() => setConfirmDelete(null)}>
-              {message("common.cancel")}
-            </button>
-            <button
-              className="btn btn-danger"
-              data-testid="confirm-delete-tag"
-              onClick={() => deleteTag(confirmDelete)}
-            >
-              {message("tags.deleteAction")}
-            </button>
-          </div>
-        </Dialog>
-      )}
     </div>
   );
 }
 
-function TagCard({
-  tag,
-  onEdit,
-  onDelete,
-}: {
-  tag: TagSnapshot;
-  onEdit: (key: string | undefined, anchor: HTMLElement) => void;
-  onDelete: () => void;
-}) {
-  const state = useSessionState();
-  const { message, formatJournalDate } = useI18n();
-  const readonly = state.mode === "readonly";
-
-  const describe = (key: string, value: PropertyValue): string => {
-    if (value.type === "checkbox") {
-      return value.value ? message("common.yes") : message("common.no");
-    }
-    if (value.type === "date") return formatJournalDate(value.value);
-    if (value.type === "page") {
-      const page = findPage(state.snapshot, value.value);
-      if (!page) return value.value;
-      return isDeleted(page)
-        ? message("properties.deleted", { name: pageTitle(page) })
-        : pageTitle(page);
-    }
-    if (key === TASK_STATUS_KEY) return statusLabel(String(value.value), message);
-    if (key === TASK_PRIORITY_KEY) return priorityLabel(String(value.value), message);
-    return String(value.value);
-  };
-  const describeField = (field: TagSnapshot["defaults"][number]): string =>
-    field.values.length === 0
-      ? message("properties.noValue")
-      : field.values.map((value) => describe(field.key, value)).join(", ");
-
+/**
+ * One tag, as a way in. The whole card is the link — a card that opens somewhere
+ * and also holds controls of its own is a card whose press means two things —
+ * and the defaults inside it are a reading, not a row of buttons.
+ */
+function TagCard({ tag }: { tag: TagSnapshot }) {
+  const { graphId = "" } = useParams();
   return (
-    <li className="tag-card" data-testid="tag-card">
-      <div className="tag-card-head">
+    <li className="tag-card-slot">
+      <Link className="tag-card" to={`/g/${graphId}/t/${tag.id}`} data-testid="tag-card">
         <span className="tag-card-name">
           <span className="hash" aria-hidden>
             #
           </span>
           {tag.name}
         </span>
-        {!readonly && (
-          <button
-            type="button"
-            className="icon-btn tag-card-delete"
-            aria-label={message("tags.deleteNamed", { name: tag.name })}
-            data-testid="tag-delete"
-            onClick={onDelete}
-          >
-            <Trash2Icon aria-hidden />
-          </button>
-        )}
-      </div>
-      <div
-        className="tag-card-defaults"
-        aria-label={message("tags.defaultsFor", { name: tag.name })}
-      >
-        {tag.defaults.map((field) => (
-          <button
-            key={field.key}
-            type="button"
-            className="task-chip"
-            data-testid={`tag-default-${field.key}`}
-            title={`${field.key}: ${describeField(field)}`}
-            onClick={(event) => onEdit(field.key, event.currentTarget)}
-          >
-            {propertyGlyph(field.key, field.value_type)}
-            <span className="task-chip-name">{propertyDisplayName(field.key, message)}</span>
-            <span className="task-chip-value">{describeField(field)}</span>
-          </button>
-        ))}
-        {readonly && tag.defaults.length === 0 && (
-          <span className="tag-no-defaults">{message("tags.noDefaults")}</span>
-        )}
-        {!readonly && (
-          <button
-            type="button"
-            className="tag-add-default"
-            data-testid="tag-add-default"
-            onClick={(event) => onEdit(undefined, event.currentTarget)}
-          >
-            <PlusIcon aria-hidden />
-            {message("tags.addDefault")}
-          </button>
-        )}
-      </div>
+        <TagDefaults tag={tag} />
+      </Link>
     </li>
   );
 }
@@ -259,8 +132,8 @@ function NewTagCard({ existing }: { existing: TagSnapshot[] }) {
   }
 
   return (
-    <li className="tag-card tag-card-editing">
-      <div className="tag-card-head">
+    <li className="tag-card-slot">
+      <div className="tag-card tag-card-editing">
         <span className="tag-card-name">
           <span className="hash" aria-hidden>
             #

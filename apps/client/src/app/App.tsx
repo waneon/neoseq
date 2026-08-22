@@ -7,6 +7,7 @@ import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
 import { PageView } from "../features/page/PageView";
 import { TagsView } from "../features/tags/TagsView";
+import { TagView } from "../features/tags/TagView";
 
 // Hash routing keeps the production bundle deployable on any static file
 // server without rewrite rules; page identity is the stable PageId.
@@ -21,6 +22,7 @@ const router = createHashRouter([
       { path: "journal", element: <JournalView /> },
       { path: "journal/:date", element: <JournalView /> },
       { path: "tags", element: <TagsView /> },
+      { path: "t/:tagId", element: <TagView /> },
       { path: "p/:pageId", element: <PageView /> },
     ],
   },

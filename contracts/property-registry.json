@@ -1,9 +1,9 @@
 {
-  "schema": 3,
+  "schema": 4,
   "properties": {
     "builtin.query": {
       "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
-      "placements": {"page": "user", "block": "user"},
+      "placements": {"page": "user", "block": "user", "tag_metadata": "user"},
       "copy": "portable"
     },
     "builtin.task-status": {

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import type { CommandResult, EntityRef } from "../../core-port/commands";
+import type { QueryEntityRef } from "../../generated/core-port";
 import type { GraphSession } from "../../core-port/session";
 import { findPage, journalDate, pageKind } from "../../core-port/snapshot";
 
@@ -43,6 +44,12 @@ export interface HistoryActions {
    * both need the same "navigate, then let the mounted outliner reveal" order.
    */
   reveal(target: EntityRef, focus?: boolean): void;
+  /**
+   * Opens anything the graph can name, including the one kind that is not an
+   * entity in the outline's sense: a tag, which has a place of its own rather
+   * than a line to be scrolled to.
+   */
+  open(target: QueryEntityRef): void;
 }
 
 const HistoryContext = createContext<HistoryActions | null>(null);
@@ -97,6 +104,16 @@ export function HistoryProvider({
     if (current?.pageId !== pageId) navigate(routeForPage(pageId));
   }, [navigate, routeForPage]);
 
+  const open = useCallback((target: QueryEntityRef) => {
+    if (target.kind === "tag") {
+      navigate(`/g/${graphId}/t/${encodeURIComponent(target.id)}`);
+      return;
+    }
+    reveal(target.kind === "page"
+      ? { kind: "page", id: target.id }
+      : { kind: "block", page_id: target.page_id, id: target.id });
+  }, [graphId, navigate, reveal]);
+
   const run = useCallback(async (
     direction: "undo" | "redo",
     invocation: HistoryInvocation,
@@ -109,8 +126,8 @@ export function HistoryProvider({
   }, [reveal, session]);
 
   const actions = useMemo<HistoryActions>(
-    () => ({ run, registerRevealer, reveal }),
-    [registerRevealer, reveal, run],
+    () => ({ run, registerRevealer, reveal, open }),
+    [open, registerRevealer, reveal, run],
   );
   return <HistoryContext.Provider value={actions}>{children}</HistoryContext.Provider>;
 }

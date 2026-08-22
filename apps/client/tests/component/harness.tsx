@@ -18,6 +18,7 @@ import { SessionContext } from "../../src/features/shell/session-context";
 import { JournalView } from "../../src/features/journal/JournalView";
 import { PageView } from "../../src/features/page/PageView";
 import { TagsView } from "../../src/features/tags/TagsView";
+import { TagView } from "../../src/features/tags/TagView";
 
 export const GRAPH_ID = "test-graph";
 
@@ -58,6 +59,7 @@ export async function mountAt(
           { path: "journal", element: custom ?? <JournalView /> },
           { path: "journal/:date", element: custom ?? <JournalView /> },
           { path: "tags", element: custom ?? <TagsView /> },
+          { path: "t/:tagId", element: custom ?? <TagView /> },
           { path: "p/:pageId", element: custom ?? <PageView /> },
           { path: "custom", element: custom ?? <div /> },
         ],
@@ -93,6 +95,20 @@ export async function openBlockMenu(index = 0): Promise<HTMLElement> {
 export async function openPageMenu(): Promise<HTMLElement> {
   const title = await screen.findByTestId("page-title");
   fireEvent.contextMenu(title);
+  return screen.findByRole("menu");
+}
+
+/** A tag's menu is the same gesture on the same kind of row. */
+export async function openTagMenu(): Promise<HTMLElement> {
+  const title = await screen.findByTestId("tag-title");
+  fireEvent.contextMenu(title);
+  return screen.findByRole("menu");
+}
+
+/** A saved view's menu: right-click the tab it belongs to. */
+export async function openViewMenu(name: string): Promise<HTMLElement> {
+  const tab = await screen.findByRole("tab", { name });
+  fireEvent.contextMenu(tab);
   return screen.findByRole("menu");
 }
 

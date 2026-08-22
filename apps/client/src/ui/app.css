@@ -943,6 +943,13 @@ button.chip {
   cursor: pointer;
 }
 
+/* A reference chip is a link now that a tag has somewhere to lead, so the anchor
+   gives up the browser's own underline and takes the product's on hover. */
+a.chip {
+  cursor: pointer;
+  text-decoration: none;
+}
+
 button.chip:hover,
 button.chip:focus-visible {
   color: var(--ink);
@@ -989,11 +996,18 @@ button.chip:focus-visible {
   color: var(--accent-quiet);
 }
 
+a.chip[data-variant="reference"]:hover,
+a.chip[data-variant="reference"]:focus-visible,
 button.chip[data-variant="reference"]:hover,
 button.chip[data-variant="reference"]:focus-visible {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+a.chip[data-variant="reference"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 /* A tag whose page is gone cannot lead anywhere, so it stops claiming it can and
@@ -3340,6 +3354,187 @@ button.chip:focus-visible .chip-glyph .chip-x {
   overflow: hidden;
 }
 
+/* Given a page of its own the query is not an aside inside a paragraph, so it
+   stops leaving room above itself for the line it used to interrupt. */
+.query-block[data-variant="page"] {
+  margin: 0 0 var(--sp-6);
+}
+
+/* ── The views of a query, when the query is the page ──
+   The product's one segmented control, doing the job it was built for: a
+   recessed track with the chosen key raised out of it, which is how this
+   interface says "this one of these" without spending a second signal. Inside a
+   bullet the same views stay in a menu — a row of tabs growing out of a line of
+   writing is a second interface inside a sentence — so this is the page's
+   grammar only.
+
+   **The track holds states; the verb stands beside it.** `+` sits outside the
+   track's edge, because dropped into it a verb would read as a view called
+   "plus". It wraps rather than scrolls: a document may hold thirty-two views,
+   and a tab that has to be scrolled to is a tab the reader cannot see is there —
+   and § Depth & Shape allows exactly one scrollbar in the product, which is the
+   content column's. */
+.query-views {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-2) 0;
+}
+
+.query-view-track {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--thread);
+}
+
+.query-view-tab {
+  display: inline-flex;
+  /* Wide enough that a one-character name is still a key rather than a stub,
+     and never so wide that a named view has to be scrolled to. */
+  min-width: 56px;
+  max-width: 220px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-0);
+  padding: 0 var(--sp-2);
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.query-view-tab:hover {
+  color: var(--ink);
+}
+
+.query-view-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.query-view-tab[aria-selected="true"] {
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: var(--e1-raised);
+}
+
+.query-view-tab[aria-selected="true"]:focus-visible {
+  box-shadow:
+    var(--e1-raised),
+    0 0 0 2px var(--accent-soft);
+}
+
+.query-view-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The current tab opens its own menu, so it says so — drawn rather than
+   revealed, because what a press will do may not wait for a hover to admit it.
+   Exactly one tab carries the mark, which is what keeps it reading as "this
+   view" rather than as a row of chrome. */
+.query-view-more {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  margin-inline-end: -3px;
+  color: var(--ink-3);
+}
+
+.query-view-tab:hover .query-view-more {
+  color: var(--ink-2);
+}
+
+/* A view is renamed where it stands, so the field *is* the tab: same box, same
+   raise, with the caret and the focus halo a typing surface carries.
+
+   It grows with what is in it, and the *text* is what measures itself. A width
+   counted in `ch` is the width of a zero, so a Korean name came out half the
+   size it needed and was clipped as it was typed. The wrapper repeats the string
+   in a hidden pseudo-element sharing one grid cell with the input: exact in every
+   engine, and no measurement pass. */
+.query-view-rename {
+  display: inline-grid;
+  align-items: center;
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow:
+    var(--e1-raised),
+    0 0 0 2px var(--accent-soft);
+  cursor: text;
+}
+
+.query-view-rename::after,
+.query-view-rename input {
+  min-width: 6ch;
+  grid-area: 1 / 1;
+  font: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+
+.query-view-rename::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre;
+}
+
+.query-view-rename input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  caret-color: var(--accent);
+  text-align: center;
+}
+
+.query-view-rename input:focus-visible {
+  outline: none;
+}
+
+/* Adding a view is a verb, so it is revealed like every other one and pinned
+   where there is no pointer to reveal it with (§ Disclosure). */
+.query-view-add {
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur-view) var(--ease-out);
+}
+
+.query-block:hover .query-view-add,
+.query-views:focus-within .query-view-add,
+.query-views:has([data-state="open"]) .query-view-add {
+  opacity: 1;
+}
+
+@media (hover: none), (max-width: 600px) {
+  .query-view-add,
+  .query-view-more {
+    opacity: 1;
+  }
+
+  .query-view-tab {
+    height: var(--sp-6);
+  }
+}
+
 /* ── The query header ──
    One line above the answer: what the query asks, how much it found, and — only
    once a pointer or the keyboard arrives — the two menus that shape it. The old
@@ -5400,13 +5595,19 @@ button.query-list-status[data-active="true"] {
   line-height: var(--lh-sm);
 }
 
-/* ── The tags screen ──
-   One card per tag. A card here is a bounded object — a hairline on the canvas,
-   lifting under the pointer — for the same reason the query result is: it is a
-   thing you act on, and a large pale rectangle with no edge is a thing whose
-   boundary the reader has to infer. The name speaks the tag's own `#` voice;
-   defaults speak the outline's chip language; the create tile is the one card
-   whose ring answers in the accent, because it is a verb rather than a tag. */
+/* ── The tags screen, and a tag's own page ──
+   The screen is a directory: one card per tag, and the card is the way in. A
+   card here is a bounded object — a hairline on the canvas, lifting under the
+   pointer — for the same reason a query result is: it is a thing you act on, and
+   a large pale rectangle with no edge is a thing whose boundary the reader has to
+   infer. The name speaks the tag's own `#` voice; defaults speak the outline's
+   chip language; the create tile is the one card whose ring answers in the
+   accent, because it is a verb rather than a tag.
+
+   Nothing on a card is a control any more. The card *is* one — a link to the tag
+   — and a card that opens somewhere while also holding buttons is a card whose
+   press means two things. Renaming, defaults and deletion moved to the tag's own
+   page, which is where the tag actually lives. */
 
 .tags-hint {
   max-width: 60ch;
@@ -5432,6 +5633,10 @@ button.query-list-status[data-active="true"] {
   list-style: none;
 }
 
+.tag-card-slot {
+  display: grid;
+}
+
 .tag-card {
   display: flex;
   min-height: 108px;
@@ -5441,26 +5646,35 @@ button.query-list-status[data-active="true"] {
   border-radius: var(--r-3);
   background: var(--canvas);
   box-shadow: var(--e1);
+  color: inherit;
+  text-decoration: none;
   transition:
     background-color var(--dur-press) var(--ease-out),
     box-shadow var(--dur-press) var(--ease-out);
 }
 
+/* The card's hover signal is the luminance step and the cast it gains, so the
+   global link underline — which would run under every chip on it — stands down.
+   The name alone answers, by taking the tag's own accent. */
 .tag-card:hover {
   background: var(--surface-1);
   box-shadow: var(--e1-raised);
+  text-decoration: none;
 }
 
-.tag-card-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
+/* The card is a link, so its focus is the product's halo rather than the
+   browser's ring — and it is drawn outside the card's own resting edge, so the
+   silhouette does not change (§ Interaction States). */
+.tag-card:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--e1),
+    0 0 0 3px var(--accent-soft);
 }
 
 .tag-card-name {
   display: inline-flex;
   min-width: 0;
-  flex: 1;
   gap: 1px;
   overflow: hidden;
   color: var(--ink);
@@ -5471,30 +5685,19 @@ button.query-list-status[data-active="true"] {
   white-space: nowrap;
 }
 
+.tag-card:hover .tag-card-name {
+  color: var(--accent-quiet);
+}
+
 .tag-card-name .hash {
   opacity: 0.55;
 }
 
-/* Revealed on approach, pinned on touch — the same contract as every
-   hover-gated control (DESIGN.md § Disclosure). Revealed with opacity, never
-   display, so keyboard and automation can always reach it. */
-.tag-card-delete {
-  opacity: 0;
-}
-
-.tag-card:hover .tag-card-delete,
-.tag-card:focus-within .tag-card-delete {
-  opacity: 1;
-}
-
-.tag-card-delete:hover {
-  color: var(--danger);
-}
-
-.tag-card-defaults {
+.tag-defaults {
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
+  align-items: center;
   gap: var(--sp-1);
   margin-top: auto;
 }
@@ -5579,10 +5782,40 @@ button.query-list-status[data-active="true"] {
   justify-content: center;
 }
 
-@media (max-width: 600px) {
-  .tag-card-delete {
-    opacity: 1;
-  }
+/* ── A tag's page ──
+   The `#` is the tag's own mark, so it is drawn as one: it stands *before* the
+   name rather than inside the field, at the title's size and in the accent that
+   every tag reference in the writing already carries. It is not part of the
+   name — a name is what the reader typed — so it is never in the textarea, and
+   the field starts where a page's title would. */
+.tag-title-field {
+  display: flex;
+  align-items: flex-start;
+  /* The same 1px the chip's `#` keeps: `#Reading` is one word, not two. */
+  gap: 1px;
+}
+
+.tag-title-hash {
+  flex: none;
+  font-size: var(--text-xl);
+  line-height: var(--lh-xl);
+  letter-spacing: var(--track-xl);
+  font-weight: 600;
+  color: var(--accent-quiet);
+}
+
+/* The defaults sit directly under the name, so they belong to it: page-edge
+   material, in the chip language they will produce. A chip carries a ring, so
+   its box already starts at the page's edge; the bare `Add default…` carries
+   only its own padding, so on a tag with no defaults yet it is pulled back to
+   the same edge rather than standing eight pixels inside it. */
+.page-body > .tag-defaults {
+  margin: 0 0 var(--sp-4);
+  min-height: var(--target);
+}
+
+.page-body > .tag-defaults > .tag-add-default:first-child {
+  margin-inline-start: calc(var(--sp-2) * -1);
 }
 
 /* The slash menu is the editor's own command surface, so it borrows the

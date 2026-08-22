@@ -173,11 +173,18 @@ ORDER BY ?deadline ?block
 LIMIT 100
 ```
 
-A block is executable when it has a valid `builtin.query` document with schema
-`neoseq.query` version 1. Its source is collaborative text; language, the
+A query is executable when its owner has a valid `builtin.query` document with
+schema `neoseq.query` version 1. Its source is collaborative text; language, the
 builder plan behind it, stable-ID saved views with their column layout, and the
 shared default view synchronize inside the graph. Table and list are the current
 renderers.
+
+Blocks, pages, and tags may own one. A tag's is the tag's own view of the graph
+it names, and the client seeds it rather than writing it: opening a tag runs a
+plan derived from the tag and touches nothing, and the first edit — a condition,
+a column, a second view — is what brings the document into existence. Once
+written it is an ordinary query document with no privileged conditions, so a
+reader may narrow it, widen it, or point it somewhere else entirely.
 
 A view's ordering is a bounded list of distinct result variables, most
 significant term first, and the domain validates it as one: at most eight terms,

@@ -11,11 +11,15 @@ pub enum EntityId {
     Block { page_id: PageId, id: BlockId },
 }
 
+/// What a property is written on. A tag owns two bags and they mean different
+/// things: `Tag` is what the tag *is* — its own metadata, including its query —
+/// while `TagDefault` is what the tag copies onto whatever it is added to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PropertyOwner {
     Page { id: PageId },
     Block { page_id: PageId, id: BlockId },
+    Tag { tag_id: TagId },
     TagDefault { tag_id: TagId },
 }
 

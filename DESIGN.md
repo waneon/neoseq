@@ -1,7 +1,7 @@
 ---
-version: 6
+version: 7
 name: Neoseq Design System
-description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast.
+description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast. Everything the graph names has a place: a page, a day, and a tag, whose place is the query that answers what it is for.
 
 # Tokens are the contract, declared once per mode in `apps/client/src/ui/app.css`
 # (the implementation of record). Every figure below is measured — see § Contrast.
@@ -355,6 +355,11 @@ Every control defines all five states.
 - **Disabled** is 50% opacity, still in layout, announced, and listed in the palette *with
   its reason*.
 
+**Which of these, said by a raise.** A closed set of panes laid out side by side — a
+settings scale, a query's saved views — is the segmented control: a recessed track with the
+chosen key raised out of it. The raise *is* the answer, and it is the whole answer; a second
+signal on top of it (a rule, an accent, a heavier weight) says the same thing twice.
+
 **Two kinds of indicator, deliberately different shapes.** A **roving highlight** says where
 the next key will land: a rounded `--surface-2` wash the width of the row, in every menu,
 option list, listbox and the palette, with `↑↓` to move it, `⏎` to choose, `⎋` to leave; a
@@ -371,7 +376,9 @@ one is the pane they are looking at.
 The list: wordmark, graph switcher (with the graph's initial), the `Search ⌘K` field and its
 key badge, `Journal`, `Tags`, page list, `Settings`, the journal's date stepper, the `Today`
 pill (off-today only), the save/sync/live slots (nothing when steady), the read-only label,
-every bullet, a toast's `×`, and one `⋯` in the top bar generated from the command registry.
+every bullet, the view strip of a query that is a page (moving between views is what that
+surface is *for* — rule 6), a toast's `×`, and one `⋯` in the top bar generated from the
+command registry.
 The top bar holds no named verbs.
 
 Everything else is **revealed** on hover/focus/`[data-focused]` — always with `opacity`,
@@ -448,13 +455,23 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   dates parse words with the native picker as the precision tool; system keys are page info.
 - **Tags.** A tag chip has two jobs and they are not the same control. Under a block it is a
   *reference* — bare text in the accent, the `#` at 55%, the product's link underline on
-  hover — and pressing it hangs the tag picker on it, because that picker is the one surface
-  that writes tags. Inside the picker it is an *entry* in the set being edited, and there the
-  press removes, announcing it in place by swapping the `#` for an `×` in the same glyph
-  column. Serving both from one control meant the most link-shaped thing on a row was the one
-  whose press destroyed something, and the accent would have made that trap worse rather than
-  better. A tag whose page is gone is struck through, says so in its accessible name, and
-  gives up the accent, because it no longer leads anywhere.
+  hover — and pressing it **goes to the tag**, which has a place of its own. Inside the tag
+  picker it is an *entry* in the set being edited, and there the press removes, announcing it
+  in place by swapping the `#` for an `×` in the same glyph column. Serving both from one
+  control meant the most link-shaped thing on a row was the one whose press destroyed
+  something, and the accent would have made that trap worse rather than better; routing the
+  reference to the picker instead was the first repair, and it left the one link-shaped thing
+  in the writing leading nowhere. Writing tags keeps its own pointer route on the bullet's
+  menu, where a destructive verb belongs. A tag whose page is gone is struck through, says so
+  in its accessible name, gives up the accent, and stops being a link at all, because a
+  tombstone leads nowhere.
+- **A tag is a place.** `Tags` is the index — one card per tag, the card *is* the link, and
+  it is the one screen where a tag comes into existence. Everything about one tag lives on
+  the tag's own route: its name in the page-title field with the `#` standing before it in
+  the accent, its defaults in the chip language they will produce, its deletion on the title
+  row's context menu — exactly where a page's own verbs are — and its query. Before this a
+  card was both a listing and an editor, so the same defaults could be changed from two
+  places and neither one was where the tag lived.
 - **Tasks.** Any block with `builtin.task-*` keys — no separate storage or generic rows.
   Status and priority are shape-first glyphs before the text, at one weight and with no fill
   of their own: priority carried a tinted tile for a while, on the argument that three thin
@@ -469,16 +486,34 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   control opens never depends on what happens to be in memory. Done and cancelled strike the
   line. A moment is a day plus an optional time; a missed one says `Overdue` in words;
   urgency thresholds and tones are the reader's, the step order is not.
-- **Query block.** The answer is an *object*: the canvas shows through and one hairline
+- **Query.** The answer is an *object*: the canvas shows through and one hairline
   closes it, so the question can take the inset `surface-1` fill and the answer can sit on
-  the page's own ground. At rest the header is one caption phrase (the control that opens the
+  the page's own ground. **One surface, two grounds.** Embedded in the outline it is a
+  paragraph that answers itself, so its chrome waits for a pointer and its saved views stay
+  in a menu — a row of tabs growing out of a bullet is a second interface inside a sentence.
+  Given a page of its own — a tag's — the query *is* the body, so its views become the
+  page's own instrument: a permanent strip the reader names, arranges, and deletes. The
+  document underneath is identical; only how much of it the surface may state permanently
+  differs. At rest the header is one caption phrase (the control that opens the
   editor) and a filled count that is also the empty state. When an answer has a body, that
   count is its own disclosure; it never borrows the caption's chevron, so authoring and
   reading remain independent. An empty count stays inert. Folding hides the mounted answer
   immediately and never pauses its execution. The builder reads as a sentence in rows — a
   lead column, controls that read as words, one left edge, groups are depth not cards, and
   the two knobs most queries never touch are grouped behind a seam at the end of the line;
-  hand-written SPARQL is its own entrance, never a conversion. The result table's header is
+  hand-written SPARQL is its own entrance, never a conversion. **The views are the product's
+  one segmented control doing the job it was built for**: a recessed track with the chosen key
+  raised out of it, which is how this interface says "this one of these" without spending a
+  second signal — no rule, no accent, no weight change. The track holds *states*, so `+` may
+  not be a key: dropped into it a verb would read as a view called "plus", and it stands
+  outside the track's edge instead, revealed like every other verb. Everything one view *is*
+  lives in that view's own menu, and **the current tab is the control that opens it** —
+  pressing a tab that is not the answer chooses it, pressing the one that already is opens
+  what it can be, the same move the caption makes and the reason neither needs a button
+  parked beside it. Its chevron is drawn rather than revealed, because a control that opens
+  a menu must say so before it is pressed, and only one tab carries it. The strip wraps
+  rather than scrolls: a tab that has to be scrolled to is a tab the reader cannot see is
+  there. The result table's header is
   a hairline, not a band, and its rows are separated by the panel hairline. Column order,
   width, visibility, and sort are the saved view data. **A cell is the writing it
   quotes**: the values in a result are blocks — often the line the reader wrote a moment ago —
@@ -597,7 +632,9 @@ a surface's primary verb permanent · reveal with opacity, instantly · open a p
 middle of the window · let a floating surface arrive · hang menus on the object they act on ·
 store colour preferences as tone names, and free the one dimension the system can guarantee ·
 let a reader choose a colour by pressing it · give a result cell the ink of the writing it
-quotes · keep chrome ≤ 14px at weight 400.
+quotes · let the one link-shaped thing on a row lead somewhere · make a set of panes one
+raised key in a recessed track · let the current tab be the control that opens what it can be ·
+keep chrome ≤ 14px at weight 400.
 
 **Don't**: separate two regions with a line alone · leave an object the reader acts on
 unbounded · ship a flat `surface-2` rectangle as a control · tint categories or chrome glyphs ·
@@ -613,5 +650,6 @@ contrast table cannot vouch for · pick a colour from a dropdown · let a state 
 accent · put a tile behind a glyph to give it weight · resize a dialog as the reader moves
 down its own nav · open a panel at the window edge it is nearest · state a fact twice on one
 screen · mount a form below the outline · hover-gate a surface's primary verb · offer a
-slider for something that is one of eight answers · read a zero-area box as a place · toast
-what the user can already see · declare a token in two files.
+slider for something that is one of eight answers · read a zero-area box as a place · put a
+verb inside a track of states · nest a control inside a control · size a field in `ch` and
+call it fitted · toast what the user can already see · declare a token in two files.

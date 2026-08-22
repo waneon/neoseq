@@ -1,7 +1,7 @@
 // First-class TagId references rendered as chips. Tag membership is structural
 // node data and never appears in the generic property bag.
 //
-// The chip has two jobs, and it used to do both with the same control. Under a
+// The chip has two jobs, and it may not do both with the same control. Under a
 // block a tag is a *reference* — a name the reader wrote and reads the graph by,
 // which is why it is the one thing in the writing that carries the accent
 // (DESIGN.md § Where the accent appears at rest). Inside the tag picker it is an
@@ -9,16 +9,19 @@
 //
 // Making one button serve both meant a single click on a name in the outline
 // silently detached it: the most link-shaped thing on the row was the one control
-// whose verb was destructive, and the accent would have made that trap worse
-// rather than better. So the reference chip routes to the picker — the product's
-// one writing surface for tags — and the picker's chip keeps the `×` swap, where
-// "remove" is what the reader came for and an undo is one keystroke away.
+// whose verb was destructive. The reference now **goes to the tag** — the tag has
+// a place of its own, and the one thing on a line that is shaped like a link
+// leads there — while the picker that writes tags keeps its own pointer route on
+// the bullet's menu, and the picker's chip keeps the `×` swap, where "remove" is
+// what the reader came for and an undo is one keystroke away.
 //
 // A deleted target is struck through AND says so in its accessible name; v1
 // carried that state only in a `title`, so assistive technology heard "#Foo" and
-// never learned the page was gone.
+// never learned the page was gone. It is also no longer a link: a tombstone
+// leads nowhere.
 
 import { XIcon } from "lucide-react";
+import { Link, useParams } from "react-router";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findTag } from "../../core-port/snapshot";
 import { useNotify } from "../notify/context";
@@ -29,18 +32,16 @@ export function TagChips({
   pageId,
   block,
   variant = "edit",
-  onOpen,
 }: {
   pageId: string;
   block: BlockSnapshot;
   /**
    * `edit` — the picker's own list: the chip removes the tag.
-   * `reference` — a name in the writing: the chip opens the picker on it.
+   * `reference` — a name in the writing: the chip opens the tag.
    */
   variant?: "edit" | "reference";
-  /** Where a reference chip goes. Required for `reference`, ignored otherwise. */
-  onOpen?: (anchor: HTMLElement) => void;
 }) {
+  const { graphId = "" } = useParams();
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
@@ -53,22 +54,36 @@ export function TagChips({
         const label = tag?.name ?? tagId;
         const deleted = message("properties.deleted", { name: `#${label}` });
         if (variant === "reference") {
-          return (
-            <button
-              type="button"
-              className="chip"
-              data-variant="reference"
-              data-tombstone={missing}
-              key={tagId}
-              data-testid="tag-chip"
-              aria-label={missing ? deleted : message("properties.openTag", { name: label })}
-              onClick={(event) => onOpen?.(event.currentTarget)}
-            >
-              {/* No glyph swap here: the `#` is part of the name as the reader
-                  typed it, and nothing about this control destroys anything. */}
+          // No glyph swap on either shape: the `#` is part of the name as the
+          // reader typed it, and nothing about a reference destroys anything.
+          const name = (
+            <>
               <span className="hash" aria-hidden>#</span>
               {label}
-            </button>
+            </>
+          );
+          return missing ? (
+            <span
+              className="chip"
+              data-variant="reference"
+              data-tombstone
+              key={tagId}
+              data-testid="tag-chip"
+              aria-label={deleted}
+            >
+              {name}
+            </span>
+          ) : (
+            <Link
+              className="chip"
+              data-variant="reference"
+              key={tagId}
+              to={`/g/${graphId}/t/${tagId}`}
+              data-testid="tag-chip"
+              aria-label={message("properties.openTag", { name: label })}
+            >
+              {name}
+            </Link>
           );
         }
         const glyph = (

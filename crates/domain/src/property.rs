@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 3;
+pub const REGISTRY_VERSION: u32 = 4;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -390,9 +390,12 @@ impl PropertySpec {
     }
 }
 
-const USER_PAGE_BLOCK: &[PropertyPlacement] = &[
+/// A query is authored on the three things that can *ask* one: a page, a block,
+/// and a tag — whose query is the tag's own view of the graph it names.
+const USER_PAGE_BLOCK_TAG: &[PropertyPlacement] = &[
     PropertyPlacement::user(PropertyTarget::Page),
     PropertyPlacement::user(PropertyTarget::Block),
+    PropertyPlacement::user(PropertyTarget::TagMetadata),
 ];
 const USER_PAGE_BLOCK_DEFAULT: &[PropertyPlacement] = &[
     PropertyPlacement::user(PropertyTarget::Page),
@@ -422,7 +425,7 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
                 version: QUERY_DOCUMENT_VERSION,
             })),
             ordering: None,
-            placements: USER_PAGE_BLOCK,
+            placements: USER_PAGE_BLOCK_TAG,
             copy: PropertyCopyPolicy::Portable,
         },
     ),

@@ -175,7 +175,8 @@ function EntityLink({
   name?: string;
 }) {
   const label = children ?? entityName(entity, context);
-  if (!context.onOpen || entity.kind === "tag") return <span>{label}</span>;
+  // A tag names a place now, so a tag cell follows like every other one.
+  if (!context.onOpen) return <span>{label}</span>;
   return (
     <button
       type="button"

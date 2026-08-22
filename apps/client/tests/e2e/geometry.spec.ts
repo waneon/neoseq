@@ -655,6 +655,15 @@ test("every surface is measured and square", async ({ page }) => {
   await awaitSaved(page);
   await audit(page, "tags (one tag)");
 
+  // A tag has a page of its own, and it is the one surface whose whole body is a
+  // query: a tab strip of saved views over a caption and a result.
+  await page.getByTestId("tag-card").click();
+  await expect(page.getByTestId("tag-title")).toHaveValue("design-system");
+  await audit(page, "tag page");
+  await page.getByTestId("query-view-add").click();
+  await audit(page, "tag page (new view)");
+  await page.keyboard.press("Escape");
+
   await createPage(page, "A regular page with a fairly long title that has to wrap or truncate");
   await audit(page, "page (long title)");
   await noSilentTruncation(page, "long-content truncation");
@@ -759,29 +768,33 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
   await startOutline(page);
   await typeInFocusedBlock(page, "a line with a tag at its end");
-  await openBlockTags(page);
-  await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Placement");
-  await page.getByRole("option", { name: "Placement", exact: true }).click();
-  await page.keyboard.press("Escape");
-  await awaitSaved(page);
 
-  // The chip lives at the right of the block's own line, so its panel grows left
-  // and their right edges meet.
-  const chip = page.locator(".outline-tags").getByTestId("tag-chip");
-  const chipBox = (await chip.boundingBox())!;
+  // A query header's sort button sits at the far right of the measure, and it is
+  // point-like: narrower than the panel it opens. So the panel grows left and
+  // their right edges meet.
+  const line = page.getByLabel("Block text").first();
+  await line.click();
+  await line.press("End");
+  await line.press("Enter");
+  await page.keyboard.type("/query");
+  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
+  const query = page.getByTestId("query-block");
+  await expect(query.getByTestId("query-table")).toBeVisible();
+  const trigger = query.getByTestId("query-sort-trigger");
+  const triggerBox = (await trigger.boundingBox())!;
   const width = page.viewportSize()!.width;
-  expect(chipBox.x + chipBox.width / 2).toBeGreaterThan(width / 2);
-  await chip.click();
-  const picker = page.getByTestId("tag-picker");
-  await expect(picker).toBeVisible();
-  const pickerBox = (await picker.boundingBox())!;
-  expect(Math.abs((pickerBox.x + pickerBox.width) - (chipBox.x + chipBox.width))).toBeLessThan(2);
-  expect(pickerBox.x).toBeLessThan(chipBox.x);
+  expect(triggerBox.x + triggerBox.width / 2).toBeGreaterThan(width / 2);
+  await trigger.click();
+  const panel = page.getByTestId("query-sort-panel");
+  await expect(panel).toBeVisible();
+  const panelBox = (await panel.boundingBox())!;
+  expect(Math.abs((panelBox.x + panelBox.width) - (triggerBox.x + triggerBox.width)))
+    .toBeLessThan(2);
+  expect(panelBox.x).toBeLessThan(triggerBox.x);
   await page.keyboard.press("Escape");
 
   // A field is the exception: the panel stands in for it, so it keeps its left
   // edge however far right the field sits.
-  const line = page.getByLabel("Block text").first();
   await line.click();
   await line.press("End");
   await page.keyboard.type(" #Pl");

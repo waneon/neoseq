@@ -1918,7 +1918,9 @@ impl GraphCore {
                 self.touch_block(page_id, id, now)?;
                 self.touch_page(page_id, now)
             }
-            PropertyOwner::TagDefault { tag_id } => self.touch_tag(tag_id, now),
+            PropertyOwner::Tag { tag_id } | PropertyOwner::TagDefault { tag_id } => {
+                self.touch_tag(tag_id, now)
+            }
         }
     }
 
@@ -2348,7 +2350,7 @@ impl GraphCore {
                 page_id: page_id.clone(),
                 id: id.clone(),
             }),
-            PropertyOwner::TagDefault { .. } => plan(
+            PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => plan(
                 HistoryScope::Graph,
                 Vec::new(),
                 Vec::new(),
@@ -2940,6 +2942,7 @@ impl GraphCore {
         match owner {
             PropertyOwner::Page { id } => self.page_properties(id),
             PropertyOwner::Block { page_id, id } => self.block_bag(page_id, id),
+            PropertyOwner::Tag { tag_id } => self.tag_bag(tag_id, "properties"),
             PropertyOwner::TagDefault { tag_id } => self.tag_bag(tag_id, "defaults"),
         }
     }
@@ -2989,7 +2992,7 @@ impl GraphCore {
             PropertyOwner::Block { page_id, id } => {
                 self.require_block(page_id, id)?;
             }
-            PropertyOwner::TagDefault { tag_id } => {
+            PropertyOwner::Tag { tag_id } | PropertyOwner::TagDefault { tag_id } => {
                 self.require_tag(tag_id)?;
             }
         }
@@ -3212,6 +3215,7 @@ fn property_owner_target(owner: &PropertyOwner) -> PropertyTarget {
     match owner {
         PropertyOwner::Page { .. } => PropertyTarget::Page,
         PropertyOwner::Block { .. } => PropertyTarget::Block,
+        PropertyOwner::Tag { .. } => PropertyTarget::TagMetadata,
         PropertyOwner::TagDefault { .. } => PropertyTarget::TagDefault,
     }
 }
@@ -3251,6 +3255,7 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::PutQueryView { owner, .. }
         | Command::RemoveQueryView { owner, .. }
         | Command::SetQueryDefaultView { owner, .. } => match owner {
+            PropertyOwner::Tag { .. } => "TagPropertiesChanged",
             PropertyOwner::TagDefault { .. } => "TagDefaultsChanged",
             PropertyOwner::Page { .. } | PropertyOwner::Block { .. } => "PropertiesChanged",
         },
@@ -4397,6 +4402,108 @@ mod tests {
         }
 
         assert_eq!(core.snapshot().unwrap(), before);
+    }
+
+    #[test]
+    fn a_tag_owns_a_query_document_with_views_of_its_own() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag = TagId::new("t-project").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: tag.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        let owner = PropertyOwner::Tag {
+            tag_id: tag.clone(),
+        };
+        core.execute(
+            envelope(
+                "plan",
+                Command::SetQueryPlan {
+                    owner: owner.clone(),
+                    plan: QueryPlan {
+                        version: 1,
+                        payload: "{\"subject\":\"block\"}".into(),
+                    },
+                    source: "SELECT ?item WHERE {}".into(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "view",
+                Command::PutQueryView {
+                    owner: owner.clone(),
+                    view: QueryView {
+                        id: QueryViewId::new("v-open").unwrap(),
+                        name: "Open".into(),
+                        kind: QueryViewKind::List,
+                        position: 2,
+                        columns: Vec::new(),
+                        options: QueryViewOptions::default(),
+                    },
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "default-view",
+                Command::SetQueryDefaultView {
+                    owner: owner.clone(),
+                    view_id: QueryViewId::new("v-open").unwrap(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        let record = snapshot.tags.iter().find(|item| item.id == tag).unwrap();
+        let field = record
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+            .unwrap();
+        let PropertyValue::Document(document) = &field.values[0] else {
+            panic!("a tag's query did not decode as a document")
+        };
+        assert_eq!(document.source, "SELECT ?item WHERE {}");
+        assert_eq!(document.default_view_id.as_str(), "v-open");
+        assert_eq!(document.views.len(), 3);
+        // A tag's query lives in its metadata, never in the defaults it copies.
+        assert!(
+            record
+                .defaults
+                .iter()
+                .all(|field| field.key.as_str() != QUERY_PROPERTY_KEY)
+        );
+
+        let error = core
+            .execute(
+                envelope(
+                    "default-query",
+                    Command::SetQuerySource {
+                        owner: PropertyOwner::TagDefault { tag_id: tag },
+                        source: "SELECT ?item WHERE {}".into(),
+                    },
+                ),
+                "t5",
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            CoreError::Property(PropertyError::InvalidTarget { .. })
+        ));
     }
 
     #[test]

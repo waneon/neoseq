@@ -151,7 +151,7 @@ test("slash, block properties, and tags share the same focused target", async ({
   await expect(picker.getByLabel("Property key")).toBeFocused();
 });
 
-test("a tag under a block is an accent reference that opens the picker, never a delete", async ({
+test("a tag under a block is an accent reference that leads to the tag, never a delete", async ({
   page,
 }) => {
   await createGraph(page, "Tag Reference Graph");
@@ -194,16 +194,85 @@ test("a tag under a block is an accent reference that opens the picker, never a 
   expect(tones.chip).toBe(tones.quiet);
   expect(tones.chip).not.toBe(tones.accent);
 
-  // …and pressing it opens the one surface that writes tags rather than silently
-  // detaching the name the reader just wrote.
+  // …and pressing it goes to the tag, rather than silently detaching the name the
+  // reader just wrote. The one thing on a line shaped like a link leads somewhere.
   await chip.click();
+  await expect(page.getByTestId("tag-title")).toHaveValue("Design");
+  await expect(page.getByTestId("query-block")).toHaveAttribute("data-variant", "page");
+
+  // Writing tags keeps its own pointer route on the bullet's menu, where a
+  // destructive verb belongs.
+  await page.goBack();
+  await openBlockTags(page);
   const picker = page.getByTestId("tag-picker");
-  await expect(picker).toBeVisible();
   await expect(picker.getByTestId("tag-chip")).toContainText("#Design");
-  await expect(page.locator(".outline-tags").getByTestId("tag-chip")).toHaveCount(1);
-  // Removal lives in there, where it is what the reader came for.
   await picker.getByRole("button", { name: "Remove tag Design" }).click();
   await expect(page.locator(".outline-tags")).toHaveCount(0);
+});
+
+// A tag is a place now: its name, its defaults, and the query that answers what
+// it is for all live on one route, and that query's saved views are the page's
+// own tabs. Nothing is written until something is shaped.
+test("a tag's page carries its query, and the query's views are its tabs", async ({ page }) => {
+  await createGraph(page, "Tag Page Graph");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag-name").fill("Reading");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
+  await startOutline(page);
+  await typeInFocusedBlock(page, "finish the Loro paper");
+  await openBlockTags(page);
+  await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Reading");
+  await page.getByRole("option", { name: "Reading", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await awaitSaved(page);
+
+  await page.locator(".outline-tags").getByTestId("tag-chip").click();
+  await expect(page.getByTestId("tag-title")).toHaveValue("Reading");
+  // The seeded query answers what the tag is for, without anyone writing it.
+  const query = page.getByTestId("query-block");
+  await expect(query.getByTestId("query-summary")).toContainText("#Reading");
+  await expect(query.getByTestId("query-count")).toContainText("1 result");
+  // Everything carrying a tag is a set of lines somebody wrote, so the tag opens
+  // on the view that renders them as the outline does.
+  await expect(query.getByTestId("query-list")).toBeVisible();
+
+  // The views are tabs, and the chosen one is raised out of the track rather
+  // than told apart by a second signal (DESIGN.md § Interaction States).
+  const tabs = query.getByRole("tab");
+  await expect(tabs).toHaveText(["Table", "List"]);
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await tabs.first().click();
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(query.getByTestId("query-table")).toBeVisible();
+  await awaitSaved(page);
+
+  // A new view opens on itself, and is renamed where it stands.
+  await query.getByTestId("query-view-add").click();
+  await page.getByRole("menuitem", { name: "Table", exact: true }).click();
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(2)).toHaveText("Table 2");
+  await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
+  await tabs.nth(2).click({ button: "right" });
+  await page.getByTestId("query-view-rename").click();
+  const field = query.getByTestId("query-view-rename-field");
+  await field.fill("Unread");
+  await field.press("Enter");
+  await expect(query.getByRole("tab", { name: "Unread" })).toBeVisible();
+  await awaitSaved(page);
+
+  // And the order survives a reload, because a view is graph data.
+  await page.reload();
+  await expect(query.getByRole("tab", { name: "Unread" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await query.getByRole("tab", { name: "Unread" }).click({ button: "right" });
+  await page.getByTestId("query-view-delete").click();
+  await expect(query.getByRole("tab")).toHaveText(["Table", "List"]);
 });
 
 test("deleted page references resolve to a tombstone, not a new page", async ({ page }) => {

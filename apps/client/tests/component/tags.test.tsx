@@ -3,7 +3,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { GRAPH_ID, mountAt, openBlockMenu } from "./harness";
+import { GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openViewMenu } from "./harness";
 
 async function mountTagged() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -205,8 +205,8 @@ describe("the tags screen", () => {
     expect(screen.getAllByTestId("tag-card")).toHaveLength(1);
   });
 
-  it("lists tags with their defaults and edits them through the picker", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+  it("lists tags with their defaults and leads to each one", async () => {
+    const { session, router } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
     await session.execute({
@@ -221,24 +221,12 @@ describe("the tags screen", () => {
     expect(
       await screen.findByTestId("tag-default-builtin.task-priority"),
     ).toHaveTextContent("High");
+    // The directory lists; it no longer edits. Nothing on a card is a control.
+    expect(screen.queryByTestId("tag-add-default")).not.toBeInTheDocument();
 
-    // Add a second default through the same picker every other surface uses.
-    await user.click(screen.getByTestId("tag-add-default"));
-    const picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: "Status" }));
-    await user.click(within(picker).getByRole("option", { name: "To-do" }));
-    expect(
-      await screen.findByTestId("tag-default-builtin.task-status"),
-    ).toHaveTextContent("To-do");
-
-    // Removing from the value stage uses the same property command as every owner.
-    await user.click(screen.getByTestId("tag-default-builtin.task-priority"));
-    const editor = await screen.findByTestId("property-picker");
-    await user.click(within(editor).getByRole("button", { name: "Remove property" }));
+    await user.click(card);
     await waitFor(() =>
-      expect(
-        screen.queryByTestId("tag-default-builtin.task-priority"),
-      ).not.toBeInTheDocument(),
+      expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/t/project`),
     );
   });
 
@@ -276,14 +264,152 @@ describe("the tags screen", () => {
     expect(inherited?.values).toEqual([]);
   });
 
-  it("deletes a tag after confirmation", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
-    const user = userEvent.setup();
-    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-    await screen.findByTestId("tag-card");
+});
 
-    await user.click(screen.getByRole("button", { name: "Delete tag Project" }));
+async function mountTagPage() {
+  const harness = await mountAt(`/g/${GRAPH_ID}/t/project`);
+  await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+  await harness.session.execute({
+    type: "insert_block",
+    page_id: "home",
+    parent: null,
+    index: 0,
+    markdown: "ship the thing",
+  });
+  await harness.session.execute({
+    type: "add_tag",
+    entity: { kind: "block", page_id: "home", id: "b-1" },
+    tag_id: "project",
+  });
+  await screen.findByTestId("tag-title");
+  return harness;
+}
+
+/** The tag document, or `undefined` while the page is still only a seed. */
+function tagQuery(session: Awaited<ReturnType<typeof mountTagPage>>["session"]) {
+  const tag = session.getState().snapshot.tags.find((item) => item.id === "project");
+  const value = tag?.properties.find((field) => field.key === "builtin.query")?.values[0];
+  return value?.type === "document" ? value.value : undefined;
+}
+
+describe("a tag's own page", () => {
+  it("opens on the tag's own query without writing anything", async () => {
+    const { session, port } = await mountTagPage();
+
+    expect(screen.getByTestId("tag-title")).toHaveValue("Project");
+    const block = await screen.findByTestId("query-block");
+    expect(block).toHaveAttribute("data-variant", "page");
+    // The seed asks the one question a tag is for, with the tag itself bound.
+    expect(within(block).getByTestId("query-summary")).toHaveTextContent("#Project");
+    const request = port.queryRequests.at(-1);
+    expect(
+      Object.values(request?.query.bindings ?? {}).map((term) => term.value),
+    ).toContain(`urn:neoseq:entity:${GRAPH_ID}:tag:project`);
+    // Reading a tag is a read: the seed becomes a document only when shaped.
+    expect(tagQuery(session)).toBeUndefined();
+  });
+
+  it("edits its defaults through the same picker every other owner uses", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "set_property",
+      owner: { kind: "tag_default", tag_id: "project" },
+      key: "builtin.task-priority",
+      value: { type: "string", value: "high" },
+    });
+    expect(
+      await screen.findByTestId("tag-default-builtin.task-priority"),
+    ).toHaveTextContent("High");
+
+    await user.click(screen.getByTestId("tag-add-default"));
+    const picker = await screen.findByTestId("property-picker");
+    await user.click(within(picker).getByRole("option", { name: "Status" }));
+    await user.click(within(picker).getByRole("option", { name: "To-do" }));
+    expect(
+      await screen.findByTestId("tag-default-builtin.task-status"),
+    ).toHaveTextContent("To-do");
+
+    await user.click(screen.getByTestId("tag-default-builtin.task-priority"));
+    const editor = await screen.findByTestId("property-picker");
+    await user.click(within(editor).getByRole("button", { name: "Remove property" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("tag-default-builtin.task-priority"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("renames the tag from its own title", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+    const title = screen.getByTestId("tag-title");
+    await user.clear(title);
+    await user.type(title, "Shipping{enter}");
+    await waitFor(() =>
+      expect(session.getState().snapshot.tags[0].name).toBe("Shipping"),
+    );
+  });
+
+  it("deletes the tag from its own menu and leaves for the directory", async () => {
+    const { session, router } = await mountTagPage();
+    const user = userEvent.setup();
+    const menu = await openTagMenu();
+    await user.click(within(menu).getByTestId("tag-delete"));
     await user.click(await screen.findByTestId("confirm-delete-tag"));
-    await waitFor(() => expect(screen.queryByTestId("tag-card")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/tags`),
+    );
+    expect(session.getState().snapshot.tags).toHaveLength(0);
+  });
+
+  it("switches between the query's views from the tab strip", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Table", "List"]);
+    // Everything carrying a tag is a set of lines somebody wrote, so the tag
+    // opens on the view that renders them as the outline does.
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+
+    await user.click(tabs[0]);
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Table" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    );
+    // Choosing a view is what writes the tag's query for the first time.
+    await waitFor(() => expect(tagQuery(session)?.default_view_id).toBe("table"));
+  });
+
+  it("adds, renames, and deletes a view of its own", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("query-view-add"));
+    await user.click(await screen.findByRole("menuitem", { name: "Table" }));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(3));
+    // A new view opens on itself — adding one and not landing on it says nothing.
+    const added = screen.getByRole("tab", { name: "Table 2" });
+    expect(added).toHaveAttribute("aria-selected", "true");
+    // …and the document it just brought into existence agrees with the screen.
+    expect(tagQuery(session)?.default_view_id).not.toBe("table");
+
+    const menu = await openViewMenu("Table 2");
+    await user.click(within(menu).getByTestId("query-view-rename"));
+    const field = await screen.findByTestId("query-view-rename-field");
+    await user.clear(field);
+    await user.type(field, "By status{enter}");
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "By status" })).toBeVisible(),
+    );
+    expect(tagQuery(session)?.views).toHaveLength(3);
+
+    const again = await openViewMenu("By status");
+    await user.click(within(again).getByTestId("query-view-delete"));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    expect(tagQuery(session)?.views.map((view) => view.id)).toEqual(["table", "list"]);
   });
 });

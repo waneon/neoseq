@@ -53,10 +53,12 @@ import {
   subscribeGraphDirectory,
 } from "../../core-port/directory";
 import {
+  findTag,
   isDeleted,
   pageKind,
   pageTitle,
   type PageSnapshot,
+  type TagSnapshot,
 } from "../../core-port/snapshot";
 import { Wordmark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
@@ -263,6 +265,11 @@ function ShellBody({
     [compare, state.snapshot],
   );
 
+  const tags = useMemo(
+    () => [...state.snapshot.tags].sort((left, right) => compare(left.name, right.name)),
+    [compare, state.snapshot],
+  );
+
   const createPage = useCallback(
     async (title?: string) => {
       const pageId = `p-${crypto.randomUUID()}`;
@@ -455,6 +462,7 @@ function ShellBody({
   const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
   const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
+  const currentTag = /\/t\/([^/]+)$/.exec(location.pathname)?.[1];
   // Query-dependent rows: a date the user typed, and — when nothing matches — a
   // page to create, so the list is never a dead end.
   const dynamic = useCallback(
@@ -562,12 +570,15 @@ SELECT ?entity ?content ?page WHERE {
       ? (pages.find((page) => page.id === currentPage)
           ? pageTitle(pages.find((page) => page.id === currentPage)!)
           : message("common.page"))
-      : location.pathname.endsWith("/tags")
-        ? message("shell.tags")
-        : name;
+      : currentTag
+        ? `#${findTag(state.snapshot, decodeURIComponent(currentTag))?.name ?? currentTag}`
+        : location.pathname.endsWith("/tags")
+          ? message("shell.tags")
+          : name;
 
   const commands = buildCommands({
     pages,
+    tags,
     graphId,
     today,
     currentDate,
@@ -963,6 +974,7 @@ function GraphSwitcher({
 
 interface CommandInputs {
   pages: PageSnapshot[];
+  tags: TagSnapshot[];
   graphId: string;
   today: string;
   currentDate: string | null;
@@ -1019,6 +1031,7 @@ const THEME_MESSAGE = {
 function buildCommands(input: CommandInputs): Command[] {
   const {
     pages,
+    tags,
     graphId,
     today,
     currentDate,
@@ -1052,6 +1065,19 @@ function buildCommands(input: CommandInputs): Command[] {
       icon: <FileTextIcon aria-hidden />,
       pointerRoute: message("shell.pages"),
       run: () => navigate(`/g/${graphId}/p/${page.id}`),
+    });
+  }
+
+  for (const tag of tags) {
+    commands.push({
+      id: `tag-${tag.id}`,
+      group: "Tags",
+      label: `#${tag.name}`,
+      keywords: ["open tag", "go to"],
+      hint: message("commands.hintTag"),
+      icon: <HashIcon aria-hidden />,
+      pointerRoute: message("shell.tags"),
+      run: () => navigate(`/g/${graphId}/t/${tag.id}`),
     });
   }
 

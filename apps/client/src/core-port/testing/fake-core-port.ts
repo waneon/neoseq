@@ -43,6 +43,7 @@ import {
   validateFieldShape,
   validateValue,
   validateWriteTarget,
+  type WritableTarget,
 } from "../../entities/properties";
 import { canonicalEntityName } from "../../entities/names";
 import type { SessionPort } from "../session";
@@ -826,9 +827,10 @@ export class FakeCorePort implements SessionPort {
       undoCandidates,
       redoCandidates,
     });
-    const ownerEntry = (owner: PropertyOwnerRef): FakeHistoryEntry => owner.kind === "tag_default"
-      ? { scope: "graph", affectedPages: [], undoCandidates: [], redoCandidates: [] }
-      : entity(owner);
+    const ownerEntry = (owner: PropertyOwnerRef): FakeHistoryEntry =>
+      owner.kind === "tag" || owner.kind === "tag_default"
+        ? { scope: "graph", affectedPages: [], undoCandidates: [], redoCandidates: [] }
+        : entity(owner);
 
     switch (command.type) {
       case "ensure_page":
@@ -1095,7 +1097,7 @@ export class FakeCorePort implements SessionPort {
   }
 
   private touchPropertyOwner(owner: PropertyOwnerRef, timestamp: string): void {
-    if (owner.kind === "tag_default") {
+    if (owner.kind === "tag" || owner.kind === "tag_default") {
       this.touchTag(owner.tag_id, timestamp);
     } else {
       this.touchEntity(owner, timestamp);
@@ -1228,6 +1230,7 @@ export class FakeCorePort implements SessionPort {
   }
 
   private propertyOwnerBag(owner: PropertyOwnerRef): PropertyField[] {
+    if (owner.kind === "tag") return this.requireTag(owner.tag_id).properties;
     if (owner.kind === "tag_default") return this.requireTag(owner.tag_id).defaults;
     return this.entityBag(owner);
   }
@@ -1351,8 +1354,8 @@ function removeAll(bag: PropertyField[], key: string): void {
   }
 }
 
-function propertyOwnerTarget(owner: PropertyOwnerRef): "page" | "block" | "tag_default" {
-  return owner.kind;
+function propertyOwnerTarget(owner: PropertyOwnerRef): WritableTarget {
+  return owner.kind === "tag" ? "tag_metadata" : owner.kind;
 }
 
 /** Convenience: an already-open session backed by the fake port. */

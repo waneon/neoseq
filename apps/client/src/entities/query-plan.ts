@@ -167,6 +167,32 @@ export function defaultPlan(subject: PlanSubject = "block"): QueryPlan {
   };
 }
 
+/**
+ * The query a tag opens on: everything the tag names, most recent structure
+ * first. It is a plan like any other — seeded, not fixed — so a reader who wants
+ * the pages carrying the tag rather than its blocks edits the same builder every
+ * other query uses instead of asking for a second kind of query.
+ */
+export function tagPlan(tagId: string): QueryPlan {
+  return {
+    ...defaultPlan("block"),
+    where: {
+      id: planId("g"),
+      kind: "group",
+      match: "all",
+      children: [
+        {
+          id: planId("c"),
+          kind: "condition",
+          field: { kind: "tag" },
+          op: "equals",
+          value: { type: "tag", value: tagId },
+        },
+      ],
+    },
+  };
+}
+
 // ── Field typing ──────────────────────────────────────────────────────────────
 
 /**

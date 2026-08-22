@@ -178,12 +178,7 @@ export function QueryListView({
               )}
               {block.tags.length > 0 && (
                 <div className="outline-tags">
-                  <TagChips
-                    pageId={entity.page_id}
-                    block={block}
-                    variant="reference"
-                    onOpen={(anchor) => beginDirect({ kind: "tags" }, anchor)}
-                  />
+                  <TagChips pageId={entity.page_id} block={block} variant="reference" />
                 </div>
               )}
               <BlockChips

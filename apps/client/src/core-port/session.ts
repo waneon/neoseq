@@ -486,7 +486,9 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "put_query_view":
     case "remove_query_view":
     case "set_query_default_view":
-      return command.owner.kind === "tag_default"
+      // A tag's query and a tag's defaults both live on the tag, which travels
+      // in the summary rather than on any page.
+      return command.owner.kind === "tag" || command.owner.kind === "tag_default"
         ? { kind: "summary" }
         : {
             kind: "page",

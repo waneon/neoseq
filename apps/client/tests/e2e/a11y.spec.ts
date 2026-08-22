@@ -4,6 +4,7 @@ import {
   createGraph,
   openBlockMenu,
   openSettings,
+  openSidebar,
   startOutline,
   typeInFocusedBlock,
 } from "./helpers";
@@ -64,6 +65,29 @@ test("the query builder and its result table pass the basic audit", async ({ pag
   await query.getByTestId("query-view-trigger").click();
   await page.getByRole("menuitemradio", { name: "List", exact: true }).click();
   await expect(query.getByTestId("query-list")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+});
+
+// A tag's page is the query surface at its largest: a tab strip of saved views,
+// a caption, and a result — the one place in the product with a `tablist` in it.
+test("a tag's page and its view tabs pass the basic audit", async ({ page }) => {
+  await createGraph(page, "A11y Tag Page");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag-name").fill("Reading");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await page.getByTestId("tag-card").click();
+
+  const query = page.getByTestId("query-block");
+  await expect(query.getByRole("tab")).toHaveCount(2);
+  expect(await audit(page)).toEqual([]);
+
+  await query.getByRole("tab", { name: "Table" }).click();
+  await expect(query.getByRole("tab", { name: "Table" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   expect(await audit(page)).toEqual([]);
 });
 

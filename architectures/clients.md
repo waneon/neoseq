@@ -162,8 +162,14 @@ query sort independent of localized display labels. Sparse renderer maps add
 specialized controls without becoming a schema authority:
 
 - `builtin.query` provides the query builder, a SPARQL escape hatch, and
-  schema-owned saved result views. It is authored only through `/`: the generic
-  property route never offers it, so a query is never half-created by a picker;
+  schema-owned saved result views. One surface serves both grounds it appears on:
+  embedded in the outline its views stay in a menu, and on a routed tag page —
+  where the query *is* the body — they become a permanent tab strip the reader
+  names, arranges, and deletes. It is authored only through `/` on a block or a
+  page: the generic property route never offers it, so a query is never
+  half-created by a picker. A tag's query needs no authoring step at all; the tag
+  page seeds a plan that asks what the tag is for and writes nothing until a
+  reader shapes it;
 - `builtin.task-*` provides workflow, priority, moment, and recurrence controls. A
   moment is a `date` key plus an optional `HH:MM` companion key
   (`builtin.task-scheduled-time`, `builtin.task-deadline-time`), so the day stays a
@@ -177,9 +183,11 @@ specialized controls without becoming a schema authority:
 - unknown `user.*` keys use the generic typed editor, while unknown
   `builtin.*` keys are rendered generically but remain read-only;
 - tag membership remains structural: the block `Tags` picker and the outline's
-  inline `#` menu attach existing tags (`add_tag`/`remove_tag`), while the
-  routed tags view owns the tag lifecycle — creation, deletion, and each tag's
-  `defaults` through the shared owner-based property commands.
+  inline `#` menu attach existing tags (`add_tag`/`remove_tag`). A tag reference
+  under a block is a link to that tag's own route, never a writing surface. The
+  routed tags view is the index and the one place a tag is created; a tag's own
+  route owns everything about one tag — its name, its `defaults` through the
+  shared owner-based property commands, its deletion, and its query.
 
 The shared picker distinguishes a present empty field from an absent property.
 It can ensure an empty field, clear only its values, or remove the field, and
@@ -198,13 +206,16 @@ command share its localized label, binding, icon, and disabled reason. IME and
 already-handled events win before global shortcuts; global shortcuts stand down
 while a modal is open.
 
-Routes use stable page IDs. Settings is a dialog whose section is represented by
-a query parameter, so browser Back closes it without losing editor context.
+Routes use stable page and tag IDs; a tag is a route (`t/:tagId`) rather than a
+card in a grid, so everything the graph names has one address. Settings is a
+dialog whose section is represented by a query parameter, so browser Back closes
+it without losing editor context.
 Journal navigation resolves the user's configured timezone to a `LocalDate` and
 asks the core to ensure that deterministic journal.
 
 `features/history/` is the single client coordinator for undo/redo and for
-opening one entity by ID. It consumes the core's semantic history effect, chooses
+opening anything the graph names by ID — including a tag, which has a place
+rather than a line to be scrolled to. It consumes the core's semantic history effect, chooses
 a regular-page or journal route, and hands block reveal to the mounted outliner;
 following a query result uses the same reveal path. The outliner expands ancestors and
 scrolls its virtual list; only an undo/redo invoked from an active block editor

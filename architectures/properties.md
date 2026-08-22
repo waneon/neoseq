@@ -110,22 +110,29 @@ falls back to defaults, and a switch a reader does not know is ignored rather
 than rejected — which is what lets one replica add a switch without invalidating
 the document for another. A `sort` naming a variable the view no longer lists is
 valid and simply stops applying, so narrowing a query never makes its saved view
-unreadable. The current built-in views are `table` and `list`. Additional saved
-views use the same record contract rather than adding property keys or storage
-roots.
+unreadable. The two views a document is born with are `table` and `list`; views a
+reader creates carry generated IDs and their own names, and use the same record
+contract rather than adding property keys or storage roots. A document holds
+between one and thirty-two views.
 
 ## Owners and Commands
 
-Page, block, and tag-default bags share atomic property commands. Target policy
-comes from the owner and registry. Document schemas add semantic commands; the
-query document currently supports source set/splice, plan set/clear, view
-put/remove, and default-view selection. One command remains one Loro transaction, undo item,
-durable update, and semantic event.
+Page, block, tag, and tag-default bags share atomic property commands. Target
+policy comes from the owner and registry. A tag owns two bags and they are
+different targets: `tag` is the tag's own metadata — what the tag *is*, including
+its query — and `tag_default` is what the tag copies onto whatever it is added
+to. Document schemas add semantic commands; the query document currently supports
+source set/splice, plan set/clear, view put/remove, and default-view selection.
+One command remains one Loro transaction, undo item, durable update, and semantic
+event. A write to either tag bag is a graph-scoped history effect, because a tag
+belongs to no page.
 
 Tag defaults materialize only schemas whose registry contract allows copying.
-The query document has no tag-default placement. Atomic defaults copy their
-complete marker and current values only when the target key is absent; removing
-a tag or later changing its defaults is not retroactive.
+The query document has a tag-metadata placement and no tag-default placement: a
+tag may ask a question of its own, and no tag copies a query onto a block.
+Atomic defaults copy their complete marker and current values only when the
+target key is absent; removing a tag or later changing its defaults is not
+retroactive.
 
 ## Storage, Projection, and State Boundaries
 

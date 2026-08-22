@@ -186,8 +186,9 @@ function textOperand(field: PlanField, value: string, context: SummaryContext): 
     : context.message("query.summaryQuoted", { value });
 }
 
+/** A tag speaks its own `#` voice in a caption, as it does everywhere else. */
 function tagName(id: string, context: SummaryContext): string {
-  return context.snapshot.tags.find((tag) => tag.id === id)?.name ?? id;
+  return `#${context.snapshot.tags.find((tag) => tag.id === id)?.name ?? id}`;
 }
 
 function pageName(id: string, context: SummaryContext): string {

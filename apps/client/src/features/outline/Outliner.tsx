@@ -3007,14 +3007,10 @@ function BlockRow({
         )}
         {tags.length > 0 && (
           <div className="outline-tags">
-            {/* A reference, not a delete button: the chip hangs the tag picker on
-                itself, which is the one surface that writes tags. */}
-            <TagChips
-              pageId={editor.pageId}
-              block={row.block}
-              variant="reference"
-              onOpen={(anchor) => editor.openTags(row.block.id, anchor)}
-            />
+            {/* A reference, not a delete button: the chip goes to the tag, which
+                now has a place of its own. Writing tags stays on the bullet's
+                menu, where a destructive verb belongs. */}
+            <TagChips pageId={editor.pageId} block={row.block} variant="reference" />
           </div>
         )}
         {!pending && (

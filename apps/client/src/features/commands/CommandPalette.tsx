@@ -18,6 +18,7 @@ import { useI18n, type MessageKey } from "../../i18n";
 const GROUP_MESSAGE = {
   Search: "commands.group.search",
   Pages: "commands.group.pages",
+  Tags: "commands.group.tags",
   Journal: "commands.group.journal",
   Block: "commands.group.block",
   Edit: "commands.group.edit",

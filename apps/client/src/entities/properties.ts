@@ -124,7 +124,7 @@ export function isGenericProperty(key: string): boolean {
   return visibility === "generic" || visibility === "feature_and_generic";
 }
 
-export type WritableTarget = "page" | "block" | "tag_default";
+export type WritableTarget = "page" | "block" | "tag_metadata" | "tag_default";
 
 export function canUserWrite(key: string, target: WritableTarget): boolean {
   const spec = definition(key);
@@ -188,6 +188,9 @@ export function validateWriteTarget(key: string, target: WritableTarget): Valida
   if (canUserWrite(key, target)) return null;
   if (target === "tag_default") {
     return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
+  }
+  if (target === "tag_metadata") {
+    return { code: "property_target", message: `“${key}” cannot be written on a tag.`, values: { key, target } };
   }
   const spec = definition(key);
   if (spec?.placements[target] === "core" || key.startsWith("builtin.")) {
