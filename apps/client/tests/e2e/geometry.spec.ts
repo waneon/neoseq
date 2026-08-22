@@ -649,17 +649,39 @@ test("every surface is measured and square", async ({ page }) => {
 
   await page.getByTestId("nav-tags").click();
   await audit(page, "tags (empty)");
-  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag").click();
   await page.keyboard.type("design-system");
   await page.keyboard.press("Enter");
+  await page.keyboard.type("a second tag with a name long enough to need its column");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
   await awaitSaved(page);
-  await audit(page, "tags (one tag)");
+  await audit(page, "tags (a flat list)");
+
+  // The manager at its densest: a heading, rows of three controls each, and the
+  // panel of swatches and marks that one of those controls opens.
+  await page.getByTestId("tag-mark").first().click();
+  const identity = page.getByTestId("tag-identity");
+  await expect(identity).toBeVisible();
+  await audit(page, "tag identity panel");
+  await identity.getByTestId("tag-group-field").fill("Areas");
+  await identity.getByTestId("tag-group-field").press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
+  await awaitSaved(page);
+  await audit(page, "tags (grouped)");
+  await noSilentTruncation(page, "tags directory truncation");
 
   // A tag has a page of its own, and it is the one surface whose whole body is a
   // query: a tab strip of saved views over a caption and a result.
-  await page.getByTestId("tag-card").click();
+  await page.getByTestId("tag-row-link").first().click();
   await expect(page.getByTestId("tag-title")).toHaveValue("design-system");
   await audit(page, "tag page");
+  await page.getByTestId("tag-add-default").click();
+  await page.getByTestId("property-picker").getByRole("option", { name: "Status", exact: true }).click();
+  await page.getByTestId("property-picker").getByRole("option", { name: "Doing", exact: true }).click();
+  await awaitSaved(page);
+  await audit(page, "tag page (a default)");
   await page.getByTestId("query-view-add").click();
   await audit(page, "tag page (new view)");
   await page.keyboard.press("Escape");
@@ -761,7 +783,7 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   await createGraph(page, "Placement Graph");
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag").click();
   await page.getByTestId("new-tag-name").fill("Placement");
   await page.getByTestId("new-tag-name").press("Enter");
   await openSidebar(page);

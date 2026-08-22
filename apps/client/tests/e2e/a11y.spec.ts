@@ -68,16 +68,47 @@ test("the query builder and its result table pass the basic audit", async ({ pag
   expect(await audit(page)).toEqual([]);
 });
 
+// The tags screen is the product's one manager: grouped rows, each with three
+// controls in it, and a panel of swatches and an emoji grid over the top.
+test("the tags directory and its identity panel pass the basic audit", async ({ page }) => {
+  await createGraph(page, "A11y Tag Manager");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  for (const name of ["Design", "Reading"]) {
+    await page.getByTestId("new-tag").click();
+    await page.getByTestId("new-tag-name").fill(name);
+    await page.getByTestId("new-tag-name").press("Enter");
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tag-row")).toHaveCount(2);
+  expect(await audit(page)).toEqual([]);
+
+  await page.getByTestId("tag-mark").first().click();
+  const panel = page.getByTestId("tag-identity");
+  await expect(panel).toBeVisible();
+  await panel.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished)),
+  );
+  expect(await audit(page)).toEqual([]);
+
+  // …and grouped, which is the shape the screen is actually read in.
+  await panel.getByTestId("tag-group-field").fill("Areas");
+  await panel.getByTestId("tag-group-field").press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
+  expect(await audit(page)).toEqual([]);
+});
+
 // A tag's page is the query surface at its largest: a tab strip of saved views,
 // a caption, and a result — the one place in the product with a `tablist` in it.
 test("a tag's page and its view tabs pass the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Tag Page");
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag").click();
   await page.getByTestId("new-tag-name").fill("Reading");
   await page.getByTestId("new-tag-name").press("Enter");
-  await page.getByTestId("tag-card").click();
+  await page.getByTestId("tag-row-link").click();
 
   const query = page.getByTestId("query-block");
   await expect(query.getByRole("tab")).toHaveCount(2);

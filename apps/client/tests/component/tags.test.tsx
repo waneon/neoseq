@@ -177,21 +177,19 @@ describe("the # tag menu in a block", () => {
 });
 
 describe("the tags screen", () => {
-  it("offers only the create card when the graph has no tags", async () => {
+  it("offers only the create action when the graph has no tags", async () => {
     await mountAt(`/g/${GRAPH_ID}/tags`);
-    expect(await screen.findByTestId("tag-card-new")).toBeVisible();
-    expect(screen.queryByTestId("tag-card")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("new-tag")).toBeVisible();
+    expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument();
   });
 
-  it("creates a tag from the create card", async () => {
+  it("creates a tag, and keeps the field open for the next name", async () => {
     await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId("tag-card-new"));
+    await user.click(await screen.findByTestId("new-tag"));
     const input = await screen.findByTestId("new-tag-name");
     await user.type(input, "Research{enter}");
-    const card = await screen.findByTestId("tag-card");
-    expect(card).toHaveTextContent("#Research");
-    // The field stays open and clear for the next name.
+    expect(await screen.findByTestId("tag-row")).toHaveTextContent("#Research");
     expect(screen.getByTestId("new-tag-name")).toHaveValue("");
   });
 
@@ -199,13 +197,13 @@ describe("the tags screen", () => {
     const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-    await user.click(await screen.findByTestId("tag-card-new"));
+    await user.click(await screen.findByTestId("new-tag"));
     await user.type(screen.getByTestId("new-tag-name"), "  PROJECT {enter}");
     expect(await screen.findByText("Tag “PROJECT” already exists")).toBeVisible();
-    expect(screen.getAllByTestId("tag-card")).toHaveLength(1);
+    expect(screen.getAllByTestId("tag-row")).toHaveLength(1);
   });
 
-  it("lists tags with their defaults and leads to each one", async () => {
+  it("says what each tag does and leads to it", async () => {
     const { session, router } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
@@ -216,54 +214,82 @@ describe("the tags screen", () => {
       value: { type: "string", value: "high" },
     });
 
-    const card = await screen.findByTestId("tag-card");
-    expect(card).toHaveTextContent("#Project");
-    expect(
-      await screen.findByTestId("tag-default-builtin.task-priority"),
-    ).toHaveTextContent("High");
-    // The directory lists; it no longer edits. Nothing on a card is a control.
-    expect(screen.queryByTestId("tag-add-default")).not.toBeInTheDocument();
+    const row = await screen.findByTestId("tag-row");
+    expect(row).toHaveTextContent("#Project");
+    // The row names what the tag copies; the value belongs on the tag's own page,
+    // where it has a column to sit in.
+    expect(row).toHaveTextContent("Priority");
+    expect(row).not.toHaveTextContent("High");
 
-    await user.click(card);
+    await user.click(screen.getByTestId("tag-row-link"));
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/t/project`),
     );
   });
 
-  it("keeps an empty default visible and materializes its empty field", async () => {
+  it("files a tag into a group, and renaming the group rewrites its members", async () => {
     const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-    await session.execute({
-      type: "ensure_property",
-      owner: { kind: "tag_default", tag_id: "project" },
-      key: "builtin.task-priority",
-      value_type: "string",
-      cardinality: "single",
-    });
+    await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
+    // One tag with no group at all: the only heading there could be says nothing.
+    expect(screen.queryByTestId("tag-group-name")).not.toBeInTheDocument();
 
+    for (const id of ["project", "reading"]) {
+      await session.execute({
+        type: "set_property",
+        owner: { kind: "tag", tag_id: id },
+        key: "builtin.tag-group",
+        value: { type: "string", value: "Areas" },
+      });
+    }
+    await waitFor(() =>
+      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
+    );
+
+    await user.click(screen.getByTestId("tag-group-menu"));
+    await user.click(await screen.findByTestId("tag-group-rename"));
+    const field = await screen.findByTestId("tag-group-rename-field");
+    await user.clear(field);
+    await user.type(field, "Practices{enter}");
+    await waitFor(() =>
+      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Practices"),
+    );
+    // A group is a name its members carry; renaming it is rewriting them.
     expect(
-      await screen.findByTestId("tag-default-builtin.task-priority"),
-    ).toHaveTextContent("No value");
-
-    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-    await session.execute({
-      type: "insert_block",
-      page_id: "home",
-      parent: null,
-      index: 0,
-      markdown: "work",
-    });
-    await session.execute({
-      type: "add_tag",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
-      tag_id: "project",
-    });
-
-    const inherited = session.getState().snapshot.pages[0].blocks[0].properties
-      .find((field) => field.key === "builtin.task-priority");
-    expect(inherited?.values).toEqual([]);
+      session.getState().snapshot.tags.map((tag) =>
+        tag.properties.find((field) => field.key === "builtin.tag-group")?.values[0],
+      ),
+    ).toEqual([
+      { type: "string", value: "Practices" },
+      { type: "string", value: "Practices" },
+    ]);
   });
 
+  it("customizes a tag's mark and colour from the one panel its mark opens", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
+    await screen.findByTestId("tag-row");
+
+    await user.click(screen.getByTestId("tag-mark"));
+    const panel = await screen.findByTestId("tag-identity");
+    await user.click(within(panel).getByTestId("tag-colour-teal"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal"),
+    );
+
+    await user.click(within(panel).getByRole("button", { name: "📚" }));
+    await waitFor(() => expect(screen.getByTestId("tag-mark")).toHaveTextContent("📚"));
+
+    // The group field in the same panel is the route that needs no pointer.
+    const group = within(panel).getByTestId("tag-group-field");
+    await user.type(group, "Areas");
+    await user.tab();
+    await waitFor(() =>
+      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
+    );
+  });
 });
 
 async function mountTagPage() {
@@ -308,6 +334,30 @@ describe("a tag's own page", () => {
     ).toContain(`urn:neoseq:entity:${GRAPH_ID}:tag:project`);
     // Reading a tag is a read: the seed becomes a document only when shaped.
     expect(tagQuery(session)).toBeUndefined();
+  });
+
+  it("keeps an empty default visible and materializes its empty field", async () => {
+    const { session } = await mountTagPage();
+    await session.execute({
+      type: "ensure_property",
+      owner: { kind: "tag_default", tag_id: "project" },
+      key: "builtin.task-priority",
+      value_type: "string",
+      cardinality: "single",
+    });
+
+    expect(
+      await screen.findByTestId("tag-default-builtin.task-priority"),
+    ).toHaveTextContent("No value");
+
+    await session.execute({
+      type: "add_tag",
+      entity: { kind: "block", page_id: "home", id: "b-1" },
+      tag_id: "project",
+    });
+    const inherited = session.getState().snapshot.pages[0].blocks[0].properties
+      .find((field) => field.key === "builtin.task-priority");
+    expect(inherited?.values).toEqual([]);
   });
 
   it("edits its defaults through the same picker every other owner uses", async () => {

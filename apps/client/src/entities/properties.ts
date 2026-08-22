@@ -67,6 +67,12 @@ const FEATURE_ONLY_RENDERERS = new Set([
   "builtin.query",
   "builtin.task-scheduled-time",
   "builtin.task-deadline-time",
+  // A tag's group, colour, and icon are what the tag *is*. They have one editor —
+  // the swatch the tag wears — and a generic key/value row beside it would be a
+  // second, worse one for the same three values.
+  "builtin.tag-group",
+  "builtin.tag-color",
+  "builtin.tag-icon",
 ]);
 const METADATA_RENDERERS = new Set([
   "builtin.page-kind",

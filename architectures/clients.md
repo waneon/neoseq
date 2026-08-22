@@ -185,9 +185,11 @@ specialized controls without becoming a schema authority:
 - tag membership remains structural: the block `Tags` picker and the outline's
   inline `#` menu attach existing tags (`add_tag`/`remove_tag`). A tag reference
   under a block is a link to that tag's own route, never a writing surface. The
-  routed tags view is the index and the one place a tag is created; a tag's own
-  route owns everything about one tag — its name, its `defaults` through the
-  shared owner-based property commands, its deletion, and its query.
+  routed tags view is the directory — grouped rows, one graph-wide usage count
+  from the derived index, drag-to-file, and the one place a tag is created; a
+  tag's own route owns its name, its `defaults`, and its query. `builtin.tag-*`
+  identity keys have exactly one editor, opened from the tag's mark wherever that
+  mark appears, so filing and recolouring are not separate surfaces.
 
 The shared picker distinguishes a present empty field from an absent property.
 It can ensure an empty field, clear only its values, or remove the field, and

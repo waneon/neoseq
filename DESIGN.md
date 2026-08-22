@@ -1,7 +1,7 @@
 ---
-version: 7
+version: 8
 name: Neoseq Design System
-description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast. Everything the graph names has a place: a page, a day, and a tag, whose place is the query that answers what it is for.
+description: The design language for Neoseq, a local-first outliner. Graphite and one accent — the writing sits on paper, everything that is not the writing is a cool neutral, and a single accent carries every action, the caret, the selection, a tag, and the branch through the outline. Surfaces separate by luminance and are closed by a hairline when they float; a control is raised or inset, never flat. Structure is still the ornament: the outline is drawn in one hue at two weights — quiet guides for the indents a row passes, one bold stroke for the path to the caret. The accent's hue is the reader's, its lightness is not, so both modes ship from a single token declaration and every choice keeps its contrast. Everything the graph names has a place: a page, a day, and a tag — which also has a mark, a colour drawn from the accent's own eight hues, a group it is filed under, and a query that answers what it is for.
 
 # Tokens are the contract, declared once per mode in `apps/client/src/ui/app.css`
 # (the implementation of record). Every figure below is measured — see § Contrast.
@@ -226,6 +226,16 @@ millions of colours of which most fail AA in one mode or the other, and it would
 either ship the failures or spend a sentence telling the reader their colour was rejected.
 The steps offer only legal answers, and they are painted from `--accent-l` and `--accent-c`
 so they show the colours actually on offer in the current mode rather than a rainbow.
+
+**A tag may name one of the same eight steps**, and that is the only other colour anybody
+chooses in this product. It is not a second structural chroma: a tag reference has always
+carried the accent, and this lets each one say *which hue of it* — at the accent's own
+lightness and chroma, so every tag on offer sits exactly where the accent sits on the table
+above, in both modes and at all eight angles. `--tag` and `--tag-quiet` are therefore declared
+beside the `[data-hue]` that carries them rather than on `:root`: a custom property's `var()`s
+are substituted where the property is *declared*, so declared once at the root they would have
+baked in the root's hue and every tag would be one colour. A tag that has chosen nothing
+carries no `data-hue` and simply is the accent, which is what a tag has always been.
 
 **Contrast rules** (verified in CI, both modes). Measured figures on `canvas` at the default
 hue: `ink` 16.7 / 15.7, `ink-2` 7.1 / 8.4, `ink-3` 4.9 / 5.1, `accent` 5.6 / 6.3,
@@ -465,13 +475,37 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   menu, where a destructive verb belongs. A tag whose page is gone is struck through, says so
   in its accessible name, gives up the accent, and stops being a link at all, because a
   tombstone leads nowhere.
-- **A tag is a place.** `Tags` is the index — one card per tag, the card *is* the link, and
-  it is the one screen where a tag comes into existence. Everything about one tag lives on
-  the tag's own route: its name in the page-title field with the `#` standing before it in
-  the accent, its defaults in the chip language they will produce, its deletion on the title
-  row's context menu — exactly where a page's own verbs are — and its query. Before this a
-  card was both a listing and an editor, so the same defaults could be changed from two
-  places and neither one was where the tag lived.
+- **A tag is a place, and it has a mark.** Every tag already wore a `#`; it is the **mark**
+  now — the reader may swap it for one emoji, and either way it takes the tag's own colour —
+  and the mark is also the *control*: pressing it opens the one panel that says what a tag
+  looks like (mark, colour) and where it is filed (group). The object is the disclosure, so
+  nothing is parked beside it, and "recolour it" and "move it" are not two surfaces with two
+  routes. No tile behind the glyph: a filled square would give a mark weight it has not
+  earned and put a coloured box on every row of a list whose subject is the writing.
+- **A group is a name a tag carries.** Not an entity — so a group exists because a tag is in
+  it, vanishes when its last member leaves, is renamed by rewriting its members, and has
+  nothing to keep in sync. Everything unfiled gathers under one heading at the end rather
+  than being scattered under a made-up one, and that heading is absent while it is the only
+  one there could be. Filing is a **drag** onto a group, and also the group field in the
+  tag's own panel — which is the route that works from a keyboard, on a phone, and for a
+  group that does not exist yet. A drop target says so with the one wash this interface uses
+  for "the thing under the pointer", never a dashed outline.
+- **The tags screen is a directory, not a grid.** A card can say a tag's name and nothing
+  else; forty of them say forty names. Rows under group headings — in the rail's own group
+  label — say what each tag is, what it copies onto a block, and how much of the graph is
+  actually wearing it, that last one counted by the derived index in one query for the whole
+  screen. A row is one object made of three controls: the name is the link, the mark and the
+  `⋯` are its siblings, and the row's hover wash is what makes them read as one thing. A link
+  wrapping the other two would be a control inside a control.
+- **A tag's own page** carries its name in the page-title field, its group beneath, its
+  defaults, and its query. **A default is a key and a value**, so it is a row in a named
+  section — three columns sharing one grid, never several grids repeating a template — and
+  not a chip, which puts both halves in one run of small text where neither has a column. The
+  section's note is its empty state: it says what a default *is*, which is the question a
+  section with nothing in it raises and one with three rows in it has already answered. And
+  the page has **one mark column**: the tag's own mark and every default's glyph sit in the
+  same column at the page's left edge, so everything the tag *says* — its name, its group,
+  every key — starts at one x.
 - **Tasks.** Any block with `builtin.task-*` keys — no separate storage or generic rows.
   Status and priority are shape-first glyphs before the text, at one weight and with no fill
   of their own: priority carried a tinted tile for a while, on the argument that three thin
@@ -510,7 +544,10 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   lives in that view's own menu, and **the current tab is the control that opens it** —
   pressing a tab that is not the answer chooses it, pressing the one that already is opens
   what it can be, the same move the caption makes and the reason neither needs a button
-  parked beside it. Its chevron is drawn rather than revealed, because a control that opens
+  parked beside it. **A key hugs its own name** and starts it at a fixed inset rather than
+  centring it in a minimum width: centred, a tab's text came to rest at an x that depended on
+  how long the name happened to be, which is not a column and could land two pixels from the
+  caption's own edge below it. Its chevron is drawn rather than revealed, because a control that opens
   a menu must say so before it is pressed, and only one tab carries it. The strip wraps
   rather than scrolls: a tab that has to be scrolled to is a tab the reader cannot see is
   there. The result table's header is
@@ -634,7 +671,8 @@ store colour preferences as tone names, and free the one dimension the system ca
 let a reader choose a colour by pressing it · give a result cell the ink of the writing it
 quotes · let the one link-shaped thing on a row lead somewhere · make a set of panes one
 raised key in a recessed track · let the current tab be the control that opens what it can be ·
-keep chrome ≤ 14px at weight 400.
+let an object's own mark be the control that changes it · give a reader a colour by widening
+one dimension a measured token already owns · keep chrome ≤ 14px at weight 400.
 
 **Don't**: separate two regions with a line alone · leave an object the reader acts on
 unbounded · ship a flat `surface-2` rectangle as a control · tint categories or chrome glyphs ·
@@ -652,4 +690,6 @@ down its own nav · open a panel at the window edge it is nearest · state a fac
 screen · mount a form below the outline · hover-gate a surface's primary verb · offer a
 slider for something that is one of eight answers · read a zero-area box as a place · put a
 verb inside a track of states · nest a control inside a control · size a field in `ch` and
-call it fitted · toast what the user can already see · declare a token in two files.
+call it fitted · make an entity out of something a name already is · draw a dashed outline
+around a drop target · put a tile behind a mark · toast what the user can already see ·
+declare a token in two files.

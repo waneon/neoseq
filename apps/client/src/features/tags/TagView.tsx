@@ -19,12 +19,13 @@
 
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { InfoIcon, Trash2Icon } from "lucide-react";
+import { InfoIcon, Settings2Icon, Trash2Icon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { findTag, queryDocument, stringValue } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
 import { configuredTimezone } from "../../entities/journal";
 import { tagPlan } from "../../entities/query-plan";
+import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
 import { Dialog } from "../../ui/components";
 import {
@@ -40,6 +41,7 @@ import { PropertyPicker } from "../properties/PropertyPicker";
 import { QueryPanel } from "../query/QueryPanel";
 import { useSession, useSessionState } from "../shell/session-context";
 import { TagDefaults } from "./TagDefaults";
+import { TagIdentityPicker, TagMark } from "./TagIdentity";
 
 /** Where a context menu was summoned, in viewport coordinates. */
 interface MenuPoint {
@@ -91,15 +93,20 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
   const { message } = useI18n();
   const state = useSessionState();
   const [picker, setPicker] = useState<{ key?: string; anchor: HTMLElement | null } | null>(null);
+  const [identityAt, setIdentityAt] = useState<HTMLElement | null>(null);
   const [menuAt, setMenuAt] = useState<MenuPoint | null>(null);
+  const markRef = useRef<HTMLElement | null>(null);
   const readonly = state.mode === "readonly";
   const document = queryDocument(tag.properties);
+  const group = tagGroup(tag);
 
   return (
     <div className="page-scroll">
       <article className="page-body enter-fade-view">
         {/* The tag's own handle: right-clicking the name is where its verbs are,
-            exactly as a page's are on a page's title row. */}
+            exactly as a page's are on a page's title row. The mark before it is
+            the one control that says what the tag looks like and where it is
+            filed — the object is the disclosure, so nothing is parked beside it. */}
         <div
           className="title-row tag-title-row"
           onContextMenu={(event) => {
@@ -107,17 +114,30 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
             setMenuAt({ x: event.clientX, y: event.clientY });
           }}
         >
+          <span
+            className="tag-title-mark"
+            ref={(node) => {
+              markRef.current = node;
+            }}
+          >
+            <TagMark
+              tag={tag}
+              size="lg"
+              onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
+            />
+          </span>
           <TagTitle tag={tag} />
           <TagMenu
             tag={tag}
             graphId={graphId}
             at={menuAt}
             onClose={() => setMenuAt(null)}
+            onCustomize={() => setIdentityAt(markRef.current)}
           />
         </div>
-        {/* What this tag *does*, stated once, in the language of the chips it
-            will create. It is the tag's own material, so it takes the page's
-            left edge rather than the writing's inset. */}
+        {group && <p className="tag-page-group" data-testid="tag-page-group">{group}</p>}
+        {/* What this tag *does*: a named section of rows, not a run of chips —
+            a default is a key and a value, and neither has a column in a chip. */}
         <TagDefaults
           tag={tag}
           onEdit={readonly ? undefined : (key, anchor) => setPicker({ key, anchor })}
@@ -143,15 +163,18 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           onClose={() => setPicker(null)}
         />
       )}
+      {identityAt && (
+        <TagIdentityPicker tag={tag} anchor={identityAt} onClose={() => setIdentityAt(null)} />
+      )}
     </div>
   );
 }
 
 /**
- * The tag's name, edited where it is read. The `#` is the tag's own voice — the
- * same mark every chip in the writing carries — so it stands beside the name
- * rather than inside the field: a name is what the reader types, and the `#` is
- * never part of it.
+ * The tag's name, edited where it is read. The mark beside it — the reader's own
+ * emoji, or the `#` every tag wears by default — is never inside the field: a
+ * name is what the reader typed, and the mark is a separate answer with a
+ * separate control.
  */
 function TagTitle({ tag }: { tag: TagSnapshot }) {
   const session = useSession();
@@ -209,9 +232,6 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
 
   return (
     <div className="page-title-field tag-title-field">
-      <span className="tag-title-hash" aria-hidden>
-        #
-      </span>
       <textarea
         ref={resize}
         rows={1}
@@ -255,11 +275,14 @@ function TagMenu({
   graphId,
   at,
   onClose,
+  onCustomize,
 }: {
   tag: TagSnapshot;
   graphId: string;
   at: MenuPoint | null;
   onClose: () => void;
+  /** The same panel the mark opens; this is its keyboard route. */
+  onCustomize: () => void;
 }) {
   const session = useSession();
   const state = useSessionState();
@@ -295,6 +318,15 @@ function TagMenu({
             window.document.querySelector<HTMLElement>('[data-testid="tag-title"]')?.focus();
           }}
         >
+          {!readonly && (
+            <DropdownMenuItem
+              data-testid="menu-tag-customize"
+              onSelect={() => requestAnimationFrame(onCustomize)}
+            >
+              <Settings2Icon aria-hidden />
+              {message("tags.customize")}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem data-testid="menu-tag-info" onSelect={() => setInfo(true)}>
             <InfoIcon aria-hidden />
             {message("tags.info")}

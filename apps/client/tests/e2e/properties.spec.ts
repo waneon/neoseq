@@ -99,10 +99,10 @@ test("slash, block properties, and tags share the same focused target", async ({
   await createGraph(page, "Tag Graph");
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag").click();
   await page.getByTestId("new-tag-name").fill("Project");
   await page.getByTestId("new-tag-name").press("Enter");
-  await expect(page.getByTestId("tag-card")).toContainText("#Project");
+  await expect(page.getByTestId("tag-row")).toContainText("#Project");
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
   await startOutline(page);
@@ -157,7 +157,7 @@ test("a tag under a block is an accent reference that leads to the tag, never a 
   await createGraph(page, "Tag Reference Graph");
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag").click();
   await page.getByTestId("new-tag-name").fill("Design");
   await page.getByTestId("new-tag-name").press("Enter");
   await openSidebar(page);
@@ -210,6 +210,61 @@ test("a tag under a block is an accent reference that leads to the tag, never a 
   await expect(page.locator(".outline-tags")).toHaveCount(0);
 });
 
+// Groups, marks, and colours: everything the manager exists for, from the one
+// panel a tag's mark opens — and the drag that is the other way to file one.
+test("tags are filed into groups, marked, and coloured from one panel", async ({ page }) => {
+  await createGraph(page, "Tag Manager Graph");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  for (const name of ["Design", "Reading", "Errands"]) {
+    await page.getByTestId("new-tag").click();
+    await page.getByTestId("new-tag-name").fill(name);
+    await page.getByTestId("new-tag-name").press("Enter");
+  }
+  await page.keyboard.press("Escape");
+  // One heading for the only group there could be says nothing, so there is none.
+  await expect(page.getByTestId("tag-group-name")).toHaveCount(0);
+
+  const design = page.getByTestId("tag-row").filter({ hasText: "Design" });
+  await design.getByTestId("tag-mark").click();
+  const panel = page.getByTestId("tag-identity");
+  await panel.getByTestId("tag-colour-teal").click();
+  await panel.getByRole("button", { name: "🎨", exact: true }).click();
+  await panel.getByTestId("tag-group-field").fill("Areas");
+  await panel.getByTestId("tag-group-field").press("Enter");
+  await page.keyboard.press("Escape");
+  await awaitSaved(page);
+
+  // The mark is the tag's own: its emoji, in its own hue, wherever it appears.
+  await expect(design.getByTestId("tag-mark")).toHaveText("🎨");
+  await expect(design.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal");
+  await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
+
+  // Filing by drag: the gesture everybody already knows.
+  const reading = page.getByTestId("tag-row").filter({ hasText: "Reading" });
+  await reading.dragTo(design);
+  await awaitSaved(page);
+  await expect(
+    page.locator(".tag-group").filter({ hasText: "Areas" }).getByTestId("tag-row"),
+  ).toHaveCount(2);
+
+  // A group is the name its members carry, so renaming it is rewriting them and
+  // emptying it is the group ceasing to exist.
+  const areas = page.locator(".tag-group").filter({ hasText: "Areas" });
+  await areas.getByTestId("tag-group-menu").click();
+  await page.getByTestId("tag-group-rename").click();
+  await page.getByTestId("tag-group-rename-field").fill("Practices");
+  await page.getByTestId("tag-group-rename-field").press("Enter");
+  await expect(page.getByTestId("tag-group-name")).toHaveText(["Practices", "Ungrouped"]);
+  await awaitSaved(page);
+
+  const practices = page.locator(".tag-group").filter({ hasText: "Practices" });
+  await practices.getByTestId("tag-group-menu").click();
+  await page.getByTestId("tag-group-ungroup").click();
+  await expect(page.getByTestId("tag-group-name")).toHaveCount(0);
+  await expect(page.getByTestId("tag-row")).toHaveCount(3);
+});
+
 // A tag is a place now: its name, its defaults, and the query that answers what
 // it is for all live on one route, and that query's saved views are the page's
 // own tabs. Nothing is written until something is shaped.
@@ -217,7 +272,7 @@ test("a tag's page carries its query, and the query's views are its tabs", async
   await createGraph(page, "Tag Page Graph");
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("tag-card-new").click();
+  await page.getByTestId("new-tag").click();
   await page.getByTestId("new-tag-name").fill("Reading");
   await page.getByTestId("new-tag-name").press("Enter");
   await openSidebar(page);

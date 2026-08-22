@@ -73,6 +73,18 @@ than an accident of history:
 A value either key cannot interpret stays readable and editable as the string it is,
 which is the same tolerance every other unknown property value gets.
 
+## Tag Identity Keys
+
+`builtin.tag-group`, `builtin.tag-color`, and `builtin.tag-icon` are ordinary
+registry entries placed on `tag_metadata` and nowhere else: they describe what a
+tag *is*, and no tag copies them onto a block. There is no group entity — a group
+is the string its members carry, so it exists because a tag is in it, disappears
+with its last member, and is renamed by rewriting them. The colour is one of the
+eight hue names the accent itself offers rather than a colour, so presentation
+stays inside the client's measured token set; the icon is one grapheme of text.
+An unreadable value in any of the three degrades to "unset" rather than
+invalidating the tag.
+
 ## Query Document
 
 `builtin.query` is `neoseq.query` version 1. Its snapshot contains source,

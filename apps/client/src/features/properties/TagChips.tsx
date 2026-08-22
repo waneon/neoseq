@@ -15,15 +15,23 @@
 // the bullet's menu, and the picker's chip keeps the `×` swap, where "remove" is
 // what the reader came for and an undo is one keystroke away.
 //
+// A tag that has chosen a colour speaks in it. That is not a second structural
+// chroma: a reference has always carried the accent, and this only lets each one
+// name which hue of it — at the accent's own lightness and chroma, so every tag
+// on offer lands on the measured row of the contrast table in both modes. A tag
+// that has chosen nothing is the accent, exactly as before. Its mark is the same:
+// the reader's emoji, or the `#` it has always worn.
+//
 // A deleted target is struck through AND says so in its accessible name; v1
 // carried that state only in a `title`, so assistive technology heard "#Foo" and
 // never learned the page was gone. It is also no longer a link: a tombstone
-// leads nowhere.
+// leads nowhere, and it gives up its colour along with its destination.
 
 import { XIcon } from "lucide-react";
 import { Link, useParams } from "react-router";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findTag } from "../../core-port/snapshot";
+import { tagColor, tagIcon } from "../../entities/tag-identity";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
@@ -54,11 +62,14 @@ export function TagChips({
         const label = tag?.name ?? tagId;
         const deleted = message("properties.deleted", { name: `#${label}` });
         if (variant === "reference") {
-          // No glyph swap on either shape: the `#` is part of the name as the
-          // reader typed it, and nothing about a reference destroys anything.
+          // No glyph swap on either shape: the mark is part of the name as the
+          // reader reads it, and nothing about a reference destroys anything.
+          const icon = tag ? tagIcon(tag) : null;
           const name = (
             <>
-              <span className="hash" aria-hidden>#</span>
+              {icon
+                ? <span className="chip-icon" aria-hidden>{icon}</span>
+                : <span className="hash" aria-hidden>#</span>}
               {label}
             </>
           );
@@ -77,6 +88,7 @@ export function TagChips({
             <Link
               className="chip"
               data-variant="reference"
+              data-hue={(tag && tagColor(tag)) ?? undefined}
               key={tagId}
               to={`/g/${graphId}/t/${tagId}`}
               data-testid="tag-chip"

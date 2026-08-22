@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const previewPort = 4173;
+// The gate serves its own build, so it needs a port nothing else is on. A dev
+// server on the default one is the ordinary case while somebody is working, and
+// a suite that cannot run beside it is a suite that gets skipped.
+const previewPort = Number(process.env.NEOSEQ_PREVIEW_PORT ?? 4173);
 
 export default defineConfig({
   testDir: "./tests",

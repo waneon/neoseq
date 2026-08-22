@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 4;
+pub const REGISTRY_VERSION: u32 = 5;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -402,6 +402,9 @@ const USER_PAGE_BLOCK_DEFAULT: &[PropertyPlacement] = &[
     PropertyPlacement::user(PropertyTarget::Block),
     PropertyPlacement::user(PropertyTarget::TagDefault),
 ];
+/// What a tag *is* rather than what it copies: how it is filed, and how it looks
+/// wherever it appears. None of these is ever materialized onto a block.
+const USER_TAG: &[PropertyPlacement] = &[PropertyPlacement::user(PropertyTarget::TagMetadata)];
 const CORE_PAGE: &[PropertyPlacement] = &[PropertyPlacement::core(PropertyTarget::Page)];
 const CORE_PAGE_TAG: &[PropertyPlacement] = &[
     PropertyPlacement::core(PropertyTarget::Page),
@@ -413,6 +416,12 @@ const CORE_PAGE_BLOCK_TAG: &[PropertyPlacement] = &[
     PropertyPlacement::core(PropertyTarget::TagMetadata),
 ];
 const PAGE_KINDS: &[&str] = &["regular", "journal"];
+/// The eight named hue steps the accent itself offers. A tag names one of them,
+/// never a colour: lightness and chroma stay the mode's, so every tag a reader
+/// can paint lands on the measured row of the contrast table in both modes.
+const TAG_COLORS: &[&str] = &[
+    "red", "orange", "green", "teal", "blue", "iris", "violet", "rose",
+];
 const TASK_STATUSES: &[&str] = &["todo", "doing", "done", "cancelled"];
 const TASK_PRIORITIES: &[&str] = &["low", "medium", "high"];
 
@@ -426,6 +435,35 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
             })),
             ordering: None,
             placements: USER_PAGE_BLOCK_TAG,
+            copy: PropertyCopyPolicy::Portable,
+        },
+    ),
+    (
+        "builtin.tag-group",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
+            placements: USER_TAG,
+            copy: PropertyCopyPolicy::Portable,
+        },
+    ),
+    (
+        "builtin.tag-color",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Suggested(
+                TAG_COLORS,
+            ))),
+            ordering: None,
+            placements: USER_TAG,
+            copy: PropertyCopyPolicy::Portable,
+        },
+    ),
+    (
+        "builtin.tag-icon",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::String(StringSpec::Any)),
+            ordering: None,
+            placements: USER_TAG,
             copy: PropertyCopyPolicy::Portable,
         },
     ),

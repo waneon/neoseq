@@ -1,9 +1,24 @@
 {
-  "schema": 4,
+  "schema": 5,
   "properties": {
     "builtin.query": {
       "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
       "placements": {"page": "user", "block": "user", "tag_metadata": "user"},
+      "copy": "portable"
+    },
+    "builtin.tag-group": {
+      "shape": {"single": {"string": "any"}},
+      "placements": {"tag_metadata": "user"},
+      "copy": "portable"
+    },
+    "builtin.tag-color": {
+      "shape": {"single": {"string": {"suggested": ["red", "orange", "green", "teal", "blue", "iris", "violet", "rose"]}}},
+      "placements": {"tag_metadata": "user"},
+      "copy": "portable"
+    },
+    "builtin.tag-icon": {
+      "shape": {"single": {"string": "any"}},
+      "placements": {"tag_metadata": "user"},
       "copy": "portable"
     },
     "builtin.task-status": {
