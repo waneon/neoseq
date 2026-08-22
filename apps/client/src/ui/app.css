@@ -4468,6 +4468,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .query-table tbody td > .query-edit-trigger,
 .query-table tbody td > .query-editable-route > .query-edit-trigger,
+.query-table tbody td > .query-editable-route > .query-result-editor,
 .query-table tbody td > .query-result-editor {
   width: 100%;
   max-width: none;
@@ -4502,6 +4503,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
   padding-right: var(--sp-6);
 }
 
+.query-table tbody td > .query-editable-route > .query-result-editor {
+  padding-right: var(--sp-6);
+}
+
 /* Centred on the cell rather than pinned to its top corner: with both block
    edges given and no height of its own to fill them, `margin-block: auto`
    resolves to the leftover space split in two — no transform, so nothing here
@@ -4515,6 +4520,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .query-table[data-compact="true"] tbody td > .query-edit-trigger,
 .query-table[data-compact="true"] tbody td > .query-editable-route > .query-edit-trigger,
+.query-table[data-compact="true"] tbody td > .query-editable-route > .query-result-editor,
 .query-table[data-compact="true"] tbody td > .query-result-editor {
   padding-block: 0;
 }
@@ -4614,19 +4620,40 @@ button.chip:focus-visible .chip-glyph .chip-x {
   max-height: 160px;
   resize: none;
   overflow: auto;
-  padding: 1px var(--sp-1);
+  padding: 0;
   border: 0;
-  border-radius: var(--r-1);
+  border-radius: 0;
   outline: none;
-  background: var(--surface-2);
-  box-shadow: var(--e1);
+  background: none;
   color: var(--ink);
+  caret-color: var(--accent);
   font: inherit;
   line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .query-result-input:focus {
+  outline: none;
+}
+
+/* The textarea is the settled cell too, so focus no longer swaps one box for
+   another. A table still advertises that its whole cell is editable; a list
+   keeps the outline's quiet writing surface. */
+.query-table .query-result-editor:hover,
+.query-table .query-result-editor:focus-within,
+.query-table .query-result-editor[data-active="true"] {
   background: var(--surface-3);
+  box-shadow: var(--e1);
+}
+
+.query-table[data-wrap="false"] .query-result-input {
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.query-table[data-wrap="true"] .query-result-input {
+  overflow-wrap: anywhere;
 }
 
 .query-result-editor[data-saving="true"] .query-result-input {
@@ -4756,15 +4783,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 button.query-block-content:hover,
-button.query-block-content:focus-visible,
-.query-block-content[data-active="true"] {
+button.query-block-content:focus-visible {
   outline: none;
   background: var(--surface-2);
 }
 
 .query-result-editor.query-block-content {
   display: flex;
-  padding-inline: 0;
 }
 
 .query-result-editor.query-block-content > .query-result-input {
@@ -4819,6 +4844,12 @@ button.query-list-line {
 .query-list-line .query-result-input {
   font-size: var(--text-md);
   line-height: var(--lh-md);
+}
+
+.query-markdown-preview {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
 }
 
 .query-list-status {

@@ -166,9 +166,11 @@ function BlockMarkdownView({
     onActivate(caret ?? undefined, event.currentTarget);
   };
 
-  // The projection stands in for the textarea, so it has to stand in for its
-  // tab stop too — otherwise a page of rendered blocks has none. A pointer
-  // press is left to `activate`, which knows where the caret belongs.
+  // An editable projection stands in for the textarea, so it has to stand in
+  // for its tab stop too — otherwise a page of rendered blocks has none. A
+  // pointer press is left to `activate`, which knows where the caret belongs.
+  // Compact query projections use the same hand-off when they are editable;
+  // inert compact Markdown remains plain phrasing content.
   const handOver = (event: FocusEvent<HTMLElement>) => {
     if (!onActivate || event.target !== event.currentTarget) return;
     if (!event.currentTarget.matches(":focus-visible")) return;
@@ -183,10 +185,10 @@ function BlockMarkdownView({
       data-variant={variant}
       data-testid="block-markdown"
       dir="auto"
-      tabIndex={compact || !onActivate ? undefined : 0}
-      onPointerDown={compact ? undefined : beginPress}
+      tabIndex={!onActivate ? undefined : 0}
+      onPointerDown={!onActivate ? undefined : beginPress}
       onClick={activate}
-      onFocus={compact ? undefined : handOver}
+      onFocus={!onActivate ? undefined : handOver}
     >
       <Markdown
         components={compact ? compactComponents : blockComponents}

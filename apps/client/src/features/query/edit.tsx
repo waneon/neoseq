@@ -249,6 +249,42 @@ export function useQueryResultEditor({
       if (!enabled) return;
       const sequence = ++request.current;
       const origin = { row };
+      const open = (block: BlockSnapshot) => {
+        if (binding.kind === "markdown") {
+          setActive({
+            phase: "markdown",
+            binding,
+            origin,
+            anchor,
+            baseline: block.markdown,
+            draft: block.markdown,
+            composing: false,
+            autoClosers: [],
+            saving: false,
+            closeAfterSave: false,
+            error: null,
+          });
+        } else {
+          setActive({
+            phase: "picker",
+            binding,
+            origin,
+            anchor,
+            taskMenu: binding.kind === "property" && isTaskChoiceKey(binding.key),
+          });
+        }
+      };
+
+      // A resident result is already canonical. Open it in the focus event so
+      // the textarea that received the press stays the editor and keeps the
+      // browser's native caret. Only cross-page results pay the async hydrate
+      // transition.
+      const resident = blockFrom(session.getState(), binding.block);
+      if (resident) {
+        open(resident);
+        return;
+      }
+
       setActive({ phase: "loading", binding, origin, anchor });
       void (async () => {
         try {
@@ -258,29 +294,7 @@ export function useQueryResultEditor({
           if (sequence !== request.current) return;
           const block = blockFrom(session.getState(), binding.block);
           if (!block) throw new Error("query result block no longer exists");
-          if (binding.kind === "markdown") {
-            setActive({
-              phase: "markdown",
-              binding,
-              origin,
-              anchor,
-              baseline: block.markdown,
-              draft: block.markdown,
-              composing: false,
-              autoClosers: [],
-              saving: false,
-              closeAfterSave: false,
-              error: null,
-            });
-          } else {
-            setActive({
-              phase: "picker",
-              binding,
-              origin,
-              anchor,
-              taskMenu: binding.kind === "property" && isTaskChoiceKey(binding.key),
-            });
-          }
+          open(block);
         } catch (cause) {
           if (sequence !== request.current) return;
           setActive({
@@ -632,22 +646,38 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
 
 function QueryMarkdownField({
   editor,
+  binding,
+  row,
+  value,
   className,
   label,
+  editLabel,
+  column,
+  preview = false,
 }: {
   editor: QueryResultEditor;
+  binding: Extract<QueryEditBinding, { kind: "markdown" }>;
+  row: ResultViewRow;
+  value: string;
   className?: string;
   label: string;
+  editLabel?: string;
+  column?: ResultColumn;
+  preview?: false | "block" | "compact";
 }) {
   const state = useSessionState();
   const { compare } = useI18n();
   const bindings = useShortcutBindings();
-  const active = editor.active;
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const pendingCaret = useRef<number | null>(null);
   const composing = useRef(false);
-  const markdown = active?.phase === "markdown" ? active : null;
+  const current = editor.isActive(binding, row) ? editor.active : null;
+  const markdown = current?.phase === "markdown" ? current : null;
   const block = editor.activeBlock;
-  const blockId = markdown?.binding.block.id ?? "";
+  const blockId = binding.block.id;
+  const projected = markdown?.draft ?? value;
+  const previewMarkdown = Boolean(preview && !current && hasMarkdownSyntax(projected));
+  const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
   const [slashRequest, setSlashRequest] = useState<BlockCompletionRequest | null>(null);
   const [slashActive, setSlashActive] = useState(0);
@@ -707,26 +737,43 @@ function QueryMarkdownField({
 
   useLayoutEffect(() => {
     const element = textarea.current;
-    if (!element || !markdown) return;
+    if (!element || previewMarkdown) return;
     element.style.height = "0";
     element.style.height = `${Math.max(element.scrollHeight, 24)}px`;
-  }, [markdown?.draft]);
+  }, [previewMarkdown, projected]);
 
-  if (!markdown) return null;
+  useLayoutEffect(() => {
+    const element = textarea.current;
+    if (!element || !markdown || document.activeElement === element) return;
+    element.focus({ preventScroll: true });
+    const caret = Math.min(pendingCaret.current ?? element.value.length, element.value.length);
+    element.setSelectionRange(caret, caret);
+    pendingCaret.current = null;
+  }, [markdown]);
+
+  const Root = preview === "block" ? "div" : "span";
   return (
-    <span className={cn("query-result-editor", className)} data-saving={markdown.saving || undefined}>
+    <Root
+      className={cn("query-result-editor", className)}
+      data-active={current ? true : undefined}
+      data-saving={markdown?.saving || undefined}
+    >
       <BlockTextArea
         ref={textarea}
-        autoFocus
         rows={1}
         className="query-result-input"
-        value={markdown.draft}
-        autoClosers={markdown.autoClosers}
+        value={projected}
+        autoClosers={markdown?.autoClosers ?? []}
         data-block-editor
+        data-query-column={column?.variable}
         dir="auto"
         spellCheck={false}
+        readOnly={!markdown}
+        hidden={previewMarkdown}
+        tabIndex={previewMarkdown ? -1 : undefined}
         aria-label={label}
-        aria-invalid={Boolean(markdown.error) || undefined}
+        aria-busy={current?.phase === "loading" || undefined}
+        aria-invalid={Boolean(error) || undefined}
         aria-controls={slashRequest ? "slash-command-menu" : hashRequest ? "tag-suggest-menu" : undefined}
         aria-activedescendant={
           slashRequest && slashResults[slashIndex]
@@ -735,8 +782,13 @@ function QueryMarkdownField({
               ? `tag-opt-${hashIndex}`
               : undefined
         }
-        data-testid="query-markdown-editor"
+        data-testid={markdown ? "query-markdown-editor" : `query-edit-${column?.variable ?? "text"}`}
+        title={editor.message("query.editResult", { column: editLabel ?? column?.label ?? label })}
+        onFocus={(event) => {
+          if (!current) editor.begin(binding, row, event.currentTarget);
+        }}
         onValueChange={(value, element, edit) => {
+          if (!markdown) return;
           editor.setDraft(value, edit);
           if (!composing.current) updateCompletions(value, element);
         }}
@@ -757,9 +809,12 @@ function QueryMarkdownField({
           const switchingView = editor.consumeViewChangeIntent()
             || (event.relatedTarget instanceof Element
               && event.relatedTarget.closest('[data-testid="query-view-trigger"]') !== null);
-          if (!switchingView) void editor.commit(true);
+          if (switchingView) return;
+          if (markdown) void editor.commit(true);
+          else if (current) editor.cancel();
         }}
         onKeyDown={(event) => {
+          if (!markdown) return;
           if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
           if (slashRequest) {
             if (event.key === "Escape") {
@@ -821,12 +876,27 @@ function QueryMarkdownField({
           if (event.key === "Escape") {
             event.preventDefault();
             editor.cancel();
+            event.currentTarget.blur();
           } else if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            void editor.commit(true);
+            void editor.commit(true).then((saved) => {
+              if (saved) textarea.current?.blur();
+            });
           }
         }}
       />
+      {previewMarkdown && (
+        <BlockMarkdown
+          markdown={projected}
+          variant={preview || "block"}
+          className="outline-markdown query-markdown-preview"
+          onActivate={(caret, anchor) => {
+            pendingCaret.current = caret ?? projected.length;
+            const target = anchor ?? textarea.current;
+            if (target) editor.begin(binding, row, target);
+          }}
+        />
+      )}
       {slashRequest && (
         <BlockSlashMenu
           request={slashRequest}
@@ -855,9 +925,9 @@ function QueryMarkdownField({
           }}
         />
       )}
-      {markdown.error && (
+      {error && (
         <span className="query-result-edit-error" role="alert">
-          <span>{markdown.error}</span>
+          <span>{error}</span>
           <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={editor.retry}>
             {editor.message("common.retryShort")}
           </button>
@@ -866,7 +936,7 @@ function QueryMarkdownField({
           </button>
         </span>
       )}
-    </span>
+    </Root>
   );
 }
 
@@ -1000,40 +1070,26 @@ export function EditableBlockContent({
 }) {
   const binding = editor.bindingForDirect(row.subject, { kind: "content" });
   const current = binding && editor.isActive(binding, row) ? editor.active : null;
-  if (current?.phase === "markdown") {
+  if (binding?.kind === "markdown") {
     return (
       <QueryMarkdownField
         editor={editor}
+        binding={binding}
+        row={row}
+        value={markdown}
         className="block-line query-block-content"
         label={context.message("outline.blockText")}
+        editLabel={context.message("query.field.text")}
+        preview="block"
       />
     );
   }
 
-  const begin = (anchor: HTMLElement) => {
-    if (binding) editor.begin(binding, row, rectOf(anchor));
-  };
-  const common = {
-    "data-active": current ? true : undefined,
-    "aria-busy": current?.phase === "loading" || undefined,
-  } as const;
   const content = hasMarkdownSyntax(markdown) ? (
     <BlockMarkdown
       markdown={markdown}
       className="block-line outline-markdown query-block-content"
-      onActivate={binding ? (_caret, anchor) => anchor && begin(anchor) : undefined}
     />
-  ) : binding ? (
-    <button
-      type="button"
-      className="block-line query-block-content"
-      dir="auto"
-      title={context.message("query.editResult", { column: context.message("query.field.text") })}
-      onClick={(event) => begin(event.currentTarget)}
-      {...common}
-    >
-      {markdown}
-    </button>
   ) : (
     <span className="block-line query-block-content" dir="auto">{markdown}</span>
   );
@@ -1128,8 +1184,35 @@ export function EditableCellValue({
 }): ReactNode {
   const binding = editor.bindingFor(row.subject, column);
   const current = binding && editor.isActive(binding, row) ? editor.active : null;
-  if (current?.phase === "markdown") {
-    return <QueryMarkdownField editor={editor} className={className} label={context.message("outline.blockText")} />;
+  if (binding?.kind === "markdown") {
+    const field = (
+      <QueryMarkdownField
+        editor={editor}
+        binding={binding}
+        row={row}
+        value={term?.kind === "literal" ? term.value : ""}
+        className={className}
+        label={context.message("outline.blockText")}
+        column={column}
+        preview="compact"
+      />
+    );
+    if (!showOpen || !row.subject || !context.onOpen) return field;
+    return (
+      <span className="query-editable-route">
+        {field}
+        <button
+          type="button"
+          className="query-cell-open"
+          aria-label={context.message("query.openResult", {
+            name: term?.kind === "literal" && term.value ? term.value : column.label,
+          })}
+          onClick={() => context.onOpen?.(row.subject!)}
+        >
+          <ArrowUpRightIcon aria-hidden />
+        </button>
+      </span>
+    );
   }
   const displayContext = binding ? { ...context, onOpen: undefined } : context;
   const value = <CellValue term={term} column={column} context={displayContext} subject={row.subject} />;

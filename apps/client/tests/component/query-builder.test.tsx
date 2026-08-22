@@ -340,9 +340,12 @@ describe("query result views", () => {
     // Row identity is carried, never shown: there is no column of block ids.
     expect(within(table).queryByRole("columnheader", { name: /q_subject/ })).not.toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: /Text/ })).toBeInTheDocument();
-    // The text cell is the route to its own block; a page cell reads as the
-    // page's name, not as its entity IRI.
-    expect(within(table).getByRole("button", { name: "Ship the builder" })).toBeInTheDocument();
+    // Editable text is already the block input surface; opening the block is a
+    // separate route. A page cell reads as the page's name, not as its IRI.
+    expect(within(table).getByRole("textbox", { name: "Block text" }))
+      .toHaveValue("Ship the builder");
+    expect(within(table).getByRole("button", { name: "Open “Ship the builder”" }))
+      .toBeInTheDocument();
     expect(within(table).getByRole("button", { name: "Home" })).toBeInTheDocument();
   });
 
@@ -598,7 +601,7 @@ describe("query result views", () => {
     const row = within(await screen.findByTestId("query-list")).getByTestId("query-list-row");
     expect(row).toHaveClass("block-row");
     expect(row.querySelector(".block-body")).not.toBeNull();
-    expect(row.querySelector(".block-line.outline-markdown")).not.toBeNull();
+    expect(row.querySelector(".query-block-content .outline-markdown")).not.toBeNull();
     expect(row).toHaveTextContent("Canonical block text");
     expect(row).not.toHaveTextContent("Stale RDF text");
     expect(row.querySelector('[data-status-glyph="done"]')).not.toBeNull();
@@ -611,8 +614,11 @@ describe("query result views", () => {
     const user = userEvent.setup();
     const table = await screen.findByTestId("query-table");
 
-    await user.click(within(table).getByTestId("query-edit-text"));
+    const settled = within(table).getByTestId("query-edit-text");
+    expect(settled.tagName).toBe("TEXTAREA");
+    await user.click(settled);
     const editor = await screen.findByTestId("query-markdown-editor");
+    expect(editor).toBe(settled);
     expect(editor).toHaveValue("Ship the builder");
     await user.clear(editor);
     await user.type(editor, "Ship the editable result");
@@ -641,8 +647,11 @@ describe("query result views", () => {
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
 
-    await user.click(within(list).getByTitle("Edit Text"));
+    const settled = within(list).getByTitle("Edit Text");
+    expect(settled.tagName).toBe("TEXTAREA");
+    await user.click(settled);
     const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+    expect(editor).toBe(settled);
     await user.keyboard("[[");
 
     expect(editor).toHaveValue("[]");

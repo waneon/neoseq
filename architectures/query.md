@@ -230,6 +230,12 @@ keeps identity by entity and field rather than row position, and pins an active
 row if its write makes the row stop matching. The row leaves after the editor
 closes. A failed write keeps its draft and an in-place retry route.
 
+Writable plain content uses one textarea before and after focus, so a pointer
+press places the native caret and starts editing in the same interaction.
+Rendered Markdown uses the outline's preview-to-source caret hand-off. A
+cross-page result stays read-only only while its canonical block hydrates; the
+input element itself remains stable.
+
 Canonical mutations publish the next index revision and conservatively rerun
 visible queries. Page hydration has a separate snapshot revision and does not
 invalidate query results by itself.

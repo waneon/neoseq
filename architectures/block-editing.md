@@ -20,6 +20,13 @@ canonical `BlockSnapshot`, schedules or flushes writes, reports failure, and
 chooses the meaning of structural keys. All writes still use ordinary
 `GraphSession` commands; a query result never writes through the derived index.
 
+Editable plain text keeps one textarea DOM boundary at rest and while focused.
+Focus starts the surface's draft session, so the browser retains the pointer's
+native caret instead of spending the first click replacing a display trigger.
+Rendered Markdown follows the outline's existing preview-to-source hand-off.
+An unhydrated cross-page result remains temporarily read-only until its
+canonical block is available, without replacing the input element.
+
 ## Surface Adapters
 
 Text-local and entity-local behavior is invariant: pairing, IME handling,
