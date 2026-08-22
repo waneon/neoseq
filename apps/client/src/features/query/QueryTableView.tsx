@@ -22,8 +22,9 @@
 // whatever space is left over — which is also what lets the table exceed its
 // container and scroll sideways instead of squeezing its columns.
 //
-// TanStack Table owns the models — order, sizing, visibility, sorting — and this
-// file owns every pixel, because the design system, not a library's stylesheet,
+// The query projection owns row ordering so every renderer consumes the same
+// result. TanStack Table owns column sizing and row/cell models here; this file
+// owns every pixel, because the design system, not a library's stylesheet,
 // decides what a row looks like.
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -38,13 +39,11 @@ import {
 import {
   columnResizingFeature,
   columnSizingFeature,
-  createSortedRowModel,
   rowSortingFeature,
   tableFeatures,
   useTable,
   type ColumnDef,
   type ColumnSizingState,
-  type SortingState,
 } from "@tanstack/react-table";
 import {
   DropdownMenu,
@@ -62,7 +61,6 @@ import {
   type ResultViewRow,
 } from "./cells";
 import { EditableCellValue, type QueryResultEditor } from "./edit";
-import { compareResultTerms } from "./ordering";
 
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
@@ -74,7 +72,6 @@ const FEATURES = tableFeatures({
   rowSortingFeature,
   columnSizingFeature,
   columnResizingFeature,
-  sortedRowModel: createSortedRowModel(),
 });
 
 export function QueryTableView({
@@ -108,10 +105,6 @@ export function QueryTableView({
   onMove?: (variable: string, delta: -1 | 1) => void;
 }) {
   const { message } = useI18n();
-  const sorting = useMemo<SortingState>(
-    () => sorts.map((sort) => ({ id: sort.variable, desc: sort.descending })),
-    [sorts],
-  );
   const rankOf = (variable: string) => sorts.findIndex((sort) => sort.variable === variable);
   const canonicalSizing = useMemo<ColumnSizingState>(
     () => Object.fromEntries(
@@ -133,29 +126,15 @@ export function QueryTableView({
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
-      columns.map((column) => {
-        const descending = sorts.find((sort) => sort.variable === column.variable)?.descending
-          ?? false;
-        return {
-          id: column.variable,
-          // Display words belong to the renderer. Ordering reads the original
-          // RDF term through the column's semantic descriptor.
-          accessorFn: (row: ResultViewRow) => row.values[column.variable],
-          header: column.label,
-          size: column.width ?? DEFAULT_WIDTH,
-          minSize: MIN_WIDTH,
-          enableSorting: column.sortable,
-          sortUndefined: "last" as const,
-          sortFn: (left, right) => compareResultTerms(
-            left.original.values[column.variable],
-            right.original.values[column.variable],
-            column.ordering,
-            context,
-            descending,
-          ),
-        };
-      }),
-    [columns, context, sorts],
+      columns.map((column) => ({
+        id: column.variable,
+        accessorFn: (row: ResultViewRow) => row.values[column.variable],
+        header: column.label,
+        size: column.width ?? DEFAULT_WIDTH,
+        minSize: MIN_WIDTH,
+        enableSorting: column.sortable,
+      })),
+    [columns],
   );
 
   const table = useTable({
@@ -163,13 +142,11 @@ export function QueryTableView({
     data: rows,
     columns: definitions,
     getRowId: (row) => row.key,
-    // The order is this component's input, not its state: every press goes
-    // through `cycleSort`, so the header and the sort panel compute the next
-    // list the same way and neither can disagree with the saved view.
-    // Saved widths are canonical; this controlled slice is only the live drag
-    // overlay. Without it TanStack retains an uncontrolled size override after
-    // undo, so `columnDef.size` changes while `header.getSize()` stays stale.
-    state: { sorting, columnSizing },
+    // Rows already carry the shared Table/List order. Saved widths are
+    // canonical; this controlled slice is only the live drag overlay. Without
+    // it TanStack retains an uncontrolled size override after undo, so
+    // `columnDef.size` changes while `header.getSize()` stays stale.
+    state: { columnSizing },
     onColumnSizingChange: setColumnSizing,
     enableMultiSort: true,
     maxMultiSortColCount: SORT_LIMIT,

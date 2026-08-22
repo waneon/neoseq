@@ -185,8 +185,9 @@ source and the property registry resolve to one semantic order: declared choices
 use their stored-value rank, numbers and dates use typed value order, references
 use their resolved label, and ordinary text uses text collation. Rendering is a
 separate projection, so a translated label cannot change a ranked order. The
-builder compiles the same semantics into `ORDER BY` before `LIMIT`; the table
-compares raw result terms after execution. Both keep unknown choices behind the
+builder compiles the same semantics into `ORDER BY` before `LIMIT`; after
+execution, the query result projection compares raw terms once and hands the
+same ordered rows to Table and List. Both paths keep unknown choices behind the
 declared domain and unbound values last. Folded lists have no defined member
 order and are not sortable.
 

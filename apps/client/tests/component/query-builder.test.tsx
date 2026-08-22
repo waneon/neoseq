@@ -454,6 +454,86 @@ describe("query result views", () => {
     });
   });
 
+  it("applies the saved presentation order to list rows", async () => {
+    const harness = await withResult("Zulu");
+    harness.port.queryResult = {
+      kind: "select",
+      variables: ["q_subject", "text", "page"],
+      rows: [
+        {
+          q_subject: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:block:b-2",
+            entity: { kind: "block", page_id: "home", id: "b-2" },
+          },
+          text: {
+            kind: "literal",
+            value: "Zulu",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+          page: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:page:home",
+            entity: { kind: "page", id: "home" },
+          },
+        },
+        {
+          q_subject: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:block:b-3",
+            entity: { kind: "block", page_id: "home", id: "b-3" },
+          },
+          text: {
+            kind: "literal",
+            value: "Alpha",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+          page: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:page:home",
+            entity: { kind: "page", id: "home" },
+          },
+        },
+      ],
+      revision: 6,
+      frontier: "fake-6",
+    };
+    await harness.session.execute({
+      type: "insert_block",
+      page_id: "home",
+      parent: null,
+      index: 2,
+      markdown: "Alpha",
+    });
+
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("2 results"));
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
+    const list = await screen.findByTestId("query-list");
+    const values = () => within(list)
+      .getAllByRole<HTMLTextAreaElement>("textbox", { name: "Block text" })
+      .map((field) => field.value);
+    expect(values()).toEqual(["Zulu", "Alpha"]);
+
+    const putListSort = async (descending: boolean) => {
+      const view = storedQuery(harness)!.views.find((item) => item.id === "list")!;
+      await harness.session.execute({
+        type: "put_query_view",
+        owner: { kind: "block", page_id: "home", id: "b-1" },
+        view: {
+          ...view,
+          options: { ...view.options, sort: [{ variable: "text", descending }] },
+        },
+      });
+    };
+
+    await putListSort(false);
+    await waitFor(() => expect(values()).toEqual(["Alpha", "Zulu"]));
+
+    await putListSort(true);
+    await waitFor(() => expect(values()).toEqual(["Zulu", "Alpha"]));
+  });
+
   // An order is a list, so a second heading is a tie-breaker rather than a
   // replacement — and precedence is stated, because an arrow cannot say it.
   it("accumulates an order across headings and lets the panel reorder it", async () => {

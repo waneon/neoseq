@@ -5,8 +5,15 @@ import {
   inferOrderSemantics,
   orderSemanticsForColumn,
 } from "../../src/entities/query-ordering";
-import type { CellContext } from "../../src/features/query/cells";
-import { compareResultTerms } from "../../src/features/query/ordering";
+import type {
+  CellContext,
+  ResultColumn,
+  ResultViewRow,
+} from "../../src/features/query/cells";
+import {
+  compareResultTerms,
+  orderResultRows,
+} from "../../src/features/query/ordering";
 
 const XSD = "http://www.w3.org/2001/XMLSchema#";
 const context: CellContext = {
@@ -76,5 +83,40 @@ describe("query column ordering", () => {
     expect([...terms].sort((left, right) =>
       compareResultTerms(left, right, semantics, context, false)).map((term) => term.value))
       .toEqual(["2", "10"]);
+  });
+
+  it("applies saved terms in precedence order before a renderer sees rows", () => {
+    const columns: ResultColumn[] = [
+      {
+        variable: "group",
+        label: "Group",
+        ordering: { kind: "text" },
+        sortable: true,
+        numeric: false,
+        width: null,
+      },
+      {
+        variable: "rank",
+        label: "Rank",
+        ordering: { kind: "number" },
+        sortable: true,
+        numeric: true,
+        width: null,
+      },
+    ];
+    const row = (key: string, group: string, rank: string): ResultViewRow => ({
+      key,
+      values: {
+        group: string(group),
+        rank: { kind: "literal", value: rank, datatype: `${XSD}integer` },
+      },
+    });
+    const rows = [row("b", "B", "3"), row("a1", "A", "1"), row("a2", "A", "2")];
+
+    expect(orderResultRows(rows, [
+      { variable: "group", descending: false },
+      { variable: "rank", descending: true },
+    ], columns, context).map((item) => item.key)).toEqual(["a2", "a1", "b"]);
+    expect(rows.map((item) => item.key)).toEqual(["b", "a1", "a2"]);
   });
 });

@@ -72,6 +72,7 @@ import { QueryTableView } from "./QueryTableView";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { columnLabel } from "./labels";
+import { orderResultRows } from "./ordering";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
@@ -276,12 +277,27 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
     state.snapshot.pages,
     state.status,
   ]);
+  const sorts = useMemo(() => {
+    const stored = readonly ? localSorts : (activeView?.options.sort ?? []);
+    const orderableVariables = new Set(
+      columns.filter((column) => column.sortable).map((column) => column.variable),
+    );
+    return stored.filter((sort) => orderableVariables.has(sort.variable));
+  }, [activeView?.options.sort, columns, localSorts, readonly]);
   const activeOrigin = resultEditor.active?.origin.row;
   const activeRowPresent = activeOrigin
     ? resultRows.some((row) => row.key === activeOrigin.key)
     : true;
   const pinnedRow = activeOrigin && !activeRowPresent ? activeOrigin : null;
-  const visibleRows = pinnedRow ? [...resultRows, pinnedRow] : resultRows;
+  const visibleRows = useMemo(
+    () => orderResultRows(
+      pinnedRow ? [...resultRows, pinnedRow] : resultRows,
+      sorts,
+      columns,
+      cellContext,
+    ),
+    [cellContext, columns, pinnedRow, resultRows, sorts],
+  );
 
   // The caption follows the plan in hand, not the saved one, so the phrase tracks
   // the builder keystroke for keystroke and is already true when it closes.
@@ -340,11 +356,6 @@ export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnap
 
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
-  const storedSorts = readonly ? localSorts : (activeView.options.sort ?? []);
-  const orderableVariables = new Set(
-    columns.filter((column) => column.sortable).map((column) => column.variable),
-  );
-  const sorts = storedSorts.filter((sort) => orderableVariables.has(sort.variable));
   const setSorts = (next: QueryViewSort[]) => {
     if (readonly) setLocalSorts(next);
     else putView({ ...activeView, options: { ...activeView.options, sort: next } });
