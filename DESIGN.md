@@ -394,10 +394,11 @@ The palette pays for the bare interface, so it ships before anything is hover-ga
   settings · `⌘Z`/`⇧⌘Z` undo/redo. All rebindable from one resolved table (fed to the
   listener, the sheet, and every badge); rebinding refuses duplicates, browser-owned keys,
   and text-field keys. The outline's writing keys are not commands and cannot be rebound.
-- **The palette**: navigation ranks first; never blank; dates parse in the same input
-  (`tomorrow`, `aug 5`, `다음 월요일`); the last row is always a way forward; disabled
-  commands are listed with their reasons; closing restores the caret exactly. Its foot
-  states the three keys it answers to, which is also what closes the panel so the last
+- **The palette**: it opens on the centre of the window, because that is where the reader is
+  looking when they press the key; navigation ranks first; never blank; dates parse in the
+  same input (`tomorrow`, `aug 5`, `다음 월요일`); the last row is always a way forward;
+  disabled commands are listed with their reasons; closing restores the caret exactly. Its
+  foot states the three keys it answers to, which is also what closes the panel so the last
   result row never runs off a rounded edge.
 
 ## Component Rules
@@ -536,10 +537,11 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   before the panel has measured anything. The press had a place on screen; that is the
   anchor.
 - **First light.** The launch screen is the one surface whose job is a first impression
-  rather than a place to work: a narrow centred column, the mark in an accent tile, each
-  graph a bounded card with its own initial, the name field and its verb on one line, and the
-  remote path quiet behind a rule. It carries the product's one decorative gradient — 4.5%
-  accent at the top of the viewport — and nothing else does.
+  rather than a place to work: a narrow column centred across the window and seated a little
+  above its middle, the mark in an accent tile, each graph a bounded card with its own
+  initial, the name field and its verb on one line, and the remote path quiet behind a rule.
+  It carries the product's one decorative gradient — 4.5% accent at the top of the viewport —
+  and nothing else does.
 - **System states.** Under the ~220ms flash threshold show nothing; an empty state is the
   action itself; failure keeps the shell (tombstones render in the page body); read-only
   explains itself in the palette; a rejected command is never silent and never reported

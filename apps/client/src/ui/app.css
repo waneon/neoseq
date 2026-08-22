@@ -4488,6 +4488,16 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: center;
 }
 
+/* The writing surface owes the same debt, on the other axis: it is a column, so
+   the centring is `justify-content`. It comes due on a compact row, where the
+   cell states a height, the editor's `100%` therefore resolves against it, and
+   the value inside a control taller than one line hung from the ceiling — four
+   pixels above the links and chips on the same row. */
+.query-table tbody td > .query-result-editor,
+.query-table tbody td > .query-editable-route > .query-result-editor {
+  justify-content: center;
+}
+
 .query-table tbody td > .query-edit-trigger > *,
 .query-table tbody td > .query-editable-route > .query-edit-trigger > * {
   min-width: 0;
@@ -4645,6 +4655,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .query-table .query-result-editor[data-active="true"] {
   background: var(--surface-3);
   box-shadow: var(--e1);
+}
+
+/* ── A value sits on the row's centre line ──
+   The editable cell's control floor is taller than the line it holds: 24px of
+   target around a 20px line leaves four pixels, and with all four below the text
+   every value in an editable column drew two pixels above the links and chips
+   beside it — a table whose columns do not share a baseline. Half the difference
+   on each side is the whole fix, and it costs nothing: the floor is still 24px,
+   so the hover fill, the focus ring and the caret keep their size, and the
+   auto-height measure reads the padding as part of the line it grows by. */
+.query-table .query-result-input {
+  padding-block: calc((var(--target) - var(--lh-sm)) / 2);
 }
 
 .query-table[data-wrap="false"] .query-result-input {
@@ -4850,6 +4872,17 @@ button.query-list-line {
   width: 100%;
   min-width: 0;
   padding: 0;
+}
+
+/* In a cell the projection is a phrase, not a block line, so it keeps the
+   outline's wrapping and drops the rest: the block-line floor made a row two
+   pixels taller for having a `code` span in it, and the line it holds hung from
+   the top of whatever height the cell handed it — the same two pixels off the
+   row's centre the textarea beside it used to be. It still fills the cell,
+   because the cell is the target. */
+.query-table tbody td .query-markdown-preview {
+  min-height: 0;
+  align-content: center;
 }
 
 .query-list-status {
@@ -5684,14 +5717,19 @@ button.query-list-status[data-active="true"] {
   animation: ns-fade-in 100ms var(--ease-out) both;
 }
 
+/* Centred on the window, not hung from its top: the panel caps its own height at
+   `76vh`, so there is always room for the `--sp-4` gutter and centring can never
+   clip its head — the failure mode that makes a flex-centred overlay unsafe. The
+   query lands on the reader's eye line, which is where they are already looking
+   when they press the key. */
 .cmdk-scrim {
   position: fixed;
   inset: 0;
   z-index: var(--z-palette);
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 11vh var(--sp-4) var(--sp-4);
+  align-items: center;
+  padding: var(--sp-4);
 }
 
 .cmdk {
@@ -5950,6 +5988,11 @@ button.query-list-status[data-active="true"] {
 .picker-inner {
   width: min(468px, 100%);
   margin-block: auto;
+  /* The one thing off centre. The auto margins split whatever is left over, so
+     a wider foot seats the whole column a little above the middle — where a
+     screen whose job is to introduce itself reads as arrival rather than as a
+     dialog parked in the exact centre of the window. */
+  padding-bottom: var(--sp-8);
 }
 
 .picker-wordmark {

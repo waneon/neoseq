@@ -224,4 +224,59 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
     return Math.abs(top - bottom);
   });
   expect(centred).toBeLessThanOrEqual(1.5);
+
+  // And so is the *line* inside that content, which is the half a centred box
+  // does not cover: the writing surface is floored at the 24px hit target and
+  // the line it holds is 20px, so a value with all four of those pixels below it
+  // read two pixels above every link on the same row — every cell box centred,
+  // and the table still without one baseline. A compact row is the same defect
+  // with more of it: there the cell states its height, so the surface fills the
+  // row and hung its line from the ceiling four pixels up.
+  const lineOffsets = () => table.locator("tbody tr").first().evaluate((row) => {
+    const box = row.getBoundingClientRect();
+    const centre = box.top + box.height / 2;
+    const lines: number[] = [];
+    for (const cell of row.querySelectorAll("td")) {
+      // A textarea's lines are not in the document, so they are counted rather
+      // than measured: they start at the top of its content box, one
+      // `line-height` each, and where the box is taller than they are the slack
+      // is what this is about.
+      const writing = cell.querySelector("textarea:not([hidden])");
+      if (writing) {
+        const area = writing.getBoundingClientRect();
+        const style = getComputedStyle(writing);
+        const inset = parseFloat(style.paddingTop);
+        const leading = parseFloat(style.lineHeight);
+        const content = area.height - inset - parseFloat(style.paddingBottom);
+        const written = Math.max(1, Math.round(content / leading)) * leading;
+        lines.push(area.top + inset + written / 2 - centre);
+        continue;
+      }
+      // A rendered value states its own line through a range: the box around it
+      // may claim the whole cell, and it is the ink that has to be on the centre.
+      const value = cell.querySelector(".query-link, .query-markdown-preview");
+      if (!value) continue;
+      const range = document.createRange();
+      range.selectNodeContents(value);
+      const rects = [...range.getClientRects()];
+      if (rects.length === 0) continue;
+      const top = Math.min(...rects.map((rect) => rect.top));
+      const bottom = Math.max(...rects.map((rect) => rect.bottom));
+      lines.push((top + bottom) / 2 - centre);
+    }
+    return lines;
+  });
+  // The written cell and the page it names, at least — one line each, both on the
+  // row's centre.
+  const roomy = await lineOffsets();
+  expect(roomy.length).toBeGreaterThan(1);
+  for (const offset of roomy) expect(Math.abs(offset)).toBeLessThanOrEqual(1);
+
+  await query.getByTestId("query-view-trigger").click();
+  await page.getByRole("menuitemcheckbox", { name: "Compact rows" }).click();
+  await page.keyboard.press("Escape");
+  await expect(table.locator("table")).toHaveAttribute("data-compact", "true");
+  const compact = await lineOffsets();
+  expect(compact.length).toBe(roomy.length);
+  for (const offset of compact) expect(Math.abs(offset)).toBeLessThanOrEqual(1);
 });
