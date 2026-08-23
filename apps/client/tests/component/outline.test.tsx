@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import { findPage } from "../../src/core-port/snapshot";
+import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
 import { Outliner } from "../../src/features/outline/Outliner";
 import { SessionContext } from "../../src/features/shell/session-context";
@@ -38,6 +39,133 @@ async function settleFrame(): Promise<void> {
 }
 
 describe("outliner keyboard commands", () => {
+  it("uses one Vim session across block motion and structural edits", async () => {
+    setEditorKeymap("vim");
+    try {
+      const { session } = await mountOutline(["one two", "middle", "second"]);
+      const user = userEvent.setup();
+      const first = screen.getAllByLabelText("Block text")[0] as HTMLTextAreaElement;
+      await user.click(first);
+      first.setSelectionRange(0, 0);
+
+      expect(first).not.toHaveAttribute("readonly");
+      expect(first).toHaveAttribute("data-vim-mode", "normal");
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("NORMAL");
+      await user.keyboard("w");
+      expect([first.selectionStart, first.selectionEnd]).toEqual([4, 4]);
+
+      await user.keyboard("i");
+      await waitFor(() => expect(first).toHaveAttribute("data-vim-mode", "insert"));
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+      await user.keyboard("big ");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(first).toHaveAttribute("data-vim-mode", "normal"));
+      await user.keyboard("0dw");
+      expect(first).toHaveValue("big two");
+
+      await act(async () => {
+        fireEvent.keyDown(first, { key: "j" });
+        await Promise.resolve();
+      });
+      const middle = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
+      await waitFor(() => expect(middle).toHaveFocus());
+      expect(middle).toHaveAttribute("data-vim-mode", "normal");
+
+      await user.keyboard(">>");
+      await waitFor(() => {
+        expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("aria-level", "2");
+      });
+
+      await user.keyboard("dd");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks[0].children).toHaveLength(0);
+      });
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("NORMAL");
+
+      await user.keyboard("u");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks[0].children[0]?.markdown).toBe("middle");
+      });
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
+  it("keeps IME input behind the Vim mode boundary", async () => {
+    setEditorKeymap("vim");
+    try {
+      await mountOutline(["한"]);
+      const user = userEvent.setup();
+      const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+      await user.click(textarea);
+
+      // A few browser/IME combinations deliver a non-cancelable composition
+      // input even when beforeinput was rejected. Normal mode restores the
+      // DOM value before React can turn it into a graph edit.
+      fireEvent.compositionStart(textarea);
+      textarea.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: false,
+        data: "글",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      textarea.setRangeText("글", 1, 1, "end");
+      textarea.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "글",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      fireEvent.compositionEnd(textarea, { data: "글" });
+      expect(textarea).toHaveValue("한");
+
+      await user.keyboard("i");
+      fireEvent.compositionStart(textarea);
+      fireEvent.keyDown(textarea, { key: "Escape", isComposing: true, keyCode: 229 });
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+      fireEvent.compositionEnd(textarea);
+      await user.keyboard("{Escape}");
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("NORMAL");
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
+  it("opens outline units into Vim Insert mode", async () => {
+    setEditorKeymap("vim");
+    try {
+      const { session } = await mountOutline(["anchor"]);
+      const user = userEvent.setup();
+      await user.click(screen.getByLabelText("Block text"));
+
+      await user.keyboard("o");
+      await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+      await user.keyboard("below{Escape}");
+
+      await user.keyboard("O");
+      await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(3));
+      await user.keyboard("between{Escape}");
+
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual([
+          "anchor",
+          "between",
+          "below",
+        ]);
+      });
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
   it("shows Markdown at rest and restores the source editor on activation", async () => {
     await mountOutline(["Read **bold** text", "plain"]);
     const user = userEvent.setup();

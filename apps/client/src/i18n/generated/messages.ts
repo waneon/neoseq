@@ -478,6 +478,11 @@ export interface MessageArgumentMap {
   "settings.dueWithinDays": { readonly "tier": string | number };
   "settings.dueWithinLead": undefined;
   "settings.dueWithinTrail": undefined;
+  "settings.editorKeymap": undefined;
+  "settings.editorKeymapDescription": undefined;
+  "settings.editorKeymapStandard": undefined;
+  "settings.editorKeymapVim": undefined;
+  "settings.globalShortcuts": undefined;
   "settings.graph": undefined;
   "settings.graphId": undefined;
   "settings.journal": undefined;
@@ -714,6 +719,9 @@ export interface MessageArgumentMap {
   "validation.reservedKey": { readonly "key": string | number };
   "validation.stringLength": undefined;
   "validation.whitespaceKey": undefined;
+  "vim.mode.insert": undefined;
+  "vim.mode.normal": undefined;
+  "vim.mode.operatorPending": undefined;
 }
 
 export type MessageKey = keyof MessageArgumentMap;

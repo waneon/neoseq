@@ -1,0 +1,43 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  initialVimState,
+  interpretVimKey,
+  type VimInterpretation,
+  type VimKey,
+  type VimMode,
+  type VimSnapshot,
+  type VimState,
+} from "./engine";
+
+export interface VimSession {
+  state: VimState;
+  interpret(snapshot: VimSnapshot, key: VimKey): VimInterpretation;
+  reset(mode?: VimMode): void;
+}
+
+export function useVimSession(enabled: boolean): VimSession {
+  const [state, setState] = useState(initialVimState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const reset = useCallback((mode: VimMode = "normal") => {
+    const next = initialVimState(mode);
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
+  useEffect(() => {
+    reset();
+  }, [enabled, reset]);
+
+  const interpret = useCallback((snapshot: VimSnapshot, key: VimKey) => {
+    const next = interpretVimKey(stateRef.current, snapshot, key);
+    if (next.state !== stateRef.current) {
+      stateRef.current = next.state;
+      setState(next.state);
+    }
+    return next;
+  }, []);
+
+  return { state, interpret, reset };
+}

@@ -54,6 +54,26 @@ outline target. The mounted page or tag is only the fallback when no block targe
 active. A request captures the stable outline owner and block ID before opening a picker, so
 later focus changes cannot retarget the mutation.
 
+## Editor Keymaps
+
+The browser-local editor keymap is either `standard` or `vim`; it is presentation
+state and never graph data. The Vim keymap retains the native textarea and the
+canonical draft/write path. A surface-level Vim session owns only modal grammar
+state (mode, count, pending operator, and desired vertical column); text and caret
+positions remain in the controlled value and DOM selection.
+
+Key arbitration is fixed: IME composition, an open completion menu, the active
+editor keymap, the surface's structural policy, then global modifier shortcuts.
+Normal mode rejects native text insertion at the shared input boundary without
+marking the canonical field read-only. Insert mode therefore keeps the same
+composition, auto-pair, and completion behavior as the standard keymap.
+
+Text motions and motion-based delete/change operators are shared. Structural
+intents are adapted by the host: the outline treats one block as one Vim unit and
+provides cross-block `j`/`k`, `o`/`O`, `dd`, and `>>`/`<<`; query result editors
+accept only text-local effects and document history. Structural intents always
+reuse ordinary CorePort commands.
+
 ## Verification
 
 Behavior contracts run against outline and query hosts for shared input

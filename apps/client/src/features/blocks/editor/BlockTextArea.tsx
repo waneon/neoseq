@@ -35,6 +35,8 @@ export interface BlockTextAreaProps extends Omit<
 > {
   value: string;
   autoClosers: readonly AutoCloserMarker[];
+  /** False in a modal command mode: selection stays native, text insertion does not. */
+  acceptsTextInput?: boolean;
   onValueChange(value: string, textarea: HTMLTextAreaElement, edit?: BlockTextEdit): void;
   /** Pair overtype can move the caret without changing text. */
   onPairSelection?(textarea: HTMLTextAreaElement): void;
@@ -74,6 +76,8 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
   function BlockTextArea(
     {
       autoClosers,
+      value,
+      acceptsTextInput = true,
       onValueChange,
       onPairSelection,
       onCompositionStart,
@@ -87,8 +91,22 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
     const beforeInputSnapshot = useRef<BeforeInputSnapshot | null>(null);
     const pendingInputRepair = useRef<PendingInputRepair | null>(null);
     const composing = useRef(false);
-    const latest = useRef({ autoClosers, onValueChange, onPairSelection, readOnly });
-    latest.current = { autoClosers, onValueChange, onPairSelection, readOnly };
+    const latest = useRef({
+      autoClosers,
+      value,
+      acceptsTextInput,
+      onValueChange,
+      onPairSelection,
+      readOnly,
+    });
+    latest.current = {
+      autoClosers,
+      value,
+      acceptsTextInput,
+      onValueChange,
+      onPairSelection,
+      readOnly,
+    };
 
     const setRef = useCallback((node: HTMLTextAreaElement | null) => {
       textareaRef.current = node;
@@ -122,6 +140,13 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
           cancelable: event.cancelable,
         };
         if (latest.current.readOnly) return;
+        if (!latest.current.acceptsTextInput) {
+          if (event.cancelable) {
+            event.preventDefault();
+            beforeInputSnapshot.current = null;
+          }
+          return;
+        }
 
         const direction = textarea.selectionDirection;
         const plan = planAutoPair({
@@ -156,6 +181,15 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
         const snapshot = beforeInputSnapshot.current;
         beforeInputSnapshot.current = null;
         if (!snapshot || latest.current.readOnly) return;
+        if (!latest.current.acceptsTextInput) {
+          // Some composition paths are not cancelable. Restore the native value
+          // before React's delegated change listener observes it; Normal mode
+          // keeps a selectable textarea without pretending the graph is read-only.
+          pendingInputRepair.current = null;
+          textarea.value = snapshot.value;
+          textarea.setSelectionRange(snapshot.start, snapshot.end);
+          return;
+        }
         const cameThroughComposition =
           snapshot.inputType === "insertCompositionText"
           || snapshot.isComposing
@@ -204,6 +238,12 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
     }, []);
 
     const handleChange: ChangeEventHandler<HTMLTextAreaElement> = (event) => {
+      if (!latest.current.acceptsTextInput) {
+        const caret = Math.min(event.currentTarget.selectionStart, latest.current.value.length);
+        event.currentTarget.value = latest.current.value;
+        event.currentTarget.setSelectionRange(caret, caret);
+        return;
+      }
       onValueChange(event.currentTarget.value, event.currentTarget);
     };
 
@@ -211,6 +251,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       <textarea
         {...props}
         ref={setRef}
+        value={value}
         readOnly={readOnly}
         onChange={handleChange}
         onCompositionStart={(event) => {

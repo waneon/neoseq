@@ -20,7 +20,7 @@ import type { GraphSession, SessionState } from "../../core-port/session";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findBlock, findOutline, outlineOwnerKey } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
-import { useI18n, type MessageFunction } from "../../i18n";
+import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { Anchor } from "@/ui/anchored";
 import {
@@ -46,6 +46,11 @@ import {
   type AutoCloserMarker,
 } from "../blocks/editor/auto-pair";
 import { BlockTextArea, type BlockTextEdit } from "../blocks/editor/BlockTextArea";
+import type { EditorKeymap } from "../../entities/settings";
+import { useEditorKeymap } from "../settings/preferences";
+import type { VimMode } from "../blocks/editor/vim/engine";
+import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
+import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
 import {
   BlockSlashMenu,
   BlockTagMenu,
@@ -73,6 +78,12 @@ import {
 } from "./cells";
 
 const EDIT_DEBOUNCE_MS = 400;
+
+const VIM_MODE_MESSAGE = {
+  normal: "vim.mode.normal",
+  insert: "vim.mode.insert",
+  "operator-pending": "vim.mode.operatorPending",
+} as const satisfies Record<VimMode, MessageKey>;
 
 type BlockRef = Extract<QueryEntityRef, { kind: "block" }>;
 
@@ -130,6 +141,8 @@ export interface QueryResultEditor {
   active: ActiveEdit | null;
   activeBlock?: BlockSnapshot;
   message: MessageFunction;
+  keymap: EditorKeymap;
+  vim: VimSession;
   bindingFor(subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null;
   bindingForDirect(
     subject: QueryEntityRef | undefined,
@@ -184,6 +197,8 @@ export function useQueryResultEditor({
   const commands = useCommands();
   const history = useHistoryActions();
   const notify = useNotify();
+  const keymap = useEditorKeymap();
+  const vim = useVimSession(keymap === "vim");
   const [active, setActiveState] = useState<ActiveEdit | null>(null);
   const activeRef = useRef<ActiveEdit | null>(null);
   const request = useRef(0);
@@ -595,6 +610,8 @@ export function useQueryResultEditor({
     active,
     activeBlock,
     message,
+    keymap,
+    vim,
     bindingFor,
     bindingForDirect,
     isActive,
@@ -799,6 +816,13 @@ function QueryMarkdownField({
         dir="auto"
         spellCheck={false}
         readOnly={!markdown}
+        acceptsTextInput={
+          editor.keymap !== "vim" || editor.vim.state.mode === "insert"
+        }
+        aria-readonly={!markdown ? true : undefined}
+        data-vim-mode={
+          markdown && editor.keymap === "vim" ? editor.vim.state.mode : undefined
+        }
         hidden={previewMarkdown}
         tabIndex={previewMarkdown ? -1 : undefined}
         aria-label={label}
@@ -896,6 +920,39 @@ function QueryMarkdownField({
               return;
             }
           }
+          if (editor.keymap === "vim") {
+            const interpretation = editor.vim.interpret(
+              {
+                value: event.currentTarget.value,
+                selectionStart: event.currentTarget.selectionStart,
+                selectionEnd: event.currentTarget.selectionEnd,
+                editable: true,
+              },
+              vimKeyFromEvent(event),
+            );
+            if (interpretation.handled) {
+              event.preventDefault();
+              for (const effect of interpretation.effects) {
+                if (effect.kind === "surface") {
+                  if (effect.command.type === "history") {
+                    editor.runHistory(effect.command.redo);
+                  } else if (effect.command.type === "open") {
+                    // `o`/`O` enter Insert only when a host can create the
+                    // requested unit. A query cell has no structural unit to
+                    // open, so keep the command local and remain in Normal.
+                    editor.vim.reset();
+                  }
+                  continue;
+                }
+                applyVimTextEffect(event.currentTarget, effect, (value, _element, edit) => {
+                  editor.setDraft(value, edit);
+                  setSlashRequest(null);
+                  setHashRequest(null);
+                });
+              }
+              return;
+            }
+          }
           const isUndo = bindingMatches(event, bindings.undo);
           const isRedo = bindingMatches(event, bindings.redo);
           if (isUndo || isRedo) {
@@ -915,6 +972,16 @@ function QueryMarkdownField({
           }
         }}
       />
+      {markdown && editor.keymap === "vim" && (
+        <span
+          className="vim-mode-indicator query-vim-mode"
+          data-mode={editor.vim.state.mode}
+          data-testid="query-vim-mode-indicator"
+          role="status"
+        >
+          {editor.message(VIM_MODE_MESSAGE[editor.vim.state.mode])}
+        </span>
+      )}
       {cut && (
         // The ellipsis the cell could not draw for itself. It is a glyph beside
         // the line rather than a patch over its last characters, so it needs no

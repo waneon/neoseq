@@ -6,6 +6,7 @@ import { CorePortFailure } from "../../src/core-worker";
 import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
 import { compilePlan } from "../../src/entities/query-compile";
 import { decodePlan } from "../../src/entities/query-plan";
+import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 import type { Harness } from "./harness";
 import {
@@ -782,6 +783,37 @@ describe("query result views", () => {
 
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship the editable result"));
     await waitFor(() => expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument());
+  });
+
+  it("uses the shared Vim text grammar without exposing outline structure", async () => {
+    const harness = await withResult();
+    await act(async () => setEditorKeymap("vim"));
+    try {
+      const user = userEvent.setup();
+      const table = await screen.findByTestId("query-table");
+      const settled = within(table).getByTestId("query-edit-text");
+      await user.click(settled);
+      const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+
+      expect(editor).not.toHaveAttribute("readonly");
+      expect(editor).toHaveAttribute("data-vim-mode", "normal");
+      expect(screen.getByTestId("query-vim-mode-indicator")).toHaveTextContent("NORMAL");
+      editor.setSelectionRange(0, 0);
+      await user.keyboard("o");
+      expect(editor).toHaveAttribute("data-vim-mode", "normal");
+      expect(editor).toHaveValue("Ship the builder");
+      await user.keyboard("A");
+      await waitFor(() => expect(editor).toHaveAttribute("data-vim-mode", "insert"));
+      await user.keyboard(" now{Escape}");
+      await user.keyboard("0dw");
+      expect(editor).toHaveValue("the builder now");
+
+      await user.click(screen.getByRole("button", { name: "Collapse 1 result" }));
+      await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("the builder now"));
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
   });
 
   it("saves an active result edit before folding the answer", async () => {

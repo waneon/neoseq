@@ -88,6 +88,12 @@ deletion and subtree deletion cannot be confused. Pure selection arithmetic
 lives in `features/outline/selection.ts`; browser tests own geometry-dependent
 marquee and drag behavior.
 
+The app-wide editor keymap is a browser-local preference. Vim editing is a pure
+modal interpreter over the same controlled block value and native selection; a
+surface adapter translates only structural intents. Its session lives above
+virtualized rows, so Normal mode and an unfinished operator survive cross-block
+focus without making each textarea a second editor state owner.
+
 One owner-parameterized `Outliner` serves page, journal, and tag routes. Commands,
 presence, hydration, query-result editing, and history identify its
 `OutlineOwner` (`page` or `tag`); no tag route creates a hidden backing page.

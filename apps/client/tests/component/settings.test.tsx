@@ -10,7 +10,11 @@ import {
   setConfiguredTimezone,
   setJournalDateFormat,
 } from "../../src/entities/journal";
-import { dueTiers, resetAppSettingsCache } from "../../src/entities/settings";
+import {
+  dueTiers,
+  editorKeymap,
+  resetAppSettingsCache,
+} from "../../src/entities/settings";
 import { graphName, renameGraph } from "../../src/core-port/directory";
 import {
   DEFAULT_BINDINGS,
@@ -79,6 +83,21 @@ describe("journal date format", () => {
 });
 
 describe("editable shortcuts", () => {
+  it("chooses a browser-local editor keymap independently of global shortcuts", async () => {
+    const user = userEvent.setup();
+    await mountSettings("keyboard");
+    const chooser = screen.getByTestId("settings-editor-keymap");
+
+    expect(within(chooser).getByRole("button", { name: "Standard" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(within(chooser).getByRole("button", { name: "Vim" }));
+
+    await waitFor(() => expect(editorKeymap()).toBe("vim"));
+    expect(resolveBindings()).toEqual(DEFAULT_BINDINGS);
+  });
+
   it("records a new binding on the badge that shows the old one", async () => {
     const user = userEvent.setup();
     await mountSettings("keyboard");

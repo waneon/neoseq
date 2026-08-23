@@ -2127,6 +2127,35 @@ button.chip:focus-visible .chip-glyph .chip-x {
   --thread-lit: var(--accent);
 }
 
+/* Modal editing has to name the mode before the next bare key arrives. The mark
+   sits in the breathing room above the first block, so it changes no row's
+   measure and never competes with the text or its tags. */
+.vim-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+
+.vim-mode-indicator[data-mode="insert"] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.outline-section > .vim-mode-indicator {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(var(--sp-5) * -1);
+}
+
 .outline-viewport {
   position: relative;
   width: 100%;
@@ -4979,6 +5008,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
+}
+
+.query-vim-mode {
+  align-self: flex-end;
+  margin-top: 1px;
 }
 
 .query-result-input {

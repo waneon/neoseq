@@ -10,6 +10,10 @@
 
 export type JournalDateFormat = "full" | "long" | "medium" | "short" | "iso";
 
+export type EditorKeymap = "standard" | "vim";
+
+export const EDITOR_KEYMAPS: EditorKeymap[] = ["standard", "vim"];
+
 export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
   "full",
   "long",
@@ -73,6 +77,8 @@ export interface AppSettings {
   journalDateFormat?: JournalDateFormat;
   /** Action id → serialized binding. Only overrides are stored. */
   shortcuts?: Record<string, string>;
+  /** Modal editing is an editor preference, not a graph property. */
+  editorKeymap?: EditorKeymap;
   /** Day thresholds and tones for the scheduled/deadline tint. */
   dueTiers?: Partial<DueTierSettings>;
 }
@@ -141,6 +147,19 @@ if (typeof window !== "undefined") {
 
 export function isJournalDateFormat(value: unknown): value is JournalDateFormat {
   return JOURNAL_DATE_FORMATS.includes(value as JournalDateFormat);
+}
+
+export function isEditorKeymap(value: unknown): value is EditorKeymap {
+  return EDITOR_KEYMAPS.includes(value as EditorKeymap);
+}
+
+export function editorKeymap(): EditorKeymap {
+  const stored = appSettings().editorKeymap;
+  return isEditorKeymap(stored) ? stored : "standard";
+}
+
+export function setEditorKeymap(keymap: EditorKeymap): void {
+  updateAppSettings({ editorKeymap: keymap === "standard" ? undefined : keymap });
 }
 
 export function journalDateFormat(): JournalDateFormat {

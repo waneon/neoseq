@@ -11,8 +11,9 @@
 // shortcuts, they are what typing in an outline *is*; rebinding them would leave
 // the editor with no way to make a block.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { RotateCcwIcon } from "lucide-react";
+import { setEditorKeymap } from "../../entities/settings";
 import { MOD } from "../commands/keys";
 import { Shortcut } from "../commands/Shortcut";
 import {
@@ -30,11 +31,14 @@ import {
   type ShortcutId,
 } from "../commands/shortcuts";
 import { useI18n } from "../../i18n";
+import { useEditorKeymap } from "./preferences";
 
 const WRITING_KEYS = ["⏎", "⇥", "⇧⇥", "⌥↑", "⌥↓", "⌫"];
 
 export function ShortcutEditor() {
   const { message } = useI18n();
+  const keymap = useEditorKeymap();
+  const keymapHeading = useId();
   const bindings = useShortcutBindings();
   const [recording, setRecording] = useState<ShortcutId | null>(null);
   const [note, setNote] = useState<{ text: string; tone: "info" | "danger" } | null>(null);
@@ -99,10 +103,36 @@ export function ShortcutEditor() {
   const customised = SHORTCUT_IDS.some((id) => !isDefaultBinding(id, bindings[id]));
 
   return (
-    <section className="settings-section">
-      <h2>{message("settings.keyboard")}</h2>
-      <p>{message("settings.shortcutsDescription", { mod: MOD })}</p>
-      <div className="shortcut-list" data-testid="shortcut-editor">
+    <>
+      <section className="settings-section">
+        <h2 id={keymapHeading}>{message("settings.editorKeymap")}</h2>
+        <p>{message("settings.editorKeymapDescription")}</p>
+        <div
+          className="segmented"
+          role="group"
+          aria-labelledby={keymapHeading}
+          data-testid="settings-editor-keymap"
+        >
+          <button
+            type="button"
+            aria-pressed={keymap === "standard"}
+            onClick={() => setEditorKeymap("standard")}
+          >
+            {message("settings.editorKeymapStandard")}
+          </button>
+          <button
+            type="button"
+            aria-pressed={keymap === "vim"}
+            onClick={() => setEditorKeymap("vim")}
+          >
+            {message("settings.editorKeymapVim")}
+          </button>
+        </div>
+      </section>
+      <section className="settings-section">
+        <h2>{message("settings.globalShortcuts")}</h2>
+        <p>{message("settings.shortcutsDescription", { mod: MOD })}</p>
+        <div className="shortcut-list" data-testid="shortcut-editor">
         {SHORTCUT_IDS.map((id) => {
           const binding = bindings[id];
           const action = message(SHORTCUT_MESSAGE[id]);
@@ -153,29 +183,30 @@ export function ShortcutEditor() {
             </div>
           );
         })}
-      </div>
-      {note ? (
-        <p className="shortcut-note" data-tone={note.tone} role="alert">
-          {note.text}
-        </p>
-      ) : (
-        <p className="shortcut-note">
-          {message("settings.shortcutsFixed", { key: WRITING_KEYS.join(" · ") })}
-        </p>
-      )}
-      {customised && (
-        <button
-          type="button"
-          className="btn self-start"
-          data-testid="shortcut-reset-all"
-          onClick={() => {
-            resetAllBindings();
-            setNote(null);
-          }}
-        >
-          {message("settings.shortcutResetAll")}
-        </button>
-      )}
-    </section>
+        </div>
+        {note ? (
+          <p className="shortcut-note" data-tone={note.tone} role="alert">
+            {note.text}
+          </p>
+        ) : (
+          <p className="shortcut-note">
+            {message("settings.shortcutsFixed", { key: WRITING_KEYS.join(" · ") })}
+          </p>
+        )}
+        {customised && (
+          <button
+            type="button"
+            className="btn self-start"
+            data-testid="shortcut-reset-all"
+            onClick={() => {
+              resetAllBindings();
+              setNote(null);
+            }}
+          >
+            {message("settings.shortcutResetAll")}
+          </button>
+        )}
+      </section>
+    </>
   );
 }

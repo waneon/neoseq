@@ -113,11 +113,20 @@ import {
   type OutlineClipboardItem,
 } from "./clipboard";
 import type { OutlineFragment } from "../../core-port/fragment";
-import { useI18n, type MessageFunction } from "../../i18n";
+import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
+import {
+  caretForVerticalEntry,
+  type VimMode,
+  type VimSurfaceCommand,
+} from "../blocks/editor/vim/engine";
+import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
+import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
+import { useEditorKeymap } from "../settings/preferences";
+import type { EditorKeymap } from "../../entities/settings";
 import {
   BlockSlashMenu,
   BlockTagMenu,
@@ -158,6 +167,12 @@ const AUTOSCROLL_MAX_PX = 18;
 /** How long caret moves coalesce before one presence frame goes out. */
 const PRESENCE_PUBLISH_MS = 150;
 
+const VIM_MODE_MESSAGE = {
+  normal: "vim.mode.normal",
+  insert: "vim.mode.insert",
+  "operator-pending": "vim.mode.operatorPending",
+} as const satisfies Record<VimMode, MessageKey>;
+
 // Pending rows bridge the async gap between Enter and the core's block-creation
 // acknowledgement: each is focused synchronously so fast typing
 // lands in the new block, then swaps to its real BlockId. They may chain
@@ -181,6 +196,8 @@ interface EditorContext {
   message: MessageFunction;
   owner: OutlineOwner;
   readonly: boolean;
+  keymap: EditorKeymap;
+  vim: VimSession;
   focusedId: string | null;
   pendingCaret: RefObject<number | null>;
   propertyRequest: PropertyRequest | null;
@@ -252,6 +269,12 @@ interface EditorContext {
     inputMethod: InputMethod,
   ): void;
   queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
+  runVimStructure(
+    kind: "delete" | "indent" | "outdent",
+    row: OutlineRow,
+    rows: OutlineRow[],
+    count: number,
+  ): void;
   /** Pointer entry points for the selection strip and the bullet handle. */
   onGripPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
   onSurfacePointerDown(row: OutlineRow, event: ReactPointerEvent): void;
@@ -291,6 +314,8 @@ export function Outliner({
   const history = useHistoryActions();
   const notify = useNotify();
   const bindings = useShortcutBindings();
+  const keymap = useEditorKeymap();
+  const vim = useVimSession(keymap === "vim");
   const { message, compare } = useI18n();
   const [historyRevealRevision, bumpHistoryReveal] = useReducer(
     (revision: number) => revision + 1,
@@ -1346,6 +1371,8 @@ export function Outliner({
     message,
     owner,
     readonly,
+    keymap,
+    vim,
     focusedId,
     pendingCaret,
     propertyRequest,
@@ -1666,6 +1693,51 @@ export function Outliner({
     },
     queuePendingStructural: (tempId, kind) => {
       dispatchDraft({ type: "queue-structural", tempId, kind });
+    },
+    runVimStructure: (kind, row, allRows, count) => {
+      if (readonly || isPendingId(row.block.id)) return;
+      flushNow(row.block.id);
+      const start = rowIndexOf(allRows, row.block.id);
+      if (start < 0) return;
+      const selectedIds = new Set(
+        allRows
+          .slice(start, Math.min(allRows.length, start + Math.max(1, count)))
+          .map((entry) => entry.block.id),
+      );
+      const roots = selectionRoots(allRows, selectedIds);
+      if (roots.length === 0) return;
+      const blockIds = roots.map((entry) => entry.block.id);
+      if (kind === "delete") {
+        const mask = coveredMask(allRows, new Set(blockIds));
+        let fallback: OutlineRow | undefined;
+        for (let index = start; index < allRows.length; index += 1) {
+          if (!mask[index]) {
+            fallback = allRows[index];
+            break;
+          }
+        }
+        if (!fallback) {
+          for (let index = start - 1; index >= 0; index -= 1) {
+            if (!mask[index]) {
+              fallback = allRows[index];
+              break;
+            }
+          }
+        }
+        void run(
+          { type: "delete_blocks", owner, block_ids: blockIds },
+          message("failure.deleteBlocks", { count: blockIds.length }),
+        ).then(() => setFocus(fallback?.block.id ?? null, 0));
+        return;
+      }
+      void run(
+        {
+          type: kind === "indent" ? "indent_blocks" : "outdent_blocks",
+          owner,
+          block_ids: blockIds,
+        },
+        message(kind === "indent" ? "failure.indentBlock" : "failure.outdentBlock"),
+      );
     },
     insertRootBlock: (index) => {
       void session
@@ -1998,6 +2070,16 @@ export function Outliner({
       <span className="sr-only" aria-live="polite">
         {selectionCount > 0 ? message("outline.selection", { count: selectionCount }) : ""}
       </span>
+      {keymap === "vim" && focusedId && (
+        <span
+          className="vim-mode-indicator"
+          data-mode={vim.state.mode}
+          data-testid="vim-mode-indicator"
+          role="status"
+        >
+          {message(VIM_MODE_MESSAGE[vim.state.mode])}
+        </span>
+      )}
       {rows.length === 0 ? (
         // A fake first line rather than a button labelled with a mouse
         // instruction: a faint bullet in row 1's exact gutter position over a
@@ -2380,6 +2462,7 @@ function onKeyDown(
       return;
     }
   }
+  if (editor.keymap === "vim" && handleOutlineVim(editor, row, rows, event)) return;
   // Pending rows accept text and the core outline idioms (Enter, Tab)
   // until the insert is acknowledged; other structural keys are ignored.
   if (isPendingId(row.block.id)) {
@@ -2530,6 +2613,88 @@ function onKeyDown(
       editor.setFocus(rows[position + 1].block.id, 0);
     }
   }
+}
+
+function handleOutlineVim(
+  editor: EditorContext,
+  row: OutlineRow,
+  rows: OutlineRow[],
+  event: KeyboardEvent<HTMLTextAreaElement>,
+): boolean {
+  const textarea = event.currentTarget;
+  const interpretation = editor.vim.interpret(
+    {
+      value: textarea.value,
+      selectionStart: textarea.selectionStart,
+      selectionEnd: textarea.selectionEnd,
+      editable: !editor.readonly,
+    },
+    vimKeyFromEvent(event),
+  );
+  if (!interpretation.handled) return false;
+  event.preventDefault();
+
+  for (const effect of interpretation.effects) {
+    if (effect.kind === "surface") {
+      runOutlineVimSurface(editor, row, rows, effect.command);
+      continue;
+    }
+    applyVimTextEffect(textarea, effect, (value, element, edit) => {
+      editor.onInput(row, value, element, edit);
+      // Normal-mode edits are complete commands, never completion prefixes.
+      editor.closeSlash();
+      editor.closeHash();
+    });
+    editor.publishSelection(row.block.id, textarea);
+  }
+  return true;
+}
+
+function runOutlineVimSurface(
+  editor: EditorContext,
+  row: OutlineRow,
+  rows: OutlineRow[],
+  command: VimSurfaceCommand,
+): void {
+  if (command.type === "history") {
+    editor.runHistory(row.block.id, command.redo);
+    return;
+  }
+  if (command.type === "focus") {
+    const current = rowIndexOf(rows, row.block.id);
+    const target = rows[Math.max(0, Math.min(rows.length - 1, current + command.direction * command.count))];
+    if (!target || target.block.id === row.block.id) return;
+    editor.flushNow(row.block.id);
+    const value = editor.draftOf(target);
+    editor.setFocus(
+      target.block.id,
+      caretForVerticalEntry(value, command.direction, command.column),
+    );
+    return;
+  }
+  if (command.type === "focus-edge") {
+    const target = command.edge === "first" ? rows[0] : rows[rows.length - 1];
+    if (!target) return;
+    editor.flushNow(row.block.id);
+    const value = editor.draftOf(target);
+    editor.setFocus(
+      target.block.id,
+      command.edge === "first" ? 0 : caretForVerticalEntry(value, -1, value.length),
+    );
+    return;
+  }
+  if (editor.readonly || isPendingId(row.block.id)) return;
+  if (command.type === "open") {
+    editor.flushNow(row.block.id);
+    if (command.side === "after") editor.enqueuePendingInsert(row, "", false, "keyboard");
+    else editor.enqueuePendingSplit(row, 0, "", false, "keyboard");
+    return;
+  }
+  if (command.type === "delete-unit") {
+    editor.runVimStructure("delete", row, rows, command.count);
+    return;
+  }
+  editor.runVimStructure(command.type, row, rows, command.count);
 }
 
 function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextAreaElement) {
@@ -2958,6 +3123,11 @@ function BlockRow({
           spellCheck={false}
           tabIndex={previewMarkdown ? -1 : undefined}
           readOnly={editor.readonly}
+          acceptsTextInput={
+            editor.keymap !== "vim" || editor.vim.state.mode === "insert"
+          }
+          aria-readonly={editor.readonly ? true : undefined}
+          data-vim-mode={editor.keymap === "vim" ? editor.vim.state.mode : undefined}
           aria-label={message("outline.blockText")}
           aria-controls={
             editor.slashRequest?.blockId === row.block.id

@@ -16,8 +16,10 @@ import { useSyncExternalStore } from "react";
 import {
   appSettings,
   dueTiers,
+  editorKeymap,
   subscribeAppSettings,
   type DueTierSettings,
+  type EditorKeymap,
 } from "../../entities/settings";
 import { configuredTimezone } from "../../entities/journal";
 
@@ -27,6 +29,10 @@ export function useConfiguredTimezone(): string {
     configuredTimezone,
     configuredTimezone,
   );
+}
+
+export function useEditorKeymap(): EditorKeymap {
+  return useSyncExternalStore(subscribeAppSettings, editorKeymap, editorKeymap);
 }
 
 /**
