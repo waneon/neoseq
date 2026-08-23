@@ -1,12 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// The gate serves its own build, so it needs a port nothing else is on. A dev
-// server on the default one is the ordinary case while somebody is working, and
-// a suite that cannot run beside it is a suite that gets skipped — which is what
-// this default used to be: 4173, the very port `devenv up` asks for the dev
-// server first. The e2e number is the development one with a 1 in front of it,
-// the convention the e2e sync server already follows (8787 -> 18787), so the two
-// are related on sight and neither can ever be the other.
+// The browser devenv profile supplies an allocated port. The fallback keeps
+// direct Playwright runs useful outside that boundary while staying clear of
+// Vite's development port.
 const previewPort = Number(process.env.NEOSEQ_PREVIEW_PORT ?? 14173);
 
 export default defineConfig({

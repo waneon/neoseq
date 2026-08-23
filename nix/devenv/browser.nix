@@ -7,6 +7,7 @@
 let
   client = "pnpm --filter @neoseq/client exec";
   syncPort = config.processes.e2e-sync-server.ports.http.value;
+  previewPort = config.processes.e2e-sync-server.ports.preview.value;
 in
 {
   neoseq.verification = "browser";
@@ -15,6 +16,9 @@ in
     set -euo pipefail
     export NEOSEQ_E2E_OWNER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-owner)"
     export NEOSEQ_E2E_PEER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-peer)"
+    if [[ -z "''${NEOSEQ_PREVIEW_PORT:-}" ]]; then
+      export NEOSEQ_PREVIEW_PORT="${toString previewPort}"
+    fi
     ${client} playwright test
   '';
 
@@ -31,7 +35,11 @@ in
   processes.e2e-sync-server = {
     exec = "with-test-database cargo run --quiet --locked -p sync-server -- serve";
     env.NEOSEQ_BIND = "127.0.0.1:${toString syncPort}";
-    ports.http.allocate = 18787;
+    # Playwright owns the preview process; the browser profile only allocates its port.
+    ports = {
+      http.allocate = 18787;
+      preview.allocate = 14173;
+    };
     after = [ "devenv:processes:postgres" ];
     ready.http.get = {
       port = syncPort;
