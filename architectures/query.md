@@ -198,6 +198,17 @@ applies after the upgrade. A document with no plan is the hand-written kind:
 there is no command that converts a planned query into one, only a separate
 route that creates one.
 
+A query document need not be owned at all. A reader's *standing questions* — the
+answers a journal day opens with — are a browser-local presentation preference:
+stored beside appearance and locale, held across every graph that reader opens,
+and never sent to a replica. Each produces the same `neoseq.query` document, so
+the surface that renders an owned query renders one of these unchanged; what it
+does not receive is an owner, and that absence is the whole of the difference.
+Every edit that would change the question stops there, which leaves the client's
+settings surface as their only editor. Reading is unaffected, and so is result
+editing: a row still names a block in this graph, and writing it remains an
+ordinary property command.
+
 Column ordering is derived rather than stored in a view. The plan's column
 source and the property registry resolve to one semantic order: declared choices
 use their stored-value rank, numbers and dates use typed value order, references

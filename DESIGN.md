@@ -149,7 +149,8 @@ record — and the interface is built from that material.
 7. **Silent when steady, plain when not** — saved, online, and on-today render nothing;
    deviations are unbordered text, never a `title` attribute alone.
 8. **Nothing below the outline is chrome** — the region under the last block is a live
-   append target; no form may be mounted there.
+   append target; no form may be mounted there. A *second body* may follow it, at its
+   full reach: today's standing answers are content, and content is not chrome.
 9. **No effect the compositor cannot afford.** A `backdrop-filter` over the writing
    promotes the whole scroller to a layer that re-rasterises every frame, which shows up
    as sub-pixel jitter in the rect of every control on the page. Blur is legal only on a
@@ -588,6 +589,18 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   so they take the same ink the outline gives them and the header stays the quieter of the
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell
   and hanging every other cell from its ceiling is that difference made visible.
+  **A surface may read a question it cannot write.** A journal's standing queries are
+  set up in Settings and answered under the day, so there the caption is a caption and
+  not a disclosure — a control that opened an editor for a question written elsewhere
+  would be a promise the surface cannot keep — the layout menu is *absent* rather than
+  parked disabled, since every row of it writes a document this surface does not own,
+  and the route to the editor is a row in the `⋯` menu named after the place it goes.
+  What is still the reader's is the reading: the order of the rows, folding the answer,
+  reading the SPARQL that runs, and editing the blocks the answer quotes — those belong
+  to the graph rather than to the question. Under the journal they sit *after* the append
+  zone, which keeps its whole reach, and nothing separates them from the writing but
+  that: each is already a bounded object on the canvas, and a heading over them would
+  name what their captions already name one at a time.
 - **Status slots.** Save, sync, live share one language: nothing when steady, a 5px dot
   after 600ms while working, a `--danger` dot with a plain-text reason on failure — each
   failure reported by exactly one surface.
@@ -615,6 +628,16 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   colour in the product, the accent's eight hue steps included — and nothing beside them, no
   slider: the accent is one of a handful of answers, not a quantity to tune. The accent has
   no preview of its own because the product behind the dialog is one.
+  **The journal's standing queries are a list of questions, not a form.** A row states the
+  question the way the journal will caption it and carries the same count the journal will
+  print beside the answer, so it too previews itself at the size it renders — a query whose
+  SPARQL is wrong says so here, where it can be fixed, and not only there. Its two entrances
+  are the outline's two in the same order, a built query and hand-written SPARQL, because a
+  second authoring grammar for one document is not a second feature. One editor is open at a
+  time: a builder is five rows tall, and eight of them turn a pane that scrolls into a pane
+  that only scrolls. Order is a menu row rather than a drag — at eight rows a drag buys
+  nothing a keyboard or a phone can use — and there is no switch for hiding one, because a
+  question you can delete and write again does not need a second state.
 - **Choice.** Every list of choices opens the same menu the bullet opens — never a native
   `<select>` or `<datalist>`. A trigger keeps the shape of a field and takes an accent ring
   while its popup is up, because that is the only thing that says which control on the line

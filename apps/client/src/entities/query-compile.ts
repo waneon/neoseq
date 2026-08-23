@@ -35,6 +35,13 @@ const ENTITY = "urn:neoseq:entity:";
 const XSD = "http://www.w3.org/2001/XMLSchema#";
 
 /** What a list column joins its members with, and what the renderer splits on. */
+/**
+ * The query profile the core reads, and the only one it accepts. It travels with
+ * every request and is stored in every query document, so it is named once here
+ * rather than restated by each surface that asks a question.
+ */
+export const QUERY_LANGUAGE = "sparql-1.1/neoseq-v1" as const;
+
 export const LIST_SEPARATOR = "\u001F";
 
 export interface PlanParameter {

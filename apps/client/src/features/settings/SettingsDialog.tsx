@@ -31,6 +31,7 @@ import { DUE_TIERS, type DueTier } from "../../entities/tasks";
 import { CalendarIcon } from "lucide-react";
 import { useConfiguredTimezone, useDueTiers } from "./preferences";
 import { AccentField } from "./AccentField";
+import { DefaultQueriesSection } from "./DefaultQueries";
 import { ToneChoice } from "./ToneChoice";
 import { Callout, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
@@ -83,11 +84,19 @@ const DUE_DAYS_FIELD = {
   upcoming: "upcomingDays",
 } as const satisfies Partial<Record<DueTier, keyof DueTierSettings>>;
 
+/**
+ * Where the open section lives. Any surface that has settings of its own points
+ * at them through this one parameter, so there is one way in and Back is always
+ * the way out.
+ */
+export const SETTINGS_PARAM = "settings";
+
 /** The two scopes, in the order the dialog lists them. Sections come from here. */
 const APP_SECTIONS = [
   "appearance",
   "language",
   "journal",
+  "queries",
   "tasks",
   "keyboard",
   "storage",
@@ -106,6 +115,7 @@ const SECTION_MESSAGE = {
   appearance: "settings.appearance",
   language: "language.label",
   journal: "settings.journal",
+  queries: "settings.defaultQueries",
   tasks: "settings.tasks",
   keyboard: "settings.keyboard",
   storage: "settings.storage",
@@ -164,6 +174,7 @@ export function SettingsDialog({
           {section === "appearance" && <AppearanceSection />}
           {section === "language" && <LanguageSection />}
           {section === "journal" && <JournalSection />}
+          {section === "queries" && <DefaultQueriesSection />}
           {section === "tasks" && <TasksSection />}
           {section === "keyboard" && <ShortcutEditor />}
           {section === "storage" && <StorageSection />}

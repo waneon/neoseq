@@ -106,6 +106,7 @@ import {
   SettingsDialog,
   isSettingsSection,
   type SettingsSection,
+  SETTINGS_PARAM,
 } from "../settings/SettingsDialog";
 import { SessionContext } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
@@ -128,7 +129,7 @@ declare global {
 }
 
 const RAIL_KEY = "neoseq.rail";
-const SETTINGS_PARAM = "settings";
+
 
 export function GraphShell() {
   const { graphId = "" } = useParams();

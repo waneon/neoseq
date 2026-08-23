@@ -15,6 +15,7 @@ import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/properties";
 import { useNotify } from "../notify/context";
 import { PageBody, Tombstone } from "../page/PageView";
+import { JournalQueries } from "./JournalQueries";
 import { useSession, useSessionState } from "../shell/session-context";
 
 export function JournalView() {
@@ -77,6 +78,12 @@ export function JournalView() {
   }
 
   const go = (target: string) => navigate(`/g/${graphId}/journal/${target}`);
+
+  // Standing questions belong to the day they are standing in: their relative
+  // operands resolve against the reader's real today, so asked from last March
+  // they would answer about now and caption themselves as if they were about
+  // March. Today's journal is the only day they are true on.
+  const foot = date === today ? <JournalQueries /> : null;
 
   // One title row. The heading is the date; the stepper is permanent; `Today`
   // appears only when the answer is not "today". The native date
@@ -152,10 +159,13 @@ export function JournalView() {
               ? message("journal.emptyReadonly")
               : message("journal.preparing")}
           </p>
+          {/* A read-only graph may never get today's page written at all, and the
+              answers do not depend on one existing. */}
+          {foot}
         </article>
       </div>
     );
   }
 
-  return <PageBody page={page} header={header} />;
+  return <PageBody page={page} header={header} foot={foot} />;
 }

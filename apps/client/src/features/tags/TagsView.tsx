@@ -436,7 +436,7 @@ function TagGroupSection({
                       onSelect={() => onPlaceGroup(name, index - 1)}
                     >
                       <ChevronUpIcon aria-hidden />
-                      {message("tags.moveUp")}
+                      {message("common.moveUp")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={last}
@@ -444,7 +444,7 @@ function TagGroupSection({
                       onSelect={() => onPlaceGroup(name, index + 2)}
                     >
                       <ChevronDownIcon aria-hidden />
-                      {message("tags.moveDown")}
+                      {message("common.moveDown")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -693,7 +693,7 @@ function TagRow({
               onSelect={() => onMove(-1)}
             >
               <ChevronUpIcon aria-hidden />
-              {message("tags.moveUp")}
+              {message("common.moveUp")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={!canMoveDown}
@@ -701,7 +701,7 @@ function TagRow({
               onSelect={() => onMove(1)}
             >
               <ChevronDownIcon aria-hidden />
-              {message("tags.moveDown")}
+              {message("common.moveDown")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

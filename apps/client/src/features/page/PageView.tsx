@@ -116,6 +116,7 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
 export function PageBody({
   page,
   header,
+  foot,
 }: {
   page: PageSnapshot;
   /**
@@ -124,6 +125,12 @@ export function PageBody({
    * pointer route on both surfaces without either view reaching for shell state.
    */
   header?: (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => ReactNode;
+  /**
+   * A second body under the writing — today's standing queries, and nothing else
+   * so far. It goes *after* the append zone, so the region under the last block
+   * keeps the whole of its reach as the add-a-block affordance.
+   */
+  foot?: ReactNode;
 }) {
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   const [propsOpen, setPropsOpen] = useState(false);
@@ -174,6 +181,7 @@ export function PageBody({
           blocks={page.blocks}
           scrollElement={scrollElement}
         />
+        {foot}
       </article>
     </div>
   );

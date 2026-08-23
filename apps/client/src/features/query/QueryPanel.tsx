@@ -19,11 +19,17 @@
 // arranges, and deletes. The document underneath is identical; only how much of
 // it the surface is allowed to state permanently differs.
 //
+// **A surface need not own the document it reads.** A journal's standing question
+// is written in Settings and lives in the browser, so it reaches here with no
+// owner at all: the answer, its order, and its verbs are the reader's, and every
+// edit that would change the *question* stops at the one write path below. What
+// stays writable is the graph — a result row is still the block it quotes.
+//
 // The surface owns its authoring and presentation state. The answer itself has a
 // graph-session lifetime: leaving the route or virtualizing the row that holds it
 // must not turn a result back into an empty first frame when it returns.
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -34,7 +40,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import type { QueryEntityRef } from "../../generated/core-port";
-import type { PropertyOwnerRef } from "../../core-port/commands";
+import type { Command, PropertyOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
   PropertyDocument,
@@ -58,7 +64,7 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
-import { compilePlan, planBindings } from "../../entities/query-compile";
+import { compilePlan, planBindings, QUERY_LANGUAGE } from "../../entities/query-compile";
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
@@ -75,7 +81,6 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
-import { failureReason } from "../notify/errors";
 import { diffSplice } from "../blocks/editor/text-diff";
 import { QueryBuilder } from "./QueryBuilder";
 import { QueryListView } from "./QueryListView";
@@ -84,20 +89,14 @@ import { QueryTableView } from "./QueryTableView";
 import { QueryViewTabs } from "./QueryViewTabs";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
-import {
-  queryExecutionSignature,
-  queryExecutionStore,
-  useQueryExecution,
-} from "./execution";
-import { columnLabel, viewLabel } from "./labels";
+import { useQueryAnswer } from "./execution";
+import { answerLabel, columnLabel, viewLabel } from "./labels";
 import { orderResultRows } from "./ordering";
 import {
   queryResultsAreOpen,
   rememberQueryResultsOpen,
 } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
-
-const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 
 /**
  * What an empty SPARQL editor shows instead of a blank box: the shape of the one
@@ -113,7 +112,6 @@ SELECT ?block ?text WHERE {
          neo:content ?text .
 }
 LIMIT 100`;
-const RUN_DEBOUNCE_MS = 300;
 const PLAN_SAVE_DEBOUNCE_MS = 600;
 
 const defaultOptions = (): QueryViewOptions => ({ compact: false, wrap: false, sort: [] });
@@ -134,8 +132,11 @@ const SEED_VIEWS: QueryView[] = [
 ];
 
 export interface QueryPanelProps {
-  /** Where the document is written. */
-  owner: PropertyOwnerRef;
+  /**
+   * Where the document is written — `null` when it is not written here. Stated
+   * rather than optional, so a new surface has to answer the question.
+   */
+  owner: PropertyOwnerRef | null;
   /** Stable identity for the cached answer — one per surface, not per render. */
   executionKey: string;
   /** The stored document, or `undefined` while the surface is still only a seed. */
@@ -149,6 +150,14 @@ export interface QueryPanelProps {
   variant: "inline" | "page";
   /** The section's accessible name. */
   label: string;
+  /**
+   * The name the reader gave this query, when they gave it one. It takes the
+   * caption's lead and the plan keeps the qualifier, so `Scheduled · Deadline is
+   * before tomorrow` is one sentence about one question.
+   */
+  caption?: string;
+  /** Rows this surface's host adds to the actions menu, above its own verbs. */
+  actions?: ReactNode;
   /** The block's own `Remove query`. A tag's query is part of the tag. */
   onRemove?: () => void;
 }
@@ -160,6 +169,8 @@ export function QueryPanel({
   seedPlan,
   variant,
   label,
+  caption,
+  actions,
   onRemove,
 }: QueryPanelProps) {
   const session = useSession();
@@ -168,6 +179,10 @@ export function QueryPanel({
   const history = useHistoryActions();
   const { message, formatJournalDate, compare } = useI18n();
   const readonly = state.mode === "readonly";
+  /** Whether the document is this surface's to show — an editor to open at all. */
+  const hosted = owner !== null;
+  /** …and whether it is this surface's to change. */
+  const writable = hosted && !readonly;
   const tabbed = variant === "page";
 
   const source = document?.source ?? "";
@@ -184,7 +199,9 @@ export function QueryPanel({
   // showing it the builder is the only honest first screen. Once a reader has
   // shaped it, reopening the page shows them the answer they shaped it for. Which
   // it is, is theirs from the first press — never re-derived under their hands.
-  const [editing, setEditing] = useState(() => unwritten(storedPlan ?? seedPlan ?? null, source));
+  const [editing, setEditing] = useState(
+    () => owner !== null && unwritten(storedPlan ?? seedPlan ?? null, source),
+  );
   const [showSource, setShowSource] = useState(false);
   // Reading is never read-only. Without a document to write the order into, it
   // lives here for as long as the surface is mounted — and it has to live *here*
@@ -215,106 +232,46 @@ export function QueryPanel({
     () => (compiled ? planBindings(compiled.parameters, runtime) : {}),
     [compiled, runtime],
   );
-  const executionStore = queryExecutionStore(session);
   const outputId = useId();
   const [resultsOpen, setResultsOpen] = useState(
     () => queryResultsAreOpen(session, executionKey),
   );
-  const executionRequest = useMemo(() => ({
-    language: document?.language ?? LANGUAGE,
+  const request = useMemo(() => ({
+    language: document?.language ?? QUERY_LANGUAGE,
     source: runSource,
     bindings: runBindings,
   }), [document?.language, runBindings, runSource]);
-  const executionSignature = useMemo(
-    () => queryExecutionSignature(executionRequest),
-    [executionRequest],
-  );
-  const execution = useQueryExecution(
-    executionStore,
-    executionKey,
-    executionSignature,
-    state.canonicalRevision,
-  );
-  const executable = runSource.trim().length > 0;
-  const result = executable ? execution.result : null;
-  const error = executable && execution.error !== null
-    ? failureReason(execution.error, message)
-    : null;
-  const loading = executable && execution.loading;
-  const run = useCallback((force = false) => {
-    // A blank source is a query the user has not written yet, not a parse
-    // failure — it stays quietly at "not run" instead of opening on an error.
-    if (!executable) {
-      executionStore.clear(executionKey);
-      return;
-    }
-    void executionStore.run(
-      executionKey,
-      executionSignature,
-      state.canonicalRevision,
-      executionRequest,
-      { force },
-    );
-  }, [
-    executable,
-    executionKey,
-    executionRequest,
-    executionSignature,
-    executionStore,
-    state.canonicalRevision,
-  ]);
-  const previousExecution = useRef<{ owner: string; identity: string } | null>(null);
+  const { result, error, loading, run } = useQueryAnswer(executionKey, request);
 
-  useEffect(() => {
-    const identity = JSON.stringify([executionSignature, state.canonicalRevision]);
-    const previous = previousExecution.current;
-    previousExecution.current = { owner: executionKey, identity };
-    if (!executable) {
-      executionStore.clear(executionKey);
-      return;
-    }
-    // Activation is a demand read: a fresh cached answer renders synchronously,
-    // while a missing or stale one starts immediately. Only a change observed by
-    // an already-mounted query is a stream worth coalescing.
-    if (!previous || previous.owner !== executionKey) {
-      run();
-      return;
-    }
-    // StrictMode repeats an effect setup without changing its input. The store
-    // also deduplicates in-flight work, but avoiding the timer makes the intent
-    // explicit and keeps a failed activation from becoming an automatic retry.
-    if (previous.identity === identity) return;
-    const timer = window.setTimeout(run, RUN_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    executable,
-    executionKey,
-    executionSignature,
-    executionStore,
-    run,
-    state.canonicalRevision,
-  ]);
+  /**
+   * The document's one write path, and the one place a surface that does not own
+   * it stops. A journal's standing question is read here and written in Settings,
+   * so every command below is a no-op for it rather than a guard repeated at nine
+   * call sites — and a read-only graph is refused in the same place.
+   */
+  const write = (command: (target: PropertyOwnerRef) => Command): Promise<void> =>
+    owner && !readonly
+      ? session.execute(command(owner)).then(() => undefined)
+      : Promise.resolve();
 
   // One command per pause in the editing, never one per keystroke — and never
   // one at all for a seed nobody has touched, which is what lets a tag page be
   // opened, read, and left without writing anything.
   useEffect(() => {
-    if (!plan || !compiled || readonly || !shaped.current) return;
+    if (!plan || !compiled || !writable || !shaped.current) return;
     const payload = encodePlan(plan);
     if (payload === storedPayload) return;
     const timer = window.setTimeout(() => {
-      void session
-        .execute({
-          type: "set_query_plan",
-          owner,
-          plan: { version: QUERY_PLAN_VERSION, payload },
-          source: compiled.source,
-        })
-        .catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause));
+      void write((target) => ({
+        type: "set_query_plan",
+        owner: target,
+        plan: { version: QUERY_PLAN_VERSION, payload },
+        source: compiled.source,
+      })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause));
     }, PLAN_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, compiled, storedPayload, readonly, session]);
+  }, [plan, compiled, storedPayload, writable, session]);
 
   // Both derived once, not once per render: a canonical revision re-renders every
   // mounted query, and the table rebuilds its column models whenever either of
@@ -338,7 +295,7 @@ export function QueryPanel({
   });
 
   const views = document?.views ?? SEED_VIEWS;
-  const preferredViewId = (readonly ? localViewId : null)
+  const preferredViewId = (writable ? null : localViewId)
     ?? document?.default_view_id
     ?? views[0].id;
   const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
@@ -388,12 +345,12 @@ export function QueryPanel({
     state.status,
   ]);
   const sorts = useMemo(() => {
-    const stored = readonly ? localSorts : (activeView.options.sort ?? []);
+    const stored = writable ? (activeView.options.sort ?? []) : localSorts;
     const orderableVariables = new Set(
       columns.filter((column) => column.sortable).map((column) => column.variable),
     );
     return stored.filter((sort) => orderableVariables.has(sort.variable));
-  }, [activeView.options.sort, columns, localSorts, readonly]);
+  }, [activeView.options.sort, columns, localSorts, writable]);
   const activeOrigin = resultEditor.active?.origin.row;
   const activeRowPresent = activeOrigin
     ? resultRows.some((row) => row.key === activeOrigin.key)
@@ -410,12 +367,17 @@ export function QueryPanel({
   );
 
   // The caption follows the plan in hand, not the saved one, so the phrase tracks
-  // the builder keystroke for keystroke and is already true when it closes.
+  // the builder keystroke for keystroke and is already true when it closes. A name
+  // the reader typed takes the lead and leaves the plan its qualifier: `Scheduled`
+  // is what they call this question, `Deadline is before tomorrow` is what it asks.
   const summary = useMemo<QuerySummary>(
-    () => (plan
-      ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
-      : { lead: "SPARQL", detail: null }),
-    [plan, state.snapshot, message, formatJournalDate],
+    () => {
+      const derived = plan
+        ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
+        : { lead: "SPARQL", detail: null };
+      return caption ? { lead: caption, detail: derived.detail } : derived;
+    },
+    [caption, plan, state.snapshot, message, formatJournalDate],
   );
 
   if (!document && !seedPlan) return null;
@@ -425,7 +387,8 @@ export function QueryPanel({
   const commitSource = async () => {
     const splice = diffSplice(source, draft);
     if (!splice) return;
-    await session.execute({ type: "splice_query_source", owner, ...splice }).catch(report);
+    await write((target) => ({ type: "splice_query_source", owner: target, ...splice }))
+      .catch(report);
   };
 
   /**
@@ -436,30 +399,30 @@ export function QueryPanel({
   const materialize = async () => {
     if (document || !plan || !compiled) return;
     shaped.current = true;
-    await session.execute({
+    await write((target) => ({
       type: "set_query_plan",
-      owner,
+      owner: target,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
       source: compiled.source,
-    });
+    }));
   };
 
   const selectView = (viewId: string) => {
     if (viewId === activeView.id) return;
-    if (readonly) {
+    if (!writable) {
       setLocalViewId(viewId);
       return;
     }
     void (async () => {
       await materialize();
-      await session.execute({ type: "set_query_default_view", owner, view_id: viewId });
+      await write((target) => ({ type: "set_query_default_view", owner: target, view_id: viewId }));
     })().catch(report);
   };
 
   const putView = async (next: QueryView): Promise<boolean> => {
     try {
       await materialize();
-      await session.execute({ type: "put_query_view", owner, view: next });
+      await write((target) => ({ type: "put_query_view", owner: target, view: next }));
       return true;
     } catch (cause) {
       report(cause);
@@ -477,12 +440,12 @@ export function QueryPanel({
     const position = views.reduce((highest, view) => Math.max(highest, view.position), -1) + 1;
     void (async () => {
       await materialize();
-      await session.execute({
+      await write((target) => ({
         type: "put_query_view",
-        owner,
+        owner: target,
         view: { id, name, kind, position, columns: [], options: defaultOptions() },
-      });
-      await session.execute({ type: "set_query_default_view", owner, view_id: id });
+      }));
+      await write((target) => ({ type: "set_query_default_view", owner: target, view_id: id }));
     })().catch(report);
   };
 
@@ -495,12 +458,12 @@ export function QueryPanel({
     const position = views.reduce((highest, item) => Math.max(highest, item.position), -1) + 1;
     void (async () => {
       await materialize();
-      await session.execute({
+      await write((target) => ({
         type: "put_query_view",
-        owner,
+        owner: target,
         view: { ...view, id, name, position },
-      });
-      await session.execute({ type: "set_query_default_view", owner, view_id: id });
+      }));
+      await write((target) => ({ type: "set_query_default_view", owner: target, view_id: id }));
     })().catch(report);
   };
 
@@ -518,7 +481,7 @@ export function QueryPanel({
     if (views.length <= 1) return;
     void (async () => {
       await materialize();
-      await session.execute({ type: "remove_query_view", owner, view_id: view.id });
+      await write((target) => ({ type: "remove_query_view", owner: target, view_id: view.id }));
     })().catch(report);
   };
 
@@ -534,7 +497,7 @@ export function QueryPanel({
       await Promise.all(next.flatMap((view, position) => (
         view.position === position
           ? []
-          : [session.execute({ type: "put_query_view", owner, view: { ...view, position } })]
+          : [write((target) => ({ type: "put_query_view", owner: target, view: { ...view, position } }))]
       )));
     })().catch(report);
   };
@@ -567,8 +530,8 @@ export function QueryPanel({
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
   const setSorts = (next: QueryViewSort[]) => {
-    if (readonly) setLocalSorts(next);
-    else void putView({ ...activeView, options: { ...activeView.options, sort: next } });
+    if (writable) void putView({ ...activeView, options: { ...activeView.options, sort: next } });
+    else setLocalSorts(next);
   };
 
   const moveColumn = (variable: string, delta: -1 | 1) => {
@@ -601,15 +564,7 @@ export function QueryPanel({
   const setOption = (patch: Partial<QueryView["options"]>) =>
     putView({ ...activeView, options: { ...activeView.options, ...patch } });
 
-  const resultLabel = error
-    ? message("query.failed")
-    : select
-      ? message("query.results", { count: visibleRows.length })
-      : loading
-        ? message("query.running")
-        : result?.kind === "ask"
-          ? message("query.answer")
-          : null;
+  const resultLabel = answerLabel({ result, error, loading, run }, visibleRows.length, message);
   const resultCanCollapse = Boolean(
     error
     || result?.kind === "ask"
@@ -741,23 +696,38 @@ export function QueryPanel({
         {/* The sentence *is* the disclosure. A query whose caption reads
             `Blocks · Status is Done` needs no `Edit` button beside it: the phrase
             names the thing it opens, which is the one permanent pointer route in
-            (§ Disclosure) and the reason the two menus may be revealed. */}
-        <button
-          type="button"
-          className="query-summary"
-          aria-expanded={editing}
-          aria-label={summaryLabel(summary)}
-          data-testid="query-summary"
-          onClick={() => setEditing((open) => !open)}
-        >
-          {/* A swap, not a rotation: § Motion allows no transform animation on
-              anything a pointer must hit or an audit must read. */}
-          {editing ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
-          <span className="query-summary-lead">{summary.lead}</span>
-          {summary.detail && (
-            <span className="query-summary-detail">{summary.detail}</span>
-          )}
-        </button>
+            (§ Disclosure) and the reason the two menus may be revealed.
+
+            Where the document is not this surface's, the same phrase is a caption
+            and only that — no chevron, nothing to press. A control that opens an
+            editor for a question written somewhere else would be a promise the
+            surface cannot keep; the route to the editor is a row in the `⋯` menu,
+            named after the place it goes. */}
+        {hosted ? (
+          <button
+            type="button"
+            className="query-summary"
+            aria-expanded={editing}
+            aria-label={summaryLabel(summary)}
+            data-testid="query-summary"
+            onClick={() => setEditing((open) => !open)}
+          >
+            {/* A swap, not a rotation: § Motion allows no transform animation on
+                anything a pointer must hit or an audit must read. */}
+            {editing ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
+            <span className="query-summary-lead">{summary.lead}</span>
+            {summary.detail && (
+              <span className="query-summary-detail">{summary.detail}</span>
+            )}
+          </button>
+        ) : (
+          <span className="query-summary" data-static data-testid="query-summary">
+            <span className="query-summary-lead">{summary.lead}</span>
+            {summary.detail && (
+              <span className="query-summary-detail">{summary.detail}</span>
+            )}
+          </span>
+        )}
 
         {/* How much it found — the one fact about a result that is not in the
             result. On the first run there is nothing to count yet and it says so;
@@ -796,7 +766,12 @@ export function QueryPanel({
           {columns.some((column) => column.sortable) && (
             <QuerySortControl columns={visible} sorts={sorts} onChange={setSorts} />
           )}
-          {!tabbed && (
+          {/* Everything in it writes the document, so it is absent where the
+              document is not writable rather than parked there disabled: § Do /
+              Don't keeps a control that cannot act off the surface. The one thing
+              a reader may still change — the order — is its own control, and it
+              keeps its own local answer. */}
+          {!tabbed && writable && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 {/* The header controls are the bespoke 24px icon-btn, not a shadcn
@@ -805,7 +780,6 @@ export function QueryPanel({
                 <button
                   type="button"
                   className="icon-btn"
-                  disabled={readonly}
                   // The menu is wider than the view it opens on, so the name is the
                   // whole question it answers, not just its first group.
                   aria-label={message("query.display")}
@@ -848,17 +822,25 @@ export function QueryPanel({
                 thing that already happens. Neither is the index revision: it is
                 a diagnostic, and `data-revision` is where a diagnostic goes. */}
             <DropdownMenuContent align="end">
+              {/* The host's own rows come first: where this surface only reads the
+                  document, the route to the place that writes it is the verb the
+                  reader came to the menu for. */}
+              {actions}
               {/* In source mode the SPARQL is already the editor, so there is
-                  nothing to disclose. */}
-              {plan && (
-                <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
-                  <CodeIcon aria-hidden />
-                  {showSource ? message("query.hideSource") : message("query.showSource")}
-                </DropdownMenuItem>
+                  nothing to disclose — unless the editor is somewhere else, and
+                  then this is the only way to read what actually runs. */}
+              {(plan || !hosted) && (
+                <>
+                  {actions && <DropdownMenuSeparator />}
+                  <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
+                    <CodeIcon aria-hidden />
+                    {showSource ? message("query.hideSource") : message("query.showSource")}
+                  </DropdownMenuItem>
+                </>
               )}
               {onRemove && (
                 <>
-                  {plan && <DropdownMenuSeparator />}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" disabled={readonly} onSelect={onRemove}>
                     <Trash2Icon aria-hidden />
                     {message("query.remove")}
@@ -884,7 +866,7 @@ export function QueryPanel({
         <textarea
           className="query-source"
           value={draft}
-          readOnly={readonly}
+          readOnly={!writable}
           spellCheck={false}
           placeholder={SOURCE_PLACEHOLDER}
           aria-label={message("query.source")}
@@ -899,9 +881,11 @@ export function QueryPanel({
         />
       ))}
 
-      {plan && showSource && (
+      {/* What actually runs: the plan's compilation, or the hand-written source
+          of a query whose editor is not on this surface. */}
+      {showSource && (
         <pre className="query-compiled" data-testid="query-compiled">
-          <code>{compiled?.source}</code>
+          <code>{runSource}</code>
         </pre>
       )}
 
@@ -936,12 +920,12 @@ export function QueryPanel({
             wrap={activeView.options.wrap}
             sorts={sorts}
             onSort={setSorts}
-            onResize={readonly
-              ? undefined
-              : (variable, width) => setColumn(variable, { width: width || null })}
-            onHide={readonly ? undefined : (variable) => setColumn(variable, { hidden: true })}
-            onMove={readonly ? undefined : moveColumn}
-            onReorder={readonly ? undefined : reorderColumns}
+            onResize={writable
+              ? (variable, width) => setColumn(variable, { width: width || null })
+              : undefined}
+            onHide={writable ? (variable) => setColumn(variable, { hidden: true }) : undefined}
+            onMove={writable ? moveColumn : undefined}
+            onReorder={writable ? reorderColumns : undefined}
           />
         )}
         {!error && select && visibleRows.length > 0 && activeView.kind === "list" && (

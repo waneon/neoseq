@@ -7,6 +7,7 @@
 
 import type { QueryView } from "../../core-port/snapshot";
 import type { MessageFunction } from "../../i18n";
+import type { QueryAnswer } from "./execution";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { propertyDisplayName } from "../properties/property-display";
 import { priorityLabel, statusLabel } from "../tasks/labels";
@@ -156,4 +157,27 @@ export function relativeDateLabel(id: string, message: MessageFunction): string 
     | "query.relative.nextWeekStart"
     | "query.relative.monthStart"
     | "query.relative.nextMonthStart");
+}
+
+/**
+ * How much an answer found — the one fact about a result that is not in the
+ * result, and the same phrase wherever it is stated: over the answer in the
+ * journal, and beside the editor in Settings.
+ *
+ * `rows` is the count the surface actually renders, which is not always the count
+ * the query returned: a table pins a row whose own edit made it stop matching.
+ * `null` means "however many came back".
+ */
+export function answerLabel(
+  { result, error, loading }: QueryAnswer,
+  rows: number | null,
+  message: MessageFunction,
+): string | null {
+  if (error) return message("query.failed");
+  if (result?.kind === "select") {
+    return message("query.results", { count: rows ?? result.rows.length });
+  }
+  if (loading) return message("query.running");
+  if (result?.kind === "ask") return message("query.answer");
+  return null;
 }

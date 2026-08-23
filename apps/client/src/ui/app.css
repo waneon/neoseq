@@ -2068,6 +2068,32 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-sm);
 }
 
+/* ── The day's standing questions ──
+   The answers a reader looks for every day, under the day they are looking at.
+   They sit *after* the append zone, which keeps the whole of its reach as the
+   add-a-block affordance: this is a second body under the writing, not chrome
+   parked at the end of it (§ Do / Don't).
+
+   Nothing separates them from the writing but the append zone's own 40vh, and
+   nothing needs to: each one is already a bounded object on the canvas with a
+   hairline round it, which is what a query surface *is*. A heading over them
+   would name a thing the captions already name, one at a time.
+
+   The bottom margin is the page's, because `.page-body` has none — the append
+   zone used to be the last thing on it. */
+.journal-queries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-7);
+}
+
+/* Each panel already carries the gap above; here the flex gap owns it, so the
+   run reads as evenly spaced objects rather than as one with a wider collar. */
+.journal-queries > .query-block {
+  margin: 0;
+}
+
 .page-info {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -3735,6 +3761,28 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+/* The same phrase where there is nothing behind it to open: a caption, not a
+   control. It keeps the sentence — type, ink, and the middot between its halves —
+   and gives up every affordance, because the editor for a question written
+   somewhere else is reached from the `⋯` menu that names the place. The chevron's
+   slot goes back to the text, which then starts at the panel's own inset. */
+.query-summary[data-static] {
+  padding-left: var(--sp-2);
+  cursor: default;
+}
+
+.query-summary[data-static]:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+/* A count that failed says so in the one tone a failure has, wherever the count
+   is stated — over the answer, or beside the editor that wrote the question. */
+.query-count[data-state="error"] {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .query-results-toggle {
@@ -7908,6 +7956,91 @@ button.tag-mark:focus-visible {
   .due-tier > .color-choice {
     grid-column: 1;
   }
+}
+
+/* ── The day's standing questions, where they are written ──
+   A list of *questions*, so a row is one question: what it is called, how much it
+   currently finds, and its own verbs. The count is the same chip the journal
+   prints beside the same answer, which makes the row a preview at the size it
+   will render — the thing every other choice in this dialog owes the reader.
+
+   Rows are bounded objects rather than bands separated by rules: each one holds a
+   field and an editor that opens under it, and a hairline between two of those is
+   not enough to say where one stopped. `--surface-1` inside a dialog that is
+   already `--overlay` is the one step available, so the hairline closes it
+   (§ Depth & Shape — luminance separates, a hairline closes). */
+.default-queries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.default-query {
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--thread);
+}
+
+/* One row, four slots: the disclosure, the name, the count, the menu. The name
+   is the only one that gives, because it is the only one whose width is the
+   reader's. */
+.default-query-head {
+  display: grid;
+  grid-template-columns: var(--target) minmax(0, 1fr) max-content var(--target);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+}
+
+/* The editor, under the row it belongs to. The seam is what says the two are one
+   object with a lid rather than two stacked ones — the same hairline the panel
+   itself is closed with, so no new line enters the product for this. */
+.default-query-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-2);
+  border-top: 1px solid var(--thread);
+}
+
+/* The builder is written for a query surface, where it sits inside a panel of its
+   own. Here the row *is* that panel, so it gives up its own ground and keeps only
+   its rows. */
+.default-query-body > .query-builder {
+  padding: 0;
+  background: none;
+  /* Its own two hairlines would land on top of the seam above it and the row's
+     own closing line below — three lines where the object has two edges. */
+  box-shadow: none;
+}
+
+.default-query-body > .query-source {
+  border-radius: var(--r-2);
+}
+
+/* `Show as [List | Table]` is a label and its control on one line, at the
+   segmented track's own height — not a stacked field, which would put a form in
+   the middle of a list of questions. */
+.default-query-layout {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.default-query-layout .field-label {
+  margin-bottom: 0;
+}
+
+/* The empty state is the action, so the two entrances are the section's floor
+   rather than a row that appears once something else exists. They are the two the
+   outline's `/` offers, in the same order and for the same reason. */
+.default-query-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
 }
 
 /* A field in the dialog fills its pane. The 360px reading width was tuned for a

@@ -185,7 +185,10 @@ specialized controls without becoming a schema authority:
   page: the generic property route never offers it, so a query is never
   half-created by a picker. A tag's query needs no authoring step at all; the tag
   page seeds a plan that asks what the tag is for and writes nothing until a
-  reader shapes it;
+  reader shapes it. The same surface serves a third ground it does not own: a
+  reader's standing journal queries are browser-local preferences that produce the
+  same document, so they arrive with no owner, every write stops at that boundary,
+  and `features/settings/` is their one editor;
 - `builtin.task-*` provides workflow, priority, moment, and recurrence controls. A
   moment is a `date` key plus an optional `HH:MM` companion key
   (`builtin.task-scheduled-time`, `builtin.task-deadline-time`), so the day stays a
@@ -291,8 +294,9 @@ actions are domain commands, app navigation, or narrow context interfaces—not 
 shared mutable graph store.
 
 `entities/settings.ts` owns the browser-local preference blob: appearance,
-locale, journal timezone/date format, shortcut overrides, and the presentation
-preferences that tint the outline thread and the task moment chips. Graph display
+locale, journal timezone/date format, shortcut overrides, the presentation
+preferences that tint the outline thread and the task moment chips, and the
+standing queries a reader keeps under today's journal. Graph display
 names belong to the browser graph directory; graph content and metadata belong
 to the core.
 

@@ -13,6 +13,7 @@
 // hue for why that one is safe (DESIGN.md § Colour).
 
 import { useSyncExternalStore } from "react";
+import { defaultQueries, type DefaultQuery } from "../../entities/default-queries";
 import {
   appSettings,
   dueTiers,
@@ -55,4 +56,29 @@ function dueTiersSnapshot(): DueTierSettings {
 
 export function useDueTiers(): DueTierSettings {
   return useSyncExternalStore(subscribeAppSettings, dueTiersSnapshot, dueTiersSnapshot);
+}
+
+/**
+ * The standing journal questions, memoized the same way and for the same reason:
+ * the list is rebuilt from the stored blob on every read — repaired, bounded,
+ * and freshly allocated — so only the blob's own identity may key it.
+ */
+let queriesCacheKey: object | null = null;
+let queriesCache: DefaultQuery[] | null = null;
+
+function defaultQueriesSnapshot(): DefaultQuery[] {
+  const key = appSettings();
+  if (queriesCacheKey !== key || !queriesCache) {
+    queriesCacheKey = key;
+    queriesCache = defaultQueries();
+  }
+  return queriesCache;
+}
+
+export function useDefaultQueries(): DefaultQuery[] {
+  return useSyncExternalStore(
+    subscribeAppSettings,
+    defaultQueriesSnapshot,
+    defaultQueriesSnapshot,
+  );
 }

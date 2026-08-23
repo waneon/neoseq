@@ -8,6 +8,8 @@
 // parsed snapshot, so it can also publish changes — which is what a live
 // journal-date-format or shortcut edit needs.
 
+import type { DefaultQuery } from "./default-queries";
+
 export type JournalDateFormat = "full" | "long" | "medium" | "short" | "iso";
 
 export type EditorKeymap = "standard" | "vim";
@@ -81,6 +83,12 @@ export interface AppSettings {
   editorKeymap?: EditorKeymap;
   /** Day thresholds and tones for the scheduled/deadline tint. */
   dueTiers?: Partial<DueTierSettings>;
+  /**
+   * The standing questions rendered under today's journal, in their own order.
+   * A type-only import, so the entity that owns their shape and their repair can
+   * read and write this blob without this module knowing anything about queries.
+   */
+  defaultQueries?: DefaultQuery[];
 }
 
 const STORAGE_KEY = "neoseq.settings.v1";

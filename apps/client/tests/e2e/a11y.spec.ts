@@ -193,6 +193,23 @@ test("the task settings section passes the basic audit", async ({ page }) => {
   expect(await audit(page)).toEqual([]);
 });
 
+test("a journal's standing questions pass the basic audit, written and read", async ({ page }) => {
+  await createGraph(page, "A11y Default Queries");
+  await openSettings(page, "queries");
+  // Two rows, one open: the collapsed head and the builder under it are the two
+  // shapes this section has, and the audit should see both at once.
+  await page.getByTestId("add-default-sparql").click();
+  await page.getByTestId("add-default-query").click();
+  await expect(page.getByTestId("query-builder")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+
+  // And the answer under the day, where the caption is a caption and the only
+  // verbs are the reader's.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("journal-queries")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+});
+
 test("settings passes the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Settings");
   await openSettings(page);

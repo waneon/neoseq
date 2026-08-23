@@ -1,9 +1,15 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { GraphSession } from "../../core-port/session";
 import type {
   SparqlQueryRequest,
   SparqlQueryResult,
 } from "../../generated/core-port";
+import { useI18n } from "../../i18n";
+import { failureReason } from "../notify/errors";
+import { useSession, useSessionState } from "../shell/session-context";
+
+/** How long a change to a mounted query waits before it runs again. */
+const RUN_DEBOUNCE_MS = 300;
 
 /**
  * Query answers outlive their mounted renderer, but never their graph session.
@@ -220,4 +226,79 @@ function canonical(value: unknown): unknown {
       .map((key) => [key, canonical((value as Record<string, unknown>)[key])]);
   }
   return value;
+}
+
+/**
+ * One answer, kept current.
+ *
+ * Every surface that asks the graph a question wants the same four things and
+ * the same timing: a cached answer painted synchronously, a missing one fetched
+ * at once, a changed one coalesced, and the failure read into the reader's own
+ * language. The query surface and the editor that authors a standing journal
+ * question share this so the count under a journal and the count beside its
+ * editor are the same execution rather than two of them.
+ *
+ * `request` must be memoized by the caller: it is the query's identity here.
+ */
+export interface QueryAnswer {
+  result: SparqlQueryResult | null;
+  /** The failure, already read into words. */
+  error: string | null;
+  loading: boolean;
+  /** Runs it now, past the debounce — what `Mod+Enter` in a source editor does. */
+  run: (force?: boolean) => void;
+}
+
+export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryAnswer {
+  const session = useSession();
+  const state = useSessionState();
+  const { message } = useI18n();
+  const store = queryExecutionStore(session);
+  const revision = state.canonicalRevision;
+  const signature = useMemo(() => queryExecutionSignature(request), [request]);
+  // A blank source is a query nobody has written yet, not a parse failure — it
+  // stays quietly at "not run" instead of opening on an error.
+  const executable = request.source.trim().length > 0;
+
+  const snapshot = useQueryExecution(store, key, signature, revision);
+  const run = useCallback((force = false) => {
+    if (!executable) {
+      store.clear(key);
+      return;
+    }
+    void store.run(key, signature, revision, request, { force });
+  }, [executable, key, request, revision, signature, store]);
+
+  const previous = useRef<{ key: string; identity: string } | null>(null);
+  useEffect(() => {
+    const identity = JSON.stringify([signature, revision]);
+    const last = previous.current;
+    previous.current = { key, identity };
+    if (!executable) {
+      store.clear(key);
+      return;
+    }
+    // Activation is a demand read: a fresh cached answer renders synchronously,
+    // while a missing or stale one starts immediately. Only a change observed by
+    // an already-mounted query is a stream worth coalescing.
+    if (!last || last.key !== key) {
+      run();
+      return;
+    }
+    // StrictMode repeats an effect setup without changing its input. The store
+    // also deduplicates in-flight work, but avoiding the timer makes the intent
+    // explicit and keeps a failed activation from becoming an automatic retry.
+    if (last.identity === identity) return;
+    const timer = window.setTimeout(run, RUN_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [executable, key, revision, run, signature, store]);
+
+  return {
+    result: executable ? snapshot.result : null,
+    error: executable && snapshot.error !== null
+      ? failureReason(snapshot.error, message)
+      : null,
+    loading: executable && snapshot.loading,
+    run,
+  };
 }

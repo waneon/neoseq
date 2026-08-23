@@ -77,6 +77,8 @@ export interface MessageArgumentMap {
   "common.close": undefined;
   "common.copied": undefined;
   "common.deleteForever": undefined;
+  "common.moveDown": undefined;
+  "common.moveUp": undefined;
   "common.no": undefined;
   "common.page": undefined;
   "common.rename": undefined;
@@ -459,6 +461,8 @@ export interface MessageArgumentMap {
   "save.storageFull": undefined;
   "settings.accent": undefined;
   "settings.accentDescription": undefined;
+  "settings.addDefaultQuery": undefined;
+  "settings.addDefaultSparql": undefined;
   "settings.appearance": undefined;
   "settings.appearanceDescription": undefined;
   "settings.backend": undefined;
@@ -471,6 +475,12 @@ export interface MessageArgumentMap {
   "settings.dateFormatMedium": undefined;
   "settings.dateFormatOption": { readonly "example": string | number; readonly "label": string | number };
   "settings.dateFormatShort": undefined;
+  "settings.defaultQueries": undefined;
+  "settings.defaultQueriesDescription": undefined;
+  "settings.defaultQueryActions": { readonly "name": string | number };
+  "settings.defaultQueryLayout": undefined;
+  "settings.defaultQueryLimit": { readonly "count": string | number };
+  "settings.defaultQueryName": undefined;
   "settings.deleteDescription": undefined;
   "settings.deleteGraph": undefined;
   "settings.dueToneFor": { readonly "tier": string | number };
@@ -478,6 +488,8 @@ export interface MessageArgumentMap {
   "settings.dueWithinDays": { readonly "tier": string | number };
   "settings.dueWithinLead": undefined;
   "settings.dueWithinTrail": undefined;
+  "settings.editDefaultQueries": undefined;
+  "settings.editDefaultQuery": { readonly "name": string | number };
   "settings.editorKeymap": undefined;
   "settings.editorKeymapDescription": undefined;
   "settings.editorKeymapStandard": undefined;
@@ -495,6 +507,7 @@ export interface MessageArgumentMap {
   "settings.persistentStorage": undefined;
   "settings.quarantined": { readonly "records": string | number };
   "settings.quota": undefined;
+  "settings.removeDefaultQuery": undefined;
   "settings.requestPersistence": undefined;
   "settings.restoreDefaults": undefined;
   "settings.saveState": undefined;
@@ -643,8 +656,6 @@ export interface MessageArgumentMap {
   "tags.menuLabel": undefined;
   "tags.missing": undefined;
   "tags.missingDetail": undefined;
-  "tags.moveDown": undefined;
-  "tags.moveUp": undefined;
   "tags.name": undefined;
   "tags.namePlaceholder": undefined;
   "tags.new": undefined;
