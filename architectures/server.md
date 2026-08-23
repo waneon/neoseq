@@ -38,6 +38,11 @@ It is created single-flight on demand from the current checkpoint plus its
 update tail and can be discarded at any time. V1 is a single-process,
 single-region service; horizontal fan-out has no broker yet.
 
+The server writes document schema v2. A stored v1 graph is migrated during
+single-flight room reconstruction, installed as a new checkpoint/history epoch,
+and reopened from that checkpoint before the room accepts writes. Other schema
+versions are rejected.
+
 The authenticated HTTP surface creates and lists graphs and lets an owner list,
 grant, or revoke memberships. Browser WebSockets carry the bearer credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
@@ -111,9 +116,11 @@ Graph creation stores an initial verified checkpoint and the room always loads
 the pointed Base before its durable Tail. After 256 Tail records or 1 MiB, the
 room exports a shallow checkpoint at its current cursor. One PostgreSQL
 transaction inserts the new Base, copies covered message identities to compact
-receipts, deletes covered update payloads and older checkpoints, advances the
-graph pointer and `history_epoch`, and recomputes used bytes. The in-memory room
-then adopts the same Base and asks connected replicas to reconnect.
+receipts, advances the graph pointer and `history_epoch`, and recomputes used
+bytes. It retains the pointed Base, its immediate predecessor, and the Tail
+needed to reconstruct from that predecessor. The next successful rotation
+deletes the superseded Base and its now-unneeded Tail generation. The in-memory
+room then adopts the new Base and asks connected replicas to reconnect.
 
 A replica on the current epoch normally receives a version-vector delta. A
 replica on an older epoch—or one whose delta cannot be represented within the
@@ -167,8 +174,9 @@ rejected frames, slow consumers, and room reconstruction count.
 - Envelope tests cover malformed/version/size failures, and Loro import tests
   cover malformed and reconstructed-size limits.
 - Restore tests build rooms from logical backups, checkpoints, and update tails.
-- Epoch tests verify physical Tail reclamation, replacement checkpoints, stale
-  update rejection, and duplicate acknowledgement from compact receipts.
+- Epoch tests verify one-generation checkpoint/Tail retention and reclamation,
+  replacement checkpoints, stale update rejection, and duplicate
+  acknowledgement from compact receipts.
 
 The differential exchange follows Loro's documented
 [version-vector synchronization model](https://www.loro.dev/docs/tutorial/sync).

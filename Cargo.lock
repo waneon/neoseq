@@ -2782,6 +2782,7 @@ dependencies = [
  "hmac",
  "http-body-util",
  "serde",
+ "serde_json",
  "sha2",
  "sqlx",
  "sync-protocol",

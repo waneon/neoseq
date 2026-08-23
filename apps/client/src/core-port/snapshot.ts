@@ -137,7 +137,7 @@ export interface GraphSnapshot {
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 1,
+  schema_version: 2,
   graph_id: "",
   pages: [],
   tags: [],

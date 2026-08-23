@@ -1,8 +1,60 @@
 mod support;
 
+use std::sync::Arc;
 use support::*;
 use sync_protocol::Limits;
-use sync_server::{GraphStore, RoomConfig};
+use sync_server::{GraphStore, MemoryStore, Metrics, RoomConfig, RoomManager};
+
+#[tokio::test]
+async fn schema_v1_fixture_migrates_before_the_room_accepts_writes() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/compatibility/schema-v1-basic.json"
+    ))
+    .unwrap();
+    let graph_id = fixture["graph_id"].as_str().unwrap();
+    let snapshot = hex::decode(fixture["snapshot_hex"].as_str().unwrap()).unwrap();
+    let store = Arc::new(MemoryStore::new());
+    store.seed_graph(
+        graph_id,
+        OWNER,
+        1,
+        8 * 1024 * 1024,
+        snapshot,
+        graph_core::empty_version_vector(),
+    );
+    let manager = RoomManager::new(
+        store.clone(),
+        RoomConfig::default(),
+        Arc::new(Metrics::default()),
+    );
+
+    let opened = manager
+        .open_replica(
+            graph_id,
+            "migrating-client",
+            OWNER,
+            22,
+            0,
+            &graph_core::empty_version_vector(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.welcome.schema, graph_core::SCHEMA_VERSION as u16);
+    assert_eq!(opened.welcome.history_epoch, 1);
+    assert!(opened.welcome.replace_checkpoint);
+    let durable = store.load_graph(graph_id).await.unwrap();
+    assert_eq!(durable.schema_version, graph_core::SCHEMA_VERSION);
+    let migrated = graph_core::GraphCore::from_snapshot(
+        domain::GraphId::new(graph_id).unwrap(),
+        23,
+        &opened.welcome.checkpoint,
+    )
+    .unwrap();
+    assert_eq!(
+        migrated.fingerprint().unwrap(),
+        fixture["expected_current_fingerprint"].as_str().unwrap()
+    );
+}
 
 #[tokio::test]
 async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
@@ -127,7 +179,7 @@ async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
 }
 
 #[tokio::test]
-async fn history_epoch_rotation_reclaims_tail_and_preserves_retry_receipts() {
+async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
     let fixture = fixture(RoomConfig::default());
     let (client, update) = client_update(
         &fixture.snapshot,
@@ -149,12 +201,30 @@ async fn history_epoch_rotation_reclaims_tail_and_preserves_retry_receipts() {
             GRAPH,
             0,
             committed.cursor,
+            graph_core::SCHEMA_VERSION,
             &checkpoint,
             &client.version_vector(),
         )
         .await
         .unwrap();
     assert_eq!(epoch, 1);
+    assert_eq!(fixture.store.checkpoint_count(GRAPH), 2);
+    assert_eq!(fixture.store.update_count(GRAPH), 1);
+
+    let epoch = fixture
+        .store
+        .install_checkpoint(
+            GRAPH,
+            1,
+            committed.cursor,
+            graph_core::SCHEMA_VERSION,
+            &checkpoint,
+            &client.version_vector(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(epoch, 2);
+    assert_eq!(fixture.store.checkpoint_count(GRAPH), 2);
     assert_eq!(fixture.store.update_count(GRAPH), 0);
 
     let duplicate = fixture
@@ -170,7 +240,7 @@ async fn history_epoch_rotation_reclaims_tail_and_preserves_retry_receipts() {
         .open_replica(GRAPH, "stale-client", OWNER, 3, 0, &fixture.base_version)
         .await
         .unwrap();
-    assert_eq!(opened.welcome.history_epoch, 1);
+    assert_eq!(opened.welcome.history_epoch, 2);
     assert!(opened.welcome.replace_checkpoint);
     let mut stale = update;
     stale.history_epoch = 0;

@@ -117,6 +117,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
                 &graph_id,
                 0,
                 durable_cursor,
+                SCHEMA_VERSION,
                 &rotated,
                 &client.version_vector(),
             )
@@ -127,6 +128,41 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
     let compacted = store.load_graph(&graph_id).await.unwrap();
     assert_eq!(compacted.history_epoch, 1);
     assert!(compacted.updates.is_empty());
+    let retained_checkpoints: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM graph_checkpoint WHERE graph_id = $1")
+            .bind(&graph_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    let retained_tail: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM graph_update WHERE graph_id = $1")
+            .bind(&graph_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(retained_checkpoints, 2);
+    assert_eq!(retained_tail, 1);
+    assert_eq!(
+        store
+            .install_checkpoint(
+                &graph_id,
+                1,
+                durable_cursor,
+                SCHEMA_VERSION,
+                &rotated,
+                &client.version_vector(),
+            )
+            .await
+            .unwrap(),
+        2
+    );
+    let reclaimed_tail: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM graph_update WHERE graph_id = $1")
+            .bind(&graph_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(reclaimed_tail, 0);
     let compacted_duplicate = store
         .commit_update(
             &graph_id,

@@ -118,7 +118,7 @@ export class IndexedDbGraphRepository {
       locator,
       replica_id: existing?.replica_id ?? suggestedReplicaId,
       history_epoch: existing?.history_epoch ?? 0,
-      schema_version: existing?.schema_version ?? 1,
+      schema_version: existing?.schema_version ?? 2,
       next_sequence: existing?.next_sequence ?? 1,
       compacted_through: existing?.compacted_through ?? 0,
       checkpoint_bytes: checkpoints.reduce((total, value) => total + value.payload.byteLength, 0),
@@ -127,7 +127,7 @@ export class IndexedDbGraphRepository {
       created_at: existing?.created_at ?? now,
       updated_at: existing?.updated_at ?? now,
     };
-    // Version-3 metadata is migrated lazily so Wasm can recover the old
+    // Older document metadata is migrated lazily so Wasm can recover its
     // checkpoint/update representation before any history is discarded.
     store.put(metadata);
     await complete(transaction);
@@ -284,7 +284,7 @@ export class IndexedDbGraphRepository {
   async acknowledge(graphId: string, messageId: string): Promise<void> {
     const database = await openDatabase();
     const transaction = database.transaction(
-      [STORES.metadata, STORES.outbox, STORES.updates],
+      [STORES.metadata, STORES.outbox, STORES.updates, STORES.checkpoints],
       "readwrite",
     );
     const outboxStore = transaction.objectStore(STORES.outbox);
@@ -294,7 +294,14 @@ export class IndexedDbGraphRepository {
       const metadata = await request<MetadataRecord | undefined>(
         transaction.objectStore(STORES.metadata).get(graphId),
       );
-      if (metadata && record.local_sequence <= metadata.compacted_through) {
+      const checkpoints = await request<CheckpointRecord[]>(
+        transaction.objectStore(STORES.checkpoints).index("by_graph").getAll(graphId),
+      );
+      const fallbackThrough = checkpoints.reduce(
+        (minimum, checkpoint) => Math.min(minimum, checkpoint.local_sequence),
+        metadata?.compacted_through ?? 0,
+      );
+      if (metadata && record.local_sequence <= fallbackThrough) {
         const updateStore = transaction.objectStore(STORES.updates);
         const update = await request<UpdateRecord | undefined>(
           updateStore.get([graphId, record.local_sequence]),
@@ -397,6 +404,7 @@ export class IndexedDbGraphRepository {
     graphId: string,
     payload: ArrayBuffer,
     sequence: number,
+    schemaVersion: number,
     now: string,
   ): Promise<string> {
     this.hooks?.before?.("checkpoint");
@@ -412,11 +420,20 @@ export class IndexedDbGraphRepository {
       transaction.abort();
       throw new StorageError("graph_not_open", "graph metadata not found", false);
     }
+    if (sequence < metadata.compacted_through || sequence >= metadata.next_sequence) {
+      transaction.abort();
+      database.close();
+      throw new StorageError(
+        "storage_corrupt",
+        "checkpoint sequence is outside the durable frontier",
+        false,
+      );
+    }
     const checkpointStore = transaction.objectStore(STORES.checkpoints);
     checkpointStore.put({
       graph_id: graphId,
       local_sequence: sequence,
-      schema_version: 1,
+      schema_version: schemaVersion,
       checksum: digest,
       payload,
       created_at: now,
@@ -428,23 +445,34 @@ export class IndexedDbGraphRepository {
         .map((record) => record.local_sequence)
         .filter((value) => value > 0),
     );
+    const retainedCheckpoints = (
+      await request<CheckpointRecord[]>(checkpointStore.index("by_graph").getAll(graphId))
+    ).sort((left, right) => right.local_sequence - left.local_sequence);
+    for (const stale of retainedCheckpoints.slice(2)) {
+      checkpointStore.delete([graphId, stale.local_sequence]);
+    }
+    const fallbackThrough = retainedCheckpoints
+      .slice(0, 2)
+      .reduce((minimum, record) => Math.min(minimum, record.local_sequence), sequence);
     const updateStore = transaction.objectStore(STORES.updates);
     const updates = await request<UpdateRecord[]>(updateStore.index("by_graph").getAll(graphId));
     let tailBytes = 0;
     let tailCount = 0;
     for (const update of updates) {
-      if (update.local_sequence <= sequence && !pinned.has(update.local_sequence)) {
+      if (update.local_sequence <= fallbackThrough && !pinned.has(update.local_sequence)) {
         updateStore.delete([graphId, update.local_sequence]);
       } else {
         tailBytes += update.payload.byteLength;
         tailCount += 1;
       }
     }
-    await deleteSequences(checkpointStore, graphId, (value) => value < sequence);
     metadataStore.put({
       ...metadata,
+      schema_version: schemaVersion,
       compacted_through: Math.max(metadata.compacted_through, sequence),
-      checkpoint_bytes: payload.byteLength,
+      checkpoint_bytes: retainedCheckpoints
+        .slice(0, 2)
+        .reduce((total, record) => total + record.payload.byteLength, 0),
       tail_bytes: tailBytes,
       tail_count: tailCount,
       updated_at: now,
@@ -453,6 +481,72 @@ export class IndexedDbGraphRepository {
     await complete(transaction);
     database.close();
     this.hooks?.after?.("checkpoint");
+    return digest;
+  }
+
+  /** Publishes the last valid frontier and moves the corrupt suffix to
+   * quarantine in the same transaction. Sequence numbers are never reused. */
+  async repairCorruptTail(
+    graphId: string,
+    checkpoint: ArrayBuffer,
+    validThrough: number,
+    schemaVersion: number,
+    records: QuarantineRecord[],
+    now: string,
+  ): Promise<string> {
+    const digest = await checksum(checkpoint);
+    const database = await openDatabase();
+    const transaction = database.transaction(
+      [STORES.metadata, STORES.updates, STORES.checkpoints, STORES.quarantine],
+      "readwrite",
+    );
+    const metadataStore = transaction.objectStore(STORES.metadata);
+    const metadata = await request<MetadataRecord | undefined>(metadataStore.get(graphId));
+    if (!metadata) {
+      transaction.abort();
+      throw new StorageError("graph_not_open", "graph metadata not found", false);
+    }
+    const quarantineStore = transaction.objectStore(STORES.quarantine);
+    for (const record of records) quarantineStore.put(record);
+    const checkpointStore = transaction.objectStore(STORES.checkpoints);
+    checkpointStore.put({
+      graph_id: graphId,
+      local_sequence: validThrough,
+      schema_version: schemaVersion,
+      checksum: digest,
+      payload: checkpoint,
+      created_at: now,
+    } satisfies CheckpointRecord);
+    const updateStore = transaction.objectStore(STORES.updates);
+    const updates = await request<UpdateRecord[]>(updateStore.index("by_graph").getAll(graphId));
+    for (const update of updates) {
+      if (update.local_sequence > validThrough) {
+        updateStore.delete([graphId, update.local_sequence]);
+      }
+    }
+    const checkpoints = (
+      await request<CheckpointRecord[]>(checkpointStore.index("by_graph").getAll(graphId))
+    ).sort((left, right) => right.local_sequence - left.local_sequence);
+    for (const stale of checkpoints.slice(2)) {
+      checkpointStore.delete([graphId, stale.local_sequence]);
+    }
+    const retainedUpdates = updates.filter((update) => update.local_sequence <= validThrough);
+    metadataStore.put({
+      ...metadata,
+      schema_version: schemaVersion,
+      compacted_through: validThrough,
+      checkpoint_bytes: checkpoints
+        .slice(0, 2)
+        .reduce((total, record) => total + record.payload.byteLength, 0),
+      tail_bytes: retainedUpdates.reduce(
+        (total, record) => total + record.payload.byteLength,
+        0,
+      ),
+      tail_count: retainedUpdates.length,
+      updated_at: now,
+    });
+    await complete(transaction);
+    database.close();
     return digest;
   }
 
@@ -466,6 +560,7 @@ export class IndexedDbGraphRepository {
     baseVersionVector: ArrayBuffer,
     rebasedTail: ArrayBuffer,
     messageId: string,
+    schemaVersion: number,
     now: string,
   ): Promise<void> {
     this.hooks?.before?.("checkpoint");
@@ -496,7 +591,7 @@ export class IndexedDbGraphRepository {
     checkpointStore.put({
       graph_id: graphId,
       local_sequence: checkpointSequence,
-      schema_version: 1,
+      schema_version: schemaVersion,
       checksum: checkpointDigest,
       payload: checkpoint,
       created_at: now,
@@ -523,6 +618,7 @@ export class IndexedDbGraphRepository {
     metadataStore.put({
       ...metadata,
       history_epoch: historyEpoch,
+      schema_version: schemaVersion,
       next_sequence: nextSequence,
       compacted_through: checkpointSequence,
       checkpoint_bytes: checkpoint.byteLength,
@@ -671,17 +767,6 @@ async function allByGraph<T>(storeName: string, graphId: string): Promise<T[]> {
   await complete(transaction);
   database.close();
   return values;
-}
-
-async function deleteSequences(
-  store: IDBObjectStore,
-  graphId: string,
-  shouldDelete: (sequence: number) => boolean,
-): Promise<void> {
-  const keys = await request<IDBValidKey[]>(store.index("by_graph").getAllKeys(graphId));
-  for (const key of keys) {
-    if (Array.isArray(key) && shouldDelete(Number(key[1]))) store.delete(key);
-  }
 }
 
 async function deleteByGraph(store: IDBObjectStore, graphId: string): Promise<void> {

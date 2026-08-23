@@ -56,6 +56,8 @@ interface OpenState {
 
 const COMPACT_TAIL_UPDATES = 128;
 const COMPACT_TAIL_BYTES = 512 * 1024;
+const MIN_MIGRATABLE_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 let wasmReady: Promise<unknown> | undefined;
 const states = new Map<string, OpenState>();
@@ -131,10 +133,13 @@ async function openGraph(request: OpenGraphRequest) {
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = createRepository();
   const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
-  if (metadata.schema_version !== 1) {
+  if (
+    metadata.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION
+    || metadata.schema_version > CURRENT_SCHEMA_VERSION
+  ) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
-  const recovery = await recover(repository, request.locator.graph_id, metadata.replica_id);
+  const recovery = await recover(repository, request.locator.graph_id, metadata);
   const state: OpenState = {
     graphId: request.locator.graph_id,
     replicaId: metadata.replica_id,
@@ -153,18 +158,30 @@ async function openGraph(request: OpenGraphRequest) {
   };
 }
 
-async function recover(repository: IndexedDbGraphRepository, graphId: string, peerId: number) {
+async function recover(
+  repository: IndexedDbGraphRepository,
+  graphId: string,
+  metadata: { replica_id: number; schema_version: number; next_sequence: number },
+) {
   let core: WasmGraphCore | undefined;
   let checkpointSequence = 0;
   const quarantinedRecords: string[] = [];
+  const corruptTail: QuarantineRecord[] = [];
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (checkpoint.schema_version !== 1) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
+    if (
+      checkpoint.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION
+      || checkpoint.schema_version > CURRENT_SCHEMA_VERSION
+    ) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {
-        core = WasmGraphCore.fromSnapshot(graphId, BigInt(peerId), new Uint8Array(checkpoint.payload));
+        core = WasmGraphCore.fromSnapshot(
+          graphId,
+          BigInt(metadata.replica_id),
+          new Uint8Array(checkpoint.payload),
+        );
         checkpointSequence = checkpoint.local_sequence;
         break;
       } catch (error) {
@@ -179,32 +196,63 @@ async function recover(repository: IndexedDbGraphRepository, graphId: string, pe
     throw failure("storage_corrupt", "stored graph has checkpoints but none are valid", false);
   }
   if (!core) {
-    core = new WasmGraphCore(graphId, BigInt(peerId), now());
+    core = new WasmGraphCore(graphId, BigInt(metadata.replica_id), now());
     const snapshot = ownedBuffer(core.exportGcCheckpoint());
-    await repository.installCheckpoint(graphId, snapshot, 0, now());
+    await repository.installCheckpoint(
+      graphId,
+      snapshot,
+      0,
+      CURRENT_SCHEMA_VERSION,
+      now(),
+    );
   }
   let replayedUpdates = 0;
-  let corruptTail = false;
+  let tailCorrupt = false;
+  let validThrough = checkpointSequence;
   for (const update of await repository.updatesAfter(graphId, checkpointSequence)) {
     let reason: string | undefined;
-    if (corruptTail) reason = "after-corrupt-tail";
+    if (tailCorrupt) reason = "after-corrupt-tail";
     else if (!(await validChecksum(update.checksum, update.payload))) {
       reason = "update-checksum-mismatch";
-      corruptTail = true;
+      tailCorrupt = true;
     } else {
       try {
         core.importUpdate(new Uint8Array(update.payload));
         replayedUpdates += 1;
+        validThrough = update.local_sequence;
       } catch (error) {
         reason = `invalid-update:${String(error)}`;
-        corruptTail = true;
+        tailCorrupt = true;
       }
     }
     if (reason) {
       const exportHandle = `update-${update.local_sequence}`;
-      await repository.quarantine({ ...update, export_handle: exportHandle, record_kind: "update", reason } satisfies QuarantineRecord);
+      corruptTail.push({
+        ...update,
+        export_handle: exportHandle,
+        record_kind: "update",
+        reason,
+      } satisfies QuarantineRecord);
       quarantinedRecords.push(exportHandle);
     }
+  }
+  if (corruptTail.length > 0) {
+    await repository.repairCorruptTail(
+      graphId,
+      ownedBuffer(core.exportGcCheckpoint()),
+      validThrough,
+      CURRENT_SCHEMA_VERSION,
+      corruptTail,
+      now(),
+    );
+  } else if (metadata.schema_version < CURRENT_SCHEMA_VERSION) {
+    await repository.installCheckpoint(
+      graphId,
+      ownedBuffer(core.exportGcCheckpoint()),
+      validThrough,
+      CURRENT_SCHEMA_VERSION,
+      now(),
+    );
   }
   // Replayed same-replica Tail operations are durable graph state, not local
   // commands from this browser session. Start undo only after recovery reaches
@@ -289,10 +337,18 @@ async function persistPending(state: OpenState) {
 async function maybeCompact(state: OpenState, force = false): Promise<void> {
   if (state.pending || state.remote) return;
   const metadata = await state.repository.metadata(state.graphId);
+  const uncompacted = await state.repository.updatesAfter(
+    state.graphId,
+    metadata.compacted_through,
+  );
+  const uncompactedBytes = uncompacted.reduce(
+    (total, record) => total + record.payload.byteLength,
+    0,
+  );
   if (
     !force
-    && metadata.tail_count < COMPACT_TAIL_UPDATES
-    && metadata.tail_bytes < COMPACT_TAIL_BYTES
+    && uncompacted.length < COMPACT_TAIL_UPDATES
+    && uncompactedBytes < COMPACT_TAIL_BYTES
   ) {
     return;
   }
@@ -301,7 +357,13 @@ async function maybeCompact(state: OpenState, force = false): Promise<void> {
   // Validate the exact bytes before the atomic pointer swap. Recovery never
   // has to discover that a maintenance checkpoint was malformed.
   WasmGraphCore.fromSnapshot(state.graphId, BigInt(state.replicaId), new Uint8Array(checkpoint));
-  await state.repository.installCheckpoint(state.graphId, checkpoint, through, now());
+  await state.repository.installCheckpoint(
+    state.graphId,
+    checkpoint,
+    through,
+    CURRENT_SCHEMA_VERSION,
+    now(),
+  );
 }
 
 function read(request: ReadRequest) {
@@ -352,7 +414,13 @@ async function closeGraph(request: CloseGraphRequest) {
     const metadata = await state.repository.metadata(state.graphId);
     const through = metadata.next_sequence - 1;
     const snapshot = ownedBuffer(state.core.exportSnapshot());
-    await state.repository.installCheckpoint(state.graphId, snapshot, through, now());
+    await state.repository.installCheckpoint(
+      state.graphId,
+      snapshot,
+      through,
+      CURRENT_SCHEMA_VERSION,
+      now(),
+    );
   } else {
     await maybeCompact(state, true);
   }
@@ -401,7 +469,10 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
         source: { graph_id: string; document_schema: number };
         suggested_name?: string;
       };
-      if (manifest.source.document_schema !== 1) {
+      if (
+        manifest.source.document_schema < MIN_MIGRATABLE_SCHEMA_VERSION
+        || manifest.source.document_schema > CURRENT_SCHEMA_VERSION
+      ) {
         throw failure(
           "unsupported_schema",
           `unsupported schema version ${manifest.source.document_schema}`,
@@ -433,7 +504,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
       await createRepository().installImportedGraph(
         { graph_id: graphId },
         replicaId,
-        manifest.source.document_schema,
+        CURRENT_SCHEMA_VERSION,
         checkpoint,
         createdAt,
       );
@@ -557,6 +628,7 @@ async function syncReplace(payload: {
     serverVersionVector,
     rebasedTail,
     crypto.randomUUID(),
+    CURRENT_SCHEMA_VERSION,
     now(),
   );
   state.core = candidate;
@@ -585,12 +657,26 @@ async function testControl(payload: Record<string, unknown>) {
     case "export_quarantine": return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
     case "storage_stats": return repository.storageStats(String(payload.graph_id));
     case "replica_id": return repository.metadata(String(payload.graph_id)).then((value) => value.replica_id);
+    case "schema_version": return repository.metadata(String(payload.graph_id)).then((value) => value.schema_version);
+    case "install_legacy_fixture": return repository.installLegacyFixture(
+      String(payload.graph_id),
+      ownedBuffer(asUint8Array(payload.snapshot as ArrayBuffer | Uint8Array)),
+    ).then(() => null);
     case "gc_checkpoint": {
       const state = requireState(String(payload.graph_handle));
       return {
         checkpoint: [...state.core.exportGcCheckpoint()],
         version_vector: [...state.core.versionVector()],
       };
+    }
+    case "fixture_update": {
+      const core = WasmGraphCore.fromSnapshot(
+        String(payload.graph_id),
+        BigInt(Number(payload.peer_id)),
+        asUint8Array(payload.checkpoint as ArrayBuffer | Uint8Array | number[]),
+      );
+      core.executeJson(JSON.stringify(payload.command), now());
+      return [...core.takeUpdate()];
     }
     case "set_schema": return repository.setSchemaVersion(String(payload.graph_id), Number(payload.schema_version)).then(() => null);
     default: throw failure("invalid_request", "unknown test control action", false);
@@ -650,7 +736,7 @@ function ownedBuffer(value: Uint8Array): ArrayBuffer {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
 }
 
-function asUint8Array(value: ArrayBuffer | Uint8Array): Uint8Array {
+function asUint8Array(value: ArrayBuffer | Uint8Array | number[]): Uint8Array {
   return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 

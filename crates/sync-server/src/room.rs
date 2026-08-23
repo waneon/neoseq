@@ -3,7 +3,7 @@ use crate::{
     store::{GraphStore, Membership, StoreError},
 };
 use domain::GraphId;
-use graph_core::{GraphCore, SCHEMA_VERSION};
+use graph_core::{GraphCore, MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION};
 use std::{
     collections::HashMap,
     sync::{
@@ -170,7 +170,7 @@ impl<S: GraphStore> RoomManager<S> {
             return Err(RoomError::InvalidSession);
         }
         let membership = self.store.authorize(graph_id, principal_id).await?;
-        if membership.schema_version != SCHEMA_VERSION {
+        if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&membership.schema_version) {
             return Err(RoomError::UnsupportedSchema);
         }
         let room = self.room_for(graph_id).await?;
@@ -278,7 +278,7 @@ impl<S: GraphStore> RoomManager<S> {
 
     async fn reconstruct(&self, graph_id: &str) -> Result<Arc<Mutex<Room>>, RoomError> {
         let durable = self.store.load_graph(graph_id).await?;
-        if durable.schema_version != SCHEMA_VERSION {
+        if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&durable.schema_version) {
             return Err(RoomError::UnsupportedSchema);
         }
         if graph_core::checksum(&durable.checkpoint.snapshot) != durable.checkpoint.checksum {
@@ -289,7 +289,7 @@ impl<S: GraphStore> RoomManager<S> {
         }
         let graph = GraphId::new(graph_id).map_err(|_| RoomError::InvalidGraph)?;
         let mut core =
-            GraphCore::from_snapshot(graph, SERVER_PEER_ID, &durable.checkpoint.snapshot)
+            GraphCore::from_snapshot(graph.clone(), SERVER_PEER_ID, &durable.checkpoint.snapshot)
                 .map_err(|_| StoreError::Corrupt("checkpoint Loro snapshot is invalid"))?;
         for update in &durable.updates {
             if graph_core::checksum(&update.bytes) != update.checksum {
@@ -297,6 +297,34 @@ impl<S: GraphStore> RoomManager<S> {
             }
             core.import_remote(&update.bytes)
                 .map_err(|_| StoreError::Corrupt("durable Loro update is invalid"))?;
+        }
+        let mut history_epoch = durable.history_epoch;
+        let mut tail_updates = durable.updates.len();
+        let mut tail_bytes = durable
+            .updates
+            .iter()
+            .map(|update| update.bytes.len())
+            .sum();
+        if durable.schema_version < SCHEMA_VERSION {
+            let snapshot = core
+                .export_gc_checkpoint()
+                .map_err(|_| StoreError::Corrupt("migrated checkpoint export failed"))?;
+            let version_vector = core.version_vector();
+            history_epoch = self
+                .store
+                .install_checkpoint(
+                    graph_id,
+                    durable.history_epoch,
+                    durable.latest_cursor(),
+                    SCHEMA_VERSION,
+                    &snapshot,
+                    &version_vector,
+                )
+                .await?;
+            core = GraphCore::from_snapshot(graph.clone(), SERVER_PEER_ID, &snapshot)
+                .map_err(|_| StoreError::Corrupt("migrated checkpoint is invalid"))?;
+            tail_updates = 0;
+            tail_bytes = 0;
         }
         core.reset_local_history();
         self.metrics.room_opened();
@@ -311,14 +339,10 @@ impl<S: GraphStore> RoomManager<S> {
             core,
             cursor: durable.latest_cursor(),
             status: durable.status,
-            schema_version: durable.schema_version,
-            history_epoch: durable.history_epoch,
-            tail_updates: durable.updates.len(),
-            tail_bytes: durable
-                .updates
-                .iter()
-                .map(|update| update.bytes.len())
-                .sum(),
+            schema_version: SCHEMA_VERSION,
+            history_epoch,
+            tail_updates,
+            tail_bytes,
             sessions: HashMap::new(),
             valid: true,
         })))
@@ -492,6 +516,7 @@ impl<S: GraphStore> RoomManager<S> {
                 graph_id,
                 room.history_epoch,
                 room.cursor,
+                SCHEMA_VERSION,
                 &snapshot,
                 &version_vector,
             )

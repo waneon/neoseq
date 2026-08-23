@@ -152,6 +152,51 @@ fn persistence_acknowledged_tail_survives_abrupt_runtime_drop() {
 }
 
 #[test]
+fn checkpoint_rotation_keeps_one_fallback_generation_then_reclaims_it() {
+    let database = TempDb::new("checkpoint-generations");
+    let graph = GraphId::new("checkpoint-generations").unwrap();
+    let (mut runtime, _) = open(database.path(), &graph, 43);
+    ensure_page(&mut runtime, &graph);
+    let first = runtime.core().export_gc_checkpoint().unwrap();
+    runtime
+        .repository_mut()
+        .install_checkpoint(&first, 1, "2026-08-03T12:01:00Z")
+        .unwrap();
+    assert_eq!(runtime.repository().checkpoint_count().unwrap(), 2);
+    assert_eq!(runtime.repository().update_count().unwrap(), 1);
+
+    runtime
+        .execute(envelope(
+            &graph,
+            "second-generation",
+            Command::RenamePage {
+                page_id: PageId::new("home").unwrap(),
+                title: "Second generation".to_owned(),
+            },
+        ))
+        .unwrap();
+    let second = runtime.core().export_gc_checkpoint().unwrap();
+    runtime
+        .repository_mut()
+        .install_checkpoint(&second, 2, "2026-08-03T12:02:00Z")
+        .unwrap();
+    assert_eq!(runtime.repository().checkpoint_count().unwrap(), 2);
+    assert_eq!(runtime.repository().update_count().unwrap(), 1);
+    assert_eq!(
+        runtime.repository_mut().updates_after(0).unwrap()[0].local_sequence,
+        2
+    );
+    assert!(matches!(
+        runtime
+            .repository_mut()
+            .install_checkpoint(&first, 1, "2026-08-03T12:03:00Z"),
+        Err(SqliteRepositoryError::Corrupt(_))
+    ));
+    assert_eq!(runtime.repository().checkpoint_count().unwrap(), 2);
+    assert_eq!(runtime.repository().update_count().unwrap(), 1);
+}
+
+#[test]
 fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let database = TempDb::new("reopen-undo-boundary");
     let graph = GraphId::new("reopen-undo-boundary").unwrap();
@@ -306,6 +351,13 @@ fn recovery_corrupt_tail_is_quarantined_and_graph_remains_writable() {
             },
         ))
         .unwrap();
+    let repaired_fingerprint = restored.core().fingerprint().unwrap();
+    drop(restored);
+
+    let (reopened, second_report) = open(database.path(), &graph, 63);
+    assert!(second_report.quarantined_records.is_empty());
+    assert_eq!(second_report.replayed_updates, 1);
+    assert_eq!(reopened.core().fingerprint().unwrap(), repaired_fingerprint);
 }
 
 #[test]

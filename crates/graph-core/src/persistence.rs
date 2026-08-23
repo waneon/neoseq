@@ -1,4 +1,4 @@
-use crate::{CoreError, GraphCore, SCHEMA_VERSION};
+use crate::{CoreError, GraphCore, MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION};
 use domain::GraphId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -86,8 +86,8 @@ pub trait LocalGraphRepository: GraphRepository {
     fn metadata(&mut self) -> Result<GraphMetadata, Self::Error>;
     fn checkpoints_descending(&mut self) -> Result<Vec<CheckpointRecord>, Self::Error>;
     fn updates_after(&mut self, local_sequence: u64) -> Result<Vec<UpdateRecord>, Self::Error>;
-    /// Atomically installs a recovery checkpoint, advances the compacted
-    /// sequence, and removes covered update/older-checkpoint payloads.
+    /// Atomically installs a recovery checkpoint, advances the logical
+    /// compacted sequence, and retains exactly one fallback generation.
     fn install_checkpoint(
         &mut self,
         checkpoint: &[u8],
@@ -95,6 +95,15 @@ pub trait LocalGraphRepository: GraphRepository {
         created_at: &str,
     ) -> Result<String, Self::Error>;
     fn quarantine(&mut self, record: &QuarantineRecord) -> Result<(), Self::Error>;
+    /// Atomically publishes the last valid state and moves the corrupt Tail
+    /// suffix out of the active recovery log without reusing its sequences.
+    fn repair_corrupt_tail(
+        &mut self,
+        checkpoint: &[u8],
+        valid_through: u64,
+        records: &[QuarantineRecord],
+        created_at: &str,
+    ) -> Result<String, Self::Error>;
     fn quarantined(&mut self) -> Result<Vec<QuarantineRecord>, Self::Error>;
     fn delete_local(self) -> Result<(), Self::Error>;
     fn capabilities(&self) -> StorageCapabilities;
@@ -132,7 +141,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
 ) -> Result<(GraphCore, RecoveryReport), RecoveryError> {
     let metadata = repository.metadata().map_err(repository_error)?;
     let peer_id = metadata.replica_id;
-    if metadata.schema_version != SCHEMA_VERSION {
+    if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&metadata.schema_version) {
         return Err(RecoveryError::Core(CoreError::UnsupportedSchema(
             i64::from(metadata.schema_version),
         )));
@@ -145,7 +154,9 @@ pub fn recover_graph<R: LocalGraphRepository>(
         .map_err(repository_error)?;
     let had_checkpoints = !checkpoints.is_empty();
     for checkpoint in checkpoints {
-        let reason = if checkpoint.schema_version != SCHEMA_VERSION {
+        let reason = if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION)
+            .contains(&checkpoint.schema_version)
+        {
             Some(format!(
                 "unsupported-checkpoint-schema:{}",
                 checkpoint.schema_version
@@ -190,6 +201,8 @@ pub fn recover_graph<R: LocalGraphRepository>(
     };
     let mut replayed = 0;
     let mut tail_is_corrupt = false;
+    let mut valid_through = checkpoint_sequence;
+    let mut corrupt_tail = Vec::new();
     for update in repository
         .updates_after(checkpoint_sequence)
         .map_err(repository_error)?
@@ -204,23 +217,29 @@ pub fn recover_graph<R: LocalGraphRepository>(
             Some(format!("invalid-update:{error}"))
         } else {
             replayed += 1;
+            valid_through = update.local_sequence;
             None
         };
         if let Some(reason) = reason {
             let export_handle = format!("update-{}", update.local_sequence);
-            repository
-                .quarantine(&QuarantineRecord {
-                    export_handle: export_handle.clone(),
-                    record_kind: "update".to_owned(),
-                    local_sequence: update.local_sequence,
-                    checksum: update.checksum,
-                    reason,
-                    bytes: update.bytes,
-                    created_at: now.to_owned(),
-                })
-                .map_err(repository_error)?;
+            corrupt_tail.push(QuarantineRecord {
+                export_handle: export_handle.clone(),
+                record_kind: "update".to_owned(),
+                local_sequence: update.local_sequence,
+                checksum: update.checksum,
+                reason,
+                bytes: update.bytes,
+                created_at: now.to_owned(),
+            });
             quarantined.push(export_handle);
         }
+    }
+
+    if !corrupt_tail.is_empty() {
+        let checkpoint = core.export_gc_checkpoint()?;
+        repository
+            .repair_corrupt_tail(&checkpoint, valid_through, &corrupt_tail, now)
+            .map_err(repository_error)?;
     }
 
     // Recovery is a hard session-local undo boundary. Tail updates may carry

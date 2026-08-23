@@ -31,6 +31,18 @@ export class TestCoreWorker extends CoreWorker {
     });
   }
 
+  installLegacyFixture(graphId: string, snapshot: ArrayBuffer): Promise<void> {
+    return this.request("test_control", {
+      action: "install_legacy_fixture",
+      graph_id: graphId,
+      snapshot,
+    });
+  }
+
+  schemaVersion(graphId: string): Promise<number> {
+    return this.request("test_control", { action: "schema_version", graph_id: graphId });
+  }
+
   storageStats(graphId: string): Promise<GraphStorageStats> {
     return this.request("test_control", { action: "storage_stats", graph_id: graphId });
   }
@@ -46,6 +58,21 @@ export class TestCoreWorker extends CoreWorker {
     return this.request("test_control", {
       action: "gc_checkpoint",
       graph_handle: graphHandle,
+    });
+  }
+
+  fixtureUpdate(
+    graphId: string,
+    checkpoint: number[],
+    peerId: number,
+    command: unknown,
+  ): Promise<number[]> {
+    return this.request("test_control", {
+      action: "fixture_update",
+      graph_id: graphId,
+      checkpoint,
+      peer_id: peerId,
+      command,
     });
   }
 }

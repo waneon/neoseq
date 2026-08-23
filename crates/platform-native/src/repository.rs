@@ -158,6 +158,17 @@ impl SqliteGraphRepository {
             .map_err(SqliteRepositoryError::from)
     }
 
+    pub fn checkpoint_count(&self) -> Result<usize, SqliteRepositoryError> {
+        self.connection
+            .query_row(
+                "SELECT COUNT(*) FROM graph_checkpoint WHERE graph_id = ?1",
+                [self.locator.graph_id.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|value| value as usize)
+            .map_err(SqliteRepositoryError::from)
+    }
+
     pub fn set_schema_version(&mut self, schema_version: u32) -> Result<(), SqliteRepositoryError> {
         self.connection
             .execute(
@@ -356,6 +367,20 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .connection
             .transaction()
             .map_err(SqliteRepositoryError::from)?;
+        let sequence = as_i64(local_sequence)?;
+        let (compacted_through, next_sequence): (i64, i64) = transaction
+            .query_row(
+                "SELECT compacted_through, next_sequence FROM graph_metadata
+                 WHERE graph_id = ?1",
+                [self.locator.graph_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        if sequence < compacted_through || sequence >= next_sequence {
+            return Err(SqliteRepositoryError::Corrupt(
+                "checkpoint sequence is outside the durable frontier".to_owned(),
+            ));
+        }
         transaction
             .execute(
                 "INSERT INTO graph_checkpoint(
@@ -368,7 +393,7 @@ impl LocalGraphRepository for SqliteGraphRepository {
                     created_at = excluded.created_at",
                 params![
                     self.locator.graph_id.as_str(),
-                    as_i64(local_sequence)?,
+                    sequence,
                     SCHEMA_VERSION,
                     digest,
                     checkpoint,
@@ -378,11 +403,30 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .map_err(SqliteRepositoryError::from)?;
         transaction
             .execute(
-                "DELETE FROM graph_update
-                 WHERE graph_id = ?1 AND local_sequence <= ?2",
-                params![self.locator.graph_id.as_str(), as_i64(local_sequence)?],
+                "DELETE FROM graph_checkpoint
+                 WHERE graph_id = ?1 AND local_sequence NOT IN (
+                     SELECT local_sequence FROM graph_checkpoint
+                     WHERE graph_id = ?1 ORDER BY local_sequence DESC LIMIT 2
+                 )",
+                [self.locator.graph_id.as_str()],
             )
             .map_err(SqliteRepositoryError::from)?;
+        let reclaim_through: Option<i64> = transaction
+            .query_row(
+                "SELECT MIN(local_sequence) FROM graph_checkpoint WHERE graph_id = ?1",
+                [self.locator.graph_id.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        if let Some(reclaim_through) = reclaim_through {
+            transaction
+                .execute(
+                    "DELETE FROM graph_update
+                     WHERE graph_id = ?1 AND local_sequence <= ?2",
+                    params![self.locator.graph_id.as_str(), reclaim_through],
+                )
+                .map_err(SqliteRepositoryError::from)?;
+        }
         let (tail_bytes, tail_count): (i64, i64) = transaction
             .query_row(
                 "SELECT COALESCE(SUM(LENGTH(payload)), 0), COUNT(*)
@@ -391,28 +435,30 @@ impl LocalGraphRepository for SqliteGraphRepository {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(SqliteRepositoryError::from)?;
-        transaction
-            .execute(
-                "UPDATE graph_metadata
-                 SET compacted_through = MAX(compacted_through, ?2),
-                     checkpoint_bytes = ?3, tail_bytes = ?4, tail_count = ?5,
-                     updated_at = ?6
-                 WHERE graph_id = ?1",
-                params![
-                    self.locator.graph_id.as_str(),
-                    as_i64(local_sequence)?,
-                    as_i64(checkpoint.len() as u64)?,
-                    tail_bytes,
-                    tail_count,
-                    created_at
-                ],
+        let checkpoint_bytes: i64 = transaction
+            .query_row(
+                "SELECT COALESCE(SUM(LENGTH(payload)), 0)
+                 FROM graph_checkpoint WHERE graph_id = ?1",
+                [self.locator.graph_id.as_str()],
+                |row| row.get(0),
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction
             .execute(
-                "DELETE FROM graph_checkpoint
-                 WHERE graph_id = ?1 AND local_sequence < ?2",
-                params![self.locator.graph_id.as_str(), as_i64(local_sequence)?],
+                "UPDATE graph_metadata
+                 SET schema_version = ?2, compacted_through = MAX(compacted_through, ?3),
+                     checkpoint_bytes = ?4, tail_bytes = ?5, tail_count = ?6,
+                     updated_at = ?7
+                 WHERE graph_id = ?1",
+                params![
+                    self.locator.graph_id.as_str(),
+                    SCHEMA_VERSION,
+                    as_i64(local_sequence)?,
+                    checkpoint_bytes,
+                    tail_bytes,
+                    tail_count,
+                    created_at
+                ],
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction.commit().map_err(SqliteRepositoryError::from)?;
@@ -444,6 +490,109 @@ impl LocalGraphRepository for SqliteGraphRepository {
             )
             .map_err(SqliteRepositoryError::from)?;
         Ok(())
+    }
+
+    fn repair_corrupt_tail(
+        &mut self,
+        checkpoint: &[u8],
+        valid_through: u64,
+        records: &[QuarantineRecord],
+        created_at: &str,
+    ) -> Result<String, Self::Error> {
+        let digest = checksum(checkpoint);
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(SqliteRepositoryError::from)?;
+        for record in records {
+            transaction
+                .execute(
+                    "INSERT INTO graph_quarantine(
+                        graph_id, export_handle, record_kind, local_sequence,
+                        checksum, reason, payload, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                     ON CONFLICT(graph_id, export_handle) DO UPDATE SET
+                        reason = excluded.reason, payload = excluded.payload",
+                    params![
+                        self.locator.graph_id.as_str(),
+                        record.export_handle,
+                        record.record_kind,
+                        as_i64(record.local_sequence)?,
+                        record.checksum,
+                        record.reason,
+                        record.bytes,
+                        record.created_at
+                    ],
+                )
+                .map_err(SqliteRepositoryError::from)?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO graph_checkpoint(
+                    graph_id, local_sequence, schema_version, checksum, payload, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(graph_id, local_sequence) DO UPDATE SET
+                    schema_version = excluded.schema_version,
+                    checksum = excluded.checksum,
+                    payload = excluded.payload,
+                    created_at = excluded.created_at",
+                params![
+                    self.locator.graph_id.as_str(),
+                    as_i64(valid_through)?,
+                    SCHEMA_VERSION,
+                    digest,
+                    checkpoint,
+                    created_at
+                ],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "DELETE FROM graph_update
+                 WHERE graph_id = ?1 AND local_sequence > ?2",
+                params![self.locator.graph_id.as_str(), as_i64(valid_through)?],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "DELETE FROM graph_checkpoint
+                 WHERE graph_id = ?1 AND local_sequence NOT IN (
+                     SELECT local_sequence FROM graph_checkpoint
+                     WHERE graph_id = ?1 ORDER BY local_sequence DESC LIMIT 2
+                 )",
+                [self.locator.graph_id.as_str()],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        let (checkpoint_bytes, tail_bytes, tail_count): (i64, i64, i64) = transaction
+            .query_row(
+                "SELECT
+                    (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM graph_checkpoint WHERE graph_id = ?1),
+                    (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM graph_update WHERE graph_id = ?1),
+                    (SELECT COUNT(*) FROM graph_update WHERE graph_id = ?1)",
+                [self.locator.graph_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "UPDATE graph_metadata
+                 SET schema_version = ?2, compacted_through = ?3,
+                     checkpoint_bytes = ?4, tail_bytes = ?5, tail_count = ?6,
+                     updated_at = ?7
+                 WHERE graph_id = ?1",
+                params![
+                    self.locator.graph_id.as_str(),
+                    SCHEMA_VERSION,
+                    as_i64(valid_through)?,
+                    checkpoint_bytes,
+                    tail_bytes,
+                    tail_count,
+                    created_at
+                ],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction.commit().map_err(SqliteRepositoryError::from)?;
+        Ok(digest)
     }
 
     fn quarantined(&mut self) -> Result<Vec<QuarantineRecord>, Self::Error> {

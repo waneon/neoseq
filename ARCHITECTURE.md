@@ -30,8 +30,8 @@ Component-level detail lives under [`architectures/`](architectures/), and
 - User queries cannot access the filesystem, network, processes, or another graph.
 - Presentation preferences and localization never mutate graph semantics.
 - devenv provides reproducible development, build, and verification environments.
-- Architecture remains no larger than current requirements; future delivery
-  stages add their own compatibility and migration machinery when it is needed.
+- Architecture remains no larger than current requirements; compatibility is
+  added only for persisted schemas that the product explicitly supports.
 
 ## Current System
 
@@ -133,7 +133,7 @@ CorePort.
   document. Empty atomic fields are first-class; repeated values and document
   children have stable identities and independent merge granularity.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
-  current v3 registry shared by core and client. Property keys have exactly two
+  current v7 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined
   `user.<name>`. Unknown built-ins remain readable but core-managed; unknown user
   properties remain readable and editable.
@@ -174,8 +174,10 @@ bytes through the same Worker/core projection path. Network availability never
 changes the local save contract.
 
 Persistence is Base+Tail, not an unbounded event archive. Local graphs install
-a shallow Loro checkpoint after 128 tail records or 512 KiB and atomically
-remove covered updates. Each durable replica keeps one stable Loro peer ID.
+a shallow Loro checkpoint after 128 uncompacted tail records or 512 KiB. The
+current and prior Base remain recoverable for one generation; covered Tail rows
+are reclaimed when the next Base makes that prior generation obsolete. Each
+durable replica keeps one stable Loro peer ID.
 Remote history is reclaimed only when the server rotates a `history_epoch`;
 clients atomically adopt the new Base and rebase any unacknowledged local intent
 into one referenced Tail/outbox record.

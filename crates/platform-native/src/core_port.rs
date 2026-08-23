@@ -8,7 +8,7 @@ use domain::{
 };
 use graph_core::{
     EventBatch, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository, RuntimeError,
-    recover_graph,
+    SCHEMA_VERSION, recover_graph,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -69,16 +69,19 @@ impl NativeCorePort {
         let recovered_at = self.now();
         let (core, recovery) = recover_graph(&mut repository, graph_id, &recovered_at)
             .map_err(|error| map_recovery_error(&error.to_string()))?;
-        if repository
-            .checkpoints_descending()
-            .map_err(map_storage_error)?
-            .is_empty()
+        let recovered_metadata = repository.metadata().map_err(map_storage_error)?;
+        if recovered_metadata.schema_version != SCHEMA_VERSION
+            || repository
+                .checkpoints_descending()
+                .map_err(map_storage_error)?
+                .is_empty()
         {
             let checkpointed_at = self.now();
+            let through = recovered_metadata.next_sequence.saturating_sub(1);
             repository
                 .install_checkpoint(
                     &core.export_gc_checkpoint().map_err(map_core_error)?,
-                    0,
+                    through,
                     &checkpointed_at,
                 )
                 .map_err(map_storage_error)?;
@@ -134,7 +137,16 @@ impl NativeCorePort {
             .map_err(map_storage_error)?
             .last()
             .map_or_else(String::new, |record| record.checksum.clone());
-        if metadata.tail_count >= COMPACT_TAIL_UPDATES || metadata.tail_bytes >= COMPACT_TAIL_BYTES
+        let uncompacted = runtime
+            .repository_mut()
+            .updates_after(metadata.compacted_through)
+            .map_err(map_storage_error)?;
+        let uncompacted_bytes = uncompacted
+            .iter()
+            .map(|record| record.bytes.len() as u64)
+            .sum::<u64>();
+        if uncompacted.len() as u64 >= COMPACT_TAIL_UPDATES
+            || uncompacted_bytes >= COMPACT_TAIL_BYTES
         {
             let checkpoint = runtime
                 .core()

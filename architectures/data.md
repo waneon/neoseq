@@ -3,12 +3,14 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The document schema is v1 and has three roots:
+synchronization unit. The current document schema is v2 and has three roots:
 
 ```text
 meta: Map
   graph_id: string
-  schema_version: 1
+  schema_version: 2
+  minimum_writer_schema: 2
+  applied_migrations: Map<MigrationId, TargetSchema>
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
 ```
@@ -16,9 +18,13 @@ tags: Map<TagId, TagRecord>
 The Loro document plus its verified update/checkpoint history is the only
 canonical representation. RDF triples, text caches, query plans, and session UI
 state are disposable projections. Shared saved-view definitions are canonical
-document-property data. There is no migration ledger in the current
-document; Step 9 introduces migration metadata alongside the first real schema
-transition.
+document-property data.
+
+Schema v1 is the sole migratable predecessor. Opening it applies
+`0001-lifecycle-metadata` as one normal CRDT commit, records that migration,
+sets the minimum writer and document schema to v2, then persists a migrated
+checkpoint before accepting new writes. Reopening v2 is a no-op. Schemas outside
+the supported range `[1, 2]` are rejected without downgrade or coercion.
 
 ## Outline Owners, Nodes, and Ordering
 
@@ -85,7 +91,7 @@ replacing one serialized object. Removing any property deletes its marker and
 all atomic slots or document containers owned by the key.
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
-the v2 authority for built-in shapes, semantic ordering, placements, and `user` versus `core`
+the v7 authority for built-in shapes, semantic ordering, placements, and `user` versus `core`
 access. Every key is `builtin.<lowercase-kebab-name>` or
 `user.<lowercase-kebab-name>`. Unknown built-ins are retained read-only so newer
 data does not disappear in an older client; unknown user keys remain generic
@@ -145,25 +151,29 @@ Only after commit does it publish semantic and saved events.
 
 ## Base+Tail Recovery and Compaction
 
-Open chooses the newest checkpoint with the current schema and a valid checksum,
-then replays the verified update tail in sequence order. Invalid checkpoints are
-quarantined and the next older checkpoint is considered. Once an update tail is
-invalid or has unresolved causal dependencies, that record and the remaining
-tail are quarantined rather than partly applied. If checkpoints exist but none
-are valid, open fails explicitly. After all accepted Tail records are applied,
-the runtime establishes a fresh local undo boundary at the recovered frontier.
+Open chooses the newest supported checkpoint with a valid checksum, migrates it
+when necessary, then replays the verified update tail in sequence order. Invalid
+checkpoints are quarantined and the next older checkpoint is considered. Once
+an update is invalid or has unresolved causal dependencies, that record and the
+remaining Tail form one corrupt suffix. Recovery atomically installs a
+checkpoint at the last valid frontier, moves the suffix to quarantine, and
+removes it from active history without reusing sequence numbers. If checkpoints
+exist but none are valid, open fails explicitly. After recovery, the runtime
+establishes a fresh local undo boundary at the accepted frontier.
 
-Recovery state is one Base checkpoint plus its verified Tail updates. A normal
+Recovery state is a Base checkpoint plus its verified Tail updates. A normal
 snapshot retains operation history for interchange. A GC checkpoint is a Loro
 shallow snapshot at the current frontier: it preserves current state and the
 frontier needed by later updates while discarding operations before that
 frontier.
 
-Local-only graphs install a GC checkpoint after 128 Tail records or 512 KiB.
-Checkpoint write, covered-update deletion, older-checkpoint deletion, metadata
-accounting, and pointer advance are one transaction, so recovery sees either
-the old Base+Tail or the new one. Clean close also attempts this maintenance,
-but correctness and bounded growth do not depend on close firing.
+Local-only graphs install a GC checkpoint after 128 uncompacted Tail records or
+512 KiB. Checkpoint write, retention, Tail deletion, metadata accounting, and pointer
+advance are one transaction. Exactly the current and prior Base are retained.
+Tail rows covered by the current Base stay for its first generation so the prior
+Base remains usable; the next checkpoint reclaims the now-obsolete generation.
+Clean close also attempts this maintenance, but correctness does not depend on
+close firing.
 
 Remote replicas cannot choose a GC frontier independently. They retain mergeable
 history until the server publishes a new `history_epoch`. Adopting that epoch is
@@ -201,8 +211,9 @@ installs the validated shallow clone as a sequence-zero checkpoint. Metadata and
 checkpoint creation share one IndexedDB transaction and require the target graph
 to be absent, so an import is either a complete new local graph or no graph.
 
-Acknowledgement removes the matching outbox record. A Tail row already covered
-by Base remains pinned while referenced and is deleted with that acknowledgement.
+Acknowledgement removes the matching outbox record. A referenced Tail row stays
+pinned until acknowledgement and is deleted only when the fallback Base no
+longer needs it.
 Storage capability `usage_bytes` reports logical bytes owned by this graph—Base,
 Tail, standalone bootstrap, and quarantine—not origin-wide Wasm, font, or HTTP
 cache allocation. Browser quota remains the origin quota reported by
@@ -225,12 +236,10 @@ records whether a locally persisted replica is local-only or attached to a
 remote server. Transport credentials and presence are not canonical state. The
 RDF index is rebuilt on open and has no persisted cache.
 
-Pre-release v1 may replace an undeployed encoding destructively without a schema
-version bump; superseded snapshots are then unsupported and recreated rather
-than migrated. The first post-release document-schema change must define its supported input range,
-identity-preserving migration, fixtures captured from deployed data, minimum
-writer policy, and rollback behavior in this document. Until then, v1 is the
-only accepted schema and unsupported values fail explicitly.
+Every future document-schema change must define its supported input range,
+identity-preserving CRDT migration, deployed-data fixture, minimum-writer policy,
+and checkpoint rollback boundary here. Compatibility is explicit rather than
+inferred from a decoder accepting the bytes.
 
 ## Verification
 
@@ -238,8 +247,10 @@ only accepted schema and unsupported values fail explicitly.
 - restart tests compare semantic graph state after checkpoint plus tail replay;
 - fault tests cover before-commit, after-commit, busy/quota, and corrupt records;
 - convergence tests exchange binary updates in different and duplicate orders;
-- browser outbox tests cover normalized queueing, epoch rebase, restart,
-  protocol encoding, and acknowledgement;
+- browser outbox tests cover normalized queueing, epoch rebase, checkpoint plus
+  Tail resync, restart, protocol encoding, and acknowledgement;
 - compaction tests cross the periodic threshold and reopen from the retained
-  shallow checkpoint and remaining tail;
+  current/prior checkpoints and remaining Tail;
+- the checked-in v1 fixture migrates in core, browser, and server paths and is
+  stable under a second open;
 - generated contracts are synchronized before tests and checked by production builds.

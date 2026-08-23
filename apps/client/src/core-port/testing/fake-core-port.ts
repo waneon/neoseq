@@ -220,7 +220,7 @@ export class FakeCorePort implements SessionPort {
         .map((tag) => tag.id),
     );
     return clone({
-      schema_version: 1,
+      schema_version: 2,
       graph_id: this.graphId,
       pages: this.pages
         .filter((page) => !hasKey(page.properties, "builtin.deleted-at"))

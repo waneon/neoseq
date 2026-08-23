@@ -1,6 +1,7 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
 import golden from "../../../fixtures/core-port/current.json";
+import legacyFixture from "../../../fixtures/compatibility/schema-v1-basic.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
 
@@ -42,6 +43,14 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function hexBuffer(value: string): ArrayBuffer {
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes.buffer;
+}
+
 async function expectCode(action: Promise<unknown>, code: string): Promise<void> {
   try {
     await action;
@@ -75,10 +84,13 @@ export async function runIndexedDbPersistenceCorpus() {
   }
   const compacted = await creator.storageStats(graph);
   assert(compacted.compacted_through >= 128, "tail threshold did not install a checkpoint");
-  assert(compacted.checkpoint_count === 1, "compaction retained redundant checkpoints");
-  assert(compacted.update_count < 8, "compaction retained its covered update tail");
+  assert(compacted.checkpoint_count === 2, "compaction did not retain exactly one fallback Base");
+  assert(compacted.update_count >= 128, "fallback Base lost its covered Tail generation");
   const before = await creator.read({ graph_handle: opened.graph_handle });
   await creator.closeGraph({ graph_handle: opened.graph_handle });
+  const reclaimed = await creator.storageStats(graph);
+  assert(reclaimed.checkpoint_count === 2, "checkpoint rotation retained more than two Bases");
+  assert(reclaimed.update_count < 8, "next checkpoint generation did not reclaim the old Tail");
   creator.terminate();
 
   const restorer = new TestCoreWorker();
@@ -192,7 +204,7 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 1, "worker read did not return schema v1");
+  assert((read.summary as Snapshot).schema_version === 2, "worker read did not return schema v2");
   const outline = await worker.readOutline({
     graph_handle: opened.graph_handle,
     owner: { kind: "page", id: "home" },
@@ -273,8 +285,16 @@ export async function runIndexedDbFaultCorpus() {
     timeout_ms: 1_000,
   });
   await corruptRecovery.closeGraph({ graph_handle: recoveredCorrupt.graph_handle });
-  await corruptRecovery.deleteGraph(corruptGraph);
   corruptRecovery.terminate();
+
+  const repairedTail = new TestCoreWorker();
+  const reopenedTail = await repairedTail.openGraph(openRequest(corruptGraph, 233));
+  assert(reopenedTail.recovery.quarantined_records.length === 0, "repaired Tail was quarantined again");
+  assert((reopenedTail.summary as Snapshot).pages.length === 1, "post-repair edit did not survive restart");
+  assert(await repairedTail.quarantineCount(corruptGraph) === 1, "repair discarded quarantine evidence");
+  await repairedTail.closeGraph({ graph_handle: reopenedTail.graph_handle });
+  await repairedTail.deleteGraph(corruptGraph);
+  repairedTail.terminate();
 
   const abortGraph = graphId("abort-quota");
   const abortWorker = new TestCoreWorker();
@@ -329,7 +349,24 @@ export async function runIndexedDbFaultCorpus() {
   await expectCode(schemaWriter.openGraph(openRequest(schemaGraph, 262)), "unsupported_schema");
   await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();
-  return { append_after_recovered: true, corrupt_quarantined: true, quota_typed: true, transaction_abort: true, checkpoint_phases: true, unsupported_schema: true };
+
+  const migration = new TestCoreWorker();
+  await migration.deleteGraph(legacyFixture.graph_id);
+  await migration.installLegacyFixture(
+    legacyFixture.graph_id,
+    hexBuffer(legacyFixture.snapshot_hex),
+  );
+  const migrated = await migration.openGraph(openRequest(legacyFixture.graph_id, 263));
+  assert((migrated.summary as Snapshot).schema_version === 2, "schema v1 fixture was not migrated");
+  assert((migrated.summary as Snapshot).pages.length === 1, "schema migration changed fixture entities");
+  assert(await migration.schemaVersion(legacyFixture.graph_id) === 2, "migrated Base was not persisted");
+  await migration.closeGraph({ graph_handle: migrated.graph_handle });
+  const migratedAgain = await migration.openGraph(openRequest(legacyFixture.graph_id, 264));
+  assert(migratedAgain.recovery.quarantined_records.length === 0, "persisted migration failed on reopen");
+  await migration.closeGraph({ graph_handle: migratedAgain.graph_handle });
+  await migration.deleteGraph(legacyFixture.graph_id);
+  migration.terminate();
+  return { append_after_recovered: true, corrupt_quarantined: true, quota_typed: true, transaction_abort: true, checkpoint_phases: true, unsupported_schema: true, schema_migrated: true };
 }
 
 export async function runRemoteOutboxCorpus() {
@@ -337,6 +374,12 @@ export async function runRemoteOutboxCorpus() {
   const writer = new TestCoreWorker();
   const opened = await writer.openGraph(openRequest(graph, 271));
   const serverBase = await writer.gcCheckpoint(opened.graph_handle);
+  const serverTail = await writer.fixtureUpdate(
+    graph,
+    serverBase.checkpoint,
+    901,
+    ensurePage(graph, "server-page", "server-page"),
+  );
   await writer.configureSync(opened.graph_handle);
   assert((await writer.syncState(opened.graph_handle)).pending === 1, "replica bootstrap was not queued");
   const bootstrap = await writer.nextOutbox(opened.graph_handle);
@@ -387,11 +430,15 @@ export async function runRemoteOutboxCorpus() {
   const replacedStats = await writer.storageStats(graph);
   assert(replacedStats.update_count === 1, "rebased intent was not normalized to one tail row");
   assert(replacedStats.outbox_bytes === 0, "rebased outbox duplicated its tail payload");
+  await writer.importRemote(opened.graph_handle, serverTail);
+  const resynced = await writer.read({ graph_handle: opened.graph_handle });
+  assert((resynced.summary as Snapshot).pages.length === 2, "checkpoint plus server Tail did not converge");
   writer.terminate();
 
   const restarted = new TestCoreWorker();
   const reopened = await restarted.openGraph(openRequest(graph, 272));
   await restarted.configureSync(reopened.graph_handle);
+  assert((reopened.summary as Snapshot).pages.length === 2, "checkpoint plus Tail resync did not survive restart");
   assert((await restarted.syncState(reopened.graph_handle)).pending === 1, "restart lost unacknowledged outbox update");
   await restarted.acknowledgeOutbox(reopened.graph_handle, rebased.message_id);
   const acknowledged = await restarted.syncState(reopened.graph_handle);
@@ -399,5 +446,5 @@ export async function runRemoteOutboxCorpus() {
   await restarted.closeGraph({ graph_handle: reopened.graph_handle });
   await restarted.deleteGraph(graph);
   restarted.terminate();
-  return { durable_retry: true, protocol_codec: true, epoch_rebased: true, acknowledged: true };
+  return { durable_retry: true, protocol_codec: true, epoch_rebased: true, checkpoint_tail_resync: true, acknowledged: true };
 }

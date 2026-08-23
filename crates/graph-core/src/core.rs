@@ -26,7 +26,18 @@ use std::{
 };
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
+pub const MIN_MIGRATABLE_SCHEMA_VERSION: u32 = 1;
+pub const MINIMUM_WRITER_SCHEMA: u32 = 2;
+pub const LIFECYCLE_MIGRATION_ID: &str = "0001-lifecycle-metadata";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationReport {
+    pub source_schema: u32,
+    pub target_schema: u32,
+    pub applied_migrations: Vec<String>,
+    pub update: Vec<u8>,
+}
 
 /// Encoded causal baseline for a replica that has no operations yet.
 pub fn empty_version_vector() -> Vec<u8> {
@@ -163,6 +174,8 @@ pub enum CoreError {
     CloneTargetMatchesSource,
     #[error("unsupported schema version {0}")]
     UnsupportedSchema(i64),
+    #[error("invalid schema metadata: {0}")]
+    InvalidSchemaMetadata(&'static str),
     #[error("local history metadata is not aligned with the undo manager")]
     HistoryMetadataMismatch,
     #[error("Loro update is missing causal dependencies")]
@@ -379,6 +392,8 @@ impl GraphCore {
         let meta = doc.get_map("meta");
         meta.insert("graph_id", graph_id.as_str())?;
         meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
+        meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
+        let _ = meta.ensure_mergeable_map("applied_migrations")?;
         let _ = doc.get_map("pages");
         let _ = doc.get_map("tags");
         doc.set_next_commit_origin("system:init");
@@ -401,21 +416,33 @@ impl GraphCore {
         peer_id: u64,
         snapshot: &[u8],
     ) -> Result<Self, CoreError> {
+        Self::from_snapshot_with_migrations(graph_id, peer_id, snapshot).map(|(core, _)| core)
+    }
+
+    pub fn from_snapshot_with_migrations(
+        graph_id: GraphId,
+        peer_id: u64,
+        snapshot: &[u8],
+    ) -> Result<(Self, MigrationReport), CoreError> {
         let doc = LoroDoc::from_snapshot(snapshot)?;
         doc.set_peer_id(peer_id)?;
+        let migration = migrate_document(&doc)?;
         verify_schema(&doc, &graph_id)?;
         validate_unique_entity_names(&doc)?;
         enable_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
-        Ok(Self {
-            graph_id,
-            doc,
-            undo,
-            command_results: BTreeMap::new(),
-            command_order: VecDeque::new(),
-            undo_history: Vec::new(),
-            redo_history: Vec::new(),
-        })
+        Ok((
+            Self {
+                graph_id,
+                doc,
+                undo,
+                command_results: BTreeMap::new(),
+                command_order: VecDeque::new(),
+                undo_history: Vec::new(),
+                redo_history: Vec::new(),
+            },
+            migration,
+        ))
     }
 
     pub fn graph_id(&self) -> &GraphId {
@@ -3219,6 +3246,68 @@ fn rewrite_graph_scoped_query_iris(
     Ok(())
 }
 
+fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
+    let meta = doc.get_map("meta");
+    let stored = map_i64(&meta, "schema_version").unwrap_or(0);
+    let source_schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
+    if source_schema == SCHEMA_VERSION {
+        verify_lifecycle_metadata(&meta)?;
+        return Ok(MigrationReport {
+            source_schema,
+            target_schema: SCHEMA_VERSION,
+            applied_migrations: Vec::new(),
+            update: Vec::new(),
+        });
+    }
+    if source_schema != MIN_MIGRATABLE_SCHEMA_VERSION {
+        return Err(CoreError::UnsupportedSchema(stored));
+    }
+
+    let before = doc.oplog_vv();
+    doc.set_next_commit_origin("system:migration");
+    doc.set_next_commit_message(LIFECYCLE_MIGRATION_ID);
+    let applied = match meta.get("applied_migrations") {
+        Some(value) => value_into_map(value).ok_or(CoreError::InvalidSchemaMetadata(
+            "applied_migrations must be a map",
+        ))?,
+        None => meta.ensure_mergeable_map("applied_migrations")?,
+    };
+    if map_i64(&applied, LIFECYCLE_MIGRATION_ID) != Some(i64::from(SCHEMA_VERSION)) {
+        applied.insert(LIFECYCLE_MIGRATION_ID, i64::from(SCHEMA_VERSION))?;
+    }
+    if map_i64(&meta, "minimum_writer_schema") != Some(i64::from(MINIMUM_WRITER_SCHEMA)) {
+        meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
+    }
+    meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
+    doc.commit();
+    verify_lifecycle_metadata(&meta)?;
+    let update = doc.export(ExportMode::updates(&before))?;
+    Ok(MigrationReport {
+        source_schema,
+        target_schema: SCHEMA_VERSION,
+        applied_migrations: vec![LIFECYCLE_MIGRATION_ID.to_owned()],
+        update,
+    })
+}
+
+fn verify_lifecycle_metadata(meta: &LoroMap) -> Result<(), CoreError> {
+    if map_i64(meta, "minimum_writer_schema") != Some(i64::from(MINIMUM_WRITER_SCHEMA)) {
+        return Err(CoreError::InvalidSchemaMetadata(
+            "minimum_writer_schema is missing or unsupported",
+        ));
+    }
+    if meta
+        .get("applied_migrations")
+        .and_then(value_into_map)
+        .is_none()
+    {
+        return Err(CoreError::InvalidSchemaMetadata(
+            "applied_migrations is missing or invalid",
+        ));
+    }
+    Ok(())
+}
+
 fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     let meta = doc.get_map("meta");
     match map_string(&meta, "graph_id") {
@@ -3226,7 +3315,7 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
         _ => return Err(CoreError::SnapshotGraphMismatch),
     }
     match map_i64(&meta, "schema_version") {
-        Some(value) if value == i64::from(SCHEMA_VERSION) => Ok(()),
+        Some(value) if value == i64::from(SCHEMA_VERSION) => verify_lifecycle_metadata(&meta),
         Some(value) => Err(CoreError::UnsupportedSchema(value)),
         None => Err(CoreError::UnsupportedSchema(0)),
     }
@@ -4447,6 +4536,72 @@ mod tests {
                 _ => None,
             }
         })
+    }
+
+    fn legacy_v1_snapshot() -> Vec<u8> {
+        let mut core = GraphCore::new(graph(), 17, "legacy").unwrap();
+        ensure_regular_page(&mut core, "legacy-page", &page());
+        let meta = core.doc.get_map("meta");
+        meta.delete("minimum_writer_schema").unwrap();
+        meta.delete("applied_migrations").unwrap();
+        meta.insert("schema_version", 1_i64).unwrap();
+        core.doc.commit();
+        let frontiers = core.doc.oplog_frontiers();
+        core.doc
+            .export(ExportMode::shallow_snapshot(&frontiers))
+            .unwrap()
+    }
+
+    #[test]
+    fn schema_v1_migration_is_a_monotonic_idempotent_crdt_update() {
+        let legacy = legacy_v1_snapshot();
+        let (migrated, first) =
+            GraphCore::from_snapshot_with_migrations(graph(), 18, &legacy).unwrap();
+        assert_eq!(first.source_schema, 1);
+        assert_eq!(first.target_schema, SCHEMA_VERSION);
+        assert_eq!(
+            first.applied_migrations,
+            vec![LIFECYCLE_MIGRATION_ID.to_owned()]
+        );
+        assert!(!first.update.is_empty());
+        assert_eq!(migrated.snapshot().unwrap().pages.len(), 1);
+
+        let replica = LoroDoc::from_snapshot(&legacy).unwrap();
+        let status = replica.import(&first.update).unwrap();
+        assert!(status.pending.is_none());
+        assert_eq!(
+            map_i64(&replica.get_map("meta"), "schema_version"),
+            Some(i64::from(SCHEMA_VERSION))
+        );
+
+        let snapshot = migrated.export_snapshot().unwrap();
+        let fingerprint = migrated.fingerprint().unwrap();
+        let (migrated_again, second) =
+            GraphCore::from_snapshot_with_migrations(graph(), 19, &snapshot).unwrap();
+        assert!(second.applied_migrations.is_empty());
+        assert!(second.update.is_empty());
+        assert_eq!(migrated_again.fingerprint().unwrap(), fingerprint);
+    }
+
+    #[test]
+    fn checked_in_schema_v1_fixture_migrates_losslessly() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/compatibility/schema-v1-basic.json"
+        ))
+        .unwrap();
+        let graph_id = GraphId::new(fixture["graph_id"].as_str().unwrap()).unwrap();
+        let snapshot = hex::decode(fixture["snapshot_hex"].as_str().unwrap()).unwrap();
+        let (migrated, report) =
+            GraphCore::from_snapshot_with_migrations(graph_id, 20, &snapshot).unwrap();
+        assert_eq!(
+            report.source_schema,
+            fixture["document_schema"].as_u64().unwrap() as u32
+        );
+        assert_eq!(migrated.snapshot().unwrap().pages.len(), 1);
+        assert_eq!(
+            migrated.fingerprint().unwrap(),
+            fixture["expected_current_fingerprint"].as_str().unwrap()
+        );
     }
 
     #[test]

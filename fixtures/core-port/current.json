@@ -34,7 +34,7 @@
   "transcript": {
     "open": "summary_available",
     "execute": "saved_locally",
-    "read": "schema_v1_summary",
+    "read": "schema_v2_summary",
     "read_outline": "outline_snapshot",
     "query": "select_result",
     "subscribe": ["semantic", "saved_locally"],
