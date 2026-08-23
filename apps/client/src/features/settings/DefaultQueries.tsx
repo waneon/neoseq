@@ -11,17 +11,17 @@
 // render, which is what every other choice in this dialog owes the reader. A
 // broken query says so here, where it can be fixed, and not only there.
 //
-// **Two entrances, the same two the outline has.** `/` offers a built query and
-// hand-written SPARQL; so does this. Nothing here is a second authoring grammar:
-// the builder is the product's own, and what it compiles is stored beside the
-// plan exactly as the graph stores its own queries.
+// **One entrance, the same one the outline has.** `/` builds a query; so does
+// this. Nothing here is a second authoring grammar: the builder is the product's
+// own, and what it compiles is stored beside the plan exactly as the graph stores
+// its own queries. A standing question read as a table says which columns it
+// shows here too, because Settings is the only surface that owns it.
 
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
-  CodeIcon,
   MoreHorizontalIcon,
   PlusIcon,
   Trash2Icon,
@@ -48,15 +48,26 @@ import {
 import { todayLocalDate } from "../../entities/journal";
 import { compilePlan, planBindings, QUERY_LANGUAGE } from "../../entities/query-compile";
 import {
+  columnSourcesFor,
   decodePlan,
   defaultPlan,
   encodePlan,
+  graphPropertyKeys,
   QUERY_PLAN_VERSION,
+  withColumn,
+  withColumnAggregate,
+  withoutColumn,
+  type PlanAggregate,
   type QueryPlan,
 } from "../../entities/query-plan";
 import { useQueryAnswer } from "../query/execution";
 import { answerLabel } from "../query/labels";
 import { QueryBuilder } from "../query/QueryBuilder";
+import {
+  columnChoices,
+  QueryColumnsControl,
+  type ColumnChoice,
+} from "../query/QueryColumnsControl";
 import { planSummary, summaryLabel } from "../query/summary";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -99,17 +110,17 @@ export function DefaultQueriesSection() {
   }, [legacy.length, pendingLegacyImports.length, state.save.kind]);
 
   /** A new query opens on itself: adding one and not landing on it says nothing. */
-  const create = (plan: QueryPlan | null) => {
+  const create = (plan: QueryPlan) => {
     const id = `dq-${crypto.randomUUID()}`;
-    const encoded = plan
-      ? { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) }
-      : undefined;
-    const source = plan ? compilePlan(plan).source : "";
     void session.execute({
       type: "create_default_query",
       default_query_id: id,
       title: "",
-      document: newDefaultQueryDocument(source, encoded, "list"),
+      document: newDefaultQueryDocument(
+        compilePlan(plan).source,
+        { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+        "list",
+      ),
     }).then(() => setOpenId(id)).catch((cause: unknown) => {
       notify.failure(message("failure.saveQuery"), cause);
     });
@@ -165,8 +176,8 @@ export function DefaultQueriesSection() {
           ))}
         </ul>
       )}
-      {/* The empty state *is* the action, so these two are the section's own
-          floor rather than a row that appears once something else exists. */}
+      {/* The empty state *is* the action, so this is the section's own floor
+          rather than a row that appears once something else exists. */}
       <div className="default-query-add">
         <button
           type="button"
@@ -178,18 +189,8 @@ export function DefaultQueriesSection() {
           <PlusIcon aria-hidden />
           {message("settings.addDefaultQuery")}
         </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={full || state.mode === "readonly"}
-          data-testid="add-default-sparql"
-          onClick={() => create(null)}
-        >
-          <CodeIcon aria-hidden />
-          {message("settings.addDefaultSparql")}
-        </button>
       </div>
-      {/* A disabled pair of buttons has to say what would re-enable them. */}
+      {/* A disabled button has to say what would re-enable it. */}
       {full && (
         <p className="field-error" role="status">
           {message("settings.defaultQueryLimit", { count: MAX_DEFAULT_QUERIES })}
@@ -242,13 +243,6 @@ function DefaultQueryRow({
   const answer = useQueryAnswer(defaultQueryKey(query), request);
   const count = answerLabel(answer, null, message);
 
-  // The authoritative source is the truth after another window edited it; the
-  // draft is the truth while the reader is typing SPARQL into it. Committing on
-  // blur rather than per keystroke keeps a half-written query from spending the
-  // pause between two words as a parse error.
-  const [draft, setDraft] = useState(query.document.source);
-  useEffect(() => setDraft(query.document.source), [query.document.source]);
-
   const summary = plan
     ? planSummary(plan, {
         snapshot: state.snapshot,
@@ -267,13 +261,6 @@ function DefaultQueryRow({
       notify.failure(message("failure.saveQuery"), cause);
     });
   };
-
-  const commitSource = () => {
-    if (draft !== query.document.source) {
-      save({ type: "set_query_source", owner, source: draft });
-    }
-  };
-
   /** A plan and the SPARQL it compiles to are written together, never apart. */
   const commitPlan = (next: QueryPlan) => {
     save({
@@ -282,6 +269,29 @@ function DefaultQueryRow({
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(next) },
       source: compilePlan(next).source,
     });
+  };
+
+  // A standing question is read through exactly one view, so there is nothing to
+  // hide a column *in*: the switch and the query's own columns are the same list,
+  // and turning one off takes it out of the question.
+  const choices = plan
+    ? columnChoices(
+      columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
+      plan.columns,
+      new Set<string>(),
+      plan.subject,
+      message,
+    )
+    : [];
+
+  const toggleColumn = (choice: ColumnChoice, shown: boolean) => {
+    if (!plan) return;
+    if (shown) commitPlan(withColumn(plan, choice.source));
+    else if (choice.column) commitPlan(withoutColumn(plan, choice.column.id));
+  };
+
+  const summarizeColumn = (choice: ColumnChoice, aggregate: PlanAggregate | undefined) => {
+    if (plan && choice.column) commitPlan(withColumnAggregate(plan, choice.column.id, aggregate));
   };
 
   return (
@@ -391,31 +401,21 @@ function DefaultQueryRow({
               onChange={commitPlan}
             />
           ) : (
-            <textarea
-              className="query-source"
-              value={draft}
-              spellCheck={false}
-              readOnly={state.mode === "readonly"}
-              aria-label={message("query.source")}
-              data-testid="default-query-source"
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={commitSource}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  commitSource();
-                  answer.run(true);
-                }
-              }}
-            />
+            // A question written by a build that had a SPARQL editor. It still
+            // runs and still says what it asks; what it no longer has is an
+            // editor, so the reader's choices here are to read it or delete it.
+            <pre className="query-compiled" data-testid="default-query-compiled">
+              <code>{query.document.source}</code>
+            </pre>
           )}
           {answer.error && (
             <p className="query-diagnostic" role="alert">
               {answer.error}
             </p>
           )}
-          {/* The journal only reads this graph-owned document; Settings is the
-              one place that changes how its answer is presented. */}
+          {/* The journal only reads this graph-owned document; Settings changes
+              its presentation. Columns remain part of a table's question and
+              disappear when the answer is read as a list. */}
           <div className="default-query-layout">
             <span className="field-label" id={`${bodyId}-layout`}>
               {message("settings.defaultQueryLayout")}
@@ -438,6 +438,13 @@ function DefaultQueryRow({
                 </button>
               ))}
             </div>
+            {activeView.kind === "table" && plan && (
+              <QueryColumnsControl
+                choices={choices}
+                onToggle={toggleColumn}
+                onAggregate={summarizeColumn}
+              />
+            )}
           </div>
         </div>
       )}

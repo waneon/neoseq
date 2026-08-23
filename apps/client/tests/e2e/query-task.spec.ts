@@ -117,6 +117,18 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   const reloaded = page.getByTestId("query-block");
   await expect(reloaded.getByTestId("query-table")).toBeVisible();
   await expect(reloaded.getByRole("columnheader", { name: /Page/ })).toHaveCount(0);
+
+  // What a table shows is chosen on the table. One switch puts a column in the
+  // query and in this view at once, and both halves survive a reload.
+  await reloaded.getByTestId("query-columns-trigger").click();
+  await page.getByTestId("query-column-toggle-property:builtin.task-status").click();
+  await page.keyboard.press("Escape");
+  await expect(reloaded.getByRole("columnheader", { name: /Status/ })).toBeVisible();
+  await awaitSaved(page);
+  await page.reload();
+  await expect(
+    page.getByTestId("query-block").getByRole("columnheader", { name: /Status/ }),
+  ).toBeVisible();
 });
 
 // The order a reader puts a result in is a list, and it is saved view data like

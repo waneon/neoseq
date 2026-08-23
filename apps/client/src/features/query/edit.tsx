@@ -482,16 +482,14 @@ export function useQueryResultEditor({
           });
           return;
         }
-        if (item.action.kind === "query" || item.action.kind === "query-source") {
+        if (item.action.kind === "query") {
           const plan = defaultPlan();
-          await session.execute(item.action.kind === "query-source"
-            ? { type: "set_query_source", owner, source: "" }
-            : {
-              type: "set_query_plan",
-              owner,
-              plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-              source: compilePlan(plan).source,
-            });
+          await session.execute({
+            type: "set_query_plan",
+            owner,
+            plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+            source: compilePlan(plan).source,
+          });
           return;
         }
         const latest = activeRef.current;
@@ -509,7 +507,7 @@ export function useQueryResultEditor({
         });
       } catch (cause) {
         notify.failure(
-          item.action.kind === "query" || item.action.kind === "query-source"
+          item.action.kind === "query"
             ? message("failure.createQuery")
             : message("failure.setProperty"),
           cause,

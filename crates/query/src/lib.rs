@@ -3089,8 +3089,8 @@ mod tests {
     /// this profile's contract: a bound parameter standing in for a constant
     /// object, negation as `NOT EXISTS`, alternatives as a disjunction of
     /// `EXISTS`, optional columns, `GROUP_CONCAT` over a repeated relation, and
-    /// an aggregate alias used as a sort key. A change here breaks every built
-    /// query.
+    /// the subject as the one order a `LIMIT` cuts against. A change here breaks
+    /// every built query.
     ///
     /// Alternatives are `EXISTS`, deliberately, and this test is where that is
     /// nailed down: a `UNION` branch is evaluated before it joins, so a bound
@@ -3116,7 +3116,7 @@ mod tests {
                OPTIONAL { ?item neo:tag ?t0 . ?t0 neo:name ?c1 }\n\
              }\n\
              GROUP BY ?item ?c0\n\
-             ORDER BY DESC(?c2) ?c0 ?item\n\
+             ORDER BY ?item\n\
              LIMIT 50",
         );
         query.bindings.insert(
@@ -3212,39 +3212,6 @@ mod tests {
         };
         assert!(none.is_empty());
         assert_eq!(found.len(), 1);
-    }
-
-    #[test]
-    fn ranked_priority_order_places_unbound_below_low_and_unknown_last() {
-        let index = GraphIndex::new(&snapshot()).unwrap();
-        let run = |direction: &str| {
-            let source = format!(
-                "SELECT ?priority WHERE {{\n\
-                   VALUES ?priority {{ \"high\" UNDEF \"urgent\" \"low\" \"medium\" }}\n\
-                 }}\n\
-                 ORDER BY\n\
-                   ASC(IF(!BOUND(?priority), 0, IF(?priority IN (\"low\", \"medium\", \"high\"), 0, 1)))\n\
-                   {direction}(IF(BOUND(?priority), IF(?priority = \"low\", 0, IF(?priority = \"medium\", 1, IF(?priority = \"high\", 2, 0))), -1))\n\
-                   {direction}(LCASE(STR(?priority)))\n\
-                   {direction}(STR(?priority))"
-            );
-            let QueryResult::Select { rows, .. } = index.execute(request(&source)).unwrap() else {
-                panic!("expected SELECT")
-            };
-            rows.into_iter()
-                .map(|row| match row.get("priority") {
-                    Some(RdfTerm::Literal { value, .. }) => value.clone(),
-                    None => "<unbound>".to_owned(),
-                    _ => panic!("expected a literal or unbound value"),
-                })
-                .collect::<Vec<_>>()
-        };
-
-        assert_eq!(run("ASC"), ["<unbound>", "low", "medium", "high", "urgent"]);
-        assert_eq!(
-            run("DESC"),
-            ["high", "medium", "low", "<unbound>", "urgent"]
-        );
     }
 
     #[test]

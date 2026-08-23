@@ -4057,27 +4057,187 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink);
 }
 
-.query-source {
-  display: block;
-  width: 100%;
-  min-height: 112px;
+/* ── The columns panel ──
+   What a table shows, as a list of switches. It is the sort panel's twin — the
+   same floating surface at the same depth, opened by the icon beside it — because
+   the two answer the one question a reader has while *reading* an answer: which
+   of this, and in what order.
+
+   Every line is the same line: a switch, a name, and — only where the column is
+   actually there and its relation could fold — how it arrives. The name is a
+   `<label>` for the switch rather than a second target beside it, so the whole
+   row is the press, which is what makes a list of fifteen fields quick to work
+   through. */
+.query-columns-panel {
+  z-index: var(--z-menu);
+  display: grid;
+  gap: var(--sp-1);
   padding: var(--sp-2);
-  border: none;
-  border-radius: 0;
-  background: var(--surface-2);
-  resize: vertical;
-  color: var(--ink);
-  caret-color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  tab-size: 2;
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-/* The same accent edge every other field takes, expressed as the inset it always
-   was here: this one already knew an offset ring around a full-width code area
-   was wrong. */
-.query-source:focus-visible {
+.query-columns-panel > .group-label {
+  margin: 0 0 var(--sp-0);
+  padding-inline: var(--sp-1);
+}
+
+/* A filter, not a field: it sits inside the panel's own ground with the glyph
+   leading it, and the hairline under it is what separates it from the list
+   rather than a box drawn around it. */
+.query-columns-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-1) var(--sp-1);
+  box-shadow: inset 0 -1px 0 var(--thread);
+}
+
+.query-columns-search svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--ink-3);
+}
+
+.query-columns-search input {
+  flex: 1;
+  min-width: 0;
+  height: var(--target);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.query-columns-search input:focus-visible {
+  outline: none;
+}
+
+.query-columns-search input::placeholder {
+  color: var(--ink-2);
+}
+
+.query-columns-empty {
+  margin: 0;
+  padding: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.query-columns-list {
+  display: grid;
+  gap: var(--sp-0);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.query-columns-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+/* The name *is* the switch — a `<label>`, so the whole of it is the press rather
+   than a 14px box with a word parked beside it. It carries its own hover for
+   that reason: the summary menu at the end of the row is a second target, and one
+   wash over both would promise a press that lands on neither. */
+.query-columns-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  height: var(--row-h);
+  padding-inline: var(--sp-1);
+  border-radius: var(--r-2);
+  cursor: pointer;
+}
+
+.query-columns-toggle:hover,
+.query-columns-toggle:has(input:focus-visible) {
+  background: var(--surface-2);
+}
+
+.query-columns-toggle input[type="checkbox"] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.query-columns-toggle:has(input:disabled) {
+  cursor: default;
+}
+
+.query-columns-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A column the table draws is stated in the reading ink; one it does not is a
+   name in the metadata voice, which is the difference the switch already carries
+   and the ink repeats without a second signal (§ Contrast). */
+.query-columns-row[data-shown] .query-columns-name {
+  color: var(--ink);
+}
+
+/* Revealed, not summoned. How a column *arrives* — each value, or folded into
+   one — is a question about a handful of relations, and a dropdown beside every
+   switch in the list would out-shout the switches. It keeps its place in the
+   layout so nothing shifts under the pointer, and a column that is already
+   summarized states so at rest: that is a fact about the answer, not an offer. */
+.query-columns-panel .query-columns-aggregate {
+  flex: none;
+  width: auto;
+  max-width: 108px;
+  height: var(--sp-5);
+  margin-inline-end: var(--sp-1);
+  padding-inline: var(--sp-2) var(--sp-1);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  opacity: 0;
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.query-columns-row:hover .query-columns-aggregate,
+.query-columns-row:focus-within .query-columns-aggregate,
+.query-columns-row[data-summarized] .query-columns-aggregate {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .query-columns-panel .query-columns-aggregate {
+    opacity: 1;
+  }
+}
+
+.query-columns-panel .query-columns-aggregate:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.query-columns-panel .query-columns-aggregate:focus-visible,
+.query-columns-panel .query-columns-aggregate[data-state="open"] {
   background: var(--surface-2);
   box-shadow: var(--e1);
 }
@@ -4127,9 +4287,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
    every control in the builder starts at the same x. */
 .query-builder {
   display: grid;
-  /* A floor, not a fixed width: the lead column aligns at 52px so `Find`, `Show`
-     and `Sort` share one edge, and still grows for a locale — or a 2× expansion
-     pseudo-locale — whose words are longer than the floor. */
+  /* A floor, not a fixed width: the lead column holds `Find` at 52px so the
+     condition tree under it starts at one edge, and still grows for a locale —
+     or a 2× expansion pseudo-locale — whose word is longer than the floor. */
   grid-template-columns: minmax(52px, max-content) minmax(0, 1fr);
   /* How tall the first line of a clause is. The grid is top-aligned, so a lead
      word centres on its clause only while the two reserve the same height —
@@ -4175,16 +4335,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-}
-
-/* A clause built from chips is a chip tall, not a control row tall. Left at the
-   32px floor the lead's own box was eight pixels taller than the chips beside
-   it and — top-aligned in the grid, as every wrapping clause needs it to be —
-   its word landed four pixels under their centre line. `Show` and its columns
-   are read as one phrase, so that offset was visible in the one row where the
-   reader is naming what the answer contains. */
-.qb-lead[data-clause="chips"] {
-  --qb-clause-h: var(--sp-5);
 }
 
 /* Inside a clause the lead is punctuation between two controls, so it needs no
@@ -4349,86 +4499,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   height: 12px;
 }
 
-/* A column is a chip that opens its own summary menu, so it takes the chip's
-   resting ring rather than the field ground — the chip's line, at the chip's
-   own strength (§ The legal lines). */
-.qb-column {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  border-radius: var(--r-2);
-  box-shadow: var(--e1-chip);
-}
-
-.query-builder .qb-column-select {
-  max-width: 200px;
-  padding-inline: var(--sp-2) var(--sp-1);
-  box-shadow: none;
-  background: transparent;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  height: var(--sp-5);
-}
-
-.qb-column:hover {
-  box-shadow: inset 0 0 0 1.5px var(--line-strong);
-}
-
-.query-builder .qb-column-select:focus-visible,
-.query-builder .qb-column-select[data-state="open"] {
-  box-shadow: none;
-  background: var(--surface-2);
-}
-
-/* Revealed, not summoned: a strip of columns is a list of things, and a row of
-   `×` beside every one of them is a row of ways to destroy the list. It never
-   leaves the layout, so the chip does not change width when the pointer lands. */
-.qb-column-remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--sp-4);
-  height: var(--sp-5);
-  padding: 0;
-  border: 0;
-  border-radius: 0 var(--r-2) var(--r-2) 0;
-  background: transparent;
-  color: var(--ink-3);
-  opacity: 0;
-  cursor: pointer;
-  transition: opacity var(--dur-press) var(--ease-out);
-}
-
-.qb-column:hover .qb-column-remove,
-.qb-column-remove:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .qb-column-remove {
-    opacity: 1;
-  }
-}
-
-.qb-column-remove:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.qb-column-remove svg {
-  width: 12px;
-  height: 12px;
-}
-
-/* The `Add column` chooser is the only control in the row that is not yet a
-   column, so it says so by staying a ghost rather than wearing a chip's ring. */
-.query-builder .qb-add-column {
-  height: var(--sp-5);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-}
-
 .qb-chip {
   display: inline-flex;
   align-items: center;
@@ -4488,10 +4558,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* The tail of the sentence carries two knobs most queries never touch, so they
-   sit at the end of the line rather than beside the order that precedes them —
-   as one group behind a seam, so the gap in between reads as separation rather
-   than as two controls that came loose. */
+   sit at the end of the line rather than under a lead word of their own: they
+   are not a clause, they are the settings the clause above them runs under. They
+   line up with the conditions, in column 2, and stay grouped behind a seam so
+   the gap in between reads as separation rather than as two controls that came
+   loose. */
 .qb-tail {
+  grid-column: 2;
   gap: var(--sp-2);
 }
 
@@ -8061,9 +8134,9 @@ button.tag-mark:focus-visible {
   margin-bottom: 0;
 }
 
-/* The empty state is the action, so the two entrances are the section's floor
-   rather than a row that appears once something else exists. They are the two the
-   outline's `/` offers, in the same order and for the same reason. */
+/* The empty state is the action, so the entrance is the section's floor rather
+   than a row that appears once something else exists. It is the one the outline's
+   `/` offers, and for the same reason: a query is built. */
 .default-query-add {
   display: flex;
   flex-wrap: wrap;

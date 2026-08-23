@@ -1,14 +1,20 @@
 // The query builder.
 //
-// It reads as a sentence — *Find blocks where all of …, show …, sorted by …* —
-// because that is the shape of the question a person actually has. Every row is
-// the product's one dropdown (`ui/menu-select`), so a choice here behaves like a
-// choice anywhere else, and nesting a group is what gives it the reach of the
-// SPARQL it compiles to: any depth of AND / OR / NOT over any field the graph
-// projects.
+// It reads as a sentence — *Find blocks where all of …* — because that is the
+// shape of the question a person actually has. Every row is the product's one
+// dropdown (`ui/menu-select`), so a choice here behaves like a choice anywhere
+// else, and nesting a group is what gives it the reach of the SPARQL it compiles
+// to: any depth of AND / OR / NOT over any field the graph projects.
+//
+// **The sentence asks; it does not lay out.** What an answer shows and which way
+// it is ordered are the reader's, changed while reading and belonging to the
+// table they are read in — so they live on the answer (`QueryColumnsControl`,
+// `QuerySortControl`) and not in the question. A builder that also held a `Show`
+// row and a `Sort by` row was stating both twice, in a place the reader has to
+// open the editor to reach.
 //
 // The builder is a pure editor over a plan value. It never runs, saves, or
-// compiles anything; `QueryBlock` owns all of that.
+// compiles anything; `QueryPanel` owns all of that.
 
 import { useMemo, useState } from "react";
 import { PlusIcon, Trash2Icon, XIcon } from "lucide-react";
@@ -16,21 +22,17 @@ import { Input } from "@/ui/shadcn/input";
 import { MenuSelect, type MenuSelectOption } from "@/ui/menu-select";
 import { cn } from "@/lib/utils";
 import type { GraphSnapshot } from "../../core-port/snapshot";
-import { isGenericProperty, stringChoicesOf } from "../../entities/properties";
+import { stringChoicesOf } from "../../entities/properties";
 import { offeredChoices } from "../../entities/tasks";
-import { isOrderableColumn } from "../../entities/query-ordering";
 import {
-  aggregatesFor,
   appendNode,
-  columnBaseId,
   columnKindsFor,
-  defaultAggregateFor,
   defaultValueForField,
   emptyGroup,
   fieldKindsFor,
   fieldType,
+  graphPropertyKeys,
   newCondition,
-  nextColumnId,
   operatorsFor,
   operatorTakesList,
   operatorTakesRange,
@@ -40,12 +42,9 @@ import {
   PLAN_MAX_CONDITIONS,
   PLAN_MAX_DEPTH,
   PLAN_SUBJECTS,
-  planPropertyKeys,
   replaceNode,
   countConditions,
   groupDepth,
-  type PlanAggregate,
-  type PlanColumn,
   type PlanColumnSource,
   type PlanCondition,
   type PlanField,
@@ -60,10 +59,7 @@ import { useI18n } from "../../i18n";
 import { PageAutocomplete } from "../properties/PageAutocomplete";
 import { propertyDisplayName } from "../properties/property-display";
 import {
-  aggregateLabel,
   choiceLabel,
-  columnLabel,
-  columnSourceLabel,
   fieldKindLabel,
   fieldLabel,
   matchLabel,
@@ -75,7 +71,6 @@ import {
 } from "./labels";
 
 const FIELD_PROPERTY_PREFIX = "property:";
-const COLUMN_PROPERTY_PREFIX = "property:";
 const EXACT_DATE = "exact";
 
 /**
@@ -88,28 +83,6 @@ const EXACT_DATE = "exact";
  */
 const GHOST_FIELD =
   "bg-transparent shadow-none hover:bg-[var(--surface-2)] hover:shadow-none";
-
-/** Every property key this graph actually uses, plus the registry's own. */
-export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
-  const present = new Set<string>();
-  const visit = (bag: { key: string }[]) => {
-    for (const field of bag) if (isGenericProperty(field.key)) present.add(field.key);
-  };
-  for (const page of snapshot.pages) {
-    visit(page.properties);
-    const stack = [...page.blocks];
-    while (stack.length > 0) {
-      const block = stack.pop()!;
-      visit(block.properties);
-      stack.push(...block.children);
-    }
-  }
-  for (const tag of snapshot.tags) {
-    visit(tag.properties);
-    visit(tag.defaults);
-  }
-  return planPropertyKeys(present);
-}
 
 export function QueryBuilder({
   plan,
@@ -174,56 +147,11 @@ export function QueryBuilder({
         onRemove={null}
       />
 
-      <ColumnsEditor
-        plan={plan}
-        propertyKeys={propertyKeys}
-        readonly={readonly}
-        onChange={onChange}
-      />
-
-      <span className="qb-lead">{message("query.sort")}</span>
+      {/* The two knobs most queries never touch, and the last of the sentence.
+          They are held at the end of the line, and grouped, so the space before
+          them reads as "and then these" rather than as two controls that
+          drifted apart from the sentence they belong to. */}
       <div className="qb-line qb-tail">
-        <MenuSelect
-          value={plan.sort[0]?.column ?? ""}
-          label={message("query.sortLabel")}
-          placeholder={message("query.sortNone")}
-          testId="qb-sort"
-          disabled={readonly}
-          options={[
-            { value: "", label: message("query.sortNone") },
-            ...plan.columns.filter(isOrderableColumn).map((column) => ({
-              value: column.id,
-              label: columnLabel(column, plan.subject, message),
-            })),
-          ]}
-          onValueChange={(value) =>
-            onChange({
-              ...plan,
-              sort: value
-                ? [{ column: value, direction: plan.sort[0]?.direction ?? "asc" }]
-                : [],
-            })}
-        />
-        {plan.sort[0] && (
-          <MenuSelect
-            value={plan.sort[0].direction}
-            label={message("query.sortDirection")}
-            disabled={readonly}
-            options={[
-              { value: "asc", label: message("query.ascending") },
-              { value: "desc", label: message("query.descending") },
-            ]}
-            onValueChange={(value) =>
-              onChange({
-                ...plan,
-                sort: [{ column: plan.sort[0].column, direction: value as "asc" | "desc" }],
-              })}
-          />
-        )}
-        {/* The two knobs most queries never touch. They are held at the end of
-            the line, and grouped, so the space before them reads as "and then
-            these" rather than as two controls that drifted apart from the
-            sentence they belong to. */}
         <div className="qb-knobs">
           <span className="qb-lead qb-limit">{message("query.limit")}</span>
           <Input
@@ -267,15 +195,13 @@ function retarget(plan: QueryPlan, subject: PlanSubject): QueryPlan {
     return { ...node, children };
   };
   const columns = plan.columns.filter((column) => sources.has(column.source.kind));
-  const kept = columns.length > 0
-    ? columns
-    : [{ id: "item", source: { kind: "subject" } as PlanColumnSource }];
   return {
     ...plan,
     subject,
     where: prune(plan.where) as PlanGroup,
-    columns: kept,
-    sort: plan.sort.filter((entry) => kept.some((column) => column.id === entry.column)),
+    columns: columns.length > 0
+      ? columns
+      : [{ id: "text", source: { kind: "content" } as PlanColumnSource }],
   };
 }
 
@@ -770,161 +696,6 @@ function ValueListEditor({
             setDraft("");
           }}
         />
-      )}
-    </span>
-  );
-}
-
-function ColumnsEditor({
-  plan,
-  propertyKeys,
-  readonly,
-  onChange,
-}: {
-  plan: QueryPlan;
-  propertyKeys: string[];
-  readonly: boolean;
-  onChange: (plan: QueryPlan) => void;
-}) {
-  const { message } = useI18n();
-  const taken = new Set(
-    plan.columns.map((column) =>
-      column.source.kind === "property"
-        ? `${COLUMN_PROPERTY_PREFIX}${column.source.key}`
-        : column.source.kind),
-  );
-  const available: MenuSelectOption[] = [
-    // `property` is not a column on its own — every property key below is.
-    ...columnKindsFor(plan.subject)
-      .filter((kind) => kind !== "property" && !taken.has(kind))
-      .map((kind) => ({
-        value: kind,
-        label: columnSourceLabel({ kind } as PlanColumnSource, plan.subject, message),
-      })),
-    ...propertyKeys
-      .filter((key) => !taken.has(`${COLUMN_PROPERTY_PREFIX}${key}`))
-      .map((key) => ({
-        value: `${COLUMN_PROPERTY_PREFIX}${key}`,
-        label: propertyDisplayName(key, message),
-      })),
-  ];
-
-  const addColumn = (encoded: string) => {
-    const source: PlanColumnSource = encoded.startsWith(COLUMN_PROPERTY_PREFIX)
-      ? { kind: "property", key: encoded.slice(COLUMN_PROPERTY_PREFIX.length) }
-      : ({ kind: encoded } as PlanColumnSource);
-    const column: PlanColumn = {
-      id: nextColumnId(plan, columnBaseId(source)),
-      source,
-      // A relation with many values folds into one cell by default; a row per
-      // tag would multiply the answer rather than describe it.
-      aggregate: defaultAggregateFor(source),
-    };
-    onChange({ ...plan, columns: [...plan.columns, column] });
-  };
-
-  const update = (id: string, next: Partial<PlanColumn>) =>
-    onChange({
-      ...plan,
-      columns: plan.columns.map((column) =>
-        column.id === id ? { ...column, ...next } : column),
-    });
-
-  const remove = (id: string) =>
-    onChange({
-      ...plan,
-      columns: plan.columns.filter((column) => column.id !== id),
-      sort: plan.sort.filter((entry) => entry.column !== id),
-    });
-
-  return (
-    <>
-      {/* The clause under this lead is a strip of chips, so the lead reserves a
-          chip's height rather than the control row's and the two share a centre
-          line (app.css § .qb-lead). */}
-      <span className="qb-lead" data-clause="chips">{message("query.show")}</span>
-      <div className="qb-line qb-columns">
-        {plan.columns.map((column) => (
-          <ColumnChip
-            key={column.id}
-            column={column}
-            subject={plan.subject}
-            readonly={readonly}
-            removable={plan.columns.length > 1}
-            onChange={(next) => update(column.id, next)}
-            onRemove={() => remove(column.id)}
-          />
-        ))}
-        {available.length > 0 && (
-          <MenuSelect
-            className="qb-add-column"
-            value=""
-            label={message("query.addColumn")}
-            placeholder={message("query.addColumn")}
-            testId="qb-add-column"
-            disabled={readonly}
-            options={available}
-            onValueChange={addColumn}
-          />
-        )}
-      </div>
-    </>
-  );
-}
-
-function ColumnChip({
-  column,
-  subject,
-  readonly,
-  removable,
-  onChange,
-  onRemove,
-}: {
-  column: PlanColumn;
-  subject: PlanSubject;
-  readonly: boolean;
-  removable: boolean;
-  onChange: (next: Partial<PlanColumn>) => void;
-  onRemove: () => void;
-}) {
-  const { message } = useI18n();
-  const aggregates = aggregatesFor(column.source);
-  const label = columnLabel(column, subject, message);
-  // The chip's own dropdown *is* how a column is summarized: its resting option
-  // is the plain field, and choosing an aggregate renames the chip to say so.
-  return (
-    <span className="qb-column" data-testid="qb-column">
-      <MenuSelect
-        className="qb-column-select"
-        value={column.aggregate ?? ""}
-        label={message("query.columnMode", { column: label })}
-        disabled={readonly}
-        options={[
-          // A subject column has no plain reading — see `decodePlan`.
-          ...(column.source.kind === "subject"
-            ? []
-            : [{ value: "", label: columnSourceLabel(column.source, subject, message) }]),
-          ...aggregates.map((aggregate) => ({
-            value: aggregate,
-            label: message("query.aggregateOf", {
-              aggregate: aggregateLabel(aggregate, message),
-              field: columnSourceLabel(column.source, subject, message),
-            }),
-          })),
-        ]}
-        onValueChange={(value) =>
-          onChange({ aggregate: (value || undefined) as PlanAggregate | undefined })}
-      />
-      {removable && (
-        <button
-          type="button"
-          className="qb-column-remove"
-          disabled={readonly}
-          aria-label={message("query.removeColumn", { column: label })}
-          onClick={onRemove}
-        >
-          <XIcon aria-hidden />
-        </button>
       )}
     </span>
   );

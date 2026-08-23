@@ -46,47 +46,21 @@ describe("query plan compilation", () => {
     expect(source).toContain("LIMIT 100");
   });
 
-  it("compiles a declared choice order instead of lexical priority text", () => {
+  // Order is presentation. A `LIMIT` still has to cut against something, so the
+  // subject is the whole of the query's own order; which rows a reader sees
+  // first is decided after the answer arrives, by the view they read it in
+  // (`query-ordering.test.ts`).
+  it("orders only by the subject, whatever the plan shows", () => {
     const plan: QueryPlan = {
       ...defaultPlan("block"),
-      columns: [{
-        id: "priority",
-        source: { kind: "property", key: "builtin.task-priority" },
-      }],
-      sort: [{ column: "priority", direction: "asc" }],
+      columns: [
+        { id: "priority", source: { kind: "property", key: "builtin.task-priority" } },
+        { id: "page", source: { kind: "page" } },
+      ],
     };
     const { source } = compilePlan(plan);
-    expect(source).toContain(
-      'ASC(IF(!BOUND(?priority), 0, IF(?priority IN ("low", "medium", "high"), 0, 1)))',
-    );
-    expect(source).toContain(
-      'ASC(IF(BOUND(?priority), IF(?priority = "low", 0, IF(?priority = "medium", 1, IF(?priority = "high", 2, 0))), -1))',
-    );
-  });
-
-  it("keeps missing status outside its declared progression", () => {
-    const plan: QueryPlan = {
-      ...defaultPlan("block"),
-      columns: [{
-        id: "status",
-        source: { kind: "property", key: "builtin.task-status" },
-      }],
-      sort: [{ column: "status", direction: "asc" }],
-    };
-    expect(compilePlan(plan).source).toContain(
-      'ASC(IF(!BOUND(?status), 2, IF(?status IN ("todo", "doing", "done", "cancelled"), 0, 1)))',
-    );
-  });
-
-  it("binds a reference label as the sort key instead of ordering its IRI", () => {
-    const plan: QueryPlan = {
-      ...defaultPlan("block"),
-      columns: [{ id: "page", source: { kind: "page" } }],
-      sort: [{ column: "page", direction: "asc" }],
-    };
-    const { source } = compilePlan(plan);
-    expect(source).toMatch(/OPTIONAL \{ \?page neo:content \?q_o\d+ \}/);
-    expect(source).toMatch(/ASC\(LCASE\(COALESCE\(STR\(\?q_o\d+\), STR\(\?page\)\)\)\)/);
+    expect(source).toContain("ORDER BY ?q_subject");
+    expect(source.match(/ORDER BY .*/)?.[0]).toBe("ORDER BY ?q_subject");
   });
 
   it("sends every user value as a bound parameter, never as spliced text", () => {

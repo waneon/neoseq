@@ -12,11 +12,10 @@
 // rather than a drag, because a drag is not reachable from a keyboard and this
 // list is never longer than a few rows.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
-import { createPortal } from "react-dom";
 import { MenuSelect } from "@/ui/menu-select";
-import { useAnchoredPosition } from "@/ui/anchored";
+import { AnchoredPanel } from "@/ui/anchored-panel";
 import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
 import type { ResultColumn } from "./cells";
@@ -53,51 +52,6 @@ export function QuerySortControl({
   const { message } = useI18n();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  // The panel grows a row per term, so it re-places when the list does.
-  const position = useAnchoredPosition(
-    open ? triggerRef.current : null,
-    { width: 300, maxHeight: 360 },
-    sorts.length,
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (!(node instanceof Node)) return;
-      if (panelRef.current?.contains(node) || triggerRef.current?.contains(node)) return;
-      // A dropdown this panel opened is not outside it: the one dropdown
-      // (§ Choice) portals to the body, so a press on one of its rows lands
-      // outside `panelRef` in the DOM while being, to the reader, a press inside
-      // the editor they are filling in.
-      if (node instanceof Element && node.closest('[data-slot="dropdown-menu-content"]')) return;
-      setOpen(false);
-    };
-    const timer = window.setTimeout(() => {
-      window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() => {
-      if (panelRef.current?.contains(document.activeElement)) return;
-      panelRef.current?.querySelector<HTMLElement>(
-        "button:not([disabled]),[role=\"button\"]",
-      )?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [open]);
-
-  const close = () => {
-    setOpen(false);
-    triggerRef.current?.focus({ preventScroll: true });
-  };
 
   const nameOf = (variable: string) =>
     columns.find((column) => column.variable === variable)?.label ?? `?${variable}`;
@@ -131,36 +85,16 @@ export function QuerySortControl({
       >
         <ArrowUpDownIcon aria-hidden />
       </button>
-      {open && createPortal(
-        <div
-          ref={panelRef}
+      {open && (
+        <AnchoredPanel
+          anchor={triggerRef.current}
           className="query-sort-panel"
-          style={position}
-          role="dialog"
-          aria-label={message("query.sortOrder")}
-          data-testid="query-sort-panel"
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              event.stopPropagation();
-              close();
-              return;
-            }
-            if (event.key !== "Tab") return;
-            const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
-              "button:not([disabled])",
-            );
-            if (!focusable || focusable.length === 0) return;
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
-              event.preventDefault();
-              last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-              event.preventDefault();
-              first.focus();
-            }
-          }}
+          label={message("query.sortOrder")}
+          // The panel grows a row per term, so it re-places when the list does.
+          options={{ width: 300, maxHeight: 360 }}
+          revision={sorts.length}
+          testId="query-sort-panel"
+          onClose={() => setOpen(false)}
         >
           <p className="group-label">{message("query.sortOrder")}</p>
           {sorts.length === 0 && (
@@ -242,8 +176,7 @@ export function QuerySortControl({
               </button>
             )}
           </div>
-        </div>,
-        document.body,
+        </AnchoredPanel>
       )}
     </>
   );

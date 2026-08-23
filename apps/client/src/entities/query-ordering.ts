@@ -2,8 +2,10 @@
 //
 // Rendering and ordering are different projections of the same value. A task
 // priority may render as `Low`, `낮음`, or a glyph, but its order is the rank of
-// the stored `low` value. This module keeps that meaning in pure data so the
-// table comparator and the SPARQL compiler can consume the same contract.
+// the stored `low` value. This module keeps that meaning in pure data, one
+// contract away from the comparator that consumes it — so a column's order is
+// the same fact whichever renderer is reading it, and a translated label can
+// never move a row.
 
 import type { RdfTerm } from "../generated/core-port";
 import { orderingOf, stringChoicesOf, valueTypeOf } from "./properties";
@@ -67,10 +69,6 @@ export function orderSemanticsForColumn(column: Pick<PlanColumn, "source" | "agg
     default:
       return sourceOrderSemantics(column.source);
   }
-}
-
-export function isOrderableColumn(column: Pick<PlanColumn, "source" | "aggregate">): boolean {
-  return orderSemanticsForColumn(column).kind !== "unsupported_list";
 }
 
 const NUMERIC_DATATYPE = /#(?:double|decimal|integer|float|long|int)$/u;

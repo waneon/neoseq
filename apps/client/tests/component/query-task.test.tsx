@@ -55,7 +55,10 @@ describe("query and task projections", () => {
     expect(port.queryRequests).toHaveLength(1);
   });
 
-  it("renders a reactive SELECT result inside the source block", async () => {
+  // A document written before the builder was the only author. It still runs and
+  // still says what it is; what it no longer has is an editor, so its caption is
+  // a caption rather than a disclosure and nothing here can rewrite the SPARQL.
+  it("reads a plan-less query without offering an editor for it", async () => {
     const { session, port } = await mountProjection();
     port.queryResult = {
       kind: "select",
@@ -81,11 +84,12 @@ describe("query and task projections", () => {
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 
-    // A query that has already been written opens on its answer, not on its
-    // editor: the caption names the language and the rows are there to read.
+    // The caption names the language and the rows are there to read. There is
+    // nothing behind the caption to open, so it does not pretend there is.
     const summary = await screen.findByTestId("query-summary");
-    expect(summary).toHaveAccessibleName("SPARQL");
-    expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(summary).toHaveTextContent("SPARQL");
+    expect(summary).toHaveAttribute("data-static");
+    expect(summary).not.toHaveAttribute("aria-expanded");
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
     // Which revision answered is a diagnostic, so it is written where a test or a
     // console can read it rather than into the caption.
@@ -98,7 +102,11 @@ describe("query and task projections", () => {
 
     const user = userEvent.setup();
     await user.click(summary);
-    expect(await screen.findByLabelText("SPARQL source")).toHaveValue(
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    // What runs is still readable, from the menu every query carries.
+    await user.click(screen.getByTestId("query-actions-trigger"));
+    await user.click(await screen.findByRole("menuitem", { name: "Show SPARQL" }));
+    expect(await screen.findByTestId("query-compiled")).toHaveTextContent(
       "SELECT ?block ?status WHERE { ?block ?p ?status }",
     );
 

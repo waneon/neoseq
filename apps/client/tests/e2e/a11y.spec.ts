@@ -62,6 +62,13 @@ test("the query builder and its result table pass the basic audit", async ({ pag
   await expect(query.getByTestId("query-table")).toBeVisible();
   expect(await audit(page)).toEqual([]);
 
+  // The columns panel is a floating surface with a filter and a list of
+  // switches, which is three things an audit should see over a live table.
+  await query.getByTestId("query-columns-trigger").click();
+  await expect(page.getByTestId("query-columns-panel")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+  await page.keyboard.press("Escape");
+
   await query.getByTestId("query-view-trigger").click();
   await page.getByRole("menuitemradio", { name: "List", exact: true }).click();
   await expect(query.getByTestId("query-list")).toBeVisible();
@@ -198,10 +205,18 @@ test("a journal's standing questions pass the basic audit, written and read", as
   await openSettings(page, "queries");
   // Two rows, one open: the collapsed head and the builder under it are the two
   // shapes this section has, and the audit should see both at once.
-  await page.getByTestId("add-default-sparql").click();
+  await page.getByTestId("add-default-query").click();
   await page.getByTestId("add-default-query").click();
   await expect(page.getByTestId("query-builder")).toBeVisible();
   expect(await audit(page)).toEqual([]);
+
+  // …and the columns panel, which is the one floating surface this section
+  // summons and the only place a table's shape is chosen.
+  await page.getByTestId("default-query-layout-table").click();
+  await page.getByTestId("query-columns-trigger").click();
+  await expect(page.getByTestId("query-columns-panel")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+  await page.keyboard.press("Escape");
 
   // And the answer under the day, where the caption is a caption and the only
   // verbs are the reader's.

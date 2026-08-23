@@ -2,11 +2,16 @@
 //
 // Column order, width, visibility **and sort** are the reader's, and they persist
 // in the saved view so the shape of a table survives a reload and reaches
-// everyone on the graph. Sort is presentation like the rest of them: it reorders
-// what is already on screen, while the query's own order — the one a `LIMIT` cuts
-// against — lives in the builder's Sort row. A reader on a read-only graph can
-// still sort; there is simply nowhere to write the choice, so the block holds it
-// for as long as it is mounted.
+// everyone on the graph. All four are presentation: they shape an answer that has
+// already arrived, and the query's own order is the subject alone — the one thing
+// a `LIMIT` has to cut against. A reader on a read-only graph can still sort;
+// there is simply nowhere to write the choice, so the block holds it for as long
+// as it is mounted.
+//
+// Which columns exist is not the table's: it is the query's, switched on and off
+// from the header's columns panel (`QueryColumnsControl`), which writes the plan
+// and this view's hidden flags in one gesture. What arrives here is what this
+// view draws.
 //
 // **A column is dragged where it belongs.** Its heading is its handle, and a
 // seam — the same accent rule the tag directory draws between rows, turned on its

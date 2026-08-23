@@ -556,9 +556,19 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   reading remain independent. An empty count stays inert. Folding hides the mounted answer
   immediately and never pauses its execution. The builder reads as a sentence in rows — a
   lead column, controls that read as words, one left edge, groups are depth not cards, and
-  the two knobs most queries never touch are grouped behind a seam at the end of the line;
-  hand-written SPARQL is its own entrance, never a conversion. **A query is born with one
-  view, named for what it shows** — `All` — rather than with a `Table` and a `List` holding
+  the two knobs most queries never touch are grouped behind a seam at the end of the line.
+  **The sentence asks; it does not lay out.** What an answer shows and which way it is
+  ordered are changed while *reading* it, so they are controls on the answer and not rows
+  in the editor: a `Show` row and a `Sort by` row stated both one surface away from where
+  they are used, and stated them once for two renderers that do not agree. There is no
+  second way to write a query — hand-written SPARQL is not an entrance, a conversion, or a
+  state; what runs is always readable from the `⋯` menu, and never a box to type into.
+  **Columns are a table's question.** A table's switch panel is the sort panel's twin, one
+  line per field with the query's own columns switched on: asking for one adds it to the
+  query and to this table at once, withdrawing it hides it here and drops it from the query
+  when no other view is still asking. A list draws entities rather than a grid, so it has
+  nothing to hide a column *in* — it states every fact the query returned, and carries no
+  switch at all. **A query is born with one view, named for what it shows** — `All` — rather than with a `Table` and a `List` holding
   the same rows under two names for their own shapes. Layout is a *property* of a view; a
   second view is what a reader makes when they mean a second question, and a switcher only
   appears once there is something to switch between. **The views are the product's
@@ -585,7 +595,8 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   table stood empty, and measured the text it was not showing into a sideways scrollbar with
   nothing on the other side of it. A column the reader has sized keeps exactly that width,
   and only their sum exceeding the block scrolls. Column order,
-  width, visibility, and sort are the saved view data. **A cell is the writing it
+  width, visibility, and sort are the saved view data; which columns exist at all is the
+  query's. **A cell is the writing it
   quotes**: the values in a result are blocks — often the line the reader wrote a moment ago —
   so they take the same ink the outline gives them and the header stays the quieter of the
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell
@@ -631,12 +642,13 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   no preview of its own because the product behind the dialog is one.
   **The graph's standing queries are a list of questions, not a form.** A row states the
   question the way the journal will caption it and carries the same count the journal will
-  print beside the answer, so it too previews itself at the size it renders — a query whose
-  SPARQL is wrong says so here, where it can be fixed, and not only there. Its two entrances
-  are the outline's two in the same order, a built query and hand-written SPARQL, because a
-  second authoring grammar for one document is not a second feature. One editor is open at a
-  time: a builder is five rows tall, and eight of them turn a pane that scrolls into a pane
-  that only scrolls. Order is a menu row rather than a drag — at eight rows a drag buys
+  print beside the answer, so it too previews itself at the size it renders — a question the
+  core cannot read says so here, where it can be fixed, and not only there. Its entrance is
+  the outline's one, because a second authoring grammar for one document is not a second
+  feature; and because Settings is the only surface that owns a standing question, a table
+  layout chooses its columns here too. One editor is open at a time: a builder is four rows
+  tall, and eight of them turn a pane that scrolls into a pane that only scrolls. Order is
+  a menu row rather than a drag — at eight rows a drag buys
   nothing a keyboard or a phone can use — and there is no switch for hiding one, because a
   question you can delete and write again does not need a second state.
 - **Choice.** Every list of choices opens the same menu the bullet opens — never a native

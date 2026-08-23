@@ -6,7 +6,7 @@
 // decide which operators a field admits — no React, no session, no SPARQL.
 // `query-compile.ts` turns a plan into source and run-time parameters.
 
-import type { PropertyValueType } from "../core-port/snapshot";
+import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
 import { cardinalityOf, isGenericProperty, REGISTRY, stringChoicesOf, valueTypeOf } from "./properties";
 
 export const QUERY_PLAN_VERSION = 1;
@@ -111,17 +111,11 @@ export interface PlanColumn {
   aggregate?: PlanAggregate;
 }
 
-export interface PlanSort {
-  column: string;
-  direction: "asc" | "desc";
-}
-
 export interface QueryPlan {
   version: number;
   subject: PlanSubject;
   where: PlanGroup;
   columns: PlanColumn[];
-  sort: PlanSort[];
   limit: number;
   distinct: boolean;
 }
@@ -161,7 +155,6 @@ export function defaultPlan(subject: PlanSubject = "block"): QueryPlan {
     subject,
     where: emptyGroup("all"),
     columns,
-    sort: [],
     limit: 100,
     distinct: false,
   };
@@ -286,6 +279,34 @@ export function fieldKindsFor(subject: PlanSubject): PlanFieldKind[] {
   return ["content", "property"];
 }
 
+/**
+ * A column source as one string — the identity a control toggles by, and the
+ * only place the `property:` prefix is spelled. Two sources that name the same
+ * field give the same key, which is what lets a panel of choices and a plan's
+ * own columns be matched up without comparing objects.
+ */
+export function columnSourceKey(source: PlanColumnSource): string {
+  return source.kind === "property" ? `property:${source.key}` : source.kind;
+}
+
+/**
+ * Everything a subject could be asked to show, in the order a reader meets it:
+ * its own fields first, then the graph's vocabulary, then the one column that is
+ * a summary rather than a field.
+ */
+export function columnSourcesFor(
+  subject: PlanSubject,
+  propertyKeys: readonly string[],
+): PlanColumnSource[] {
+  const kinds = columnKindsFor(subject)
+    .filter((kind) => kind !== "property" && kind !== "subject");
+  return [
+    ...kinds.map((kind) => ({ kind }) as PlanColumnSource),
+    ...propertyKeys.map((key) => ({ kind: "property", key }) as PlanColumnSource),
+    { kind: "subject" },
+  ];
+}
+
 export function columnKindsFor(subject: PlanSubject): PlanColumnSource["kind"][] {
   if (subject === "block") {
     return ["subject", "content", "property", "tags", "page", "parent", "sibling_index"];
@@ -302,6 +323,42 @@ export function planPropertyKeys(present: Iterable<string> = []): string[] {
   }
   for (const key of present) if (isGenericProperty(key)) keys.add(key);
   return [...keys].sort();
+}
+
+/**
+ * Every property key this graph actually uses, plus the registry's own — the
+ * vocabulary both the condition rows and the column switches offer.
+ *
+ * It walks every block on the graph, and more than one surface asks for it on
+ * the same snapshot: the builder while it is open, the columns panel beside it.
+ * A snapshot is immutable, so one walk answers all of them, and the cache dies
+ * with the revision that filled it.
+ */
+const propertyKeyCache = new WeakMap<GraphSnapshot, string[]>();
+
+export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
+  const cached = propertyKeyCache.get(snapshot);
+  if (cached) return cached;
+  const present = new Set<string>();
+  const visit = (bag: { key: string }[]) => {
+    for (const field of bag) if (isGenericProperty(field.key)) present.add(field.key);
+  };
+  for (const page of snapshot.pages) {
+    visit(page.properties);
+    const stack = [...page.blocks];
+    while (stack.length > 0) {
+      const block = stack.pop()!;
+      visit(block.properties);
+      stack.push(...block.children);
+    }
+  }
+  for (const tag of snapshot.tags) {
+    visit(tag.properties);
+    visit(tag.defaults);
+  }
+  const keys = planPropertyKeys(present);
+  propertyKeyCache.set(snapshot, keys);
+  return keys;
 }
 
 export function aggregatesFor(source: PlanColumnSource): PlanAggregate[] {
@@ -443,6 +500,43 @@ export function columnBaseId(source: PlanColumnSource): string {
   }
 }
 
+// ── Column edits ──────────────────────────────────────────────────────────────
+
+/**
+ * The plan with one more column, named after its source. A relation with many
+ * values folds into one cell by default; a row per tag would multiply the answer
+ * rather than describe it.
+ */
+export function withColumn(plan: QueryPlan, source: PlanColumnSource): QueryPlan {
+  return {
+    ...plan,
+    columns: [...plan.columns, {
+      id: nextColumnId(plan, columnBaseId(source)),
+      source,
+      aggregate: defaultAggregateFor(source),
+    }],
+  };
+}
+
+/** The plan with one column gone. The last one standing is never dropped. */
+export function withoutColumn(plan: QueryPlan, id: string): QueryPlan {
+  if (plan.columns.length <= 1) return plan;
+  return { ...plan, columns: plan.columns.filter((column) => column.id !== id) };
+}
+
+/** The plan with one column read a different way: each value, or folded. */
+export function withColumnAggregate(
+  plan: QueryPlan,
+  id: string,
+  aggregate: PlanAggregate | undefined,
+): QueryPlan {
+  return {
+    ...plan,
+    columns: plan.columns.map((column) =>
+      (column.id === id ? { ...column, aggregate } : column)),
+  };
+}
+
 // ── Serialization ─────────────────────────────────────────────────────────────
 
 export function encodePlan(plan: QueryPlan): string {
@@ -462,15 +556,22 @@ export function decodePlan(payload: string, version: number): QueryPlan | null {
     return null;
   }
   if (!validPlan(parsed)) return null;
-  // The subject is only ever a count. A plan that names it plainly — from a peer
-  // or from an older build — is read as the count it can actually produce,
-  // rather than as a column with nothing behind it.
+  // Stated field by field rather than spread, so a key this build no longer
+  // knows — an order a previous one wrote before the view took ordering over —
+  // is read once and then gone, instead of riding along in every save.
   return {
-    ...parsed,
+    version: QUERY_PLAN_VERSION,
+    subject: parsed.subject,
+    where: parsed.where,
+    // The subject is only ever a count. A plan that names it plainly — from a
+    // peer or from an older build — is read as the count it can actually
+    // produce, rather than as a column with nothing behind it.
     columns: parsed.columns.map((column) =>
       column.source.kind === "subject" && !column.aggregate
         ? { ...column, aggregate: "count" as const }
         : column),
+    limit: parsed.limit,
+    distinct: parsed.distinct === true,
   };
 }
 
@@ -481,7 +582,6 @@ function validPlan(value: unknown): value is QueryPlan {
   if (!plan.where || !validNode(plan.where)) return false;
   if (!Array.isArray(plan.columns) || plan.columns.length === 0) return false;
   if (!plan.columns.every(validColumn)) return false;
-  if (!Array.isArray(plan.sort) || !plan.sort.every(validSort)) return false;
   if (typeof plan.limit !== "number" || plan.limit < 1 || plan.limit > PLAN_LIMIT_MAX) return false;
   if (countConditions(plan.where) > PLAN_MAX_CONDITIONS) return false;
   if (groupDepth(plan.where) > PLAN_MAX_DEPTH) return false;
@@ -514,10 +614,4 @@ function validColumn(value: unknown): value is PlanColumn {
   if (typeof column.id !== "string" || column.id.length === 0) return false;
   if (typeof column.source !== "object" || column.source === null) return false;
   return true;
-}
-
-function validSort(value: unknown): value is PlanSort {
-  if (typeof value !== "object" || value === null) return false;
-  const sort = value as PlanSort;
-  return typeof sort.column === "string" && (sort.direction === "asc" || sort.direction === "desc");
 }

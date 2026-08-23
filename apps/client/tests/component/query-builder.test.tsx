@@ -126,12 +126,31 @@ describe("the query builder", () => {
     expect(storedQuery(harness)?.source).toMatch(/EXISTS \{[\s\S]*\|\|[\s\S]*EXISTS \{/);
   });
 
-  it("shows a chosen column and drops it again", async () => {
+  // The sentence asks; it does not lay out. What an answer shows and which way it
+  // is ordered are changed while reading it, so they are not rows in the editor
+  // a reader has to open to reach.
+  it("asks the question and says nothing about how the answer is laid out", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+    expect(screen.queryByTestId("qb-add-column")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("qb-sort")).not.toBeInTheDocument();
+    // The two knobs that really are the query's own stay where they were.
+    expect(screen.getByTestId("qb-limit")).toBeInTheDocument();
+  });
+
+  // The question says what to look for; the table says what to show. One switch
+  // answers for both, because a reader asking for a column means both at once.
+  it("switches a column on and off from the table's own columns panel", async () => {
     const harness = await mountPage();
     await createQuery(harness);
     const user = userEvent.setup();
 
-    await chooseFromMenu(user, screen.getByTestId("qb-add-column"), "Tags");
+    await user.click(screen.getByTestId("query-columns-trigger"));
+    const panel = await screen.findByTestId("query-columns-panel");
+    await user.click(within(panel).getByTestId("query-column-toggle-tags"));
+
     await waitFor(() => {
       const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
       const tags = plan?.columns.find((column) => column.source.kind === "tags");
@@ -140,19 +159,18 @@ describe("the query builder", () => {
     });
     expect(storedQuery(harness)?.source).toContain("GROUP_CONCAT");
 
-    const chips = screen.getAllByTestId("qb-column");
-    const tagChip = chips[chips.length - 1];
-    await user.click(within(tagChip).getByRole("button", { name: /Remove the .* column/ }));
+    // Nothing else asks for it, so switching it off takes it out of the query
+    // rather than merely out of this table.
+    await user.click(within(panel).getByTestId("query-column-toggle-tags"));
     await waitFor(() => {
       const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
       expect(plan?.columns.some((column) => column.source.kind === "tags")).toBe(false);
     });
   });
 
-  // Hand-written SPARQL is its own door in, not a one-way door out. A built
-  // query can always be read as SPARQL and never converted into it, so nothing
-  // a person builds can be made unbuildable by one press of a menu row.
-  it("has no route that turns a built query into a hand-written one", async () => {
+  // A built query can always be *read* as SPARQL and never converted into it, so
+  // nothing a person builds can be made unbuildable by one press of a menu row.
+  it("discloses the SPARQL it wrote without offering to replace it", async () => {
     const harness = await mountPage();
     await createQuery(harness);
     const user = userEvent.setup();
@@ -171,24 +189,18 @@ describe("the query builder", () => {
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
   });
 
-  // `/ Advanced query` is that door: a query with no plan, whose editor is the
-  // SPARQL and whose caption says so.
-  it("creates a hand-written query straight from the slash menu", async () => {
-    const harness = await mountPage();
+  it("has no door to hand-written SPARQL", async () => {
+    await mountPage();
     const user = userEvent.setup();
     const textarea = await screen.findByLabelText("Block text");
     await user.click(textarea);
-    await user.type(textarea, "/sparql");
-    const menu = await screen.findByTestId("slash-menu");
-    await user.click(within(menu).getByRole("option", { name: /^Advanced query/ }));
+    await user.type(textarea, "/query");
 
-    const source = await screen.findByLabelText<HTMLTextAreaElement>("SPARQL source");
-    expect(source.value).toBe("");
-    // The empty editor teaches the shape rather than leaving a blank box.
-    expect(source.placeholder).toContain("SELECT ?block ?text WHERE");
-    expect(screen.getByTestId("query-summary")).toHaveAccessibleName("SPARQL");
-    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
-    await waitFor(() => expect(storedQuery(harness)?.plan).toBeFalsy());
+    // One item for one object. SPARQL is what the builder compiles, readable
+    // from every query's own menu and never something a person is asked to type.
+    const menu = await screen.findByTestId("slash-menu");
+    expect(within(menu).getByRole("option", { name: /^Query/ })).toBeInTheDocument();
+    expect(within(menu).queryByRole("option", { name: /Advanced/ })).not.toBeInTheDocument();
   });
 
   it("removes the whole query from its own menu", async () => {
@@ -423,6 +435,56 @@ describe("query result views", () => {
     await waitFor(() =>
       expect(screen.queryByRole("columnheader", { name: /Page/ })).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps a hidden column out of the table and still states it in a list", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+
+    await screen.findByTestId("query-table");
+    await user.click(screen.getByTestId("query-col-menu-page"));
+    await user.click(await screen.findByRole("menuitem", { name: "Hide column" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("columnheader", { name: /Page/ })).not.toBeInTheDocument());
+
+    // A list draws entities rather than a grid, so it has nothing to hide a
+    // column *in*: it states every fact the query returned, and offers no switch.
+    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
+    const list = await screen.findByTestId("query-list");
+    expect(within(list).getByText("Page")).toBeInTheDocument();
+    expect(screen.queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
+    expect(storedQuery(harness)?.views[0]?.columns
+      .find((column) => column.variable === "page")?.hidden).toBe(true);
+  });
+
+  it("keeps a column a second view still shows, and only hides it here", async () => {
+    const harness = await withResult();
+    const user = userEvent.setup();
+    await harness.session.execute({
+      type: "put_query_view",
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view: {
+        id: "second",
+        name: "Second",
+        kind: "table",
+        position: 1,
+        columns: [],
+        options: { compact: false, wrap: false, sort: [] },
+      },
+    });
+
+    await screen.findByTestId("query-table");
+    await user.click(screen.getByTestId("query-columns-trigger"));
+    const panel = await screen.findByTestId("query-columns-panel");
+    await user.click(within(panel).getByTestId("query-column-toggle-page"));
+
+    await waitFor(() => {
+      const view = storedQuery(harness)?.views.find((item) => item.id === "all");
+      expect(view?.columns.find((column) => column.variable === "page")?.hidden).toBe(true);
+    });
+    // The other view is still asking, so the query keeps returning it.
+    const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+    expect(plan?.columns.some((column) => column.source.kind === "page")).toBe(true);
   });
 
   it("reorders columns by dragging a heading, and says where the column will land", async () => {

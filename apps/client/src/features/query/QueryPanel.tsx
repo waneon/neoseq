@@ -1,10 +1,13 @@
 // A query, and the answer it stands for.
 //
-// Two ways to say the same thing. The **builder** is the default and the only
-// one `/` creates: a plan, compiled here into the SPARQL the core runs, with
-// every user value travelling as a bound parameter so "due today" stays true
-// tomorrow. **Source** is the escape hatch — hand-written SPARQL, which detaches
-// the plan because the builder no longer describes what runs.
+// One way to say it. The **builder** writes a plan, compiled here into the SPARQL
+// the core runs, with every user value travelling as a bound parameter so "due
+// today" stays true tomorrow. SPARQL is the executable artifact and stays
+// readable — `Show SPARQL` is a disclosure on every query — but it is not an
+// authoring surface: a second grammar for one document is a second product, and
+// the one thing it could say that the builder cannot is not worth a reader
+// meeting a text box where a question belongs. A document written by an older
+// build with no plan still runs, and still reads; it simply has no editor here.
 //
 // **The answer is the object; the question is a disclosure.** At rest a query is
 // one caption line and its result — the plan read back as a phrase, how much it
@@ -64,16 +67,28 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
-import { compilePlan, planBindings, QUERY_LANGUAGE } from "../../entities/query-compile";
+import {
+  compilePlan,
+  planBindings,
+  QUERY_LANGUAGE,
+  SUBJECT_VARIABLE,
+} from "../../entities/query-compile";
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
 } from "../../entities/query-ordering";
 import {
+  columnSourceKey,
+  columnSourcesFor,
   columnVariable,
   decodePlan,
   encodePlan,
+  graphPropertyKeys,
   QUERY_PLAN_VERSION,
+  withColumn,
+  withColumnAggregate,
+  withoutColumn,
+  type PlanAggregate,
   type PlanColumn,
   type QueryPlan,
 } from "../../entities/query-plan";
@@ -81,8 +96,12 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
-import { diffSplice } from "../blocks/editor/text-diff";
 import { QueryBuilder } from "./QueryBuilder";
+import {
+  columnChoices,
+  QueryColumnsControl,
+  type ColumnChoice,
+} from "./QueryColumnsControl";
 import { QueryListView } from "./QueryListView";
 import { QuerySortControl } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
@@ -98,20 +117,6 @@ import {
 } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 
-/**
- * What an empty SPARQL editor shows instead of a blank box: the shape of the one
- * query everything else is a variation on. It is not localized, because SPARQL is
- * not a language anyone reads in their own — and it is a placeholder rather than
- * a prefilled source, so `/ Advanced query` lands on an editor waiting for the
- * person who asked for it rather than on a result they did not write.
- */
-const SOURCE_PLACEHOLDER = `PREFIX neo: <urn:neoseq:vocab:v1:>
-
-SELECT ?block ?text WHERE {
-  ?block a neo:Block ;
-         neo:content ?text .
-}
-LIMIT 100`;
 const PLAN_SAVE_DEBOUNCE_MS = 600;
 
 const defaultOptions = (): QueryViewOptions => ({ compact: false, wrap: false, sort: [] });
@@ -193,14 +198,13 @@ export function QueryPanel({
   const storedPayload = storedPlan ? encodePlan(storedPlan) : null;
 
   const [plan, setPlan] = useState<QueryPlan | null>(storedPlan ?? seedPlan ?? null);
-  const [draft, setDraft] = useState(source);
   // The editor opens for a query that has not been written yet and stays shut for
   // one that has: a query with no conditions has nothing to say in its caption, so
   // showing it the builder is the only honest first screen. Once a reader has
   // shaped it, reopening the page shows them the answer they shaped it for. Which
   // it is, is theirs from the first press — never re-derived under their hands.
   const [editing, setEditing] = useState(
-    () => owner !== null && unwritten(storedPlan ?? seedPlan ?? null, source),
+    () => owner !== null && unwritten(storedPlan ?? seedPlan ?? null),
   );
   const [showSource, setShowSource] = useState(false);
   // Reading is never read-only. Without a document to write the order into, it
@@ -215,9 +219,8 @@ export function QueryPanel({
   // is what keeps merely *visiting* a seeded surface out of the graph's history.
   const shaped = useRef(document !== undefined);
   if (document !== undefined) shaped.current = true;
-  // The authoritative document is the truth after a remote edit or a reload;
-  // the local draft is the truth while the reader is typing into it.
-  useEffect(() => setDraft(source), [source]);
+  // The authoritative document is the truth after a remote edit or a reload; the
+  // local plan is the truth while the reader is shaping it.
   useEffect(() => setPlan(storedPlan ?? seedPlan ?? null), [storedPayload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const compiled = useMemo(() => (plan ? compilePlan(plan) : null), [plan]);
@@ -226,8 +229,9 @@ export function QueryPanel({
     [state.snapshot.graph_id],
   );
   // A built query runs from the plan in hand, so a result follows an edit
-  // without waiting for the write that persists it.
-  const runSource = compiled ? compiled.source : draft;
+  // without waiting for the write that persists it. Without a plan there is only
+  // the stored source, which still runs.
+  const runSource = compiled ? compiled.source : source;
   const runBindings = useMemo(
     () => (compiled ? planBindings(compiled.parameters, runtime) : {}),
     [compiled, runtime],
@@ -302,10 +306,8 @@ export function QueryPanel({
 
   const select = result?.kind === "select" ? result : null;
   const columns = useMemo(
-    () => (select
-      ? resultColumns(select, plan, activeView, message, compiled?.subjectVariable)
-      : []),
-    [select, activeView, plan, message, compiled?.subjectVariable],
+    () => (select ? resultColumns(select, plan, activeView, message) : []),
+    [select, activeView, plan, message],
   );
   const resultRows = useMemo(
     () => resultViewRows((select?.rows ?? []) as ResultRow[], cellContext),
@@ -383,13 +385,6 @@ export function QueryPanel({
   if (!document && !seedPlan) return null;
 
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
-
-  const commitSource = async () => {
-    const splice = diffSplice(source, draft);
-    if (!splice) return;
-    await write((target) => ({ type: "splice_query_source", owner: target, ...splice }))
-      .catch(report);
-  };
 
   /**
    * A seeded query becomes a written one the moment somebody shapes it. Every
@@ -518,7 +513,37 @@ export function QueryPanel({
   const hidden = new Set(
     activeView.columns.filter((column) => column.hidden).map((column) => column.variable),
   );
-  const visible = columns.filter((column) => !hidden.has(column.variable));
+  /**
+   * What this view actually draws. A table shows the columns it was left with; a
+   * list of results is not a grid and has no columns to hide — it draws entities,
+   * and every fact the query returned belongs to the entity it describes.
+   */
+  const shownColumns = activeView.kind === "list"
+    ? columns
+    : columns.filter((column) => !hidden.has(column.variable));
+
+  /**
+   * Every column this table could draw, and which of them it does. The plan's
+   * columns are what the query *returns* and the view's are what this table
+   * *shows*; one switch answers for both, because a reader asking for a column
+   * means both at once. The graph's vocabulary is read through a snapshot cache,
+   * so the builder beside this pays for the walk once.
+   *
+   * A list has nothing to choose between — it draws entities, not a grid — so it
+   * has no panel, and asks for none of this.
+   */
+  const choosesColumns = activeView.kind === "table" && writable && plan !== null;
+  const choices = choosesColumns && plan
+    ? columnChoices(
+      columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
+      plan.columns,
+      new Set(plan.columns
+        .filter((column) => hidden.has(columnVariable(column)))
+        .map((column) => columnSourceKey(column.source))),
+      plan.subject,
+      message,
+    )
+    : [];
 
   // The first layout change writes the whole running order, so later ones have
   // a list to patch rather than a partial one to merge into.
@@ -528,6 +553,63 @@ export function QueryPanel({
       ? base.map((column) => (column.variable === variable ? { ...column, ...patch } : column))
       : [...base, { variable, hidden: false, width: null, ...patch }];
     return putView({ ...activeView, columns: dedupe(next) });
+  };
+
+  /**
+   * Every plan edit, from the builder and from the column switches alike. The
+   * flag is what turns a seed nobody has touched into a document; the write
+   * itself is the debounced one above.
+   */
+  const changePlan = (next: QueryPlan) => {
+    shaped.current = true;
+    setPlan(next);
+  };
+
+  /**
+   * A column switch, thrown. On is one meaning — the query selects it and this
+   * table draws it. Off is two, and which one it is depends on whether anybody
+   * else is still asking: a second view that shows this column keeps it in the
+   * query and merely loses it here, and where nothing else wants it the column
+   * leaves the query outright, so the SPARQL asks for exactly what is read.
+   */
+  const toggleColumn = (choice: ColumnChoice, shown: boolean) => {
+    if (!plan) return;
+    const existing = choice.column;
+    if (shown) {
+      if (!existing) {
+        changePlan(withColumn(plan, choice.source));
+        return;
+      }
+      const variable = columnVariable(existing);
+      if (hidden.has(variable)) void setColumn(variable, { hidden: false });
+      return;
+    }
+    if (!existing) return;
+    const variable = columnVariable(existing);
+    const wantedElsewhere = views.some((view) => view.id !== activeView.id
+      && !view.columns.some((column) => column.variable === variable && column.hidden));
+    if (wantedElsewhere) {
+      void setColumn(variable, { hidden: true });
+      return;
+    }
+    // The last column standing is not a switch a reader can throw, and the panel
+    // says so; the plan refuses it too rather than trusting that it does.
+    const next = withoutColumn(plan, existing.id);
+    if (next === plan) return;
+    changePlan(next);
+    // The view's record of a column the query no longer has is not a memory of
+    // anything, so it goes with it.
+    if (activeView.columns.some((column) => column.variable === variable)) {
+      void putView({
+        ...activeView,
+        columns: activeView.columns.filter((column) => column.variable !== variable),
+      });
+    }
+  };
+
+  const summarizeColumn = (choice: ColumnChoice, aggregate: PlanAggregate | undefined) => {
+    if (!plan || !choice.column) return;
+    changePlan(withColumnAggregate(plan, choice.column.id, aggregate));
   };
 
   // A header click is one command, not a debounced stream: the reader clicked
@@ -587,9 +669,11 @@ export function QueryPanel({
     setResultsOpen(nextOpen);
   };
 
-  /* The switches that shape one view. In the outline they hang under the layout
-     icon; on a page they are the tab's own menu, because there the tab *is* the
-     view and a second control for it would be a second owner. */
+  /* The switches that shape one view: which renderer, and how tall its rows are.
+     In the outline they hang under the layout icon; on a page they are the tab's
+     own menu, because there the tab *is* the view and a second control for it
+     would be a second owner. Which columns a table draws is not among them — it
+     is a table's own question, asked on the table (§ QueryColumnsControl). */
   const layoutItems = (
     <>
       {/* A document born with one view has nothing to switch between, and a
@@ -620,49 +704,30 @@ export function QueryPanel({
           {message("query.viewList")}
         </DropdownMenuRadioItem>
       </DropdownMenuRadioGroup>
-      {columns.length > 0 && (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>{message("query.columns")}</DropdownMenuLabel>
-          {columns.map((column) => (
-            <DropdownMenuCheckboxItem
-              key={column.variable}
-              checked={!hidden.has(column.variable)}
-              disabled={!hidden.has(column.variable) && visible.length <= 1}
-              onSelect={(event) => {
-                event.preventDefault();
-                void setColumn(column.variable, { hidden: !hidden.has(column.variable) });
-              }}
-            >
-              {column.label}
-            </DropdownMenuCheckboxItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>{message("query.rows")}</DropdownMenuLabel>
-          {/* A checked switch says what is on. The label used to flip
-              between `Compact rows` and `Roomy rows`, which left the
-              reader guessing whether it named the state or the verb. */}
-          <DropdownMenuCheckboxItem
-            checked={activeView.options.compact}
-            onSelect={(event) => {
-              event.preventDefault();
-              void setOption({ compact: !activeView.options.compact });
-            }}
-          >
-            {message("query.densityCompact")}
-          </DropdownMenuCheckboxItem>
-          {activeView.kind === "table" && (
-            <DropdownMenuCheckboxItem
-              checked={activeView.options.wrap}
-              onSelect={(event) => {
-                event.preventDefault();
-                void setOption({ wrap: !activeView.options.wrap });
-              }}
-            >
-              {message("query.wrap")}
-            </DropdownMenuCheckboxItem>
-          )}
-        </>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel>{message("query.rows")}</DropdownMenuLabel>
+      {/* A checked switch says what is on. The label used to flip between
+          `Compact rows` and `Roomy rows`, which left the reader guessing whether
+          it named the state or the verb. */}
+      <DropdownMenuCheckboxItem
+        checked={activeView.options.compact}
+        onSelect={(event) => {
+          event.preventDefault();
+          void setOption({ compact: !activeView.options.compact });
+        }}
+      >
+        {message("query.densityCompact")}
+      </DropdownMenuCheckboxItem>
+      {activeView.kind === "table" && (
+        <DropdownMenuCheckboxItem
+          checked={activeView.options.wrap}
+          onSelect={(event) => {
+            event.preventDefault();
+            void setOption({ wrap: !activeView.options.wrap });
+          }}
+        >
+          {message("query.wrap")}
+        </DropdownMenuCheckboxItem>
       )}
     </>
   );
@@ -706,7 +771,7 @@ export function QueryPanel({
             editor for a question written somewhere else would be a promise the
             surface cannot keep; the route to the editor is a row in the `⋯` menu,
             named after the place it goes. */}
-        {hosted ? (
+        {hosted && plan ? (
           <button
             type="button"
             className="query-summary"
@@ -764,10 +829,20 @@ export function QueryPanel({
         ))}
 
         <div className="query-header-actions">
-          {/* Order comes before layout, because it is the one a reader changes
-              while reading. It is only offered once there is something to order. */}
+          {/* What the table shows, then how it is ordered, then what it is: the
+              two a reader changes while reading come before the one they set
+              once. Columns are a *table's* question — a list draws entities and
+              takes every fact the query returned — so the switch is absent over
+              a list rather than parked there meaning nothing. */}
+          {choosesColumns && (
+            <QueryColumnsControl
+              choices={choices}
+              onToggle={toggleColumn}
+              onAggregate={summarizeColumn}
+            />
+          )}
           {columns.some((column) => column.sortable) && (
-            <QuerySortControl columns={visible} sorts={sorts} onChange={setSorts} />
+            <QuerySortControl columns={columns} sorts={sorts} onChange={setSorts} />
           )}
           {/* Everything in it writes the document, so it is absent where the
               document is not writable rather than parked there disabled: § Do /
@@ -829,18 +904,14 @@ export function QueryPanel({
                   document, the route to the place that writes it is the verb the
                   reader came to the menu for. */}
               {actions}
-              {/* In source mode the SPARQL is already the editor, so there is
-                  nothing to disclose — unless the editor is somewhere else, and
-                  then this is the only way to read what actually runs. */}
-              {(plan || !hosted) && (
-                <>
-                  {actions && <DropdownMenuSeparator />}
-                  <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
-                    <CodeIcon aria-hidden />
-                    {showSource ? message("query.hideSource") : message("query.showSource")}
-                  </DropdownMenuItem>
-                </>
-              )}
+              {/* Every query has a source that runs, and no query has an editor
+                  for it: reading what the graph was actually asked is a
+                  disclosure here, on the surface that asked it. */}
+              {actions && <DropdownMenuSeparator />}
+              <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
+                <CodeIcon aria-hidden />
+                {showSource ? message("query.hideSource") : message("query.showSource")}
+              </DropdownMenuItem>
               {onRemove && (
                 <>
                   <DropdownMenuSeparator />
@@ -855,34 +926,14 @@ export function QueryPanel({
         </div>
       </div>
 
-      {editing && (plan ? (
+      {editing && plan && (
         <QueryBuilder
           plan={plan}
           snapshot={state.snapshot}
           readonly={readonly}
-          onChange={(next) => {
-            shaped.current = true;
-            setPlan(next);
-          }}
+          onChange={changePlan}
         />
-      ) : (
-        <textarea
-          className="query-source"
-          value={draft}
-          readOnly={!writable}
-          spellCheck={false}
-          placeholder={SOURCE_PLACEHOLDER}
-          aria-label={message("query.source")}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => void commitSource()}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-              event.preventDefault();
-              run(true);
-            }
-          }}
-        />
-      ))}
+      )}
 
       {/* What actually runs: the plan's compilation, or the hand-written source
           of a query whose editor is not on this surface. */}
@@ -914,7 +965,7 @@ export function QueryPanel({
             block was full of. */}
         {!error && select && visibleRows.length > 0 && activeView.kind === "table" && (
           <QueryTableView
-            columns={inViewOrder(visible, activeView)}
+            columns={inViewOrder(shownColumns, activeView)}
             rows={visibleRows}
             context={cellContext}
             editor={resultEditor}
@@ -933,7 +984,7 @@ export function QueryPanel({
         )}
         {!error && select && visibleRows.length > 0 && activeView.kind === "list" && (
           <QueryListView
-            columns={inViewOrder(visible, activeView)}
+            columns={inViewOrder(shownColumns, activeView)}
             rows={visibleRows}
             context={cellContext}
             editor={resultEditor}
@@ -950,16 +1001,16 @@ export function QueryPanel({
 /**
  * Whether nobody has said what this query looks for yet — which is the one case
  * where the answer is not the interesting part of the surface. A plan with no
- * conditions matches everything, and a blank source matches nothing; either way
- * the editor is what the reader came for.
+ * conditions matches everything, so the editor is what the reader came for. A
+ * document with no plan has no editor to open at all.
  */
-function unwritten(plan: QueryPlan | null, source: string): boolean {
-  return plan ? plan.where.children.length === 0 : source.trim().length === 0;
+function unwritten(plan: QueryPlan | null): boolean {
+  return plan !== null && plan.where.children.length === 0;
 }
 
 /**
  * The result's columns, told apart by the plan that asked for them. A variable
- * the plan does not know — a hand-written query, or one the builder has since
+ * the plan does not know — a plan-less document, or one the builder has since
  * changed — still gets a column, named after itself.
  */
 function resultColumns(
@@ -967,13 +1018,17 @@ function resultColumns(
   plan: QueryPlan | null,
   view: QueryView,
   message: ReturnType<typeof useI18n>["message"],
-  subjectVariable?: string | null,
 ): ResultColumn[] {
   const planned = new Map<string, PlanColumn>();
   if (plan) for (const column of plan.columns) planned.set(columnVariable(column), column);
   const widths = new Map(view.columns.map((column) => [column.variable, column.width]));
-  // Row identity is carried, not shown: it is what a text cell links to.
-  return select.variables.filter((variable) => variable !== subjectVariable).map((variable) => {
+  // Row identity is carried, not shown: it is what a text cell links to. The
+  // compiler's own name for it is never a column, whether or not *this* plan
+  // still carries one — a plan that has just gained a summary drops the subject,
+  // and the answer it drops it from is on screen until the next one lands.
+  return select.variables
+    .filter((variable) => !(plan && variable === SUBJECT_VARIABLE))
+    .map((variable) => {
     const column = planned.get(variable);
     const ordering = column
       ? orderSemanticsForColumn(column)

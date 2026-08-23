@@ -308,7 +308,6 @@ export interface MessageArgumentMap {
   "properties.unchecked": undefined;
   "properties.value": { readonly "key": string | number };
   "query.actions": undefined;
-  "query.addColumn": undefined;
   "query.addCondition": undefined;
   "query.addGroup": undefined;
   "query.addSort": undefined;
@@ -355,6 +354,7 @@ export interface MessageArgumentMap {
   "query.field.title": undefined;
   "query.fieldLabel": undefined;
   "query.find": undefined;
+  "query.findColumn": undefined;
   "query.hideColumn": undefined;
   "query.hideSource": undefined;
   "query.layout": undefined;
@@ -370,6 +370,7 @@ export interface MessageArgumentMap {
   "query.moveViewLeft": undefined;
   "query.moveViewRight": undefined;
   "query.newView": undefined;
+  "query.noColumnMatches": undefined;
   "query.noLongerMatches": undefined;
   "query.ofTheFollowing": undefined;
   "query.op.any_of": undefined;
@@ -406,7 +407,6 @@ export interface MessageArgumentMap {
   "query.relative.weekStart": undefined;
   "query.relative.yesterday": undefined;
   "query.remove": undefined;
-  "query.removeColumn": { readonly "column": string | number };
   "query.removeCondition": { readonly "field": string | number };
   "query.removeGroup": undefined;
   "query.removeSort": { readonly "column": string | number };
@@ -419,23 +419,15 @@ export interface MessageArgumentMap {
   "query.rows": undefined;
   "query.running": undefined;
   "query.section": undefined;
-  "query.show": undefined;
   "query.showSource": undefined;
-  "query.slashAdvanced": undefined;
-  "query.slashAdvancedHint": undefined;
   "query.slashQuery": undefined;
   "query.slashQueryHint": undefined;
-  "query.sort": undefined;
   "query.sortAscending": undefined;
   "query.sortBy": { readonly "column": string | number };
   "query.sortDescending": undefined;
-  "query.sortDirection": undefined;
   "query.sortDirectionOf": { readonly "column": string | number };
   "query.sortEmpty": undefined;
-  "query.sortLabel": undefined;
-  "query.sortNone": undefined;
   "query.sortOrder": undefined;
-  "query.source": undefined;
   "query.stopSorting": undefined;
   "query.subject.block": undefined;
   "query.subject.page": undefined;
@@ -461,7 +453,6 @@ export interface MessageArgumentMap {
   "settings.accent": undefined;
   "settings.accentDescription": undefined;
   "settings.addDefaultQuery": undefined;
-  "settings.addDefaultSparql": undefined;
   "settings.appearance": undefined;
   "settings.appearanceDescription": undefined;
   "settings.backend": undefined;

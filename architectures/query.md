@@ -194,9 +194,19 @@ no variable twice. Presentation, not semantics — it reorders rows the query ha
 already returned, so a term is allowed to name a variable the view no longer
 lists and simply stops applying. Deserialization accepts the single-object form
 earlier builds wrote as a one-term list, so an order a reader saved then still
-applies after the upgrade. A document with no plan is the hand-written kind:
-there is no command that converts a planned query into one, only a separate
-route that creates one.
+applies after the upgrade.
+
+Which columns a table *shows* is the same kind of fact, held per view as a hidden
+flag beside each column's width and place. A list renderer has no columns to
+hide: it draws entities in the document's own visual grammar, so it states every
+column the query returned. The plan's column list is therefore what any view
+could show, and one switch writes both — asking for a column adds it to the plan
+and reveals it here, and withdrawing it hides it here and, when no other view
+still asks, removes it from the plan so the SPARQL requests exactly what is read.
+
+Every plan-carrying document is a built one. A document with no plan predates the
+builder being the only author: it still runs and still reads, and the client
+offers no editor for it. Nothing converts a built query into one.
 
 A graph may also own query documents directly. Its *standing questions* — the
 answers today's journal opens with — live under `graph_settings.default_queries`,
@@ -212,11 +222,12 @@ Column ordering is derived rather than stored in a view. The plan's column
 source and the property registry resolve to one semantic order: declared choices
 use their stored-value rank, numbers and dates use typed value order, references
 use their resolved label, and ordinary text uses text collation. Rendering is a
-separate projection, so a translated label cannot change a ranked order. The
-builder compiles the same semantics into `ORDER BY` before `LIMIT`; after
-execution, the query result projection compares raw terms once and hands the
-same ordered rows to Table and List. Both paths keep unknown choices behind the
-declared domain. Unbound values remain last except task priority, where absence
+separate projection, so a translated label cannot change a ranked order. After
+execution, the query result projection compares raw terms once and hands the same
+ordered rows to Table and List. The compiled source carries no order of its own
+beyond the subject, which is what a `LIMIT` cuts against: which rows a reader
+meets first is decided by the view, once, after the answer arrives. It keeps
+unknown choices behind the declared domain. Unbound values remain last except task priority, where absence
 is the rank below Low. Folded lists have no defined member order and are not
 sortable.
 
@@ -239,8 +250,8 @@ name, RDF datatype, or displayed value.
 Direct block content writes `splice_markdown`; direct writable properties use
 the owner-based property commands; tag collections use `add_tag` and
 `remove_tag`. Aggregates other than a complete list, structural relations,
-unknown plan versions, and hand-written SPARQL results remain read-only. SPARQL
-Update is not introduced.
+unknown plan versions, and plan-less results remain read-only. SPARQL Update is
+not introduced.
 
 RDF rows are display data rather than edit baselines. Entering an editor lazily
 hydrates the subject's canonical outline owner and reads its `BlockSnapshot`; only the
@@ -277,19 +288,24 @@ invalidate query results by itself.
 SPARQL stays the only executable query language, and the core reads nothing
 else. A **query plan** is the *authoring* representation the client's query
 builder writes that SPARQL from: a subject kind, a nested all/any/none tree of
-typed conditions, output columns with optional aggregates, an order, and a row
-limit. It is stored beside the source in the same document so reopening a query
-reopens the builder rather than a wall of SPARQL, and so it reaches every
-replica.
+typed conditions, output columns with optional aggregates, and a row limit. It is
+stored beside the source in the same document so reopening a query reopens the
+builder rather than a wall of SPARQL, and so it reaches every replica.
+
+The plan is the only authoring surface the product offers. A second grammar for
+one document would be a second product, and the one thing hand-written SPARQL
+could say that the builder cannot is not worth a reader meeting a text box where
+a question belongs. What runs stays readable — every query discloses its compiled
+source — but nothing asks a person to type it.
 
 The split of ownership is deliberate. The domain owns whether a plan is
 *well-formed* — a bounded JSON object carrying its own version — and enforces
 that setting a plan writes it and its compiled source in one transaction, and
-that writing source by hand clears the plan. The client owns the authoring
-grammar and its compiler, because a builder is an editor for the source, and
-the source it produces is validated, planned, and budgeted by exactly the same
-path a hand-written query takes. A plan version a reader does not understand
-leaves the block on its source, which still runs.
+that writing source directly clears the plan. The client owns the authoring
+grammar and its compiler, because a builder is an editor for the source, and the
+source it produces is validated, planned, and budgeted by exactly the same path
+any source takes. A plan version a reader does not understand leaves the block on
+its source, which still runs.
 
 Three properties of the emitted SPARQL are contractual rather than incidental:
 

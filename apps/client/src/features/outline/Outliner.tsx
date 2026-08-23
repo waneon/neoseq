@@ -822,25 +822,18 @@ export function Outliner({
   /**
    * Turns a block into a query. The plan and the SPARQL it compiles to travel in
    * one command, so the block never exists in a state where the two disagree.
-   *
-   * `advanced` asks for the other kind of query: no plan, so the block's editor
-   * is the SPARQL itself. The source starts empty rather than on a template,
-   * which is what puts the block's editor in front of the person who just asked
-   * to write one — and its placeholder is the template.
    */
   const createQuery = useCallback(
-    async (blockId: string, advanced: boolean) => {
+    async (blockId: string) => {
       const owner = { kind: "block", owner: ownerRef.current, id: blockId } as const;
       const plan = defaultPlan();
       try {
-        await session.execute(advanced
-          ? { type: "set_query_source", owner, source: "" }
-          : {
-            type: "set_query_plan",
-            owner,
-            plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-            source: compilePlan(plan).source,
-          });
+        await session.execute({
+          type: "set_query_plan",
+          owner,
+          plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+          source: compilePlan(plan).source,
+        });
       } catch (error) {
         notify.failure(message("failure.createQuery"), error);
       }
@@ -941,11 +934,8 @@ export function Outliner({
                 .catch((error: unknown) => {
                   notify.failure(message("failure.setProperty"), error);
                 });
-            } else if (
-              intent.action?.kind === "query"
-              || intent.action?.kind === "query-source"
-            ) {
-              void createQuery(realId, intent.action.kind === "query-source");
+            } else if (intent.action?.kind === "query") {
+              void createQuery(realId);
             } else {
               const key = intent.action?.kind === "picker" ? intent.action.key : undefined;
               requestAnimationFrame(() => {
@@ -1861,8 +1851,8 @@ export function Outliner({
           });
         return;
       }
-      if (chosen.action.kind === "query" || chosen.action.kind === "query-source") {
-        void createQuery(row.block.id, chosen.action.kind === "query-source");
+      if (chosen.action.kind === "query") {
+        void createQuery(row.block.id);
         return;
       }
       setPropertyRequest({

@@ -18,7 +18,13 @@ export type DefaultQuery = DefaultQuerySnapshot;
 export interface LegacyDefaultQuery {
   id: string;
   title: string;
+  /** The SPARQL that runs, compiled from `plan`. */
   source: string;
+  /**
+   * The builder's plan — the only thing Settings writes. Absent only for a
+   * question stored by a build that still had a SPARQL editor: it runs and reads
+   * exactly as the graph's own plan-less documents do, and has no editor either.
+   */
   plan?: QueryPlanDocument;
   layout: QueryViewKind;
 }

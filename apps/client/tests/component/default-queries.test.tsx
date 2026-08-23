@@ -126,7 +126,7 @@ describe("writing a standing question", () => {
     ).not.toHaveProperty("defaultQueries"));
   });
 
-  it("offers the same two entrances the outline's `/` does", async () => {
+  it("offers the one entrance the outline's `/` does, and only that one", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
 
@@ -141,12 +141,37 @@ describe("writing a standing question", () => {
     expect(built.document.source).toContain("?q_subject a neo:Block .");
     expect(await screen.findByTestId("query-builder")).toBeInTheDocument();
 
-    await user.click(screen.getByTestId("add-default-sparql"));
-    const written = queries(harness)[1];
-    // Hand-written SPARQL is its own entrance, never a conversion: the editor
-    // opens empty and waits for the person who asked for it.
-    expect(written.document.plan).toBeNull();
-    expect(await screen.findByTestId("default-query-source")).toHaveValue("");
+    // There is no second authoring grammar, here or anywhere: every standing
+    // question is a built one, and nothing offers a box to type SPARQL into.
+    expect(screen.queryByTestId("add-default-sparql")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("default-query-source")).not.toBeInTheDocument();
+  });
+
+  it("chooses a table's columns here, because here is the only place that owns it", async () => {
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    await user.click(screen.getByTestId("add-default-query"));
+
+    // A list draws entities and states everything; only a table has columns to
+    // choose between, so only a table is asked.
+    expect(screen.queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("default-query-layout-table"));
+
+    await user.click(screen.getByTestId("query-columns-trigger"));
+    const panel = await screen.findByTestId("query-columns-panel");
+    await user.click(
+      within(panel).getByTestId("query-column-toggle-property:builtin.task-status"),
+    );
+
+    await waitFor(() => {
+      const [query] = queries(harness);
+      const plan = decodePlan(query.document.plan!.payload, query.document.plan!.version);
+      expect(plan?.columns.some((column) =>
+        column.source.kind === "property" && column.source.key === "builtin.task-status"))
+        .toBe(true);
+      // The plan and the SPARQL it compiles to are written together, never apart.
+      expect(query.document.source).toContain("prop:builtin.task-status");
+    });
   });
 
   it("names itself after the question until the reader names it", async () => {
@@ -161,22 +186,15 @@ describe("writing a standing question", () => {
     await waitFor(() => expect(queries(harness)[0].title).toBe("Today"));
   });
 
-  it("says how much a hand-written query finds, where it can still be fixed", async () => {
+  it("says how much a standing question finds, at the size the journal prints it", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     oneRow(harness);
 
-    await user.click(screen.getByTestId("add-default-sparql"));
-    const editor = screen.getByTestId("default-query-source");
-    await user.click(editor);
-    await user.paste(SOURCE);
-    // Committed on blur, so a half-written query does not spend the pause
-    // between two words as a parse error.
-    await user.tab();
+    await user.click(screen.getByTestId("add-default-query"));
 
     await waitFor(() =>
       expect(screen.getByTestId("default-query-count")).toHaveTextContent("1 result"));
-    expect(queries(harness)[0].document.source).toBe(SOURCE);
   });
 
   it("reports a failing query as a failure rather than as an empty answer", async () => {
@@ -188,10 +206,7 @@ describe("writing a standing question", () => {
       retryable: false,
     }));
 
-    await user.click(screen.getByTestId("add-default-sparql"));
-    await user.click(screen.getByTestId("default-query-source"));
-    await user.paste("SELECT ?x WHERE {");
-    await user.tab();
+    await user.click(screen.getByTestId("add-default-query"));
 
     // The count is the first thing that says so, and the reason is stated beside
     // the editor that can fix it rather than only under the journal.

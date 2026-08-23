@@ -14,7 +14,6 @@ import type { ReactNode } from "react";
 import {
   AlarmClockIcon,
   CalendarIcon,
-  CodeIcon,
   ListTreeIcon,
   RepeatIcon,
   Settings2Icon,
@@ -37,9 +36,7 @@ type SlashAction =
   | { kind: "set"; key: string; value: PropertyValue }
   | { kind: "picker"; key?: string }
   /** Turns the block into a query and opens the builder on a starting plan. */
-  | { kind: "query" }
-  /** Turns the block into a query with no plan, so its editor is the SPARQL. */
-  | { kind: "query-source" };
+  | { kind: "query" };
 
 export type SlashGroup = "status" | "priority" | "date" | "query" | "property";
 
@@ -135,10 +132,12 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
   // `/` is the only route to a query: the property picker does not offer
   // `builtin.query`, because a query is built, not filled in.
   //
-  // One item, not three. Blocks / Pages / Tags were three menu rows for one
-  // object whose *first dropdown* already asks which of them you meant — three
-  // ways to reach the same builder, differing only in a default. Blocks is that
-  // default, because a query is nearly always looking for lines of writing.
+  // One item, and only ever one. Blocks / Pages / Tags were three menu rows for
+  // one object whose *first dropdown* already asks which of them you meant, and
+  // `Advanced query` was a fourth for the same object written in SPARQL by hand.
+  // Blocks is the default, because a query is nearly always looking for lines of
+  // writing; SPARQL is what the builder compiles, readable from every query's own
+  // menu, and no longer something a person is asked to type.
   items.push({
     id: "query",
     group: "query",
@@ -147,18 +146,6 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     aliases: ["query", "search", "filter", "find", "쿼리", "검색", "찾기", "필터"],
     glyph: <ListTreeIcon aria-hidden />,
     action: { kind: "query" },
-  });
-  // The escape hatch is its own door in, rather than a one-way door out of the
-  // builder: hand-written SPARQL is a *kind* of query someone chooses to write,
-  // not a state a built query gets converted into and can never come back from.
-  items.push({
-    id: "query-advanced",
-    group: "query",
-    label: message("query.slashAdvanced"),
-    hint: message("query.slashAdvancedHint"),
-    aliases: ["sparql", "advanced", "raw", "고급", "쿼리", "스파클"],
-    glyph: <CodeIcon aria-hidden />,
-    action: { kind: "query-source" },
   });
   items.push({
     id: "property",
