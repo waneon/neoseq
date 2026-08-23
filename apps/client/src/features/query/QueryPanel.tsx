@@ -90,7 +90,7 @@ import { QueryViewTabs } from "./QueryViewTabs";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { useQueryAnswer } from "./execution";
-import { answerLabel, columnLabel, viewLabel } from "./labels";
+import { answerLabel, columnLabel } from "./labels";
 import { orderResultRows } from "./ordering";
 import {
   queryResultsAreOpen,
@@ -435,7 +435,7 @@ export function QueryPanel({
     const id = `v-${crypto.randomUUID()}`;
     const name = nextAvailableEntityName(
       message(kind === "table" ? "query.viewTable" : "query.viewList"),
-      views.map((view) => viewLabel(view, message)),
+      views.map((view) => view.name),
     );
     const position = views.reduce((highest, view) => Math.max(highest, view.position), -1) + 1;
     void (async () => {
@@ -452,8 +452,8 @@ export function QueryPanel({
   const duplicateView = (view: QueryView) => {
     const id = `v-${crypto.randomUUID()}`;
     const name = nextAvailableEntityName(
-      viewLabel(view, message),
-      views.map((item) => viewLabel(item, message)),
+      view.name,
+      views.map((item) => item.name),
     );
     const position = views.reduce((highest, item) => Math.max(highest, item.position), -1) + 1;
     void (async () => {
@@ -469,12 +469,15 @@ export function QueryPanel({
 
   const renameView = (view: QueryView, name: string) => {
     const next = name.trim();
-    if (!next || next === viewLabel(view, message)) return;
+    if (!next || next === view.name) return;
     const taken = views.some(
       (item) => item.id !== view.id
-        && canonicalEntityName(viewLabel(item, message)) === canonicalEntityName(next),
+        && canonicalEntityName(item.name) === canonicalEntityName(next),
     );
-    void putView({ ...view, name: taken ? nextAvailableEntityName(next, views.map((item) => viewLabel(item, message))) : next });
+    const unique = taken
+      ? nextAvailableEntityName(next, views.map((item) => item.name))
+      : next;
+    void putView({ ...view, name: unique });
   };
 
   const removeView = (view: QueryView) => {
@@ -598,7 +601,7 @@ export function QueryPanel({
           <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
             {views.map((view) => (
               <DropdownMenuRadioItem key={view.id} value={view.id}>
-                {viewLabel(view, message)}
+                {view.name}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

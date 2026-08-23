@@ -516,6 +516,25 @@ describe("a tag's own page", () => {
     expect(screen.getAllByRole("tab")[1]).toHaveAttribute("aria-selected", "true");
   });
 
+  it("renames the initial view without changing its identity", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+
+    const menu = await openViewMenu("All");
+    await user.click(within(menu).getByTestId("query-view-rename"));
+    const field = await screen.findByTestId("query-view-rename-field");
+    await user.clear(field);
+    await user.type(field, "Everything{enter}");
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Everything" })).toBeVisible(),
+    );
+    expect(tagQuery(session)?.views[0]).toMatchObject({
+      id: "all",
+      name: "Everything",
+    });
+  });
+
   it("adds, renames, and deletes a view of its own", async () => {
     const { session } = await mountTagPage();
     const user = userEvent.setup();

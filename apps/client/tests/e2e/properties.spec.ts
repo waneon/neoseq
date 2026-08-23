@@ -344,6 +344,15 @@ test("a tag's page carries its query, and the query's views are its tabs", async
   await expect(tabs).toHaveText(["All"]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
 
+  // A view's stored name is authoritative even when it carries the initial
+  // stable ID. Renaming changes the name, not the identity.
+  await tabs.first().click({ button: "right" });
+  await page.getByTestId("query-view-rename").click();
+  await query.getByTestId("query-view-rename-field").fill("Everything");
+  await query.getByTestId("query-view-rename-field").press("Enter");
+  await expect(query.getByRole("tab", { name: "Everything" })).toBeVisible();
+  await awaitSaved(page);
+
   // A new view opens on itself, and is renamed where it stands.
   await query.getByTestId("query-view-add").click();
   await page.getByRole("menuitem", { name: "List", exact: true }).click();
@@ -366,18 +375,19 @@ test("a tag's page carries its query, and the query's views are its tabs", async
     "aria-selected",
     "true",
   );
+  await expect(query.getByRole("tab", { name: "Everything" })).toBeVisible();
 
   // Dragging a tab past its neighbour is the same move the menu makes.
   await query.getByRole("tab", { name: "Unread" }).dragTo(
-    query.getByRole("tab", { name: "All" }),
+    query.getByRole("tab", { name: "Everything" }),
     { targetPosition: { x: 2, y: 10 } },
   );
   await awaitSaved(page);
-  await expect(query.getByRole("tab")).toHaveText(["Unread", "All"]);
+  await expect(query.getByRole("tab")).toHaveText(["Unread", "Everything"]);
 
   await query.getByRole("tab", { name: "Unread" }).click({ button: "right" });
   await page.getByTestId("query-view-delete").click();
-  await expect(query.getByRole("tab")).toHaveText(["All"]);
+  await expect(query.getByRole("tab")).toHaveText(["Everything"]);
 });
 
 test("deleted page references resolve to a tombstone, not a new page", async ({ page }) => {

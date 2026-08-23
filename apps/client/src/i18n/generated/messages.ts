@@ -450,7 +450,6 @@ export interface MessageArgumentMap {
   "query.valuePlaceholder": undefined;
   "query.view": undefined;
   "query.viewActions": { readonly "name": string | number };
-  "query.viewAll": undefined;
   "query.viewList": undefined;
   "query.viewTable": undefined;
   "query.views": undefined;

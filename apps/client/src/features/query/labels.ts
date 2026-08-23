@@ -5,7 +5,6 @@
 // here, so a field can never be called two different things — and property keys
 // go through the same `property-display` module as every other surface.
 
-import type { QueryView } from "../../core-port/snapshot";
 import type { MessageFunction } from "../../i18n";
 import type { QueryAnswer } from "./execution";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
@@ -22,20 +21,6 @@ import type {
   PlanRelativeDate,
   PlanSubject,
 } from "../../entities/query-plan";
-
-/**
- * A view's name. The one a document is born with is the product's own word in the
- * reader's language — and `table`/`list` are the two a document born before that
- * carried, kept so their names still read as words rather than as English left
- * behind. Every view after them was named by somebody, and a name somebody typed
- * is never translated out from under them.
- */
-export function viewLabel(view: QueryView, message: MessageFunction): string {
-  if (view.id === "all") return message("query.viewAll");
-  if (view.id === "table") return message("query.viewTable");
-  if (view.id === "list") return message("query.viewList");
-  return view.name;
-}
 
 export function subjectLabel(subject: PlanSubject, message: MessageFunction): string {
   return message(`query.subject.${subject}` as

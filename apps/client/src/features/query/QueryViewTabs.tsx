@@ -51,7 +51,6 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { useI18n } from "../../i18n";
-import { viewLabel } from "./labels";
 
 /** Where a view's menu was summoned, in viewport coordinates. */
 interface MenuAt {
@@ -223,7 +222,7 @@ export function QueryViewTabs({
               tabIndex={current ? 0 : -1}
               draggable={!readonly && views.length > 1}
               onDragStart={(event) => {
-                event.dataTransfer.setData("text/plain", viewLabel(view, message));
+                event.dataTransfer.setData("text/plain", view.name);
                 event.dataTransfer.effectAllowed = "move";
                 setDragging(view.id);
               }}
@@ -244,7 +243,7 @@ export function QueryViewTabs({
                 summon(view, pointOf(event));
               }}
             >
-              <span className="query-view-name">{viewLabel(view, message)}</span>
+              <span className="query-view-name">{view.name}</span>
               {/* Drawn, not revealed: a control that opens a menu says so before
                   it is pressed. One tab carries it, so it reads as "this view"
                   rather than as a row of chrome. */}
@@ -291,7 +290,7 @@ export function QueryViewTabs({
           <span
             className="menu-anchor"
             aria-label={message("query.viewActions", {
-              name: menuView ? viewLabel(menuView, message) : "",
+              name: menuView?.name ?? "",
             })}
             aria-hidden
             style={{ left: menuAt?.x ?? 0, top: menuAt?.y ?? 0 }}
@@ -369,7 +368,7 @@ function RenameField({
   onCancel: () => void;
 }) {
   const { message } = useI18n();
-  const [draft, setDraft] = useState(() => viewLabel(view, message));
+  const [draft, setDraft] = useState(() => view.name);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

@@ -103,7 +103,7 @@ export function defaultQueryDocument(query: DefaultQuery): PropertyDocument {
     views: [
       {
         id: VIEW_ID,
-        name: "",
+        name: "All",
         kind: query.layout,
         position: 0,
         columns: [],
