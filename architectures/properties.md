@@ -136,17 +136,16 @@ its source. Setting a plan writes it and its compiled source in one transaction,
 and writing source by hand clears the plan, so a stored plan always describes
 what runs.
 
-`columns` is a per-view ordered list of `{variable, hidden, width}` records, and
-`options` carries presentation switches (`compact`, `wrap`, and an optional
-`sort` of `{variable, descending}`). Both decode leniently: a variable a view has
-never seen stays visible at its natural position, an unreadable options record
-falls back to defaults, and a switch a reader does not know is ignored rather
-than rejected — which is what lets one replica add a switch without invalidating
-the document for another. A `sort` naming a variable the view no longer lists is
-valid and simply stops applying, so narrowing a query never makes its saved view
-unreadable. A document is born with one view, `all`, drawn as a table: layout is a
-field of a view rather than a second view, so two views are two questions. Views a
-reader creates carry generated IDs and their own names, and use the same record
+`columns` is a table-only per-view ordered list of `{variable, hidden, width}`
+records. `options` carries common density, table wrapping, a table `sort` of
+`{variable, descending}`, and a block-list `list_sort` of
+`{field, descending}`. List fields use stable IDs from the builder's condition
+vocabulary rather than table variables. These records decode leniently: a
+variable a table has never seen stays visible at its natural position, absent or
+unreadable options fall back to defaults, and an unknown sort term simply stops
+applying. A document is born with one view, `all`, drawn as a table: layout is a
+field of a view rather than a second view, so two views are two questions. Views
+a reader creates carry generated IDs and their own names, and use the same record
 contract rather than adding property keys or storage roots. A document holds
 between one and thirty-two views, ordered by `position`.
 

@@ -9,7 +9,7 @@
 
 import type { RdfTerm } from "../generated/core-port";
 import { orderingOf, stringChoicesOf, valueTypeOf } from "./properties";
-import type { PlanColumn, PlanColumnSource } from "./query-plan";
+import type { PlanColumn, PlanColumnSource, PlanField } from "./query-plan";
 import { TASK_PRIORITY_KEY } from "./tasks";
 
 export type OrderSemantics =
@@ -22,6 +22,30 @@ export type OrderSemantics =
   /** A folded collection has no defined member order in the query profile. */
   | { kind: "unsupported_list" };
 
+function propertyOrderSemantics(key: string): OrderSemantics {
+  if (orderingOf(key)?.kind === "choice_order") {
+    return {
+      kind: "ranked",
+      values: stringChoicesOf(key),
+      // No priority is weaker than Low. Other ranked fields keep absence
+      // outside the declared progression, after open-choice fallbacks.
+      missing: key === TASK_PRIORITY_KEY ? "below" : "last",
+    };
+  }
+  switch (valueTypeOf(key)) {
+    case "number":
+      return { kind: "number" };
+    case "date":
+      return { kind: "date" };
+    case "checkbox":
+      return { kind: "boolean" };
+    case "page":
+      return { kind: "entity_label" };
+    default:
+      return { kind: "text" };
+  }
+}
+
 function sourceOrderSemantics(source: PlanColumnSource): OrderSemantics {
   switch (source.kind) {
     case "sibling_index":
@@ -30,30 +54,25 @@ function sourceOrderSemantics(source: PlanColumnSource): OrderSemantics {
     case "parent":
     case "subject":
       return { kind: "entity_label" };
-    case "property": {
-      if (orderingOf(source.key)?.kind === "choice_order") {
-        return {
-          kind: "ranked",
-          values: stringChoicesOf(source.key),
-          // No priority is weaker than Low. Other ranked fields keep absence
-          // outside the declared progression, after open-choice fallbacks.
-          missing: source.key === TASK_PRIORITY_KEY ? "below" : "last",
-        };
-      }
-      switch (valueTypeOf(source.key)) {
-        case "number":
-          return { kind: "number" };
-        case "date":
-          return { kind: "date" };
-        case "checkbox":
-          return { kind: "boolean" };
-        case "page":
-          return { kind: "entity_label" };
-        default:
-          return { kind: "text" };
-      }
-    }
+    case "property":
+      return propertyOrderSemantics(source.key);
     default:
+      return { kind: "text" };
+  }
+}
+
+/** The semantic order of a condition field when a canonical entity list uses it. */
+export function orderSemanticsForField(field: PlanField): OrderSemantics {
+  switch (field.kind) {
+    case "sibling_index":
+      return { kind: "number" };
+    case "tag":
+    case "page":
+    case "ancestor":
+      return { kind: "entity_label" };
+    case "property":
+      return propertyOrderSemantics(field.key);
+    case "content":
       return { kind: "text" };
   }
 }

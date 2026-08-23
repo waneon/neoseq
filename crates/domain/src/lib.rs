@@ -20,7 +20,8 @@ pub use model::{
     OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem,
     OutlineFragmentPage, OutlineFragmentTag, OutlineItem, OutlineOwner, OutlineSnapshot,
     PageSnapshot, PageSummary, PropertyOwner, QueryOwner, QueryView, QueryViewColumn,
-    QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement, TagSnapshot, TagSummary,
+    QueryViewFieldSort, QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement,
+    TagSnapshot, TagSummary,
 };
 pub use property::{
     Cardinality, DocumentSpec, PropertyAccess, PropertyBag, PropertyCopyPolicy, PropertyDocument,

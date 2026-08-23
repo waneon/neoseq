@@ -488,7 +488,7 @@ describe("query result views", () => {
     );
   });
 
-  it("keeps a hidden column out of the table and still states it in a list", async () => {
+  it("keeps table display columns out of a canonical block list", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
 
@@ -498,11 +498,10 @@ describe("query result views", () => {
     await waitFor(() =>
       expect(screen.queryByRole("columnheader", { name: /Page/ })).not.toBeInTheDocument());
 
-    // A list draws entities rather than a grid, so it has nothing to hide a
-    // column *in*: it states every fact the query returned, and offers no switch.
+    // A list draws the canonical block rather than the table's result cells.
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
-    expect(within(list).getByText("Page")).toBeInTheDocument();
+    expect(within(list).queryByText("Page")).not.toBeInTheDocument();
     expect(screen.queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
     expect(storedQuery(harness)?.views[0]?.columns
       .find((column) => column.variable === "page")?.hidden).toBe(true);
@@ -643,7 +642,7 @@ describe("query result views", () => {
     await waitFor(() => expect(rowLabels()).toEqual(["High", "Medium", "Low", "—"]));
   });
 
-  it("applies the saved presentation order to list rows", async () => {
+  it("orders list rows by canonical filter fields outside the table projection", async () => {
     const harness = await withResult("Zulu");
     harness.port.queryResult = {
       kind: "select",
@@ -694,9 +693,26 @@ describe("query result views", () => {
       index: 2,
       markdown: "Alpha",
     });
+    await harness.session.execute({
+      type: "set_property",
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      key: "user.owner",
+      value: { type: "string", value: "Zoe" },
+    });
+    await harness.session.execute({
+      type: "set_property",
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-3" },
+      key: "user.owner",
+      value: { type: "string", value: "Ada" },
+    });
 
     const user = userEvent.setup();
     await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("2 results"));
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByRole("button", { name: "Text", exact: true }));
+    await waitFor(() => expect(storedQuery(harness)?.views[0]?.options.sort).toEqual([
+      { variable: "text", descending: false },
+    ]));
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
     const values = () => within(list)
@@ -704,22 +720,30 @@ describe("query result views", () => {
       .map((field) => field.value);
     expect(values()).toEqual(["Zulu", "Alpha"]);
 
-    const putListSort = async (descending: boolean) => {
-      const view = storedQuery(harness)!.views[0]!;
-      await harness.session.execute({
-        type: "put_query_view",
-        owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
-        view: {
-          ...view,
-          options: { ...view.options, sort: [{ variable: "text", descending }] },
-        },
-      });
-    };
+    await user.click(screen.getByTestId("query-sort-trigger"));
+    const panel = await screen.findByTestId("query-sort-panel");
+    fireEvent.pointerDown(within(panel).getByTestId("query-sort-add"), { button: 0 });
+    // The list sorter consumes the filter catalog, not the projected Text/Page
+    // columns. Feature-only documents such as Query never enter either catalog.
+    expect(await screen.findByRole("menuitemradio", { name: "Tag" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Anywhere under" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Position" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitemradio", { name: "Query" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "owner" }));
 
-    await putListSort(false);
+    await waitFor(() => expect(storedQuery(harness)?.views[0]?.options.list_sort).toEqual([
+      { field: "property:user.owner", descending: false },
+    ]));
+    expect(storedQuery(harness)?.views[0]?.options.sort).toEqual([
+      { variable: "text", descending: false },
+    ]);
     await waitFor(() => expect(values()).toEqual(["Alpha", "Zulu"]));
 
-    await putListSort(true);
+    await chooseFromMenu(
+      user,
+      within(panel).getByRole("button", { name: "owner direction" }),
+      "Descending",
+    );
     await waitFor(() => expect(values()).toEqual(["Zulu", "Alpha"]));
   });
 
@@ -874,10 +898,41 @@ describe("query result views", () => {
       key: "user.owner",
       value: { type: "string", value: "Ada" },
     });
+    // A table aggregate removes row identity from the table projection. The
+    // block list must still execute its own identity projection and render the
+    // canonical block instead of falling back to these table cells.
+    const tableDocument = storedQuery(harness)!;
+    const tablePlan = decodePlan(tableDocument.plan!.payload, tableDocument.plan!.version)!;
+    const aggregatePlan = {
+      ...tablePlan,
+      columns: [
+        ...tablePlan.columns,
+        { id: "tags", source: { kind: "tags" as const }, aggregate: "list" as const },
+      ],
+    };
+    await harness.session.execute({
+      type: "set_query_plan",
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      plan: { version: 1, payload: JSON.stringify(aggregatePlan) },
+      source: compilePlan(aggregatePlan).source,
+    });
+    const nestedPlan = storedQuery(harness)!.plan!;
+    await harness.session.execute({
+      type: "set_query_plan",
+      owner,
+      plan: nestedPlan,
+      source: storedQuery(harness)!.source,
+    });
 
     const user = userEvent.setup();
-    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
-    const row = within(await screen.findByTestId("query-list")).getByTestId("query-list-row");
+    const hostQuery = screen.getAllByTestId("query-block")[0];
+    await chooseFromMenu(user, within(hostQuery).getByTestId("query-view-trigger"), "List");
+    await waitFor(() => {
+      const executed = harness.port.queryRequests.at(-1)?.query.source ?? "";
+      expect(executed).toContain("SELECT ?q_subject WHERE");
+      expect(executed).not.toContain("GROUP_CONCAT");
+    });
+    const row = within(await within(hostQuery).findByTestId("query-list")).getByTestId("query-list-row");
     expect(row).toHaveClass("block-row");
     expect(row.querySelector(".block-body")).not.toBeNull();
     expect(row.querySelector(".query-block-content .outline-markdown")).not.toBeNull();
@@ -886,6 +941,11 @@ describe("query result views", () => {
     expect(row.querySelector('[data-status-glyph="done"]')).not.toBeNull();
     expect(row.querySelector('[data-priority-glyph="high"]')).not.toBeNull();
     expect(within(row).getByTestId("prop-user.owner")).toHaveTextContent("Ada");
+    expect(row.querySelector(".query-list-facts")).toBeNull();
+    // A list is the block's inline representation, not its embedded feature
+    // subtree: otherwise a result query would recursively mount another query.
+    expect(within(row).queryByTestId("query-block")).not.toBeInTheDocument();
+    expect(within(row).queryByTestId("prop-builtin.query")).not.toBeInTheDocument();
   });
 
   it("edits canonical block text directly from the table result", async () => {
@@ -1072,7 +1132,7 @@ describe("query result views", () => {
     expect(stringValue(page?.properties ?? [], "builtin.task-status")).toBeUndefined();
   });
 
-  it("opens the outline's own status menu from a list result", async () => {
+  it("uses only the canonical task field in a block list", async () => {
     const harness = await withResult();
     const query = storedQuery(harness)!;
     const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
@@ -1112,19 +1172,8 @@ describe("query result views", () => {
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
-    // An explicitly retained empty field and an absent field both use the
-    // query's task mark. The retained field must not also leak into BlockChips.
-    await harness.session.execute({
-      type: "ensure_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
-      key: "builtin.task-status",
-      value_type: "string",
-      cardinality: "single",
-    });
-
     const user = userEvent.setup();
-    // Both renderers reach the same control. In the table the cell *is* the
-    // trigger, so it says so in the DOM before anything is pressed.
+    // The table projects the selected empty cell as an editing affordance.
     const table = await screen.findByTestId("query-table");
     expect(within(table).getByTestId("query-edit-status")).toHaveAttribute(
       "data-slot",
@@ -1133,8 +1182,18 @@ describe("query result views", () => {
 
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
+    // The same projected cell creates nothing in a list: canonical absence wins.
     expect(within(list).queryByTestId("prop-builtin.task-status")).not.toBeInTheDocument();
-    await user.click(within(list).getByTitle("Edit Status"));
+    expect(within(list).queryByTestId("query-edit-block-status")).not.toBeInTheDocument();
+
+    await harness.session.execute({
+      type: "set_property",
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      key: "builtin.task-status",
+      value: { type: "string", value: "todo" },
+    });
+    await waitFor(() => expect(within(list).getByTitle("Edit Task status")).toBeInTheDocument());
+    await user.click(within(list).getByTitle("Edit Task status"));
 
     // A closed enumeration has one popup wherever it is reached from: the four
     // radio rows the outline's own mark opens, not the generic two-stage key and

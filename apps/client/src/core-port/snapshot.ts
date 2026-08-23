@@ -13,11 +13,17 @@ export interface QueryViewColumn {
 
 /**
  * One term of the order a saved view lays its rows out in — presentation, not
- * semantics: it reorders the rows the query already returned. The query's own
- * ordering, the one a `LIMIT` cuts against, lives in the builder's sort row.
+ * semantics: it reorders the rows the query already returned. An order that a
+ * `LIMIT` cuts against belongs to the executable query.
  */
 export interface QueryViewSort {
   variable: string;
+  descending: boolean;
+}
+
+/** A canonical entity field used to order a list independently of table columns. */
+export interface QueryViewFieldSort {
+  field: string;
   descending: boolean;
 }
 
@@ -25,11 +31,13 @@ export interface QueryViewOptions {
   compact: boolean;
   wrap: boolean;
   /**
-   * The ordering terms, most significant first. Absent or empty means the order
-   * the query returned. The domain reads the single object earlier builds wrote
-   * as a one-term list, so an order saved then still applies.
+   * A table's projected-column order, most significant first. Absent or empty
+   * means the order the query returned. The domain reads the single object
+   * earlier builds wrote as a one-term list, so an order saved then still applies.
    */
   sort?: QueryViewSort[] | null;
+  /** A list's canonical-field order, independent of projected result columns. */
+  list_sort?: QueryViewFieldSort[];
 }
 
 export interface QueryView {

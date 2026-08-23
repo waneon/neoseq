@@ -187,22 +187,34 @@ a column, a second view — is what brings the document into existence. Once
 written it is an ordinary query document with no privileged conditions, so a
 reader may narrow it, widen it, or point it somewhere else entirely.
 
-A view's ordering is a bounded list of distinct result variables, most
-significant term first, and the domain validates it as one: at most eight terms,
-each naming a variable within the same bounds a column selection is held to, and
-no variable twice. Presentation, not semantics — it reorders rows the query has
-already returned, so a term is allowed to name a variable the view no longer
-lists and simply stops applying. Deserialization accepts the single-object form
-earlier builds wrote as a one-term list, so an order a reader saved then still
-applies after the upgrade.
+A view keeps renderer-specific ordering, and each order is a bounded list of at
+most eight distinct terms, most significant first. A table term names a projected
+result variable. A block-list term names a stable field from the builder's
+condition vocabulary, including graph-visible properties, so filtering and list
+ordering cannot offer different fields. Unknown or no-longer-applicable terms
+remain readable and simply stop applying. Table deserialization also accepts the
+single-object form earlier builds wrote as a one-term list.
 
-Which columns a table *shows* is the same kind of fact, held per view as a hidden
-flag beside each column's width and place. A list renderer has no columns to
-hide: it draws entities in the document's own visual grammar, so it states every
-column the query returned. The plan's column list is therefore what any view
-could show, and one switch writes both — asking for a column adds it to the plan
-and reveals it here, and withdrawing it hides it here and, when no other view
-still asks, removes it from the plan so the SPARQL requests exactly what is read.
+Which columns a table *shows* is held per view as a hidden flag beside each
+column's width and place. A block list has no columns: it resolves each result
+subject to its canonical `BlockSnapshot` and draws the block's inline grammar —
+Markdown, task marks, tags, and generic property chips. Result cells never become
+supplemental block facts, and a table's hidden or selected columns cannot change
+the list. Children and embedded feature surfaces do not render through the
+reference; feature-only properties such as `builtin.query` are therefore neither
+chips nor recursively mounted queries. Plan-less and non-block SELECT results
+retain a separate query-shaped list fallback when no block plan can provide an
+entity contract.
+
+The plan's columns remain the table's executable result projection. A table
+column switch may add to that projection, or remove from it when no other table
+still asks for the column. List views do not participate in that accounting.
+When a block list runs, the client derives an ephemeral identity projection from
+the same plan: subject type, conditions, parameters, distinctness, limit, and
+subject order remain, while every table column pattern and aggregate is absent.
+The stored source remains the full plan compilation. This boundary is necessary
+because a table aggregate may remove or group subject identity; a block list must
+still receive one `q_subject` binding to hydrate each canonical block.
 
 Every plan-carrying document is a built one. A document with no plan predates the
 builder being the only author: it still runs and still reads, and the client
@@ -218,18 +230,21 @@ deliberately read-only; the current graph's Settings surface issues the graph
 query commands. Result editing is unaffected: a row still names a block in this
 graph, and writing it remains an ordinary property command.
 
-Column ordering is derived rather than stored in a view. The plan's column
-source and the property registry resolve to one semantic order: declared choices
-use their stored-value rank, numbers and dates use typed value order, references
-use their resolved label, and ordinary text uses text collation. Rendering is a
-separate projection, so a translated label cannot change a ranked order. After
-execution, the query result projection compares raw terms once and hands the same
-ordered rows to Table and List. The compiled source carries no order of its own
-beyond the subject, which is what a `LIMIT` cuts against: which rows a reader
-meets first is decided by the view, once, after the answer arrives. It keeps
-unknown choices behind the declared domain. Unbound values remain last except task priority, where absence
-is the rank below Low. Folded lists have no defined member order and are not
-sortable.
+Ordering semantics are derived rather than stored. The selected field and the
+property registry resolve to one semantic order: declared choices use their
+stored-value rank, numbers and dates use typed value order, references use their
+resolved label, and ordinary text uses text collation. Rendering is a separate
+projection, so a translated label cannot change a ranked order. A table compares
+raw result terms. A block list first hydrates result owners and compares values
+from canonical block snapshots; repeated fields compare as semantically sorted
+vectors. Missing values remain last in either direction except task priority,
+where absence is the rank below Low. Equal rows use stable entity identity as the
+final tie-breaker.
+
+The compiled source carries no order of its own beyond the subject, which is what
+a `LIMIT` cuts against: renderer ordering rearranges only the answer already
+returned. A product question that needs ordering to choose which rows survive a
+limit must express that semantic order in the executable query instead.
 
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
@@ -256,11 +271,13 @@ not introduced.
 RDF rows are display data rather than edit baselines. Entering an editor lazily
 hydrates the subject's canonical outline owner and reads its `BlockSnapshot`; only the
 active table result pays that cost. A block list is an entity projection: it
-deduplicates and hydrates the result subjects' page or tag outlines as one session operation, then
-renders canonical block snapshots through the same presentation primitives as
-the outline. Direct block fields use the native block presentation; selected
-aggregates and structural relations remain supplemental query facts. Embedded
-feature surfaces and children do not render through a result reference.
+deduplicates the result subjects' owners, hydrates their page or tag outlines as
+one session operation, then renders canonical block snapshots through the same
+presentation primitives as the outline. Direct block fields use the native block
+presentation.
+Selected aggregates and structural relations remain table cells rather than
+block facts. Plan-less and non-block results may use generic result cells.
+Embedded feature surfaces and children do not render through a result reference.
 
 The outline and query surfaces share block presentation and the content-editing
 kernel described in [Block editing](block-editing.md), but retain separate

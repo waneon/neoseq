@@ -173,7 +173,8 @@ export function QueryTableView({
     data: rows,
     columns: definitions,
     getRowId: (row) => row.key,
-    // Rows already carry the shared Table/List order.
+    // Rows already carry this table view's order. Widths are managed by the
+    // measured draft above rather than TanStack's column-sizing state.
     enableMultiSort: true,
     maxMultiSortColCount: SORT_LIMIT,
   });

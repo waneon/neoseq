@@ -461,3 +461,16 @@ function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
 export function compilePlan(plan: QueryPlan): CompiledPlan {
   return compile(plan, null);
 }
+
+/**
+ * The executable projection for an entity-native renderer.
+ *
+ * Table columns may add joins, aggregation, and grouping to the stored query.
+ * A canonical list needs none of them: its answer is the matching entity IDs,
+ * and every visible value comes from the hydrated entity snapshot. Keeping this
+ * as a compiler entry point makes that independence structural rather than a UI
+ * convention that can be lost when a table adds an aggregate column.
+ */
+export function compileEntityProjection(plan: QueryPlan): CompiledPlan {
+  return compile({ ...plan, columns: [] }, null);
+}

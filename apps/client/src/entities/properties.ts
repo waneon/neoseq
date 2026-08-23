@@ -356,4 +356,4 @@ export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type
   };
 }
 
-const VIEW_OPTIONS = { compact: false, wrap: false };
+const VIEW_OPTIONS = { compact: false, wrap: false, sort: [], list_sort: [] };

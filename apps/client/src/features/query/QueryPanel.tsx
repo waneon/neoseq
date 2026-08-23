@@ -59,6 +59,7 @@ import type {
   PropertyDocument,
   QueryView,
   QueryViewColumn,
+  QueryViewFieldSort,
   QueryViewKind,
   QueryViewOptions,
   QueryViewSort,
@@ -78,6 +79,7 @@ import {
 import { todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
+  compileEntityProjection,
   compilePlan,
   planBindings,
   QUERY_LANGUAGE,
@@ -86,6 +88,7 @@ import {
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
+  orderSemanticsForField,
 } from "../../entities/query-ordering";
 import {
   columnSourceKey,
@@ -94,6 +97,8 @@ import {
   decodePlan,
   encodePlan,
   graphPropertyKeys,
+  queryFieldId,
+  queryFieldsFor,
   QUERY_PLAN_VERSION,
   withColumn,
   withoutColumn,
@@ -110,15 +115,15 @@ import {
   QueryColumnsControl,
   type ColumnChoice,
 } from "./QueryColumnsControl";
-import { QueryListView } from "./QueryListView";
-import { QuerySortControl } from "./QuerySortControl";
+import { QueryGenericListView, QueryListView } from "./QueryListView";
+import { QuerySortControl, type SortControlEntry } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
 import { QueryViewTabs } from "./QueryViewTabs";
 import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { useQueryAnswer } from "./execution";
-import { answerLabel, columnLabel } from "./labels";
-import { orderResultRows } from "./ordering";
+import { answerLabel, columnLabel, fieldLabel } from "./labels";
+import { orderBlockRows, orderResultRows, type ListSortField } from "./ordering";
 import {
   queryResultsAreOpen,
   rememberQueryResultsOpen,
@@ -127,7 +132,12 @@ import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 
 const PLAN_SAVE_DEBOUNCE_MS = 600;
 
-const defaultOptions = (): QueryViewOptions => ({ compact: false, wrap: false, sort: [] });
+const defaultOptions = (): QueryViewOptions => ({
+  compact: false,
+  wrap: false,
+  sort: [],
+  list_sort: [],
+});
 
 /**
  * The one view every query document is born with, mirrored here so a surface
@@ -219,7 +229,8 @@ export function QueryPanel({
   // lives here for as long as the surface is mounted — and it has to live *here*
   // rather than in the table, because the header's sort panel edits the same
   // list the header row does.
-  const [localSorts, setLocalSorts] = useState<QueryViewSort[]>([]);
+  const [localTableSorts, setLocalTableSorts] = useState<QueryViewSort[]>([]);
+  const [localListSorts, setLocalListSorts] = useState<QueryViewFieldSort[]>([]);
   // Which view a reader who may not write is looking at. A writable graph keeps
   // that answer in the document, where every replica reads it.
   const [localViewId, setLocalViewId] = useState<string | null>(null);
@@ -231,7 +242,21 @@ export function QueryPanel({
   // local plan is the truth while the reader is shaping it.
   useEffect(() => setPlan(storedPlan ?? seedPlan ?? null), [storedPayload]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const views = document?.views ?? SEED_VIEWS;
+  const preferredViewId = (writable ? null : localViewId)
+    ?? document?.default_view_id
+    ?? views[0].id;
+  const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
+  // Renderer identity decides this path, not the shape of the last response.
+  // In particular, a table aggregate may omit q_subject; that must never turn a
+  // block list back into a query-cell list while its own request is in flight.
+  const canonicalBlockView = activeView.kind === "list" && plan?.subject === "block";
+
   const compiled = useMemo(() => (plan ? compilePlan(plan) : null), [plan]);
+  const executionCompiled = useMemo(
+    () => canonicalBlockView && plan ? compileEntityProjection(plan) : compiled,
+    [canonicalBlockView, compiled, plan],
+  );
   const runtime = useMemo(
     () => ({ graphId: state.snapshot.graph_id, today: todayLocalDate() }),
     [state.snapshot.graph_id],
@@ -239,10 +264,10 @@ export function QueryPanel({
   // A built query runs from the plan in hand, so a result follows an edit
   // without waiting for the write that persists it. Without a plan there is only
   // the stored source, which still runs.
-  const runSource = compiled ? compiled.source : source;
+  const runSource = executionCompiled ? executionCompiled.source : source;
   const runBindings = useMemo(
-    () => (compiled ? planBindings(compiled.parameters, runtime) : {}),
-    [compiled, runtime],
+    () => (executionCompiled ? planBindings(executionCompiled.parameters, runtime) : {}),
+    [executionCompiled, runtime],
   );
   const outputId = useId();
   const builderId = useId();
@@ -291,27 +316,21 @@ export function QueryPanel({
   // these changes identity.
   const cellContext = useMemo<CellContext>(() => ({
     snapshot: state.snapshot,
-    subjectVariable: compiled?.subjectVariable ?? null,
+    subjectVariable: executionCompiled?.subjectVariable ?? null,
     message,
     formatDate: formatJournalDate,
     compare,
     onOpen: (entity: QueryEntityRef) => {
       history.open(entity);
     },
-  }), [state.snapshot, compiled?.subjectVariable, message, formatJournalDate, compare, history]);
+  }), [state.snapshot, executionCompiled?.subjectVariable, message, formatJournalDate, compare, history]);
 
   const resultEditor = useQueryResultEditor({
     session,
     state,
-    enabled: Boolean(plan && compiled?.subjectVariable) && !readonly,
+    enabled: Boolean(plan && executionCompiled?.subjectVariable) && !readonly,
     message,
   });
-
-  const views = document?.views ?? SEED_VIEWS;
-  const preferredViewId = (writable ? null : localViewId)
-    ?? document?.default_view_id
-    ?? views[0].id;
-  const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
 
   const select = result?.kind === "select" ? result : null;
   const columns = useMemo(
@@ -336,7 +355,7 @@ export function QueryPanel({
   // sees the same markdown, task marks, tags, and property bag as the outline.
   // Table and non-block results stay query-shaped and pay no hydration cost.
   useEffect(() => {
-    if (activeView.kind !== "list" || state.status !== "ready") return;
+    if (!canonicalBlockView || state.status !== "ready") return;
     const missing = resultBlockOwners.filter(
       (owner) => !state.hydratedOutlines.has(outlineOwnerKey(owner))
         && findOutline(state.snapshot, owner) !== undefined,
@@ -346,7 +365,7 @@ export function QueryPanel({
       notify.failure(message("failure.loadPage"), cause);
     });
   }, [
-    activeView.kind,
+    canonicalBlockView,
     message,
     notify,
     resultBlockOwners,
@@ -355,27 +374,54 @@ export function QueryPanel({
     state.snapshot,
     state.status,
   ]);
-  const sorts = useMemo(() => {
-    const stored = writable ? (activeView.options.sort ?? []) : localSorts;
+  const tableSorts = useMemo(() => {
+    const stored = writable ? (activeView.options.sort ?? []) : localTableSorts;
     const orderableVariables = new Set(
       columns.filter((column) => column.sortable).map((column) => column.variable),
     );
     return stored.filter((sort) => orderableVariables.has(sort.variable));
-  }, [activeView.options.sort, columns, localSorts, writable]);
+  }, [activeView.options.sort, columns, localTableSorts, writable]);
+  const listSortFields = useMemo<ListSortField[]>(() => {
+    if (!plan || plan.subject !== "block") return [];
+    return queryFieldsFor(plan.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
+      id: queryFieldId(field),
+      field,
+      ordering: orderSemanticsForField(field),
+    }));
+  }, [plan, state.snapshot]);
+  const listSorts = useMemo(() => {
+    const stored = writable ? (activeView.options.list_sort ?? []) : localListSorts;
+    const orderableFields = new Set(listSortFields.map((field) => field.id));
+    return stored.filter((sort) => orderableFields.has(sort.field));
+  }, [activeView.options.list_sort, listSortFields, localListSorts, writable]);
   const activeOrigin = resultEditor.active?.origin.row;
   const activeRowPresent = activeOrigin
     ? resultRows.some((row) => row.key === activeOrigin.key)
     : true;
   const pinnedRow = activeOrigin && !activeRowPresent ? activeOrigin : null;
-  const visibleRows = useMemo(
+  const resultAndPinnedRows = useMemo(
+    () => pinnedRow ? [...resultRows, pinnedRow] : resultRows,
+    [pinnedRow, resultRows],
+  );
+  const tableRows = useMemo(
     () => orderResultRows(
-      pinnedRow ? [...resultRows, pinnedRow] : resultRows,
-      sorts,
+      resultAndPinnedRows,
+      tableSorts,
       columns,
       cellContext,
     ),
-    [cellContext, columns, pinnedRow, resultRows, sorts],
+    [cellContext, columns, resultAndPinnedRows, tableSorts],
   );
+  const listRows = useMemo(
+    () => orderBlockRows(
+      resultAndPinnedRows,
+      listSorts,
+      listSortFields,
+      cellContext,
+    ),
+    [cellContext, listSortFields, listSorts, resultAndPinnedRows],
+  );
+  const visibleRows = activeView.kind === "list" ? listRows : tableRows;
 
   // The caption follows the plan in hand, not the saved one, so the phrase tracks
   // the builder keystroke for keystroke and is already true when it closes. A name
@@ -522,14 +568,8 @@ export function QueryPanel({
   const hidden = new Set(
     activeView.columns.filter((column) => column.hidden).map((column) => column.variable),
   );
-  /**
-   * What this view actually draws. A table shows the columns it was left with; a
-   * list of results is not a grid and has no columns to hide — it draws entities,
-   * and every fact the query returned belongs to the entity it describes.
-   */
-  const shownColumns = activeView.kind === "list"
-    ? columns
-    : columns.filter((column) => !hidden.has(column.variable));
+  /** What this table draws. A canonical block list has no column projection. */
+  const shownColumns = columns.filter((column) => !hidden.has(column.variable));
 
   /**
    * Every column this table could draw, and which of them it does. The plan's
@@ -538,8 +578,8 @@ export function QueryPanel({
    * means both at once. The graph's vocabulary is read through a snapshot cache,
    * so the builder beside this pays for the walk once.
    *
-   * A list has nothing to choose between — it draws entities, not a grid — so it
-   * has no panel, and asks for none of this.
+   * A list has nothing to choose between — it draws canonical entities, not a
+   * grid — so it has no panel and does not participate in this projection.
    */
   const choosesColumns = activeView.kind === "table" && writable && plan !== null;
   const choices = choosesColumns && plan
@@ -618,7 +658,7 @@ export function QueryPanel({
     }
     if (!existing) return;
     const variable = columnVariable(existing);
-    const wantedElsewhere = views.some((view) => view.id !== activeView.id
+    const wantedElsewhere = views.some((view) => view.kind === "table" && view.id !== activeView.id
       && !view.columns.some((column) => column.variable === variable && column.hidden));
     if (wantedElsewhere) {
       void setColumn(variable, { hidden: true });
@@ -641,9 +681,17 @@ export function QueryPanel({
 
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
-  const setSorts = (next: QueryViewSort[]) => {
+  const setTableSorts = (next: QueryViewSort[]) => {
     if (writable) void putView({ ...activeView, options: { ...activeView.options, sort: next } });
-    else setLocalSorts(next);
+    else setLocalTableSorts(next);
+  };
+
+  const setListSorts = (next: QueryViewFieldSort[]) => {
+    if (writable) {
+      void putView({ ...activeView, options: { ...activeView.options, list_sort: next } });
+    } else {
+      setLocalListSorts(next);
+    }
   };
 
   const moveColumn = (variable: string, delta: -1 | 1) => {
@@ -675,6 +723,25 @@ export function QueryPanel({
 
   const setOption = (patch: Partial<QueryView["options"]>) =>
     putView({ ...activeView, options: { ...activeView.options, ...patch } });
+
+  const sortOptions = activeView.kind === "list"
+    ? (canonicalBlockView ? listSortFields : []).map((descriptor) => ({
+      key: descriptor.id,
+      label: fieldLabel(descriptor.field, "block", message),
+    }))
+    : columns.flatMap((column) => column.sortable
+      ? [{ key: column.variable, label: column.label }]
+      : []);
+  const sortEntries: SortControlEntry[] = activeView.kind === "list"
+    ? listSorts.map((sort) => ({ key: sort.field, descending: sort.descending }))
+    : tableSorts.map((sort) => ({ key: sort.variable, descending: sort.descending }));
+  const setSortEntries = (next: SortControlEntry[]) => {
+    if (activeView.kind === "list") {
+      setListSorts(next.map((sort) => ({ field: sort.key, descending: sort.descending })));
+    } else {
+      setTableSorts(next.map((sort) => ({ variable: sort.key, descending: sort.descending })));
+    }
+  };
 
   const resultLabel = answerLabel({ result, error, loading, run }, visibleRows.length, message);
   const resultCanCollapse = Boolean(
@@ -889,8 +956,8 @@ export function QueryPanel({
               onToggle={toggleColumn}
             />
           )}
-          {columns.some((column) => column.sortable) && (
-            <QuerySortControl columns={columns} sorts={sorts} onChange={setSorts} />
+          {sortOptions.length > 0 && (
+            <QuerySortControl options={sortOptions} sorts={sortEntries} onChange={setSortEntries} />
           )}
           {/* Everything in it writes the document, so it is absent where the
               document is not writable rather than parked there disabled: § Do /
@@ -918,8 +985,9 @@ export function QueryPanel({
                     : <ListIcon aria-hidden />}
                 </button>
               </DropdownMenuTrigger>
-              {/* One menu, because table-or-list, which columns, and how tall the
-                  rows are answer one question: how this answer is laid out.
+              {/* One menu, because table-or-list and how tall the rows are answer
+                  one question: how this answer is laid out. Table columns remain
+                  on the table itself.
 
                   Every row in it is a **state**, so every row is checkable and
                   every label starts at the same left edge. Before this, the two
@@ -1021,17 +1089,26 @@ export function QueryPanel({
             pinnedRowKey={pinnedRow?.key}
             compact={activeView.options.compact}
             wrap={activeView.options.wrap}
-            sorts={sorts}
-            onSort={setSorts}
+            sorts={tableSorts}
+            onSort={setTableSorts}
             onResize={writable ? setColumnWidths : undefined}
             onHide={writable ? (variable) => setColumn(variable, { hidden: true }) : undefined}
             onMove={writable ? moveColumn : undefined}
             onReorder={writable ? reorderColumns : undefined}
           />
         )}
-        {!error && select && visibleRows.length > 0 && activeView.kind === "list" && (
+        {!error && select && visibleRows.length > 0 && canonicalBlockView && (
           <QueryListView
-            columns={inViewOrder(shownColumns, activeView)}
+            rows={visibleRows}
+            context={cellContext}
+            editor={resultEditor}
+            pinnedRowKey={pinnedRow?.key}
+            compact={activeView.options.compact}
+          />
+        )}
+        {!error && select && visibleRows.length > 0 && activeView.kind === "list" && !canonicalBlockView && (
+          <QueryGenericListView
+            columns={columns}
             rows={visibleRows}
             context={cellContext}
             editor={resultEditor}

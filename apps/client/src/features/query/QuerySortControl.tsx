@@ -1,10 +1,9 @@
 // The order the reader put the rows in.
 //
-// A result's order is a **list**, not a column. *By status, then by date* is one
-// of the most ordinary things to want from a table, and a header that holds one
-// order at a time makes the reader give up their first choice to express their
-// second. So a header click cycles its own column — ascending, descending, gone —
-// and leaves the other terms standing.
+// A result's order is a **list**, not one field. *By status, then by date* is one
+// of the most ordinary things to want, so adding a second term must not replace
+// the first. Table headers additionally cycle their own column — ascending,
+// descending, gone — and leave the other terms standing.
 //
 // A list has precedence, and precedence has to be visible and movable or the
 // second term is a guess. That is what this panel is for: the terms in order,
@@ -18,7 +17,16 @@ import { MenuSelect } from "@/ui/menu-select";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
-import type { ResultColumn } from "./cells";
+
+export interface SortControlOption {
+  key: string;
+  label: string;
+}
+
+export interface SortControlEntry {
+  key: string;
+  descending: boolean;
+}
 
 /** As many terms as the domain will store for one view. */
 export const SORT_LIMIT = 8;
@@ -41,24 +49,23 @@ export function cycleSort(sorts: QueryViewSort[], variable: string): QueryViewSo
 }
 
 export function QuerySortControl({
-  columns,
+  options,
   sorts,
   onChange,
 }: {
-  columns: ResultColumn[];
-  sorts: QueryViewSort[];
-  onChange: (sorts: QueryViewSort[]) => void;
+  options: SortControlOption[];
+  sorts: SortControlEntry[];
+  onChange: (sorts: SortControlEntry[]) => void;
 }) {
   const { message } = useI18n();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const nameOf = (variable: string) =>
-    columns.find((column) => column.variable === variable)?.label ?? `?${variable}`;
+  const nameOf = (key: string) =>
+    options.find((option) => option.key === key)?.label ?? key;
 
-  const remaining = columns.filter(
-    (column) => column.sortable
-      && !sorts.some((sort) => sort.variable === column.variable),
+  const remaining = options.filter(
+    (option) => !sorts.some((sort) => sort.key === option.key),
   );
 
   const move = (index: number, delta: -1 | 1) => {
@@ -77,7 +84,7 @@ export function QuerySortControl({
         className="icon-btn"
         aria-label={message("query.sortOrder")}
         aria-expanded={open}
-        // The trigger carries the state, so a sorted table says so without
+        // The trigger carries the state, so an ordered result says so without
         // being opened — the same way the view control shows which view is on.
         data-sorted={sorts.length > 0 || undefined}
         data-testid="query-sort-trigger"
@@ -103,15 +110,15 @@ export function QuerySortControl({
           {sorts.length > 0 && (
             <ol className="query-sort-list">
               {sorts.map((sort, index) => (
-                <li key={sort.variable} className="query-sort-row">
+                <li key={sort.key} className="query-sort-row">
                   {/* Precedence, stated. A rank only means something once there
                       is a second term for it to come before. */}
                   {sorts.length > 1 && <span className="query-sort-rank">{index + 1}</span>}
-                  <span className="query-sort-name">{nameOf(sort.variable)}</span>
+                  <span className="query-sort-name">{nameOf(sort.key)}</span>
                   <MenuSelect
                     className="query-sort-direction"
                     value={sort.descending ? "desc" : "asc"}
-                    label={message("query.sortDirectionOf", { column: nameOf(sort.variable) })}
+                    label={message("query.sortDirectionOf", { column: nameOf(sort.key) })}
                     options={[
                       { value: "asc", label: message("query.ascending") },
                       { value: "desc", label: message("query.descending") },
@@ -124,7 +131,7 @@ export function QuerySortControl({
                     type="button"
                     className="icon-btn"
                     disabled={index === 0}
-                    aria-label={message("query.moveSortUp", { column: nameOf(sort.variable) })}
+                    aria-label={message("query.moveSortUp", { column: nameOf(sort.key) })}
                     onClick={() => move(index, -1)}
                   >
                     <ArrowUpIcon aria-hidden />
@@ -133,7 +140,7 @@ export function QuerySortControl({
                     type="button"
                     className="icon-btn"
                     disabled={index === sorts.length - 1}
-                    aria-label={message("query.moveSortDown", { column: nameOf(sort.variable) })}
+                    aria-label={message("query.moveSortDown", { column: nameOf(sort.key) })}
                     onClick={() => move(index, 1)}
                   >
                     <ArrowDownIcon aria-hidden />
@@ -141,7 +148,7 @@ export function QuerySortControl({
                   <button
                     type="button"
                     className="icon-btn"
-                    aria-label={message("query.removeSort", { column: nameOf(sort.variable) })}
+                    aria-label={message("query.removeSort", { column: nameOf(sort.key) })}
                     onClick={() => onChange(sorts.filter((_, at) => at !== index))}
                   >
                     <XIcon aria-hidden />
@@ -158,12 +165,12 @@ export function QuerySortControl({
                 label={message("query.addSort")}
                 placeholder={message("query.addSort")}
                 testId="query-sort-add"
-                options={remaining.map((column) => ({
-                  value: column.variable,
-                  label: column.label,
+                options={remaining.map((option) => ({
+                  value: option.key,
+                  label: option.label,
                 }))}
-                onValueChange={(variable) =>
-                  onChange([...sorts, { variable, descending: false }])}
+                onValueChange={(key) =>
+                  onChange([...sorts, { key, descending: false }])}
               />
             )}
             {sorts.length > 0 && (

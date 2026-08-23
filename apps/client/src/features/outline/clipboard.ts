@@ -269,6 +269,7 @@ function cloneField(field: PropertyField): PropertyField {
             options: {
               ...view.options,
               sort: view.options.sort?.map((sort) => ({ ...sort })),
+              list_sort: view.options.list_sort?.map((sort) => ({ ...sort })),
             },
           })),
           plan: value.value.plan ? { ...value.value.plan } : value.value.plan,

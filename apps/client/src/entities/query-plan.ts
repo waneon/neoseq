@@ -32,6 +32,9 @@ export type PlanField =
 
 export type PlanFieldKind = PlanField["kind"];
 
+/** Stable identity shared by the condition picker and canonical list ordering. */
+export type QueryFieldId = Exclude<PlanFieldKind, "property"> | `property:${string}`;
+
 export type PlanOperator =
   | "contains"
   | "not_contains"
@@ -278,6 +281,27 @@ export function fieldKindsFor(subject: PlanSubject): PlanFieldKind[] {
   }
   if (subject === "page") return ["content", "property", "tag"];
   return ["content", "property"];
+}
+
+/**
+ * The complete condition vocabulary for one subject. List ordering consumes
+ * this same catalog, so a field can never be filterable but absent from its sort
+ * control merely because a table did not project it.
+ */
+export function queryFieldsFor(
+  subject: PlanSubject,
+  propertyKeys: readonly string[],
+): PlanField[] {
+  return [
+    ...fieldKindsFor(subject)
+      .filter((kind) => kind !== "property")
+      .map((kind) => ({ kind }) as PlanField),
+    ...propertyKeys.map((key) => ({ kind: "property", key }) as PlanField),
+  ];
+}
+
+export function queryFieldId(field: PlanField): QueryFieldId {
+  return field.kind === "property" ? `property:${field.key}` : field.kind;
 }
 
 /**

@@ -8,10 +8,10 @@
 //
 // **The sentence asks; it does not lay out.** What an answer shows and which way
 // it is ordered are the reader's, changed while reading and belonging to the
-// table they are read in — so they live on the answer (`QueryColumnsControl`,
-// `QuerySortControl`) and not in the question. A builder that also held a `Show`
-// row and a `Sort by` row was stating both twice, in a place the reader has to
-// open the editor to reach.
+// renderer they are read in — so they live on the answer
+// (`QueryColumnsControl`, `QuerySortControl`) and not in the question. A builder
+// that also held a `Show` row and a `Sort by` row was stating both twice, in a
+// place the reader has to open the editor to reach.
 //
 // The builder is a pure editor over a plan value. It never runs, saves, or
 // compiles anything; `QueryPanel` owns all of that.
@@ -32,6 +32,8 @@ import {
   fieldKindsFor,
   fieldType,
   graphPropertyKeys,
+  queryFieldId,
+  queryFieldsFor,
   newCondition,
   operatorsFor,
   operatorTakesList,
@@ -57,10 +59,8 @@ import {
 import { todayLocalDate } from "../../entities/journal";
 import { useI18n } from "../../i18n";
 import { PageAutocomplete } from "../properties/PageAutocomplete";
-import { propertyDisplayName } from "../properties/property-display";
 import {
   choiceLabel,
-  fieldKindLabel,
   fieldLabel,
   matchLabel,
   operatorLabel,
@@ -344,15 +344,10 @@ function ConditionEditor({
   const { message } = useI18n();
   const operators = operatorsFor(condition.field);
 
-  const fieldOptions: MenuSelectOption[] = [
-    ...fieldKindsFor(subject)
-      .filter((kind) => kind !== "property")
-      .map((kind) => ({ value: kind, label: fieldKindLabel(kind, subject, message) })),
-    ...propertyKeys.map((key) => ({
-      value: `${FIELD_PROPERTY_PREFIX}${key}`,
-      label: propertyDisplayName(key, message),
-    })),
-  ];
+  const fieldOptions: MenuSelectOption[] = queryFieldsFor(subject, propertyKeys).map((field) => ({
+    value: queryFieldId(field),
+    label: fieldLabel(field, subject, message),
+  }));
 
   const changeField = (encoded: string) => {
     const field: PlanField = encoded.startsWith(FIELD_PROPERTY_PREFIX)

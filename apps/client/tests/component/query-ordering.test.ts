@@ -4,6 +4,7 @@ import { EMPTY_SNAPSHOT } from "../../src/core-port/snapshot";
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
+  orderSemanticsForField,
 } from "../../src/entities/query-ordering";
 import type {
   CellContext,
@@ -12,6 +13,7 @@ import type {
 } from "../../src/features/query/cells";
 import {
   compareResultTerms,
+  orderBlockRows,
   orderResultRows,
 } from "../../src/features/query/ordering";
 
@@ -135,5 +137,53 @@ describe("query column ordering", () => {
       { variable: "rank", descending: true },
     ], columns, context).map((item) => item.key)).toEqual(["a2", "a1", "b"]);
     expect(rows.map((item) => item.key)).toEqual(["b", "a1", "a2"]);
+  });
+
+  it("orders canonical blocks by a repeated field absent from the result projection", () => {
+    const property = (values: string[]) => ({
+      key: "user.owner",
+      value_type: "string" as const,
+      cardinality: "set" as const,
+      values: values.map((value) => ({ type: "string" as const, value })),
+    });
+    const block = (id: string, values?: string[]) => ({
+      id,
+      markdown: id,
+      properties: values ? [property(values)] : [],
+      tags: [],
+      children: [],
+    });
+    const snapshot = {
+      ...EMPTY_SNAPSHOT,
+      graph_id: "g",
+      pages: [{
+        id: "home",
+        title: "Home",
+        properties: [],
+        tags: [],
+        blocks: [block("b1", ["Beta", "Zulu"]), block("b2", ["Alpha"]), block("b3")],
+      }],
+    };
+    const blockContext = { ...context, snapshot };
+    const row = (id: string): ResultViewRow => ({
+      key: id,
+      values: {},
+      subject: { kind: "block", owner: { kind: "page", id: "home" }, id },
+    });
+    const rows = [row("b1"), row("b3"), row("b2")];
+    const field = { kind: "property" as const, key: "user.owner" };
+    const fields = [{
+      id: "property:user.owner",
+      field,
+      ordering: orderSemanticsForField(field),
+    }];
+
+    expect(orderBlockRows(rows, [
+      { field: "property:user.owner", descending: false },
+    ], fields, blockContext).map((item) => item.key)).toEqual(["b2", "b1", "b3"]);
+    expect(orderBlockRows(rows, [
+      { field: "property:user.owner", descending: true },
+    ], fields, blockContext).map((item) => item.key)).toEqual(["b1", "b2", "b3"]);
+    expect(rows.map((item) => item.key)).toEqual(["b1", "b3", "b2"]);
   });
 });

@@ -21,18 +21,17 @@
 // reflows while the pointer travels, and `Move left` / `Move right` in the tab's
 // own menu is the same move from a keyboard.
 //
-// **A tab's menu is about the tab.** What a view *is* — its layout, its columns,
-// its density, its order — is asked on the answer, through the same three
-// controls a query in the outline uses, so one choice is never in two places
-// depending on where the query is read. What is left here is what is true of this
-// view alone: what it is called, a copy of it, its place in the row, and deleting
-// it. **The current tab is the control that opens that menu**: pressing a tab
-// that is not the answer chooses it; pressing the one that already is opens what
-// it can be named and moved to. Its chevron is drawn rather than revealed,
-// because a tab that opens a menu has to say so before it is pressed — and it is
-// drawn on exactly one tab, so it reads as "this view" rather than as chrome.
-// Right-click reaches any tab's menu without selecting it first, as it does on a
-// bullet.
+// **A tab's menu is about the tab.** Layout, density, order, and a table's
+// columns are asked on the answer, through the same controls a query in the
+// outline uses, so one choice is never in two places depending on where the
+// query is read. What is left here is what is true of this view alone: what it
+// is called, a copy of it, its place in the row, and deleting it. **The current
+// tab is the control that opens that menu**: pressing a tab that is not the
+// answer chooses it; pressing the one that already is opens what it can be named
+// and moved to. Its chevron is drawn rather than revealed, because a tab that
+// opens a menu has to say so before it is pressed — and it is drawn on exactly
+// one tab, so it reads as "this view" rather than as chrome. Right-click reaches
+// any tab's menu without selecting it first, as it does on a bullet.
 
 import { useEffect, useRef, useState } from "react";
 import {

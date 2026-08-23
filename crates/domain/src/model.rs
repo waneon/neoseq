@@ -255,13 +255,25 @@ pub struct QueryViewColumn {
 /// One term of the order a saved view lays its rows out in.
 ///
 /// Presentation, not semantics: it reorders the rows the query already returned,
-/// which is why it lives beside the other view switches and not in the plan. The
-/// query's own ordering — the one that decides which rows a `LIMIT` keeps — stays
-/// in the builder's sort row.
+/// which is why it lives beside the other view switches and not in the plan. An
+/// order that decides which rows a `LIMIT` keeps belongs to the executable query.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryViewSort {
     /// The result variable the rows are ordered by.
     pub variable: String,
+    #[serde(default)]
+    pub descending: bool,
+}
+
+/// One canonical entity field used to order a list view.
+///
+/// Unlike a table order, this names a field from the builder's condition
+/// vocabulary rather than a projected result variable. A list therefore does
+/// not have to ask a table to expose a value before it can order blocks by it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryViewFieldSort {
+    /// Stable client field ID (`content`, `tag`, or `property:<key>`, for example).
+    pub field: String,
     #[serde(default)]
     pub descending: bool,
 }
@@ -293,20 +305,24 @@ where
 /// query. They never change which rows or values the query returns.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct QueryViewOptions {
-    /// Table rows at the outline's own row height instead of a roomier one.
+    /// Rows at the outline's own row height instead of a roomier one.
     #[serde(default)]
     pub compact: bool,
     /// Let cell text wrap instead of truncating on one line.
     #[serde(default)]
     pub wrap: bool,
-    /// How the reader has ordered what is on screen, most significant term
-    /// first. Empty means the order the query returned.
+    /// How a table orders its projected cells, most significant term first.
+    /// Empty means the order the query returned.
     #[serde(
         default,
         deserialize_with = "query_view_sorts",
         skip_serializing_if = "Vec::is_empty"
     )]
     pub sort: Vec<QueryViewSort>,
+    /// How a list orders canonical entity fields, most significant term first.
+    /// Empty means the order the query returned.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub list_sort: Vec<QueryViewFieldSort>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -19,7 +19,6 @@ import {
   findPage,
   isDeleted,
   pageTitle,
-  queryDocument,
   stringValue,
 } from "../../core-port/snapshot";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
@@ -64,16 +63,14 @@ export function BlockChips({
   // screen and stays editable, it simply does not recur.
   const repeatRaw = stringValue(block.properties, TASK_REPEAT_KEY);
   const repeat = repeatRaw !== undefined ? parseRepeat(repeatRaw) : null;
-  // Task keys have their own positioned controls, and a valid query document is
-  // presented by the query block itself — a chip would state the same fact
-  // twice. The generic rows carry everything else the block states.
-  const hasQueryBlock = queryDocument(block.properties) !== undefined;
+  // Task keys have their own positioned controls. Feature-owned documents such
+  // as queries are excluded by the shared property visibility policy rather
+  // than by a surface-specific denylist.
   const generic = block.properties.filter(
     (field) =>
       isGenericProperty(field.key) &&
       !representedKeys.includes(field.key) &&
-      (!isTaskKey(field.key) || field.values.length === 0) &&
-      !(field.key === "builtin.query" && hasQueryBlock),
+      (!isTaskKey(field.key) || field.values.length === 0),
   );
   const hasTaskFacts =
     scheduled !== undefined || deadline !== undefined || repeatRaw !== undefined;

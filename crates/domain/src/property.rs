@@ -319,6 +319,29 @@ impl PropertyDocument {
                     ));
                 }
             }
+            if view.options.list_sort.len() > QUERY_VIEW_SORT_LIMIT {
+                return Err(PropertyError::InvalidDocument(
+                    "too many query list sort terms".to_owned(),
+                ));
+            }
+            let mut sorted_fields = std::collections::BTreeSet::new();
+            for sort in &view.options.list_sort {
+                if sort.field.is_empty()
+                    // A property key may itself occupy 128 bytes; its stable
+                    // `property:` field prefix still has to fit.
+                    || sort.field.len() > 256
+                    || sort.field.chars().any(char::is_control)
+                {
+                    return Err(PropertyError::InvalidDocument(
+                        "invalid query list sort field".to_owned(),
+                    ));
+                }
+                if !sorted_fields.insert(sort.field.as_str()) {
+                    return Err(PropertyError::InvalidDocument(
+                        "duplicate query list sort field".to_owned(),
+                    ));
+                }
+            }
         }
         if !ids.contains(&self.default_view_id) {
             return Err(PropertyError::InvalidDocument(
@@ -1017,6 +1040,32 @@ mod tests {
 
         let absent: crate::QueryViewOptions = serde_json::from_value(json_object()).unwrap();
         assert!(absent.sort.is_empty());
+        assert!(absent.list_sort.is_empty());
+    }
+
+    #[test]
+    fn query_list_sort_is_a_bounded_list_of_distinct_fields() {
+        let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
+        document.views[0].options.list_sort = vec![
+            crate::QueryViewFieldSort {
+                field: "content".to_owned(),
+                descending: false,
+            },
+            crate::QueryViewFieldSort {
+                field: "property:builtin.task-priority".to_owned(),
+                descending: true,
+            },
+        ];
+        assert!(document.validate().is_ok());
+        document.views[0].options.list_sort[1].field = "content".to_owned();
+        assert!(document.validate().is_err());
+        document.views[0].options.list_sort = (0..=QUERY_VIEW_SORT_LIMIT)
+            .map(|index| crate::QueryViewFieldSort {
+                field: format!("property:user.field-{index}"),
+                descending: false,
+            })
+            .collect();
+        assert!(document.validate().is_err());
     }
 
     fn json_object() -> serde_json::Value {

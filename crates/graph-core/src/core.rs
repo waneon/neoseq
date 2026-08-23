@@ -4936,7 +4936,7 @@ fn map_bool(map: &LoroMap, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::{CommandId, LocalDate, MarkdownSplice, QueryViewSort};
+    use domain::{CommandId, LocalDate, MarkdownSplice, QueryViewFieldSort, QueryViewSort};
 
     fn graph() -> GraphId {
         GraphId::new("test-graph").unwrap()
@@ -5963,6 +5963,10 @@ mod tests {
                                     descending: false,
                                 },
                             ],
+                            list_sort: vec![QueryViewFieldSort {
+                                field: "property:builtin.task-priority".into(),
+                                descending: false,
+                            }],
                         },
                     },
                 },
@@ -5996,6 +6000,11 @@ mod tests {
         assert!(table.options.sort[0].descending);
         assert_eq!(table.options.sort[1].variable, "item");
         assert!(!table.options.sort[1].descending);
+        assert_eq!(table.options.list_sort.len(), 1);
+        assert_eq!(
+            table.options.list_sort[0].field,
+            "property:builtin.task-priority"
+        );
     }
 
     #[test]

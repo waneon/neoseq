@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  compileEntityProjection,
   compilePlan,
   entityIri,
   planBindings,
@@ -210,6 +211,36 @@ describe("query plan compilation", () => {
     expect(source).toContain('GROUP_CONCAT(DISTINCT ?q_a1; SEPARATOR="\\u001F") AS ?tags');
     expect(source).toContain("(COUNT(DISTINCT ?q_subject) AS ?total)");
     expect(source).toContain("GROUP BY ?status");
+  });
+
+  it("compiles an entity projection without table columns or their aggregates", () => {
+    const plan = withWhere({
+      ...defaultPlan("block"),
+      columns: [
+        { id: "text", source: { kind: "content" } },
+        { id: "tags", source: { kind: "tags" }, aggregate: "list" },
+      ],
+    }, {
+      ...emptyGroup("all"),
+      children: [condition({
+        field: { kind: "property", key: "builtin.task-status" },
+        op: "equals",
+        value: { type: "text", value: "todo" },
+      })],
+    });
+
+    const { source, variables, subjectVariable, parameters } = compileEntityProjection(plan);
+    expect(subjectVariable).toBe("q_subject");
+    expect(variables).toEqual(["q_subject"]);
+    expect(source).toContain("SELECT ?q_subject WHERE");
+    expect(source).toContain("?q_subject prop:builtin.task-status ?q_p0 .");
+    expect(source).not.toContain("neo:content ?text");
+    expect(source).not.toContain("GROUP_CONCAT");
+    expect(source).not.toContain("GROUP BY");
+    expect(parameters).toEqual([{
+      name: "q_p0",
+      value: { type: "text", value: "todo" },
+    }]);
   });
 
   it("names entities by stable IRI, and inlines them when the builder is left", () => {

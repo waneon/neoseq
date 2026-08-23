@@ -34,7 +34,7 @@ export function newDefaultQueryDocument(
         kind: layout,
         position: 0,
         columns: [],
-        options: { compact: false, wrap: false, sort: [] },
+        options: { compact: false, wrap: false, sort: [], list_sort: [] },
       },
     ],
     default_view_id: VIEW_ID,
