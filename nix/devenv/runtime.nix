@@ -10,9 +10,9 @@ let
   ports =
     if release then
       {
-        web = 4174;
-        sync = 8788;
-        postgres = 5433;
+        web = 4173;
+        sync = 8787;
+        postgres = 5432;
       }
     else
       {
@@ -64,12 +64,12 @@ in
 
     processes = {
       postgres = lib.mkIf (!release) {
-        ports.main.allocate = 5432;
+        ports.main.allocate = 5433;
       };
 
       web = {
         ports = lib.mkIf (!release) {
-          http.allocate = 4173;
+          http.allocate = 4174;
         };
         env = lib.optionalAttrs (!release) {
           NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.sync}";
@@ -90,7 +90,7 @@ in
 
       sync-server = {
         ports = lib.mkIf (!release) {
-          http.allocate = 8787;
+          http.allocate = 8788;
         };
         env = {
           DATABASE_URL = databaseUrl;

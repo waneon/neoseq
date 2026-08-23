@@ -13,7 +13,7 @@ command:
 devenv --profile release-serve up
 ```
 
-This serves the Neoseq app at `http://127.0.0.1:4174`.
+This serves the Neoseq app at `http://127.0.0.1:4173`.
 
 ## Development
 
@@ -25,7 +25,7 @@ devenv shell
 ```
 
 Start the development Web client with Hot Module Replacement (HMR), then open
-`http://127.0.0.1:4173`. Frontend changes are applied automatically. After
+`http://127.0.0.1:4174`. Frontend changes are applied automatically. After
 changing Rust code, rebuild the development Wasm bindings to trigger HMR.
 
 ```sh
