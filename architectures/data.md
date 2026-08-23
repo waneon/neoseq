@@ -41,10 +41,6 @@ break. Query-document commands use a distinct `QueryOwner`; page, block, and tag
 variants resolve to `builtin.query`, while `graph_default` resolves directly to
 this map entry.
 
-Pre-v4 browser settings are not silently copied into every graph a browser
-opens. The client offers one explicit batch import into the current graph and
-removes the legacy records only after that graph command is durably saved.
-
 ## Outline Owners, Nodes, and Ordering
 
 `pages` is keyed by stable `PageId`. Each page contains:

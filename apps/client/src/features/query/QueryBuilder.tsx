@@ -85,11 +85,14 @@ const GHOST_FIELD =
   "bg-transparent shadow-none hover:bg-[var(--surface-2)] hover:shadow-none";
 
 export function QueryBuilder({
+  id,
   plan,
   snapshot,
   readonly,
   onChange,
 }: {
+  /** The region the control that opened this editor answers for. */
+  id?: string;
   plan: QueryPlan;
   snapshot: GraphSnapshot;
   readonly: boolean;
@@ -101,7 +104,7 @@ export function QueryBuilder({
   const setWhere = (where: PlanGroup) => onChange({ ...plan, where });
 
   return (
-    <div className="query-builder" data-testid="query-builder">
+    <div className="query-builder" id={id} data-testid="query-builder">
       {/* One clause, one line. *Find blocks — all of the following.* The subject
           and the root group's match used to take a row each, which put two lead
           words and a line break inside a single sentence; the root group's head
@@ -147,38 +150,42 @@ export function QueryBuilder({
         onRemove={null}
       />
 
-      {/* The two knobs most queries never touch, and the last of the sentence.
-          They are held at the end of the line, and grouped, so the space before
-          them reads as "and then these" rather than as two controls that
-          drifted apart from the sentence they belong to. */}
+      {/* The last of the sentence, and a clause like the two above it. Its lead
+          word takes the lead column, so `Limit` starts at the same left edge as
+          `Find` and its field at the same edge as the subject beside it — one
+          left edge for every word in the builder, and one for every control.
+          Held at the far end of the line instead, behind a seam, the two knobs
+          most queries never touch read as two controls that had come loose from
+          the sentence they belong to, and answered to no word at all. */}
+      <span className="qb-lead">{message("query.limit")}</span>
       <div className="qb-line qb-tail">
-        <div className="qb-knobs">
-          <span className="qb-lead qb-limit">{message("query.limit")}</span>
-          <Input
-            className={cn(GHOST_FIELD, "w-16")}
-            type="number"
-            min={1}
-            max={PLAN_LIMIT_MAX}
-            value={plan.limit}
-            readOnly={readonly}
-            aria-label={message("query.limit")}
-            data-testid="qb-limit"
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              if (!Number.isFinite(next)) return;
-              onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
-            }}
+        <Input
+          // `px-2`, not the field's own 10px: it is the first control on its
+          // line, so its text shares the left edge of every other clause's
+          // first control exactly rather than nearly (§ Geometry).
+          className={cn(GHOST_FIELD, "w-16 px-2")}
+          type="number"
+          min={1}
+          max={PLAN_LIMIT_MAX}
+          value={plan.limit}
+          readOnly={readonly}
+          aria-label={message("query.limit")}
+          data-testid="qb-limit"
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (!Number.isFinite(next)) return;
+            onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
+          }}
+        />
+        <label className="qb-check">
+          <input
+            type="checkbox"
+            checked={plan.distinct}
+            disabled={readonly}
+            onChange={(event) => onChange({ ...plan, distinct: event.target.checked })}
           />
-          <label className="qb-check">
-            <input
-              type="checkbox"
-              checked={plan.distinct}
-              disabled={readonly}
-              onChange={(event) => onChange({ ...plan, distinct: event.target.checked })}
-            />
-            {message("query.uniqueRows")}
-          </label>
-        </div>
+          {message("query.uniqueRows")}
+        </label>
       </div>
     </div>
   );

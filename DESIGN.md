@@ -558,13 +558,24 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   Given a page of its own — a tag's — the query *is* the body, so its views become the
   page's own instrument: a permanent strip the reader names, arranges, and deletes. The
   document underneath is identical; only how much of it the surface may state permanently
-  differs. At rest the header is one caption phrase (the control that opens the
-  editor) and a filled count that is also the empty state. When an answer has a body, that
-  count is its own disclosure; it never borrows the caption's chevron, so authoring and
-  reading remain independent. An empty count stays inert. Folding hides the mounted answer
-  immediately and never pauses its execution. The builder reads as a sentence in rows — a
-  lead column, controls that read as words, one left edge, groups are depth not cards, and
-  the two knobs most queries never touch are grouped behind a seam at the end of the line.
+  differs. At rest the header is the count and the question. **The count leads the line** —
+  the answer is what the surface is for, and folding it is the gesture a reader repeats — and
+  the plan read back as a phrase is the caption beside it. The count takes the caption's own
+  shape, a chevron and a phrase on a ghost ground, because the two are the same kind of
+  thing: a filled chip held at the far end of the line was a badge wearing a disclosure's
+  job, at whichever x the question happened to push it to. An empty count keeps that place
+  and hands the chevron's slot back to its own text. Folding hides the mounted answer
+  immediately and never pauses its execution. **The editor is a control on the answer.** What
+  a query asks is opened from an icon beside the ones that change what a table shows, how it
+  is ordered, and how it is drawn — four controls in one place, revealed together. It carries
+  no lit state, unlike the sort control's: a query with no conditions is one nobody has
+  written yet, so a mark for "this answer is narrowed" would be on for every query in the
+  graph, and what the conditions *are* the caption already says in words. The builder reads
+  as a sentence in rows — a
+  lead column, controls that read as words, one left edge, groups are depth not cards — and
+  the row limit is a clause like the others: its lead word in the lead column, its field on
+  the same left edge as the subject's, rather than two knobs held behind a seam at the end of
+  the line answering to no word at all.
   **The sentence asks; it does not lay out.** What an answer shows and which way it is
   ordered are changed while *reading* it, so they are controls on the answer and not rows
   in the editor: a `Show` row and a `Sort by` row stated both one surface away from where
@@ -587,12 +598,15 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   raised out of it, which is how this interface says "this one of these" without spending a
   second signal — no rule, no accent, no weight change. The track holds *states*, so `+` may
   not be a key: dropped into it a verb would read as a view called "plus", and it stands
-  outside the track's edge instead, revealed like every other verb. Everything one view *is*
-  lives in that view's own menu, and **the current tab is the control that opens it** —
-  pressing a tab that is not the answer chooses it, pressing the one that already is opens
-  what it can be, the same move the caption makes and the reason neither needs a button
-  parked beside it. **A key hugs its own name** and starts it at a fixed inset rather than
-  centring it in a minimum width: centred, a tab's text came to rest at an x that depended on
+  outside the track's edge instead, revealed like every other verb. **A tab's menu is about
+  the tab.** What a view *is* — its layout, its columns, its density — is asked on the answer,
+  through the same controls a query read in the outline uses, so one choice is never in two
+  places depending on where the query is read; what is left to the tab is what is true of it
+  alone: what it is called, a copy of it, its place in the row, and deleting it. **The current
+  tab is the control that opens that menu** — pressing a tab that is not the answer chooses
+  it, pressing the one that already is opens what it can be named and moved to, which is why
+  it needs no button parked beside it. **A key hugs its own name** and starts it at a fixed
+  inset rather than centring it in a minimum width: centred, a tab's text came to rest at an x that depended on
   how long the name happened to be, which is not a column and could land two pixels from the
   caption's own edge below it. Its chevron is drawn rather than revealed, because a control that opens
   a menu must say so before it is pressed, and only one tab carries it. The strip wraps
@@ -605,7 +619,12 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   columns share the block. Declaring a default width each cut every cell short while half the
   table stood empty, and measured the text it was not showing into a sideways scrollbar with
   nothing on the other side of it. A column the reader has sized keeps exactly that width,
-  and only their sum exceeding the block scrolls. Column order,
+  and only their sum exceeding the block scrolls. **A drag starts from the width on screen,
+  and taking one column over takes the table over**: a resize measures the heading row it is
+  about to change and writes every column at the width it was already drawn at, so nothing
+  jumps under the hand that is sizing it and nothing jumps on the next reload. Starting from
+  the default width instead made the first pixel of travel a collapse — the column in the
+  reader's hand snapped to it, and every other column snapped with it. Column order,
   width, visibility, and sort are the saved view data; which columns exist at all is the
   query's. **A cell is the writing it
   quotes**: the values in a result are blocks — often the line the reader wrote a moment ago —
@@ -613,11 +632,12 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell
   and hanging every other cell from its ceiling is that difference made visible.
   **A surface may read a question it cannot write.** A graph's standing queries are
-  set up in that graph's Settings and answered under the day, so there the caption is a
-  caption and not a disclosure — a control that opened an editor for a question written elsewhere
-  would be a promise the surface cannot keep — the layout menu is *absent* rather than
-  parked disabled, since every row of it writes a document this surface does not own,
-  and the route to the editor is a row in the `⋯` menu named after the place it goes.
+  set up in that graph's Settings and answered under the day, so there the phrase is the same
+  caption it is everywhere and what is missing is the way in: nothing offers an editor for a
+  question written elsewhere, because that would be a promise the surface cannot keep, and the
+  layout menu is *absent* rather than parked disabled, since every row of it writes a document
+  this surface does not own. The route to the editor is a row in the `⋯` menu named after the
+  place it goes.
   What is still the reader's is the reading: the order of the rows, folding the answer,
   reading the SPARQL that runs, and editing the blocks the answer quotes — those belong
   to the graph rather than to the question. Under the journal they sit *after* the append

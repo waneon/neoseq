@@ -518,7 +518,6 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
               : { kind: "page", id: command.owner.id },
           };
     case "create_default_query":
-    case "import_default_queries":
     case "rename_default_query":
     case "move_default_query":
     case "delete_default_query":

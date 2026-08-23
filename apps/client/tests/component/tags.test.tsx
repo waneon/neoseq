@@ -3,7 +3,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openViewMenu } from "./harness";
+import { chooseFromMenu, GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openViewMenu } from "./harness";
 
 async function mountTagged() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -514,6 +514,27 @@ describe("a tag's own page", () => {
     // Adding one is what writes the tag's query for the first time.
     await waitFor(() => expect(tagQuery(session)?.views).toHaveLength(2));
     expect(screen.getAllByRole("tab")[1]).toHaveAttribute("aria-selected", "true");
+  });
+
+  // A tag page and a query in the outline ask the same question in the same
+  // place: what a view *is* lives on the answer, and the tab's own menu is about
+  // the tab. Before this, a page's tab held the layout rows and an outline's icon
+  // held them, which put one choice in two places depending on where the query
+  // was read.
+  it("shapes the view from the answer and keeps the tab's menu about the tab", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+
+    await chooseFromMenu(user, await screen.findByTestId("query-view-trigger"), "List");
+    await waitFor(() => expect(tagQuery(session)?.views[0].kind).toBe("list"));
+
+    const menu = await openViewMenu("All");
+    expect(within(menu).getByTestId("query-view-rename")).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Duplicate view" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitemradio", { name: "Table" })).not.toBeInTheDocument();
+    expect(
+      within(menu).queryByRole("menuitemcheckbox", { name: "Compact rows" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renames the initial view without changing its identity", async () => {

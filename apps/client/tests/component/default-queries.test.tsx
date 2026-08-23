@@ -75,57 +75,6 @@ afterEach(() => {
 });
 
 describe("writing a standing question", () => {
-  it("imports pre-v4 browser queries only after explicit consent", async () => {
-    localStorage.setItem("neoseq.settings.v1", JSON.stringify({
-      defaultQueries: [{
-        id: "dq-legacy",
-        title: "Legacy",
-        source: SOURCE,
-        layout: "table",
-      }],
-    }));
-    resetAppSettingsCache();
-    const user = userEvent.setup();
-    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-
-    expect(queries(harness)).toHaveLength(0);
-    await user.click(screen.getByTestId("import-legacy-default-queries"));
-    await waitFor(() => expect(queries(harness)).toHaveLength(1));
-    expect(queries(harness)[0].title).toBe("Legacy");
-    expect(queries(harness)[0].document.views[0].kind).toBe("table");
-    expect(JSON.parse(localStorage.getItem("neoseq.settings.v1") ?? "{}"))
-      .not.toHaveProperty("defaultQueries");
-  });
-
-  it("keeps the browser source until an applied import is durable", async () => {
-    localStorage.setItem("neoseq.settings.v1", JSON.stringify({
-      defaultQueries: [{
-        id: "dq-legacy",
-        title: "Legacy",
-        source: SOURCE,
-        layout: "list",
-      }],
-    }));
-    resetAppSettingsCache();
-    const user = userEvent.setup();
-    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    harness.port.failNextSave = {
-      code: "storage_full",
-      message: "full",
-      retryable: true,
-    };
-
-    await user.click(screen.getByTestId("import-legacy-default-queries"));
-    await waitFor(() => expect(queries(harness)).toHaveLength(1));
-    expect(JSON.parse(localStorage.getItem("neoseq.settings.v1") ?? "{}"))
-      .toHaveProperty("defaultQueries");
-
-    await harness.session.retry();
-    await waitFor(() => expect(
-      JSON.parse(localStorage.getItem("neoseq.settings.v1") ?? "{}"),
-    ).not.toHaveProperty("defaultQueries"));
-  });
-
   it("offers the one entrance the outline's `/` does, and only that one", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);

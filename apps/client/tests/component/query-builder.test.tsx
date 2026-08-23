@@ -136,7 +136,7 @@ describe("the query builder", () => {
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
     expect(screen.queryByTestId("qb-add-column")).not.toBeInTheDocument();
     expect(screen.queryByTestId("qb-sort")).not.toBeInTheDocument();
-    // The two knobs that really are the query's own stay where they were.
+    // The two knobs that really are the query's own are still the query's own.
     expect(screen.getByTestId("qb-limit")).toBeInTheDocument();
   });
 
@@ -247,8 +247,8 @@ describe("the query builder", () => {
 
   // The block is the answer; the question is a disclosure. A query nobody has
   // said anything about yet is the one case where that is backwards, so it opens
-  // on its editor — and the caption it collapses to is the plan read back.
-  it("reads the plan back as a caption, and the caption puts the editor away", async () => {
+  // on its editor — and the caption beside the count is the plan read back.
+  it("reads the plan back as a caption, and its own control puts the editor away", async () => {
     const harness = await mountPage();
     await createQuery(harness);
     const user = userEvent.setup();
@@ -273,8 +273,12 @@ describe("the query builder", () => {
     };
 
     const summary = screen.getByTestId("query-summary");
-    expect(summary).toHaveAttribute("aria-expanded", "true");
-    expect(summary).toHaveAccessibleName("Blocks");
+    const conditions = screen.getByTestId("query-conditions-trigger");
+    // The phrase states the question; the control beside the answer opens the
+    // editor that wrote it.
+    expect(summary.tagName).toBe("SPAN");
+    expect(conditions).toHaveAttribute("aria-expanded", "true");
+    expect(summary).toHaveTextContent("Blocks");
 
     await user.click(screen.getByTestId("qb-add-condition"));
     const condition = await screen.findByTestId("qb-condition");
@@ -282,14 +286,16 @@ describe("the query builder", () => {
     await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
 
     // Word for word the builder's own vocabulary, and it tracks the plan in hand
-    // rather than the one last written to the document.
-    await waitFor(() => expect(summary).toHaveAccessibleName("Blocks · Status is Doing"));
+    // rather than the one last written to the document. The middot between its
+    // halves is drawn rather than written: it is punctuation, not a word.
+    await waitFor(() => expect(summary).toHaveTextContent("Status is Doing"));
+    expect(summary).toHaveTextContent("Blocks");
 
     await waitFor(() =>
       expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
 
-    await user.click(summary);
-    expect(summary).toHaveAttribute("aria-expanded", "false");
+    await user.click(conditions);
+    expect(conditions).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
     // What the reader kept is what the query found — and how much of it.
     expect(screen.getByTestId("query-count")).toHaveTextContent("1 result");
@@ -306,6 +312,9 @@ describe("the query builder", () => {
     await waitFor(() => expect(count).toHaveTextContent("No results"));
     expect(count.tagName).toBe("SPAN");
     expect(count).not.toHaveAttribute("aria-expanded");
+    // It keeps the disclosure's place and gives up the chevron's slot, so the
+    // header does not shift sideways when an answer arrives.
+    expect(count).toHaveAttribute("data-static");
   });
 
   it("never offers the query property through the picker", async () => {
@@ -374,12 +383,23 @@ describe("query result views", () => {
 
   function dragColumn(handle: HTMLElement, from: number, to: number): void {
     fireEvent.pointerDown(handle, { clientX: from });
-    fireEvent.mouseMove(document, { clientX: to });
-    // The component commits on the pointer boundary; TanStack's mouse listener
-    // then closes its transient resize gesture, matching the browser's event
-    // sequence for a mouse-backed pointer.
+    fireEvent.pointerMove(window, { clientX: to });
     fireEvent.pointerUp(window, { clientX: to });
-    fireEvent.mouseUp(document, { clientX: to });
+  }
+
+  /**
+   * What the browser would have laid the headings out at. jsdom reports one size
+   * for every element, and a resize that starts from the width on screen has to
+   * be told a plausible one — which is also the whole point of the fix: the
+   * gesture reads the row rather than trusting a fallback.
+   */
+  function layOutHeadings(table: HTMLElement, width: number): void {
+    for (const cell of within(table).getByRole("table").querySelectorAll("th")) {
+      Object.defineProperty(cell, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ width, height: 32, top: 0, left: 0, bottom: 32, right: width }),
+      });
+    }
   }
 
   function firstColumnWidth(table: HTMLElement): string {
@@ -749,23 +769,31 @@ describe("query result views", () => {
     const harness = await withResult();
     const table = await screen.findByTestId("query-table");
     const handle = within(table).getByRole("separator", { name: "Resize Text" });
-    const savedWidth = () => storedQuery(harness)?.views[0]?.columns
-      .find((column) => column.variable === "text")?.width;
+    const savedWidth = (variable: string) => storedQuery(harness)?.views[0]?.columns
+      .find((column) => column.variable === variable)?.width;
 
     // Until the reader takes the widths over, the table declares none and fills
-    // its block; the first drag is what hands the layout to them.
+    // its block; the first drag is what hands the layout to them. It starts from
+    // the width the column is drawn at — 400 of an 800px block shared two ways —
+    // and not from the fallback a column with no width of its own falls back to,
+    // which is what used to make the first pixel of travel a collapse.
     expect(firstColumnWidth(table)).toBe("");
-    dragColumn(handle, 180, 260);
-    await waitFor(() => expect(savedWidth()).toBe(260));
-    expect(firstColumnWidth(table)).toBe("260px");
+    layOutHeadings(table, 400);
+    dragColumn(handle, 400, 480);
+    await waitFor(() => expect(savedWidth("text")).toBe(480));
+    expect(firstColumnWidth(table)).toBe("480px");
+    // Taking one column over takes the table over, at the widths it was already
+    // drawn at: a column left without one would be redrawn at that same fallback
+    // the moment its neighbour moved.
+    expect(savedWidth("page")).toBe(400);
 
     await harness.session.execute({ type: "undo" });
-    await waitFor(() => expect(savedWidth()).toBeUndefined());
+    await waitFor(() => expect(savedWidth("text")).toBeUndefined());
     await waitFor(() => expect(firstColumnWidth(table)).toBe(""));
 
     await harness.session.execute({ type: "redo" });
-    await waitFor(() => expect(savedWidth()).toBe(260));
-    await waitFor(() => expect(firstColumnWidth(table)).toBe("260px"));
+    await waitFor(() => expect(savedWidth("text")).toBe(480));
+    await waitFor(() => expect(firstColumnWidth(table)).toBe("480px"));
 
     const current = storedQuery(harness)!.views[0]!;
     await harness.session.execute({
@@ -793,10 +821,11 @@ describe("query result views", () => {
       }
     };
 
+    layOutHeadings(table, 400);
     dragColumn(
       within(table).getByRole("separator", { name: "Resize Text" }),
-      180,
-      260,
+      400,
+      480,
     );
 
     await waitFor(() => expect(firstColumnWidth(table)).toBe(""));

@@ -333,6 +333,7 @@ export interface MessageArgumentMap {
   "query.column.tags": undefined;
   "query.columnActions": { readonly "column": string | number };
   "query.columns": undefined;
+  "query.conditions": undefined;
   "query.dateLabel": undefined;
   "query.deleteView": undefined;
   "query.densityCompact": undefined;
@@ -486,10 +487,8 @@ export interface MessageArgumentMap {
   "settings.globalShortcuts": undefined;
   "settings.graph": undefined;
   "settings.graphId": undefined;
-  "settings.importLegacyDefaultQueries": undefined;
   "settings.journal": undefined;
   "settings.keyboard": undefined;
-  "settings.legacyDefaultQueriesDescription": { readonly "count": string | number };
   "settings.persistDeclinedDetail": undefined;
   "settings.persistDeclinedTitle": undefined;
   "settings.persistGranted": undefined;

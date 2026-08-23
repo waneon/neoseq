@@ -8,8 +8,6 @@
 // parsed snapshot, so it can also publish changes — which is what a live
 // journal-date-format or shortcut edit needs.
 
-import type { LegacyDefaultQuery } from "./default-queries";
-
 export type JournalDateFormat = "full" | "long" | "medium" | "short" | "iso";
 
 export type EditorKeymap = "standard" | "vim";
@@ -83,8 +81,6 @@ export interface AppSettings {
   editorKeymap?: EditorKeymap;
   /** Day thresholds and tones for the scheduled/deadline tint. */
   dueTiers?: Partial<DueTierSettings>;
-  /** Pre-v4 browser-local questions, retained only for explicit graph import. */
-  defaultQueries?: LegacyDefaultQuery[];
 }
 
 const STORAGE_KEY = "neoseq.settings.v1";

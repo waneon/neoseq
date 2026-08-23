@@ -1344,31 +1344,6 @@ impl GraphCore {
                     ));
                 }
             }
-            Command::ImportDefaultQueries { queries } => {
-                if queries.is_empty() {
-                    return Err(CoreError::InvalidHierarchy(
-                        "default query import is empty".to_owned(),
-                    ));
-                }
-                let stored = default_queries_map(&self.doc)?;
-                let current = graph_settings_snapshot(&self.doc)?.default_queries.len();
-                if current.saturating_add(queries.len()) > MAX_DEFAULT_QUERIES {
-                    return Err(CoreError::InvalidHierarchy(
-                        "default query import exceeds the graph limit".to_owned(),
-                    ));
-                }
-                let mut ids = BTreeSet::new();
-                for query in queries {
-                    validate_default_query_title(&query.title)?;
-                    query.document.validate()?;
-                    if !ids.insert(query.id.clone()) || stored.get(query.id.as_str()).is_some() {
-                        return Err(CoreError::InvalidHierarchy(format!(
-                            "default query id already exists: {}",
-                            query.id
-                        )));
-                    }
-                }
-            }
             Command::RenameDefaultQuery {
                 default_query_id,
                 title,
@@ -1911,16 +1886,6 @@ impl GraphCore {
                     .map_or(0, |query| query.position.saturating_add(1));
                 self.insert_default_query(default_query_id, title, document, position)?;
             }
-            Command::ImportDefaultQueries { queries } => {
-                let current = graph_settings_snapshot(&self.doc)?.default_queries;
-                let mut position = current
-                    .last()
-                    .map_or(0, |query| query.position.saturating_add(1));
-                for query in queries {
-                    self.insert_default_query(&query.id, &query.title, &query.document, position)?;
-                    position = position.saturating_add(1);
-                }
-            }
             Command::RenameDefaultQuery {
                 default_query_id,
                 title,
@@ -2120,7 +2085,6 @@ impl GraphCore {
             | Command::RemoveQueryView { owner, .. }
             | Command::SetQueryDefaultView { owner, .. } => self.touch_query_owner(owner, now)?,
             Command::CreateDefaultQuery { .. }
-            | Command::ImportDefaultQueries { .. }
             | Command::RenameDefaultQuery { .. }
             | Command::MoveDefaultQuery { .. }
             | Command::DeleteDefaultQuery { .. } => {}
@@ -2913,7 +2877,6 @@ impl GraphCore {
             | Command::RemoveQueryView { owner, .. }
             | Command::SetQueryDefaultView { owner, .. } => query_owner_plan(owner),
             Command::CreateDefaultQuery { .. }
-            | Command::ImportDefaultQueries { .. }
             | Command::RenameDefaultQuery { .. }
             | Command::MoveDefaultQuery { .. }
             | Command::DeleteDefaultQuery { .. } => plan(
@@ -3913,7 +3876,6 @@ fn semantic_name(command: &Command) -> &'static str {
             QueryOwner::GraphDefault { .. } => "GraphSettingsChanged",
         },
         Command::CreateDefaultQuery { .. }
-        | Command::ImportDefaultQueries { .. }
         | Command::RenameDefaultQuery { .. }
         | Command::MoveDefaultQuery { .. }
         | Command::DeleteDefaultQuery { .. } => "GraphSettingsChanged",

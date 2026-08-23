@@ -84,12 +84,12 @@ describe("query and task projections", () => {
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 
-    // The caption names the language and the rows are there to read. There is
-    // nothing behind the caption to open, so it does not pretend there is.
+    // The caption names the language and the rows are there to read. A document
+    // with no plan has no editor to open, so there is no control offering one.
     const summary = await screen.findByTestId("query-summary");
     expect(summary).toHaveTextContent("SPARQL");
-    expect(summary).toHaveAttribute("data-static");
-    expect(summary).not.toHaveAttribute("aria-expanded");
+    expect(summary.tagName).toBe("SPAN");
+    expect(screen.queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
     // Which revision answered is a diagnostic, so it is written where a test or a
     // console can read it rather than into the caption.
@@ -101,7 +101,6 @@ describe("query and task projections", () => {
     )).toBeNull();
 
     const user = userEvent.setup();
-    await user.click(summary);
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
     // What runs is still readable, from the menu every query carries.
     await user.click(screen.getByTestId("query-actions-trigger"));

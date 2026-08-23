@@ -178,9 +178,6 @@ pub enum Command {
         title: String,
         document: PropertyDocument,
     },
-    ImportDefaultQueries {
-        queries: Vec<DefaultQueryInput>,
-    },
     RenameDefaultQuery {
         default_query_id: DefaultQueryId,
         title: String,
@@ -475,13 +472,6 @@ pub struct DefaultQuerySnapshot {
     pub id: DefaultQueryId,
     pub title: String,
     pub position: u32,
-    pub document: PropertyDocument,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DefaultQueryInput {
-    pub id: DefaultQueryId,
-    pub title: String,
     pub document: PropertyDocument,
 }
 

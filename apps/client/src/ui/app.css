@@ -3724,13 +3724,22 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* ── The query header ──
-   One line above the answer: what the query asks, how much it found, and — only
-   once a pointer or the keyboard arrives — the two menus that shape it. The old
+   One line above the answer: how much it found, what the query asks, and — only
+   once a pointer or the keyboard arrives — the controls that shape it. The old
    toolbar stated six things at rest (a mode word, the view's name, a sliders
    icon, the index revision, Run, and `⋯`) above five permanent rows of builder;
    on a journal page that was ~500px of authoring chrome over a six-row answer.
-   Everything that is about *writing* the query now lives behind the sentence,
-   and the revision — a diagnostic, not a fact about the answer — lives in `⋯`. */
+   Everything that is about *writing* the query now lives behind an icon beside
+   the ones that shape the reading of it, and the revision — a diagnostic, not a
+   fact about the answer — lives in `⋯`.
+
+   **The count leads, the phrase follows.** The answer is what the surface is
+   for, so its disclosure holds the line's first inset and the question is the
+   caption beside it. Held at the *end* of the line, the count's left edge was
+   whatever the question happened to be long enough to push it to — a column
+   nobody chose, landing a couple of pixels off the builder's own first control
+   about as often as it landed anywhere else (§ Geometry: an edge is shared
+   exactly or not at all). */
 .query-header {
   display: flex;
   align-items: center;
@@ -3742,46 +3751,26 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-xs);
 }
 
-/* The plan read back as a phrase, and the control that opens the editor that
-   wrote it. Ghost at rest — a caption over the answer, not a button on a bar —
-   and it takes the one hover colour when the pointer says it is pressable.
-   `--ink-2`, not `--ink-3`: the hover wash is --surface-2, where § Contrast's
-   one hard rule puts --ink-3 out of bounds. */
+/* The plan read back as a phrase: what this query asks, in the words the builder
+   said it in. A caption and only that — the editor that wrote it is an icon among
+   the controls on the answer, so the phrase names the question without claiming
+   to be the way in, and a surface that may not write the document states it in
+   exactly the same voice as one that may. `--ink-2`, not `--ink-3`: it sits
+   beside a control that takes the --surface-2 wash, and § Contrast's one hard
+   rule puts --ink-3 out of bounds there. */
 .query-summary {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  /* Shrink-to-fit, and the first thing to shrink: the hover wash has to hug the
-     sentence, or a 900px band lights up under 200px of text and the caption reads
-     as a toolbar again. */
-  flex: 0 1 auto;
   min-width: 0;
+  /* Shrink-to-fit, and the first thing to shrink: the header's one line belongs
+     to the count that leads it and the controls that end it, and the sentence in
+     between yields before either of them does. */
+  flex: 0 1 auto;
   height: var(--sp-5);
-  padding: 0 var(--sp-1);
-  border: 0;
-  border-radius: var(--r-2);
-  background: transparent;
   color: var(--ink-2);
-  font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  text-align: start;
-  cursor: pointer;
-  transition:
-    background-color var(--dur-press) var(--ease-out),
-    color var(--dur-press) var(--ease-out);
-}
-
-.query-summary:hover,
-.query-summary:focus-visible {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.query-summary svg {
-  flex: none;
-  width: 14px;
-  height: 14px;
 }
 
 /* What it looks for carries the weight; what narrows it is the qualifier, so it
@@ -3806,74 +3795,51 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink-3);
 }
 
-.query-summary:hover .query-summary-detail::before,
-.query-summary:focus-visible .query-summary-detail::before {
-  color: var(--ink-2);
-}
-
 /* How much it found — which is also the empty state, so it is the one fact in
-   the header that is never absent, and it says so by being the one piece of it
-   that carries a fill. When there is an answer beneath it, the count is also
-   that answer's disclosure; the sentence to its left remains the separate
-   disclosure for authoring. Tabular figures because a count that shifts a pixel
-   as it changes reads as the layout moving rather than as the number. */
+   the header that is never absent, and the disclosure for the answer beneath it.
+   It leads the line and takes the caption's own shape, because the two are the
+   same kind of thing: a chevron and a phrase, ghost at rest, one hover colour
+   when the pointer says this one is pressable. As a filled chip it was a badge
+   wearing a disclosure's job. Tabular figures because a count that shifts a
+   pixel as it changes reads as the layout moving rather than as the number. */
 .query-count {
   display: inline-flex;
   align-items: center;
+  gap: var(--sp-1);
   flex: none;
-  height: var(--target);
-  padding: 0 7px;
-  border-radius: var(--r-1);
-  background: var(--surface-2);
+  height: var(--sp-5);
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-2);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-medium);
   white-space: nowrap;
-  /* Held at the end of the line with the controls that act on the answer, not
-     packed against the phrase that asks for it. Beside the phrase its left edge
-     was whatever the question happened to be long enough to push it to — which
-     is a column nobody chose, and one that lands a couple of pixels off the
-     builder's own first control about as often as it lands anywhere else
-     (§ Geometry: an edge is shared exactly or not at all). Reading order is
-     untouched: the count still follows the phrase it counts. */
-  margin-inline-start: auto;
 }
 
-/* Two auto margins would split the slack between them and park the count in the
-   middle of the header. The count claims it; the actions follow at the gap. */
-.query-count + .query-header-actions {
-  margin-inline-start: 0;
-}
-
-/* The same phrase where there is nothing behind it to open: a caption, not a
-   control. It keeps the sentence — type, ink, and the middot between its halves —
-   and gives up every affordance, because the editor for a question written
-   somewhere else is reached from the `⋯` menu that names the place. The chevron's
-   slot goes back to the text, which then starts at the panel's own inset. */
-.query-summary[data-static] {
+/* Nothing under it to open — a first run with no answer yet, or an empty one. It
+   keeps the count's place in the line and hands the chevron's slot back to the
+   text, which then starts at the panel's own inset: a caption, not a control
+   with its affordance rubbed out. */
+.query-count[data-static] {
   padding-left: var(--sp-2);
-  cursor: default;
-}
-
-.query-summary[data-static]:hover {
-  background: transparent;
-  color: var(--ink-2);
 }
 
 /* A count that failed says so in the one tone a failure has, wherever the count
-   is stated — over the answer, or beside the editor that wrote the question. */
+   is stated — over the answer, or beside the editor that wrote the question. It
+   is the one state that takes a fill, because it is the one the reader may not
+   miss. */
 .query-count[data-state="error"] {
   background: var(--danger-soft);
   color: var(--danger);
 }
 
 .query-results-toggle {
-  gap: var(--sp-0);
   border: 0;
-  box-shadow: var(--e1-chip);
+  background: transparent;
   font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
+  text-align: start;
   cursor: pointer;
   transition:
     background-color var(--dur-press) var(--ease-out),
@@ -3882,7 +3848,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 @media (hover: hover) {
   .query-results-toggle:hover {
-    background: var(--raised-hover);
+    background: var(--surface-2);
     color: var(--ink);
   }
 }
@@ -3941,7 +3907,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .query-block:hover .query-header-actions,
 .query-header-actions:focus-within,
-.query-header-actions:has([data-state="open"]) {
+.query-header-actions:has([data-state="open"]),
+/* A control whose panel is open may not fade out from under it: the builder and
+   the two panels outlive the pointer that opened them. */
+.query-header-actions:has([aria-expanded="true"]) {
   opacity: 1;
 }
 
@@ -4578,25 +4547,15 @@ button.chip:focus-visible .chip-glyph .chip-x {
   height: 10px;
 }
 
-/* The tail of the sentence carries two knobs most queries never touch, so they
-   sit at the end of the line rather than under a lead word of their own: they
-   are not a clause, they are the settings the clause above them runs under. They
-   line up with the conditions, in column 2, and stay grouped behind a seam so
-   the gap in between reads as separation rather than as two controls that came
-   loose. */
+/* The tail of the sentence is a clause like the two above it: its lead word takes
+   the lead column, so `Limit` starts where `Find` starts and its field where the
+   subject's control does — one left edge for every word in the builder, and one
+   for every control (§ One left edge). Held at the far end of the line behind a
+   seam, the two knobs most queries never touch read as controls that had come
+   loose from the sentence, and answered to no word at all. */
 .qb-tail {
   grid-column: 2;
-  gap: var(--sp-2);
-}
-
-.qb-knobs {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex: none;
-  margin-inline-start: auto;
-  padding-left: var(--sp-3);
-  box-shadow: inset 1px 0 0 var(--thread);
+  gap: var(--sp-3);
 }
 
 .qb-check {

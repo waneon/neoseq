@@ -33,10 +33,21 @@
 // whatever space is left over — which is also what lets the table exceed its
 // container and scroll sideways instead of squeezing its columns.
 //
-// The query projection owns row ordering so every renderer consumes the same
-// result. TanStack Table owns column sizing and row/cell models here; this file
-// owns every pixel, because the design system, not a library's stylesheet,
-// decides what a row looks like.
+// **A drag starts from the width on screen.** Until the reader takes the layout
+// over the table declares no width at all, so there is nothing for a resize to
+// begin at: the sizes a library would hand it are the fallbacks it was
+// configured with, not the widths the fixed algorithm actually shared the block
+// into. Beginning there made the first pixel of travel a collapse — the column
+// in the reader's hand snapped to the fallback, and every other column snapped
+// with it. So a resize measures the row it is about to change, and **taking one
+// column over takes the table over**: every column is written at the width it
+// was already drawn at, and only the dragged one changes. That is what keeps
+// the layout still afterwards, and identical after a reload.
+//
+// The query projection owns row ordering, and TanStack Table owns the row and
+// cell models. Widths are this file's, because the gesture that sets them has to
+// start from the pixels on screen — and because the design system, not a
+// library's stylesheet, decides what a row looks like.
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -48,13 +59,10 @@ import {
   MoreHorizontalIcon,
 } from "lucide-react";
 import {
-  columnResizingFeature,
-  columnSizingFeature,
   rowSortingFeature,
   tableFeatures,
   useTable,
   type ColumnDef,
-  type ColumnSizingState,
 } from "@tanstack/react-table";
 import {
   DropdownMenu,
@@ -76,14 +84,14 @@ import { EditableCellValue, type QueryResultEditor } from "./edit";
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
 
-// Only what this table actually does: order rows, size columns, drag that size.
-// Visibility and column order are the saved view's, not the table's — they
-// persist in the graph, so they arrive already applied in `columns`.
-const FEATURES = tableFeatures({
-  rowSortingFeature,
-  columnSizingFeature,
-  columnResizingFeature,
-});
+/** One layout: what every column in it is drawn at. */
+type Widths = Record<string, number>;
+
+// Only what this table asks a library for: the row and cell models, and whether
+// a column may be ordered. Widths are this file's own, and visibility and column
+// order are the saved view's — they persist in the graph, so they arrive here
+// already applied in `columns`.
+const FEATURES = tableFeatures({ rowSortingFeature });
 
 export function QueryTableView({
   columns,
@@ -111,8 +119,12 @@ export function QueryTableView({
   sorts: QueryViewSort[];
   /** Where a header press goes. Never absent: reading is never read-only. */
   onSort: (sorts: QueryViewSort[]) => void;
-  /** Persist a dragged width. Resolves after the authoritative view reconciles. */
-  onResize?: (variable: string, width: number) => Promise<boolean>;
+  /**
+   * Persist the widths the reader now owns — the dragged column, and every other
+   * column at the width it was already drawn at. `null` withdraws a column's
+   * width. Resolves after the authoritative view reconciles.
+   */
+  onResize?: (widths: Record<string, number | null>) => Promise<boolean>;
   onHide?: (variable: string) => void;
   /** The columns in the order the reader just dragged them into. */
   onReorder?: (order: string[]) => void;
@@ -120,22 +132,21 @@ export function QueryTableView({
 }) {
   const { message } = useI18n();
   const rankOf = (variable: string) => sorts.findIndex((sort) => sort.variable === variable);
-  const canonicalSizing = useMemo<ColumnSizingState>(
-    () => Object.fromEntries(
-      columns.map((column) => [column.variable, column.width ?? DEFAULT_WIDTH]),
-    ),
-    [columns],
-  );
+  /**
+   * The widths in the reader's hands: the layout under a live drag, and the one
+   * waiting for its write to land. `null` while the saved view is the only truth
+   * there is.
+   */
+  const [drafted, setDrafted] = useState<Widths | null>(null);
+  const [resizing, setResizing] = useState<string | null>(null);
   // Column identities and saved widths are the complete canonical sizing
   // boundary. Result rows and unrelated graph revisions may rebuild `columns`,
   // but they must not interrupt a live drag when those values did not change.
-  const canonicalSizingKey = JSON.stringify(
-    columns.map((column) => [column.variable, column.width ?? DEFAULT_WIDTH]),
-  );
-  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(canonicalSizing);
-  const canonicalSizingRef = useRef(canonicalSizing);
-  const canonicalSizingKeyRef = useRef(canonicalSizingKey);
+  const canonicalKey = JSON.stringify(columns.map((column) => [column.variable, column.width]));
+  const canonicalKeyRef = useRef(canonicalKey);
   const resizeCommitPending = useRef(false);
+  /** The heading row, which is the only place a width can be measured. */
+  const head = useRef<HTMLTableSectionElement>(null);
   // A heading is two handles in one place: the whole of it moves the column, and
   // the nine pixels at its trailing edge size it. HTML drag claims a press
   // anywhere inside a draggable element, so the smaller, deliberate target lost
@@ -145,7 +156,6 @@ export function QueryTableView({
   const [dragging, setDragging] = useState<string | null>(null);
   /** The column the seam is drawn before, or `null` for past the last one. */
   const [seamBefore, setSeamBefore] = useState<string | null | undefined>(undefined);
-  canonicalSizingRef.current = canonicalSizing;
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
@@ -153,8 +163,6 @@ export function QueryTableView({
         id: column.variable,
         accessorFn: (row: ResultViewRow) => row.values[column.variable],
         header: column.label,
-        size: column.width ?? DEFAULT_WIDTH,
-        minSize: MIN_WIDTH,
         enableSorting: column.sortable,
       })),
     [columns],
@@ -165,62 +173,126 @@ export function QueryTableView({
     data: rows,
     columns: definitions,
     getRowId: (row) => row.key,
-    // Rows already carry the shared Table/List order. Saved widths are
-    // canonical; this controlled slice is only the live drag overlay. Without
-    // it TanStack retains an uncontrolled size override after undo, so
-    // `columnDef.size` changes while `header.getSize()` stays stale.
-    state: { columnSizing },
-    onColumnSizingChange: setColumnSizing,
+    // Rows already carry the shared Table/List order.
     enableMultiSort: true,
     maxMultiSortColCount: SORT_LIMIT,
-    columnResizeMode: "onChange",
-    enableColumnResizing: Boolean(onResize),
   });
-
-  useLayoutEffect(() => {
-    if (canonicalSizingKeyRef.current === canonicalSizingKey) return;
-    canonicalSizingKeyRef.current = canonicalSizingKey;
-    // Undo, redo, a remote edit, and an ordinary local command all reconcile
-    // through the same saved view. An authoritative change also cancels a drag
-    // based on the superseded width.
-    table.resetHeaderSizeInfo(true);
-    setColumnSizing(canonicalSizing);
-  }, [canonicalSizing, canonicalSizingKey, table]);
-
-  const restoreCanonicalSizing = () => {
-    table.resetHeaderSizeInfo(true);
-    setColumnSizing(canonicalSizingRef.current);
-  };
-
-  const commitSize = (variable: string, width: number) => {
-    if (!onResize || resizeCommitPending.current) return;
-    setColumnSizing((current) => ({
-      ...current,
-      [variable]: width || DEFAULT_WIDTH,
-    }));
-    resizeCommitPending.current = true;
-    void onResize(variable, width)
-      .then((saved) => {
-        if (!saved) restoreCanonicalSizing();
-      })
-      .catch(restoreCanonicalSizing)
-      .finally(() => {
-        resizeCommitPending.current = false;
-      });
-  };
 
   const byVariable = new Map(columns.map((column) => [column.variable, column]));
   const headers = table.getHeaderGroups();
   const order = columns.map((column) => column.variable);
   /**
    * Whether the reader has taken the widths over — by having sized a column, or
-   * by dragging one right now. Until then the table is free to fill its block.
+   * by holding a handle right now. Until then the table is free to fill its
+   * block.
    */
-  const sized = columns.some((column) => column.width !== null)
-    // A drag in flight: the controlled overlay has left the canonical widths
-    // behind, and the columns have to hold the size the handle is giving them.
-    || columns.some((column) =>
-      columnSizing[column.variable] !== (column.width ?? DEFAULT_WIDTH));
+  const sized = drafted !== null || columns.some((column) => column.width !== null);
+  /** What one column is drawn at, once anything is drawn at anything. */
+  const widthOf = (variable: string): number =>
+    drafted?.[variable] ?? byVariable.get(variable)?.width ?? DEFAULT_WIDTH;
+
+  // Undo, redo, a remote edit, and the reader's own committed drag all arrive as
+  // a change to the saved view, and each of them supersedes a draft rather than
+  // merging with it.
+  useLayoutEffect(() => {
+    if (canonicalKeyRef.current === canonicalKey) return;
+    canonicalKeyRef.current = canonicalKey;
+    setDrafted(null);
+  }, [canonicalKey]);
+
+  /**
+   * The widths as the browser has actually laid them out, which is where every
+   * resize begins. A table nobody has sized declares no width at all, so the
+   * only honest starting point is the row itself; a zero measurement is a table
+   * that is not on screen rather than a width anybody chose.
+   */
+  const onScreenWidths = (): Widths => {
+    const widths: Widths = {};
+    const cells = head.current?.querySelectorAll<HTMLElement>("th[data-variable]") ?? [];
+    for (const cell of cells) {
+      const variable = cell.dataset.variable;
+      const width = Math.round(cell.getBoundingClientRect().width);
+      if (variable && width > 0) widths[variable] = Math.max(MIN_WIDTH, width);
+    }
+    for (const column of columns) widths[column.variable] ??= widthOf(column.variable);
+    return widths;
+  };
+
+  /**
+   * The layout the reader now owns, written whole: a column left with no width
+   * of its own would be drawn at `DEFAULT_WIDTH` the moment a neighbour was
+   * dragged, which is a table jumping to a shape nobody asked for.
+   */
+  const commitWidths = (widths: Widths) => {
+    if (!onResize || resizeCommitPending.current) return;
+    setDrafted(widths);
+    resizeCommitPending.current = true;
+    void onResize(widths)
+      .then((saved) => {
+        // A refusal leaves the saved view untouched, so the reconcile above has
+        // nothing to notice and the draft has to stand down by itself.
+        if (!saved) setDrafted(null);
+      })
+      .catch(() => setDrafted(null))
+      .finally(() => {
+        resizeCommitPending.current = false;
+      });
+  };
+
+  /** One column, back to having no width of its own. */
+  const resetWidth = (variable: string) => {
+    if (!onResize || resizeCommitPending.current) return;
+    resizeCommitPending.current = true;
+    void onResize({ [variable]: null }).finally(() => {
+      resizeCommitPending.current = false;
+    });
+  };
+
+  /**
+   * A width, dragged. The gesture is held from the window rather than from the
+   * handle, so a pointer that outruns the column it is sizing keeps sizing it.
+   */
+  const startResize = (variable: string, event: React.PointerEvent<HTMLElement>) => {
+    if (!onResize || resizeCommitPending.current || event.button !== 0) return;
+    // No text selection under the pointer, and no native drag of the heading the
+    // handle sits in — but the handle still takes focus, so the arrow keys can
+    // finish what the pointer started.
+    event.preventDefault();
+    event.currentTarget.focus();
+    const baseline = onScreenWidths();
+    const from = event.clientX;
+    const start = baseline[variable] ?? DEFAULT_WIDTH;
+    let width = start;
+    resizingFrom.current = true;
+    setResizing(variable);
+    setDrafted(baseline);
+    const move = (moved: PointerEvent) => {
+      width = Math.max(MIN_WIDTH, Math.round(start + moved.clientX - from));
+      setDrafted({ ...baseline, [variable]: width });
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      resizingFrom.current = false;
+      setResizing(null);
+      // A press that never travelled is not a resize, and writing the layout for
+      // one would leave a command nobody asked for in the graph's history.
+      if (width === start) setDrafted(null);
+      else commitWidths({ ...baseline, [variable]: width });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+
+  /** The same width, from the keyboard: one step against what is on screen. */
+  const nudgeWidth = (variable: string, delta: number) => {
+    const baseline = onScreenWidths();
+    const width = Math.max(MIN_WIDTH, (baseline[variable] ?? DEFAULT_WIDTH) + delta);
+    if (width === baseline[variable]) return;
+    commitWidths({ ...baseline, [variable]: width });
+  };
 
   /** Which side of a column the seam falls on, if it falls on this one at all. */
   const seamOf = (variable: string): "before" | "after" | undefined => {
@@ -260,10 +332,14 @@ export function QueryTableView({
           {headers[0]?.headers.map((header) => (
             // Until the reader takes the layout over, the table lays itself out:
             // no declared width, so the fixed algorithm shares the block between
-            // the columns. Declaring 180px each instead cut every cell short
-            // while half the table stood empty — a column of clipped text beside
-            // five hundred pixels of nothing.
-            <col key={header.id} style={{ width: sized ? header.getSize() : undefined }} />
+            // the columns. Declaring a default width each instead cut every cell
+            // short while half the table stood empty — a column of clipped text
+            // beside five hundred pixels of nothing — which is also why the drag
+            // that hands the layout over declares the widths it measures.
+            <col
+              key={header.id}
+              style={{ width: sized ? widthOf(header.column.id) : undefined }}
+            />
           ))}
           {/* Only once the reader owns the widths: it takes whatever they did not,
               so a sized column keeps exactly the width it was given. Without one,
@@ -271,7 +347,7 @@ export function QueryTableView({
               and the drag would not hold. */}
           {sized && <col className="query-col-filler" />}
         </colgroup>
-        <thead>
+        <thead ref={head}>
           {headers.map((group) => (
             <tr key={group.id}>
               {group.headers.map((header, index) => {
@@ -285,6 +361,9 @@ export function QueryTableView({
                     key={header.id}
                     scope="col"
                     aria-colindex={index + 1}
+                    // What a width is measured through, and how a heading names
+                    // its column to the gesture that sizes it.
+                    data-variable={header.column.id}
                     data-numeric={column?.numeric || undefined}
                     data-dragging={dragging === header.column.id || undefined}
                     data-seam={dragging === null ? undefined : seamOf(header.column.id)}
@@ -402,7 +481,7 @@ export function QueryTableView({
                               </>
                             )}
                             {onResize && (
-                              <DropdownMenuItem onSelect={() => commitSize(header.column.id, 0)}>
+                              <DropdownMenuItem onSelect={() => resetWidth(header.column.id)}>
                                 <ChevronsLeftRightIcon aria-hidden />
                                 {message("query.resetWidth")}
                               </DropdownMenuItem>
@@ -422,7 +501,7 @@ export function QueryTableView({
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}
-                      {header.column.getCanResize() && (
+                      {onResize && (
                         // A separator with a value, so the width is reachable
                         // from the keyboard as well as by dragging.
                         <div
@@ -432,30 +511,19 @@ export function QueryTableView({
                           aria-label={message("query.resizeColumn", {
                             column: column?.label ?? header.column.id,
                           })}
-                          aria-valuenow={Math.round(header.getSize())}
+                          aria-valuenow={Math.round(widthOf(header.column.id))}
                           className="query-resize"
-                          data-resizing={header.column.getIsResizing() || undefined}
-                          onPointerDown={(event) => {
-                            if (resizeCommitPending.current) return;
-                            resizingFrom.current = true;
-                            header.getResizeHandler()(event);
-                            const commit = () => {
-                              window.removeEventListener("pointerup", commit);
-                              resizingFrom.current = false;
-                              commitSize(header.column.id, Math.round(header.column.getSize()));
-                            };
-                            window.addEventListener("pointerup", commit);
-                          }}
+                          data-resizing={resizing === header.column.id || undefined}
+                          onPointerDown={(event) => startResize(header.column.id, event)}
                           onKeyDown={(event) => {
                             if (resizeCommitPending.current) return;
                             const step = event.shiftKey ? 32 : 8;
-                            const current = header.column.getSize();
                             if (event.key === "ArrowLeft") {
                               event.preventDefault();
-                              commitSize(header.column.id, Math.max(MIN_WIDTH, current - step));
+                              nudgeWidth(header.column.id, -step);
                             } else if (event.key === "ArrowRight") {
                               event.preventDefault();
-                              commitSize(header.column.id, current + step);
+                              nudgeWidth(header.column.id, step);
                             }
                           }}
                         />

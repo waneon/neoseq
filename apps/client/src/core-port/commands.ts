@@ -88,7 +88,6 @@ export type Command =
   | { type: "add_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
   | { type: "remove_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
   | { type: "create_default_query"; default_query_id: string; title: string; document: PropertyDocument }
-  | { type: "import_default_queries"; queries: Array<{ id: string; title: string; document: PropertyDocument }> }
   | { type: "rename_default_query"; default_query_id: string; title: string }
   | { type: "move_default_query"; default_query_id: string; index: number }
   | { type: "delete_default_query"; default_query_id: string }

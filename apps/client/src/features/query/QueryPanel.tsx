@@ -10,23 +10,32 @@
 // build with no plan still runs, and still reads; it simply has no editor here.
 //
 // **The answer is the object; the question is a disclosure.** At rest a query is
-// one caption line and its result — the plan read back as a phrase, how much it
-// found, and nothing else. The editor that wrote the phrase opens from the phrase
-// itself, so the five rows of authoring that used to sit permanently above every
-// answer are there when someone is authoring and absent when nobody is.
+// one caption line and its result — how much it found, the plan read back as a
+// phrase, and nothing else. The count *leads* that line, because the answer is
+// what the surface is for and folding it is the one gesture a reader repeats;
+// the phrase stands beside it as a caption. The editor that wrote the phrase
+// opens from an icon among the controls that act on the answer — beside what a
+// table shows, how it is ordered, and how it is drawn, which with the question
+// itself are the four things a reader reaches for while reading — so the five
+// rows of authoring that used to sit permanently above every answer are there
+// when someone is authoring and absent when nobody is.
 //
 // **One surface, two grounds.** Embedded in the outline (`inline`) a query is a
 // paragraph that answers itself, so its views live in a menu and its chrome waits
 // for a pointer. Given a page of its own (`page`) the query *is* the page, so its
 // views become a permanent tab strip and each one is a thing the reader names,
 // arranges, and deletes. The document underneath is identical; only how much of
-// it the surface is allowed to state permanently differs.
+// it the surface is allowed to state permanently differs — and what a view *is*
+// is asked in the same place on both grounds, on the answer, so a tab's own menu
+// holds what is true of that view alone: its name, a copy of it, its place in the
+// row, and deleting it.
 //
 // **A surface need not own the document it reads.** A journal's standing question
-// is written in Settings and lives in the browser, so it reaches here with no
-// owner at all: the answer, its order, and its verbs are the reader's, and every
-// edit that would change the *question* stops at the one write path below. What
-// stays writable is the graph — a result row is still the block it quotes.
+// belongs to the graph rather than to any entity in it and is written in that
+// graph's Settings, so it reaches here with no owner at all: the answer, its
+// order, and its verbs are the reader's, and every edit that would change the
+// *question* stops at the one write path below. What stays writable is the graph
+// — a result row is still the block it quotes.
 //
 // The surface owns its authoring and presentation state. The answer itself has a
 // graph-session lifetime: leaving the route or virtualizing the row that holds it
@@ -37,6 +46,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CodeIcon,
+  ListFilterIcon,
   ListIcon,
   MoreHorizontalIcon,
   Table2Icon,
@@ -235,6 +245,7 @@ export function QueryPanel({
     [compiled, runtime],
   );
   const outputId = useId();
+  const builderId = useId();
   const [resultsOpen, setResultsOpen] = useState(
     () => queryResultsAreOpen(session.graphId, executionKey),
   );
@@ -554,6 +565,29 @@ export function QueryPanel({
   };
 
   /**
+   * The widths the reader now owns, in one command. A table hands back every
+   * column's width rather than only the one that moved: a column that has never
+   * been given a width is drawn at the table's own fallback, so writing one
+   * column alone left every other one to jump to a shape nobody asked for
+   * (§ QueryTableView — a drag starts from the width on screen).
+   */
+  const setColumnWidths = (widths: Record<string, number | null>) => {
+    const base = viewColumnOrder(activeView, columns);
+    const known = new Set(base.map((column) => column.variable));
+    return putView({
+      ...activeView,
+      columns: dedupe([
+        ...base.map((column) => (column.variable in widths
+          ? { ...column, width: widths[column.variable] }
+          : column)),
+        ...Object.entries(widths)
+          .filter(([variable]) => !known.has(variable))
+          .map(([variable, width]) => ({ variable, hidden: false, width })),
+      ]),
+    });
+  };
+
+  /**
    * Every plan edit, from the builder and from the column switches alike. The
    * flag is what turns a seed nobody has touched into a document; the write
    * itself is the debounced one above.
@@ -663,10 +697,14 @@ export function QueryPanel({
   };
 
   /* The switches that shape one view: which renderer, and how tall its rows are.
-     In the outline they hang under the layout icon; on a page they are the tab's
-     own menu, because there the tab *is* the view and a second control for it
-     would be a second owner. Which columns a table draws is not among them — it
-     is a table's own question, asked on the table (§ QueryColumnsControl). */
+     They hang under the layout icon on both grounds, beside the columns panel and
+     the sort panel, because they are the same kind of fact as those two — how
+     this answer is laid out, changed while reading it. A page's tab strip used to
+     hold them in the tab's own menu, which put the same choice in two places
+     depending on where the query was read and left a tab's menu answering for
+     two things at once: what this view *is*, and what this view is *called*.
+     Which columns a table draws is not among them either — it is a table's own
+     question, asked on the table (§ QueryColumnsControl). */
   const layoutItems = (
     <>
       {/* A document born with one view has nothing to switch between, and a
@@ -743,7 +781,6 @@ export function QueryPanel({
           activeView={activeView}
           readonly={readonly}
           panelId={outputId}
-          menu={layoutItems}
           onSelect={selectView}
           onAdd={addView}
           onReorder={reorderViews}
@@ -754,44 +791,14 @@ export function QueryPanel({
         />
       )}
       <div className="query-header">
-        {/* The sentence *is* the disclosure. A query whose caption reads
-            `Blocks · Status is Done` needs no `Edit` button beside it: the phrase
-            names the thing it opens, which is the one permanent pointer route in
-            (§ Disclosure) and the reason the two menus may be revealed.
-
-            Where the document is not this surface's, the same phrase is a caption
-            and only that — no chevron, nothing to press. A control that opens an
-            editor for a question written somewhere else would be a promise the
-            surface cannot keep; the route to the editor is a row in the `⋯` menu,
-            named after the place it goes. */}
-        {hosted && plan ? (
-          <button
-            type="button"
-            className="query-summary"
-            aria-expanded={editing}
-            aria-label={summaryLabel(summary)}
-            data-testid="query-summary"
-            onClick={() => setEditing((open) => !open)}
-          >
-            {/* A swap, not a rotation: § Motion allows no transform animation on
-                anything a pointer must hit or an audit must read. */}
-            {editing ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
-            <span className="query-summary-lead">{summary.lead}</span>
-            {summary.detail && (
-              <span className="query-summary-detail">{summary.detail}</span>
-            )}
-          </button>
-        ) : (
-          <span className="query-summary" data-static data-testid="query-summary">
-            <span className="query-summary-lead">{summary.lead}</span>
-            {summary.detail && (
-              <span className="query-summary-detail">{summary.detail}</span>
-            )}
-          </span>
-        )}
-
         {/* How much it found — the one fact about a result that is not in the
-            result. On the first run there is nothing to count yet and it says so;
+            result, and the disclosure for the result itself. It leads the line
+            because the answer is what this surface is for and folding it is the
+            gesture a reader repeats; it takes the caption's own shape, a chevron
+            and a phrase, because the two are the same kind of thing: a line of
+            words that opens what it names.
+
+            On the first run there is nothing to count yet and it says so;
             afterwards a rerun updates the number in place rather than flickering
             `running` over it on every debounced keystroke. */}
         {resultLabel && (resultCanCollapse ? (
@@ -810,23 +817,72 @@ export function QueryPanel({
             onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
             onClick={() => void toggleResults()}
           >
-            <span>{resultLabel}</span>
+            {/* A swap, not a rotation: § Motion allows no transform animation on
+                anything a pointer must hit or an audit must read. */}
             {resultsOpen
               ? <ChevronDownIcon aria-hidden />
               : <ChevronRightIcon aria-hidden />}
+            <span>{resultLabel}</span>
           </button>
         ) : (
-          <span className="query-count" data-testid="query-count" aria-busy={loading || undefined}>
+          <span
+            className="query-count"
+            data-static
+            data-testid="query-count"
+            aria-busy={loading || undefined}
+          >
             {resultLabel}
           </span>
         ))}
 
+        {/* The plan read back as a phrase, tracking the builder keystroke for
+            keystroke: what this query asks, in the words the builder said it in.
+            A caption and only that. The editor that wrote it is a control on the
+            answer like the other three, so the phrase names the question without
+            claiming to be the way in — which is also what lets a surface that may
+            not write the document state it in exactly the same voice.
+
+            The qualifier ellipsises when the block is narrow, so the sentence
+            carries its own whole text: nothing in the product is cut off with no
+            way to read the rest (§ Layout). */}
+        <span
+          className="query-summary"
+          title={summaryLabel(summary)}
+          data-testid="query-summary"
+        >
+          <span className="query-summary-lead">{summary.lead}</span>
+          {summary.detail && (
+            <span className="query-summary-detail">{summary.detail}</span>
+          )}
+        </span>
+
         <div className="query-header-actions">
-          {/* What the table shows, then how it is ordered, then what it is: the
-              two a reader changes while reading come before the one they set
-              once. Columns are a *table's* question — a list draws entities and
-              takes every fact the query returned — so the switch is absent over
-              a list rather than parked there meaning nothing. */}
+          {/* What it asks, then what the table shows, then how it is ordered,
+              then what it is: the question first, because it is the one control
+              here that changes the answer rather than the reading of it, and the
+              switches a reader throws while reading before the one they set once.
+
+              Where the document is not this surface's there is no editor to open:
+              a control that opened one for a question written somewhere else
+              would be a promise the surface cannot keep, and the route to the
+              place that writes it is a row in the `⋯` menu, named after it. */}
+          {hosted && plan && (
+            <button
+              type="button"
+              className="icon-btn"
+              aria-expanded={editing}
+              aria-controls={editing ? builderId : undefined}
+              aria-label={message("query.conditions")}
+              // No lit state here, unlike the sort control's: a query with no
+              // conditions is one nobody has written yet, so a mark for "this
+              // answer is narrowed" would be on for every query in the graph.
+              // What the conditions *are* is stated in words, in the caption.
+              data-testid="query-conditions-trigger"
+              onClick={() => setEditing((open) => !open)}
+            >
+              <ListFilterIcon aria-hidden />
+            </button>
+          )}
           {choosesColumns && (
             <QueryColumnsControl
               choices={choices}
@@ -841,7 +897,7 @@ export function QueryPanel({
               Don't keeps a control that cannot act off the surface. The one thing
               a reader may still change — the order — is its own control, and it
               keeps its own local answer. */}
-          {!tabbed && writable && (
+          {writable && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 {/* The header controls are the bespoke 24px icon-btn, not a shadcn
@@ -920,6 +976,7 @@ export function QueryPanel({
 
       {editing && plan && (
         <QueryBuilder
+          id={builderId}
           plan={plan}
           snapshot={state.snapshot}
           readonly={readonly}
@@ -966,9 +1023,7 @@ export function QueryPanel({
             wrap={activeView.options.wrap}
             sorts={sorts}
             onSort={setSorts}
-            onResize={writable
-              ? (variable, width) => setColumn(variable, { width: width || null })
-              : undefined}
+            onResize={writable ? setColumnWidths : undefined}
             onHide={writable ? (variable) => setColumn(variable, { hidden: true }) : undefined}
             onMove={writable ? moveColumn : undefined}
             onReorder={writable ? reorderColumns : undefined}

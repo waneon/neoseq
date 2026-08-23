@@ -17,7 +17,7 @@
 // its own queries. A standing question read as a table says which columns it
 // shows here too, because Settings is the only surface that owns it.
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -36,10 +36,7 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import type { QueryViewKind } from "../../core-port/snapshot";
 import {
-  clearLegacyDefaultQueries,
   defaultQueryKey,
-  legacyDefaultQueryId,
-  legacyDefaultQueries,
   MAX_DEFAULT_QUERIES,
   MAX_DEFAULT_QUERY_TITLE,
   newDefaultQueryDocument,
@@ -80,32 +77,10 @@ export function DefaultQueriesSection() {
   const state = useSessionState();
   const notify = useNotify();
   const queries = state.snapshot.settings.default_queries;
-  const [legacy, setLegacy] = useState(legacyDefaultQueries);
-  const legacyImports = useMemo(
-    () => legacy.map((query, index) => ({
-      id: legacyDefaultQueryId(query, index),
-      title: query.title,
-      document: newDefaultQueryDocument(query.source, query.plan, query.layout),
-    })),
-    [legacy],
-  );
-  const importedIds = new Set(queries.map((query) => query.id));
-  const pendingLegacyImports = legacyImports.filter((query) => !importedIds.has(query.id));
   // One editor at a time. A builder is five rows tall, and eight of them open at
   // once turns a pane that scrolls into a pane that only scrolls.
   const [openId, setOpenId] = useState<string | null>(null);
   const full = queries.length >= MAX_DEFAULT_QUERIES;
-
-  useEffect(() => {
-    if (
-      legacy.length > 0
-      && pendingLegacyImports.length === 0
-      && state.save.kind === "saved"
-    ) {
-      clearLegacyDefaultQueries();
-      setLegacy([]);
-    }
-  }, [legacy.length, pendingLegacyImports.length, state.save.kind]);
 
   /** A new query opens on itself: adding one and not landing on it says nothing. */
   const create = (plan: QueryPlan) => {
@@ -124,41 +99,10 @@ export function DefaultQueriesSection() {
     });
   };
 
-  const importLegacy = () => {
-    if (pendingLegacyImports.length === 0) return;
-    void session.execute({ type: "import_default_queries", queries: pendingLegacyImports })
-      .then(() => {
-        if (session.getState().save.kind === "saved") {
-          clearLegacyDefaultQueries();
-          setLegacy([]);
-        }
-      })
-      .catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause));
-  };
-
   return (
     <section className="settings-section">
       <h2>{message("settings.defaultQueries")}</h2>
       <p>{message("settings.defaultQueriesDescription")}</p>
-      {legacy.length > 0 && (
-        <div className="field">
-          <p>{message("settings.legacyDefaultQueriesDescription", { count: legacy.length })}</p>
-          <button
-            type="button"
-            className="btn"
-            disabled={
-              state.mode === "readonly"
-              || state.save.kind === "unsaved"
-              || pendingLegacyImports.length === 0
-              || queries.length + pendingLegacyImports.length > MAX_DEFAULT_QUERIES
-            }
-            data-testid="import-legacy-default-queries"
-            onClick={importLegacy}
-          >
-            {message("settings.importLegacyDefaultQueries")}
-          </button>
-        </div>
-      )}
       {queries.length > 0 && (
         <ul className="default-queries" data-testid="settings-default-queries">
           {queries.map((query, index) => (

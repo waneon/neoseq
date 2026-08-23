@@ -703,28 +703,6 @@ export class FakeCorePort implements SessionPort {
           document: clone(command.document),
         });
         break;
-      case "import_default_queries":
-        if (command.queries.length === 0 || this.defaultQueries.length + command.queries.length > 8) {
-          fail("internal", "default query import exceeds the graph limit");
-        }
-        {
-          const incoming = new Set<string>();
-          for (const query of command.queries) {
-            if (
-              !incoming.add(query.id)
-              || this.defaultQueries.some((stored) => stored.id === query.id)
-            ) {
-              fail("internal", "default query id already exists");
-            }
-          }
-        }
-        for (const query of command.queries) {
-          this.defaultQueries.push({
-            ...clone(query),
-            position: this.defaultQueries.length,
-          });
-        }
-        break;
       case "rename_default_query":
         this.requireDefaultQuery(command.default_query_id).title = command.title;
         break;
@@ -1049,7 +1027,6 @@ export class FakeCorePort implements SessionPort {
       case "set_query_default_view":
         return queryOwnerEntry(command.owner);
       case "create_default_query":
-      case "import_default_queries":
       case "rename_default_query":
       case "move_default_query":
       case "delete_default_query":
@@ -1197,7 +1174,6 @@ export class FakeCorePort implements SessionPort {
         this.touchQueryOwner(command.owner, timestamp);
         break;
       case "create_default_query":
-      case "import_default_queries":
       case "rename_default_query":
       case "move_default_query":
       case "delete_default_query":
