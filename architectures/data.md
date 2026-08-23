@@ -3,7 +3,7 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current document schema is v2 and has three roots:
+synchronization unit. The current document schema is v3 and has three roots:
 
 ```text
 meta: Map
@@ -235,6 +235,11 @@ Core graph locators contain only `graph_id`. The browser directory separately
 records whether a locally persisted replica is local-only or attached to a
 remote server. Transport credentials and presence are not canonical state. The
 RDF index is rebuilt on open and has no persisted cache.
+
+Any change to the canonical Loro container layout or invariants that would make
+an existing supported document fail validation is a document-schema change. It
+must increment the schema version and ship explicit migration code; readers,
+commands, and projections must not repair legacy or missing structure lazily.
 
 Every future document-schema change must define its supported input range,
 identity-preserving CRDT migration, deployed-data fixture, minimum-writer policy,
