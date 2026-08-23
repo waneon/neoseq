@@ -57,7 +57,7 @@ interface OpenState {
 const COMPACT_TAIL_UPDATES = 128;
 const COMPACT_TAIL_BYTES = 512 * 1024;
 const MIN_MIGRATABLE_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 let wasmReady: Promise<unknown> | undefined;
 const states = new Map<string, OpenState>();

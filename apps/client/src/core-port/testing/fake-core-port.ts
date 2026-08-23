@@ -27,9 +27,11 @@ import type {
   EntityRef,
   HistoryEffect,
   PropertyOwnerRef,
+  QueryOwnerRef,
 } from "../commands";
 import type {
   BlockSnapshot,
+  DefaultQuerySnapshot,
   GraphSnapshot,
   GraphSummary,
   OutlineOwner,
@@ -76,8 +78,9 @@ function clone<T>(value: T): T {
 export class FakeCorePort implements SessionPort {
   private pages: PageSnapshot[] = [];
   private tags: TagSnapshot[] = [];
-  private history: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[] }> = [];
-  private future: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[] }> = [];
+  private defaultQueries: DefaultQuerySnapshot[] = [];
+  private history: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] }> = [];
+  private future: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] }> = [];
   private historyEntries: FakeHistoryEntry[] = [];
   private futureEntries: FakeHistoryEntry[] = [];
   private events: GraphEventRecord[] = [];
@@ -220,7 +223,7 @@ export class FakeCorePort implements SessionPort {
         .map((tag) => tag.id),
     );
     return clone({
-      schema_version: 3,
+      schema_version: 4,
       graph_id: this.graphId,
       pages: this.pages
         .filter((page) => !hasKey(page.properties, "builtin.deleted-at"))
@@ -228,6 +231,7 @@ export class FakeCorePort implements SessionPort {
       tags: this.tags
         .filter((tag) => !hasKey(tag.properties, "builtin.deleted-at"))
         .map((tag) => projectLiveTagRefs(tag, liveTags)),
+      settings: { default_queries: this.defaultQueries },
       quarantined: [],
     });
   }
@@ -687,7 +691,68 @@ export class FakeCorePort implements SessionPort {
         }
         break;
       }
+      case "create_default_query":
+        if (this.defaultQueries.some((query) => query.id === command.default_query_id)) {
+          fail("internal", "default query id already exists");
+        }
+        if (this.defaultQueries.length >= 8) fail("internal", "too many default queries");
+        this.defaultQueries.push({
+          id: command.default_query_id,
+          title: command.title,
+          position: this.defaultQueries.length,
+          document: clone(command.document),
+        });
+        break;
+      case "import_default_queries":
+        if (command.queries.length === 0 || this.defaultQueries.length + command.queries.length > 8) {
+          fail("internal", "default query import exceeds the graph limit");
+        }
+        {
+          const incoming = new Set<string>();
+          for (const query of command.queries) {
+            if (
+              !incoming.add(query.id)
+              || this.defaultQueries.some((stored) => stored.id === query.id)
+            ) {
+              fail("internal", "default query id already exists");
+            }
+          }
+        }
+        for (const query of command.queries) {
+          this.defaultQueries.push({
+            ...clone(query),
+            position: this.defaultQueries.length,
+          });
+        }
+        break;
+      case "rename_default_query":
+        this.requireDefaultQuery(command.default_query_id).title = command.title;
+        break;
+      case "move_default_query": {
+        if (command.index < 0 || command.index >= this.defaultQueries.length) {
+          fail("internal", "default query move is out of bounds");
+        }
+        const from = this.defaultQueries.findIndex((query) => query.id === command.default_query_id);
+        if (from < 0) fail("internal", "default query does not exist");
+        const [moved] = this.defaultQueries.splice(from, 1);
+        this.defaultQueries.splice(command.index, 0, moved);
+        this.defaultQueries.forEach((query, position) => { query.position = position; });
+        break;
+      }
+      case "delete_default_query": {
+        const index = this.defaultQueries.findIndex((query) => query.id === command.default_query_id);
+        if (index < 0) fail("internal", "default query does not exist");
+        this.defaultQueries.splice(index, 1);
+        this.defaultQueries.forEach((query, position) => { query.position = position; });
+        break;
+      }
       case "set_query_source": {
+        if (command.owner.kind === "graph_default") {
+          const document = this.requireQuery(command.owner);
+          document.source = command.source;
+          document.plan = null;
+          break;
+        }
         const bag = this.propertyOwnerBag(command.owner);
         let field = bag.find((item) => item.key === "builtin.query");
         if (!field) {
@@ -727,6 +792,12 @@ export class FakeCorePort implements SessionPort {
           }
         } catch {
           fail("internal", "query plan is not JSON");
+        }
+        if (command.owner.kind === "graph_default") {
+          const document = this.requireQuery(command.owner);
+          document.source = command.source;
+          document.plan = clone(command.plan);
+          break;
         }
         const bag = this.propertyOwnerBag(command.owner);
         let field = bag.find((item) => item.key === "builtin.query");
@@ -856,6 +927,10 @@ export class FakeCorePort implements SessionPort {
       owner.kind === "tag" || owner.kind === "tag_default"
         ? { scope: "graph", affectedOutlines: [], undoCandidates: [], redoCandidates: [] }
         : entity(owner);
+    const queryOwnerEntry = (owner: QueryOwnerRef): FakeHistoryEntry =>
+      owner.kind === "graph_default"
+        ? { scope: "graph", affectedOutlines: [], undoCandidates: [], redoCandidates: [] }
+        : ownerEntry(owner);
 
     switch (command.type) {
       case "ensure_page":
@@ -964,6 +1039,7 @@ export class FakeCorePort implements SessionPort {
       case "remove_property":
       case "add_repeated_property":
       case "remove_repeated_property":
+        return ownerEntry(command.owner);
       case "set_query_source":
       case "splice_query_source":
       case "set_query_plan":
@@ -971,7 +1047,13 @@ export class FakeCorePort implements SessionPort {
       case "put_query_view":
       case "remove_query_view":
       case "set_query_default_view":
-        return ownerEntry(command.owner);
+        return queryOwnerEntry(command.owner);
+      case "create_default_query":
+      case "import_default_queries":
+      case "rename_default_query":
+      case "move_default_query":
+      case "delete_default_query":
+        return { scope: "graph", affectedOutlines: [], undoCandidates: [], redoCandidates: [] };
       case "add_tag":
       case "remove_tag":
         return entity(command.entity);
@@ -1103,6 +1185,8 @@ export class FakeCorePort implements SessionPort {
       case "remove_property":
       case "add_repeated_property":
       case "remove_repeated_property":
+        this.touchPropertyOwner(command.owner, timestamp);
+        break;
       case "set_query_source":
       case "splice_query_source":
       case "set_query_plan":
@@ -1110,7 +1194,13 @@ export class FakeCorePort implements SessionPort {
       case "put_query_view":
       case "remove_query_view":
       case "set_query_default_view":
-        this.touchPropertyOwner(command.owner, timestamp);
+        this.touchQueryOwner(command.owner, timestamp);
+        break;
+      case "create_default_query":
+      case "import_default_queries":
+      case "rename_default_query":
+      case "move_default_query":
+      case "delete_default_query":
         break;
       case "add_tag":
       case "remove_tag":
@@ -1150,7 +1240,21 @@ export class FakeCorePort implements SessionPort {
     }
   }
 
-  private requireQuery(owner: PropertyOwnerRef) {
+  private touchQueryOwner(owner: QueryOwnerRef, timestamp: string): void {
+    if (owner.kind === "graph_default") return;
+    this.touchPropertyOwner(owner, timestamp);
+  }
+
+  private requireDefaultQuery(id: string): DefaultQuerySnapshot {
+    const query = this.defaultQueries.find((entry) => entry.id === id);
+    if (!query) fail("internal", `default query does not exist: ${id}`);
+    return query;
+  }
+
+  private requireQuery(owner: QueryOwnerRef) {
+    if (owner.kind === "graph_default") {
+      return this.requireDefaultQuery(owner.default_query_id).document;
+    }
     const field = this.propertyOwnerBag(owner).find((item) => item.key === "builtin.query");
     const value = field?.values[0];
     if (value?.type !== "document") fail("internal", "query document does not exist");
@@ -1302,13 +1406,14 @@ export class FakeCorePort implements SessionPort {
       : this.requireBlock(entity.owner, entity.id).block.tags;
   }
 
-  private capture(): { pages: PageSnapshot[]; tags: TagSnapshot[] } {
-    return clone({ pages: this.pages, tags: this.tags });
+  private capture(): { pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] } {
+    return clone({ pages: this.pages, tags: this.tags, defaultQueries: this.defaultQueries });
   }
 
-  private restore(state: { pages: PageSnapshot[]; tags: TagSnapshot[] }): void {
+  private restore(state: { pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] }): void {
     this.pages = clone(state.pages);
     this.tags = clone(state.tags);
+    this.defaultQueries = clone(state.defaultQueries);
   }
 }
 

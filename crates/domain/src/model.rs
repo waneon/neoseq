@@ -1,6 +1,6 @@
 use crate::{
-    BlockId, Cardinality, CommandId, GraphId, LocalDate, PageId, PropertyBag, PropertyKey,
-    PropertyType, PropertyValue, QueryPlan, QueryViewId, TagId,
+    BlockId, Cardinality, CommandId, DefaultQueryId, GraphId, LocalDate, PageId, PropertyBag,
+    PropertyDocument, PropertyKey, PropertyType, PropertyValue, QueryPlan, QueryViewId, TagId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +28,18 @@ pub enum PropertyOwner {
     Block { owner: OutlineOwner, id: BlockId },
     Tag { tag_id: TagId },
     TagDefault { tag_id: TagId },
+}
+
+/// The thing whose query document is being edited. Graph default queries are
+/// not properties, but they deliberately share the same document and commands
+/// as page, block, and tag queries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum QueryOwner {
+    Page { id: PageId },
+    Block { owner: OutlineOwner, id: BlockId },
+    Tag { tag_id: TagId },
+    GraphDefault { default_query_id: DefaultQueryId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,34 +173,53 @@ pub enum Command {
         key: PropertyKey,
         value: PropertyValue,
     },
+    CreateDefaultQuery {
+        default_query_id: DefaultQueryId,
+        title: String,
+        document: PropertyDocument,
+    },
+    ImportDefaultQueries {
+        queries: Vec<DefaultQueryInput>,
+    },
+    RenameDefaultQuery {
+        default_query_id: DefaultQueryId,
+        title: String,
+    },
+    MoveDefaultQuery {
+        default_query_id: DefaultQueryId,
+        index: usize,
+    },
+    DeleteDefaultQuery {
+        default_query_id: DefaultQueryId,
+    },
     SetQuerySource {
-        owner: PropertyOwner,
+        owner: QueryOwner,
         source: String,
     },
     SpliceQuerySource {
-        owner: PropertyOwner,
+        owner: QueryOwner,
         index: usize,
         delete: usize,
         insert: String,
     },
     SetQueryPlan {
-        owner: PropertyOwner,
+        owner: QueryOwner,
         plan: QueryPlan,
         source: String,
     },
     ClearQueryPlan {
-        owner: PropertyOwner,
+        owner: QueryOwner,
     },
     PutQueryView {
-        owner: PropertyOwner,
+        owner: QueryOwner,
         view: QueryView,
     },
     RemoveQueryView {
-        owner: PropertyOwner,
+        owner: QueryOwner,
         view_id: QueryViewId,
     },
     SetQueryDefaultView {
-        owner: PropertyOwner,
+        owner: QueryOwner,
         view_id: QueryViewId,
     },
     AddTag {
@@ -420,6 +451,7 @@ pub struct GraphSnapshot {
     pub graph_id: GraphId,
     pub pages: Vec<PageSnapshot>,
     pub tags: Vec<TagSnapshot>,
+    pub settings: GraphSettings,
     pub quarantined: Vec<String>,
 }
 
@@ -429,7 +461,28 @@ pub struct GraphSummary {
     pub graph_id: GraphId,
     pub pages: Vec<PageSummary>,
     pub tags: Vec<TagSummary>,
+    pub settings: GraphSettings,
     pub quarantined: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GraphSettings {
+    pub default_queries: Vec<DefaultQuerySnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DefaultQuerySnapshot {
+    pub id: DefaultQueryId,
+    pub title: String,
+    pub position: u32,
+    pub document: PropertyDocument,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DefaultQueryInput {
+    pub id: DefaultQueryId,
+    pub title: String,
+    pub document: PropertyDocument,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

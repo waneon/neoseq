@@ -40,7 +40,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import type { QueryEntityRef } from "../../generated/core-port";
-import type { Command, PropertyOwnerRef } from "../../core-port/commands";
+import type { Command, QueryOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
   PropertyDocument,
@@ -136,7 +136,7 @@ export interface QueryPanelProps {
    * Where the document is written — `null` when it is not written here. Stated
    * rather than optional, so a new surface has to answer the question.
    */
-  owner: PropertyOwnerRef | null;
+  owner: QueryOwnerRef | null;
   /** Stable identity for the cached answer — one per surface, not per render. */
   executionKey: string;
   /** The stored document, or `undefined` while the surface is still only a seed. */
@@ -249,7 +249,7 @@ export function QueryPanel({
    * so every command below is a no-op for it rather than a guard repeated at nine
    * call sites — and a read-only graph is refused in the same place.
    */
-  const write = (command: (target: PropertyOwnerRef) => Command): Promise<void> =>
+  const write = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
     owner && !readonly
       ? session.execute(command(owner)).then(() => undefined)
       : Promise.resolve();

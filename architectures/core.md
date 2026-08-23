@@ -41,6 +41,9 @@ into Loro operations and Loro changes back into domain DTOs.
   blocks carry `TagId` sets outside their property bags.
 - `OutlineOwner` identifies the page or tag whose movable block tree contains a
   block. Block IDs are always interpreted together with this owner.
+- `DefaultQueryId` identifies a graph-owned standing query. `QueryOwner`
+  distinguishes these settings documents from page, block, and tag query
+  properties without making graph settings a synthetic property owner.
 
 Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
@@ -73,6 +76,7 @@ commands are:
   the same owner-based command family;
 - edit structured properties through schema-owned semantic commands, including
   query source splices and stable-ID saved-view mutations;
+- create, batch-import, rename, reorder, and tombstone graph default queries;
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities, with tag deletion
   detaching its membership from every page and block;

@@ -496,8 +496,10 @@ export interface MessageArgumentMap {
   "settings.globalShortcuts": undefined;
   "settings.graph": undefined;
   "settings.graphId": undefined;
+  "settings.importLegacyDefaultQueries": undefined;
   "settings.journal": undefined;
   "settings.keyboard": undefined;
+  "settings.legacyDefaultQueriesDescription": { readonly "count": string | number };
   "settings.persistDeclinedDetail": undefined;
   "settings.persistDeclinedTitle": undefined;
   "settings.persistGranted": undefined;

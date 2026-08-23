@@ -96,12 +96,11 @@ const APP_SECTIONS = [
   "appearance",
   "language",
   "journal",
-  "queries",
   "tasks",
   "keyboard",
   "storage",
 ] as const;
-const GRAPH_SECTIONS = ["graph", "danger"] as const;
+const GRAPH_SECTIONS = ["graph", "queries", "danger"] as const;
 
 const SETTINGS_SECTIONS = [...APP_SECTIONS, ...GRAPH_SECTIONS];
 

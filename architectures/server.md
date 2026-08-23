@@ -38,7 +38,7 @@ It is created single-flight on demand from the current checkpoint plus its
 update tail and can be discarded at any time. V1 is a single-process,
 single-region service; horizontal fan-out has no broker yet.
 
-The server writes document schema v3. A stored v1 or v2 graph is migrated during
+The server writes document schema v4. A stored v1, v2, or v3 graph is migrated during
 single-flight room reconstruction, installed as a new checkpoint/history epoch,
 and reopened from that checkpoint before the room accepts writes. Other schema
 versions are rejected.

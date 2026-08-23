@@ -2,8 +2,8 @@
 //
 // A journal day is where a person looks first, so it is where the answers they
 // look for every day belong: what is scheduled, what slipped, what is still
-// open. They are the reader's own — kept in this browser, written in Settings —
-// and every one of them is an ordinary query document, so the answer is rendered
+// open. They belong to this graph, travel with it, and are written in its
+// Settings. Every one is an ordinary query document, so the answer is rendered
 // by the same surface that renders a query in a bullet or on a tag's page. This
 // module contributes the two things that are only true here: *where* they sit,
 // and the route back to the place that wrote them.
@@ -27,16 +27,15 @@ import {
 } from "../../entities/default-queries";
 import { QueryPanel } from "../query/QueryPanel";
 import { SETTINGS_PARAM } from "../settings/SettingsDialog";
-import { useDefaultQueries } from "../settings/preferences";
+import { useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 
 export function JournalQueries() {
   const { message } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
-  const queries = useDefaultQueries();
-  // The settings blob is frozen and identity-stable until the next write, so one
-  // memo keyed on that identity is what keeps a panel's view, columns, and rows
-  // from being rebuilt on every render of the journal around it.
+  const queries = useSessionState().snapshot.settings.default_queries;
+  // The authoritative summary is identity-stable until GraphSession reconciles
+  // a graph change, so one memo keeps panels stable while the journal renders.
   const entries = useMemo(
     () => queries.map((query) => ({ query, document: defaultQueryDocument(query) })),
     [queries],

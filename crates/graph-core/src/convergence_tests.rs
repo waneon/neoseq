@@ -1,8 +1,8 @@
 use crate::GraphCore;
 use domain::{
-    BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, OutlineOwner,
-    PageId, PropertyKey, PropertyOwner, PropertyValue, QueryView, QueryViewId, QueryViewKind,
-    QueryViewOptions, TagId,
+    BlockId, Command, CommandEnvelope, CommandId, DefaultQueryId, EntityId, GraphId, LocalDate,
+    OutlineOwner, PageId, PropertyDocument, PropertyKey, PropertyOwner, PropertyValue, QueryOwner,
+    QueryView, QueryViewId, QueryViewKind, QueryViewOptions, TagId,
 };
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
@@ -522,7 +522,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         .result
         .created_block
         .unwrap();
-    let owner = PropertyOwner::Block {
+    let owner = QueryOwner::Block {
         owner: OutlineOwner::Page { id: page.clone() },
         id: block,
     };
@@ -595,6 +595,82 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         let PropertyValue::Document(document) = &field.values[0] else {
             panic!("query document was not preserved")
         };
+        assert_eq!(document.source, "SELECT * WHERE {} LIMIT 5");
+        assert_eq!(document.default_view_id.as_str(), "v-list");
+    }
+    assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
+}
+
+#[test]
+fn convergence_graph_default_query_fields_merge_independently() {
+    let graph = GraphId::new("graph-default-query-convergence").unwrap();
+    let query_id = DefaultQueryId::new("daily").unwrap();
+    let owner = QueryOwner::GraphDefault {
+        default_query_id: query_id.clone(),
+    };
+    let mut base = GraphCore::new(graph.clone(), 1, "base").unwrap();
+    execute(
+        &mut base,
+        &graph,
+        1,
+        0,
+        Command::CreateDefaultQuery {
+            default_query_id: query_id,
+            title: "Daily".into(),
+            document: PropertyDocument::default_query("SELECT * WHERE {}".into()),
+        },
+    );
+    let snapshot = base.export_snapshot().unwrap();
+    let mut left = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
+    let mut right = GraphCore::from_snapshot(graph.clone(), 3, &snapshot).unwrap();
+
+    execute(
+        &mut left,
+        &graph,
+        2,
+        0,
+        Command::SpliceQuerySource {
+            owner: owner.clone(),
+            index: 17,
+            delete: 0,
+            insert: " LIMIT 5".into(),
+        },
+    );
+    execute(
+        &mut right,
+        &graph,
+        3,
+        0,
+        Command::PutQueryView {
+            owner: owner.clone(),
+            view: QueryView {
+                id: QueryViewId::new("v-list").unwrap(),
+                name: "As a list".into(),
+                kind: QueryViewKind::List,
+                position: 1,
+                columns: Vec::new(),
+                options: QueryViewOptions::default(),
+            },
+        },
+    );
+    execute(
+        &mut right,
+        &graph,
+        3,
+        1,
+        Command::SetQueryDefaultView {
+            owner,
+            view_id: QueryViewId::new("v-list").unwrap(),
+        },
+    );
+
+    let left_update = left.export_all().unwrap();
+    let right_update = right.export_all().unwrap();
+    left.import_remote(&right_update).unwrap();
+    right.import_remote(&left_update).unwrap();
+
+    for core in [&left, &right] {
+        let document = &core.summary().unwrap().settings.default_queries[0].document;
         assert_eq!(document.source, "SELECT * WHERE {} LIMIT 5");
         assert_eq!(document.default_view_id.as_str(), "v-list");
     }

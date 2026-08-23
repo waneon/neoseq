@@ -185,10 +185,9 @@ specialized controls without becoming a schema authority:
   page: the generic property route never offers it, so a query is never
   half-created by a picker. A tag's query needs no authoring step at all; the tag
   page seeds a plan that asks what the tag is for and writes nothing until a
-  reader shapes it. The same surface serves a third ground it does not own: a
-  reader's standing journal queries are browser-local preferences that produce the
-  same document, so they arrive with no owner, every write stops at that boundary,
-  and `features/settings/` is their one editor;
+  reader shapes it. The same surface serves graph-owned standing journal queries:
+  their documents live in graph settings, the journal supplies no write owner and
+  remains read-only, and `features/settings/` edits them through graph commands;
 - `builtin.task-*` provides workflow, priority, moment, and recurrence controls. A
   moment is a `date` key plus an optional `HH:MM` companion key
   (`builtin.task-scheduled-time`, `builtin.task-deadline-time`), so the day stays a
@@ -294,11 +293,11 @@ actions are domain commands, app navigation, or narrow context interfaces—not 
 shared mutable graph store.
 
 `entities/settings.ts` owns the browser-local preference blob: appearance,
-locale, journal timezone/date format, shortcut overrides, the presentation
-preferences that tint the outline thread and the task moment chips, and the
-standing queries a reader keeps under today's journal. Graph display
-names belong to the browser graph directory; graph content and metadata belong
-to the core.
+locale, journal timezone/date format, shortcut overrides, and the presentation
+preferences that tint the outline thread and the task moment chips. A pre-v4
+default-query field remains only as a one-way import bridge. Graph display names
+belong to the browser graph directory; graph content, settings, and metadata
+belong to the core.
 
 A colour preference stores the *name* of a tone declared in `ui/app.css`, never a
 colour. The surface carries that name as a `data-palette` attribute and CSS resolves
@@ -307,12 +306,13 @@ contrast in both modes; no presentation preference reaches CorePort or the graph
 `features/settings/preferences.ts` is the React side of the same store, so a
 preference edited in the dialog reaches the outline in the same commit.
 
-Shared saved-view definitions — their column layout and the order the reader put
-the rows in — and the graph's default view belong to the query document, as does
-the builder plan behind a built query. A person's last-opened view remains
-browser-local until a separate user-private preference sync unit exists. Query
-results, selection, scroll, loading state, and drafts are session-only, as is a
-sort chosen on a graph the reader cannot write to.
+Shared saved-view definitions — their column layout and row order — and a
+document's default view belong to the query document, as does the builder plan
+behind a built query. Graph default queries belong to the versioned graph settings
+root. A person's last-opened view remains browser-local until a separate
+user-private preference sync unit exists. Query results, selection, scroll,
+loading state, and drafts are session-only, as is a sort chosen on a graph the
+reader cannot write to.
 
 The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script

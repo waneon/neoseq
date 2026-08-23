@@ -494,15 +494,6 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "remove_property":
     case "add_repeated_property":
     case "remove_repeated_property":
-    case "set_query_source":
-    case "splice_query_source":
-    case "set_query_plan":
-    case "clear_query_plan":
-    case "put_query_view":
-    case "remove_query_view":
-    case "set_query_default_view":
-      // A tag's query and a tag's defaults both live on the tag, which travels
-      // in the summary rather than on any page.
       return command.owner.kind === "tag" || command.owner.kind === "tag_default"
         ? { kind: "summary" }
         : {
@@ -511,6 +502,27 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
               ? command.owner.owner
               : { kind: "page", id: command.owner.id },
           };
+    case "set_query_source":
+    case "splice_query_source":
+    case "set_query_plan":
+    case "clear_query_plan":
+    case "put_query_view":
+    case "remove_query_view":
+    case "set_query_default_view":
+      return command.owner.kind === "tag" || command.owner.kind === "graph_default"
+        ? { kind: "summary" }
+        : {
+            kind: "outline",
+            owner: command.owner.kind === "block"
+              ? command.owner.owner
+              : { kind: "page", id: command.owner.id },
+          };
+    case "create_default_query":
+    case "import_default_queries":
+    case "rename_default_query":
+    case "move_default_query":
+    case "delete_default_query":
+      return { kind: "summary" };
     case "ensure_journal":
       return result?.created_page
         ? { kind: "outline", owner: { kind: "page", id: result.created_page } }

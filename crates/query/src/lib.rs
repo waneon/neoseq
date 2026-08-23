@@ -2670,8 +2670,8 @@ fn term_error(error: impl std::fmt::Display) -> QueryError {
 mod tests {
     use super::*;
     use domain::{
-        BlockId, Cardinality, LocalDate, PageSnapshot, PropertyField, PropertyKey, PropertyType,
-        TagSnapshot,
+        BlockId, Cardinality, GraphSettings, LocalDate, PageSnapshot, PropertyField, PropertyKey,
+        PropertyType, TagSnapshot,
     };
 
     fn single(key: &str, value: PropertyValue) -> PropertyField {
@@ -2685,7 +2685,7 @@ mod tests {
 
     fn snapshot() -> GraphSnapshot {
         GraphSnapshot {
-            schema_version: 1,
+            schema_version: 4,
             graph_id: GraphId::new("query graph").unwrap(),
             pages: vec![PageSnapshot {
                 id: PageId::new("today").unwrap(),
@@ -2738,13 +2738,14 @@ mod tests {
                 )],
                 blocks: vec![],
             }],
+            settings: GraphSettings::default(),
             quarantined: vec![],
         }
     }
 
     fn ordered_snapshot(block_count: usize) -> GraphSnapshot {
         GraphSnapshot {
-            schema_version: 1,
+            schema_version: 4,
             graph_id: GraphId::new("ordered-query").unwrap(),
             pages: vec![PageSnapshot {
                 id: PageId::new("ordered-page").unwrap(),
@@ -2771,6 +2772,7 @@ mod tests {
                     .collect(),
             }],
             tags: vec![],
+            settings: GraphSettings::default(),
             quarantined: vec![],
         }
     }

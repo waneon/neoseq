@@ -2,16 +2,17 @@ mod outline;
 
 use self::outline::OutlinePlan;
 use domain::{
-    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
-    GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND,
-    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentPage, OutlineOwner, OutlineSnapshot,
-    PageId, PageSnapshot, PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument,
-    PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
-    PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
-    QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryPlan, QueryView, QueryViewColumn, QueryViewId,
-    QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
-    property_copy_policy, validate_property, validate_property_field, validate_property_shape,
-    validate_property_target, validate_property_write,
+    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, DefaultQueryId,
+    DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot, GraphSummary,
+    HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
+    OutlineFragmentPage, OutlineOwner, OutlineSnapshot, PageId, PageSnapshot, PageSummary,
+    PropertyBag, PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader, PropertyError,
+    PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue,
+    QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryOwner,
+    QueryPlan, QueryView, QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions,
+    SplitPlacement, TagId, TagSnapshot, TagSummary, property_copy_policy, validate_property,
+    validate_property_field, validate_property_shape, validate_property_target,
+    validate_property_write,
 };
 use loro::{
     Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
@@ -26,13 +27,17 @@ use std::{
 };
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 pub const MIN_MIGRATABLE_SCHEMA_VERSION: u32 = 1;
-pub const MINIMUM_WRITER_SCHEMA: u32 = 3;
+pub const MINIMUM_WRITER_SCHEMA: u32 = 4;
 pub const LIFECYCLE_MIGRATION_ID: &str = "0001-lifecycle-metadata";
 pub const TAG_OUTLINES_MIGRATION_ID: &str = "0002-tag-outlines";
-
+pub const GRAPH_SETTINGS_MIGRATION_ID: &str = "0003-graph-settings";
 const LIFECYCLE_SCHEMA_VERSION: u32 = 2;
+const TAG_OUTLINES_SCHEMA_VERSION: u32 = 3;
+const GRAPH_SETTINGS_SCHEMA_VERSION: u32 = 1;
+const MAX_DEFAULT_QUERIES: usize = 8;
+const MAX_DEFAULT_QUERY_TITLE: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
@@ -397,6 +402,9 @@ impl GraphCore {
         meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
         meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
         let _ = meta.ensure_mergeable_map("applied_migrations")?;
+        let settings = doc.get_map("graph_settings");
+        settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
+        let _ = settings.ensure_mergeable_map("default_queries")?;
         let _ = doc.get_map("pages");
         let _ = doc.get_map("tags");
         doc.set_next_commit_origin("system:init");
@@ -827,6 +835,7 @@ impl GraphCore {
             graph_id: self.graph_id.clone(),
             pages: snapshots.into_values().collect(),
             tags,
+            settings: graph_settings_snapshot(&self.doc)?,
             quarantined,
         })
     }
@@ -864,6 +873,7 @@ impl GraphCore {
             graph_id: self.graph_id.clone(),
             pages: page_summaries.into_values().collect(),
             tags,
+            settings: graph_settings_snapshot(&self.doc)?,
             quarantined,
         })
     }
@@ -1314,6 +1324,72 @@ impl GraphCore {
                 {
                     return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
                 }
+            }
+            Command::CreateDefaultQuery {
+                default_query_id,
+                title,
+                document,
+            } => {
+                validate_default_query_title(title)?;
+                document.validate()?;
+                let queries = default_queries_map(&self.doc)?;
+                if queries.get(default_query_id.as_str()).is_some() {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "default query id already exists: {default_query_id}"
+                    )));
+                }
+                if graph_settings_snapshot(&self.doc)?.default_queries.len() >= MAX_DEFAULT_QUERIES
+                {
+                    return Err(CoreError::InvalidHierarchy(
+                        "graph already has the maximum number of default queries".to_owned(),
+                    ));
+                }
+            }
+            Command::ImportDefaultQueries { queries } => {
+                if queries.is_empty() {
+                    return Err(CoreError::InvalidHierarchy(
+                        "default query import is empty".to_owned(),
+                    ));
+                }
+                let stored = default_queries_map(&self.doc)?;
+                let current = graph_settings_snapshot(&self.doc)?.default_queries.len();
+                if current.saturating_add(queries.len()) > MAX_DEFAULT_QUERIES {
+                    return Err(CoreError::InvalidHierarchy(
+                        "default query import exceeds the graph limit".to_owned(),
+                    ));
+                }
+                let mut ids = BTreeSet::new();
+                for query in queries {
+                    validate_default_query_title(&query.title)?;
+                    query.document.validate()?;
+                    if !ids.insert(query.id.clone()) || stored.get(query.id.as_str()).is_some() {
+                        return Err(CoreError::InvalidHierarchy(format!(
+                            "default query id already exists: {}",
+                            query.id
+                        )));
+                    }
+                }
+            }
+            Command::RenameDefaultQuery {
+                default_query_id,
+                title,
+            } => {
+                self.require_default_query(default_query_id)?;
+                validate_default_query_title(title)?;
+            }
+            Command::MoveDefaultQuery {
+                default_query_id,
+                index,
+            } => {
+                self.require_default_query(default_query_id)?;
+                if *index >= graph_settings_snapshot(&self.doc)?.default_queries.len() {
+                    return Err(CoreError::InvalidHierarchy(
+                        "default query move is out of bounds".to_owned(),
+                    ));
+                }
+            }
+            Command::DeleteDefaultQuery { default_query_id } => {
+                self.require_default_query(default_query_id)?;
             }
             Command::SetQuerySource { owner, source } => {
                 self.validate_query_owner(owner)?;
@@ -1825,10 +1901,69 @@ impl GraphCore {
                 self.property_owner_bag(owner)?
                     .delete(&repeated_slot(key, value)?)?;
             }
+            Command::CreateDefaultQuery {
+                default_query_id,
+                title,
+                document,
+            } => {
+                let current = graph_settings_snapshot(&self.doc)?.default_queries;
+                let position = current
+                    .last()
+                    .map_or(0, |query| query.position.saturating_add(1));
+                self.insert_default_query(default_query_id, title, document, position)?;
+            }
+            Command::ImportDefaultQueries { queries } => {
+                let current = graph_settings_snapshot(&self.doc)?.default_queries;
+                let mut position = current
+                    .last()
+                    .map_or(0, |query| query.position.saturating_add(1));
+                for query in queries {
+                    self.insert_default_query(&query.id, &query.title, &query.document, position)?;
+                    position = position.saturating_add(1);
+                }
+            }
+            Command::RenameDefaultQuery {
+                default_query_id,
+                title,
+            } => {
+                self.require_default_query(default_query_id)?
+                    .insert("title", title.as_str())?;
+            }
+            Command::MoveDefaultQuery {
+                default_query_id,
+                index,
+            } => {
+                let mut order = graph_settings_snapshot(&self.doc)?
+                    .default_queries
+                    .into_iter()
+                    .map(|query| query.id)
+                    .collect::<Vec<_>>();
+                let from = order
+                    .iter()
+                    .position(|id| id == default_query_id)
+                    .expect("validated default query is in the snapshot");
+                let moved = order.remove(from);
+                order.insert(*index, moved);
+                let queries = default_queries_map(&self.doc)?;
+                for (position, id) in order.iter().enumerate() {
+                    queries
+                        .get(id.as_str())
+                        .and_then(value_into_map)
+                        .expect("validated default query entry")
+                        .insert(
+                            "position",
+                            i64::try_from(position).expect("bounded position"),
+                        )?;
+                }
+            }
+            Command::DeleteDefaultQuery { default_query_id } => {
+                self.require_default_query(default_query_id)?
+                    .insert("deleted", true)?;
+            }
             // Writing SPARQL by hand detaches the builder: the plan no longer
             // describes what runs, so it stops claiming to.
             Command::SetQuerySource { owner, source } => {
-                let document = ensure_query_document(&self.property_owner_bag(owner)?)?;
+                let document = self.ensure_query_document_for_owner(owner)?;
                 replace_text(&document.ensure_mergeable_text("source")?, source)?;
                 clear_query_plan(&document)?;
             }
@@ -1838,7 +1973,7 @@ impl GraphCore {
                 delete,
                 insert,
             } => {
-                let document = require_query_document(&self.property_owner_bag(owner)?)?;
+                let document = self.require_query_document_for_owner(owner)?;
                 document
                     .ensure_mergeable_text("source")?
                     .delete(*index, *delete)?;
@@ -1854,7 +1989,7 @@ impl GraphCore {
                 plan,
                 source,
             } => {
-                let document = ensure_query_document(&self.property_owner_bag(owner)?)?;
+                let document = self.ensure_query_document_for_owner(owner)?;
                 // The plan and the source it compiled to land in one
                 // transaction, so no revision ever runs a source the stored
                 // plan did not produce.
@@ -1863,22 +1998,16 @@ impl GraphCore {
                 document.insert("plan", plan.payload.as_str())?;
             }
             Command::ClearQueryPlan { owner } => {
-                clear_query_plan(&require_query_document(&self.property_owner_bag(owner)?)?)?;
+                clear_query_plan(&self.require_query_document_for_owner(owner)?)?;
             }
             Command::PutQueryView { owner, view } => {
-                put_query_view(
-                    &require_query_document(&self.property_owner_bag(owner)?)?,
-                    view,
-                )?;
+                put_query_view(&self.require_query_document_for_owner(owner)?, view)?;
             }
             Command::RemoveQueryView { owner, view_id } => {
-                remove_query_view(
-                    &require_query_document(&self.property_owner_bag(owner)?)?,
-                    view_id,
-                )?;
+                remove_query_view(&self.require_query_document_for_owner(owner)?, view_id)?;
             }
             Command::SetQueryDefaultView { owner, view_id } => {
-                require_query_document(&self.property_owner_bag(owner)?)?
+                self.require_query_document_for_owner(owner)?
                     .insert("default_view_id", view_id.as_str())?;
             }
             Command::AddTag { entity, tag_id } => {
@@ -1990,9 +2119,12 @@ impl GraphCore {
             | Command::ClearQueryPlan { owner }
             | Command::PutQueryView { owner, .. }
             | Command::RemoveQueryView { owner, .. }
-            | Command::SetQueryDefaultView { owner, .. } => {
-                self.touch_property_owner(owner, now)?
-            }
+            | Command::SetQueryDefaultView { owner, .. } => self.touch_query_owner(owner, now)?,
+            Command::CreateDefaultQuery { .. }
+            | Command::ImportDefaultQueries { .. }
+            | Command::RenameDefaultQuery { .. }
+            | Command::MoveDefaultQuery { .. }
+            | Command::DeleteDefaultQuery { .. } => {}
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
                 self.touch_entity(entity, now)?
             }
@@ -2029,6 +2161,13 @@ impl GraphCore {
             PropertyOwner::Tag { tag_id } | PropertyOwner::TagDefault { tag_id } => {
                 self.touch_tag(tag_id, now)
             }
+        }
+    }
+
+    fn touch_query_owner(&self, owner: &QueryOwner, now: &str) -> Result<(), CoreError> {
+        match property_owner_from_query_owner(owner) {
+            Some(owner) => self.touch_property_owner(&owner, now),
+            None => Ok(()),
         }
     }
 
@@ -2482,6 +2621,21 @@ impl GraphCore {
                 false,
             ),
         };
+        let query_owner_plan = |owner: &QueryOwner| {
+            property_owner_from_query_owner(owner).map_or_else(
+                || {
+                    plan(
+                        HistoryScope::Graph,
+                        Vec::new(),
+                        Vec::new(),
+                        Vec::new(),
+                        false,
+                        false,
+                    )
+                },
+                |owner| owner_plan(&owner),
+            )
+        };
 
         Ok(match command {
             Command::EnsurePage { page_id, .. } => plan(
@@ -2751,14 +2905,26 @@ impl GraphCore {
             | Command::ClearPropertyValues { owner, .. }
             | Command::RemoveProperty { owner, .. }
             | Command::AddRepeatedProperty { owner, .. }
-            | Command::RemoveRepeatedProperty { owner, .. }
-            | Command::SetQuerySource { owner, .. }
+            | Command::RemoveRepeatedProperty { owner, .. } => owner_plan(owner),
+            Command::SetQuerySource { owner, .. }
             | Command::SpliceQuerySource { owner, .. }
             | Command::SetQueryPlan { owner, .. }
             | Command::ClearQueryPlan { owner }
             | Command::PutQueryView { owner, .. }
             | Command::RemoveQueryView { owner, .. }
-            | Command::SetQueryDefaultView { owner, .. } => owner_plan(owner),
+            | Command::SetQueryDefaultView { owner, .. } => query_owner_plan(owner),
+            Command::CreateDefaultQuery { .. }
+            | Command::ImportDefaultQueries { .. }
+            | Command::RenameDefaultQuery { .. }
+            | Command::MoveDefaultQuery { .. }
+            | Command::DeleteDefaultQuery { .. } => plan(
+                HistoryScope::Graph,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+            ),
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
                 entity_plan(entity)
             }
@@ -3125,16 +3291,78 @@ impl GraphCore {
         }
     }
 
-    fn validate_query_owner(&self, owner: &PropertyOwner) -> Result<(), CoreError> {
-        self.validate_property_owner(owner)?;
+    fn require_default_query(&self, id: &DefaultQueryId) -> Result<LoroMap, CoreError> {
+        let entry = default_queries_map(&self.doc)?
+            .get(id.as_str())
+            .and_then(value_into_map)
+            .ok_or_else(|| {
+                CoreError::InvalidHierarchy(format!("default query does not exist: {id}"))
+            })?;
+        if map_bool(&entry, "deleted") != Some(false) {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "default query does not exist: {id}"
+            )));
+        }
+        Ok(entry)
+    }
+
+    fn insert_default_query(
+        &self,
+        id: &DefaultQueryId,
+        title: &str,
+        document: &PropertyDocument,
+        position: u32,
+    ) -> Result<(), CoreError> {
+        let entry = default_queries_map(&self.doc)?.ensure_mergeable_map(id.as_str())?;
+        entry.insert("title", title)?;
+        entry.insert("position", i64::from(position))?;
+        entry.insert("deleted", false)?;
+        write_query_document_map(&entry.ensure_mergeable_map("document")?, document)
+    }
+
+    fn validate_query_owner(&self, owner: &QueryOwner) -> Result<(), CoreError> {
+        if let QueryOwner::GraphDefault { default_query_id } = owner {
+            self.require_default_query(default_query_id)?;
+            return Ok(());
+        }
+        let owner = property_owner_from_query_owner(owner)
+            .expect("non-graph query owner has a property owner");
+        self.validate_property_owner(&owner)?;
         let query_key = key(QUERY_PROPERTY_KEY);
-        validate_property_write(&query_key, property_owner_target(owner))?;
+        validate_property_write(&query_key, property_owner_target(&owner))?;
         Ok(())
     }
 
-    fn query_document(&self, owner: &PropertyOwner) -> Result<PropertyDocument, CoreError> {
-        let bag = self.property_owner_bag(owner)?;
-        let document = require_query_document(&bag)?;
+    fn require_query_document_for_owner(&self, owner: &QueryOwner) -> Result<LoroMap, CoreError> {
+        match owner {
+            QueryOwner::GraphDefault { default_query_id } => self
+                .require_default_query(default_query_id)?
+                .get("document")
+                .and_then(value_into_map)
+                .ok_or_else(|| {
+                    CoreError::InvalidHierarchy("default query document is missing".to_owned())
+                }),
+            _ => {
+                let property = property_owner_from_query_owner(owner)
+                    .expect("non-graph query owner has a property owner");
+                require_query_document(&self.property_owner_bag(&property)?)
+            }
+        }
+    }
+
+    fn ensure_query_document_for_owner(&self, owner: &QueryOwner) -> Result<LoroMap, CoreError> {
+        match owner {
+            QueryOwner::GraphDefault { .. } => self.require_query_document_for_owner(owner),
+            _ => {
+                let property = property_owner_from_query_owner(owner)
+                    .expect("non-graph query owner has a property owner");
+                ensure_query_document(&self.property_owner_bag(&property)?)
+            }
+        }
+    }
+
+    fn query_document(&self, owner: &QueryOwner) -> Result<PropertyDocument, CoreError> {
+        let document = self.require_query_document_for_owner(owner)?;
         decode_query_document(&document).map_err(CoreError::InvalidHierarchy)
     }
 
@@ -3239,14 +3467,35 @@ fn rewrite_graph_scoped_query_iris(
         let Some(document) = bag.get(&document_slot(&query_key)).and_then(value_into_map) else {
             continue;
         };
-        if map_string(&document, "schema").as_deref() != Some(QUERY_DOCUMENT_SCHEMA)
-            || map_i64(&document, "version") != Some(i64::from(QUERY_DOCUMENT_VERSION))
-        {
-            continue;
-        }
-        let Some(source) = document.get("source").and_then(value_into_text) else {
-            continue;
-        };
+        rewrite_query_document_iris(&document, &replacements)?;
+    }
+    for query in graph_settings_snapshot(doc)?.default_queries {
+        let queries = default_queries_map(doc)?;
+        let entry = queries
+            .get(query.id.as_str())
+            .and_then(value_into_map)
+            .ok_or_else(|| CoreError::InvalidHierarchy("default query is missing".to_owned()))?;
+        let document = entry
+            .get("document")
+            .and_then(value_into_map)
+            .ok_or_else(|| {
+                CoreError::InvalidHierarchy("default query document is missing".to_owned())
+            })?;
+        rewrite_query_document_iris(&document, &replacements)?;
+    }
+    Ok(())
+}
+
+fn rewrite_query_document_iris(
+    document: &LoroMap,
+    replacements: &[(String, String)],
+) -> Result<(), CoreError> {
+    if map_string(document, "schema").as_deref() != Some(QUERY_DOCUMENT_SCHEMA)
+        || map_i64(document, "version") != Some(i64::from(QUERY_DOCUMENT_VERSION))
+    {
+        return Ok(());
+    }
+    if let Some(source) = document.get("source").and_then(value_into_text) {
         let current = source.to_string();
         let rewritten = replacements
             .iter()
@@ -3264,6 +3513,8 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
     let source_schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
     if source_schema == SCHEMA_VERSION {
         verify_schema_metadata(&meta, SCHEMA_VERSION)?;
+        validate_tag_outlines(doc)?;
+        verify_graph_settings(doc)?;
         return Ok(MigrationReport {
             source_schema,
             target_schema: SCHEMA_VERSION,
@@ -3300,17 +3551,45 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
         doc.set_next_commit_message(TAG_OUTLINES_MIGRATION_ID);
         materialize_tag_outlines(doc)?;
         let applied = migration_map(&meta, false)?;
-        if map_i64(&applied, TAG_OUTLINES_MIGRATION_ID) != Some(i64::from(SCHEMA_VERSION)) {
-            applied.insert(TAG_OUTLINES_MIGRATION_ID, i64::from(SCHEMA_VERSION))?;
+        if map_i64(&applied, TAG_OUTLINES_MIGRATION_ID)
+            != Some(i64::from(TAG_OUTLINES_SCHEMA_VERSION))
+        {
+            applied.insert(
+                TAG_OUTLINES_MIGRATION_ID,
+                i64::from(TAG_OUTLINES_SCHEMA_VERSION),
+            )?;
+        }
+        meta.insert(
+            "minimum_writer_schema",
+            i64::from(TAG_OUTLINES_SCHEMA_VERSION),
+        )?;
+        meta.insert("schema_version", i64::from(TAG_OUTLINES_SCHEMA_VERSION))?;
+        doc.commit();
+        applied_migrations.push(TAG_OUTLINES_MIGRATION_ID.to_owned());
+        schema = TAG_OUTLINES_SCHEMA_VERSION;
+    }
+
+    if schema == TAG_OUTLINES_SCHEMA_VERSION {
+        verify_schema_metadata(&meta, TAG_OUTLINES_SCHEMA_VERSION)?;
+        validate_tag_outlines(doc)?;
+        doc.set_next_commit_origin("system:migration");
+        doc.set_next_commit_message(GRAPH_SETTINGS_MIGRATION_ID);
+        let settings = doc.get_map("graph_settings");
+        settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
+        let _ = settings.ensure_mergeable_map("default_queries")?;
+        let applied = migration_map(&meta, false)?;
+        if map_i64(&applied, GRAPH_SETTINGS_MIGRATION_ID) != Some(i64::from(SCHEMA_VERSION)) {
+            applied.insert(GRAPH_SETTINGS_MIGRATION_ID, i64::from(SCHEMA_VERSION))?;
         }
         meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
         meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
         doc.commit();
-        applied_migrations.push(TAG_OUTLINES_MIGRATION_ID.to_owned());
+        applied_migrations.push(GRAPH_SETTINGS_MIGRATION_ID.to_owned());
     }
 
     verify_schema_metadata(&meta, SCHEMA_VERSION)?;
     validate_tag_outlines(doc)?;
+    verify_graph_settings(doc)?;
     let update = doc.export(ExportMode::updates(&before))?;
     Ok(MigrationReport {
         source_schema,
@@ -3427,11 +3706,20 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     if schema != SCHEMA_VERSION {
         return Err(CoreError::UnsupportedSchema(i64::from(schema)));
     }
-    Ok(())
+    validate_tag_outlines(doc)?;
+    verify_graph_settings(doc)
 }
 
 fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
     if value.len() > max {
+        Err(CoreError::TextTooLong)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_default_query_title(value: &str) -> Result<(), CoreError> {
+    if value.chars().count() > MAX_DEFAULT_QUERY_TITLE {
         Err(CoreError::TextTooLong)
     } else {
         Ok(())
@@ -3566,6 +3854,20 @@ fn property_owner_target(owner: &PropertyOwner) -> PropertyTarget {
     }
 }
 
+fn property_owner_from_query_owner(owner: &QueryOwner) -> Option<PropertyOwner> {
+    match owner {
+        QueryOwner::Page { id } => Some(PropertyOwner::Page { id: id.clone() }),
+        QueryOwner::Block { owner, id } => Some(PropertyOwner::Block {
+            owner: owner.clone(),
+            id: id.clone(),
+        }),
+        QueryOwner::Tag { tag_id } => Some(PropertyOwner::Tag {
+            tag_id: tag_id.clone(),
+        }),
+        QueryOwner::GraphDefault { .. } => None,
+    }
+}
+
 fn semantic_name(command: &Command) -> &'static str {
     match command {
         Command::EnsurePage { .. } => "PageEnsured",
@@ -3595,18 +3897,27 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::ClearPropertyValues { owner, .. }
         | Command::RemoveProperty { owner, .. }
         | Command::AddRepeatedProperty { owner, .. }
-        | Command::RemoveRepeatedProperty { owner, .. }
-        | Command::SetQuerySource { owner, .. }
+        | Command::RemoveRepeatedProperty { owner, .. } => match owner {
+            PropertyOwner::Tag { .. } => "TagPropertiesChanged",
+            PropertyOwner::TagDefault { .. } => "TagDefaultsChanged",
+            PropertyOwner::Page { .. } | PropertyOwner::Block { .. } => "PropertiesChanged",
+        },
+        Command::SetQuerySource { owner, .. }
         | Command::SpliceQuerySource { owner, .. }
         | Command::SetQueryPlan { owner, .. }
         | Command::ClearQueryPlan { owner }
         | Command::PutQueryView { owner, .. }
         | Command::RemoveQueryView { owner, .. }
         | Command::SetQueryDefaultView { owner, .. } => match owner {
-            PropertyOwner::Tag { .. } => "TagPropertiesChanged",
-            PropertyOwner::TagDefault { .. } => "TagDefaultsChanged",
-            PropertyOwner::Page { .. } | PropertyOwner::Block { .. } => "PropertiesChanged",
+            QueryOwner::Tag { .. } => "TagPropertiesChanged",
+            QueryOwner::Page { .. } | QueryOwner::Block { .. } => "PropertiesChanged",
+            QueryOwner::GraphDefault { .. } => "GraphSettingsChanged",
         },
+        Command::CreateDefaultQuery { .. }
+        | Command::ImportDefaultQueries { .. }
+        | Command::RenameDefaultQuery { .. }
+        | Command::MoveDefaultQuery { .. }
+        | Command::DeleteDefaultQuery { .. } => "GraphSettingsChanged",
         Command::Undo => "LocalUndo",
         Command::Redo => "LocalRedo",
     }
@@ -3794,9 +4105,16 @@ fn write_query_document_snapshot(
     bag: &LoroMap,
     snapshot: &PropertyDocument,
 ) -> Result<(), CoreError> {
-    snapshot.validate()?;
     let query_key = key(QUERY_PROPERTY_KEY);
     let document = bag.ensure_mergeable_map(&document_slot(&query_key))?;
+    write_query_document_map(&document, snapshot)
+}
+
+fn write_query_document_map(
+    document: &LoroMap,
+    snapshot: &PropertyDocument,
+) -> Result<(), CoreError> {
+    snapshot.validate()?;
     document.insert("schema", snapshot.schema.as_str())?;
     document.insert("version", i64::from(snapshot.version))?;
     document.insert("language", snapshot.language.as_str())?;
@@ -3807,9 +4125,9 @@ fn write_query_document_snapshot(
         views.delete(&view_id)?;
     }
     for view in &snapshot.views {
-        put_query_view(&document, view)?;
+        put_query_view(document, view)?;
     }
-    clear_query_plan(&document)?;
+    clear_query_plan(document)?;
     if let Some(plan) = &snapshot.plan {
         document.insert("plan_version", i64::from(plan.version))?;
         document.insert("plan", plan.payload.as_str())?;
@@ -4102,6 +4420,86 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
     };
     snapshot.validate().map_err(|error| error.to_string())?;
     Ok(snapshot)
+}
+
+fn default_queries_map(doc: &LoroDoc) -> Result<LoroMap, CoreError> {
+    let settings = doc.get_map("graph_settings");
+    if map_i64(&settings, "schema_version") != Some(i64::from(GRAPH_SETTINGS_SCHEMA_VERSION)) {
+        return Err(CoreError::InvalidHierarchy(
+            "graph settings schema is missing or unsupported".to_owned(),
+        ));
+    }
+    settings
+        .get("default_queries")
+        .and_then(value_into_map)
+        .ok_or_else(|| {
+            CoreError::InvalidHierarchy("graph default queries map is missing".to_owned())
+        })
+}
+
+fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
+    let queries = default_queries_map(doc)?;
+    let mut decoded = Vec::new();
+    let mut issue = None;
+    queries.for_each(|raw_id, value| {
+        if issue.is_some() {
+            return;
+        }
+        let parsed = (|| {
+            let id = DefaultQueryId::new(raw_id).map_err(|error| error.to_string())?;
+            let entry = value_into_map(value)
+                .ok_or_else(|| format!("default query {raw_id} is not a map"))?;
+            let deleted = map_bool(&entry, "deleted")
+                .ok_or_else(|| format!("default query {raw_id} tombstone is missing"))?;
+            if deleted {
+                return Ok(None);
+            }
+            let title = map_string(&entry, "title")
+                .ok_or_else(|| format!("default query {raw_id} title is missing"))?;
+            if title.chars().count() > MAX_DEFAULT_QUERY_TITLE {
+                return Err(format!("default query {raw_id} title is too long"));
+            }
+            let position = map_i64(&entry, "position")
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| format!("default query {raw_id} position is invalid"))?;
+            let document = entry
+                .get("document")
+                .and_then(value_into_map)
+                .ok_or_else(|| format!("default query {raw_id} document is missing"))?;
+            let document = decode_query_document(&document)?;
+            Ok(Some(DefaultQuerySnapshot {
+                id,
+                title,
+                position,
+                document,
+            }))
+        })();
+        match parsed {
+            Ok(Some(query)) => decoded.push(query),
+            Ok(None) => {}
+            Err(error) => issue = Some(error),
+        }
+    });
+    if let Some(issue) = issue {
+        return Err(CoreError::InvalidHierarchy(issue));
+    }
+    if decoded.len() > MAX_DEFAULT_QUERIES {
+        return Err(CoreError::InvalidHierarchy(
+            "graph contains too many default queries".to_owned(),
+        ));
+    }
+    decoded.sort_by(|left, right| {
+        left.position
+            .cmp(&right.position)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(GraphSettings {
+        default_queries: decoded,
+    })
+}
+
+fn verify_graph_settings(doc: &LoroDoc) -> Result<(), CoreError> {
+    graph_settings_snapshot(doc).map(|_| ())
 }
 
 fn bag_contains_key(map: &LoroMap, key: &PropertyKey) -> bool {
@@ -4671,6 +5069,7 @@ mod tests {
             vec![
                 LIFECYCLE_MIGRATION_ID.to_owned(),
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
+                GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
             ]
         );
         assert!(!first.update.is_empty());
@@ -4691,6 +5090,40 @@ mod tests {
         assert!(second.applied_migrations.is_empty());
         assert!(second.update.is_empty());
         assert_eq!(migrated_again.fingerprint().unwrap(), fingerprint);
+    }
+
+    #[test]
+    fn schema_v3_migration_adds_empty_graph_settings_once() {
+        let core = GraphCore::new(graph(), 17, "legacy").unwrap();
+        let meta = core.doc.get_map("meta");
+        meta.insert("schema_version", 3_i64).unwrap();
+        meta.insert("minimum_writer_schema", 3_i64).unwrap();
+        let settings = core.doc.get_map("graph_settings");
+        settings.delete("schema_version").unwrap();
+        settings.delete("default_queries").unwrap();
+        core.doc.commit();
+        let legacy = core.export_snapshot().unwrap();
+
+        let (migrated, report) =
+            GraphCore::from_snapshot_with_migrations(graph(), 18, &legacy).unwrap();
+        assert_eq!(report.source_schema, 3);
+        assert_eq!(
+            report.applied_migrations,
+            vec![GRAPH_SETTINGS_MIGRATION_ID.to_owned()]
+        );
+        assert!(
+            migrated
+                .summary()
+                .unwrap()
+                .settings
+                .default_queries
+                .is_empty()
+        );
+
+        let snapshot = migrated.export_snapshot().unwrap();
+        let (_, second) = GraphCore::from_snapshot_with_migrations(graph(), 19, &snapshot).unwrap();
+        assert!(second.applied_migrations.is_empty());
+        assert!(second.update.is_empty());
     }
 
     #[test]
@@ -4790,7 +5223,10 @@ mod tests {
         assert_eq!(migration.source_schema, LIFECYCLE_SCHEMA_VERSION);
         assert_eq!(
             migration.applied_migrations,
-            [TAG_OUTLINES_MIGRATION_ID.to_owned()]
+            [
+                TAG_OUTLINES_MIGRATION_ID.to_owned(),
+                GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
+            ]
         );
         assert!(!migration.update.is_empty());
         let units = restored
@@ -4917,7 +5353,10 @@ mod tests {
         let migration = recovered.finish_recovery().unwrap();
         assert_eq!(
             migration.applied_migrations,
-            [TAG_OUTLINES_MIGRATION_ID.to_owned()]
+            [
+                TAG_OUTLINES_MIGRATION_ID.to_owned(),
+                GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
+            ]
         );
         for tag_id in [base_tag, tail_tag] {
             let tag = recovered
@@ -5120,6 +5559,84 @@ mod tests {
     }
 
     #[test]
+    fn graph_default_queries_are_ordered_query_documents() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let first = DefaultQueryId::new("dq-first").unwrap();
+        let second = DefaultQueryId::new("dq-second").unwrap();
+        for (command_id, id, title) in [
+            ("first", first.clone(), "First"),
+            ("second", second.clone(), "Second"),
+        ] {
+            core.execute(
+                envelope(
+                    command_id,
+                    Command::CreateDefaultQuery {
+                        default_query_id: id,
+                        title: title.into(),
+                        document: PropertyDocument::default_query("SELECT ?item WHERE {}".into()),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        }
+        core.execute(
+            envelope(
+                "edit",
+                Command::SetQuerySource {
+                    owner: QueryOwner::GraphDefault {
+                        default_query_id: first.clone(),
+                    },
+                    source: "SELECT ?block WHERE {}".into(),
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "move",
+                Command::MoveDefaultQuery {
+                    default_query_id: second.clone(),
+                    index: 0,
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let settings = core.summary().unwrap().settings;
+        assert_eq!(
+            settings
+                .default_queries
+                .iter()
+                .map(|query| query.id.clone())
+                .collect::<Vec<_>>(),
+            vec![second, first.clone()]
+        );
+        assert_eq!(
+            settings.default_queries[1].document.source,
+            "SELECT ?block WHERE {}"
+        );
+
+        core.execute(
+            envelope(
+                "delete",
+                Command::DeleteDefaultQuery {
+                    default_query_id: first,
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        assert_eq!(core.summary().unwrap().settings.default_queries.len(), 1);
+
+        core.execute(envelope("undo-delete", Command::Undo), "t5")
+            .unwrap();
+        assert_eq!(core.summary().unwrap().settings.default_queries.len(), 2);
+    }
+
+    #[test]
     fn a_tag_owns_a_query_document_with_views_of_its_own() {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         let tag = TagId::new("t-project").unwrap();
@@ -5134,7 +5651,7 @@ mod tests {
             "t1",
         )
         .unwrap();
-        let owner = PropertyOwner::Tag {
+        let owner = QueryOwner::Tag {
             tag_id: tag.clone(),
         };
         core.execute(
@@ -5202,23 +5719,6 @@ mod tests {
                 .iter()
                 .all(|field| field.key.as_str() != QUERY_PROPERTY_KEY)
         );
-
-        let error = core
-            .execute(
-                envelope(
-                    "default-query",
-                    Command::SetQuerySource {
-                        owner: PropertyOwner::TagDefault { tag_id: tag },
-                        source: "SELECT ?item WHERE {}".into(),
-                    },
-                ),
-                "t5",
-            )
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            CoreError::Property(PropertyError::InvalidTarget { .. })
-        ));
     }
 
     #[test]
@@ -5227,7 +5727,7 @@ mod tests {
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
         let source = "SELECT ?item WHERE {}";
-        let owner = PropertyOwner::Block {
+        let owner = QueryOwner::Block {
             owner: OutlineOwner::Page { id: page() },
             id: block.clone(),
         };
@@ -5320,7 +5820,10 @@ mod tests {
                 envelope(
                     "generic-query-write",
                     Command::SetProperty {
-                        owner,
+                        owner: PropertyOwner::Block {
+                            owner: OutlineOwner::Page { id: page() },
+                            id: block,
+                        },
                         key: key(QUERY_PROPERTY_KEY),
                         value: PropertyValue::Document(document.clone()),
                     },
@@ -5339,7 +5842,7 @@ mod tests {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
-        let owner = PropertyOwner::Block {
+        let owner = QueryOwner::Block {
             owner: OutlineOwner::Page { id: page() },
             id: block.clone(),
         };
@@ -5449,7 +5952,7 @@ mod tests {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
-        let owner = PropertyOwner::Block {
+        let owner = QueryOwner::Block {
             owner: OutlineOwner::Page { id: page() },
             id: block,
         };
@@ -7573,11 +8076,26 @@ mod tests {
                 envelope(
                     "query",
                     Command::SetQuerySource {
-                        owner: PropertyOwner::Block {
+                        owner: QueryOwner::Block {
                             owner: OutlineOwner::Page { id: page() },
                             id: block,
                         },
                         source: format!("SELECT ?page WHERE {{ BIND(<{old_iri}> AS ?page) }}"),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        source
+            .execute(
+                envelope(
+                    "default-query",
+                    Command::CreateDefaultQuery {
+                        default_query_id: DefaultQueryId::new("dq-copy").unwrap(),
+                        title: "Copy me".into(),
+                        document: PropertyDocument::default_query(format!(
+                            "SELECT ?page WHERE {{ BIND(<{old_iri}> AS ?page) }}"
+                        )),
                     },
                 ),
                 "t1",
@@ -7637,6 +8155,11 @@ mod tests {
             .to_owned();
         assert!(source.contains(&new_iri));
         assert!(!source.contains(&old_iri));
+        let default_source = &cloned.summary().unwrap().settings.default_queries[0]
+            .document
+            .source;
+        assert!(default_source.contains(&new_iri));
+        assert!(!default_source.contains(&old_iri));
     }
 
     #[test]

@@ -9,13 +9,15 @@ mod property;
 
 pub use generated::core_port::*;
 pub use ids::{
-    BlockId, CommandId, GraphId, IdError, LocalDate, PageId, PropertyKey, QueryViewId, TagId,
+    BlockId, CommandId, DefaultQueryId, GraphId, IdError, LocalDate, PageId, PropertyKey,
+    QueryViewId, TagId,
 };
 pub use model::{
-    BlockSnapshot, Command, CommandEnvelope, CommandResult, EntityId, GraphSnapshot, GraphSummary,
-    HistoryEffect, HistoryScope, MarkdownSplice, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION,
-    OutlineFragment, OutlineFragmentItem, OutlineFragmentPage, OutlineFragmentTag, OutlineItem,
-    OutlineOwner, OutlineSnapshot, PageSnapshot, PageSummary, PropertyOwner, QueryView,
+    BlockSnapshot, Command, CommandEnvelope, CommandResult, DefaultQueryInput,
+    DefaultQuerySnapshot, EntityId, GraphSettings, GraphSnapshot, GraphSummary, HistoryEffect,
+    HistoryScope, MarkdownSplice, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
+    OutlineFragmentItem, OutlineFragmentPage, OutlineFragmentTag, OutlineItem, OutlineOwner,
+    OutlineSnapshot, PageSnapshot, PageSummary, PropertyOwner, QueryOwner, QueryView,
     QueryViewColumn, QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement, TagSnapshot,
     TagSummary,
 };

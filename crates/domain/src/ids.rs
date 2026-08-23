@@ -79,6 +79,7 @@ opaque_string!(BlockId, "block id");
 opaque_string!(TagId, "tag id");
 opaque_string!(CommandId, "command id");
 opaque_string!(QueryViewId, "query view id");
+opaque_string!(DefaultQueryId, "default query id");
 
 impl PageId {
     pub fn journal(graph: &GraphId, date: &LocalDate) -> Self {

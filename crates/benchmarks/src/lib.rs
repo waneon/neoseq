@@ -1,6 +1,6 @@
 use domain::{
-    BlockId, BlockSnapshot, Cardinality, GraphId, GraphSnapshot, LocalDate, PageId, PageSnapshot,
-    PropertyField, PropertyKey, PropertyValue, TagId, TagSnapshot,
+    BlockId, BlockSnapshot, Cardinality, GraphId, GraphSettings, GraphSnapshot, LocalDate, PageId,
+    PageSnapshot, PropertyField, PropertyKey, PropertyValue, TagId, TagSnapshot,
 };
 use query::{IndexUnit, QUERY_LANGUAGE, QueryBudget, QueryRequest, RdfTerm};
 use std::{collections::BTreeMap, convert::Infallible};
@@ -42,10 +42,11 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
         .collect();
 
     GraphSnapshot {
-        schema_version: 1,
+        schema_version: 4,
         graph_id: GraphId::new(GRAPH_ID).expect("static benchmark graph id"),
         pages,
         tags,
+        settings: GraphSettings::default(),
         quarantined: Vec::new(),
     }
 }

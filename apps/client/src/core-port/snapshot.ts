@@ -62,6 +62,17 @@ export interface PropertyDocument {
   plan?: QueryPlanDocument | null;
 }
 
+export interface DefaultQuerySnapshot {
+  id: string;
+  title: string;
+  position: number;
+  document: PropertyDocument;
+}
+
+export interface GraphSettings {
+  default_queries: DefaultQuerySnapshot[];
+}
+
 export type PropertyValue =
   | { type: "number"; value: number }
   | { type: "string"; value: string }
@@ -125,6 +136,7 @@ export interface GraphSummary {
   graph_id: string;
   pages: PageSummary[];
   tags: TagSummary[];
+  settings: GraphSettings;
   quarantined: string[];
 }
 
@@ -133,14 +145,16 @@ export interface GraphSnapshot {
   graph_id: string;
   pages: PageSnapshot[];
   tags: TagSnapshot[];
+  settings: GraphSettings;
   quarantined: string[];
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 3,
+  schema_version: 4,
   graph_id: "",
   pages: [],
   tags: [],
+  settings: { default_queries: [] },
   quarantined: [],
 };
 

@@ -3,29 +3,47 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current document schema is v3 and has three roots:
+synchronization unit. The current document schema is v4 and has four roots:
 
 ```text
 meta: Map
   graph_id: string
-  schema_version: 3
-  minimum_writer_schema: 3
+  schema_version: 4
+  minimum_writer_schema: 4
   applied_migrations: Map<MigrationId, TargetSchema>
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
+graph_settings: Map
+  schema_version: 1
+  default_queries: Map<DefaultQueryId, DefaultQueryRecord>
 ```
 
 The Loro document plus its verified update/checkpoint history is the only
 canonical representation. RDF triples, text caches, query plans, and session UI
-state are disposable projections. Shared saved-view definitions are canonical
-document-property data.
+state are disposable projections. Shared query documents are canonical graph
+data whether an entity property or graph setting owns them.
 
-Schemas v1 and v2 are migratable predecessors. Recovery replays Base and Tail,
-then applies each missing migration as a normal CRDT commit before persisting a
-current checkpoint or accepting writes. `0001-lifecycle-metadata` advances v1
-to v2; `0002-tag-outlines` materializes every tag-owned tree and advances v2 to
-v3. Reopening v3 is a no-op. Schemas outside `[1, 3]` are rejected without
-downgrade or coercion.
+Schemas v1 through v3 are migratable predecessors. Recovery replays Base and
+Tail, then applies each missing migration as a normal CRDT commit before
+persisting a current checkpoint or accepting writes. `0001-lifecycle-metadata`
+advances v1 to v2; `0002-tag-outlines` materializes every tag-owned tree and
+advances v2 to v3; `0003-graph-settings` adds shared graph configuration and
+advances v3 to v4. Reopening v4 is a no-op. Schemas outside `[1, 4]` are rejected
+without downgrade or coercion.
+
+## Graph Settings
+
+Graph settings are shared configuration whose identity is the graph rather than
+an entity. Each live default query is a stable map entry with a title, numeric
+position, deletion tombstone, and direct `neoseq.query` document map. The live
+list is bounded to eight and ordered by position with ID as a deterministic tie
+break. Query-document commands use a distinct `QueryOwner`; page, block, and tag
+variants resolve to `builtin.query`, while `graph_default` resolves directly to
+this map entry.
+
+Pre-v4 browser settings are not silently copied into every graph a browser
+opens. The client offers one explicit batch import into the current graph and
+removes the legacy records only after that graph command is durably saved.
 
 ## Outline Owners, Nodes, and Ordering
 

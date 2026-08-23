@@ -2,7 +2,7 @@
 //
 // The journal reads them and this writes them, which is the whole shape of the
 // feature: a standing question is set up once and then read every day, so its
-// editor belongs where the reader's other preferences are and not parked under
+// editor belongs with this graph's other settings and not parked under
 // the writing it sits below (§ Do / Don't — nothing below the outline is chrome).
 //
 // **A row states the question, not the machinery.** Its caption is the same
@@ -36,13 +36,13 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import type { QueryViewKind } from "../../core-port/snapshot";
 import {
-  addDefaultQuery,
+  clearLegacyDefaultQueries,
   defaultQueryKey,
+  legacyDefaultQueryId,
+  legacyDefaultQueries,
   MAX_DEFAULT_QUERIES,
   MAX_DEFAULT_QUERY_TITLE,
-  moveDefaultQuery,
-  putDefaultQuery,
-  removeDefaultQuery,
+  newDefaultQueryDocument,
   type DefaultQuery,
 } from "../../entities/default-queries";
 import { todayLocalDate } from "../../entities/journal";
@@ -58,38 +58,98 @@ import { useQueryAnswer } from "../query/execution";
 import { answerLabel } from "../query/labels";
 import { QueryBuilder } from "../query/QueryBuilder";
 import { planSummary, summaryLabel } from "../query/summary";
-import { useSessionState } from "../shell/session-context";
+import { useNotify } from "../notify/context";
+import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
-import { useDefaultQueries } from "./preferences";
 
 /** The two layouts a journal may read an answer through. */
 const LAYOUTS: QueryViewKind[] = ["list", "table"];
 
 export function DefaultQueriesSection() {
   const { message } = useI18n();
-  const queries = useDefaultQueries();
+  const session = useSession();
+  const state = useSessionState();
+  const notify = useNotify();
+  const queries = state.snapshot.settings.default_queries;
+  const [legacy, setLegacy] = useState(legacyDefaultQueries);
+  const legacyImports = useMemo(
+    () => legacy.map((query, index) => ({
+      id: legacyDefaultQueryId(query, index),
+      title: query.title,
+      document: newDefaultQueryDocument(query.source, query.plan, query.layout),
+    })),
+    [legacy],
+  );
+  const importedIds = new Set(queries.map((query) => query.id));
+  const pendingLegacyImports = legacyImports.filter((query) => !importedIds.has(query.id));
   // One editor at a time. A builder is five rows tall, and eight of them open at
   // once turns a pane that scrolls into a pane that only scrolls.
   const [openId, setOpenId] = useState<string | null>(null);
   const full = queries.length >= MAX_DEFAULT_QUERIES;
 
+  useEffect(() => {
+    if (
+      legacy.length > 0
+      && pendingLegacyImports.length === 0
+      && state.save.kind === "saved"
+    ) {
+      clearLegacyDefaultQueries();
+      setLegacy([]);
+    }
+  }, [legacy.length, pendingLegacyImports.length, state.save.kind]);
+
   /** A new query opens on itself: adding one and not landing on it says nothing. */
   const create = (plan: QueryPlan | null) => {
-    const created = addDefaultQuery(plan
-      ? {
-          title: "",
-          plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-          source: compilePlan(plan).source,
-          layout: "list",
+    const id = `dq-${crypto.randomUUID()}`;
+    const encoded = plan
+      ? { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) }
+      : undefined;
+    const source = plan ? compilePlan(plan).source : "";
+    void session.execute({
+      type: "create_default_query",
+      default_query_id: id,
+      title: "",
+      document: newDefaultQueryDocument(source, encoded, "list"),
+    }).then(() => setOpenId(id)).catch((cause: unknown) => {
+      notify.failure(message("failure.saveQuery"), cause);
+    });
+  };
+
+  const importLegacy = () => {
+    if (pendingLegacyImports.length === 0) return;
+    void session.execute({ type: "import_default_queries", queries: pendingLegacyImports })
+      .then(() => {
+        if (session.getState().save.kind === "saved") {
+          clearLegacyDefaultQueries();
+          setLegacy([]);
         }
-      : { title: "", source: "", layout: "list" });
-    if (created) setOpenId(created.id);
+      })
+      .catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause));
   };
 
   return (
     <section className="settings-section">
       <h2>{message("settings.defaultQueries")}</h2>
       <p>{message("settings.defaultQueriesDescription")}</p>
+      {legacy.length > 0 && (
+        <div className="field">
+          <p>{message("settings.legacyDefaultQueriesDescription", { count: legacy.length })}</p>
+          <button
+            type="button"
+            className="btn"
+            disabled={
+              state.mode === "readonly"
+              || state.save.kind === "unsaved"
+              || pendingLegacyImports.length === 0
+              || queries.length + pendingLegacyImports.length > MAX_DEFAULT_QUERIES
+            }
+            data-testid="import-legacy-default-queries"
+            onClick={importLegacy}
+          >
+            {message("settings.importLegacyDefaultQueries")}
+          </button>
+        </div>
+      )}
       {queries.length > 0 && (
         <ul className="default-queries" data-testid="settings-default-queries">
           {queries.map((query, index) => (
@@ -99,6 +159,7 @@ export function DefaultQueriesSection() {
               open={openId === query.id}
               first={index === 0}
               last={index === queries.length - 1}
+              index={index}
               onOpen={(open) => setOpenId(open ? query.id : null)}
             />
           ))}
@@ -110,7 +171,7 @@ export function DefaultQueriesSection() {
         <button
           type="button"
           className="btn"
-          disabled={full}
+          disabled={full || state.mode === "readonly"}
           data-testid="add-default-query"
           onClick={() => create(defaultPlan("block"))}
         >
@@ -120,7 +181,7 @@ export function DefaultQueriesSection() {
         <button
           type="button"
           className="btn"
-          disabled={full}
+          disabled={full || state.mode === "readonly"}
           data-testid="add-default-sparql"
           onClick={() => create(null)}
         >
@@ -143,21 +204,25 @@ function DefaultQueryRow({
   open,
   first,
   last,
+  index,
   onOpen,
 }: {
   query: DefaultQuery;
   open: boolean;
   first: boolean;
   last: boolean;
+  index: number;
   onOpen: (open: boolean) => void;
 }) {
+  const session = useSession();
   const state = useSessionState();
+  const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
   const bodyId = useId();
   // The payload, not the record: every write rebuilds the stored object, so a
   // memo keyed on its identity would recompile the plan on each keystroke of the
   // name beside it.
-  const payload = query.plan?.payload;
+  const payload = query.document.plan?.payload;
   const plan = useMemo(
     () => (payload ? decodePlan(payload, QUERY_PLAN_VERSION) : null),
     [payload],
@@ -171,9 +236,9 @@ function DefaultQueryRow({
   // count here is the count there rather than a second opinion about it.
   const request = useMemo(() => ({
     language: QUERY_LANGUAGE,
-    source: compiled ? compiled.source : query.source,
+    source: compiled ? compiled.source : query.document.source,
     bindings: compiled ? planBindings(compiled.parameters, runtime) : {},
-  }), [compiled, query.source, runtime]);
+  }), [compiled, query.document.source, runtime]);
   const answer = useQueryAnswer(defaultQueryKey(query), request);
   const count = answerLabel(answer, null, message);
 
@@ -181,8 +246,8 @@ function DefaultQueryRow({
   // draft is the truth while the reader is typing SPARQL into it. Committing on
   // blur rather than per keystroke keeps a half-written query from spending the
   // pause between two words as a parse error.
-  const [draft, setDraft] = useState(query.source);
-  useEffect(() => setDraft(query.source), [query.source]);
+  const [draft, setDraft] = useState(query.document.source);
+  useEffect(() => setDraft(query.document.source), [query.document.source]);
 
   const summary = plan
     ? planSummary(plan, {
@@ -193,14 +258,27 @@ function DefaultQueryRow({
     : { lead: "SPARQL", detail: null };
   const name = query.title || summaryLabel(summary);
 
+  const owner = { kind: "graph_default", default_query_id: query.id } as const;
+  const activeView = query.document.views.find(
+    (view) => view.id === query.document.default_view_id,
+  ) ?? query.document.views[0]!;
+  const save = (command: Parameters<typeof session.execute>[0]) => {
+    void session.execute(command).catch((cause: unknown) => {
+      notify.failure(message("failure.saveQuery"), cause);
+    });
+  };
+
   const commitSource = () => {
-    if (draft !== query.source) putDefaultQuery({ ...query, source: draft });
+    if (draft !== query.document.source) {
+      save({ type: "set_query_source", owner, source: draft });
+    }
   };
 
   /** A plan and the SPARQL it compiles to are written together, never apart. */
   const commitPlan = (next: QueryPlan) => {
-    putDefaultQuery({
-      ...query,
+    save({
+      type: "set_query_plan",
+      owner,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(next) },
       source: compilePlan(next).source,
     });
@@ -230,7 +308,12 @@ function DefaultQueryRow({
           placeholder={summaryLabel(summary)}
           maxLength={MAX_DEFAULT_QUERY_TITLE}
           data-testid="default-query-title"
-          onChange={(event) => putDefaultQuery({ ...query, title: event.target.value })}
+          disabled={state.mode === "readonly"}
+          onChange={(event) => save({
+            type: "rename_default_query",
+            default_query_id: query.id,
+            title: event.target.value,
+          })}
         />
         {count && (
           <span
@@ -248,6 +331,7 @@ function DefaultQueryRow({
               type="button"
               className="icon-btn"
               aria-label={message("settings.defaultQueryActions", { name })}
+              disabled={state.mode === "readonly"}
               data-testid="default-query-actions"
             >
               <MoreHorizontalIcon aria-hidden />
@@ -258,17 +342,25 @@ function DefaultQueryRow({
                 ordered by saying so — the drag a longer list would earn buys
                 nothing a phone or a keyboard can use. */}
             <DropdownMenuItem
-              disabled={first}
+              disabled={first || state.mode === "readonly"}
               data-testid="default-query-up"
-              onSelect={() => moveDefaultQuery(query.id, -1)}
+              onSelect={() => save({
+                type: "move_default_query",
+                default_query_id: query.id,
+                index: index - 1,
+              })}
             >
               <ChevronUpIcon aria-hidden />
               {message("common.moveUp")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={last}
+              disabled={last || state.mode === "readonly"}
               data-testid="default-query-down"
-              onSelect={() => moveDefaultQuery(query.id, 1)}
+              onSelect={() => save({
+                type: "move_default_query",
+                default_query_id: query.id,
+                index: index + 1,
+              })}
             >
               <ChevronDownIcon aria-hidden />
               {message("common.moveDown")}
@@ -276,8 +368,12 @@ function DefaultQueryRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
+              disabled={state.mode === "readonly"}
               data-testid="default-query-remove"
-              onSelect={() => removeDefaultQuery(query.id)}
+              onSelect={() => save({
+                type: "delete_default_query",
+                default_query_id: query.id,
+              })}
             >
               <Trash2Icon aria-hidden />
               {message("settings.removeDefaultQuery")}
@@ -291,7 +387,7 @@ function DefaultQueryRow({
             <QueryBuilder
               plan={plan}
               snapshot={state.snapshot}
-              readonly={false}
+              readonly={state.mode === "readonly"}
               onChange={commitPlan}
             />
           ) : (
@@ -299,6 +395,7 @@ function DefaultQueryRow({
               className="query-source"
               value={draft}
               spellCheck={false}
+              readOnly={state.mode === "readonly"}
               aria-label={message("query.source")}
               data-testid="default-query-source"
               onChange={(event) => setDraft(event.target.value)}
@@ -317,9 +414,8 @@ function DefaultQueryRow({
               {answer.error}
             </p>
           )}
-          {/* The one presentation choice the journal cannot make for itself:
-              there is no document under a default query for a reader to write a
-              layout into, so it is written here. */}
+          {/* The journal only reads this graph-owned document; Settings is the
+              one place that changes how its answer is presented. */}
           <div className="default-query-layout">
             <span className="field-label" id={`${bodyId}-layout`}>
               {message("settings.defaultQueryLayout")}
@@ -329,9 +425,14 @@ function DefaultQueryRow({
                 <button
                   key={layout}
                   type="button"
-                  aria-pressed={query.layout === layout}
+                  aria-pressed={activeView.kind === layout}
+                  disabled={state.mode === "readonly"}
                   data-testid={`default-query-layout-${layout}`}
-                  onClick={() => putDefaultQuery({ ...query, layout })}
+                  onClick={() => save({
+                    type: "put_query_view",
+                    owner,
+                    view: { ...activeView, kind: layout },
+                  })}
                 >
                   {message(layout === "list" ? "query.viewList" : "query.viewTable")}
                 </button>

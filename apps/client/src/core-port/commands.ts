@@ -4,6 +4,7 @@
 import type {
   PropertyValue,
   PropertyValueType,
+  PropertyDocument,
   QueryPlanDocument,
   QueryView,
   OutlineOwner,
@@ -21,6 +22,12 @@ export type PropertyOwnerRef =
   | { kind: "tag"; tag_id: string }
   /** What the tag copies onto whatever it is added to. */
   | { kind: "tag_default"; tag_id: string };
+
+export type QueryOwnerRef =
+  | { kind: "page"; id: string }
+  | { kind: "block"; owner: OutlineOwner; id: string }
+  | { kind: "tag"; tag_id: string }
+  | { kind: "graph_default"; default_query_id: string };
 
 interface OutlineItemInput {
   depth: number;
@@ -80,13 +87,18 @@ export type Command =
   | { type: "remove_property"; owner: PropertyOwnerRef; key: string }
   | { type: "add_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
   | { type: "remove_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
-  | { type: "set_query_source"; owner: PropertyOwnerRef; source: string }
-  | { type: "splice_query_source"; owner: PropertyOwnerRef; index: number; delete: number; insert: string }
-  | { type: "set_query_plan"; owner: PropertyOwnerRef; plan: QueryPlanDocument; source: string }
-  | { type: "clear_query_plan"; owner: PropertyOwnerRef }
-  | { type: "put_query_view"; owner: PropertyOwnerRef; view: QueryView }
-  | { type: "remove_query_view"; owner: PropertyOwnerRef; view_id: string }
-  | { type: "set_query_default_view"; owner: PropertyOwnerRef; view_id: string }
+  | { type: "create_default_query"; default_query_id: string; title: string; document: PropertyDocument }
+  | { type: "import_default_queries"; queries: Array<{ id: string; title: string; document: PropertyDocument }> }
+  | { type: "rename_default_query"; default_query_id: string; title: string }
+  | { type: "move_default_query"; default_query_id: string; index: number }
+  | { type: "delete_default_query"; default_query_id: string }
+  | { type: "set_query_source"; owner: QueryOwnerRef; source: string }
+  | { type: "splice_query_source"; owner: QueryOwnerRef; index: number; delete: number; insert: string }
+  | { type: "set_query_plan"; owner: QueryOwnerRef; plan: QueryPlanDocument; source: string }
+  | { type: "clear_query_plan"; owner: QueryOwnerRef }
+  | { type: "put_query_view"; owner: QueryOwnerRef; view: QueryView }
+  | { type: "remove_query_view"; owner: QueryOwnerRef; view_id: string }
+  | { type: "set_query_default_view"; owner: QueryOwnerRef; view_id: string }
   | { type: "add_tag"; entity: EntityRef; tag_id: string }
   | { type: "remove_tag"; entity: EntityRef; tag_id: string }
   | { type: "undo" }

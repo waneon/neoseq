@@ -590,9 +590,9 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   so they take the same ink the outline gives them and the header stays the quieter of the
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell
   and hanging every other cell from its ceiling is that difference made visible.
-  **A surface may read a question it cannot write.** A journal's standing queries are
-  set up in Settings and answered under the day, so there the caption is a caption and
-  not a disclosure — a control that opened an editor for a question written elsewhere
+  **A surface may read a question it cannot write.** A graph's standing queries are
+  set up in that graph's Settings and answered under the day, so there the caption is a
+  caption and not a disclosure — a control that opened an editor for a question written elsewhere
   would be a promise the surface cannot keep — the layout menu is *absent* rather than
   parked disabled, since every row of it writes a document this surface does not own,
   and the route to the editor is a row in the `⋯` menu named after the place it goes.
@@ -629,7 +629,7 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   colour in the product, the accent's eight hue steps included — and nothing beside them, no
   slider: the accent is one of a handful of answers, not a quantity to tune. The accent has
   no preview of its own because the product behind the dialog is one.
-  **The journal's standing queries are a list of questions, not a form.** A row states the
+  **The graph's standing queries are a list of questions, not a form.** A row states the
   question the way the journal will caption it and carries the same count the journal will
   print beside the answer, so it too previews itself at the size it renders — a query whose
   SPARQL is wrong says so here, where it can be fixed, and not only there. Its two entrances

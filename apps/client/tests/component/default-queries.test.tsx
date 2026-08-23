@@ -10,8 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CorePortFailure } from "../../src/core-worker";
 import {
-  addDefaultQuery,
-  defaultQueries,
+  newDefaultQueryDocument,
   type DefaultQuery,
 } from "../../src/entities/default-queries";
 import { decodePlan } from "../../src/entities/query-plan";
@@ -31,15 +30,22 @@ const settings = (
   />
 );
 
-function seed(query: Partial<DefaultQuery> = {}): DefaultQuery {
-  const created = addDefaultQuery({
-    title: "Scheduled",
-    source: SOURCE,
-    layout: "list",
-    ...query,
+function queries(harness: Harness): DefaultQuery[] {
+  return harness.session.getState().snapshot.settings.default_queries;
+}
+
+async function seed(
+  harness: Harness,
+  query: { title?: string; source?: string; layout?: "list" | "table" } = {},
+): Promise<DefaultQuery> {
+  const id = `dq-${crypto.randomUUID()}`;
+  await harness.session.execute({
+    type: "create_default_query",
+    default_query_id: id,
+    title: query.title ?? "Scheduled",
+    document: newDefaultQueryDocument(query.source ?? SOURCE, undefined, query.layout ?? "list"),
   });
-  if (!created) throw new Error("the seed was refused");
-  return created;
+  return queries(harness).find((entry) => entry.id === id)!;
 }
 
 /** One row, one block, so a `SELECT ?block` has something true to answer with. */
@@ -69,36 +75,90 @@ afterEach(() => {
 });
 
 describe("writing a standing question", () => {
+  it("imports pre-v4 browser queries only after explicit consent", async () => {
+    localStorage.setItem("neoseq.settings.v1", JSON.stringify({
+      defaultQueries: [{
+        id: "dq-legacy",
+        title: "Legacy",
+        source: SOURCE,
+        layout: "table",
+      }],
+    }));
+    resetAppSettingsCache();
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+
+    expect(queries(harness)).toHaveLength(0);
+    await user.click(screen.getByTestId("import-legacy-default-queries"));
+    await waitFor(() => expect(queries(harness)).toHaveLength(1));
+    expect(queries(harness)[0].title).toBe("Legacy");
+    expect(queries(harness)[0].document.views[0].kind).toBe("table");
+    expect(JSON.parse(localStorage.getItem("neoseq.settings.v1") ?? "{}"))
+      .not.toHaveProperty("defaultQueries");
+  });
+
+  it("keeps the browser source until an applied import is durable", async () => {
+    localStorage.setItem("neoseq.settings.v1", JSON.stringify({
+      defaultQueries: [{
+        id: "dq-legacy",
+        title: "Legacy",
+        source: SOURCE,
+        layout: "list",
+      }],
+    }));
+    resetAppSettingsCache();
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    harness.port.failNextSave = {
+      code: "storage_full",
+      message: "full",
+      retryable: true,
+    };
+
+    await user.click(screen.getByTestId("import-legacy-default-queries"));
+    await waitFor(() => expect(queries(harness)).toHaveLength(1));
+    expect(JSON.parse(localStorage.getItem("neoseq.settings.v1") ?? "{}"))
+      .toHaveProperty("defaultQueries");
+
+    await harness.session.retry();
+    await waitFor(() => expect(
+      JSON.parse(localStorage.getItem("neoseq.settings.v1") ?? "{}"),
+    ).not.toHaveProperty("defaultQueries"));
+  });
+
   it("offers the same two entrances the outline's `/` does", async () => {
     const user = userEvent.setup();
-    await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
 
     await user.click(screen.getByTestId("add-default-query"));
-    const [built] = defaultQueries();
+    const [built] = queries(harness);
     // A built query stores its plan beside the SPARQL it compiled to, exactly as
-    // a query owned by a block does — the graph's shape, kept in the browser.
-    expect(decodePlan(built.plan!.payload, built.plan!.version)?.subject).toBe("block");
-    expect(built.source).toContain("?q_subject a neo:Block .");
+    // a query owned by a block does — one canonical shape in the graph.
+    expect(decodePlan(
+      built.document.plan!.payload,
+      built.document.plan!.version,
+    )?.subject).toBe("block");
+    expect(built.document.source).toContain("?q_subject a neo:Block .");
     expect(await screen.findByTestId("query-builder")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("add-default-sparql"));
-    const written = defaultQueries()[1];
+    const written = queries(harness)[1];
     // Hand-written SPARQL is its own entrance, never a conversion: the editor
     // opens empty and waits for the person who asked for it.
-    expect(written.plan).toBeUndefined();
+    expect(written.document.plan).toBeNull();
     expect(await screen.findByTestId("default-query-source")).toHaveValue("");
   });
 
   it("names itself after the question until the reader names it", async () => {
     const user = userEvent.setup();
-    await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     await user.click(screen.getByTestId("add-default-query"));
 
     const title = screen.getByTestId("default-query-title");
     expect(title).toHaveAttribute("placeholder", "Blocks");
 
     await user.type(title, "Today");
-    expect(defaultQueries()[0].title).toBe("Today");
+    await waitFor(() => expect(queries(harness)[0].title).toBe("Today"));
   });
 
   it("says how much a hand-written query finds, where it can still be fixed", async () => {
@@ -116,7 +176,7 @@ describe("writing a standing question", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("default-query-count")).toHaveTextContent("1 result"));
-    expect(defaultQueries()[0].source).toBe(SOURCE);
+    expect(queries(harness)[0].document.source).toBe(SOURCE);
   });
 
   it("reports a failing query as a failure rather than as an empty answer", async () => {
@@ -142,24 +202,24 @@ describe("writing a standing question", () => {
 
   it("orders and deletes from the row's own menu", async () => {
     const user = userEvent.setup();
-    seed({ title: "First" });
-    seed({ title: "Second" });
-    await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    await seed(harness, { title: "First" });
+    await seed(harness, { title: "Second" });
 
     await user.click(screen.getAllByTestId("default-query-actions")[0]);
     await user.click(await screen.findByRole("menuitem", { name: "Move down" }));
-    expect(defaultQueries().map((query) => query.title)).toEqual(["Second", "First"]);
+    expect(queries(harness).map((query) => query.title)).toEqual(["Second", "First"]);
 
     await user.click(screen.getAllByTestId("default-query-actions")[0]);
     await user.click(await screen.findByRole("menuitem", { name: "Delete query" }));
-    expect(defaultQueries().map((query) => query.title)).toEqual(["First"]);
+    expect(queries(harness).map((query) => query.title)).toEqual(["First"]);
   });
 });
 
 describe("reading a standing question", () => {
   it("answers under today's journal, captioned by the name the reader gave it", async () => {
-    seed();
     const harness = await mountAt(`/g/${GRAPH_ID}/journal`);
+    await seed(harness);
     const section = await screen.findByTestId("journal-queries");
     expect(within(section).getByTestId("query-summary")).toHaveTextContent("Scheduled");
 
@@ -173,8 +233,8 @@ describe("reading a standing question", () => {
 
   it("opens no editor there, and says where the editor is", async () => {
     const user = userEvent.setup();
-    seed();
-    await mountAt(`/g/${GRAPH_ID}/journal`);
+    const harness = await mountAt(`/g/${GRAPH_ID}/journal`);
+    await seed(harness);
     const section = await screen.findByTestId("journal-queries");
 
     // The caption is a caption: there is nothing on this surface to disclose,
@@ -194,14 +254,13 @@ describe("reading a standing question", () => {
   });
 
   it("stands only on the day it is standing in", async () => {
-    seed();
-    await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
+    const harness = await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
+    await seed(harness);
     await waitFor(() => expect(screen.getByTestId("journal-title")).toBeInTheDocument());
     expect(screen.queryByTestId("journal-queries")).not.toBeInTheDocument();
   });
 
   it("is one execution, whether it is being read or edited", async () => {
-    seed();
     const harness = await mountAt(
       `/g/${GRAPH_ID}/journal`,
       <>
@@ -209,6 +268,7 @@ describe("reading a standing question", () => {
         {settings}
       </>,
     );
+    await seed(harness);
     expect(screen.getByTestId("journal-queries")).toBeInTheDocument();
     expect(screen.getByTestId("settings-default-queries")).toBeInTheDocument();
 
