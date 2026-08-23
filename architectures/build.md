@@ -74,10 +74,10 @@ it reproducible and cacheable.
 `devenv --profile browser test` runs the browser gate independently: pinned
 Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and
 dark-mode coverage, and a real two-profile collaboration scenario. One
-Playwright run owns the preview server — on its default port, or on
-`NEOSEQ_PREVIEW_PORT` when a development server already holds it — and schedules
-every browser project. The
-scenario uses a test-only sync-server process with an allocated port and an
+Playwright run owns the preview server — on a port of the gate's own, kept
+clear of the one the development server asks for so the two coexist, and
+overridable with `NEOSEQ_PREVIEW_PORT` — and schedules every browser project.
+The scenario uses a test-only sync-server process with an allocated port and an
 isolated database on the managed PostgreSQL service. The profile selects this
 gate and keeps the browser runtime out of the normal shell. CI runs the portable
 and browser gates explicitly and uploads checkout-local Playwright failure
