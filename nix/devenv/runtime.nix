@@ -71,11 +71,14 @@ in
         ports = lib.mkIf (!release) {
           http.allocate = 4173;
         };
+        env = lib.optionalAttrs (!release) {
+          NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.sync}";
+        };
         exec =
           if release then
             "exec ${lib.getExe pkgs.caddy} run --config ${caddyfile} --adapter caddyfile"
           else
-            "exec pnpm --filter @neoseq/client exec vite";
+            "exec pnpm --filter @neoseq/client exec vite --port ${toString ports.web}";
         after = if release then [ "devenv:processes:sync-server" ] else [ "wasm:build-dev" ];
         ready.http.get = {
           port = ports.web;
@@ -91,10 +94,8 @@ in
         };
         env = {
           DATABASE_URL = databaseUrl;
-          NEOSEQ_TEST_AUTH_SECRET = "neoseq-local-development-only";
-        }
-        // lib.optionalAttrs release {
           NEOSEQ_BIND = "127.0.0.1:${toString ports.sync}";
+          NEOSEQ_TEST_AUTH_SECRET = "neoseq-local-development-only";
         };
         exec =
           if release then
