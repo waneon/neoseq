@@ -185,9 +185,10 @@ specialized controls without becoming a schema authority:
   page: the generic property route never offers it, so a query is never
   half-created by a picker. A tag's query needs no authoring step at all; the tag
   page seeds a plan that asks what the tag is for and writes nothing until a
-  reader shapes it. The same surface serves graph-owned standing journal queries:
-  their documents live in graph settings, the journal supplies no write owner and
-  remains read-only, and `features/settings/` edits them through graph commands;
+  reader shapes it. The same surface serves graph-owned standing journal queries.
+  Their documents live in graph settings and retain a `graph_default` write owner
+  in both places: `features/settings/` manages the question and its view collection,
+  while the journal's presented binding may persist only the current saved view;
 - `builtin.task-*` provides workflow, priority, moment, and recurrence controls. A
   moment is a `date` key plus an optional `HH:MM` companion key
   (`builtin.task-scheduled-time`, `builtin.task-deadline-time`), so the day stays a

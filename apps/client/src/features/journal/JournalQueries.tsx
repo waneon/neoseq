@@ -2,11 +2,11 @@
 //
 // A journal day is where a person looks first, so it is where the answers they
 // look for every day belong: what is scheduled, what slipped, what is still
-// open. They belong to this graph, travel with it, and are written in its
-// Settings. Every one is an ordinary query document, so the answer is rendered
-// by the same surface that renders a query in a bullet or on a tag's page. This
-// module contributes the two things that are only true here: *where* they sit,
-// and the route back to the place that wrote them.
+// open. They belong to this graph, travel with it, and are authored in its
+// Settings. Every one is an ordinary query document, so the answer and its saved
+// presentation use the same surface as a query in a bullet or on a tag's page.
+// This module contributes the two things that are only true here: *where* they
+// sit, and the route back to the place that authors them.
 //
 // **Today only.** A relative operand resolves against the reader's own today
 // every time it runs, so `due tomorrow` asked on a page dated last March would
@@ -61,9 +61,12 @@ export function JournalQueries() {
       {entries.map(({ query, document }) => (
         <QueryPanel
           key={query.id}
-          owner={null}
+          binding={{
+            kind: "presented",
+            owner: { kind: "graph_default", default_query_id: query.id },
+            document,
+          }}
           executionKey={defaultQueryKey(query)}
-          document={document}
           variant="inline"
           caption={query.title || undefined}
           label={query.title || message("settings.defaultQueries")}

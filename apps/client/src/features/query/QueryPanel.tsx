@@ -30,16 +30,18 @@
 // holds what is true of that view alone: its name, a copy of it, its place in the
 // row, and deleting it.
 //
-// **A surface need not own the document it reads.** A journal's standing question
-// belongs to the graph rather than to any entity in it and is written in that
-// graph's Settings, so it reaches here with no owner at all: the answer, its
-// order, and its verbs are the reader's, and every edit that would change the
-// *question* stops at the one write path below. What stays writable is the graph
-// — a result row is still the block it quotes.
+// **A surface need not author the document it presents.** A journal's standing
+// question belongs to the graph and is authored in that graph's Settings, but
+// its saved view is shaped where the answer is read. The binding therefore keeps
+// the document's real owner and states the surface's role separately: a managed
+// surface may change the question and its collection of views; a presented one
+// may change only the current view's presentation. What stays writable in either
+// role is the graph — a result row is still the block it quotes.
 //
-// The surface owns its authoring and presentation state. The answer itself has a
-// graph-session lifetime: leaving the route or virtualizing the row that holds it
-// must not turn a result back into an empty first frame when it returns.
+// The binding owns authority; the surface owns its local disclosures. The answer
+// itself has a graph-session lifetime: leaving the route or virtualizing the row
+// that holds it must not turn a result back into an empty first frame when it
+// returns.
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -156,22 +158,29 @@ const SEED_VIEWS: QueryView[] = [
   { id: "all", name: "All", kind: "table", position: 0, columns: [], options: defaultOptions() },
 ];
 
+export type QueryBinding =
+  | {
+      /** This surface authors the query and manages its saved views. */
+      kind: "managed";
+      owner: QueryOwnerRef;
+      /** Absent while a seeded query has not yet been shaped. */
+      document: PropertyDocument | undefined;
+      seedPlan?: QueryPlan;
+    }
+  | {
+      /** This surface reads the query and shapes only its current saved view. */
+      kind: "presented";
+      owner: QueryOwnerRef;
+      /** A presented query already exists; only a managed surface may create it. */
+      document: PropertyDocument;
+      seedPlan?: never;
+    };
+
 export interface QueryPanelProps {
-  /**
-   * Where the document is written — `null` when it is not written here. Stated
-   * rather than optional, so a new surface has to answer the question.
-   */
-  owner: QueryOwnerRef | null;
+  /** The document's identity and this surface's authority over it. */
+  binding: QueryBinding;
   /** Stable identity for the cached answer — one per surface, not per render. */
   executionKey: string;
-  /** The stored document, or `undefined` while the surface is still only a seed. */
-  document: PropertyDocument | undefined;
-  /**
-   * What the surface asks before anyone has shaped it. A seeded surface is a
-   * *promise* rather than a write: reading a tag never touches the graph, and the
-   * first edit is what brings the document into existence.
-   */
-  seedPlan?: QueryPlan;
   variant: "inline" | "page";
   /** The section's accessible name. */
   label: string;
@@ -188,26 +197,26 @@ export interface QueryPanelProps {
 }
 
 export function QueryPanel({
-  owner,
+  binding,
   executionKey,
-  document,
-  seedPlan,
   variant,
   label,
   caption,
   actions,
   onRemove,
 }: QueryPanelProps) {
+  const { owner, document, seedPlan } = binding;
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
   const history = useHistoryActions();
   const { message, formatJournalDate, compare } = useI18n();
   const readonly = state.mode === "readonly";
-  /** Whether the document is this surface's to show — an editor to open at all. */
-  const hosted = owner !== null;
-  /** …and whether it is this surface's to change. */
-  const writable = hosted && !readonly;
+  /** The question itself and the collection around its current view. */
+  const canEditDefinition = binding.kind === "managed" && !readonly;
+  const canManageViews = binding.kind === "managed" && !readonly;
+  /** Layout belongs where the answer is read, in either surface role. */
+  const canEditCurrentView = !readonly;
   const tabbed = variant === "page";
 
   const source = document?.source ?? "";
@@ -225,20 +234,18 @@ export function QueryPanel({
   // it is, is theirs from the first press — never re-derived under their hands,
   // and remembered in this browser past the visit that pressed it, the way the
   // fold under it is (§ presentation).
-  const [editing, setEditing] = useState(() => hosted && queryEditorIsOpen(
+  const [editing, setEditing] = useState(() => binding.kind === "managed" && queryEditorIsOpen(
     session.graphId,
     executionKey,
     unwritten(storedPlan ?? seedPlan ?? null),
   ));
   const [showSource, setShowSource] = useState(false);
-  // Reading is never read-only. Without a document to write the order into, it
-  // lives here for as long as the surface is mounted — and it has to live *here*
-  // rather than in the table, because the header's sort panel edits the same
-  // list the header row does.
+  // Reading is never read-only. On a read-only graph the order lives here for as
+  // long as the surface is mounted, because there is nowhere to save it.
   const [localTableSorts, setLocalTableSorts] = useState<QueryViewSort[]>([]);
   const [localListSorts, setLocalListSorts] = useState<QueryViewFieldSort[]>([]);
-  // Which view a reader who may not write is looking at. A writable graph keeps
-  // that answer in the document, where every replica reads it.
+  // A presented surface does not choose the document-wide default view. Its
+  // selection is local even while it may shape the selected view itself.
   const [localViewId, setLocalViewId] = useState<string | null>(null);
   // Nobody has shaped this query yet, so nothing is written for it yet. The flag
   // is what keeps merely *visiting* a seeded surface out of the graph's history.
@@ -249,7 +256,7 @@ export function QueryPanel({
   useEffect(() => setPlan(storedPlan ?? seedPlan ?? null), [storedPayload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const views = document?.views ?? SEED_VIEWS;
-  const preferredViewId = (writable ? null : localViewId)
+  const preferredViewId = (canManageViews ? null : localViewId)
     ?? document?.default_view_id
     ?? views[0].id;
   const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
@@ -287,26 +294,40 @@ export function QueryPanel({
   }), [document?.language, runBindings, runSource]);
   const { result, error, loading, run } = useQueryAnswer(executionKey, request);
 
-  /**
-   * The document's one write path, and the one place a surface that does not own
-   * it stops. A journal's standing question is read here and written in Settings,
-   * so every command below is a no-op for it rather than a guard repeated at nine
-   * call sites — and a read-only graph is refused in the same place.
-   */
-  const write = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
-    owner && !readonly
-      ? session.execute(command(owner)).then(() => undefined)
-      : Promise.resolve();
+  const execute = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
+    session.execute(command(owner)).then(() => undefined);
+
+  // Identity is not authority. Keeping these ports separate makes an accidental
+  // definition write from a presented surface fail loudly instead of looking
+  // like a successful no-op, while both roles share the saved-view command path.
+  const writeDefinition = (command: (target: QueryOwnerRef) => Command): Promise<void> => {
+    if (!canEditDefinition) {
+      return Promise.reject(new Error("query definition is not writable"));
+    }
+    return execute(command);
+  };
+  const writeCurrentView = (command: (target: QueryOwnerRef) => Command): Promise<void> => {
+    if (!canEditCurrentView) {
+      return Promise.reject(new Error("query view is not writable"));
+    }
+    return execute(command);
+  };
+  const writeViewCollection = (command: (target: QueryOwnerRef) => Command): Promise<void> => {
+    if (!canManageViews) {
+      return Promise.reject(new Error("query views are not manageable"));
+    }
+    return execute(command);
+  };
 
   // One command per pause in the editing, never one per keystroke — and never
   // one at all for a seed nobody has touched, which is what lets a tag page be
   // opened, read, and left without writing anything.
   useEffect(() => {
-    if (!plan || !compiled || !writable || !shaped.current) return;
+    if (!plan || !compiled || !canEditDefinition || !shaped.current) return;
     const payload = encodePlan(plan);
     if (payload === storedPayload) return;
     const timer = window.setTimeout(() => {
-      void write((target) => ({
+      void writeDefinition((target) => ({
         type: "set_query_plan",
         owner: target,
         plan: { version: QUERY_PLAN_VERSION, payload },
@@ -315,7 +336,7 @@ export function QueryPanel({
     }, PLAN_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, compiled, storedPayload, writable, session]);
+  }, [plan, compiled, storedPayload, canEditDefinition, session]);
 
   // Both derived once, not once per render: a canonical revision re-renders every
   // mounted query, and the table rebuilds its column models whenever either of
@@ -381,12 +402,12 @@ export function QueryPanel({
     state.status,
   ]);
   const tableSorts = useMemo(() => {
-    const stored = writable ? (activeView.options.sort ?? []) : localTableSorts;
+    const stored = canEditCurrentView ? (activeView.options.sort ?? []) : localTableSorts;
     const orderableVariables = new Set(
       columns.filter((column) => column.sortable).map((column) => column.variable),
     );
     return stored.filter((sort) => orderableVariables.has(sort.variable));
-  }, [activeView.options.sort, columns, localTableSorts, writable]);
+  }, [activeView.options.sort, columns, localTableSorts, canEditCurrentView]);
   const listSortFields = useMemo<ListSortField[]>(() => {
     if (!plan || plan.subject !== "block") return [];
     return queryFieldsFor(plan.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
@@ -396,10 +417,10 @@ export function QueryPanel({
     }));
   }, [plan, state.snapshot]);
   const listSorts = useMemo(() => {
-    const stored = writable ? (activeView.options.list_sort ?? []) : localListSorts;
+    const stored = canEditCurrentView ? (activeView.options.list_sort ?? []) : localListSorts;
     const orderableFields = new Set(listSortFields.map((field) => field.id));
     return stored.filter((sort) => orderableFields.has(sort.field));
-  }, [activeView.options.list_sort, listSortFields, localListSorts, writable]);
+  }, [activeView.options.list_sort, listSortFields, localListSorts, canEditCurrentView]);
   const activeOrigin = resultEditor.active?.origin.row;
   const activeRowPresent = activeOrigin
     ? resultRows.some((row) => row.key === activeOrigin.key)
@@ -448,14 +469,14 @@ export function QueryPanel({
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
 
   /**
-   * A seeded query becomes a written one the moment somebody shapes it. Every
-   * write below goes through here first, so the view commands — which edit a
-   * document rather than create one — always find one.
+   * A managed seed becomes a written query the moment somebody shapes it. Its
+   * view commands go through here first so they always find a document; a
+   * presented binding is already stored by construction.
    */
   const materialize = async () => {
     if (document || !plan || !compiled) return;
     shaped.current = true;
-    await write((target) => ({
+    await writeDefinition((target) => ({
       type: "set_query_plan",
       owner: target,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
@@ -465,20 +486,43 @@ export function QueryPanel({
 
   const selectView = (viewId: string) => {
     if (viewId === activeView.id) return;
-    if (!writable) {
+    if (!canManageViews) {
       setLocalViewId(viewId);
       return;
     }
     void (async () => {
       await materialize();
-      await write((target) => ({ type: "set_query_default_view", owner: target, view_id: viewId }));
+      await writeViewCollection((target) => ({
+        type: "set_query_default_view",
+        owner: target,
+        view_id: viewId,
+      }));
     })().catch(report);
   };
 
-  const putView = async (next: QueryView): Promise<boolean> => {
+  const putCurrentView = async (next: QueryView): Promise<boolean> => {
+    try {
+      if (binding.kind === "managed") await materialize();
+      await writeCurrentView((target) => ({
+        type: "put_query_view",
+        owner: target,
+        view: next,
+      }));
+      return true;
+    } catch (cause) {
+      report(cause);
+      return false;
+    }
+  };
+
+  const putManagedView = async (next: QueryView): Promise<boolean> => {
     try {
       await materialize();
-      await write((target) => ({ type: "put_query_view", owner: target, view: next }));
+      await writeViewCollection((target) => ({
+        type: "put_query_view",
+        owner: target,
+        view: next,
+      }));
       return true;
     } catch (cause) {
       report(cause);
@@ -496,12 +540,16 @@ export function QueryPanel({
     const position = views.reduce((highest, view) => Math.max(highest, view.position), -1) + 1;
     void (async () => {
       await materialize();
-      await write((target) => ({
+      await writeViewCollection((target) => ({
         type: "put_query_view",
         owner: target,
         view: { id, name, kind, position, columns: [], options: defaultOptions() },
       }));
-      await write((target) => ({ type: "set_query_default_view", owner: target, view_id: id }));
+      await writeViewCollection((target) => ({
+        type: "set_query_default_view",
+        owner: target,
+        view_id: id,
+      }));
     })().catch(report);
   };
 
@@ -514,12 +562,16 @@ export function QueryPanel({
     const position = views.reduce((highest, item) => Math.max(highest, item.position), -1) + 1;
     void (async () => {
       await materialize();
-      await write((target) => ({
+      await writeViewCollection((target) => ({
         type: "put_query_view",
         owner: target,
         view: { ...view, id, name, position },
       }));
-      await write((target) => ({ type: "set_query_default_view", owner: target, view_id: id }));
+      await writeViewCollection((target) => ({
+        type: "set_query_default_view",
+        owner: target,
+        view_id: id,
+      }));
     })().catch(report);
   };
 
@@ -533,14 +585,18 @@ export function QueryPanel({
     const unique = taken
       ? nextAvailableEntityName(next, views.map((item) => item.name))
       : next;
-    void putView({ ...view, name: unique });
+    void putManagedView({ ...view, name: unique });
   };
 
   const removeView = (view: QueryView) => {
     if (views.length <= 1) return;
     void (async () => {
       await materialize();
-      await write((target) => ({ type: "remove_query_view", owner: target, view_id: view.id }));
+      await writeViewCollection((target) => ({
+        type: "remove_query_view",
+        owner: target,
+        view_id: view.id,
+      }));
     })().catch(report);
   };
 
@@ -556,7 +612,13 @@ export function QueryPanel({
       await Promise.all(next.flatMap((view, position) => (
         view.position === position
           ? []
-          : [write((target) => ({ type: "put_query_view", owner: target, view: { ...view, position } }))]
+          : [
+              writeViewCollection((target) => ({
+                type: "put_query_view",
+                owner: target,
+                view: { ...view, position },
+              })),
+            ]
       )));
     })().catch(report);
   };
@@ -587,7 +649,7 @@ export function QueryPanel({
    * A list has nothing to choose between — it draws canonical entities, not a
    * grid — so it has no panel and does not participate in this projection.
    */
-  const choosesColumns = activeView.kind === "table" && writable && plan !== null;
+  const choosesColumns = activeView.kind === "table" && canEditDefinition && plan !== null;
   const choices = choosesColumns && plan
     ? columnChoices(
       columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
@@ -607,7 +669,7 @@ export function QueryPanel({
     const next = base.some((column) => column.variable === variable)
       ? base.map((column) => (column.variable === variable ? { ...column, ...patch } : column))
       : [...base, { variable, hidden: false, width: null, ...patch }];
-    return putView({ ...activeView, columns: dedupe(next) });
+    return putCurrentView({ ...activeView, columns: dedupe(next) });
   };
 
   /**
@@ -620,7 +682,7 @@ export function QueryPanel({
   const setColumnWidths = (widths: Record<string, number | null>) => {
     const base = viewColumnOrder(activeView, columns);
     const known = new Set(base.map((column) => column.variable));
-    return putView({
+    return putCurrentView({
       ...activeView,
       columns: dedupe([
         ...base.map((column) => (column.variable in widths
@@ -678,7 +740,7 @@ export function QueryPanel({
     // The view's record of a column the query no longer has is not a memory of
     // anything, so it goes with it.
     if (activeView.columns.some((column) => column.variable === variable)) {
-      void putView({
+      void putCurrentView({
         ...activeView,
         columns: activeView.columns.filter((column) => column.variable !== variable),
       });
@@ -688,13 +750,16 @@ export function QueryPanel({
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
   const setTableSorts = (next: QueryViewSort[]) => {
-    if (writable) void putView({ ...activeView, options: { ...activeView.options, sort: next } });
-    else setLocalTableSorts(next);
+    if (canEditCurrentView) {
+      void putCurrentView({ ...activeView, options: { ...activeView.options, sort: next } });
+    } else {
+      setLocalTableSorts(next);
+    }
   };
 
   const setListSorts = (next: QueryViewFieldSort[]) => {
-    if (writable) {
-      void putView({ ...activeView, options: { ...activeView.options, list_sort: next } });
+    if (canEditCurrentView) {
+      void putCurrentView({ ...activeView, options: { ...activeView.options, list_sort: next } });
     } else {
       setLocalListSorts(next);
     }
@@ -707,7 +772,7 @@ export function QueryPanel({
     if (index < 0 || target < 0 || target >= order.length) return;
     const next = [...order];
     [next[index], next[target]] = [next[target], next[index]];
-    void putView({ ...activeView, columns: next });
+    void putCurrentView({ ...activeView, columns: next });
   };
 
   /**
@@ -724,11 +789,11 @@ export function QueryPanel({
       return column ? [column] : [];
     });
     const rest = [...known.values()].filter((column) => !order.includes(column.variable));
-    void putView({ ...activeView, columns: [...next, ...rest] });
+    void putCurrentView({ ...activeView, columns: [...next, ...rest] });
   };
 
   const setOption = (patch: Partial<QueryView["options"]>) =>
-    putView({ ...activeView, options: { ...activeView.options, ...patch } });
+    putCurrentView({ ...activeView, options: { ...activeView.options, ...patch } });
 
   const sortOptions = activeView.kind === "list"
     ? (canonicalBlockView ? listSortFields : []).map((descriptor) => ({
@@ -808,7 +873,8 @@ export function QueryPanel({
       <DropdownMenuLabel>{message("query.layout")}</DropdownMenuLabel>
       <DropdownMenuRadioGroup
         value={activeView.kind}
-        onValueChange={(kind) => void putView({ ...activeView, kind: kind as QueryViewKind })}
+        onValueChange={(kind) =>
+          void putCurrentView({ ...activeView, kind: kind as QueryViewKind })}
       >
         <DropdownMenuRadioItem value="table">
           {message("query.viewTable")}
@@ -861,7 +927,7 @@ export function QueryPanel({
         <QueryViewTabs
           views={views}
           activeView={activeView}
-          readonly={readonly}
+          readonly={!canManageViews}
           panelId={outputId}
           onSelect={selectView}
           onAdd={addView}
@@ -944,11 +1010,11 @@ export function QueryPanel({
               here that changes the answer rather than the reading of it, and the
               switches a reader throws while reading before the one they set once.
 
-              Where the document is not this surface's there is no editor to open:
-              a control that opened one for a question written somewhere else
-              would be a promise the surface cannot keep, and the route to the
-              place that writes it is a row in the `⋯` menu, named after it. */}
-          {hosted && plan && (
+              A presented document has no editor here: a control that opened one
+              for a question authored somewhere else would be a promise the
+              surface cannot keep, and the route to its author is a row in the
+              `⋯` menu, named after that place. */}
+          {binding.kind === "managed" && plan && (
             <button
               type="button"
               className="icon-btn"
@@ -974,12 +1040,9 @@ export function QueryPanel({
           {sortOptions.length > 0 && (
             <QuerySortControl options={sortOptions} sorts={sortEntries} onChange={setSortEntries} />
           )}
-          {/* Everything in it writes the document, so it is absent where the
-              document is not writable rather than parked there disabled: § Do /
-              Don't keeps a control that cannot act off the surface. The one thing
-              a reader may still change — the order — is its own control, and it
-              keeps its own local answer. */}
-          {writable && (
+          {/* These are facts about the current saved view, so they remain where
+              the answer is read even when its question is authored elsewhere. */}
+          {canEditCurrentView && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 {/* The header controls are the bespoke 24px icon-btn, not a shadcn
@@ -1106,10 +1169,12 @@ export function QueryPanel({
             wrap={activeView.options.wrap}
             sorts={tableSorts}
             onSort={setTableSorts}
-            onResize={writable ? setColumnWidths : undefined}
-            onHide={writable ? (variable) => setColumn(variable, { hidden: true }) : undefined}
-            onMove={writable ? moveColumn : undefined}
-            onReorder={writable ? reorderColumns : undefined}
+            onResize={canEditCurrentView ? setColumnWidths : undefined}
+            onHide={canEditCurrentView
+              ? (variable) => setColumn(variable, { hidden: true })
+              : undefined}
+            onMove={canEditCurrentView ? moveColumn : undefined}
+            onReorder={canEditCurrentView ? reorderColumns : undefined}
           />
         )}
         {!error && select && visibleRows.length > 0 && canonicalBlockView && (

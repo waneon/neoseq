@@ -13,7 +13,14 @@ import {
   newDefaultQueryDocument,
   type DefaultQuery,
 } from "../../src/entities/default-queries";
-import { decodePlan } from "../../src/entities/query-plan";
+import { compilePlan } from "../../src/entities/query-compile";
+import {
+  decodePlan,
+  defaultPlan,
+  encodePlan,
+  QUERY_PLAN_VERSION,
+  type QueryPlan,
+} from "../../src/entities/query-plan";
 import { resetAppSettingsCache } from "../../src/entities/settings";
 import { JournalView } from "../../src/features/journal/JournalView";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
@@ -36,14 +43,26 @@ function queries(harness: Harness): DefaultQuery[] {
 
 async function seed(
   harness: Harness,
-  query: { title?: string; source?: string; layout?: "list" | "table" } = {},
+  query: {
+    title?: string;
+    source?: string;
+    layout?: "list" | "table";
+    plan?: QueryPlan;
+  } = {},
 ): Promise<DefaultQuery> {
   const id = `dq-${crypto.randomUUID()}`;
+  const source = query.source ?? (query.plan ? compilePlan(query.plan).source : SOURCE);
   await harness.session.execute({
     type: "create_default_query",
     default_query_id: id,
     title: query.title ?? "Scheduled",
-    document: newDefaultQueryDocument(query.source ?? SOURCE, undefined, query.layout ?? "list"),
+    document: newDefaultQueryDocument(
+      source,
+      query.plan
+        ? { version: QUERY_PLAN_VERSION, payload: encodePlan(query.plan) }
+        : undefined,
+      query.layout ?? "list",
+    ),
   });
   return queries(harness).find((entry) => entry.id === id)!;
 }
@@ -62,6 +81,33 @@ function oneRow(harness: Harness): void {
     }],
     revision: 2,
     frontier: "fake-2",
+  };
+}
+
+/** The default block plan's two display columns, plus its carried row identity. */
+function tableRow(harness: Harness): void {
+  harness.port.queryResult = {
+    kind: "select",
+    variables: ["q_subject", "text", "page"],
+    rows: [{
+      q_subject: {
+        kind: "iri",
+        value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
+        entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      },
+      text: {
+        kind: "literal",
+        value: "Ship the builder",
+        datatype: "http://www.w3.org/2001/XMLSchema#string",
+      },
+      page: {
+        kind: "iri",
+        value: `urn:neoseq:entity:${GRAPH_ID}:page:home`,
+        entity: { kind: "page", id: "home" },
+      },
+    }],
+    revision: 3,
+    frontier: "fake-3",
   };
 }
 
@@ -96,7 +142,7 @@ describe("writing a standing question", () => {
     expect(screen.queryByTestId("default-query-source")).not.toBeInTheDocument();
   });
 
-  it("chooses a table's columns here, because here is the only place that owns it", async () => {
+  it("authors a table's executable columns here", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     await user.click(screen.getByTestId("add-default-query"));
@@ -178,6 +224,39 @@ describe("writing a standing question", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete query" }));
     expect(queries(harness).map((query) => query.title)).toEqual(["First"]);
   });
+
+  it("shows a presented view's hidden column truthfully", async () => {
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    const query = await seed(harness, { layout: "table", plan: defaultPlan("block") });
+    const view = query.document.views[0];
+    await act(async () => {
+      await harness.session.execute({
+        type: "put_query_view",
+        owner: { kind: "graph_default", default_query_id: query.id },
+        view: {
+          ...view,
+          columns: [
+            { variable: "text", hidden: false, width: null },
+            { variable: "page", hidden: true, width: null },
+          ],
+        },
+      });
+    });
+
+    await user.click(await screen.findByTestId("default-query-disclose"));
+    await user.click(screen.getByTestId("query-columns-trigger"));
+    const panel = await screen.findByTestId("query-columns-panel");
+    const page = within(panel).getByTestId("query-column-toggle-page");
+    expect(page).not.toBeChecked();
+
+    await user.click(page);
+    await waitFor(() => {
+      const saved = queries(harness)
+        .find((entry) => entry.id === query.id)?.document.views[0];
+      expect(saved?.columns.find((column) => column.variable === "page")?.hidden).toBe(false);
+    });
+  });
 });
 
 describe("reading a standing question", () => {
@@ -195,18 +274,19 @@ describe("reading a standing question", () => {
       expect(within(section).getByTestId("query-count")).toHaveTextContent("1 result"));
   });
 
-  it("opens no editor there, and says where the editor is", async () => {
+  it("keeps authoring in Settings while presenting the saved view here", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/journal`);
-    await seed(harness);
+    await seed(harness, { plan: defaultPlan("block") });
     const section = await screen.findByTestId("journal-queries");
 
     // The caption is a caption: there is nothing on this surface to disclose,
     // because the question is not written here.
     expect(within(section).getByTestId("query-summary").tagName).toBe("SPAN");
-    // Nor is there anything to lay out — every row of that menu writes a document
-    // this surface does not own.
-    expect(within(section).queryByTestId("query-view-trigger")).not.toBeInTheDocument();
+    expect(within(section).queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
+    expect(within(section).queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
+    // The question is external to this surface; its saved presentation is not.
+    expect(within(section).getByTestId("query-view-trigger")).toBeInTheDocument();
 
     await user.click(within(section).getByTestId("query-actions-trigger"));
     expect(await screen.findByTestId("journal-query-settings"))
@@ -215,6 +295,36 @@ describe("reading a standing question", () => {
     // whose editor is elsewhere.
     await user.click(await screen.findByRole("menuitem", { name: "Show SPARQL" }));
     expect(await screen.findByTestId("query-compiled")).toHaveTextContent("a neo:Block");
+  });
+
+  it("persists a table's column width and order from the presented answer", async () => {
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/journal`);
+    tableRow(harness);
+    const query = await seed(harness, { layout: "table", plan: defaultPlan("block") });
+    const table = await screen.findByTestId("query-table");
+    expect(within(table).getAllByRole("columnheader")[0])
+      .toHaveAttribute("draggable", "true");
+
+    // Keyboard resizing takes the same saved-view path as the pointer gesture.
+    const resize = within(table).getByRole("separator", { name: "Resize Text" });
+    resize.focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => {
+      const view = queries(harness)
+        .find((entry) => entry.id === query.id)?.document.views[0];
+      const widths = new Map(view?.columns.map((column) => [column.variable, column.width]));
+      expect(widths.get("page")).toBeGreaterThan(0);
+      expect(widths.get("text")).toBe((widths.get("page") ?? 0) + 8);
+    });
+
+    await user.click(within(table).getByTestId("query-col-menu-text"));
+    await user.click(await screen.findByRole("menuitem", { name: "Move right" }));
+    await waitFor(() => {
+      const view = queries(harness)
+        .find((entry) => entry.id === query.id)?.document.views[0];
+      expect(view?.columns.map((column) => column.variable)).toEqual(["page", "text"]);
+    });
   });
 
   it("stands only on the day it is standing in", async () => {

@@ -163,10 +163,13 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           onEdit={readonly ? undefined : (key, anchor) => setPicker({ key, anchor })}
         />
         <QueryPanel
-          owner={{ kind: "tag", tag_id: tag.id }}
+          binding={{
+            kind: "managed",
+            owner: { kind: "tag", tag_id: tag.id },
+            document,
+            seedPlan: tagPlan(tag.id),
+          }}
           executionKey={JSON.stringify(["tag", tag.id])}
-          document={document}
-          seedPlan={tagPlan(tag.id)}
           variant="page"
           label={message("tags.queryFor", { name: tag.name })}
         />

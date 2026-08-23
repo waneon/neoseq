@@ -641,16 +641,17 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   so they take the same ink the outline gives them and the header stays the quieter of the
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell
   and hanging every other cell from its ceiling is that difference made visible.
-  **A surface may read a question it cannot write.** A graph's standing queries are
+  **A surface may present a question it cannot author.** A graph's standing queries are
   set up in that graph's Settings and answered under the day, so there the phrase is the same
-  caption it is everywhere and what is missing is the way in: nothing offers an editor for a
-  question written elsewhere, because that would be a promise the surface cannot keep, and the
-  layout menu is *absent* rather than parked disabled, since every row of it writes a document
-  this surface does not own. The route to the editor is a row in the `⋯` menu named after the
-  place it goes.
-  What is still the reader's is the reading: the order of the rows, folding the answer,
-  reading the SPARQL that runs, and editing the blocks the answer quotes — those belong
-  to the graph rather than to the question. Under the journal they sit *after* the append
+  caption it is everywhere and what is missing is the way into the question: nothing offers a
+  builder for a question authored elsewhere, because that would be a promise the surface cannot
+  keep. The document's identity is not discarded, though. Its current saved view is shaped where
+  the answer is read, so layout and sort controls remain on the answer and a table's column order,
+  width, and visibility persist through the graph-owned query just as they do for an embedded
+  query. The route to the author is a row in the `⋯` menu named after the place it goes.
+  What is still the reader's is the reading: shaping the saved view, folding the answer, reading
+  the SPARQL that runs, and editing the blocks the answer quotes — those belong to the graph
+  rather than to the question. Under the journal they sit *after* the append
   zone, which keeps its whole reach, and nothing separates them from the writing but
   that: each is already a bounded object on the canvas, and a heading over them would
   name what their captions already name one at a time.
@@ -686,8 +687,9 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   print beside the answer, so it too previews itself at the size it renders — a question the
   core cannot read says so here, where it can be fixed, and not only there. Its entrance is
   the outline's one, because a second authoring grammar for one document is not a second
-  feature; and because Settings is the only surface that owns a standing question, a table
-  layout chooses its columns here too. One editor is open at a time: a builder is four rows
+  feature; and because Settings is the surface that authors a standing question, a table
+  chooses its executable columns here too. Its saved layout remains shapeable on the answer
+  under the journal. One editor is open at a time: a builder is four rows
   tall, and eight of them turn a pane that scrolls into a pane that only scrolls. Order is
   a menu row rather than a drag — at eight rows a drag buys
   nothing a keyboard or a phone can use — and there is no switch for hiding one, because a

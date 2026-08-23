@@ -29,9 +29,8 @@ export function QueryBlock({ owner: outlineOwner, block }: { owner: OutlineOwner
 
   return (
     <QueryPanel
-      owner={owner}
+      binding={{ kind: "managed", owner, document }}
       executionKey={JSON.stringify([outlineOwnerKey(outlineOwner), block.id])}
-      document={document}
       variant="inline"
       label={message("query.section")}
       onRemove={() => {

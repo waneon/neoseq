@@ -15,7 +15,8 @@
 // this. Nothing here is a second authoring grammar: the builder is the product's
 // own, and what it compiles is stored beside the plan exactly as the graph stores
 // its own queries. A standing question read as a table says which columns it
-// shows here too, because Settings is the only surface that owns it.
+// returns here too, because those columns are part of the question; the saved
+// view can then be shaped wherever its answer is read.
 
 import { useId, useMemo, useState } from "react";
 import {
@@ -45,7 +46,9 @@ import {
 import { todayLocalDate } from "../../entities/journal";
 import { compilePlan, planBindings, QUERY_LANGUAGE } from "../../entities/query-compile";
 import {
+  columnSourceKey,
   columnSourcesFor,
+  columnVariable,
   decodePlan,
   defaultPlan,
   encodePlan,
@@ -198,29 +201,35 @@ function DefaultQueryRow({
   const activeView = query.document.views.find(
     (view) => view.id === query.document.default_view_id,
   ) ?? query.document.views[0]!;
-  const save = (command: Parameters<typeof session.execute>[0]) => {
-    void session.execute(command).catch((cause: unknown) => {
+  const executeCommand = (command: Parameters<typeof session.execute>[0]): Promise<void> =>
+    session.execute(command).catch((cause: unknown) => {
       notify.failure(message("failure.saveQuery"), cause);
     });
+  const save = (command: Parameters<typeof session.execute>[0]): void => {
+    void executeCommand(command);
   };
   /** A plan and the SPARQL it compiles to are written together, never apart. */
-  const commitPlan = (next: QueryPlan) => {
-    save({
+  const commitPlan = (next: QueryPlan): Promise<void> =>
+    executeCommand({
       type: "set_query_plan",
       owner,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(next) },
       source: compilePlan(next).source,
     });
-  };
 
-  // A standing question is read through exactly one view, so there is nothing to
-  // hide a column *in*: the switch and the query's own columns are the same list,
-  // and turning one off takes it out of the question.
+  const hiddenVariables = new Set(
+    activeView.columns.filter((column) => column.hidden).map((column) => column.variable),
+  );
+  // Settings authors which columns the query returns. A presented answer may
+  // hide one only in its saved view, so the same switch also reads and restores
+  // that state instead of claiming the hidden column is still shown.
   const choices = plan
     ? columnChoices(
       columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
       plan.columns,
-      new Set<string>(),
+      new Set(plan.columns
+        .filter((column) => hiddenVariables.has(columnVariable(column)))
+        .map((column) => columnSourceKey(column.source))),
       plan.subject,
       message,
     )
@@ -228,8 +237,42 @@ function DefaultQueryRow({
 
   const toggleColumn = (choice: ColumnChoice, shown: boolean) => {
     if (!plan) return;
-    if (shown) commitPlan(withColumn(plan, choice.source));
-    else if (choice.column) commitPlan(withoutColumn(plan, choice.column.id));
+    if (shown) {
+      if (!choice.column) {
+        void commitPlan(withColumn(plan, choice.source));
+        return;
+      }
+      const variable = columnVariable(choice.column);
+      if (hiddenVariables.has(variable)) {
+        save({
+          type: "put_query_view",
+          owner,
+          view: {
+            ...activeView,
+            columns: activeView.columns.map((column) =>
+              column.variable === variable ? { ...column, hidden: false } : column),
+          },
+        });
+      }
+      return;
+    }
+    if (!choice.column) return;
+    const next = withoutColumn(plan, choice.column.id);
+    if (next === plan) return;
+    const variable = columnVariable(choice.column);
+    void (async () => {
+      await commitPlan(next);
+      if (activeView.columns.some((column) => column.variable === variable)) {
+        await executeCommand({
+          type: "put_query_view",
+          owner,
+          view: {
+            ...activeView,
+            columns: activeView.columns.filter((column) => column.variable !== variable),
+          },
+        });
+      }
+    })();
   };
 
   return (
@@ -351,9 +394,10 @@ function DefaultQueryRow({
               {answer.error}
             </p>
           )}
-          {/* The journal only reads this graph-owned document; Settings changes
-              its presentation. Columns remain part of a table's question and
-              disappear when the answer is read as a list. */}
+          {/* Settings authors the projection and may choose its initial layout;
+              the journal may shape the current saved view without changing the
+              question. Columns remain part of a table's question and disappear
+              when the answer is read as a list. */}
           <div className="default-query-layout">
             <span className="field-label" id={`${bodyId}-layout`}>
               {message("settings.defaultQueryLayout")}

@@ -224,11 +224,14 @@ A graph may also own query documents directly. Its *standing questions* — the
 answers today's journal opens with — live under `graph_settings.default_queries`,
 synchronize with the graph, and use the same document shape as entity queries.
 `QueryOwner` keeps this ownership explicit: entity variants resolve through
-`builtin.query`, while `graph_default` resolves to the settings entry. The
-journal passes no write owner to its query surface because that surface is
-deliberately read-only; the current graph's Settings surface issues the graph
-query commands. Result editing is unaffected: a row still names a block in this
-graph, and writing it remains an ordinary property command.
+`builtin.query`, while `graph_default` resolves to the settings entry. The client
+keeps that identity separate from a query surface's role. A managed surface may
+author the plan and manage the collection of saved views; a presented surface
+may only shape the current saved view. Settings is the standing question's
+managed author, while the journal presents it with the same `graph_default`
+owner and may persist layout, sort, and table column presentation through
+`put_query_view`. Result editing is unaffected: a row still names a block in
+this graph, and writing it remains an ordinary property command.
 
 Ordering semantics are derived rather than stored. The selected field and the
 property registry resolve to one semantic order: declared choices use their
