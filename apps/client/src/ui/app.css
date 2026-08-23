@@ -5505,13 +5505,21 @@ button.query-list-status[data-active="true"] {
 
 /* Empty page: a fake first line, not a button — and not a sentence either. One
    faint bullet in row 1's exact gutter position over a big target says "a line
-   starts here" without putting words in the user's document. */
+   starts here" without putting words in the user's document.
+
+   Its reach is the append zone's, because they are the same offer: the space
+   under the writing is where a line is made, and an empty page is that space
+   with nothing above it yet. A figure of its own here was a step in the page
+   the moment the first block landed — what stood below the outline moved by the
+   difference between the two reserves rather than by the one row that was
+   actually written, and by a different amount at every window height, since one
+   of the two was `40vh` and the other was not. */
 .outline-placeholder {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-0);
   width: 100%;
-  min-height: 200px;
+  min-height: var(--append-h);
   padding: 2px 0 0;
   border: none;
   background: none;
