@@ -683,6 +683,8 @@ function QueryMarkdownField({
   const [slashActive, setSlashActive] = useState(0);
   const [hashRequest, setHashRequest] = useState<BlockCompletionRequest | null>(null);
   const [hashActive, setHashActive] = useState(0);
+  /** Whether the box is hiding part of the value rather than scrolling it. */
+  const [clipped, setClipped] = useState(false);
   const slashResults = useMemo(
     () => slashRequest ? filterSlashItems(slashItems, slashRequest.query) : [],
     [slashItems, slashRequest],
@@ -737,9 +739,33 @@ function QueryMarkdownField({
 
   useLayoutEffect(() => {
     const element = textarea.current;
-    if (!element || previewMarkdown) return;
-    element.style.height = "0";
-    element.style.height = `${Math.max(element.scrollHeight, 24)}px`;
+    if (!element || previewMarkdown) {
+      setClipped(false);
+      return;
+    }
+    const measure = () => {
+      element.style.height = "0";
+      element.style.height = `${Math.max(element.scrollHeight, 24)}px`;
+      // Whether a value that outgrew its box is scrolled or cut is the
+      // stylesheet's decision, so this reads it back rather than making it a
+      // second time. Where the box was told to hide the remainder, the mark that
+      // says so is this component's to draw: `text-overflow` is the ellipsis
+      // everything else in the product ends with, and it is the one property
+      // that never reaches the text inside a textarea.
+      const style = getComputedStyle(element);
+      setClipped(
+        (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth)
+        || (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
+      );
+    };
+    measure();
+    // A column the reader drags narrower cuts a value that fitted a moment ago,
+    // and no render of this cell says so. jsdom has neither layout nor a
+    // `ResizeObserver`; there the measurement above stands on its own.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, [previewMarkdown, projected]);
 
   useLayoutEffect(() => {
@@ -752,10 +778,14 @@ function QueryMarkdownField({
   }, [markdown]);
 
   const Root = preview === "block" ? "div" : "span";
+  // An open cell scrolls again: a caret that has travelled past the edge has to
+  // be followed, and the mark would be standing where the writing is.
+  const cut = clipped && !current;
   return (
     <Root
       className={cn("query-result-editor", className)}
       data-active={current ? true : undefined}
+      data-clipped={cut ? true : undefined}
       data-saving={markdown?.saving || undefined}
     >
       <BlockTextArea
@@ -885,6 +915,20 @@ function QueryMarkdownField({
           }
         }}
       />
+      {cut && (
+        // The ellipsis the cell could not draw for itself. It is a glyph beside
+        // the line rather than a patch over its last characters, so it needs no
+        // opaque fill to match a row that changes colour under the pointer — and
+        // it hands a press on to the writing surface it stands next to, because
+        // the whole of a query cell opens it.
+        <span
+          className="query-result-clip"
+          aria-hidden
+          onClick={() => textarea.current?.focus()}
+        >
+          …
+        </span>
+      )}
       {previewMarkdown && (
         <BlockMarkdown
           markdown={projected}

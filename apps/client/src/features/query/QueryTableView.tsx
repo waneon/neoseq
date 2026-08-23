@@ -131,6 +131,12 @@ export function QueryTableView({
   const canonicalSizingRef = useRef(canonicalSizing);
   const canonicalSizingKeyRef = useRef(canonicalSizingKey);
   const resizeCommitPending = useRef(false);
+  // A heading is two handles in one place: the whole of it moves the column, and
+  // the nine pixels at its trailing edge size it. HTML drag claims a press
+  // anywhere inside a draggable element, so the smaller, deliberate target lost
+  // every time — the column travelled instead of widening. The separator's own
+  // pointerdown runs first and says so, and `dragstart` stands down.
+  const resizingFrom = useRef(false);
   const [dragging, setDragging] = useState<string | null>(null);
   /** The column the seam is drawn before, or `null` for past the last one. */
   const [seamBefore, setSeamBefore] = useState<string | null | undefined>(undefined);
@@ -279,6 +285,10 @@ export function QueryTableView({
                     data-seam={dragging === null ? undefined : seamOf(header.column.id)}
                     draggable={Boolean(onReorder) && order.length > 1}
                     onDragStart={(event) => {
+                      if (resizingFrom.current) {
+                        event.preventDefault();
+                        return;
+                      }
                       event.dataTransfer.setData("text/plain", label);
                       event.dataTransfer.effectAllowed = "move";
                       setDragging(header.column.id);
@@ -422,9 +432,11 @@ export function QueryTableView({
                           data-resizing={header.column.getIsResizing() || undefined}
                           onPointerDown={(event) => {
                             if (resizeCommitPending.current) return;
+                            resizingFrom.current = true;
                             header.getResizeHandler()(event);
                             const commit = () => {
                               window.removeEventListener("pointerup", commit);
+                              resizingFrom.current = false;
                               commitSize(header.column.id, Math.round(header.column.getSize()));
                             };
                             window.addEventListener("pointerup", commit);

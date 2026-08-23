@@ -5026,9 +5026,49 @@ button.chip:focus-visible .chip-glyph .chip-x {
   padding-block: calc((var(--target) - var(--lh-sm)) / 2);
 }
 
+/* ── A cut value ends in a mark, not a scrollbar ──
+   Every other clipped run in the product ends in `text-overflow: ellipsis`, and
+   a table cell is the one place that property cannot reach: it never applies to
+   the text inside a textarea. So a value wider than its column grew a trough
+   under one row of a table that already scrolls sideways — the second scrollbar
+   § The answer is shown in full was written to remove, this time on the other
+   axis and inside a single cell. A settled cell hides what it cannot show and
+   the editor draws the ellipsis beside the line; an open one scrolls again,
+   because a caret that has travelled past the edge has to be followed. */
 .query-table[data-wrap="false"] .query-result-input {
-  overflow-x: auto;
+  overflow: hidden;
   white-space: pre;
+}
+
+.query-table[data-wrap="false"] .query-result-editor[data-active] .query-result-input {
+  overflow: auto;
+}
+
+/* The line makes room for the mark rather than sliding under it, which is what
+   keeps the mark a glyph instead of an opaque patch over the last characters —
+   there is no fill to keep in step with a row that changes colour under the
+   pointer. Only here: the axis a cell cuts on is horizontal, so the stack the
+   editor is at rest becomes a line for as long as something is cut from it. */
+.query-table tbody td .query-result-editor[data-clipped="true"] {
+  flex-direction: row;
+  align-items: center;
+}
+
+/* The line takes the whole of what the mark leaves, so there is no free space
+   for the cell's own centring to distribute and nothing here has to outrank it. */
+.query-table tbody td .query-result-editor[data-clipped="true"] > .query-result-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* It is the same mark `text-overflow` would have drawn, so it is the same ink as
+   the writing it ends — a quieter one would read as a control rather than as the
+   rest of a sentence, and the rendered projection beside it draws the real one
+   in `--ink`. */
+.query-result-clip {
+  flex: none;
+  color: inherit;
+  cursor: text;
 }
 
 .query-table[data-wrap="true"] .query-result-input {
@@ -5240,6 +5280,15 @@ button.query-list-line {
 .query-table tbody td .query-markdown-preview {
   min-height: 0;
   align-content: center;
+}
+
+/* The one clipped value in the table that needs no mark of its own: a rendered
+   projection is a run of phrasing content in a box of its own, so the ellipsis
+   the rest of the product ends with reaches it. It used to be cut by the cell
+   with nothing to say it had been. */
+.query-table[data-wrap="false"] tbody td .query-markdown-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .query-list-status {
