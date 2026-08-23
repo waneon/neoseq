@@ -511,6 +511,7 @@
   "vim.mode.insert": "INSERT",
   "vim.mode.normal": "NORMAL",
   "vim.mode.operatorPending": "OPERATOR",
+  "vim.mode.visualLine": "VISUAL LINE",
   "shell.closeMenu": "메뉴 닫기",
   "shell.favourites": "즐겨찾기",
   "shell.graphNavigation": "그래프 탐색",

@@ -122,6 +122,7 @@ import {
   caretForVerticalEntry,
   type VimMode,
   type VimSurfaceCommand,
+  type VimVisualLineCommand,
 } from "../blocks/editor/vim/engine";
 import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
 import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
@@ -171,7 +172,15 @@ const VIM_MODE_MESSAGE = {
   normal: "vim.mode.normal",
   insert: "vim.mode.insert",
   "operator-pending": "vim.mode.operatorPending",
+  "visual-line": "vim.mode.visualLine",
 } as const satisfies Record<VimMode, MessageKey>;
+
+interface VisualLineRange {
+  anchorId: string;
+  headId: string;
+  returnCaret: number;
+  returnColumn: number;
+}
 
 // Pending rows bridge the async gap between Enter and the core's block-creation
 // acknowledgement: each is focused synchronously so fast typing
@@ -275,6 +284,11 @@ interface EditorContext {
     rows: OutlineRow[],
     count: number,
   ): void;
+  runVimVisualLine(
+    command: VimVisualLineCommand,
+    row?: OutlineRow,
+    rows?: OutlineRow[],
+  ): void;
   /** Pointer entry points for the selection strip and the bullet handle. */
   onGripPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
   onSurfacePointerDown(row: OutlineRow, event: ReactPointerEvent): void;
@@ -374,6 +388,7 @@ export function Outliner({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [visualLine, setVisualLineState] = useState<VisualLineRange | null>(null);
   const [pointerGesture, dispatchPointerGesture] = useReducer(pointerGestureReducer, {
     kind: "idle",
   });
@@ -406,6 +421,7 @@ export function Outliner({
   const collapsedRef = useRef(collapsed);
   const rowsRef = useRef<OutlineRow[]>([]);
   const selectedRef = useRef<ReadonlySet<string>>(selected);
+  const visualLineRef = useRef<VisualLineRange | null>(visualLine);
   const anchorId = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -425,6 +441,7 @@ export function Outliner({
   outlineRef.current = outline;
   collapsedRef.current = collapsed;
   selectedRef.current = selected;
+  visualLineRef.current = visualLine;
 
   const rows = withPendingRows(flattenOutline(outline, collapsed), draftState.pendingRows);
   rowsRef.current = rows;
@@ -437,6 +454,17 @@ export function Outliner({
     const mask = coveredMask(rows, selected);
     return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
   }, [rows, selected]);
+
+  const setVisualLine = useCallback((next: VisualLineRange | null) => {
+    visualLineRef.current = next;
+    setVisualLineState(next);
+  }, []);
+
+  const leaveVisualLine = useCallback(() => {
+    if (!visualLineRef.current) return;
+    setVisualLine(null);
+    vim.reset();
+  }, [setVisualLine, vim.reset]);
 
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
@@ -462,11 +490,30 @@ export function Outliner({
   // A block that left the page cannot stay selected — a stale id would send the
   // next bulk command at something that is no longer there.
   useEffect(() => {
+    const visual = visualLineRef.current;
+    if (
+      visual
+      && (
+        !findBlock(outlineRef.current, visual.anchorId)
+        || !findBlock(outlineRef.current, visual.headId)
+      )
+    ) {
+      const empty = new Set<string>();
+      selectedRef.current = empty;
+      setSelected(empty);
+      setVisualLine(null);
+      anchorId.current = null;
+      vim.reset();
+      return;
+    }
     if (selectedRef.current.size === 0) return;
     const live = new Set(
       [...selectedRef.current].filter((id) => findBlock(outlineRef.current, id) !== undefined),
     );
-    if (live.size !== selectedRef.current.size) setSelected(live);
+    if (live.size !== selectedRef.current.size) {
+      selectedRef.current = live;
+      setSelected(live);
+    }
   }, [state.revision]);
 
   // Whether the press now in flight began while something was floating over the
@@ -627,13 +674,25 @@ export function Outliner({
     setFocusedId(id);
     // The caret and the block selection are two answers to "what does the next
     // command act on", so only one of them may exist at a time.
-    if (id !== null) setSelected((current) => (current.size === 0 ? current : new Set()));
-  }, [dispatchDraft]);
+    if (id !== null) {
+      if (selectedRef.current.size > 0) {
+        const empty = new Set<string>();
+        selectedRef.current = empty;
+        setSelected(empty);
+      }
+      leaveVisualLine();
+    }
+  }, [dispatchDraft, leaveVisualLine]);
 
   const clearSelection = useCallback(() => {
     anchorId.current = null;
-    setSelected((current) => (current.size === 0 ? current : new Set()));
-  }, []);
+    if (selectedRef.current.size > 0) {
+      const empty = new Set<string>();
+      selectedRef.current = empty;
+      setSelected(empty);
+    }
+    leaveVisualLine();
+  }, [leaveVisualLine]);
 
   /**
    * Focus leaving a row's text is what returns a Markdown block to its reading
@@ -928,6 +987,152 @@ export function Outliner({
     [notify, session],
   );
 
+  const visualCaret = useCallback((range: VisualLineRange): number => {
+    const allRows = rowsRef.current;
+    const anchor = rowIndexOf(allRows, range.anchorId);
+    const head = rowIndexOf(allRows, range.headId);
+    const row = allRows[head];
+    if (!row) return 0;
+    const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
+    if (head === anchor) return Math.min(range.returnCaret, value.length);
+    return caretForVerticalEntry(value, head < anchor ? -1 : 1, range.returnColumn);
+  }, []);
+
+  const restoreVisualCaret = useCallback((range: VisualLineRange) => {
+    const caret = visualCaret(range);
+    setVisualLine(null);
+    anchorId.current = null;
+    const empty = new Set<string>();
+    selectedRef.current = empty;
+    setSelected(empty);
+    setFocus(range.headId, caret);
+  }, [setFocus, setVisualLine, visualCaret]);
+
+  const runVimVisualLine = useCallback((
+    command: VimVisualLineCommand,
+    row?: OutlineRow,
+    allRows: OutlineRow[] = rowsRef.current,
+  ) => {
+    if (command.action === "begin") {
+      if (!row || readonly || isPendingId(row.block.id)) {
+        vim.reset();
+        return;
+      }
+      flushNow(row.block.id);
+      const anchor = rowIndexOf(allRows, row.block.id);
+      if (anchor < 0) {
+        vim.reset();
+        return;
+      }
+      const head = stepVisualLineIndex(allRows, anchor, anchor, 1, command.count - 1);
+      const range: VisualLineRange = {
+        anchorId: row.block.id,
+        headId: allRows[head].block.id,
+        returnCaret: command.caret,
+        returnColumn: command.column,
+      };
+      anchorId.current = range.anchorId;
+      setVisualLine(range);
+      const ids = selectableIds(allRows, anchor, head);
+      selectedRef.current = ids;
+      setSelected(ids);
+      takeTreeFocus();
+      return;
+    }
+
+    const range = visualLineRef.current;
+    if (!range) {
+      vim.reset();
+      return;
+    }
+    const anchor = rowIndexOf(allRows, range.anchorId);
+    const head = rowIndexOf(allRows, range.headId);
+    if (anchor < 0 || head < 0) {
+      clearSelection();
+      return;
+    }
+
+    if (command.action === "move" || command.action === "edge") {
+      const target = command.action === "move"
+        ? stepVisualLineIndex(allRows, anchor, head, command.direction, command.count)
+        : edgeVisualLineIndex(allRows, anchor, command.edge);
+      const next = { ...range, headId: allRows[target].block.id };
+      setVisualLine(next);
+      const ids = selectableIds(allRows, anchor, target);
+      selectedRef.current = ids;
+      setSelected(ids);
+      return;
+    }
+    if (command.action === "cancel") {
+      restoreVisualCaret(range);
+      return;
+    }
+
+    const roots = selectionRoots(allRows, selectedRef.current);
+    if (roots.length === 0) {
+      restoreVisualCaret(range);
+      return;
+    }
+    if (command.action === "delete") {
+      const mask = coveredMask(allRows, selectedRef.current);
+      const first = mask.findIndex(Boolean);
+      let fallback: OutlineRow | undefined;
+      for (let index = first; index < allRows.length; index += 1) {
+        if (!mask[index]) {
+          fallback = allRows[index];
+          break;
+        }
+      }
+      if (!fallback) {
+        for (let index = first - 1; index >= 0; index -= 1) {
+          if (!mask[index]) {
+            fallback = allRows[index];
+            break;
+          }
+        }
+      }
+      setVisualLine(null);
+      anchorId.current = null;
+      const empty = new Set<string>();
+      selectedRef.current = empty;
+      setSelected(empty);
+      void run(
+        { type: "delete_blocks", owner, block_ids: roots.map((entry) => entry.block.id) },
+        message("failure.deleteBlocks", { count: roots.length }),
+      ).then(() => setFocus(fallback?.block.id ?? null, 0));
+      return;
+    }
+
+    const caret = visualCaret(range);
+    setVisualLine(null);
+    anchorId.current = null;
+    const empty = new Set<string>();
+    selectedRef.current = empty;
+    setSelected(empty);
+    setFocus(range.headId, caret);
+    void run(
+      {
+        type: command.action === "indent" ? "indent_blocks" : "outdent_blocks",
+        owner,
+        block_ids: roots.map((entry) => entry.block.id),
+      },
+      message(command.action === "indent" ? "failure.indentBlock" : "failure.outdentBlock"),
+    );
+  }, [
+    clearSelection,
+    flushNow,
+    message,
+    owner,
+    readonly,
+    restoreVisualCaret,
+    run,
+    setFocus,
+    setVisualLine,
+    takeTreeFocus,
+    vim.reset,
+    visualCaret,
+  ]);
+
   // ── pointer plumbing ────────────────────────────────────────────────────
   //
   // Both gestures listen on the window rather than on the element they started
@@ -1036,6 +1241,7 @@ export function Outliner({
         // A native text selection may already be underway (the drag began in a
         // focused textarea); it must not survive next to a block selection.
         window.getSelection()?.removeAllRanges();
+        leaveVisualLine();
         takeTreeFocus();
         dispatchPointerGesture({ type: "select" });
         setSelected(selectableIds(rowsRef.current, anchor, start));
@@ -1078,7 +1284,14 @@ export function Outliner({
         },
       );
     },
-    [anchorRowIndex, clearSelection, listen, takeTreeFocus, updateAutoScroll],
+    [
+      anchorRowIndex,
+      clearSelection,
+      leaveVisualLine,
+      listen,
+      takeTreeFocus,
+      updateAutoScroll,
+    ],
   );
 
   const onGripPointerDown = useCallback(
@@ -1178,12 +1391,14 @@ export function Outliner({
       const anchor = anchorRowIndex(rowsRef.current);
       if (event.shiftKey && anchor >= 0) {
         event.preventDefault();
+        leaveVisualLine();
         takeTreeFocus();
         setSelected(selectableIds(rowsRef.current, anchor, index));
         return;
       }
       if (event.metaKey || event.ctrlKey) {
         event.preventDefault();
+        leaveVisualLine();
         takeTreeFocus();
         anchorId.current = row.block.id;
         setSelected((current) => {
@@ -1217,6 +1432,7 @@ export function Outliner({
             }
             if (readonly) return;
             started = true;
+            leaveVisualLine();
             takeTreeFocus();
             setSelected(moving);
             dispatchPointerGesture({ type: "drag" });
@@ -1238,15 +1454,24 @@ export function Outliner({
           if (cancelled) return;
           if (!started) {
             // A press that never travelled is a click: put the caret in the line.
-            if (keymap === "vim" && !readonly) vim.reset("insert");
             setFocus(row.block.id);
+            if (keymap === "vim" && !readonly) vim.reset("insert");
             return;
           }
           if (target) applyMove(target, moving);
         },
       );
     },
-    [applyMove, keymap, listen, readonly, setFocus, updateAutoScroll, vim],
+    [
+      applyMove,
+      keymap,
+      leaveVisualLine,
+      listen,
+      readonly,
+      setFocus,
+      updateAutoScroll,
+      vim,
+    ],
   );
 
   const onRowContextMenu = useCallback(
@@ -1521,6 +1746,7 @@ export function Outliner({
       void applyTagOption(row.block.id, chosen);
     },
     toggleCollapse: (id) => {
+      if (visualLineRef.current) clearSelection();
       const expanding = collapsedRef.current.has(id);
       const next = nextCollapsed(collapsedRef.current, id);
       const after = flattenOutline(outlineRef.current, next);
@@ -1740,6 +1966,7 @@ export function Outliner({
         message(kind === "indent" ? "failure.indentBlock" : "failure.outdentBlock"),
       );
     },
+    runVimVisualLine,
     insertRootBlock: (index) => {
       void session
         .execute({
@@ -1937,12 +2164,13 @@ export function Outliner({
   // so aligning it moves the page out from under the caret the user placed. A
   // row already on screen is by definition in view, whichever way focus reached
   // it, so intersection is the whole test.
+  const keyboardTargetId = focusedId ?? visualLine?.headId ?? null;
   useEffect(() => {
-    if (!focusedId) return;
-    const index = rowIndexOf(rows, focusedId);
+    if (!keyboardTargetId) return;
+    const index = rowIndexOf(rows, keyboardTargetId);
     if (index < 0) return;
     const element = viewportRef.current?.querySelector(
-      `[data-block-id="${cssEscape(focusedId)}"]`,
+      `[data-block-id="${cssEscape(keyboardTargetId)}"]`,
     );
     if (element && scrollElement) {
       const row = element.getBoundingClientRect();
@@ -1951,7 +2179,7 @@ export function Outliner({
     }
     virtualizer.scrollToIndex(index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedId]);
+  }, [keyboardTargetId]);
 
   // Mod+P means "properties of what is in front of me". While a block is focused
   // that is the block; the shell falls back to the page when this slot is empty.
@@ -2005,6 +2233,27 @@ export function Outliner({
    * itself holds focus, which is exactly when no text field can lose them. */
   const onSelectionKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (selected.size === 0 || event.nativeEvent.isComposing) return;
+    if (keymap === "vim" && visualLine) {
+      const interpretation = vim.interpret(
+        {
+          value: "",
+          selectionStart: 0,
+          selectionEnd: 0,
+          editable: !readonly,
+          supportsVisualLine: true,
+        },
+        vimKeyFromEvent(event),
+      );
+      if (interpretation.handled) {
+        event.preventDefault();
+        for (const effect of interpretation.effects) {
+          if (effect.kind === "surface" && effect.command.type === "visual-line") {
+            editor.runVimVisualLine(effect.command);
+          }
+        }
+        return;
+      }
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       // Put the caret back where the selection started rather than leaving focus
@@ -2071,7 +2320,7 @@ export function Outliner({
       <span className="sr-only" aria-live="polite">
         {selectionCount > 0 ? message("outline.selection", { count: selectionCount }) : ""}
       </span>
-      {keymap === "vim" && focusedId && (
+      {keymap === "vim" && (focusedId || visualLine) && (
         <span
           className="vim-mode-indicator"
           data-mode={vim.state.mode}
@@ -2107,7 +2356,13 @@ export function Outliner({
           role="tree"
           aria-label={message("outline.blocks")}
           aria-multiselectable="true"
-          aria-activedescendant={focusedId ? `row-${focusedId}` : undefined}
+          aria-activedescendant={
+            focusedId
+              ? `row-${focusedId}`
+              : visualLine
+                ? `row-${visualLine.headId}`
+                : undefined
+          }
           style={{ height: virtualizer.getTotalSize() }}
           ref={viewportRef}
           tabIndex={-1}
@@ -2252,12 +2507,88 @@ function sameIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean
 }
 
 /** Real (non-pending) block ids in the inclusive row range. */
-function selectableIds(rows: OutlineRow[], from: number, to: number): Set<string> {
+function selectableIds(rows: readonly OutlineRow[], from: number, to: number): Set<string> {
   const ids = idsInRange(rows, from, to);
   for (const id of [...ids]) {
     if (isPendingId(id)) ids.delete(id);
   }
   return ids;
+}
+
+/**
+ * Moves between visually distinct structural selections. Descendants already
+ * covered by a selected ancestor are passengers, not extra Vim line units.
+ */
+function stepVisualLineIndex(
+  rows: readonly OutlineRow[],
+  anchor: number,
+  from: number,
+  direction: -1 | 1,
+  count: number,
+): number {
+  let index = from;
+  let remaining = Math.max(0, count);
+  while (remaining > 0) {
+    const candidate = nextVisualLineIndex(rows, anchor, index, direction);
+    if (candidate === index) break;
+    index = candidate;
+    remaining -= 1;
+  }
+  return index;
+}
+
+function nextVisualLineIndex(
+  rows: readonly OutlineRow[],
+  anchor: number,
+  from: number,
+  direction: -1 | 1,
+): number {
+  const movingTowardAnchor = direction === 1 ? from < anchor : from > anchor;
+
+  if (direction === 1 && !movingTowardAnchor) {
+    const mask = coveredMask(rows, selectableIds(rows, anchor, from));
+    let candidate = from + 1;
+    while (
+      candidate < rows.length
+      && (mask[candidate] || isPendingId(rows[candidate].block.id))
+    ) {
+      candidate += 1;
+    }
+    return candidate < rows.length ? candidate : from;
+  }
+
+  if (direction === -1 && movingTowardAnchor) {
+    const roots = selectionRoots(rows, selectableIds(rows, anchor, from));
+    for (let cursor = roots.length - 1; cursor >= 0; cursor -= 1) {
+      const candidate = rows.findIndex((row) => row.block.id === roots[cursor].block.id);
+      if (candidate < from) return candidate;
+    }
+    return from;
+  }
+
+  let candidate = from + direction;
+  while (candidate >= 0 && candidate < rows.length && isPendingId(rows[candidate].block.id)) {
+    candidate += direction;
+  }
+  return candidate >= 0 && candidate < rows.length ? candidate : from;
+}
+
+function edgeVisualLineIndex(
+  rows: readonly OutlineRow[],
+  anchor: number,
+  edge: "first" | "last",
+): number {
+  const direction = edge === "first" ? 1 : -1;
+  let boundary = edge === "first" ? 0 : rows.length - 1;
+  while (boundary >= 0 && boundary < rows.length && isPendingId(rows[boundary].block.id)) {
+    boundary += direction;
+  }
+  boundary = Math.max(0, Math.min(rows.length - 1, boundary));
+  const roots = selectionRoots(rows, selectableIds(rows, anchor, boundary));
+  const target = edge === "first" ? roots[0] : roots[roots.length - 1];
+  return target
+    ? rows.findIndex((row) => row.block.id === target.block.id)
+    : anchor;
 }
 
 interface Metrics {
@@ -2629,6 +2960,7 @@ function handleOutlineVim(
       selectionStart: textarea.selectionStart,
       selectionEnd: textarea.selectionEnd,
       editable: !editor.readonly,
+      supportsVisualLine: !editor.readonly && !isPendingId(row.block.id),
     },
     vimKeyFromEvent(event),
   );
@@ -2657,6 +2989,10 @@ function runOutlineVimSurface(
   rows: OutlineRow[],
   command: VimSurfaceCommand,
 ): void {
+  if (command.type === "visual-line") {
+    editor.runVimVisualLine(command, row, rows);
+    return;
+  }
   if (command.type === "history") {
     editor.runHistory(row.block.id, command.redo);
     return;
@@ -3185,6 +3521,7 @@ function BlockRow({
             // and its arrow-key navigation, and `readOnly` is what refuses the
             // edit — not the absence of a way in.
             onActivate={(caret, anchor) => {
+              editor.setFocus(row.block.id, caret);
               if (
                 editor.keymap === "vim"
                 && !editor.readonly
@@ -3192,7 +3529,6 @@ function BlockRow({
               ) {
                 editor.vim.reset("insert");
               }
-              editor.setFocus(row.block.id, caret);
             }}
           />
         )}

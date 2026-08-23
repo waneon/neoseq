@@ -83,6 +83,7 @@ const VIM_MODE_MESSAGE = {
   normal: "vim.mode.normal",
   insert: "vim.mode.insert",
   "operator-pending": "vim.mode.operatorPending",
+  "visual-line": "vim.mode.visualLine",
 } as const satisfies Record<VimMode, MessageKey>;
 
 type BlockRef = Extract<QueryEntityRef, { kind: "block" }>;
@@ -930,6 +931,7 @@ function QueryMarkdownField({
                 selectionStart: event.currentTarget.selectionStart,
                 selectionEnd: event.currentTarget.selectionEnd,
                 editable: true,
+                supportsVisualLine: false,
               },
               vimKeyFromEvent(event),
             );

@@ -722,6 +722,7 @@ export interface MessageArgumentMap {
   "vim.mode.insert": undefined;
   "vim.mode.normal": undefined;
   "vim.mode.operatorPending": undefined;
+  "vim.mode.visualLine": undefined;
 }
 
 export type MessageKey = keyof MessageArgumentMap;

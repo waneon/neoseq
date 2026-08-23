@@ -70,6 +70,15 @@ composition, auto-pair, and completion behavior as the standard keymap.
 Pointer activation enters Insert mode at the chosen caret; keyboard motion
 between blocks retains the current modal state.
 
+Visual Line is the Vim entry point to the outline's existing structural block
+selection, not a DOM text range. The interpreter emits linewise intents while
+the outline owns stable anchor/head block IDs, derives their visible range, and
+hands focus to the tree. Motions advance between visually distinct selections,
+so descendants already covered by an ancestor do not become hidden motion
+steps. Leaving the mode restores a native caret at the active
+end. Query projections advertise no linewise-selection capability and remain in
+Normal mode when `V` is pressed.
+
 Text motions and motion-based delete/change operators are shared. Structural
 intents are adapted by the host: the outline treats one block as one Vim unit and
 provides cross-block `j`/`k`, `o`/`O`, `dd`, and `>>`/`<<`; query result editors

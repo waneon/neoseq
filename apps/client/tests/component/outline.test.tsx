@@ -97,6 +97,154 @@ describe("outliner keyboard commands", () => {
     }
   });
 
+  it("extends Visual Line across visible blocks and restores the caret at its head", async () => {
+    setEditorKeymap("vim");
+    try {
+      await mountOutline(["one", "two", "three", "four"]);
+      const user = userEvent.setup();
+      const first = screen.getAllByLabelText("Block text")[0] as HTMLTextAreaElement;
+      await user.click(first);
+      await user.keyboard("{Escape}");
+      first.setSelectionRange(2, 2);
+
+      await user.keyboard("V");
+      await waitFor(() => expect(screen.getByRole("tree")).toHaveFocus());
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("VISUAL LINE");
+      expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
+        "true",
+        "false",
+        "false",
+        "false",
+      ]);
+
+      await user.keyboard("2j");
+      expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
+        "true",
+        "true",
+        "true",
+        "false",
+      ]);
+      await user.keyboard("k");
+      expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
+        "true",
+        "true",
+        "false",
+        "false",
+      ]);
+      await user.keyboard("G");
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "true"))
+        .toBe(true);
+      await user.keyboard("gg");
+      expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
+        "true",
+        "false",
+        "false",
+        "false",
+      ]);
+      await user.keyboard("G");
+      await user.keyboard("V");
+
+      const fourth = screen.getAllByLabelText("Block text")[3] as HTMLTextAreaElement;
+      await waitFor(() => expect(fourth).toHaveFocus());
+      expect(fourth).toHaveAttribute("data-vim-mode", "normal");
+      expect([fourth.selectionStart, fourth.selectionEnd]).toEqual([2, 2]);
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "false"))
+        .toBe(true);
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
+  it("moves Visual Line past descendants already covered by the selection", async () => {
+    setEditorKeymap("vim");
+    try {
+      const { session } = await mountOutline(["A", "D"]);
+      const page = findPage(session.getState().snapshot, "home")!;
+      const child = await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: page.blocks[0].id,
+        index: 0,
+        markdown: "B",
+      });
+      await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: child.created_block,
+        index: 0,
+        markdown: "C",
+      });
+      await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(4));
+
+      const user = userEvent.setup();
+      const first = screen.getAllByLabelText("Block text")[0] as HTMLTextAreaElement;
+      await user.click(first);
+      await user.keyboard("{Escape}V");
+      expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
+        "true",
+        "true",
+        "true",
+        "false",
+      ]);
+
+      await user.keyboard("j");
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "true"))
+        .toBe(true);
+
+      await user.keyboard("kV");
+      await waitFor(() => expect(first).toHaveFocus());
+      expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
+        "false",
+        "false",
+        "false",
+        "false",
+      ]);
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
+  it("leaves Visual Line through pointer editing and structural actions", async () => {
+    setEditorKeymap("vim");
+    try {
+      const { session } = await mountOutline(["root", "two", "three", "tail"]);
+      const user = userEvent.setup();
+      const inputs = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+      await user.click(inputs[1]);
+      await user.keyboard("{Escape}Vj");
+      expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("data-selected", "true");
+      expect(screen.getAllByRole("treeitem")[2]).toHaveAttribute("data-selected", "true");
+
+      await user.click(inputs[3]);
+      expect(inputs[3]).toHaveAttribute("data-vim-mode", "insert");
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "false"))
+        .toBe(true);
+
+      await user.click(inputs[1]);
+      await user.keyboard("{Escape}Vj>");
+      await waitFor(() => {
+        expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("aria-level", "2");
+        expect(screen.getAllByRole("treeitem")[2]).toHaveAttribute("aria-level", "2");
+      });
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("NORMAL");
+
+      await user.keyboard("Vk");
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("VISUAL LINE");
+      await user.keyboard("d");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual(["root", "tail"]);
+        expect(page?.blocks[0].children).toHaveLength(0);
+      });
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("NORMAL");
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
   it("keeps IME input behind the Vim mode boundary", async () => {
     setEditorKeymap("vim");
     try {

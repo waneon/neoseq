@@ -109,6 +109,43 @@ describe("Vim key interpreter", () => {
       .toEqual([{ kind: "surface", command: { type: "open", side: "before" } }]);
   });
 
+  it("keeps Visual Line structural and capability-gated", () => {
+    const unsupported = interpretVimKey(initialVimState(), snapshot("one"), bare("V", true));
+    expect(unsupported.state.mode).toBe("normal");
+    expect(unsupported.effects).toEqual([]);
+
+    const supported = { ...snapshot("one", 2), supportsVisualLine: true };
+    const counted = press(initialVimState(), supported, "3", "V");
+    expect(counted.state.mode).toBe("visual-line");
+    expect(counted.effects).toEqual([
+      {
+        kind: "surface",
+        command: {
+          type: "visual-line",
+          action: "begin",
+          count: 3,
+          caret: 2,
+          column: 2,
+        },
+      },
+    ]);
+
+    const moved = press(counted.state, supported, "2", "j");
+    expect(moved.state.mode).toBe("visual-line");
+    expect(moved.effects).toEqual([
+      {
+        kind: "surface",
+        command: { type: "visual-line", action: "move", direction: 1, count: 2 },
+      },
+    ]);
+
+    const deleted = interpretVimKey(moved.state, supported, bare("d"));
+    expect(deleted.state.mode).toBe("normal");
+    expect(deleted.effects).toEqual([
+      { kind: "surface", command: { type: "visual-line", action: "delete" } },
+    ]);
+  });
+
   it("does not expose editing effects from a read-only surface", () => {
     const deleting = press(initialVimState(), snapshot("one", 0, false), "d", "w");
     expect(deleting.handled).toBe(true);

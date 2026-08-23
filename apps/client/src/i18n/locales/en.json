@@ -511,6 +511,7 @@
   "vim.mode.insert": "INSERT",
   "vim.mode.normal": "NORMAL",
   "vim.mode.operatorPending": "OPERATOR",
+  "vim.mode.visualLine": "VISUAL LINE",
   "shell.closeMenu": "Close menu",
   "shell.favourites": "Favourites",
   "shell.graphNavigation": "Graph navigation",

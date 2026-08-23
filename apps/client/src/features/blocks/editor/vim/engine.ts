@@ -4,7 +4,7 @@
 // does not know React, textarea DOM, outline trees or query rows. Structural
 // commands leave as intents so each editing surface can preserve its own rules.
 
-export type VimMode = "normal" | "insert" | "operator-pending";
+export type VimMode = "normal" | "insert" | "operator-pending" | "visual-line";
 export type VimOperator = "delete" | "change" | "indent" | "outdent";
 
 export interface VimState {
@@ -22,6 +22,8 @@ export interface VimSnapshot {
   selectionStart: number;
   selectionEnd: number;
   editable: boolean;
+  /** Whether this host can turn a linewise selection into structural units. */
+  supportsVisualLine?: boolean;
 }
 
 export interface VimKey {
@@ -39,7 +41,24 @@ export type VimSurfaceCommand =
   | { type: "delete-unit"; count: number }
   | { type: "indent"; count: number }
   | { type: "outdent"; count: number }
-  | { type: "history"; redo: boolean };
+  | { type: "history"; redo: boolean }
+  | VimVisualLineCommand;
+
+export type VimVisualLineCommand =
+  | {
+      type: "visual-line";
+      action: "begin";
+      count: number;
+      caret: number;
+      column: number;
+    }
+  | { type: "visual-line"; action: "move"; direction: -1 | 1; count: number }
+  | { type: "visual-line"; action: "edge"; edge: "first" | "last" }
+  | { type: "visual-line"; action: "cancel" }
+  | {
+      type: "visual-line";
+      action: "delete" | "indent" | "outdent";
+    };
 
 export type VimEffect =
   | { kind: "selection"; start: number; end: number }
@@ -502,6 +521,67 @@ function deleteCharacters(snapshot: VimSnapshot, count: number): VimEffect | nul
   return to > from ? editEffect(snapshot, from, to, "", false) : null;
 }
 
+function interpretVisualLine(state: VimState, key: VimKey): VimInterpretation {
+  const finish = (action: "cancel" | "delete" | "indent" | "outdent") =>
+    result(normalState(), [{ kind: "surface", command: { type: "visual-line", action } }]);
+
+  if (key.key === "Escape" || key.key === "V" || (key.ctrl && key.key === "[")) {
+    return finish("cancel");
+  }
+  if (key.key === "ContextMenu" || (key.shift && key.key === "F10")) return pass(state);
+  if (key.ctrl || key.meta || key.alt) return pass(state);
+  if (/^[1-9]$/.test(key.key) || (key.key === "0" && state.count.length > 0)) {
+    return result(appendCount(state, key.key));
+  }
+  if (state.prefix === "g") {
+    if (key.key === "g") {
+      return result(initialVimState("visual-line"), [
+        {
+          kind: "surface",
+          command: { type: "visual-line", action: "edge", edge: "first" },
+        },
+      ]);
+    }
+    return result(initialVimState("visual-line"));
+  }
+
+  const count = parsedCount(state.count);
+  if (key.key === "g") return result({ ...state, prefix: "g" });
+  if (key.key === "G") {
+    return result(initialVimState("visual-line"), [
+      {
+        kind: "surface",
+        command: { type: "visual-line", action: "edge", edge: "last" },
+      },
+    ]);
+  }
+  if (key.key === "j" || key.key === "ArrowDown" || key.key === "Enter") {
+    return result(initialVimState("visual-line"), [
+      {
+        kind: "surface",
+        command: { type: "visual-line", action: "move", direction: 1, count },
+      },
+    ]);
+  }
+  if (key.key === "k" || key.key === "ArrowUp") {
+    return result(initialVimState("visual-line"), [
+      {
+        kind: "surface",
+        command: { type: "visual-line", action: "move", direction: -1, count },
+      },
+    ]);
+  }
+  if (key.key === "d" || key.key === "x" || key.key === "Delete" || key.key === "Backspace") {
+    return finish("delete");
+  }
+  if (key.key === ">" || (key.key === "Tab" && !key.shift)) return finish("indent");
+  if (key.key === "<" || (key.key === "Tab" && key.shift)) return finish("outdent");
+
+  // Unsupported linewise commands remain inside Visual Line without falling
+  // through to the tree's non-modal selection grammar.
+  return result(initialVimState("visual-line"));
+}
+
 function interpretNormal(
   state: VimState,
   snapshot: VimSnapshot,
@@ -520,6 +600,22 @@ function interpretNormal(
     return result(appendCount(state, key.key));
   }
   const count = parsedCount(state.count);
+  if (key.key === "V") {
+    if (!snapshot.supportsVisualLine) return result(normalState());
+    const currentLine = lineStart(snapshot.value, snapshot.selectionStart);
+    return result(initialVimState("visual-line"), [
+      {
+        kind: "surface",
+        command: {
+          type: "visual-line",
+          action: "begin",
+          count,
+          caret: snapshot.selectionStart,
+          column: snapshot.selectionStart - currentLine,
+        },
+      },
+    ]);
+  }
   if (key.key === "g") return result({ ...state, prefix: "g" });
   if (key.key === "G") {
     return result(normalState(), [
@@ -606,6 +702,7 @@ export function interpretVimKey(
       { kind: "selection", start: caret, end: caret },
     ]);
   }
+  if (state.mode === "visual-line") return interpretVisualLine(state, key);
   if (escape) return result(normalState());
   if (key.ctrl && !key.meta && !key.alt && key.key.toLowerCase() === "r") {
     return result(normalState(), snapshot.editable

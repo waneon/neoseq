@@ -801,6 +801,8 @@ describe("query result views", () => {
       await user.keyboard("{Escape}");
       expect(editor).toHaveAttribute("data-vim-mode", "normal");
       editor.setSelectionRange(0, 0);
+      await user.keyboard("V");
+      expect(editor).toHaveAttribute("data-vim-mode", "normal");
       await user.keyboard("o");
       expect(editor).toHaveAttribute("data-vim-mode", "normal");
       expect(editor).toHaveValue("Ship the builder");

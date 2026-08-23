@@ -93,6 +93,8 @@ modal interpreter over the same controlled block value and native selection; a
 surface adapter translates only structural intents. Its session lives above
 virtualized rows, so Normal mode and an unfinished operator survive cross-block
 focus without making each textarea a second editor state owner.
+Visual Line reuses the outline's block-selection and tree-focus owner; only its
+stable anchor/head IDs live in the surface adapter, never in the Vim grammar.
 
 One owner-parameterized `Outliner` serves page, journal, and tag routes. Commands,
 presence, hydration, query-result editing, and history identify its
