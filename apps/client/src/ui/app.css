@@ -3765,6 +3765,20 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-medium);
   white-space: nowrap;
+  /* Held at the end of the line with the controls that act on the answer, not
+     packed against the phrase that asks for it. Beside the phrase its left edge
+     was whatever the question happened to be long enough to push it to — which
+     is a column nobody chose, and one that lands a couple of pixels off the
+     builder's own first control about as often as it lands anywhere else
+     (§ Geometry: an edge is shared exactly or not at all). Reading order is
+     untouched: the count still follows the phrase it counts. */
+  margin-inline-start: auto;
+}
+
+/* Two auto margins would split the slack between them and park the count in the
+   middle of the header. The count claims it; the actions follow at the gap. */
+.query-count + .query-header-actions {
+  margin-inline-start: 0;
 }
 
 /* The same phrase where there is nothing behind it to open: a caption, not a
@@ -3854,8 +3868,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: center;
   gap: var(--sp-0);
   flex: none;
-  /* Held at the end of the line whether they are showing or not, so the count
-     does not slide sideways when the pointer arrives. */
+  /* Held at the end of the line whether they are showing or not, so nothing
+     slides sideways when the pointer arrives. */
   margin-inline-start: auto;
   opacity: 0;
   transition: opacity var(--dur-view) var(--ease-out);
