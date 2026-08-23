@@ -1936,6 +1936,30 @@ button.chip:focus-visible .chip-glyph .chip-x {
      so the centred page cannot lurch sideways the moment the outline grows
      past one viewport. */
   scrollbar-gutter: stable both-edges;
+  /* ── And a floor below the last object ──
+     The scroller used to stop exactly where the page's content stopped. So
+     folding an answer near the bottom moved the ground: the document loses that
+     height, `scrollTop` is suddenly past the end, the browser clamps it, and
+     everything slides up by however much of the viewport was sitting below the
+     control that was just pressed — a whole window's worth of it when the reader
+     had scrolled that control's header to the top. They asked to see less, and
+     what they pressed walked down the screen.
+
+     The reserve is the scroller's rather than any one tail's, so it holds under
+     an outline's append zone, a journal's standing questions and a tag's writing
+     alike, and so nothing scoped to `.page-body` — the append reach, a drag over
+     the tag groups — inherits a region it would have to explain. It is not a
+     second append zone: that zone keeps the whole of its own reach, and this is
+     the space past the page, where a click makes nothing. What it buys besides a
+     ground that stays put is the ordinary thing a bottom gutter buys — the last
+     line can be read and written at a comfortable height rather than on the
+     bottom edge of the glass.
+
+     `min(50vh, 400px)`, so this and `--append-h` both cross from proportion to
+     figure at an 800px window. It does not promise the ground never moves — a
+     fold taller than the reserve still clamps — and its cost is stated plainly:
+     every page now scrolls a little past its end. */
+  padding-bottom: min(50vh, 400px);
 }
 
 .page-body {
