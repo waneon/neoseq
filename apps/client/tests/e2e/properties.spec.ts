@@ -238,6 +238,28 @@ test("a starred page and a starred tag share one list in the rail", async ({ pag
   await awaitSaved(page);
   await expect(page.getByTestId("favourite-item")).toHaveText(["#Reading", "Reading list"]);
 
+  // The order is the reader's, not the alphabet's: the page is dragged above the
+  // tag, and the seam says where it will land before it lands.
+  const items = page.getByTestId("favourite-item");
+  // Matched whole, because "Reading list" contains the tag's name.
+  const tag = items.filter({ hasText: /^#Reading$/ });
+  const list = items.filter({ hasText: /^Reading list$/ });
+  await list.dragTo(tag, { targetPosition: { x: 20, y: 2 } });
+  await awaitSaved(page);
+  await expect(items).toHaveText(["Reading list", "#Reading"]);
+
+  // …and the same move from a keyboard, because a rail row is a link and a
+  // reorder no keyboard can reach is a reorder half the readers do not have.
+  await list.focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await awaitSaved(page);
+  await expect(items).toHaveText(["#Reading", "Reading list"]);
+
+  // The arrangement is the graph's, not this browser's, so a reload finds it.
+  await page.reload();
+  await openSidebar(page);
+  await expect(items).toHaveText(["#Reading", "Reading list"]);
+
   // …and the same row takes it back, saying so in its own label.
   await page.getByTestId("tag-row-menu").click();
   await expect(page.getByTestId("tag-row-favourite")).toHaveText("Remove from favourites");

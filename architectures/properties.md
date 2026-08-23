@@ -82,6 +82,15 @@ same thing converge without a merge rule. It is graph data rather than a browser
 preference, so a graph opened elsewhere keeps the handful of places worth
 returning to.
 
+`builtin.favorite-order` is the reader's own order for that list, and it is one
+number on the same two owners — the same model `tag-order` uses, for the same
+reason: positions are spaced so an ordinary move lands on the midpoint between
+its new neighbours and writes only what moved, and an exhausted gap or a run
+that has never been ordered respaces. Anything without a position sorts after
+everything with one, by name, so starring something never reshuffles what is
+already arranged. The order is graph data because the list is: an arrangement
+that stayed in one browser would disagree with the favourites it arranges.
+
 ## Tag Identity Keys
 
 `builtin.tag-group`, `builtin.tag-order`, `builtin.tag-color`, and

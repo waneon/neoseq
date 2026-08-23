@@ -56,8 +56,8 @@ import {
   nextTagOrder,
   orderWrites,
   tagGroup,
-  type TagOrderWrite,
 } from "../../entities/tag-identity";
+import type { Placement } from "../../entities/ordering";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,10 +132,10 @@ export function TagsView() {
       .catch((cause: unknown) => notify.failure(failure, cause));
   };
 
-  const orderCommands = (writes: TagOrderWrite[]): Command[] =>
+  const orderCommands = (writes: Placement[]): Command[] =>
     writes.map((write) => ({
       type: "set_property",
-      owner: { kind: "tag", tag_id: write.tagId },
+      owner: { kind: "tag", tag_id: write.id },
       key: TAG_ORDER_KEY,
       value: { type: "number", value: write.order },
     }));

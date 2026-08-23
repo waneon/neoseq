@@ -214,6 +214,12 @@ interface EditorContext {
   vim: VimSession;
   focusedId: string | null;
   pendingCaret: RefObject<number | null>;
+  /**
+   * Whether the focus about to arrive belongs to a press. `focus` is delivered
+   * by the browser as a press's own default action and says nothing about what
+   * caused it, so the press records itself here first — see `pointerEntrance`.
+   */
+  pointerEntrance: RefObject<boolean>;
   propertyRequest: PropertyRequest | null;
   tagRequest: TagRequest | null;
   slashRequest: SlashRequest | null;
@@ -416,6 +422,15 @@ export function Outliner({
   const composing = useRef(false);
   const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCaret = useRef<number | null>(null);
+  /**
+   * A press that lands in a settled line is a pointer-owned entrance — the reader
+   * is going to write — but the browser hands that entrance over as a bare
+   * `focus`, and the `click` that would have said so arrives one paint too late.
+   * In Vim that paint is a whole frame of the Normal-mode block caret sitting in
+   * a line the reader is about to type into. The press marks itself here on the
+   * way down, and the entrance is read rather than guessed.
+   */
+  const pointerEntrance = useRef(false);
   const pendingSeq = useRef(0);
   const draftInputRevision = useRef(0);
   const pendingDispatching = useRef(false);
@@ -1762,6 +1777,7 @@ export function Outliner({
     vim,
     focusedId,
     pendingCaret,
+    pointerEntrance,
     propertyRequest,
     tagRequest,
     slashRequest,
@@ -3636,11 +3652,24 @@ function BlockRow({
                 : undefined
           }
           dir="auto"
+          // A press marks itself before the browser focuses what it landed on,
+          // so the entrance below is read rather than guessed. Both readers of
+          // the mark clear it: the gesture it belongs to is over by then, and a
+          // mark left standing would tell the next keyboard arrival it was a
+          // press.
+          onPointerDown={() => {
+            editor.pointerEntrance.current = true;
+          }}
           onFocus={() => {
-            if (!isFocused) editor.activateBlock(row.block.id, -1, "programmatic");
+            const pressed = editor.pointerEntrance.current;
+            editor.pointerEntrance.current = false;
+            if (!isFocused) {
+              editor.activateBlock(row.block.id, -1, pressed ? "pointer" : "programmatic");
+            }
             if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
           }}
           onClick={() => {
+            editor.pointerEntrance.current = false;
             editor.activateBlock(row.block.id, undefined, "pointer");
           }}
           onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}

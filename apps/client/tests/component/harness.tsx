@@ -11,6 +11,7 @@ import {
   openFakeSession,
 } from "../../src/core-port/testing/fake-core-port";
 import { resetAppSettingsCache } from "../../src/entities/settings";
+import { resetQueryDisclosure } from "../../src/features/query/presentation";
 import { NotifyProvider } from "../../src/features/notify/context";
 import { HistoryProvider } from "../../src/features/history/context";
 import { LocaleProvider } from "../../src/i18n";
@@ -33,9 +34,10 @@ export async function mountAt(
   initialPath: string,
   custom?: ReactElement,
 ): Promise<Harness> {
-  // App settings are browser-wide and cached, so a test that changed one must
-  // not leak it into the next mount.
+  // App settings and query disclosure are browser-wide and cached, so a test that
+  // changed one must not leak it into the next mount.
   resetAppSettingsCache();
+  resetQueryDisclosure();
   const { session, port } = await openFakeSession(GRAPH_ID);
   // GraphSession is an external store. Production receives its notifications
   // from Worker promises; component tests must mark that same boundary as a

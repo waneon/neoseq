@@ -1577,6 +1577,51 @@ button.chip:focus-visible .chip-glyph .chip-x {
   white-space: nowrap;
 }
 
+/* ── The starred list is dragged ──
+   Its order is the reader's, so a row is a thing they can pick up. The row being
+   carried takes the same fade a dragged tag row does, so what is in the hand
+   looks the same wherever the hand is (§ The seam).
+
+   The landing place is one 2px accent rule in the gap the row is about to
+   occupy, on a pseudo-element that straddles it — so it occupies no space, no
+   row moves when it appears, and nothing reflows while the pointer travels. It
+   is instant: a hint about where the pointer is *now* is late the moment it
+   animates.
+
+   The cursor stays the link's. A `grab` here would trade the row's first
+   meaning — press it to go there — for its second, and the drag is discovered by
+   starting one, which is how every rail in the reader's other applications
+   behaves. */
+.shell-nav-item[data-dragging] {
+  opacity: 0.45;
+}
+
+.shell-nav-item[data-seam] {
+  position: relative;
+}
+
+.shell-nav-item[data-seam]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* The rows are 1px apart, so the rule is drawn centred on that hairline rather
+   than pushed clear of it: half of a single pixel either way is where a reader
+   would draw the line themselves. */
+.shell-nav-item[data-seam="before"]::after {
+  top: -1px;
+}
+
+.shell-nav-item[data-seam="after"]::after {
+  bottom: -1px;
+}
+
 .rail-group {
   display: flex;
   align-items: center;
@@ -2073,14 +2118,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* ── The day's standing questions ──
    The answers a reader looks for every day, under the day they are looking at.
-   They sit *after* the append zone, which keeps the whole of its reach as the
+   They sit *after* the append zone, which keeps its whole reach as the
    add-a-block affordance: this is a second body under the writing, not chrome
    parked at the end of it (§ Do / Don't).
 
-   Nothing separates them from the writing but the append zone's own 40vh, and
-   nothing needs to: each one is already a bounded object on the canvas with a
-   hairline round it, which is what a query surface *is*. A heading over them
-   would name a thing the captions already name, one at a time.
+   Nothing separates them from the writing but that reach, and nothing needs to:
+   each one is already a bounded object on the canvas with a hairline round it,
+   which is what a query surface *is*. A heading over them would name a thing the
+   captions already name, one at a time.
 
    The bottom margin is the page's, because `.page-body` has none — the append
    zone used to be the last thing on it. */
@@ -2089,6 +2134,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   flex-direction: column;
   gap: var(--sp-4);
   margin-bottom: var(--sp-7);
+}
+
+/* The append zone's whole reach is right when nothing follows it: it is the last
+   thing on the page, and 40vh of it is the offer to keep writing. With standing
+   questions underneath, that reach is also the gap between the day's last line
+   and its first answer — and at 40vh the two read as separate screens rather
+   than as one day, with a scroll between the writing and the answers the writing
+   is about. Halved, the region is still a target several rows tall and the two
+   bodies are one page. Both the zone and the empty page's placeholder take it
+   from here, so nothing steps when the first block lands. */
+.page-body:has(> .journal-queries) {
+  --append-h: min(20vh, 160px);
 }
 
 /* Each panel already carries the gap above; here the flex gap owns it, so the
@@ -2180,7 +2237,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* The caret itself carries the modal distinction at the point of attention:
-   command modes sit on a character, while Insert stays between characters. */
+   command modes sit on a character, while Insert stays between characters.
+
+   In a query cell it carries it alone. The outline's mark sits in the breathing
+   room above the first block, where it costs no row its measure; a cell has no
+   such room — the badge stood under the value, so opening one grew its row and
+   pushed the table under it, and it announced a mode beside a value the reader
+   had only meant to correct. A cell is one value with no structural unit to
+   open, which is most of what a mode would have been for. */
 :is(.outline-input, .query-result-input):is(
   [data-vim-mode="normal"],
   [data-vim-mode="operator-pending"]
@@ -5159,11 +5223,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
-}
-
-.query-vim-mode {
-  align-self: flex-end;
-  margin-top: 1px;
 }
 
 .query-result-input {

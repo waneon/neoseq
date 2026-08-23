@@ -120,6 +120,7 @@
   "failure.moveBlockDown": "Couldn’t move that block down",
   "failure.moveBlockUp": "Couldn’t move that block up",
   "failure.moveBlocks": "{count, plural, one {Couldn’t move that block} other {Couldn’t move all # blocks}}",
+  "failure.moveFavourite": "Couldn’t move “{name}”",
   "failure.openJournal": "Couldn’t open this journal day",
   "failure.outdentBlock": "Couldn’t outdent that block",
   "failure.pasteBlocks": "Couldn’t paste that outline",

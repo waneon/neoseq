@@ -138,6 +138,7 @@ export interface MessageArgumentMap {
   "failure.moveBlockDown": undefined;
   "failure.moveBlockUp": undefined;
   "failure.moveBlocks": { readonly "count": number };
+  "failure.moveFavourite": { readonly "name": string | number };
   "failure.openJournal": undefined;
   "failure.outdentBlock": undefined;
   "failure.pasteBlocks": undefined;

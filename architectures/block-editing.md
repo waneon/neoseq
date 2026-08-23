@@ -72,7 +72,13 @@ Pointer activation enters Insert mode at the chosen caret; keyboard motion
 between blocks retains the current modal state. Editor activation therefore
 carries its input method explicitly: focus, selection release, and the modal
 transition are one host-owned state change, never separate focus and click
-heuristics.
+heuristics. A press records itself before the browser delivers the focus it
+caused, so the entrance that reaches a settled line is the press's own and not
+the `click` that follows it a frame later.
+
+The active mode is named where the surface has room to name it: above the
+outline's first row, and in a query cell by the caret alone, since a cell has no
+structural unit to open and no line of its own to spend.
 
 Visual Line is the Vim entry point to the outline's existing structural block
 selection, not a DOM text range. The interpreter emits linewise intents while

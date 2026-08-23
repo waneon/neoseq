@@ -22,13 +22,20 @@
 // An **order** is one number, and it is the whole ordering model: tags sort by
 // it inside their group, and a group sorts by the lowest one its members carry.
 // So a group's place in the list is its members' places, which is the only thing
-// it could be when a group is a name rather than a record. Positions are spaced
-// a thousand apart and a move lands on the midpoint between its new neighbours,
-// so filing one tag is one write; only an exhausted gap — or a graph whose tags
-// predate the key — respaces a whole run.
+// it could be when a group is a name rather than a record. The arithmetic is
+// `entities/ordering`, shared with the favourites rail — a fractional position
+// is not a fact about tags.
 
 import type { TagSnapshot } from "../core-port/snapshot";
 import { numberValue, stringValue } from "../core-port/snapshot";
+import {
+  moveWrites,
+  nextOrder,
+  place,
+  runWrites,
+  type Placed,
+  type Placement,
+} from "./ordering";
 
 export const TAG_GROUP_KEY = "builtin.tag-group";
 export const TAG_ORDER_KEY = "builtin.tag-order";
@@ -104,25 +111,13 @@ function firstGrapheme(value: string): string {
   return [...value][0] ?? "";
 }
 
-/** How far apart fresh positions are placed, leaving room to land between them. */
-export const ORDER_STEP = 1024;
-
-/**
- * The narrowest gap a midpoint may be taken from. Below it the halves stop being
- * distinguishable at the precision a double carries, so the run is respaced
- * instead — the one case where a move writes more than the tag it moved.
- */
-const MIN_GAP = 1 / 1024;
-
 export function tagOrder(tag: TagSnapshot): number | null {
   const value = numberValue(tag.properties, TAG_ORDER_KEY);
   return value !== undefined && Number.isFinite(value) ? value : null;
 }
 
-/** One tag's new place. A move is usually exactly one of these. */
-export interface TagOrderWrite {
-  tagId: string;
-  order: number;
+function placed(tag: TagSnapshot): Placed {
+  return { id: tag.id, order: tagOrder(tag) };
 }
 
 /**
@@ -132,29 +127,15 @@ export interface TagOrderWrite {
  * respaced.
  */
 export function nextTagOrder(tags: TagSnapshot[]): number {
-  const highest = tags.reduce((top, tag) => Math.max(top, tagOrder(tag) ?? 0), 0);
-  return highest + ORDER_STEP;
+  return nextOrder(tags.map(placed));
 }
 
 /**
  * The writes that put `ordered` in that order, given that only `movedId` has
- * changed place. Its new neighbours decide: a midpoint between them if both
- * carry a position and the gap can still be halved, and otherwise the whole run
- * respaced from zero.
+ * changed place.
  */
-export function orderWrites(ordered: TagSnapshot[], movedId: string): TagOrderWrite[] {
-  const index = ordered.findIndex((tag) => tag.id === movedId);
-  if (index < 0) return [];
-  const previous = index > 0 ? tagOrder(ordered[index - 1]) : null;
-  const next = index < ordered.length - 1 ? tagOrder(ordered[index + 1]) : null;
-  const known = (index === 0 || previous !== null)
-    && (index === ordered.length - 1 || next !== null);
-  if (known) {
-    const low = previous ?? (next ?? ORDER_STEP) - 2 * ORDER_STEP;
-    const high = next ?? (previous ?? 0) + 2 * ORDER_STEP;
-    if (high - low > MIN_GAP) return [{ tagId: movedId, order: (low + high) / 2 }];
-  }
-  return respace(ordered);
+export function orderWrites(ordered: TagSnapshot[], movedId: string): Placement[] {
+  return moveWrites(ordered.map(placed), movedId);
 }
 
 /**
@@ -163,32 +144,8 @@ export function orderWrites(ordered: TagSnapshot[], movedId: string): TagOrderWr
  * is moving them — bounded by the group's size, and the reason a group is
  * dragged far less often than a tag.
  */
-export function groupOrderWrites(groups: TagGroupView[], movedIndex: number): TagOrderWrite[] {
-  const moved = groups[movedIndex]?.tags ?? [];
-  if (moved.length === 0) return [];
-  const bound = (group: TagGroupView | undefined, pick: (values: number[]) => number) => {
-    if (!group) return null;
-    const values = group.tags.map(tagOrder);
-    return values.every((value) => value !== null) ? pick(values as number[]) : null;
-  };
-  const previous = bound(groups[movedIndex - 1], (values) => Math.max(...values));
-  const next = bound(groups[movedIndex + 1], (values) => Math.min(...values));
-  const known = (movedIndex === 0 || previous !== null)
-    && (movedIndex === groups.length - 1 || next !== null);
-  if (known) {
-    const low = previous ?? (next ?? ORDER_STEP) - (moved.length + 1) * ORDER_STEP;
-    const high = next ?? (previous ?? 0) + (moved.length + 1) * ORDER_STEP;
-    const stride = (high - low) / (moved.length + 1);
-    if (stride > MIN_GAP) {
-      return moved.map((tag, offset) => ({ tagId: tag.id, order: low + stride * (offset + 1) }));
-    }
-  }
-  return respace(groups.flatMap((group) => group.tags));
-}
-
-/** Every tag in the run gets a fresh, evenly spaced position. */
-function respace(tags: TagSnapshot[]): TagOrderWrite[] {
-  return tags.map((tag, index) => ({ tagId: tag.id, order: index * ORDER_STEP }));
+export function groupOrderWrites(groups: TagGroupView[], movedIndex: number): Placement[] {
+  return runWrites(groups.map((group) => group.tags.map(placed)), movedIndex);
 }
 
 export interface TagGroupView {
@@ -209,14 +166,8 @@ export function groupedTags(
   tags: TagSnapshot[],
   compare: (left: string, right: string) => number,
 ): TagGroupView[] {
-  const byOrder = (left: TagSnapshot, right: TagSnapshot) => {
-    const a = tagOrder(left);
-    const b = tagOrder(right);
-    if (a !== null && b !== null && a !== b) return a - b;
-    if (a !== null && b === null) return -1;
-    if (a === null && b !== null) return 1;
-    return compare(left.name, right.name);
-  };
+  const byOrder = (left: TagSnapshot, right: TagSnapshot) =>
+    place(tagOrder(left), tagOrder(right)) || compare(left.name, right.name);
   const groups = new Map<string, TagSnapshot[]>();
   const ungrouped: TagSnapshot[] = [];
   for (const tag of tags) {
@@ -235,14 +186,8 @@ export function groupedTags(
   };
   const ordered: TagGroupView[] = [...groups.entries()]
     .map(([name, members]) => ({ name, tags: [...members].sort(byOrder) }))
-    .sort((left, right) => {
-      const a = rank(left.tags);
-      const b = rank(right.tags);
-      if (a !== null && b !== null && a !== b) return a - b;
-      if (a !== null && b === null) return -1;
-      if (a === null && b !== null) return 1;
-      return compare(left.name ?? "", right.name ?? "");
-    });
+    .sort((left, right) =>
+      place(rank(left.tags), rank(right.tags)) || compare(left.name ?? "", right.name ?? ""));
   if (ungrouped.length > 0) ordered.push({ name: null, tags: [...ungrouped].sort(byOrder) });
   return ordered;
 }

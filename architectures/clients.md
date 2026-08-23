@@ -310,9 +310,12 @@ Shared saved-view definitions — their column layout and row order — and a
 document's default view belong to the query document, as does the builder plan
 behind a built query. Graph default queries belong to the versioned graph settings
 root. A person's last-opened view remains browser-local until a separate
-user-private preference sync unit exists. Query results, selection, scroll,
-loading state, and drafts are session-only, as is a sort chosen on a graph the
-reader cannot write to.
+user-private preference sync unit exists. Whether an answer is folded is
+browser-local as well, but durable rather than session-only: it is stored per
+graph, holds only the folded keys, and is bounded, so a reader who folds an
+answer does not have to fold it again after a reload. Query results, selection,
+scroll, loading state, and drafts are session-only, as is a sort chosen on a
+graph the reader cannot write to.
 
 The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script

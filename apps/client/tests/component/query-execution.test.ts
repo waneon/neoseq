@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphSession } from "../../src/core-port/session";
 import type {
   SparqlQueryRequest,
@@ -8,6 +8,11 @@ import {
   QueryExecutionStore,
   queryExecutionSignature,
 } from "../../src/features/query/execution";
+import {
+  queryResultsAreOpen,
+  rememberQueryResultsOpen,
+  resetQueryDisclosure,
+} from "../../src/features/query/presentation";
 
 const REQUEST_A: SparqlQueryRequest = {
   language: "sparql-1.1/neoseq-v1",
@@ -73,6 +78,30 @@ describe("query execution store", () => {
     pendingB.resolve(RESULT_FALSE);
     await obsolete;
     expect(store.snapshot("home:block", signatureA, 1).result).toEqual(RESULT_TRUE);
+  });
+});
+
+describe("query disclosure", () => {
+  beforeEach(resetQueryDisclosure);
+  afterEach(resetQueryDisclosure);
+
+  it("remembers a fold past the visit that made it, per graph and per query", () => {
+    expect(queryResultsAreOpen("one", "home:block")).toBe(true);
+
+    // Nothing is cached between the two calls, so this is the same question a
+    // reload asks — and a reader who folded an answer must not have to fold it
+    // a second time to make the same point.
+    rememberQueryResultsOpen("one", "home:block", false);
+    expect(queryResultsAreOpen("one", "home:block")).toBe(false);
+    // Folding one answer says nothing about another answer, or about the same
+    // query in a different graph.
+    expect(queryResultsAreOpen("one", "home:other")).toBe(true);
+    expect(queryResultsAreOpen("two", "home:block")).toBe(true);
+
+    rememberQueryResultsOpen("one", "home:block", true);
+    expect(queryResultsAreOpen("one", "home:block")).toBe(true);
+    // Nothing folded is nothing stored.
+    expect(localStorage.getItem("neoseq.query-disclosure.v1")).toBeNull();
   });
 });
 

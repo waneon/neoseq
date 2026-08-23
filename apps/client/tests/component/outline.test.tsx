@@ -39,6 +39,34 @@ async function settleFrame(): Promise<void> {
 }
 
 describe("outliner keyboard commands", () => {
+  it("enters Insert on the press, not on the click a paint later", async () => {
+    setEditorKeymap("vim");
+    try {
+      await mountOutline(["alpha", "beta"]);
+      const [first, second] = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+
+      // A focus no press caused keeps the mode it found: this is how `j`, undo,
+      // and a revealed history target arrive.
+      await act(async () => {
+        fireEvent.focus(second);
+      });
+      expect(second).toHaveAttribute("data-vim-mode", "normal");
+
+      // A press is going to write. The browser hands that entrance over as a
+      // bare `focus` and the `click` that would say a pointer caused it is one
+      // paint later — which is one frame of the Normal-mode block caret sitting
+      // in a line the reader is already typing into.
+      await act(async () => {
+        fireEvent.pointerDown(first);
+        fireEvent.focus(first);
+      });
+      expect(first).toHaveAttribute("data-vim-mode", "insert");
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
   it("uses one Vim session across block motion and structural edits", async () => {
     setEditorKeymap("vim");
     try {

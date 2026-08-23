@@ -357,7 +357,7 @@ describe("query result views", () => {
     return column.style.width;
   }
 
-  it("folds the answer independently and remembers it for the graph session", async () => {
+  it("folds the answer independently and remembers that it is folded", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
     const toggle = await screen.findByRole("button", { name: "Collapse 1 result" });
@@ -858,8 +858,11 @@ describe("query result views", () => {
       const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
 
       expect(editor).not.toHaveAttribute("readonly");
+      // The caret carries the mode here and nothing else does: a badge under a
+      // cell would grow its row and announce a mode beside a value the reader
+      // had only meant to correct.
       expect(editor).toHaveAttribute("data-vim-mode", "insert");
-      expect(screen.getByTestId("query-vim-mode-indicator")).toHaveTextContent("INSERT");
+      expect(screen.queryByTestId("query-vim-mode-indicator")).not.toBeInTheDocument();
       await user.keyboard("{Escape}");
       expect(editor).toHaveAttribute("data-vim-mode", "normal");
       editor.setSelectionRange(0, 0);

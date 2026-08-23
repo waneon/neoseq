@@ -72,7 +72,10 @@ metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar
   guide 1 · branch 2 · branch-turn 10 · tag-gap 12 ·
   settings-shell round(down, clamp(272, 100dvh − 128, 408), 1px) — one height,
     every section ·
-  hit-target 24 (32 ≤600px, and the icon button grows with it) · append min(40vh, 320px)"
+  hit-target 24 (32 ≤600px, and the icon button grows with it) ·
+  append min(40vh, 320px), halved to min(20vh, 160px) where standing questions follow —
+    the reach is the offer to keep writing when nothing is under it, and the gap between
+    the writing and its answers when something is"
 
 radius: "r-1 4px key badges · r-2 7px controls · r-3 12px panels ·
   r-4 16px dialogs and the palette · r-full the bullet dot and every chip —
@@ -439,7 +442,12 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   every label in the rail still starts at one x. The section is absent until something is
   starred, and a favourite is one checkbox on the thing itself rather than a list kept
   somewhere else — nothing to keep in step when a page is deleted, and it travels with the
-  graph rather than with the browser that starred it.
+  graph rather than with the browser that starred it. **Their order is the reader's**: a row
+  is dragged, `Alt` with an arrow is the same move from a keyboard, and the arrangement
+  travels with the graph like the flag it arranges. The landing place is the seam — one
+  accent rule in the gap the row will occupy, the carried row faded, and nothing reflowing
+  until the drop (§ Do / Don't). The cursor stays the link's: a row's first meaning is
+  still press it to go there.
 - **Outline.** The bullet is the block's handle (click focuses, drag moves, right-click
   menus), a real `<button>`, and a 20px disc appears under the pointer so the most-repeated
   gesture in the product has a target; the textarea is the row's single tab stop. No row

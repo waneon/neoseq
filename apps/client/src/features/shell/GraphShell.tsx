@@ -60,7 +60,13 @@ import {
   type PageSnapshot,
   type TagSnapshot,
 } from "../../core-port/snapshot";
-import { favourites } from "../../entities/favourites";
+import {
+  FAVOURITE_ORDER_KEY,
+  favouriteKey,
+  favourites,
+  moveFavourite,
+  type Favourite,
+} from "../../entities/favourites";
 import { TagMark } from "../tags/TagIdentity";
 import { Wordmark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
@@ -674,27 +680,14 @@ SELECT ?entity ?content WHERE {
               <div className="rail-group">
                 <h2>{message("shell.favourites")}</h2>
               </div>
-              <div className="shell-nav" data-testid="favourite-list">
-                {starred.map((entry) => (
-                  <NavLink
-                    key={`${entry.kind}:${entry.id}`}
-                    className="shell-nav-item"
-                    to={entry.kind === "page"
-                      ? `/g/${graphId}/p/${entry.id}`
-                      : `/g/${graphId}/t/${entry.id}`}
-                    title={entry.name}
-                    data-testid="favourite-item"
-                  >
-                    {/* A tag keeps its own mark here, in its own colour, so the
-                        list reads as the things themselves rather than as rows
-                        that happen to point at them. */}
-                    {entry.kind === "page"
-                      ? <FileTextIcon aria-hidden />
-                      : <TagMark tag={entry.tag} />}
-                    <span className="nav-label">{entry.name}</span>
-                  </NavLink>
-                ))}
-              </div>
+              <FavouriteRail
+                graphId={graphId}
+                starred={starred}
+                readonly={readonly}
+                session={session}
+                notify={notify}
+                message={message}
+              />
             </>
           )}
           <div className="rail-group">
@@ -827,6 +820,152 @@ SELECT ?entity ?content WHERE {
 
 function literalText(term: RdfTerm | undefined): string {
   return term?.kind === "literal" ? term.value : "";
+}
+
+/**
+ * The starred list, in the reader's own order.
+ *
+ * Alphabetical was an order nobody chose, and the rail is the one surface a
+ * reader scans without reading it: the two places they live in belong at the top,
+ * not wherever their initials fell. So the rows are dragged, and the arrangement
+ * is graph data (`entities/favourites`).
+ *
+ * **A drag says where it will land.** The mark is a *seam* — one accent rule in
+ * the gap the row is about to occupy — the same answer the tag manager gives, for
+ * the same reason: a wash over the row under the pointer answers "which row",
+ * which is not the question once a list has an order. Nothing reflows while the
+ * pointer travels; rows sliding out from under a drag is the interface guessing,
+ * and the guess is wrong on every frame the reader changes their mind.
+ *
+ * `Alt` with an arrow is the same move from a keyboard, because a rail row is a
+ * link and a link has no menu to hang a verb on — and a reorder nobody can reach
+ * without a mouse is a reorder half the readers do not have.
+ */
+function FavouriteRail({
+  graphId,
+  starred,
+  readonly,
+  session,
+  notify,
+  message,
+}: {
+  graphId: string;
+  starred: Favourite[];
+  readonly: boolean;
+  session: GraphSession;
+  notify: Notifier;
+  message: MessageFunction;
+}) {
+  /** The row in the reader's hand, and the gap it would drop into. */
+  const [carried, setCarried] = useState<string | null>(null);
+  const [seam, setSeam] = useState<{ key: string; side: "before" | "after" } | null>(null);
+
+  const release = () => {
+    setCarried(null);
+    setSeam(null);
+  };
+
+  const place = (moved: Favourite, before: Favourite | null) => {
+    // A row dropped back where it already was is not an edit. Dropping the
+    // filter here rather than at every call site is also what keeps a respace
+    // from rewriting the positions it would not have changed.
+    const writes = moveFavourite(starred, moved, before)
+      .filter((write) => write.order !== write.entry.order);
+    if (writes.length === 0) return;
+    // Positions are independent single-value writes, so they travel together and
+    // the snapshot only has to agree with the rail once all of them land.
+    void Promise.all(writes.map((write) => session.execute({
+      type: "set_property",
+      owner: write.entry.kind === "page"
+        ? { kind: "page", id: write.entry.id }
+        : { kind: "tag", tag_id: write.entry.id },
+      key: FAVOURITE_ORDER_KEY,
+      value: { type: "number", value: write.order },
+    }))).catch((cause: unknown) =>
+      notify.failure(message("failure.moveFavourite", { name: moved.name }), cause));
+  };
+
+  const drop = () => {
+    const moved = starred.find((entry) => favouriteKey(entry) === carried);
+    const at = seam ? starred.findIndex((entry) => favouriteKey(entry) === seam.key) : -1;
+    // A row starred elsewhere while the pointer travelled can take the seam's
+    // row out from under it; a drop with nowhere to land is no drop.
+    if (moved && seam && at >= 0) {
+      const before = seam.side === "before" ? starred[at] : starred[at + 1];
+      place(moved, before ?? null);
+    }
+    release();
+  };
+
+  /** The keyboard's half of the drag: one step, in the direction it was pressed. */
+  const nudge = (entry: Favourite, delta: -1 | 1) => {
+    const from = starred.findIndex((item) => favouriteKey(item) === favouriteKey(entry));
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= starred.length) return;
+    const before = delta < 0 ? starred[to] : starred[to + 1];
+    place(entry, before ?? null);
+  };
+
+  return (
+    <div className="shell-nav" data-testid="favourite-list">
+      {starred.map((entry) => {
+        const key = favouriteKey(entry);
+        return (
+          <NavLink
+            key={key}
+            className="shell-nav-item"
+            to={entry.kind === "page"
+              ? `/g/${graphId}/p/${entry.id}`
+              : `/g/${graphId}/t/${entry.id}`}
+            title={entry.name}
+            data-testid="favourite-item"
+            data-dragging={carried === key || undefined}
+            data-seam={seam?.key === key ? seam.side : undefined}
+            draggable={!readonly}
+            aria-keyshortcuts={readonly ? undefined : "Alt+ArrowUp Alt+ArrowDown"}
+            onDragStart={(event) => {
+              if (readonly) return;
+              // A payload is what makes the drag real to the browser; the row
+              // being moved is held in React state, where a drop can read it.
+              event.dataTransfer.setData("text/plain", entry.name);
+              event.dataTransfer.effectAllowed = "move";
+              setCarried(key);
+            }}
+            onDragEnd={release}
+            onDragOver={(event) => {
+              if (carried === null || carried === key) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              const box = event.currentTarget.getBoundingClientRect();
+              setSeam({
+                key,
+                side: event.clientY < box.top + box.height / 2 ? "before" : "after",
+              });
+            }}
+            onDrop={(event) => {
+              if (carried === null) return;
+              event.preventDefault();
+              drop();
+            }}
+            onKeyDown={(event) => {
+              if (readonly || !event.altKey) return;
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              event.preventDefault();
+              nudge(entry, event.key === "ArrowUp" ? -1 : 1);
+            }}
+          >
+            {/* A tag keeps its own mark here, in its own colour, so the list
+                reads as the things themselves rather than as rows that happen
+                to point at them. */}
+            {entry.kind === "page"
+              ? <FileTextIcon aria-hidden />
+              : <TagMark tag={entry.tag} />}
+            <span className="nav-label">{entry.name}</span>
+          </NavLink>
+        );
+      })}
+    </div>
+  );
 }
 
 /**

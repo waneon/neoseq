@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 7;
+pub const REGISTRY_VERSION: u32 = 8;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
 pub const QUERY_DOCUMENT_VERSION: u32 = 1;
@@ -447,6 +447,20 @@ pub const REGISTRY: &[(&str, PropertySpec)] = &[
         "builtin.favorite",
         PropertySpec {
             shape: PropertyShape::Single(PropertyValueSpec::Checkbox),
+            ordering: None,
+            placements: USER_PAGE_TAG,
+            copy: PropertyCopyPolicy::Portable,
+        },
+    ),
+    (
+        // Where it sits in that list. One number, exactly as a tag's own order
+        // is: favourites sort by it and a move lands on the midpoint between
+        // its new neighbours, so an ordinary move writes only what moved. It
+        // lives beside the flag rather than in a list, for the same reason the
+        // flag does — nothing to keep in step when one is deleted.
+        "builtin.favorite-order",
+        PropertySpec {
+            shape: PropertyShape::Single(PropertyValueSpec::Number),
             ordering: None,
             placements: USER_PAGE_TAG,
             copy: PropertyCopyPolicy::Portable,

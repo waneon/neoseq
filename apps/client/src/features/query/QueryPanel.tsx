@@ -238,7 +238,7 @@ export function QueryPanel({
   );
   const outputId = useId();
   const [resultsOpen, setResultsOpen] = useState(
-    () => queryResultsAreOpen(session, executionKey),
+    () => queryResultsAreOpen(session.graphId, executionKey),
   );
   const request = useMemo(() => ({
     language: document?.language ?? QUERY_LANGUAGE,
@@ -665,7 +665,7 @@ export function QueryPanel({
         resultEditor.cancel();
       }
     }
-    rememberQueryResultsOpen(session, executionKey, nextOpen);
+    rememberQueryResultsOpen(session.graphId, executionKey, nextOpen);
     setResultsOpen(nextOpen);
   };
 
