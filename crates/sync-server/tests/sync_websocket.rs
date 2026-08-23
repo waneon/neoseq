@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use std::{sync::Arc, time::Duration};
 use support::*;
-use sync_protocol::{Hello, Message, PROTOCOL_VERSION, VersionRange, decode, encode};
+use sync_protocol::{Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, VersionRange, decode, encode};
 use sync_server::{AppState, GraphStore, RoomConfig, TestIssuer, router};
 use tokio_tungstenite::{
     connect_async,
@@ -47,7 +47,7 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     request.headers_mut().insert(
         "sec-websocket-protocol",
         HeaderValue::from_str(&format!(
-            "neoseq.v2, neoseq.auth.{}",
+            "{SUBPROTOCOL}, neoseq.auth.{}",
             URL_SAFE_NO_PAD.encode(token)
         ))
         .unwrap(),
@@ -55,7 +55,7 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let (mut socket, response) = connect_async(request).await.unwrap();
     assert_eq!(
         response.headers().get("sec-websocket-protocol").unwrap(),
-        "neoseq.v2"
+        SUBPROTOCOL
     );
     let hello = Message::Hello(Hello {
         protocol: VersionRange::exact(PROTOCOL_VERSION),

@@ -51,8 +51,11 @@ application subprotocol. Credentials are never accepted in a URL.
 
 ## Wire Protocol
 
-The binary protocol is versioned independently from the CRDT schema. Messages
-are length-delimited envelopes:
+The binary protocol is versioned independently from the CRDT schema.
+`contracts/sync-protocol.json` declares that version and derives the
+`neoseq.v2` subprotocol name from it, generated for the server and the browser
+client alike, so a bump cannot leave one side advertising the other's version.
+Messages are length-delimited envelopes:
 
 - `Hello`: protocol/schema range, graph ID, session ID, stable replica ID,
   history epoch, and Loro version vector;

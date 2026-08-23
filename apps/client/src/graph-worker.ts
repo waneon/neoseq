@@ -7,6 +7,7 @@ import init, {
   encodeSyncMessageJson,
 } from "./wasm/neoseq_core.js";
 import { CORE_PORT_VERSION } from "./generated/core-port";
+import { MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION } from "./generated/graph-schema";
 import type {
   CloseGraphRequest,
   CorePortError,
@@ -56,8 +57,6 @@ interface OpenState {
 
 const COMPACT_TAIL_UPDATES = 128;
 const COMPACT_TAIL_BYTES = 512 * 1024;
-const MIN_MIGRATABLE_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 4;
 
 let wasmReady: Promise<unknown> | undefined;
 const states = new Map<string, OpenState>();
@@ -135,7 +134,7 @@ async function openGraph(request: OpenGraphRequest) {
   const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
   if (
     metadata.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION
-    || metadata.schema_version > CURRENT_SCHEMA_VERSION
+    || metadata.schema_version > SCHEMA_VERSION
   ) {
     throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
   }
@@ -172,7 +171,7 @@ async function recover(
     let reason: string | undefined;
     if (
       checkpoint.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION
-      || checkpoint.schema_version > CURRENT_SCHEMA_VERSION
+      || checkpoint.schema_version > SCHEMA_VERSION
     ) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
@@ -202,7 +201,7 @@ async function recover(
       graphId,
       snapshot,
       0,
-      CURRENT_SCHEMA_VERSION,
+      SCHEMA_VERSION,
       now(),
     );
   }
@@ -242,16 +241,16 @@ async function recover(
       graphId,
       ownedBuffer(core.exportGcCheckpoint()),
       validThrough,
-      CURRENT_SCHEMA_VERSION,
+      SCHEMA_VERSION,
       corruptTail,
       now(),
     );
-  } else if (metadata.schema_version < CURRENT_SCHEMA_VERSION) {
+  } else if (metadata.schema_version < SCHEMA_VERSION) {
     await repository.installCheckpoint(
       graphId,
       ownedBuffer(core.exportGcCheckpoint()),
       validThrough,
-      CURRENT_SCHEMA_VERSION,
+      SCHEMA_VERSION,
       now(),
     );
   }
@@ -362,7 +361,7 @@ async function maybeCompact(state: OpenState, force = false): Promise<void> {
     state.graphId,
     checkpoint,
     through,
-    CURRENT_SCHEMA_VERSION,
+    SCHEMA_VERSION,
     now(),
   );
 }
@@ -419,7 +418,7 @@ async function closeGraph(request: CloseGraphRequest) {
       state.graphId,
       snapshot,
       through,
-      CURRENT_SCHEMA_VERSION,
+      SCHEMA_VERSION,
       now(),
     );
   } else {
@@ -472,7 +471,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
       };
       if (
         manifest.source.document_schema < MIN_MIGRATABLE_SCHEMA_VERSION
-        || manifest.source.document_schema > CURRENT_SCHEMA_VERSION
+        || manifest.source.document_schema > SCHEMA_VERSION
       ) {
         throw failure(
           "unsupported_schema",
@@ -505,7 +504,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
       await createRepository().installImportedGraph(
         { graph_id: graphId },
         replicaId,
-        CURRENT_SCHEMA_VERSION,
+        SCHEMA_VERSION,
         checkpoint,
         createdAt,
       );
@@ -629,7 +628,7 @@ async function syncReplace(payload: {
     serverVersionVector,
     rebasedTail,
     crypto.randomUUID(),
-    CURRENT_SCHEMA_VERSION,
+    SCHEMA_VERSION,
     now(),
   );
   state.core = candidate;

@@ -26,8 +26,8 @@ use std::{
     time::{Duration, Instant},
 };
 use sync_protocol::{
-    ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION, VersionRange, decode, encode,
-    validate_message,
+    ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, VersionRange, decode,
+    encode, validate_message,
 };
 use tokio::sync::watch;
 use tokio::time::{interval, timeout};
@@ -393,7 +393,7 @@ async fn sync_upgrade<S: GraphStore, V: TokenVerifier>(
     };
     let max_frame = state.rooms.limits().max_frame_bytes as usize;
     upgrade
-        .protocols(["neoseq.v2"])
+        .protocols([SUBPROTOCOL])
         .max_message_size(max_frame)
         .max_frame_size(max_frame)
         .on_upgrade(move |socket| session(socket, state, token, permit))

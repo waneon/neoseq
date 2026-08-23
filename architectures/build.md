@@ -45,6 +45,12 @@ uses the `wasm-release` profile with size optimization, LTO, one codegen unit,
 aborting panics, and stripped symbols. Development and browser test builds use
 the regular release profile for a faster loop.
 
+One generator turns `contracts/` into the Rust and TypeScript sources that must
+agree: the CorePort DTOs and error codes, the graph document-schema window, and
+the sync protocol version with its WebSocket subprotocol name. The drift check
+runs before every other check, so a version bumped in only one language fails
+the build instead of the running system.
+
 Normal Vite builds contain product routes and real adapters. Test mode adds the
 storage contract page, deterministic time, and injected persistence faults.
 Development and test-mode bindings remain checkout-local ignored artifacts;
@@ -64,7 +70,7 @@ named database.
 - fixed-output Cargo and pnpm dependency hashes for both production outputs;
 - Rust formatting, strict Clippy, workspace and PostgreSQL integration tests,
   and dependency policy;
-- generated CorePort and locale drift checks;
+- generated contract and locale drift checks;
 - TypeScript and component tests.
 
 `devenv build outputs.web` and `devenv build outputs.sync-server` realize the

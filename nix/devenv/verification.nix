@@ -18,12 +18,12 @@ in
   config = lib.mkMerge [
     {
       tasks = {
-        "coreport:generate" = {
-          description = "Generate CorePort files when stale";
+        "contracts:generate" = {
+          description = "Generate contract files when stale";
           exec = "node scripts/generate-contracts.mjs";
         };
-        "coreport:check" = {
-          description = "Check generated CorePort files";
+        "contracts:check" = {
+          description = "Check generated contract files";
           exec = "node scripts/generate-contracts.mjs --check";
         };
         "i18n:generate" = {
@@ -46,28 +46,28 @@ in
               --out-name neoseq_core \
               target/wasm32-unknown-unknown/release/platform_web.wasm
           '';
-          after = [ "coreport:check" ];
+          after = [ "contracts:check" ];
         };
 
         "rust:fmt" = {
           description = "Check Rust formatting";
           exec = "cargo fmt --all -- --check";
-          after = [ "coreport:check" ];
+          after = [ "contracts:check" ];
         };
         "rust:clippy" = {
           description = "Lint the Rust workspace";
           exec = "cargo clippy --workspace --all-targets --all-features -- --deny warnings";
-          after = [ "coreport:check" ];
+          after = [ "contracts:check" ];
         };
         "rust:test" = {
           description = "Test the Rust workspace";
           exec = "cargo test --workspace --all-features";
-          after = [ "coreport:check" ];
+          after = [ "contracts:check" ];
         };
         "rust:deny" = {
           description = "Check Rust dependency policy";
           exec = "cargo deny --all-features check bans licenses sources";
-          after = [ "coreport:check" ];
+          after = [ "contracts:check" ];
         };
 
         "sync-server:test" = {
@@ -80,7 +80,7 @@ in
           description = "Check TypeScript";
           exec = "${client} tsc -b --pretty false";
           after = [
-            "coreport:check"
+            "contracts:check"
             "i18n:check"
             "wasm:build-dev"
           ];
@@ -89,7 +89,7 @@ in
           description = "Run component tests";
           exec = "${client} vitest run";
           after = [
-            "coreport:check"
+            "contracts:check"
             "i18n:check"
           ];
         };

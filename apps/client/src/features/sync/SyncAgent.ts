@@ -1,6 +1,8 @@
 import type { OutboxMessage, SyncState } from "../../core-worker";
 import type { RemoteGraphConnection } from "../../core-port/directory";
 import type { OutlineOwner } from "../../core-port/snapshot";
+import { MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION } from "../../generated/graph-schema";
+import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
 import { readAuthSession } from "./auth";
 
 export type RemoteSyncState =
@@ -146,7 +148,7 @@ export class SyncAgent {
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     this.transportSessionId = `${this.sessionId}:${crypto.randomUUID()}`;
     const socket = new WebSocket(url, [
-      "neoseq.v2",
+      SUBPROTOCOL,
       `neoseq.auth.${base64Url(auth.token)}`,
     ]);
     socket.binaryType = "arraybuffer";
@@ -176,8 +178,8 @@ export class SyncAgent {
     const state = await this.port.syncState(this.graphHandle);
     const frame = await this.port.encodeSyncMessage({
       Hello: {
-        protocol: { min: 2, max: 2 },
-        schema: { min: 1, max: 3 },
+        protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION },
+        schema: { min: MIN_MIGRATABLE_SCHEMA_VERSION, max: SCHEMA_VERSION },
         graph_id: this.graphId,
         session_id: this.transportSessionId,
         replica_id: state.replica_id,

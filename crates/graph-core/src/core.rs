@@ -27,9 +27,8 @@ use std::{
 };
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 4;
-pub const MIN_MIGRATABLE_SCHEMA_VERSION: u32 = 1;
-pub const MINIMUM_WRITER_SCHEMA: u32 = 4;
+pub use domain::{MIN_MIGRATABLE_SCHEMA_VERSION, MINIMUM_WRITER_SCHEMA, SCHEMA_VERSION};
+
 pub const LIFECYCLE_MIGRATION_ID: &str = "0001-lifecycle-metadata";
 pub const TAG_OUTLINES_MIGRATION_ID: &str = "0002-tag-outlines";
 pub const GRAPH_SETTINGS_MIGRATION_ID: &str = "0003-graph-settings";

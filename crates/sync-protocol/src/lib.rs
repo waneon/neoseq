@@ -3,8 +3,14 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod generated {
+    pub mod wire;
+}
+pub use generated::wire::*;
+
+/// Envelope framing revision. Unlike the negotiated protocol version it never
+/// crosses a language boundary: only `encode` and `decode` below read it.
 pub const WIRE_VERSION: u16 = 1;
-pub const PROTOCOL_VERSION: u16 = 2;
 pub const HEADER_LEN: usize = 10;
 const MAGIC: [u8; 4] = *b"NSQP";
 

@@ -113,7 +113,9 @@ close_graph(graph_handle)
 ```
 
 [`contracts/core-port.json`](contracts/core-port.json) generates the Rust and
-TypeScript DTOs. [`fixtures/core-port/current.json`](fixtures/core-port/current.json)
+TypeScript DTOs, as [`contracts/graph-schema.json`](contracts/graph-schema.json)
+and [`contracts/sync-protocol.json`](contracts/sync-protocol.json) generate the
+document-schema window and the sync protocol version for both languages. [`fixtures/core-port/current.json`](fixtures/core-port/current.json)
 is the shared adapter corpus. Large CRDT and archive payloads use transferable
 binary buffers; ordinary values use generated DTOs. Adapter-only graph listing,
 deletion, copy import/export, retry, and test controls are deliberately outside
@@ -219,6 +221,9 @@ domain, never the reverse.
 
 - Change a current contract and its generators, consumers, tests, and
   architecture together.
+- A version two languages must agree on is declared once in `contracts/` and
+  generated into every language that reads it. Rust and TypeScript never mirror
+  such a version by hand.
 - Add compatibility fixtures only when the product genuinely supports more
   than one deployed contract or persisted schema.
 - Persisted adapter and wire schemas migrate independently from the canonical

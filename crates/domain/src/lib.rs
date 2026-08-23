@@ -2,12 +2,14 @@
 
 pub mod generated {
     pub mod core_port;
+    pub mod graph_schema;
 }
 mod ids;
 mod model;
 mod property;
 
 pub use generated::core_port::*;
+pub use generated::graph_schema::*;
 pub use ids::{
     BlockId, CommandId, DefaultQueryId, GraphId, IdError, LocalDate, PageId, PropertyKey,
     QueryViewId, TagId,
