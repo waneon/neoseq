@@ -26,10 +26,13 @@ use std::{
 };
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 pub const MIN_MIGRATABLE_SCHEMA_VERSION: u32 = 1;
-pub const MINIMUM_WRITER_SCHEMA: u32 = 2;
+pub const MINIMUM_WRITER_SCHEMA: u32 = 3;
 pub const LIFECYCLE_MIGRATION_ID: &str = "0001-lifecycle-metadata";
+pub const TAG_OUTLINES_MIGRATION_ID: &str = "0002-tag-outlines";
+
+const LIFECYCLE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
@@ -424,25 +427,65 @@ impl GraphCore {
         peer_id: u64,
         snapshot: &[u8],
     ) -> Result<(Self, MigrationReport), CoreError> {
+        let mut core = Self::from_recovery_snapshot(graph_id, peer_id, snapshot)?;
+        let migration = core.finish_recovery()?;
+        Ok((core, migration))
+    }
+
+    /// Loads a persistence Base without migrating it. Recovery adapters must
+    /// replay the complete durable Tail with `import_recovery_update`, then
+    /// call `finish_recovery` before exposing the graph to normal reads or
+    /// writes.
+    pub fn from_recovery_snapshot(
+        graph_id: GraphId,
+        peer_id: u64,
+        snapshot: &[u8],
+    ) -> Result<Self, CoreError> {
         let doc = LoroDoc::from_snapshot(snapshot)?;
         doc.set_peer_id(peer_id)?;
-        let migration = migrate_document(&doc)?;
-        verify_schema(&doc, &graph_id)?;
+        verify_compatible_schema(&doc, &graph_id)?;
         validate_unique_entity_names(&doc)?;
         enable_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
-        Ok((
-            Self {
-                graph_id,
-                doc,
-                undo,
-                command_results: BTreeMap::new(),
-                command_order: VecDeque::new(),
-                undo_history: Vec::new(),
-                redo_history: Vec::new(),
-            },
-            migration,
-        ))
+        Ok(Self {
+            graph_id,
+            doc,
+            undo,
+            command_results: BTreeMap::new(),
+            command_order: VecDeque::new(),
+            undo_history: Vec::new(),
+            redo_history: Vec::new(),
+        })
+    }
+
+    /// Replays a durable pre-migration Tail while preserving its original
+    /// schema. Normal remote imports remain strict current-schema writes.
+    pub fn import_recovery_update(&mut self, update: &[u8]) -> Result<(), CoreError> {
+        let candidate = self.doc.fork();
+        let status = candidate.import(update)?;
+        if status.pending.is_some() {
+            return Err(CoreError::MissingDependencies);
+        }
+        verify_compatible_schema(&candidate, &self.graph_id)?;
+        validate_unique_entity_names(&candidate)?;
+
+        let status = self.doc.import(update)?;
+        if status.pending.is_some() {
+            return Err(CoreError::MissingDependencies);
+        }
+        Ok(())
+    }
+
+    /// Applies all document migrations after recovery has replayed Base+Tail,
+    /// validates the current schema invariants, and starts a fresh undo epoch.
+    pub fn finish_recovery(&mut self) -> Result<MigrationReport, CoreError> {
+        let migration = migrate_document(&self.doc)?;
+        verify_schema(&self.doc, &self.graph_id)?;
+        validate_unique_entity_names(&self.doc)?;
+        validate_tag_outlines(&self.doc)?;
+        enable_outlines(&self.doc)?;
+        self.reset_local_history();
+        Ok(migration)
     }
 
     pub fn graph_id(&self) -> &GraphId {
@@ -674,6 +717,7 @@ impl GraphCore {
         }
         verify_schema(&candidate, &self.graph_id)?;
         validate_unique_entity_names(&candidate)?;
+        validate_tag_outlines(&candidate)?;
         Ok(())
     }
 
@@ -840,12 +884,7 @@ impl GraphCore {
 
     pub fn outline_snapshot(&self, owner: &OutlineOwner) -> Result<OutlineSnapshot, CoreError> {
         self.require_live_outline_owner(owner)?;
-        let Some(outline) = self.existing_outline(owner)? else {
-            return Ok(OutlineSnapshot {
-                owner: owner.clone(),
-                blocks: Vec::new(),
-            });
-        };
+        let outline = self.outline(owner)?;
         let live_tags = live_tag_ids(&self.doc);
         let mut quarantined = Vec::new();
         let mut blocks = Vec::new();
@@ -1428,7 +1467,7 @@ impl GraphCore {
                 index,
                 markdown,
             } => {
-                let outline = self.ensure_outline(owner)?;
+                let outline = self.outline(owner)?;
                 let parent_tree = parent.as_ref().map(tree_id).transpose()?;
                 let available = parent_tree.map_or_else(
                     || outline.roots().len(),
@@ -1490,7 +1529,7 @@ impl GraphCore {
                 replace,
                 items,
             } => {
-                let outline = self.ensure_outline(owner)?;
+                let outline = self.outline(owner)?;
                 let requested_parent = parent.as_ref().map(tree_id).transpose()?;
                 let mut base_parent = requested_parent;
                 let mut base_index = *index;
@@ -1590,7 +1629,7 @@ impl GraphCore {
                     self.ensure_tag(target_id, name, now)?;
                 }
 
-                let outline = self.ensure_outline(owner)?;
+                let outline = self.outline(owner)?;
                 let requested_parent = parent.as_ref().map(tree_id).transpose()?;
                 let mut base_parent = requested_parent;
                 let mut base_index = *index;
@@ -2991,39 +3030,12 @@ impl GraphCore {
     }
 
     fn outline(&self, owner: &OutlineOwner) -> Result<LoroTree, CoreError> {
-        self.existing_outline(owner)?
-            .ok_or_else(|| CoreError::InvalidHierarchy("owner outline is missing".to_owned()))
-    }
-
-    /// Returns the persisted outline without changing the document. Tags from
-    /// schema-v1 graphs may predate tag-owned outlines, in which case the
-    /// absent tree has the semantic value of an empty outline.
-    fn existing_outline(&self, owner: &OutlineOwner) -> Result<Option<LoroTree>, CoreError> {
-        let value = self.require_outline_owner(owner)?.get("outline");
-        let Some(value) = value else {
-            return match owner {
-                OutlineOwner::Tag { .. } => Ok(None),
-                OutlineOwner::Page { .. } => Err(CoreError::InvalidHierarchy(
-                    "owner outline is missing".to_owned(),
-                )),
-            };
-        };
+        let value = self
+            .require_outline_owner(owner)?
+            .get("outline")
+            .ok_or_else(|| CoreError::InvalidHierarchy("owner outline is missing".to_owned()))?;
         let outline = value_into_tree(value)
             .ok_or_else(|| CoreError::InvalidHierarchy("owner outline is invalid".to_owned()))?;
-        outline.enable_fractional_index(0);
-        Ok(Some(outline))
-    }
-
-    /// Materializes a legacy tag's empty outline inside the command that first
-    /// writes to it, so persistence exports the migration and the user change
-    /// as one causally complete update.
-    fn ensure_outline(&self, owner: &OutlineOwner) -> Result<LoroTree, CoreError> {
-        if let Some(outline) = self.existing_outline(owner)? {
-            return Ok(outline);
-        }
-        let outline = self
-            .require_outline_owner(owner)?
-            .ensure_mergeable_tree("outline")?;
         outline.enable_fractional_index(0);
         Ok(outline)
     }
@@ -3251,7 +3263,7 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
     let stored = map_i64(&meta, "schema_version").unwrap_or(0);
     let source_schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
     if source_schema == SCHEMA_VERSION {
-        verify_lifecycle_metadata(&meta)?;
+        verify_schema_metadata(&meta, SCHEMA_VERSION)?;
         return Ok(MigrationReport {
             source_schema,
             target_schema: SCHEMA_VERSION,
@@ -3259,39 +3271,69 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
             update: Vec::new(),
         });
     }
-    if source_schema != MIN_MIGRATABLE_SCHEMA_VERSION {
+    if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&source_schema) {
         return Err(CoreError::UnsupportedSchema(stored));
     }
 
     let before = doc.oplog_vv();
-    doc.set_next_commit_origin("system:migration");
-    doc.set_next_commit_message(LIFECYCLE_MIGRATION_ID);
-    let applied = match meta.get("applied_migrations") {
-        Some(value) => value_into_map(value).ok_or(CoreError::InvalidSchemaMetadata(
-            "applied_migrations must be a map",
-        ))?,
-        None => meta.ensure_mergeable_map("applied_migrations")?,
-    };
-    if map_i64(&applied, LIFECYCLE_MIGRATION_ID) != Some(i64::from(SCHEMA_VERSION)) {
-        applied.insert(LIFECYCLE_MIGRATION_ID, i64::from(SCHEMA_VERSION))?;
+    let mut schema = source_schema;
+    let mut applied_migrations = Vec::new();
+
+    if schema == MIN_MIGRATABLE_SCHEMA_VERSION {
+        doc.set_next_commit_origin("system:migration");
+        doc.set_next_commit_message(LIFECYCLE_MIGRATION_ID);
+        let applied = migration_map(&meta, true)?;
+        if map_i64(&applied, LIFECYCLE_MIGRATION_ID) != Some(i64::from(LIFECYCLE_SCHEMA_VERSION)) {
+            applied.insert(LIFECYCLE_MIGRATION_ID, i64::from(LIFECYCLE_SCHEMA_VERSION))?;
+        }
+        meta.insert("minimum_writer_schema", i64::from(LIFECYCLE_SCHEMA_VERSION))?;
+        meta.insert("schema_version", i64::from(LIFECYCLE_SCHEMA_VERSION))?;
+        doc.commit();
+        applied_migrations.push(LIFECYCLE_MIGRATION_ID.to_owned());
+        schema = LIFECYCLE_SCHEMA_VERSION;
     }
-    if map_i64(&meta, "minimum_writer_schema") != Some(i64::from(MINIMUM_WRITER_SCHEMA)) {
+
+    if schema == LIFECYCLE_SCHEMA_VERSION {
+        verify_schema_metadata(&meta, LIFECYCLE_SCHEMA_VERSION)?;
+        validate_migratable_tag_outlines(doc)?;
+        doc.set_next_commit_origin("system:migration");
+        doc.set_next_commit_message(TAG_OUTLINES_MIGRATION_ID);
+        materialize_tag_outlines(doc)?;
+        let applied = migration_map(&meta, false)?;
+        if map_i64(&applied, TAG_OUTLINES_MIGRATION_ID) != Some(i64::from(SCHEMA_VERSION)) {
+            applied.insert(TAG_OUTLINES_MIGRATION_ID, i64::from(SCHEMA_VERSION))?;
+        }
         meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
+        meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
+        doc.commit();
+        applied_migrations.push(TAG_OUTLINES_MIGRATION_ID.to_owned());
     }
-    meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
-    doc.commit();
-    verify_lifecycle_metadata(&meta)?;
+
+    verify_schema_metadata(&meta, SCHEMA_VERSION)?;
+    validate_tag_outlines(doc)?;
     let update = doc.export(ExportMode::updates(&before))?;
     Ok(MigrationReport {
         source_schema,
         target_schema: SCHEMA_VERSION,
-        applied_migrations: vec![LIFECYCLE_MIGRATION_ID.to_owned()],
+        applied_migrations,
         update,
     })
 }
 
-fn verify_lifecycle_metadata(meta: &LoroMap) -> Result<(), CoreError> {
-    if map_i64(meta, "minimum_writer_schema") != Some(i64::from(MINIMUM_WRITER_SCHEMA)) {
+fn migration_map(meta: &LoroMap, create: bool) -> Result<LoroMap, CoreError> {
+    match meta.get("applied_migrations") {
+        Some(value) => value_into_map(value).ok_or(CoreError::InvalidSchemaMetadata(
+            "applied_migrations must be a map",
+        )),
+        None if create => Ok(meta.ensure_mergeable_map("applied_migrations")?),
+        None => Err(CoreError::InvalidSchemaMetadata(
+            "applied_migrations is missing",
+        )),
+    }
+}
+
+fn verify_schema_metadata(meta: &LoroMap, schema: u32) -> Result<(), CoreError> {
+    if map_i64(meta, "minimum_writer_schema") != Some(i64::from(schema)) {
         return Err(CoreError::InvalidSchemaMetadata(
             "minimum_writer_schema is missing or unsupported",
         ));
@@ -3308,17 +3350,84 @@ fn verify_lifecycle_metadata(meta: &LoroMap) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
+fn validate_migratable_tag_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
+    let mut invalid = None;
+    doc.get_map("tags").for_each(|raw_id, value| {
+        let Some(tag) = value_into_map(value) else {
+            return;
+        };
+        if tag
+            .get("outline")
+            .is_some_and(|value| value_into_tree(value).is_none())
+        {
+            invalid = Some(raw_id.to_owned());
+        }
+    });
+    match invalid {
+        Some(tag_id) => Err(CoreError::InvalidHierarchy(format!(
+            "tag outline is invalid: {tag_id}"
+        ))),
+        None => Ok(()),
+    }
+}
+
+fn materialize_tag_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
+    let mut tags = Vec::new();
+    doc.get_map("tags").for_each(|_, value| {
+        if let Some(tag) = value_into_map(value)
+            && tag.get("outline").is_none()
+        {
+            tags.push(tag);
+        }
+    });
+    for tag in tags {
+        let outline = tag.ensure_mergeable_tree("outline")?;
+        outline.enable_fractional_index(0);
+    }
+    Ok(())
+}
+
+fn validate_tag_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
+    let mut invalid = None;
+    doc.get_map("tags").for_each(|raw_id, value| {
+        let Some(tag) = value_into_map(value) else {
+            return;
+        };
+        if tag.get("outline").and_then(value_into_tree).is_none() {
+            invalid = Some(raw_id.to_owned());
+        }
+    });
+    match invalid {
+        Some(tag_id) => Err(CoreError::InvalidHierarchy(format!(
+            "tag outline is missing or invalid: {tag_id}"
+        ))),
+        None => Ok(()),
+    }
+}
+
+fn verify_compatible_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<u32, CoreError> {
     let meta = doc.get_map("meta");
     match map_string(&meta, "graph_id") {
         Some(value) if value == graph_id.as_str() => {}
         _ => return Err(CoreError::SnapshotGraphMismatch),
     }
-    match map_i64(&meta, "schema_version") {
-        Some(value) if value == i64::from(SCHEMA_VERSION) => verify_lifecycle_metadata(&meta),
-        Some(value) => Err(CoreError::UnsupportedSchema(value)),
-        None => Err(CoreError::UnsupportedSchema(0)),
+    let stored = map_i64(&meta, "schema_version").unwrap_or(0);
+    let schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
+    if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&schema) {
+        return Err(CoreError::UnsupportedSchema(stored));
     }
+    if schema >= LIFECYCLE_SCHEMA_VERSION {
+        verify_schema_metadata(&meta, schema)?;
+    }
+    Ok(schema)
+}
+
+fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
+    let schema = verify_compatible_schema(doc, graph_id)?;
+    if schema != SCHEMA_VERSION {
+        return Err(CoreError::UnsupportedSchema(i64::from(schema)));
+    }
+    Ok(())
 }
 
 fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
@@ -4224,14 +4333,14 @@ fn tag_summaries(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSummary
     snapshots.into_values().collect()
 }
 
-fn tag_outline(tag: &LoroMap) -> Result<Option<LoroTree>, CoreError> {
-    let Some(value) = tag.get("outline") else {
-        return Ok(None);
-    };
+fn tag_outline(tag: &LoroMap) -> Result<LoroTree, CoreError> {
+    let value = tag
+        .get("outline")
+        .ok_or_else(|| CoreError::InvalidHierarchy("tag outline is missing".to_owned()))?;
     let outline = value_into_tree(value)
         .ok_or_else(|| CoreError::InvalidHierarchy("tag outline is invalid".to_owned()))?;
     outline.enable_fractional_index(0);
-    Ok(Some(outline))
+    Ok(outline)
 }
 
 fn tag_snapshots(
@@ -4247,10 +4356,9 @@ fn tag_snapshots(
             .and_then(value_into_map)
             .ok_or_else(|| CoreError::TagNotFound(summary.id.clone()))?;
         let mut blocks = Vec::new();
-        if let Some(outline) = tag_outline(&tag)? {
-            for root in outline.roots() {
-                blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
-            }
+        let outline = tag_outline(&tag)?;
+        for root in outline.roots() {
+            blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
         }
         snapshots.push(TagSnapshot {
             id: summary.id,
@@ -4280,10 +4388,9 @@ fn tag_snapshot_by_id(
         return Ok(None);
     };
     let mut blocks = Vec::new();
-    if let Some(outline) = tag_outline(&tag)? {
-        for root in outline.roots() {
-            blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
-        }
+    let outline = tag_outline(&tag)?;
+    for root in outline.roots() {
+        blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
     }
     Ok(Some(TagSnapshot {
         id: summary.id,
@@ -4561,7 +4668,10 @@ mod tests {
         assert_eq!(first.target_schema, SCHEMA_VERSION);
         assert_eq!(
             first.applied_migrations,
-            vec![LIFECYCLE_MIGRATION_ID.to_owned()]
+            vec![
+                LIFECYCLE_MIGRATION_ID.to_owned(),
+                TAG_OUTLINES_MIGRATION_ID.to_owned(),
+            ]
         );
         assert!(!first.update.is_empty());
         assert_eq!(migrated.snapshot().unwrap().pages.len(), 1);
@@ -4666,21 +4776,23 @@ mod tests {
     }
 
     #[test]
-    fn legacy_tags_without_outlines_open_as_empty_and_materialize_on_first_write() {
-        let legacy_tag = TagId::new("legacy-tag").unwrap();
-        let legacy = GraphCore::new(graph(), 1, "t0").unwrap();
-        let tag = legacy
-            .doc
-            .get_map("tags")
-            .ensure_mergeable_map(legacy_tag.as_str())
-            .unwrap();
-        tag.insert("name", "Legacy tag").unwrap();
-        initialize_lifecycle(&tag.ensure_mergeable_map("properties").unwrap(), "t1").unwrap();
-        tag.ensure_mergeable_map("defaults").unwrap();
-        legacy.doc.commit();
-        let baseline = legacy.export_snapshot().unwrap();
+    fn schema_v2_tags_without_outlines_migrate_before_first_write() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/compatibility/schema-v2-tag-without-outline.json"
+        ))
+        .unwrap();
+        let legacy_graph = GraphId::new(fixture["graph_id"].as_str().unwrap()).unwrap();
+        let legacy_tag = TagId::new(fixture["tag_id"].as_str().unwrap()).unwrap();
+        let baseline = hex::decode(fixture["snapshot_hex"].as_str().unwrap()).unwrap();
 
-        let mut restored = GraphCore::from_snapshot(graph(), 2, &baseline).unwrap();
+        let (mut restored, migration) =
+            GraphCore::from_snapshot_with_migrations(legacy_graph.clone(), 2, &baseline).unwrap();
+        assert_eq!(migration.source_schema, LIFECYCLE_SCHEMA_VERSION);
+        assert_eq!(
+            migration.applied_migrations,
+            [TAG_OUTLINES_MIGRATION_ID.to_owned()]
+        );
+        assert!(!migration.update.is_empty());
         let units = restored
             .index_units()
             .unwrap()
@@ -4698,11 +4810,38 @@ mod tests {
                 .is_empty()
         );
 
+        let migrated_snapshot = restored.export_snapshot().unwrap();
+        let migrated_doc = LoroDoc::from_snapshot(&migrated_snapshot).unwrap();
+        let migrated_tag = migrated_doc
+            .get_map("tags")
+            .get(legacy_tag.as_str())
+            .and_then(value_into_map)
+            .unwrap();
+        assert!(
+            migrated_tag
+                .get("outline")
+                .and_then(value_into_tree)
+                .is_some()
+        );
+
+        let fingerprint = restored.fingerprint().unwrap();
+        assert_eq!(
+            fingerprint,
+            fixture["expected_current_fingerprint"].as_str().unwrap()
+        );
+        let (reopened, second) =
+            GraphCore::from_snapshot_with_migrations(legacy_graph.clone(), 3, &migrated_snapshot)
+                .unwrap();
+        assert!(second.applied_migrations.is_empty());
+        assert!(second.update.is_empty());
+        assert_eq!(reopened.fingerprint().unwrap(), fingerprint);
+
         let inserted = restored
             .execute(
-                envelope(
-                    "legacy-first-block",
-                    Command::InsertBlock {
+                CommandEnvelope {
+                    graph_id: legacy_graph.clone(),
+                    command_id: CommandId::new("legacy-first-block").unwrap(),
+                    command: Command::InsertBlock {
                         owner: OutlineOwner::Tag {
                             id: legacy_tag.clone(),
                         },
@@ -4710,30 +4849,112 @@ mod tests {
                         index: 0,
                         markdown: "Migrated safely".into(),
                     },
-                ),
+                },
                 "t2",
             )
             .unwrap();
         assert!(!inserted.update.is_empty());
 
-        let mut replayed = GraphCore::from_snapshot(graph(), 3, &baseline).unwrap();
+        let mut replayed =
+            GraphCore::from_snapshot(legacy_graph.clone(), 4, &migrated_snapshot).unwrap();
         replayed.import_remote(&inserted.update).unwrap();
         assert_eq!(
             replayed.snapshot().unwrap().tags[0].blocks[0].markdown,
             "Migrated safely"
         );
 
-        let mut deletable = GraphCore::from_snapshot(graph(), 4, &baseline).unwrap();
+        let mut deletable =
+            GraphCore::from_snapshot(legacy_graph.clone(), 5, &migrated_snapshot).unwrap();
         deletable
             .execute(
-                envelope(
-                    "delete-legacy-tag",
-                    Command::DeleteTag { tag_id: legacy_tag },
-                ),
+                CommandEnvelope {
+                    graph_id: legacy_graph,
+                    command_id: CommandId::new("delete-legacy-tag").unwrap(),
+                    command: Command::DeleteTag { tag_id: legacy_tag },
+                },
                 "t3",
             )
             .unwrap();
         assert!(deletable.summary().unwrap().tags.is_empty());
+    }
+
+    #[test]
+    fn tag_outline_migration_runs_after_replaying_the_legacy_tail() {
+        let base_tag = TagId::new("base-tag").unwrap();
+        let tail_tag = TagId::new("tail-tag").unwrap();
+        let legacy = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tags = legacy.doc.get_map("tags");
+        let base = tags.ensure_mergeable_map(base_tag.as_str()).unwrap();
+        base.insert("name", "Base tag").unwrap();
+        initialize_lifecycle(&base.ensure_mergeable_map("properties").unwrap(), "t1").unwrap();
+        base.ensure_mergeable_map("defaults").unwrap();
+        let meta = legacy.doc.get_map("meta");
+        meta.insert("schema_version", i64::from(LIFECYCLE_SCHEMA_VERSION))
+            .unwrap();
+        meta.insert("minimum_writer_schema", i64::from(LIFECYCLE_SCHEMA_VERSION))
+            .unwrap();
+        legacy.doc.commit();
+        let baseline = legacy.export_snapshot().unwrap();
+
+        let tail_writer = GraphCore::from_recovery_snapshot(graph(), 2, &baseline).unwrap();
+        let before = tail_writer.doc.oplog_vv();
+        let tail = tail_writer
+            .doc
+            .get_map("tags")
+            .ensure_mergeable_map(tail_tag.as_str())
+            .unwrap();
+        tail.insert("name", "Tail tag").unwrap();
+        initialize_lifecycle(&tail.ensure_mergeable_map("properties").unwrap(), "t2").unwrap();
+        tail.ensure_mergeable_map("defaults").unwrap();
+        tail_writer.doc.commit();
+        let update = tail_writer
+            .doc
+            .export(ExportMode::updates(&before))
+            .unwrap();
+
+        let mut recovered = GraphCore::from_recovery_snapshot(graph(), 3, &baseline).unwrap();
+        recovered.import_recovery_update(&update).unwrap();
+        let migration = recovered.finish_recovery().unwrap();
+        assert_eq!(
+            migration.applied_migrations,
+            [TAG_OUTLINES_MIGRATION_ID.to_owned()]
+        );
+        for tag_id in [base_tag, tail_tag] {
+            let tag = recovered
+                .doc
+                .get_map("tags")
+                .get(tag_id.as_str())
+                .and_then(value_into_map)
+                .unwrap();
+            assert!(tag.get("outline").and_then(value_into_tree).is_some());
+        }
+    }
+
+    #[test]
+    fn tag_outline_migration_rejects_an_existing_non_tree_value() {
+        let tag_id = TagId::new("invalid-tag").unwrap();
+        let legacy = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag = legacy
+            .doc
+            .get_map("tags")
+            .ensure_mergeable_map(tag_id.as_str())
+            .unwrap();
+        tag.insert("name", "Invalid tag").unwrap();
+        tag.insert("outline", "not-a-tree").unwrap();
+        initialize_lifecycle(&tag.ensure_mergeable_map("properties").unwrap(), "t1").unwrap();
+        tag.ensure_mergeable_map("defaults").unwrap();
+        let meta = legacy.doc.get_map("meta");
+        meta.insert("schema_version", i64::from(LIFECYCLE_SCHEMA_VERSION))
+            .unwrap();
+        meta.insert("minimum_writer_schema", i64::from(LIFECYCLE_SCHEMA_VERSION))
+            .unwrap();
+        legacy.doc.commit();
+
+        let error = match GraphCore::from_snapshot(graph(), 2, &legacy.export_snapshot().unwrap()) {
+            Ok(_) => panic!("a non-tree outline must not be overwritten"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, CoreError::InvalidHierarchy(_)));
     }
 
     #[test]

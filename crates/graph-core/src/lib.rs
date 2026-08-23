@@ -9,7 +9,7 @@ mod runtime;
 pub use core::{
     CoreError, CoreExecution, GraphChangeSet, GraphCore, LIFECYCLE_MIGRATION_ID,
     MIN_MIGRATABLE_SCHEMA_VERSION, MINIMUM_WRITER_SCHEMA, MigrationReport, SCHEMA_VERSION,
-    empty_version_vector,
+    TAG_OUTLINES_MIGRATION_ID, empty_version_vector,
 };
 pub use persistence::{
     AppendReceipt, CheckpointRecord, GraphLocator, GraphMetadata, LocalGraphRepository,

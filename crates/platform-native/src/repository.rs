@@ -179,6 +179,52 @@ impl SqliteGraphRepository {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn install_compatibility_fixture(
+        &mut self,
+        schema_version: u32,
+        checkpoint: &[u8],
+        created_at: &str,
+    ) -> Result<(), SqliteRepositoryError> {
+        let digest = checksum(checkpoint);
+        let checkpoint_bytes = i64::try_from(checkpoint.len()).map_err(|_| {
+            SqliteRepositoryError::Corrupt("checkpoint size exceeds SQLite range".to_owned())
+        })?;
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "INSERT INTO graph_checkpoint(
+                    graph_id, local_sequence, schema_version, checksum, payload, created_at
+                 ) VALUES (?1, 0, ?2, ?3, ?4, ?5)",
+                params![
+                    self.locator.graph_id.as_str(),
+                    schema_version,
+                    digest,
+                    checkpoint,
+                    created_at,
+                ],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction
+            .execute(
+                "UPDATE graph_metadata
+                 SET schema_version = ?2, compacted_through = 0,
+                     checkpoint_bytes = ?3, updated_at = ?4
+                 WHERE graph_id = ?1",
+                params![
+                    self.locator.graph_id.as_str(),
+                    schema_version,
+                    checkpoint_bytes,
+                    created_at,
+                ],
+            )
+            .map_err(SqliteRepositoryError::from)?;
+        transaction.commit().map_err(SqliteRepositoryError::from)
+    }
+
     fn take_fault(&mut self, expected: FaultPoint) -> bool {
         if self.fault == Some(expected) {
             self.fault = None;

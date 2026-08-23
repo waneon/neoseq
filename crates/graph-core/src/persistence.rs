@@ -164,7 +164,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
         } else if !valid_checksum(&checkpoint.checksum, &checkpoint.bytes) {
             Some("checkpoint-checksum-mismatch".to_owned())
         } else {
-            match GraphCore::from_snapshot(graph_id.clone(), peer_id, &checkpoint.bytes) {
+            match GraphCore::from_recovery_snapshot(graph_id.clone(), peer_id, &checkpoint.bytes) {
                 Ok(core) => {
                     selected = Some((core, checkpoint.local_sequence));
                     None
@@ -212,7 +212,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
         } else if !valid_checksum(&update.checksum, &update.bytes) {
             tail_is_corrupt = true;
             Some("update-checksum-mismatch".to_owned())
-        } else if let Err(error) = core.import_remote(&update.bytes) {
+        } else if let Err(error) = core.import_recovery_update(&update.bytes) {
             tail_is_corrupt = true;
             Some(format!("invalid-update:{error}"))
         } else {
@@ -234,6 +234,8 @@ pub fn recover_graph<R: LocalGraphRepository>(
             quarantined.push(export_handle);
         }
     }
+
+    core.finish_recovery()?;
 
     if !corrupt_tail.is_empty() {
         let checkpoint = core.export_gc_checkpoint()?;

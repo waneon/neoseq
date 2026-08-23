@@ -85,11 +85,15 @@ export class TestIndexedDbGraphRepository extends IndexedDbGraphRepository {
     database.close();
   }
 
-  async installLegacyFixture(graphId: string, snapshot: ArrayBuffer): Promise<void> {
+  async installLegacyFixture(
+    graphId: string,
+    schemaVersion: number,
+    snapshot: ArrayBuffer,
+  ): Promise<void> {
     await this.installImportedGraph(
       { graph_id: graphId },
       991,
-      1,
+      schemaVersion,
       snapshot,
       "2026-08-23T00:00:00Z",
     );

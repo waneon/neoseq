@@ -177,7 +177,7 @@ export class SyncAgent {
     const frame = await this.port.encodeSyncMessage({
       Hello: {
         protocol: { min: 2, max: 2 },
-        schema: { min: 1, max: 2 },
+        schema: { min: 1, max: 3 },
         graph_id: this.graphId,
         session_id: this.transportSessionId,
         replica_id: state.replica_id,

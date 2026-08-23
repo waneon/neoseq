@@ -2,12 +2,14 @@ import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
 import golden from "../../../fixtures/core-port/current.json";
 import legacyFixture from "../../../fixtures/compatibility/schema-v1-basic.json";
+import legacyTagFixture from "../../../fixtures/compatibility/schema-v2-tag-without-outline.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
 
 interface Snapshot {
   schema_version: number;
   pages: unknown[];
+  tags: Array<{ id: string }>;
   quarantined: string[];
 }
 
@@ -204,7 +206,7 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 2, "worker read did not return schema v2");
+  assert((read.summary as Snapshot).schema_version === 3, "worker read did not return schema v3");
   const outline = await worker.readOutline({
     graph_handle: opened.graph_handle,
     owner: { kind: "page", id: "home" },
@@ -354,17 +356,37 @@ export async function runIndexedDbFaultCorpus() {
   await migration.deleteGraph(legacyFixture.graph_id);
   await migration.installLegacyFixture(
     legacyFixture.graph_id,
+    legacyFixture.document_schema,
     hexBuffer(legacyFixture.snapshot_hex),
   );
   const migrated = await migration.openGraph(openRequest(legacyFixture.graph_id, 263));
-  assert((migrated.summary as Snapshot).schema_version === 2, "schema v1 fixture was not migrated");
+  assert((migrated.summary as Snapshot).schema_version === 3, "schema v1 fixture was not migrated");
   assert((migrated.summary as Snapshot).pages.length === 1, "schema migration changed fixture entities");
-  assert(await migration.schemaVersion(legacyFixture.graph_id) === 2, "migrated Base was not persisted");
+  assert(await migration.schemaVersion(legacyFixture.graph_id) === 3, "migrated Base was not persisted");
   await migration.closeGraph({ graph_handle: migrated.graph_handle });
   const migratedAgain = await migration.openGraph(openRequest(legacyFixture.graph_id, 264));
   assert(migratedAgain.recovery.quarantined_records.length === 0, "persisted migration failed on reopen");
   await migration.closeGraph({ graph_handle: migratedAgain.graph_handle });
   await migration.deleteGraph(legacyFixture.graph_id);
+
+  await migration.installLegacyFixture(
+    legacyTagFixture.graph_id,
+    legacyTagFixture.document_schema,
+    hexBuffer(legacyTagFixture.snapshot_hex),
+  );
+  const migratedTag = await migration.openGraph(openRequest(legacyTagFixture.graph_id, 265));
+  const migratedTagSnapshot = migratedTag.summary as Snapshot;
+  assert(migratedTagSnapshot.schema_version === 3, "schema v2 tag fixture was not migrated");
+  assert(
+    migratedTagSnapshot.tags.some((tag) => tag.id === legacyTagFixture.tag_id),
+    "tag-outline migration changed fixture entities",
+  );
+  assert(await migration.schemaVersion(legacyTagFixture.graph_id) === 3, "schema v2 migration was not persisted");
+  await migration.closeGraph({ graph_handle: migratedTag.graph_handle });
+  const migratedTagAgain = await migration.openGraph(openRequest(legacyTagFixture.graph_id, 266));
+  assert(migratedTagAgain.recovery.quarantined_records.length === 0, "persisted tag migration failed on reopen");
+  await migration.closeGraph({ graph_handle: migratedTagAgain.graph_handle });
+  await migration.deleteGraph(legacyTagFixture.graph_id);
   migration.terminate();
   return { append_after_recovered: true, corrupt_quarantined: true, quota_typed: true, transaction_abort: true, checkpoint_phases: true, unsupported_schema: true, schema_migrated: true };
 }

@@ -8,8 +8,8 @@ synchronization unit. The current document schema is v2 and has three roots:
 ```text
 meta: Map
   graph_id: string
-  schema_version: 2
-  minimum_writer_schema: 2
+  schema_version: 3
+  minimum_writer_schema: 3
   applied_migrations: Map<MigrationId, TargetSchema>
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
@@ -20,11 +20,12 @@ canonical representation. RDF triples, text caches, query plans, and session UI
 state are disposable projections. Shared saved-view definitions are canonical
 document-property data.
 
-Schema v1 is the sole migratable predecessor. Opening it applies
-`0001-lifecycle-metadata` as one normal CRDT commit, records that migration,
-sets the minimum writer and document schema to v2, then persists a migrated
-checkpoint before accepting new writes. Reopening v2 is a no-op. Schemas outside
-the supported range `[1, 2]` are rejected without downgrade or coercion.
+Schemas v1 and v2 are migratable predecessors. Recovery replays Base and Tail,
+then applies each missing migration as a normal CRDT commit before persisting a
+current checkpoint or accepting writes. `0001-lifecycle-metadata` advances v1
+to v2; `0002-tag-outlines` materializes every tag-owned tree and advances v2 to
+v3. Reopening v3 is a no-op. Schemas outside `[1, 3]` are rejected without
+downgrade or coercion.
 
 ## Outline Owners, Nodes, and Ordering
 
@@ -50,10 +51,9 @@ lowercasing. Stable IDs, not names, are identity.
 Each tag record likewise owns metadata, defaults, and a direct
 `outline: MovableTree<NodeData>`. The tag is the owner; there is no backing page,
 and placing a block in that tree does not add the tag to the block.
-Schema-v1 tag records written before tag outlines existed may omit `outline`.
-Readers interpret that absence as an empty tree; the first block-creating
-command materializes the tree and persists it with the same causal update.
-An existing non-tree value remains invalid rather than being silently replaced.
+Schema-v2 tag records written before tag outlines existed may omit `outline`.
+The v3 migration materializes each missing tree after durable Tail replay. An
+existing non-tree value remains invalid rather than being silently replaced.
 
 Every outline node is a block. Its Loro tree ID is the external `BlockId`, and
 the containing page or tag tree determines ownership. Indent, outdent, reorder,
@@ -251,6 +251,6 @@ inferred from a decoder accepting the bytes.
   Tail resync, restart, protocol encoding, and acknowledgement;
 - compaction tests cross the periodic threshold and reopen from the retained
   current/prior checkpoints and remaining Tail;
-- the checked-in v1 fixture migrates in core, browser, and server paths and is
-  stable under a second open;
+- the checked-in v1 lifecycle and v2 tag-outline fixtures migrate in core,
+  browser, native, and server paths and are stable under a second open;
 - generated contracts are synchronized before tests and checked by production builds.

@@ -1911,6 +1911,7 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "graph-core",
+ "hex",
  "query",
  "rusqlite",
  "serde_json",

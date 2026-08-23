@@ -288,16 +288,21 @@ impl<S: GraphStore> RoomManager<S> {
             return Err(StoreError::QuotaExceeded.into());
         }
         let graph = GraphId::new(graph_id).map_err(|_| RoomError::InvalidGraph)?;
-        let mut core =
-            GraphCore::from_snapshot(graph.clone(), SERVER_PEER_ID, &durable.checkpoint.snapshot)
-                .map_err(|_| StoreError::Corrupt("checkpoint Loro snapshot is invalid"))?;
+        let mut core = GraphCore::from_recovery_snapshot(
+            graph.clone(),
+            SERVER_PEER_ID,
+            &durable.checkpoint.snapshot,
+        )
+        .map_err(|_| StoreError::Corrupt("checkpoint Loro snapshot is invalid"))?;
         for update in &durable.updates {
             if graph_core::checksum(&update.bytes) != update.checksum {
                 return Err(StoreError::Corrupt("update checksum mismatch").into());
             }
-            core.import_remote(&update.bytes)
+            core.import_recovery_update(&update.bytes)
                 .map_err(|_| StoreError::Corrupt("durable Loro update is invalid"))?;
         }
+        core.finish_recovery()
+            .map_err(|_| StoreError::Corrupt("durable graph migration failed"))?;
         let mut history_epoch = durable.history_epoch;
         let mut tail_updates = durable.updates.len();
         let mut tail_bytes = durable

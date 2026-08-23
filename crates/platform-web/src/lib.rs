@@ -112,7 +112,7 @@ fn apply_index_changes(
 #[wasm_bindgen]
 pub struct WasmGraphCore {
     inner: GraphCore,
-    index: GraphIndex,
+    index: Option<GraphIndex>,
     pending_update: Option<Vec<u8>>,
 }
 
@@ -130,7 +130,7 @@ impl WasmGraphCore {
         .map_err(js_error)?;
         Ok(Self {
             inner,
-            index,
+            index: Some(index),
             pending_update: None,
         })
     }
@@ -151,9 +151,44 @@ impl WasmGraphCore {
         .map_err(js_error)?;
         Ok(Self {
             inner,
-            index,
+            index: Some(index),
             pending_update: None,
         })
+    }
+
+    #[wasm_bindgen(js_name = fromRecoverySnapshot)]
+    pub fn from_recovery_snapshot(
+        graph_id: &str,
+        peer_id: u64,
+        snapshot: &[u8],
+    ) -> Result<WasmGraphCore, JsValue> {
+        let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
+        let inner =
+            GraphCore::from_recovery_snapshot(graph_id, peer_id, snapshot).map_err(js_error)?;
+        Ok(Self {
+            inner,
+            index: None,
+            pending_update: None,
+        })
+    }
+
+    #[wasm_bindgen(js_name = importRecoveryUpdate)]
+    pub fn import_recovery_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
+        self.inner.import_recovery_update(update).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = finishRecovery)]
+    pub fn finish_recovery(&mut self) -> Result<(), JsValue> {
+        self.inner.finish_recovery().map_err(js_error)?;
+        self.index = Some(
+            GraphIndex::from_units(
+                self.inner.graph_id().clone(),
+                self.inner.frontier(),
+                self.inner.index_units().map_err(js_error)?,
+            )
+            .map_err(js_error)?,
+        );
+        Ok(())
     }
 
     #[wasm_bindgen(js_name = resetLocalHistory)]
@@ -168,7 +203,11 @@ impl WasmGraphCore {
         }
         let envelope = serde_json::from_str(command).map_err(js_error)?;
         let execution = self.inner.execute(envelope, now).map_err(js_error)?;
-        apply_index_changes(&self.inner, &mut self.index, &execution.changes)?;
+        let index = self
+            .index
+            .as_mut()
+            .ok_or_else(|| js_error("finish recovery before executing commands"))?;
+        apply_index_changes(&self.inner, index, &execution.changes)?;
         self.pending_update = Some(execution.update);
         serde_json::to_string(&serde_json::json!({
             "result": execution.result,
@@ -189,7 +228,11 @@ impl WasmGraphCore {
             .inner
             .import_remote_with_changes(update)
             .map_err(js_error)?;
-        apply_index_changes(&self.inner, &mut self.index, &changes)?;
+        let index = self
+            .index
+            .as_mut()
+            .ok_or_else(|| js_error("finish recovery before importing remote updates"))?;
+        apply_index_changes(&self.inner, index, &changes)?;
         Ok(())
     }
 
@@ -221,7 +264,11 @@ impl WasmGraphCore {
             return Err(js_error("take the pending update before querying"));
         }
         let request: QueryRequest = serde_json::from_str(request).map_err(js_error)?;
-        serde_json::to_string(&self.index.execute(request).map_err(js_error)?).map_err(js_error)
+        let index = self
+            .index
+            .as_ref()
+            .ok_or_else(|| js_error("finish recovery before querying"))?;
+        serde_json::to_string(&index.execute(request).map_err(js_error)?).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = summaryJson)]

@@ -32,7 +32,7 @@ stdenv.mkDerivation {
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
     name = "${pname}-${version}-${cargoLockDigest}";
-    hash = "sha256-ysUQl8BQu1y5AAeTZYRCqkD/1DK0Zm01uEAEuYDvRUA=";
+    hash = "sha256-+SVy6GW5GhT5SYi43nWSUljTXekU3/0FXJMUxucq80c=";
   };
 
   nativeBuildInputs = [

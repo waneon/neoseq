@@ -11,13 +11,27 @@ async fn schema_v1_fixture_migrates_before_the_room_accepts_writes() {
         "../../../fixtures/compatibility/schema-v1-basic.json"
     ))
     .unwrap();
+    assert_fixture_migrates(fixture).await;
+}
+
+#[tokio::test]
+async fn schema_v2_tag_fixture_migrates_before_the_room_accepts_writes() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/compatibility/schema-v2-tag-without-outline.json"
+    ))
+    .unwrap();
+    assert_fixture_migrates(fixture).await;
+}
+
+async fn assert_fixture_migrates(fixture: serde_json::Value) {
     let graph_id = fixture["graph_id"].as_str().unwrap();
     let snapshot = hex::decode(fixture["snapshot_hex"].as_str().unwrap()).unwrap();
+    let document_schema = fixture["document_schema"].as_u64().unwrap() as u32;
     let store = Arc::new(MemoryStore::new());
     store.seed_graph(
         graph_id,
         OWNER,
-        1,
+        document_schema,
         8 * 1024 * 1024,
         snapshot,
         graph_core::empty_version_vector(),

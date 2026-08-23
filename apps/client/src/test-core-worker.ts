@@ -31,10 +31,11 @@ export class TestCoreWorker extends CoreWorker {
     });
   }
 
-  installLegacyFixture(graphId: string, snapshot: ArrayBuffer): Promise<void> {
+  installLegacyFixture(graphId: string, schemaVersion: number, snapshot: ArrayBuffer): Promise<void> {
     return this.request("test_control", {
       action: "install_legacy_fixture",
       graph_id: graphId,
+      schema_version: schemaVersion,
       snapshot,
     });
   }

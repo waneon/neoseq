@@ -118,7 +118,7 @@ export class IndexedDbGraphRepository {
       locator,
       replica_id: existing?.replica_id ?? suggestedReplicaId,
       history_epoch: existing?.history_epoch ?? 0,
-      schema_version: existing?.schema_version ?? 2,
+      schema_version: existing?.schema_version ?? 3,
       next_sequence: existing?.next_sequence ?? 1,
       compacted_through: existing?.compacted_through ?? 0,
       checkpoint_bytes: checkpoints.reduce((total, value) => total + value.payload.byteLength, 0),

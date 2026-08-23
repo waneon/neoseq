@@ -57,7 +57,7 @@ interface OpenState {
 const COMPACT_TAIL_UPDATES = 128;
 const COMPACT_TAIL_BYTES = 512 * 1024;
 const MIN_MIGRATABLE_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 let wasmReady: Promise<unknown> | undefined;
 const states = new Map<string, OpenState>();
@@ -177,7 +177,7 @@ async function recover(
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {
-        core = WasmGraphCore.fromSnapshot(
+        core = WasmGraphCore.fromRecoverySnapshot(
           graphId,
           BigInt(metadata.replica_id),
           new Uint8Array(checkpoint.payload),
@@ -217,7 +217,7 @@ async function recover(
       tailCorrupt = true;
     } else {
       try {
-        core.importUpdate(new Uint8Array(update.payload));
+        core.importRecoveryUpdate(new Uint8Array(update.payload));
         replayedUpdates += 1;
         validThrough = update.local_sequence;
       } catch (error) {
@@ -236,6 +236,7 @@ async function recover(
       quarantinedRecords.push(exportHandle);
     }
   }
+  core.finishRecovery();
   if (corruptTail.length > 0) {
     await repository.repairCorruptTail(
       graphId,
@@ -660,6 +661,7 @@ async function testControl(payload: Record<string, unknown>) {
     case "schema_version": return repository.metadata(String(payload.graph_id)).then((value) => value.schema_version);
     case "install_legacy_fixture": return repository.installLegacyFixture(
       String(payload.graph_id),
+      Number(payload.schema_version),
       ownedBuffer(asUint8Array(payload.snapshot as ArrayBuffer | Uint8Array)),
     ).then(() => null);
     case "gc_checkpoint": {
