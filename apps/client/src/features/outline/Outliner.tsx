@@ -2252,11 +2252,72 @@ export function Outliner({
     },
   };
 
+  // ── One outline, two origins ──
+  //
+  // The rows are virtualized against the *page* scroller, because an outline
+  // scrolls together with everything above it: a title, its properties, and on a
+  // tag its defaults and its query results. So "how far has the reader scrolled"
+  // is measured from the top of the page, while "where does row 40 sit" is
+  // measured from the top of the outline. The virtualizer compares those two
+  // numbers to decide which rows exist, so it has to be told the distance
+  // between their origins. Left at zero it builds the window that would be right
+  // if the outline began at the top of the page — the wrong band of rows by
+  // exactly the header's height, which reads as blank space where the reader is
+  // looking and rows rendered where nobody is. It is the same arithmetic that
+  // aims `scrollToIndex`, so a revealed block landed off-screen by the same
+  // distance.
+  //
+  // That height is not a constant: a query panel fills in when its results
+  // arrive, a disclosure opens, a default is added. So it is measured rather
+  // than assumed, and re-measured whenever anything that can push the outline
+  // down changes size.
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const populated = rows.length > 0;
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!scrollElement || !viewport || !scrollElement.contains(viewport)) return;
+
+    const measure = () => {
+      const offset =
+        viewport.getBoundingClientRect().top -
+        scrollElement.getBoundingClientRect().top +
+        scrollElement.scrollTop;
+      // A fractional layout would otherwise re-render the whole outline on every
+      // observation without moving a single row.
+      setScrollMargin((current) =>
+        Math.abs(current - offset) < 1 ? current : offset,
+      );
+    };
+    measure();
+
+    // jsdom (component tests) has no layout and no ResizeObserver: there every
+    // rect is 0, which is the right answer for a page with no header to clear.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    // Everything that can move the outline down: each box between it and the
+    // scroller, and everything laid out above each of those. A box that appears
+    // or disappears needs no watching of its own — it changes the height of the
+    // parent already in this walk.
+    for (let node: Element | null = viewport; node; node = node.parentElement) {
+      observer.observe(node);
+      for (
+        let above = node.previousElementSibling;
+        above;
+        above = above.previousElementSibling
+      ) {
+        observer.observe(above);
+      }
+      if (node === scrollElement) break;
+    }
+    return () => observer.disconnect();
+  }, [populated, scrollElement]);
+
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollElement,
     estimateSize: () => 30,
     overscan: 10,
+    scrollMargin,
     // jsdom (component tests) has no layout; the observer corrects this in
     // real browsers.
     initialRect: { width: 800, height: 600 },
@@ -2553,7 +2614,9 @@ export function Outliner({
                   top: 0,
                   left: 0,
                   width: "100%",
-                  transform: `translateY(${item.start}px)`,
+                  // `item.start` is page-relative; the row is placed inside
+                  // the outline, so the header's height comes back off.
+                  transform: `translateY(${item.start - scrollMargin}px)`,
                 }}
               >
                 <BlockRow

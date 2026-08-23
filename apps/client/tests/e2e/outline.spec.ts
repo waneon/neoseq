@@ -5,6 +5,7 @@ import {
   blockTexts,
   createGraph,
   openBlockMenu,
+  openSidebar,
   startOutline,
   typeInFocusedBlock,
 } from "./helpers";
@@ -347,4 +348,145 @@ test("pressing a block taller than the viewport does not move the page", async (
   await expect(page.getByLabel("Block text").first()).toBeFocused();
   const after = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
   expect(Math.abs(after - before)).toBeLessThan(4);
+});
+
+// Whatever sits above the outline — a title, its properties, a tag's defaults and
+// the answer to its query — the outline scrolls together with all of it. So the
+// distance from the top of the page to the outline's first row is large, and it
+// is not a constant. That distance is the whole of this test.
+//
+// A row is placed from the top of the outline, while how far the reader has come
+// is measured from the top of the page. Virtualization compares those two numbers
+// to decide which rows exist, so it has to be told how far apart their origins
+// are; without it the rows get built for a band of the document nobody is looking
+// at and the band the reader *is* looking at comes up empty. On screen that is
+// blocks vanishing partway down a tag.
+//
+// So the measurement is the reader's own question, asked at every stop on the way
+// down: is any part of the outline that is on screen missing?
+const LARGEST_GAP = /* language=JavaScript */ `
+(() => {
+  const scroll = document.querySelector(".page-scroll");
+  // A tag's query answer is an outline of its own; the tag's writing is the last.
+  const outline = [...document.querySelectorAll(".outline-viewport")].pop();
+  const view = scroll.getBoundingClientRect();
+  const box = outline.getBoundingClientRect();
+  // The band of the window the outline is answerable for.
+  const top = Math.max(view.top, box.top);
+  const bottom = Math.min(view.bottom, box.bottom);
+  const rows = [...outline.querySelectorAll(":scope > [data-index]")]
+    .map((row) => row.getBoundingClientRect())
+    .filter((row) => row.bottom > top && row.top < bottom)
+    .sort((a, b) => a.top - b.top);
+  let cursor = top;
+  let gap = 0;
+  for (const row of rows) {
+    gap = Math.max(gap, row.top - cursor);
+    cursor = Math.max(cursor, row.bottom);
+  }
+  // With nothing rendered at all this is the whole band, which is the answer.
+  return Math.max(gap, bottom - cursor);
+})()`;
+
+test("scrolling a tag's outline leaves no gap where a row belongs", async ({ page }) => {
+  test.slow();
+  await createGraph(page, "Tag Scroll Graph");
+
+  await openSidebar(page);
+  await page.getByTestId("nav-tags").click();
+  await page.getByTestId("new-tag").click();
+  await page.keyboard.type("design");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  await awaitSaved(page);
+
+  // A tag's page carries the tallest header in the product, and most of that
+  // height is the answer to its own query — so the tag needs something to answer
+  // with before its page is the page a reader actually meets.
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
+  await startOutline(page);
+  await page.getByLabel("Block text").evaluate((target) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData("application/vnd.neoseq.outline+json", JSON.stringify({
+      kind: "neoseq.outline",
+      version: 1,
+      source_graph_id: "external-graph",
+      items: Array.from({ length: 15 }, (_, index) => ({
+        depth: 0,
+        markdown: `tagged thing ${index}`,
+        properties: [],
+        tags: ["design"],
+      })),
+      tags: [{ id: "design", name: "design" }],
+      pages: [],
+    }));
+    clipboard.setData("text/plain", "- tagged thing");
+    target.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+  await awaitSaved(page);
+  await expect(page.locator(".outline-tags").getByTestId("tag-chip")).toHaveCount(15);
+
+  await openSidebar(page);
+  await page.getByTestId("nav-tags").click();
+  await page.getByTestId("tag-row-link").first().click();
+  await expect(page.getByTestId("tag-title")).toHaveValue("design");
+
+  // The answer is made of editable blocks too, so the tag's own writing has to be
+  // addressed through its own section rather than by role on the whole page.
+  const writing = page.locator(".outline-section").last();
+  await writing.getByTestId("outline-start").click();
+  const first = writing.getByLabel("Block text").first();
+  await expect(first).toBeVisible();
+
+  // Enough rows to outgrow several windows — pasted as one command rather than
+  // typed as eighty.
+  await first.evaluate((target) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData(
+      "text/plain",
+      Array.from({ length: 80 }, (_, index) => `- row number ${index}`).join("\n"),
+    );
+    target.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+  await awaitSaved(page);
+
+  // The header has to be tall enough for the defect to be a defect: shorter than
+  // the rows virtualization renders beyond its window anyway, and this test would
+  // pass on the arithmetic it exists to catch.
+  const room = await page.evaluate(() => {
+    const scroll = document.querySelector<HTMLElement>(".page-scroll")!;
+    const outline = [...document.querySelectorAll<HTMLElement>(".outline-viewport")].pop()!;
+    return {
+      scrollable: scroll.scrollHeight - scroll.clientHeight,
+      header:
+        outline.getBoundingClientRect().top -
+        scroll.getBoundingClientRect().top +
+        scroll.scrollTop,
+    };
+  });
+  expect(room.header).toBeGreaterThan(600);
+  expect(room.scrollable).toBeGreaterThan(1000);
+
+  // Down the page the way a reader goes, half a window at a time, to the end.
+  const step = Math.round(page.viewportSize()!.height / 2);
+  let previous = -1;
+  for (;;) {
+    const at = await page.evaluate((by) => {
+      const scroll = document.querySelector<HTMLElement>(".page-scroll")!;
+      scroll.scrollTop += by;
+      return scroll.scrollTop;
+    }, step);
+    await expect.poll(() => page.evaluate(LARGEST_GAP)).toBeLessThan(2);
+    if (at === previous) break;
+    previous = at;
+  }
 });
