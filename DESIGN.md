@@ -51,8 +51,8 @@ typography:
   family-sans: '"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif'
   family-mono: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
   # Five sizes. Nothing else exists. Weight rests at 400 and never exceeds 600.
-  xs:  { size: 12px, line: 16px, track: 0em,      weight: 400 }  # metadata, chips, badges
-  sm:  { size: 14px, line: 20px, track: -0.006em, weight: 400 }  # UI default
+  xs:  { size: 12px, line: 16px, track: 0em,      weight: 400 }  # badges, dense chrome
+  sm:  { size: 14px, line: 20px, track: -0.006em, weight: 400 }  # UI default, property chips
   md:  { size: 16px, line: 26px, track: 0em,      weight: 400 }  # block text, page body
   lg:  { size: 18px, line: 26px, track: -0.014em, weight: 600 }  # section headings, dialog titles
   xl:  { size: 30px, line: 38px, track: -0.024em, weight: 600 }  # page/journal titles (<h1>)
@@ -74,12 +74,13 @@ metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar
     every section ·
   hit-target 24 (32 ≤600px, and the icon button grows with it) · append min(40vh, 320px)"
 
-radius: "r-1 4px chips and key badges · r-2 7px controls · r-3 12px panels ·
-  r-4 16px dialogs and the palette · r-full the bullet dot only"
+radius: "r-1 4px key badges · r-2 7px controls · r-3 12px panels ·
+  r-4 16px dialogs and the palette · r-full the bullet dot and every chip —
+    a chip is an object the size of what it says, and a pill is that shape"
 
 elevation:                             # a control is raised or inset, never flat
   e1: "inset ring of {line} — a field, and anything standing in for one"
-  e1-chip: "inset ring of 1.5px {line-strong} — a chip, which is too small for a hairline"
+  e1-chip: "inset ring of {line-strong} — a chip, whose edge is written rather than implied"
   e1-raised: "ring + a 1px lit top edge + a short contact cast — a button, a card;
     filled with {raised}, never {canvas}, which is the lightest surface in one mode
     and the darkest in the other"

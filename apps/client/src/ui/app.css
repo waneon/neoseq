@@ -129,13 +129,16 @@
   /* ── Depth ──
      Four steps, each one a ring plus the cast that ring would actually make.
      `--e1` is a resting control: an inset ring, no cast, because it has not left
-     the surface. `--e1-raised` adds the one-pixel top highlight and the contact
-     shadow that make a filled button feel pressable. `--e2` floats — menus,
+     the surface, and `--e1-chip` is that ring in the stronger line — a chip is a
+     small object whose edge is written rather than implied, and one hairline
+     writes it at every size a chip is read at. `--e1-raised` adds the one-pixel
+     top highlight and the contact shadow that make a filled button feel
+     pressable. `--e2` floats — menus,
      popovers, the palette. `--e3` is modal, and is the only shadow in the system
      wide enough to be read as distance rather than as an edge. */
   --shadow-hue: 264;
   --e1: inset 0 0 0 1px var(--line);
-  --e1-chip: inset 0 0 0 1.5px var(--line-strong);
+  --e1-chip: inset 0 0 0 1px var(--line-strong);
   --e1-raised:
     inset 0 0 0 1px var(--line),
     0 1px 1px -0.5px oklch(0.235 0.014 264 / 0.06),
@@ -3278,8 +3281,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
   display: flex;
   flex: 1 1 100%;
   flex-wrap: wrap;
-  gap: var(--sp-1);
-  margin: var(--sp-0) var(--sp-1) var(--sp-1);
+  gap: var(--sp-2);
+  margin: var(--sp-1) var(--sp-1) var(--sp-2);
 }
 
 .outline-text > .query-block {
@@ -3297,13 +3300,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
   max-width: 100%;
   padding: 0 var(--sp-2);
   border: 0;
-  border-radius: var(--r-2);
+  border-radius: var(--r-full);
   background: transparent;
   box-shadow: var(--e1-chip);
   color: var(--ink-2);
   font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
   transition:
@@ -3313,7 +3317,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .task-chip:hover {
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  box-shadow: var(--e1-chip);
   color: var(--ink);
 }
 
@@ -3370,13 +3374,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
    rule at the same time. */
 .task-chip[data-due] {
   background: color-mix(in oklab, var(--tone) 12%, transparent);
-  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--tone) 32%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 44%, transparent);
   color: color-mix(in oklab, var(--tone) 70%, var(--ink));
 }
 
 .task-chip[data-due]:hover {
   background: color-mix(in oklab, var(--tone) 20%, transparent);
-  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--tone) 46%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 60%, transparent);
   color: color-mix(in oklab, var(--tone) 70%, var(--ink));
 }
 
@@ -4332,9 +4336,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 /* A column is a chip that opens its own summary menu, so it takes the chip's
-   resting ring rather than the field ground — and the ring is the chip's own
-   1.5px, so a 24px control carrying 12px text does not wear the thinnest line in
-   the product (§ The legal lines). */
+   resting ring rather than the field ground — the chip's line, at the chip's
+   own strength (§ The legal lines). */
 .qb-column {
   display: inline-flex;
   align-items: center;
@@ -5429,8 +5432,8 @@ button.query-list-status[data-active="true"] {
   display: flex;
   flex: 1 1 100%;
   flex-wrap: wrap;
-  gap: var(--sp-1);
-  margin: var(--sp-0) var(--sp-1) var(--sp-1);
+  gap: var(--sp-2);
+  margin: var(--sp-1) var(--sp-1) var(--sp-2);
 }
 
 .query-fact {
@@ -5440,11 +5443,12 @@ button.query-list-status[data-active="true"] {
   max-width: 100%;
   height: var(--target);
   padding: 0 var(--sp-2);
-  border-radius: var(--r-2);
+  border-radius: var(--r-full);
   box-shadow: var(--e1);
   color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
   white-space: nowrap;
 }
 
@@ -6702,7 +6706,7 @@ button.tag-mark:focus-visible {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--sp-1);
+  gap: var(--sp-2);
   margin-top: var(--sp-2);
 }
 
@@ -6716,15 +6720,16 @@ button.tag-mark:focus-visible {
   max-width: 260px;
   padding: 0 var(--sp-2);
   border: none;
-  border-radius: var(--r-2);
+  border-radius: var(--r-full);
   background: transparent;
   /* The chip ring, at the chip's own weight — the page strip and the strip under
      a block are one language, so they cannot wear two different rings. */
   box-shadow: var(--e1-chip);
   color: var(--ink-2);
   font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
   transition:
@@ -6734,7 +6739,7 @@ button.tag-mark:focus-visible {
 
 .prop-strip-chip:hover {
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  box-shadow: var(--e1-chip);
   color: var(--ink);
 }
 
