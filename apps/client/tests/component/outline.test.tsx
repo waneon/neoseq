@@ -26,7 +26,7 @@ async function mountOutline(markdowns: string[] = ["alpha"]) {
     });
   }
   await waitFor(() =>
-    expect(screen.getAllByLabelText("Block text")).toHaveLength(markdowns.length),
+    expect(screen.queryAllByLabelText("Block text")).toHaveLength(markdowns.length),
   );
   return harness;
 }
@@ -377,6 +377,48 @@ describe("outliner keyboard commands", () => {
           "below",
         ]);
       });
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
+  it("enters Vim Insert mode for every pointer-driven block creation", async () => {
+    setEditorKeymap("vim");
+    try {
+      await mountOutline([]);
+      const user = userEvent.setup();
+
+      await user.click(screen.getByTestId("outline-start"));
+      await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(1));
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+
+      await user.keyboard("{Escape}");
+      await user.click(screen.getByTestId("outline-append"));
+      await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+
+      await user.keyboard("{Escape}");
+      await openBlockMenu(0);
+      await user.click(screen.getByRole("menuitem", { name: "Add child block" }));
+      await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(3));
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
+  it("enters Vim Insert mode when a pointer opens rendered Markdown", async () => {
+    setEditorKeymap("vim");
+    try {
+      await mountOutline(["Read **bold** text"]);
+      const user = userEvent.setup();
+
+      await user.click(screen.getByTestId("block-markdown"));
+
+      expect(screen.getByLabelText("Block text")).toHaveFocus();
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
     } finally {
       localStorage.clear();
       resetAppSettingsCache();

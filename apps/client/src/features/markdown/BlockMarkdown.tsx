@@ -15,6 +15,7 @@ import { sourceOffsetFromPoint } from "./caret";
 import { markdownSanitizeSchema, markdownUrlTransform } from "./profile";
 
 export type MarkdownVariant = "block" | "compact";
+export type MarkdownActivationMethod = "pointer" | "keyboard";
 
 export interface BlockMarkdownProps {
   markdown: string;
@@ -25,7 +26,11 @@ export interface BlockMarkdownProps {
    * with the source offset under the pointer, or `undefined` for the end of the
    * block when the projection was reached by keyboard.
    */
-  onActivate?: (caret?: number, anchor?: HTMLElement) => void;
+  onActivate?: (
+    caret: number | undefined,
+    anchor: HTMLElement,
+    inputMethod: MarkdownActivationMethod,
+  ) => void;
 }
 
 /** A soft break inside a block is a line the author broke: `remark-breaks`
@@ -133,9 +138,20 @@ function BlockMarkdownView({
 }: BlockMarkdownProps) {
   const compact = variant === "compact";
   const pressOrigin = useRef<{ x: number; y: number } | null>(null);
+  const pointerFocus = useRef(false);
 
   const beginPress = (event: PointerEvent<HTMLElement>) => {
+    pointerFocus.current = true;
     pressOrigin.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const endPress = () => {
+    pointerFocus.current = false;
+  };
+
+  const cancelPress = () => {
+    pointerFocus.current = false;
+    pressOrigin.current = null;
   };
 
   const activate = (event: MouseEvent<HTMLElement>) => {
@@ -163,7 +179,7 @@ function BlockMarkdownView({
       event.clientY,
       markdown,
     );
-    onActivate(caret ?? undefined, event.currentTarget);
+    onActivate(caret ?? undefined, event.currentTarget, "pointer");
   };
 
   // An editable projection stands in for the textarea, so it has to stand in
@@ -173,8 +189,12 @@ function BlockMarkdownView({
   // inert compact Markdown remains plain phrasing content.
   const handOver = (event: FocusEvent<HTMLElement>) => {
     if (!onActivate || event.target !== event.currentTarget) return;
+    // Pointer focus happens between pointerdown and click. Waiting for click is
+    // what preserves its source offset and distinguishes a click from a drag;
+    // handing over here would unmount the projection before that click arrives.
+    if (pointerFocus.current) return;
     if (!event.currentTarget.matches(":focus-visible")) return;
-    onActivate(undefined, event.currentTarget);
+    onActivate(undefined, event.currentTarget, "keyboard");
   };
 
   const Root = compact ? "span" : "div";
@@ -187,6 +207,9 @@ function BlockMarkdownView({
       dir="auto"
       tabIndex={!onActivate ? undefined : 0}
       onPointerDown={!onActivate ? undefined : beginPress}
+      onPointerUp={!onActivate ? undefined : endPress}
+      onPointerLeave={!onActivate ? undefined : endPress}
+      onPointerCancel={!onActivate ? undefined : cancelPress}
       onClick={activate}
       onFocus={!onActivate ? undefined : handOver}
     >

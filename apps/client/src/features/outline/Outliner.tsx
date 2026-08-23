@@ -195,6 +195,7 @@ interface VisualLineRange {
 const PENDING_PREFIX = "pending-";
 
 type InputMethod = "keyboard" | "pointer" | "context_menu";
+type ActivationMethod = InputMethod | "programmatic";
 
 function isPendingId(id: string): boolean {
   return id.startsWith(PENDING_PREFIX);
@@ -233,7 +234,7 @@ interface EditorContext {
   selectionCount: number;
   revision: number;
   presence: readonly PeerPresence[];
-  setFocus(id: string | null, caret?: number): void;
+  activateBlock(id: string | null, caret: number | undefined, inputMethod: ActivationMethod): void;
   /** Drops the caret when focus genuinely left this row. See `releaseFocus`. */
   releaseFocus(id: string): void;
   publishSelection(blockId: string, textarea: HTMLTextAreaElement): void;
@@ -267,7 +268,7 @@ interface EditorContext {
   onKeyDown(row: OutlineRow, rows: OutlineRow[], event: KeyboardEvent<HTMLTextAreaElement>): void;
   flushNow(id: string): void;
   runHistory(id: string, redo: boolean): void;
-  insertRootBlock(index: number): void;
+  insertRootBlock(index: number, inputMethod: InputMethod): void;
   enqueuePendingInsert(
     row: OutlineRow,
     tail: string,
@@ -470,11 +471,16 @@ export function Outliner({
     setVisualLineState(next);
   }, []);
 
-  const leaveVisualLine = useCallback(() => {
+  const clearVisualLineState = useCallback(() => {
     if (!visualLineRef.current) return;
     setVisualLine(null);
+  }, [setVisualLine]);
+
+  const leaveVisualLine = useCallback(() => {
+    if (!visualLineRef.current) return;
+    clearVisualLineState();
     vim.reset();
-  }, [setVisualLine, vim.reset]);
+  }, [clearVisualLineState, vim.reset]);
 
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
@@ -691,7 +697,17 @@ export function Outliner({
   }, [owner, session]);
 
   const focusedRef = useRef<string | null>(null);
-  const setFocus = useCallback((id: string | null, caret?: number) => {
+  /**
+   * One entrance to a caret. Pointer-owned entrances start writing; keyboard
+   * and programmatic moves retain the modal state. Visual Line is cleared here
+   * without an intermediate Normal reset, so call order cannot overwrite the
+   * mode chosen by the same activation.
+   */
+  const activateBlock = useCallback((
+    id: string | null,
+    caret: number | undefined,
+    inputMethod: ActivationMethod,
+  ) => {
     const previous = focusedRef.current;
     if (previous !== null && previous !== id) {
       dispatchDraft({ type: "clear-auto-closers", ids: [previous] });
@@ -702,14 +718,22 @@ export function Outliner({
     // The caret and the block selection are two answers to "what does the next
     // command act on", so only one of them may exist at a time.
     if (id !== null) {
+      const leavingVisualLine = visualLineRef.current !== null;
       if (selectedRef.current.size > 0) {
         const empty = new Set<string>();
         selectedRef.current = empty;
         setSelected(empty);
       }
-      leaveVisualLine();
+      clearVisualLineState();
+      if (keymap === "vim") {
+        if (!readonly && (inputMethod === "pointer" || inputMethod === "context_menu")) {
+          vim.reset("insert");
+        } else if (leavingVisualLine) {
+          vim.reset();
+        }
+      }
     }
-  }, [dispatchDraft, leaveVisualLine]);
+  }, [clearVisualLineState, dispatchDraft, keymap, readonly, vim.reset]);
 
   const clearSelection = useCallback(() => {
     anchorId.current = null;
@@ -892,7 +916,7 @@ export function Outliner({
               typed,
               baseline: head.baseline,
             });
-            if (wasFocused) setFocus(realId, caret);
+            if (wasFocused) activateBlock(realId, caret, "programmatic");
             // A slash menu opened on the pending row must follow the block to
             // its real identity, or Enter stops meaning "take the highlighted
             // command" the moment the acknowledgement lands.
@@ -972,7 +996,7 @@ export function Outliner({
         abandonPending(failureReason(error, message));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyTagOption, dispatchDraft, message, notify, session, scheduleFlush, setFocus]);
+  }, [activateBlock, applyTagOption, dispatchDraft, message, notify, session, scheduleFlush]);
 
   /**
    * Drops the optimistic rows an insert never claimed. Whatever the user typed
@@ -990,7 +1014,9 @@ export function Outliner({
         if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
       }
       dispatchDraft({ type: "abandon-pending" });
-      if (focusedRef.current && isPendingId(focusedRef.current)) setFocus(fallback);
+      if (focusedRef.current && isPendingId(focusedRef.current)) {
+        activateBlock(fallback, undefined, "programmatic");
+      }
       if (lost === 0) return;
       notify.show({
         tone: "danger",
@@ -999,7 +1025,7 @@ export function Outliner({
         detail: typed ? message("outline.pendingTypedLost", { reason }) : reason,
       });
     },
-    [dispatchDraft, message, notify, setFocus],
+    [activateBlock, dispatchDraft, message, notify],
   );
 
   const run = useCallback(
@@ -1032,8 +1058,8 @@ export function Outliner({
     const empty = new Set<string>();
     selectedRef.current = empty;
     setSelected(empty);
-    setFocus(range.headId, caret);
-  }, [setFocus, setVisualLine, visualCaret]);
+    activateBlock(range.headId, caret, "keyboard");
+  }, [activateBlock, setVisualLine, visualCaret]);
 
   const runVimVisualLine = useCallback((
     command: VimVisualLineCommand,
@@ -1126,7 +1152,7 @@ export function Outliner({
       void run(
         { type: "delete_blocks", owner, block_ids: roots.map((entry) => entry.block.id) },
         message("failure.deleteBlocks", { count: roots.length }),
-      ).then(() => setFocus(fallback?.block.id ?? null, 0));
+      ).then(() => activateBlock(fallback?.block.id ?? null, 0, "programmatic"));
       return;
     }
 
@@ -1136,7 +1162,7 @@ export function Outliner({
     const empty = new Set<string>();
     selectedRef.current = empty;
     setSelected(empty);
-    setFocus(range.headId, caret);
+    activateBlock(range.headId, caret, "keyboard");
     void run(
       {
         type: command.action === "indent" ? "indent_blocks" : "outdent_blocks",
@@ -1153,7 +1179,7 @@ export function Outliner({
     readonly,
     restoreVisualCaret,
     run,
-    setFocus,
+    activateBlock,
     setVisualLine,
     takeTreeFocus,
     vim.reset,
@@ -1188,7 +1214,7 @@ export function Outliner({
         return;
       }
       flushNow(row.block.id);
-      setFocus(targetRow.block.id, target.offset);
+      activateBlock(targetRow.block.id, target.offset, "keyboard");
       return;
     }
 
@@ -1244,7 +1270,7 @@ export function Outliner({
       textarea.setSelectionRange(caret, caret);
       publishSelection(row.block.id, textarea);
     } else {
-      setFocus(caretRow.block.id, caret);
+      activateBlock(caretRow.block.id, caret, "keyboard");
     }
 
     const ids = updates.map((update) => update.row.block.id);
@@ -1273,7 +1299,7 @@ export function Outliner({
     publishSelection,
     readonly,
     session,
-    setFocus,
+    activateBlock,
     vim.reset,
   ]);
 
@@ -1598,8 +1624,7 @@ export function Outliner({
           if (cancelled) return;
           if (!started) {
             // A press that never travelled is a click: put the caret in the line.
-            setFocus(row.block.id);
-            if (keymap === "vim" && !readonly) vim.reset("insert");
+            activateBlock(row.block.id, undefined, "pointer");
             return;
           }
           if (target) applyMove(target, moving);
@@ -1608,13 +1633,11 @@ export function Outliner({
     },
     [
       applyMove,
-      keymap,
+      activateBlock,
       leaveVisualLine,
       listen,
       readonly,
-      setFocus,
       updateAutoScroll,
-      vim,
     ],
   );
 
@@ -1682,14 +1705,16 @@ export function Outliner({
         items,
       }).then(
         (result) => {
-          if (result.created_block) setFocus(result.created_block);
+          if (result.created_block) {
+            activateBlock(result.created_block, undefined, "keyboard");
+          }
         },
         (error: unknown) => {
           notify.failure(message("failure.pasteBlocks"), error);
         },
       );
     },
-    [flushNow, message, notify, owner, readonly, session, setFocus],
+    [activateBlock, flushNow, message, notify, owner, readonly, session],
   );
 
   const pasteFragment = useCallback(
@@ -1711,14 +1736,16 @@ export function Outliner({
         fragment,
       }).then(
         (result) => {
-          if (result.created_block) setFocus(result.created_block);
+          if (result.created_block) {
+            activateBlock(result.created_block, undefined, "keyboard");
+          }
         },
         (error: unknown) => {
           notify.failure(message("failure.pasteBlocks"), error);
         },
       );
     },
-    [flushNow, message, notify, owner, readonly, session, setFocus],
+    [activateBlock, flushNow, message, notify, owner, readonly, session],
   );
 
   const slashItems = useMemo(() => buildSlashItems(message), [message]);
@@ -1761,7 +1788,7 @@ export function Outliner({
     presence: [...state.presence.values()].filter(
       (peer) => peer.owner !== undefined && sameOutlineOwner(peer.owner, owner),
     ),
-    setFocus,
+    activateBlock,
     releaseFocus,
     publishSelection,
     takeTreeFocus,
@@ -2002,7 +2029,7 @@ export function Outliner({
     },
     pasteOutline,
     pasteFragment,
-    enqueuePendingInsert: (row, tail, asChild, _inputMethod) => {
+    enqueuePendingInsert: (row, tail, asChild, inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
       // Enter must return with the new textarea already mounted and focused;
@@ -2020,11 +2047,11 @@ export function Outliner({
           },
           draft: tail,
         });
-        setFocus(tempId, 0);
+        activateBlock(tempId, 0, inputMethod);
       });
       dispatchPending();
     },
-    enqueuePendingSplit: (row, index, tail, asChild, _inputMethod) => {
+    enqueuePendingSplit: (row, index, tail, asChild, inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
       const leading = index === 0;
@@ -2043,7 +2070,7 @@ export function Outliner({
           },
           draft: baseline,
         });
-        setFocus(tempId, 0);
+        activateBlock(tempId, 0, inputMethod);
       });
       dispatchPending();
     },
@@ -2083,7 +2110,7 @@ export function Outliner({
         void run(
           { type: "delete_blocks", owner, block_ids: blockIds },
           message("failure.deleteBlocks", { count: blockIds.length }),
-        ).then(() => setFocus(fallback?.block.id ?? null, 0));
+        ).then(() => activateBlock(fallback?.block.id ?? null, 0, "programmatic"));
         return;
       }
       void run(
@@ -2097,7 +2124,7 @@ export function Outliner({
     },
     runVimVisualLine,
     runVimWordMotion,
-    insertRootBlock: (index) => {
+    insertRootBlock: (index, inputMethod) => {
       void session
         .execute({
           type: "insert_block",
@@ -2107,7 +2134,7 @@ export function Outliner({
           markdown: "",
         })
         .then((result) => {
-          if (result.created_block) setFocus(result.created_block, 0);
+          if (result.created_block) activateBlock(result.created_block, 0, inputMethod);
         })
         .catch((error: unknown) => {
           notify.failure(message("failure.addBlock"), error);
@@ -2171,7 +2198,7 @@ export function Outliner({
           },
           message("failure.deleteBlock"),
         ).then(() => {
-          setFocus(previous);
+          activateBlock(previous, undefined, "programmatic");
         });
       },
       // One user gesture crosses the core boundary as one command. The core
@@ -2213,7 +2240,7 @@ export function Outliner({
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.deleteBlocks", { count: roots.length }),
-        ).then(() => setFocus(fallback));
+        ).then(() => activateBlock(fallback, undefined, "programmatic"));
       },
       copySelection,
     },
@@ -2277,13 +2304,13 @@ export function Outliner({
     if (index < 0) return;
     virtualizer.scrollToIndex(index);
     if (request.focus && focusedRef.current !== request.blockId) {
-      setFocus(request.blockId);
+      activateBlock(request.blockId, undefined, "programmatic");
     }
     pendingHistoryReveal.current = null;
     // The virtualizer is intentionally omitted: row visibility and a new
     // request are the only events that should repeat this one-shot reveal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyRevealRevision, rows, setFocus]);
+  }, [activateBlock, historyRevealRevision, rows]);
 
   // Keep keyboard-focused rows visible even when virtualization would have
   // recycled them — and only then.
@@ -2390,7 +2417,7 @@ export function Outliner({
       // on a container with nothing selected — Escape means "back to writing".
       const roots = selectionRoots(rows, selected);
       clearSelection();
-      if (roots[0]) setFocus(roots[0].block.id);
+      if (roots[0]) activateBlock(roots[0].block.id, undefined, "keyboard");
       return;
     }
     if (event.key === "Backspace" || event.key === "Delete") {
@@ -2410,7 +2437,7 @@ export function Outliner({
       event.preventDefault();
       const roots = selectionRoots(rows, selected);
       const edge = event.key === "ArrowUp" ? roots[0] : roots[roots.length - 1];
-      if (edge) setFocus(edge.block.id);
+      if (edge) activateBlock(edge.block.id, undefined, "keyboard");
     }
   };
 
@@ -2472,7 +2499,7 @@ export function Outliner({
               editor.dismissTransient();
               return;
             }
-            editor.insertRootBlock(0);
+            editor.insertRootBlock(0, "pointer");
           }}
           disabled={readonly}
           aria-label={message("outline.addFirstBlock")}
@@ -2563,7 +2590,7 @@ export function Outliner({
               editor.dismissTransient();
               return;
             }
-            editor.insertRootBlock(outline.blocks.length);
+            editor.insertRootBlock(outline.blocks.length, "pointer");
           }}
           aria-label={message("outline.addBlock")}
           data-testid="outline-append"
@@ -3033,7 +3060,7 @@ function onKeyDown(
         if (rows[index].depth < row.depth) {
           event.preventDefault();
           editor.flushNow(id);
-          editor.setFocus(rows[index].block.id);
+          editor.activateBlock(rows[index].block.id, undefined, "keyboard");
           return;
         }
       }
@@ -3053,7 +3080,7 @@ function onKeyDown(
       if (child && child.depth > row.depth) {
         event.preventDefault();
         editor.flushNow(id);
-        editor.setFocus(child.block.id, 0);
+        editor.activateBlock(child.block.id, 0, "keyboard");
       }
     }
     return;
@@ -3068,11 +3095,11 @@ function onKeyDown(
     if (event.key === "ArrowUp" && atFirstLine && position > 0) {
       event.preventDefault();
       editor.flushNow(id);
-      editor.setFocus(rows[position - 1].block.id);
+      editor.activateBlock(rows[position - 1].block.id, undefined, "keyboard");
     } else if (event.key === "ArrowDown" && atLastLine && position < rows.length - 1) {
       event.preventDefault();
       editor.flushNow(id);
-      editor.setFocus(rows[position + 1].block.id, 0);
+      editor.activateBlock(rows[position + 1].block.id, 0, "keyboard");
     }
   }
 }
@@ -3139,9 +3166,10 @@ function runOutlineVimSurface(
     if (!target || target.block.id === row.block.id) return;
     editor.flushNow(row.block.id);
     const value = editor.draftOf(target);
-    editor.setFocus(
+    editor.activateBlock(
       target.block.id,
       caretForVerticalEntry(value, command.direction, command.column),
+      "keyboard",
     );
     return;
   }
@@ -3150,9 +3178,10 @@ function runOutlineVimSurface(
     if (!target) return;
     editor.flushNow(row.block.id);
     const value = editor.draftOf(target);
-    editor.setFocus(
+    editor.activateBlock(
       target.block.id,
       command.edge === "first" ? 0 : caretForVerticalEntry(value, -1, value.length),
+      "keyboard",
     );
     return;
   }
@@ -3618,13 +3647,11 @@ function BlockRow({
           }
           dir="auto"
           onFocus={() => {
-            if (!isFocused) editor.setFocus(row.block.id, -1);
+            if (!isFocused) editor.activateBlock(row.block.id, -1, "programmatic");
             if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
           }}
           onClick={() => {
-            if (editor.keymap === "vim" && !editor.readonly) {
-              editor.vim.reset("insert");
-            }
+            editor.activateBlock(row.block.id, undefined, "pointer");
           }}
           onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}
           onBlur={() => {
@@ -3656,15 +3683,8 @@ function BlockRow({
             // Read-only blocks hand over too: the textarea is the row's tab stop
             // and its arrow-key navigation, and `readOnly` is what refuses the
             // edit — not the absence of a way in.
-            onActivate={(caret, anchor) => {
-              editor.setFocus(row.block.id, caret);
-              if (
-                editor.keymap === "vim"
-                && !editor.readonly
-                && !anchor?.matches(":focus-visible")
-              ) {
-                editor.vim.reset("insert");
-              }
+            onActivate={(caret, _anchor, inputMethod) => {
+              editor.activateBlock(row.block.id, caret, inputMethod);
             }}
           />
         )}

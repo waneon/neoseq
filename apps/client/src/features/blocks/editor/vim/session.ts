@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   initialVimState,
   interpretVimKey,
@@ -26,7 +26,10 @@ export function useVimSession(enabled: boolean): VimSession {
     setState(next);
   }, []);
 
-  useEffect(() => {
+  // A keymap change must settle before the browser can deliver a pointer
+  // activation. A passive effect could run after that click and overwrite the
+  // Insert mode it just chose with this session reset.
+  useLayoutEffect(() => {
     reset();
   }, [enabled, reset]);
 

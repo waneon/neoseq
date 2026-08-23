@@ -66,7 +66,10 @@ import {
   filterSlashItems,
   type SlashItem,
 } from "../blocks/editor/slash-commands";
-import { BlockMarkdown } from "../markdown/BlockMarkdown";
+import {
+  BlockMarkdown,
+  type MarkdownActivationMethod,
+} from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 import { useSessionState } from "../shell/session-context";
@@ -698,6 +701,11 @@ function QueryMarkdownField({
   const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
   const [slashRequest, setSlashRequest] = useState<BlockCompletionRequest | null>(null);
+  const activateVim = (inputMethod: MarkdownActivationMethod) => {
+    if (inputMethod === "pointer" && editor.keymap === "vim") {
+      editor.vim.reset("insert");
+    }
+  };
   const [slashActive, setSlashActive] = useState(0);
   const [hashRequest, setHashRequest] = useState<BlockCompletionRequest | null>(null);
   const [hashActive, setHashActive] = useState(0);
@@ -843,7 +851,7 @@ function QueryMarkdownField({
           if (!current) editor.begin(binding, row, event.currentTarget);
         }}
         onClick={() => {
-          if (editor.keymap === "vim") editor.vim.reset("insert");
+          activateVim("pointer");
         }}
         onValueChange={(value, element, edit) => {
           if (!markdown) return;
@@ -997,7 +1005,10 @@ function QueryMarkdownField({
         <span
           className="query-result-clip"
           aria-hidden
-          onClick={() => textarea.current?.focus()}
+          onClick={() => {
+            activateVim("pointer");
+            textarea.current?.focus();
+          }}
         >
           …
         </span>
@@ -1007,13 +1018,10 @@ function QueryMarkdownField({
           markdown={projected}
           variant={preview || "block"}
           className="outline-markdown query-markdown-preview"
-          onActivate={(caret, anchor) => {
+          onActivate={(caret, anchor, inputMethod) => {
             pendingCaret.current = caret ?? projected.length;
-            const target = anchor ?? textarea.current;
-            if (editor.keymap === "vim" && !anchor?.matches(":focus-visible")) {
-              editor.vim.reset("insert");
-            }
-            if (target) editor.begin(binding, row, target);
+            activateVim(inputMethod);
+            editor.begin(binding, row, anchor);
           }}
         />
       )}

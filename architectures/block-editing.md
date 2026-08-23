@@ -69,7 +69,10 @@ Normal mode rejects native text insertion at the shared input boundary without
 marking the canonical field read-only. Insert mode therefore keeps the same
 composition, auto-pair, and completion behavior as the standard keymap.
 Pointer activation enters Insert mode at the chosen caret; keyboard motion
-between blocks retains the current modal state.
+between blocks retains the current modal state. Editor activation therefore
+carries its input method explicitly: focus, selection release, and the modal
+transition are one host-owned state change, never separate focus and click
+heuristics.
 
 Visual Line is the Vim entry point to the outline's existing structural block
 selection, not a DOM text range. The interpreter emits linewise intents while
