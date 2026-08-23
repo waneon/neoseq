@@ -359,7 +359,7 @@ Every control defines all five states.
 - **Focus** is a halo of `--accent-soft` outside the control's own resting edge, so the
   silhouette never changes. Native outlines are suppressed. A borderless typing surface
   (a page title, a block's line, the palette's query) already carries the accent caret and
-  takes no halo.
+  takes no halo. Vim command modes use a block caret at that same point; Insert uses a bar.
 - **Pressed** is `--surface-3` (primary action: `--accent-hover`), and for a raised control
   the loss of its cast. Never a transform.
 - **Disabled** is 50% opacity, still in layout, announced, and listed in the palette *with

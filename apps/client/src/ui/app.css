@@ -2150,6 +2150,19 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--accent);
 }
 
+/* The caret itself carries the modal distinction at the point of attention:
+   command modes sit on a character, while Insert stays between characters. */
+:is(.outline-input, .query-result-input):is(
+  [data-vim-mode="normal"],
+  [data-vim-mode="operator-pending"]
+) {
+  caret-shape: block;
+}
+
+:is(.outline-input, .query-result-input)[data-vim-mode="insert"] {
+  caret-shape: bar;
+}
+
 .outline-section > .vim-mode-indicator {
   position: absolute;
   inset-inline-end: 0;
