@@ -6,7 +6,7 @@
     "open_graph",
     "execute",
     "read",
-    "read_page",
+    "read_outline",
     "query",
     "subscribe",
     "close_graph"

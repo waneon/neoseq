@@ -2,10 +2,10 @@
 
 ## Purpose and Current Boundary
 
-Neoseq is a local-first outliner. A graph contains pages, each page owns an
-ordered tree of Markdown blocks, and journals provide the primary daily capture
-surface. Typed properties add task and query behavior without introducing
-feature-specific storage shapes.
+Neoseq is a local-first outliner. Pages and tags are first-class outline owners:
+each owns an ordered tree of Markdown blocks, while journals provide the primary
+daily capture surface. Typed properties add task and query behavior without
+introducing feature-specific storage shapes.
 
 The implemented product is a local-first Web client: React calls a Rust/Wasm
 core in a Web Worker, IndexedDB stores a bounded Loro Base+Tail and remote
@@ -106,7 +106,7 @@ The asynchronous CorePort v1 contract has seven operations:
 open_graph(locator) -> graph_handle + graph_summary
 execute(graph_handle, command) -> command_result
 read(graph_handle) -> graph_summary
-read_page(graph_handle, page_id) -> page_view
+read_outline(graph_handle, page_or_tag_owner) -> outline_view
 query(graph_handle, sparql_request) -> select_result | ask_result
 subscribe(graph_handle, cursor) -> graph_events
 close_graph(graph_handle)
@@ -122,9 +122,10 @@ CorePort.
 ## Data and Consistency
 
 - One graph is one Loro document and one independent storage and future sync unit.
-- Pages and tags use stable IDs. Each page owns one page-local movable block tree.
+- Pages and tags use stable IDs. Each owns one owner-local movable block tree;
+  structure never moves across owners, while clipboard transfer is a copy.
 - Page roots and blocks share collaborative content, a typed property bag, and
-  explicit tag references.
+  explicit tag references. A tag outline does not implicitly tag its blocks.
 - Page and tag names are unique in separate normalized graph-wide namespaces.
 - New journal IDs derive deterministically from graph ID and local date. A
   portable copy retains existing journal IDs and resolves them by semantic date.
@@ -138,7 +139,7 @@ CorePort.
   properties remain readable and editable.
 - Deleting a page is a soft delete and page references remain resolvable as
   tombstones. Deleting a tag soft-deletes its record and atomically detaches
-  that tag from every page root and block; copied default-property values remain.
+  that tag from every page root and block in any outline; copied default-property values remain.
 - Shared saved-view definitions and the query builder's plan behind a built
   query are graph data. RDF triples, query results and evaluation plans, private
   presentation preferences, UI selection, and connection state are derived,

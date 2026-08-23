@@ -36,6 +36,7 @@ import {
 import type { QueryEntityRef } from "../../generated/core-port";
 import type { PropertyOwnerRef } from "../../core-port/commands";
 import type {
+  OutlineOwner,
   PropertyDocument,
   QueryView,
   QueryViewColumn,
@@ -43,6 +44,7 @@ import type {
   QueryViewOptions,
   QueryViewSort,
 } from "../../core-port/snapshot";
+import { findOutline, outlineOwnerKey } from "../../core-port/snapshot";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -352,10 +354,12 @@ export function QueryPanel({
     () => resultViewRows((select?.rows ?? []) as ResultRow[], cellContext),
     [select, cellContext],
   );
-  const resultBlockPageIds = useMemo(
-    () => [...new Set(resultRows.flatMap((row) =>
-      row.subject?.kind === "block" ? [row.subject.page_id] : [],
-    ))].sort(),
+  const resultBlockOwners = useMemo(
+    () => [...new Map(resultRows.flatMap((row) => {
+      if (row.subject?.kind !== "block") return [];
+      const owner: OutlineOwner = row.subject.owner;
+      return [[outlineOwnerKey(owner), owner] as const];
+    })).values()].sort((left, right) => outlineOwnerKey(left).localeCompare(outlineOwnerKey(right))),
     [resultRows],
   );
 
@@ -365,22 +369,22 @@ export function QueryPanel({
   // Table and non-block results stay query-shaped and pay no hydration cost.
   useEffect(() => {
     if (activeView.kind !== "list" || state.status !== "ready") return;
-    const missing = resultBlockPageIds.filter(
-      (pageId) => !state.hydratedPages.has(pageId)
-        && state.snapshot.pages.some((page) => page.id === pageId),
+    const missing = resultBlockOwners.filter(
+      (owner) => !state.hydratedOutlines.has(outlineOwnerKey(owner))
+        && findOutline(state.snapshot, owner) !== undefined,
     );
     if (missing.length === 0) return;
-    void session.hydratePages(missing).catch((cause: unknown) => {
+    void session.hydrateOutlines(missing).catch((cause: unknown) => {
       notify.failure(message("failure.loadPage"), cause);
     });
   }, [
     activeView.kind,
     message,
     notify,
-    resultBlockPageIds,
+    resultBlockOwners,
     session,
-    state.hydratedPages,
-    state.snapshot.pages,
+    state.hydratedOutlines,
+    state.snapshot,
     state.status,
   ]);
   const sorts = useMemo(() => {

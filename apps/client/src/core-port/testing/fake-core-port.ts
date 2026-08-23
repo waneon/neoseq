@@ -13,8 +13,8 @@ import type {
   QueryRequest,
   QueryResponse,
   SparqlQueryResult,
-  ReadPageRequest,
-  ReadPageResponse,
+  ReadOutlineRequest,
+  ReadOutlineResponse,
   ReadRequest,
   ReadResponse,
   SubscribeRequest,
@@ -32,6 +32,8 @@ import type {
   BlockSnapshot,
   GraphSnapshot,
   GraphSummary,
+  OutlineOwner,
+  OutlineSnapshot,
   PageSnapshot,
   PropertyField,
   PropertyValue,
@@ -56,7 +58,7 @@ interface GraphEventRecord {
 
 interface FakeHistoryEntry {
   scope: HistoryEffect["scope"];
-  affectedPages: string[];
+  affectedOutlines: OutlineOwner[];
   undoCandidates: EntityRef[];
   redoCandidates: EntityRef[];
   redoCreatedBlock?: boolean;
@@ -158,9 +160,14 @@ export class FakeCorePort implements SessionPort {
     return { summary: this.summary() };
   }
 
-  async readPage(request: ReadPageRequest): Promise<ReadPageResponse> {
+  async readOutline(request: ReadOutlineRequest): Promise<ReadOutlineResponse> {
     if (!this.open) fail("graph_not_open", "graph is not open");
-    return { page: clone(this.requirePage(request.page_id)) };
+    const owner = request.owner as OutlineOwner;
+    const outline: OutlineSnapshot = {
+      owner,
+      blocks: clone(this.requireOutline(owner).blocks),
+    };
+    return { outline };
   }
 
   async query(request: QueryRequest): Promise<QueryResponse> {
@@ -218,7 +225,9 @@ export class FakeCorePort implements SessionPort {
       pages: this.pages
         .filter((page) => !hasKey(page.properties, "builtin.deleted-at"))
         .map((page) => projectLiveTags(page, liveTags)),
-      tags: this.tags.filter((tag) => !hasKey(tag.properties, "builtin.deleted-at")),
+      tags: this.tags
+        .filter((tag) => !hasKey(tag.properties, "builtin.deleted-at"))
+        .map((tag) => projectLiveTagRefs(tag, liveTags)),
       quarantined: [],
     });
   }
@@ -228,6 +237,7 @@ export class FakeCorePort implements SessionPort {
     return {
       ...snapshot,
       pages: snapshot.pages.map(({ blocks: _blocks, ...page }) => page),
+      tags: snapshot.tags.map(({ blocks: _blocks, ...tag }) => tag),
     };
   }
 
@@ -293,6 +303,7 @@ export class FakeCorePort implements SessionPort {
             name: command.name,
             properties: lifecycle(timestamp),
             defaults: [],
+            blocks: [],
           });
           result.created_tag = command.tag_id;
         } else {
@@ -319,7 +330,7 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "insert_block": {
-        const page = this.requirePage(command.page_id);
+        const outline = this.requireOutline(command.owner);
         const id = `b-${(this.blockCounter += 1)}`;
         const block: BlockSnapshot = {
           id,
@@ -329,14 +340,14 @@ export class FakeCorePort implements SessionPort {
           children: [],
         };
         const siblings = command.parent
-          ? this.requireBlock(command.page_id, command.parent).block.children
-          : page.blocks;
+          ? this.requireBlock(command.owner, command.parent).block.children
+          : outline.blocks;
         siblings.splice(Math.min(command.index, siblings.length), 0, block);
         result.created_block = id;
         break;
       }
       case "split_block": {
-        const target = this.requireBlock(command.page_id, command.block_id);
+        const target = this.requireBlock(command.owner, command.block_id);
         const points = Array.from(target.block.markdown);
         if (command.index > points.length) {
           fail("internal", "block split is out of bounds");
@@ -374,15 +385,15 @@ export class FakeCorePort implements SessionPort {
           }
         });
         const requestedSiblings = command.parent
-          ? this.requireBlock(command.page_id, command.parent).block.children
-          : this.requirePage(command.page_id).blocks;
+          ? this.requireBlock(command.owner, command.parent).block.children
+          : this.requireOutline(command.owner).blocks;
         let baseSiblings = requestedSiblings;
         let baseIndex = command.index;
         const levels: BlockSnapshot[] = [];
         let rootOffset = 0;
 
         if (command.replace) {
-          const target = this.requireBlock(command.page_id, command.replace);
+          const target = this.requireBlock(command.owner, command.replace);
           if (target.block.markdown !== "") fail("internal", "outline replacement block is not empty");
           baseSiblings = target.siblings;
           baseIndex = target.siblings.indexOf(target.block);
@@ -392,7 +403,7 @@ export class FakeCorePort implements SessionPort {
         command.items.forEach((item, position) => {
           let block: BlockSnapshot;
           if (position === 0 && command.replace) {
-            block = this.requireBlock(command.page_id, command.replace).block;
+            block = this.requireBlock(command.owner, command.replace).block;
             block.markdown = item.markdown;
             setSingle(block.properties, "builtin.updated-at", {
               type: "string",
@@ -449,6 +460,7 @@ export class FakeCorePort implements SessionPort {
               name: reference.name,
               properties: lifecycle(timestamp),
               defaults: [],
+              blocks: [],
             };
             this.tags.push(target);
           }
@@ -485,14 +497,14 @@ export class FakeCorePort implements SessionPort {
         }
 
         const requestedSiblings = command.parent
-          ? this.requireBlock(command.page_id, command.parent).block.children
-          : this.requirePage(command.page_id).blocks;
+          ? this.requireBlock(command.owner, command.parent).block.children
+          : this.requireOutline(command.owner).blocks;
         let baseSiblings = requestedSiblings;
         let baseIndex = command.index;
         const levels: BlockSnapshot[] = [];
         let rootOffset = 0;
         if (command.replace) {
-          const target = this.requireBlock(command.page_id, command.replace);
+          const target = this.requireBlock(command.owner, command.replace);
           const portable = target.block.properties.filter((entry) =>
             entry.key !== "builtin.created-at" && entry.key !== "builtin.updated-at"
           );
@@ -508,7 +520,7 @@ export class FakeCorePort implements SessionPort {
         fragment.items.forEach((item, position) => {
           let block: BlockSnapshot;
           if (position === 0 && command.replace) {
-            block = this.requireBlock(command.page_id, command.replace).block;
+            block = this.requireBlock(command.owner, command.replace).block;
             block.markdown = item.markdown;
           } else {
             const id = `b-${(this.blockCounter += 1)}`;
@@ -544,10 +556,10 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "edit_markdown":
-        this.requireBlock(command.page_id, command.block_id).block.markdown = command.markdown;
+        this.requireBlock(command.owner, command.block_id).block.markdown = command.markdown;
         break;
       case "splice_markdown": {
-        const block = this.requireBlock(command.page_id, command.block_id).block;
+        const block = this.requireBlock(command.owner, command.block_id).block;
         const points = Array.from(block.markdown);
         if (command.index + command.delete > points.length) {
           fail("internal", "markdown splice is out of bounds");
@@ -557,19 +569,19 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "move_blocks": {
-        const roots = this.structuralRoots(command.page_id, command.block_ids);
+        const roots = this.structuralRoots(command.owner, command.block_ids);
         const rootSet = new Set(roots);
         const target = command.parent
-          ? this.requireBlock(command.page_id, command.parent).block.children
-          : this.requirePage(command.page_id).blocks;
+          ? this.requireBlock(command.owner, command.parent).block.children
+          : this.requireOutline(command.owner).blocks;
         const stationary = target.filter((block) => !rootSet.has(block.id));
         let anchor = stationary[Math.min(command.index, stationary.length) - 1] ?? null;
         for (const blockId of roots) {
-          const { block } = this.requireBlock(command.page_id, blockId);
-          this.detach(command.page_id, blockId);
+          const { block } = this.requireBlock(command.owner, blockId);
+          this.detach(command.owner, blockId);
           const siblings = command.parent
-            ? this.requireBlock(command.page_id, command.parent).block.children
-            : this.requirePage(command.page_id).blocks;
+            ? this.requireBlock(command.owner, command.parent).block.children
+            : this.requireOutline(command.owner).blocks;
           const anchorIndex = anchor ? siblings.indexOf(anchor) : -1;
           if (anchor && anchorIndex < 0) fail("internal", "move anchor is not a target sibling");
           const index = anchorIndex + 1;
@@ -579,8 +591,8 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "indent_blocks": {
-        for (const blockId of this.structuralRoots(command.page_id, command.block_ids)) {
-          const found = this.requireBlock(command.page_id, blockId);
+        for (const blockId of this.structuralRoots(command.owner, command.block_ids)) {
+          const found = this.requireBlock(command.owner, blockId);
           const siblings = found.siblings;
           const position = siblings.indexOf(found.block);
           if (position === 0) fail("internal", "first sibling cannot be indented");
@@ -591,11 +603,11 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "outdent_blocks": {
-        const roots = this.structuralRoots(command.page_id, command.block_ids).reverse();
+        const roots = this.structuralRoots(command.owner, command.block_ids).reverse();
         for (const blockId of roots) {
-          const found = this.requireBlock(command.page_id, blockId);
+          const found = this.requireBlock(command.owner, blockId);
           if (!found.parent) fail("internal", "root block cannot be outdented");
-          const parentFound = this.requireBlock(command.page_id, found.parent.id);
+          const parentFound = this.requireBlock(command.owner, found.parent.id);
           found.siblings.splice(found.siblings.indexOf(found.block), 1);
           const grandSiblings = parentFound.siblings;
           grandSiblings.splice(grandSiblings.indexOf(parentFound.block) + 1, 0, found.block);
@@ -603,8 +615,8 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "delete_blocks":
-        for (const blockId of this.structuralRoots(command.page_id, command.block_ids)) {
-          this.detach(command.page_id, blockId);
+        for (const blockId of this.structuralRoots(command.owner, command.block_ids)) {
+          this.detach(command.owner, blockId);
         }
         break;
       case "ensure_property": {
@@ -800,10 +812,12 @@ export class FakeCorePort implements SessionPort {
 
   private planHistory(command: Exclude<Command, { type: "undo" } | { type: "redo" }>): FakeHistoryEntry {
     const page = (id: string): EntityRef => ({ kind: "page", id });
-    const block = (pageId: string, id: string): EntityRef => ({ kind: "block", page_id: pageId, id });
+    const block = (owner: OutlineOwner, id: string): EntityRef => ({ kind: "block", owner, id });
+    const outlineTarget = (owner: OutlineOwner): EntityRef[] =>
+      owner.kind === "page" ? [page(owner.id)] : [];
     const entity = (target: EntityRef): FakeHistoryEntry => ({
-      scope: target.kind === "page" ? "page" : "entity",
-      affectedPages: [target.kind === "page" ? target.id : target.page_id],
+      scope: target.kind === "page" ? "outline" : "entity",
+      affectedOutlines: [target.kind === "page" ? { kind: "page", id: target.id } : target.owner],
       undoCandidates: [clone(target)],
       redoCandidates: [clone(target)],
     });
@@ -812,24 +826,24 @@ export class FakeCorePort implements SessionPort {
       undoCandidates: EntityRef[],
       redoCandidates: EntityRef[],
     ): FakeHistoryEntry => ({
-      scope: "page",
-      affectedPages: [pageId],
+      scope: "outline",
+      affectedOutlines: [{ kind: "page", id: pageId }],
       undoCandidates,
       redoCandidates,
     });
-    const blockEntry = (
-      pageId: string,
+    const outlineEntry = (
+      owner: OutlineOwner,
       undoCandidates: EntityRef[],
       redoCandidates: EntityRef[],
     ): FakeHistoryEntry => ({
       scope: "entity",
-      affectedPages: [pageId],
+      affectedOutlines: [owner],
       undoCandidates,
       redoCandidates,
     });
     const ownerEntry = (owner: PropertyOwnerRef): FakeHistoryEntry =>
       owner.kind === "tag" || owner.kind === "tag_default"
-        ? { scope: "graph", affectedPages: [], undoCandidates: [], redoCandidates: [] }
+        ? { scope: "graph", affectedOutlines: [], undoCandidates: [], redoCandidates: [] }
         : entity(owner);
 
     switch (command.type) {
@@ -850,80 +864,84 @@ export class FakeCorePort implements SessionPort {
       case "restore_tag":
         return {
           scope: "graph",
-          affectedPages: [],
+          affectedOutlines: [],
           undoCandidates: [],
           redoCandidates: [],
         };
       case "delete_tag": {
-        const affectedPages = this.pages
-          .filter((candidate) => pageHasTag(candidate, command.tag_id))
-          .map((candidate) => candidate.id)
-          .sort();
+        const affectedOutlines: OutlineOwner[] = [
+          ...this.pages
+            .filter((candidate) => pageHasTag(candidate, command.tag_id))
+            .map((candidate) => ({ kind: "page", id: candidate.id }) as const),
+          ...this.tags
+            .filter((candidate) => outlineHasTag(candidate, command.tag_id))
+            .map((candidate) => ({ kind: "tag", id: candidate.id }) as const),
+        ].sort((left, right) => `${left.kind}:${left.id}`.localeCompare(`${right.kind}:${right.id}`));
         return {
           scope: "graph",
-          affectedPages,
+          affectedOutlines,
           undoCandidates: [],
           redoCandidates: [],
         };
       }
       case "insert_block":
         return {
-          ...blockEntry(
-            command.page_id,
+          ...outlineEntry(
+            command.owner,
             command.parent
-              ? [block(command.page_id, command.parent), page(command.page_id)]
-              : [page(command.page_id)],
+              ? [block(command.owner, command.parent), ...outlineTarget(command.owner)]
+              : outlineTarget(command.owner),
             [],
           ),
           redoCreatedBlock: true,
         };
       case "split_block":
         return {
-          ...blockEntry(
-            command.page_id,
-            [block(command.page_id, command.block_id), page(command.page_id)],
-            [block(command.page_id, command.block_id)],
+          ...outlineEntry(
+            command.owner,
+            [block(command.owner, command.block_id), ...outlineTarget(command.owner)],
+            [block(command.owner, command.block_id)],
           ),
           redoCreatedBlock: true,
         };
       case "insert_outline":
       case "paste_outline":
         return {
-          ...blockEntry(
-            command.page_id,
+          ...outlineEntry(
+            command.owner,
             command.parent
-              ? [block(command.page_id, command.parent), page(command.page_id)]
-              : [page(command.page_id)],
+              ? [block(command.owner, command.parent), ...outlineTarget(command.owner)]
+              : outlineTarget(command.owner),
             [],
           ),
           redoCreatedBlock: true,
         };
       case "edit_markdown":
       case "splice_markdown":
-        return blockEntry(
-          command.page_id,
-          [block(command.page_id, command.block_id)],
-          [block(command.page_id, command.block_id)],
+        return outlineEntry(
+          command.owner,
+          [block(command.owner, command.block_id)],
+          [block(command.owner, command.block_id)],
         );
       case "move_blocks":
       case "indent_blocks":
       case "outdent_blocks": {
-        const candidates = this.structuralRoots(command.page_id, command.block_ids)
-          .map((id) => block(command.page_id, id));
-        candidates.push(page(command.page_id));
-        return blockEntry(command.page_id, candidates, clone(candidates));
+        const candidates = this.structuralRoots(command.owner, command.block_ids)
+          .map((id) => block(command.owner, id));
+        candidates.push(...outlineTarget(command.owner));
+        return outlineEntry(command.owner, candidates, clone(candidates));
       }
       case "delete_blocks": {
-        const roots = this.structuralRoots(command.page_id, command.block_ids);
-        const undoCandidates = roots.map((id) => block(command.page_id, id));
-        undoCandidates.push(page(command.page_id));
-        const first = this.requireBlock(command.page_id, roots[0]);
+        const roots = this.structuralRoots(command.owner, command.block_ids);
+        const undoCandidates = roots.map((id) => block(command.owner, id));
+        undoCandidates.push(...outlineTarget(command.owner));
+        const first = this.requireBlock(command.owner, roots[0]);
         const position = first.siblings.indexOf(first.block);
         const redoCandidates: EntityRef[] = [];
-        if (position > 0) redoCandidates.push(block(command.page_id, first.siblings[position - 1].id));
-        if (first.parent) redoCandidates.push(block(command.page_id, first.parent.id));
-        redoCandidates.push(page(command.page_id));
-        return blockEntry(command.page_id, undoCandidates, redoCandidates);
+        if (position > 0) redoCandidates.push(block(command.owner, first.siblings[position - 1].id));
+        if (first.parent) redoCandidates.push(block(command.owner, first.parent.id));
+        redoCandidates.push(...outlineTarget(command.owner));
+        return outlineEntry(command.owner, undoCandidates, redoCandidates);
       }
       case "ensure_property":
       case "set_property":
@@ -950,10 +968,10 @@ export class FakeCorePort implements SessionPort {
     result: { created_page: string | null; created_block: string | null },
   ): FakeHistoryEntry {
     const finished = clone(entry);
-    if (finished.redoCreatedBlock && result.created_block && finished.affectedPages[0]) {
+    if (finished.redoCreatedBlock && result.created_block && finished.affectedOutlines[0]) {
       finished.redoCandidates.unshift({
         kind: "block",
-        page_id: finished.affectedPages[0],
+        owner: finished.affectedOutlines[0],
         id: result.created_block,
       });
     }
@@ -967,15 +985,24 @@ export class FakeCorePort implements SessionPort {
     const candidates = direction === "undo" ? entry.undoCandidates : entry.redoCandidates;
     return {
       scope: entry.scope,
-      affected_pages: clone(entry.affectedPages),
+      affected_outlines: clone(entry.affectedOutlines),
       reveal: clone(candidates.find((candidate) => this.isLiveEntity(candidate)) ?? null),
     };
   }
 
   private isLiveEntity(entity: EntityRef): boolean {
-    const page = this.rawPage(entity.kind === "page" ? entity.id : entity.page_id);
-    if (!page || hasKey(page.properties, "builtin.deleted-at")) return false;
-    return entity.kind === "page" || findIn(page.blocks, null, entity.id, page) !== null;
+    if (entity.kind === "page") {
+      const page = this.rawPage(entity.id);
+      return Boolean(page && !hasKey(page.properties, "builtin.deleted-at"));
+    }
+    const outline = entity.owner.kind === "page"
+      ? this.rawPage(entity.owner.id)
+      : this.rawTag(entity.owner.id);
+    return Boolean(
+      outline
+      && !hasKey(outline.properties, "builtin.deleted-at")
+      && findIn(outline.blocks, null, entity.id) !== null,
+    );
   }
 
   private assertPageNameAvailable(name: string, exceptId: string): void {
@@ -1024,32 +1051,32 @@ export class FakeCorePort implements SessionPort {
         this.touchPage(command.page_id, timestamp);
         break;
       case "insert_block":
-        if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
-        this.touchPage(command.page_id, timestamp);
+        if (result.created_block) this.touchBlock(command.owner, result.created_block, timestamp);
+        this.touchOutline(command.owner, timestamp);
         break;
       case "split_block":
-        if (command.index > 0) this.touchBlock(command.page_id, command.block_id, timestamp);
-        if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
-        this.touchPage(command.page_id, timestamp);
+        if (command.index > 0) this.touchBlock(command.owner, command.block_id, timestamp);
+        if (result.created_block) this.touchBlock(command.owner, result.created_block, timestamp);
+        this.touchOutline(command.owner, timestamp);
         break;
       case "insert_outline":
       case "paste_outline":
-        if (result.created_block) this.touchBlock(command.page_id, result.created_block, timestamp);
-        this.touchPage(command.page_id, timestamp);
+        if (result.created_block) this.touchBlock(command.owner, result.created_block, timestamp);
+        this.touchOutline(command.owner, timestamp);
         break;
       case "edit_markdown":
       case "splice_markdown":
-        this.touchBlock(command.page_id, command.block_id, timestamp);
-        this.touchPage(command.page_id, timestamp);
+        this.touchBlock(command.owner, command.block_id, timestamp);
+        this.touchOutline(command.owner, timestamp);
         break;
       case "move_blocks":
       case "indent_blocks":
       case "outdent_blocks":
-        for (const blockId of command.block_ids) this.touchBlock(command.page_id, blockId, timestamp);
-        this.touchPage(command.page_id, timestamp);
+        for (const blockId of command.block_ids) this.touchBlock(command.owner, blockId, timestamp);
+        this.touchOutline(command.owner, timestamp);
         break;
       case "delete_blocks":
-        this.touchPage(command.page_id, timestamp);
+        this.touchOutline(command.owner, timestamp);
         break;
       case "ensure_property":
       case "set_property":
@@ -1085,14 +1112,14 @@ export class FakeCorePort implements SessionPort {
   }
 
   private touchEntity(
-    entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string },
+    entity: EntityRef,
     timestamp: string,
   ): void {
     if (entity.kind === "page") {
       this.touchPage(entity.id, timestamp);
     } else {
-      this.touchBlock(entity.page_id, entity.id, timestamp);
-      this.touchPage(entity.page_id, timestamp);
+      this.touchBlock(entity.owner, entity.id, timestamp);
+      this.touchOutline(entity.owner, timestamp);
     }
   }
 
@@ -1120,8 +1147,8 @@ export class FakeCorePort implements SessionPort {
     });
   }
 
-  private touchBlock(pageId: string, blockId: string, timestamp: string): void {
-    setSingle(this.requireBlock(pageId, blockId).block.properties, "builtin.updated-at", {
+  private touchBlock(owner: OutlineOwner, blockId: string, timestamp: string): void {
+    setSingle(this.requireBlock(owner, blockId).block.properties, "builtin.updated-at", {
       type: "string",
       value: timestamp,
     });
@@ -1134,6 +1161,11 @@ export class FakeCorePort implements SessionPort {
       type: "string",
       value: timestamp,
     });
+  }
+
+  private touchOutline(owner: OutlineOwner, timestamp: string): void {
+    if (owner.kind === "page") this.touchPage(owner.id, timestamp);
+    else this.touchTag(owner.id, timestamp);
   }
 
   private detachTagFromAllNodes(tagId: string, timestamp: string): void {
@@ -1165,6 +1197,14 @@ export class FakeCorePort implements SessionPort {
         });
       }
     }
+    for (const tag of this.tags) {
+      if (detachBlocks(tag.blocks)) {
+        setSingle(tag.properties, "builtin.updated-at", {
+          type: "string",
+          value: timestamp,
+        });
+      }
+    }
   }
 
   private rawTag(id: string): TagSnapshot | undefined {
@@ -1188,19 +1228,21 @@ export class FakeCorePort implements SessionPort {
     return page;
   }
 
-  private requireBlock(pageId: string, id: string): {
+  private requireOutline(owner: OutlineOwner): PageSnapshot | TagSnapshot {
+    return owner.kind === "page" ? this.requirePage(owner.id) : this.requireTag(owner.id);
+  }
+
+  private requireBlock(owner: OutlineOwner, id: string): {
     block: BlockSnapshot;
     siblings: BlockSnapshot[];
     parent: BlockSnapshot | null;
-    page: PageSnapshot;
   } {
-    const page = this.requirePage(pageId);
-    const found = findIn(page.blocks, null, id, page);
+    const found = findIn(this.requireOutline(owner).blocks, null, id);
     if (found) return found;
     fail("internal", `block does not exist or is deleted: ${id}`);
   }
 
-  private structuralRoots(pageId: string, ids: string[]): string[] {
+  private structuralRoots(owner: OutlineOwner, ids: string[]): string[] {
     if (ids.length === 0) fail("internal", "structural command requires at least one block");
     const requested = new Set(ids);
     const found = new Set<string>();
@@ -1213,20 +1255,20 @@ export class FakeCorePort implements SessionPort {
         visit(block.children, covered || selected);
       }
     };
-    visit(this.requirePage(pageId).blocks, false);
+    visit(this.requireOutline(owner).blocks, false);
     if (found.size !== requested.size) fail("internal", "structural command targets a missing block");
     return roots;
   }
 
-  private detach(pageId: string, id: string): void {
-    const found = this.requireBlock(pageId, id);
+  private detach(owner: OutlineOwner, id: string): void {
+    const found = this.requireBlock(owner, id);
     found.siblings.splice(found.siblings.indexOf(found.block), 1);
   }
 
-  private entityBag(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): PropertyField[] {
+  private entityBag(entity: EntityRef): PropertyField[] {
     return entity.kind === "page"
       ? this.requirePage(entity.id).properties
-      : this.requireBlock(entity.page_id, entity.id).block.properties;
+      : this.requireBlock(entity.owner, entity.id).block.properties;
   }
 
   private propertyOwnerBag(owner: PropertyOwnerRef): PropertyField[] {
@@ -1235,10 +1277,10 @@ export class FakeCorePort implements SessionPort {
     return this.entityBag(owner);
   }
 
-  private entityTags(entity: { kind: "page"; id: string } | { kind: "block"; page_id: string; id: string }): string[] {
+  private entityTags(entity: EntityRef): string[] {
     return entity.kind === "page"
       ? this.requirePage(entity.id).tags
-      : this.requireBlock(entity.page_id, entity.id).block.tags;
+      : this.requireBlock(entity.owner, entity.id).block.tags;
   }
 
   private capture(): { pages: PageSnapshot[]; tags: TagSnapshot[] } {
@@ -1255,11 +1297,10 @@ function findIn(
   blocks: BlockSnapshot[],
   parent: BlockSnapshot | null,
   id: string,
-  page: PageSnapshot,
-): { block: BlockSnapshot; siblings: BlockSnapshot[]; parent: BlockSnapshot | null; page: PageSnapshot } | null {
+): { block: BlockSnapshot; siblings: BlockSnapshot[]; parent: BlockSnapshot | null } | null {
   for (const block of blocks) {
-    if (block.id === id) return { block, siblings: blocks, parent, page };
-    const nested = findIn(block.children, block, id, page);
+    if (block.id === id) return { block, siblings: blocks, parent };
+    const nested = findIn(block.children, block, id);
     if (nested) return nested;
   }
   return null;
@@ -1278,11 +1319,23 @@ function projectLiveTags(page: PageSnapshot, liveTags: ReadonlySet<string>): Pag
   };
 }
 
-function pageHasTag(page: PageSnapshot, tagId: string): boolean {
-  const blocksHaveTag = (blocks: BlockSnapshot[]): boolean => blocks.some(
-    (block) => block.tags.includes(tagId) || blocksHaveTag(block.children),
+function projectLiveTagRefs(tag: TagSnapshot, liveTags: ReadonlySet<string>): TagSnapshot {
+  const projectBlocks = (blocks: BlockSnapshot[]): BlockSnapshot[] => blocks.map((block) => ({
+    ...block,
+    tags: block.tags.filter((id) => liveTags.has(id)),
+    children: projectBlocks(block.children),
+  }));
+  return { ...tag, blocks: projectBlocks(tag.blocks) };
+}
+
+function outlineHasTag(outline: { blocks: BlockSnapshot[] }, tagId: string): boolean {
+  return outline.blocks.some(
+    (block) => block.tags.includes(tagId) || outlineHasTag({ blocks: block.children }, tagId),
   );
-  return page.tags.includes(tagId) || blocksHaveTag(page.blocks);
+}
+
+function pageHasTag(page: PageSnapshot, tagId: string): boolean {
+  return page.tags.includes(tagId) || outlineHasTag(page, tagId);
 }
 
 function newPage(

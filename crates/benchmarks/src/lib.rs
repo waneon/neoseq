@@ -37,6 +37,7 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
             name: format!("Benchmark tag {index}"),
             properties: Vec::new(),
             defaults: Vec::new(),
+            blocks: Vec::new(),
         })
         .collect();
 
@@ -59,6 +60,7 @@ pub fn streaming_units(block_count: usize) -> impl Iterator<Item = Result<IndexU
             name: format!("Benchmark tag {index}"),
             properties: Vec::new(),
             defaults: Vec::new(),
+            blocks: Vec::new(),
         })
     });
     let pages = (0..block_count.div_ceil(BLOCKS_PER_PAGE)).map(move |page_index| {

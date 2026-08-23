@@ -9,7 +9,7 @@ domain DTO, never a Loro snapshot or update. Copying creates new block identity;
 core-managed lifecycle fields are regenerated.
 
 The browser derives the fragment synchronously from an authoritative hydrated
-page snapshot so the native `copy` event can be completed without waiting for a
+outline snapshot so the native `copy` event can be completed without waiting for a
 Worker round trip. The core treats every fragment as untrusted input and owns
 shape validation, reference resolution, CRDT encoding, and mutation.
 

@@ -132,6 +132,7 @@ export interface MessageArgumentMap {
   "failure.lastEdit": undefined;
   "failure.loadJournal": undefined;
   "failure.loadPage": undefined;
+  "failure.loadTag": undefined;
   "failure.moveBlockDown": undefined;
   "failure.moveBlockUp": undefined;
   "failure.moveBlocks": { readonly "count": number };

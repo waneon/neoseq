@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import { findJournalPage } from "../../core-port/snapshot";
+import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
 import {
   addDays,
   todayLocalDate,
@@ -56,11 +56,15 @@ export function JournalView() {
   }, [ensure, valid, state.status, state.mode, state.live, page, date]);
 
   useEffect(() => {
-    if (!page || state.status !== "ready" || state.hydratedPages.has(page.id)) return;
+    if (
+      !page
+      || state.status !== "ready"
+      || state.hydratedOutlines.has(outlineOwnerKey({ kind: "page", id: page.id }))
+    ) return;
     void session.hydratePage(page.id).catch((error: unknown) => {
       notify.failure(message("failure.loadJournal"), error);
     });
-  }, [message, notify, page, session, state.hydratedPages, state.status]);
+  }, [message, notify, page, session, state.hydratedOutlines, state.status]);
 
   if (!valid) {
     return (

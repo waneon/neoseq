@@ -6,16 +6,17 @@ import type {
   PropertyValueType,
   QueryPlanDocument,
   QueryView,
+  OutlineOwner,
 } from "./snapshot";
 import type { OutlineFragment } from "./fragment";
 
 export type EntityRef =
   | { kind: "page"; id: string }
-  | { kind: "block"; page_id: string; id: string };
+  | { kind: "block"; owner: OutlineOwner; id: string };
 
 export type PropertyOwnerRef =
   | { kind: "page"; id: string }
-  | { kind: "block"; page_id: string; id: string }
+  | { kind: "block"; owner: OutlineOwner; id: string }
   /** The tag itself — where its query lives. */
   | { kind: "tag"; tag_id: string }
   /** What the tag copies onto whatever it is added to. */
@@ -38,11 +39,11 @@ export type Command =
   | { type: "rename_tag"; tag_id: string; name: string }
   | { type: "delete_tag"; tag_id: string }
   | { type: "restore_tag"; tag_id: string }
-  | { type: "insert_block"; page_id: string; parent: string | null; index: number; markdown: string }
-  | { type: "split_block"; page_id: string; block_id: string; index: number; placement: SplitPlacement }
+  | { type: "insert_block"; owner: OutlineOwner; parent: string | null; index: number; markdown: string }
+  | { type: "split_block"; owner: OutlineOwner; block_id: string; index: number; placement: SplitPlacement }
   | {
       type: "insert_outline";
-      page_id: string;
+      owner: OutlineOwner;
       parent: string | null;
       index: number;
       replace: string | null;
@@ -50,18 +51,18 @@ export type Command =
     }
   | {
       type: "paste_outline";
-      page_id: string;
+      owner: OutlineOwner;
       parent: string | null;
       index: number;
       replace: string | null;
       fragment: OutlineFragment;
     }
-  | { type: "edit_markdown"; page_id: string; block_id: string; markdown: string }
-  | { type: "splice_markdown"; page_id: string; block_id: string; index: number; delete: number; insert: string }
-  | { type: "move_blocks"; block_ids: string[]; page_id: string; parent: string | null; index: number }
-  | { type: "indent_blocks"; page_id: string; block_ids: string[] }
-  | { type: "outdent_blocks"; page_id: string; block_ids: string[] }
-  | { type: "delete_blocks"; page_id: string; block_ids: string[] }
+  | { type: "edit_markdown"; owner: OutlineOwner; block_id: string; markdown: string }
+  | { type: "splice_markdown"; owner: OutlineOwner; block_id: string; index: number; delete: number; insert: string }
+  | { type: "move_blocks"; block_ids: string[]; owner: OutlineOwner; parent: string | null; index: number }
+  | { type: "indent_blocks"; owner: OutlineOwner; block_ids: string[] }
+  | { type: "outdent_blocks"; owner: OutlineOwner; block_ids: string[] }
+  | { type: "delete_blocks"; owner: OutlineOwner; block_ids: string[] }
   | {
       type: "ensure_property";
       owner: PropertyOwnerRef;
@@ -102,8 +103,8 @@ export interface CommandResult {
 }
 
 export interface HistoryEffect {
-  scope: "entity" | "page" | "graph";
-  affected_pages: string[];
+  scope: "entity" | "outline" | "graph";
+  affected_outlines: OutlineOwner[];
   reveal: EntityRef | null;
 }
 

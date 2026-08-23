@@ -2,8 +2,8 @@ use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CommandEnvelope, CorePortError,
     CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, OpenGraphRequest,
-    OpenGraphResponse, PageId, QueryRequestDto, QueryResponseDto, ReadPageRequest,
-    ReadPageResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
+    OpenGraphResponse, OutlineOwner, QueryRequestDto, QueryResponseDto, ReadOutlineRequest,
+    ReadOutlineResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
     StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
 };
 use graph_core::{
@@ -168,19 +168,17 @@ impl NativeCorePort {
         })
     }
 
-    pub fn read_page(
+    pub fn read_outline(
         &mut self,
-        request: ReadPageRequest,
-    ) -> Result<ReadPageResponse, CorePortError> {
-        let page_id = PageId::new(request.page_id).map_err(|error| {
-            port_error(CorePortErrorCode::InvalidRequest, &error.to_string(), false)
-        })?;
-        let page = self
+        request: ReadOutlineRequest,
+    ) -> Result<ReadOutlineResponse, CorePortError> {
+        let owner: OutlineOwner = serde_json::from_value(request.owner).map_err(map_json_error)?;
+        let outline = self
             .runtime_mut(&request.graph_handle)?
-            .read_page(&page_id)
+            .read_outline(&owner)
             .map_err(map_runtime_error)?;
-        Ok(ReadPageResponse {
-            page: serde_json::to_value(page).map_err(map_json_error)?,
+        Ok(ReadOutlineResponse {
+            outline: serde_json::to_value(outline).map_err(map_json_error)?,
         })
     }
 

@@ -16,7 +16,7 @@ async function mountRows(markdowns: string[]) {
   for (const [index, markdown] of markdowns.entries()) {
     await harness.session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index,
       markdown,
@@ -123,14 +123,14 @@ describe("block selection", () => {
     const { session } = await mountRows(["parent"]);
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: "b-1",
       index: 0,
       markdown: "one",
     });
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: "b-1",
       index: 1,
       markdown: "two",
@@ -197,7 +197,7 @@ describe("block selection", () => {
     const { session } = await mountRows(["parent"]);
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: "b-1",
       index: 0,
       markdown: "child\ncontinuation",
@@ -251,12 +251,12 @@ describe("block selection", () => {
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       tag_id: "project",
     });
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { BlockSnapshot } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
@@ -9,12 +9,12 @@ import { PageAutocomplete } from "./PageAutocomplete";
 import { TagChips } from "./TagChips";
 
 export function TagPicker({
-  pageId,
+  owner,
   block,
   anchor,
   onClose,
 }: {
-  pageId: string;
+  owner: OutlineOwner;
   block: BlockSnapshot;
   anchor: Anchor;
   onClose: () => void;
@@ -64,7 +64,7 @@ export function TagPicker({
       data-testid="tag-picker"
     >
       <strong>{message("outline.tags")}</strong>
-      <TagChips pageId={pageId} block={block} />
+      <TagChips owner={owner} block={block} />
       {state.mode !== "readonly" && (
         <PageAutocomplete
           kind="tag"
@@ -74,7 +74,7 @@ export function TagPicker({
             try {
               await session.execute({
                 type: "add_tag",
-                entity: { kind: "block", page_id: pageId, id: block.id },
+                entity: { kind: "block", owner, id: block.id },
                 tag_id: tagId,
               });
             } catch (cause) {

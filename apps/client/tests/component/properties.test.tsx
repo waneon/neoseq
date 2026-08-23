@@ -158,12 +158,12 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "stand-up",
     });
-    const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
+    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
     await session.execute({
       type: "set_property",
       owner,
@@ -189,7 +189,7 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "water the plants ",
@@ -271,7 +271,7 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "",
@@ -295,7 +295,7 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "ship it ",
@@ -322,7 +322,7 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "",
@@ -347,7 +347,7 @@ describe("property picker", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "",
@@ -365,10 +365,10 @@ describe("property picker", () => {
   it("changes and removes a status from the inline control's own menu", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    await session.execute({ type: "insert_block", page_id: "home", parent: null, index: 0, markdown: "task" });
+    await session.execute({ type: "insert_block", owner: { kind: "page", id: "home" }, parent: null, index: 0, markdown: "task" });
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });

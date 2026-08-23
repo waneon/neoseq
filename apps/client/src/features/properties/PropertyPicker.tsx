@@ -9,7 +9,12 @@ import {
 import { createPortal } from "react-dom";
 import { ArrowLeftIcon, CalendarIcon, CheckIcon, ClockIcon, Trash2Icon } from "lucide-react";
 import type { Command, PropertyOwnerRef } from "../../core-port/commands";
-import type { PropertyField, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
+import type {
+  OutlineOwner,
+  PropertyField,
+  PropertyValue,
+  PropertyValueType,
+} from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import {
   canUserWrite,
@@ -62,7 +67,7 @@ import { validationMessage } from "./property-validation";
 
 export type PropertyTarget =
   | { kind: "page"; id: string; bag: PropertyField[] }
-  | { kind: "block"; id: string; pageId: string; bag: PropertyField[] }
+  | { kind: "block"; id: string; owner: OutlineOwner; bag: PropertyField[] }
   // A tag's *defaults*: the values copied onto a block when the tag is added.
   // Same picker, stages, and owner-based property commands.
   | { kind: "tag"; id: string; bag: PropertyField[] };
@@ -110,7 +115,7 @@ export function PropertyPicker({
   const owner: PropertyOwnerRef = target.kind === "page"
     ? { kind: "page", id: target.id }
     : target.kind === "block"
-      ? { kind: "block", page_id: target.pageId, id: target.id }
+      ? { kind: "block", owner: target.owner, id: target.id }
       : { kind: "tag_default", tag_id: target.id };
   // Placement checks speak the registry's language: a tag target writes the
   // `tag_default` placement, never a bag of its own.

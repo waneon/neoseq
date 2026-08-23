@@ -29,7 +29,7 @@
 
 import { XIcon } from "lucide-react";
 import { Link, useParams } from "react-router";
-import type { BlockSnapshot } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { findTag } from "../../core-port/snapshot";
 import { tagColor, tagIcon } from "../../entities/tag-identity";
 import { useNotify } from "../notify/context";
@@ -37,11 +37,11 @@ import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 
 export function TagChips({
-  pageId,
+  owner,
   block,
   variant = "edit",
 }: {
-  pageId: string;
+  owner: OutlineOwner;
   block: BlockSnapshot;
   /**
    * `edit` — the picker's own list: the chip removes the tag.
@@ -130,7 +130,7 @@ export function TagChips({
               void session
                 .execute({
                   type: "remove_tag",
-                  entity: { kind: "block", page_id: pageId, id: block.id },
+                  entity: { kind: "block", owner, id: block.id },
                   tag_id: tagId,
                 })
                 .catch((error: unknown) => {

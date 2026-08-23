@@ -18,7 +18,7 @@ import { ArrowUpRightIcon } from "lucide-react";
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSession, SessionState } from "../../core-port/session";
 import type { BlockSnapshot } from "../../core-port/snapshot";
-import { findBlock, findPage } from "../../core-port/snapshot";
+import { findBlock, findOutline, outlineOwnerKey } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -150,15 +150,15 @@ export interface QueryResultEditor {
 }
 
 function bindingKey(binding: QueryEditBinding): string {
-  const owner = `${binding.block.page_id}:${binding.block.id}`;
+  const owner = `${outlineOwnerKey(binding.block.owner)}:${binding.block.id}`;
   return binding.kind === "property"
     ? `${owner}:property:${binding.key}`
     : `${owner}:${binding.kind}`;
 }
 
 function blockFrom(state: SessionState, block: BlockRef): BlockSnapshot | undefined {
-  const page = findPage(state.snapshot, block.page_id);
-  return page ? findBlock(page, block.id) : undefined;
+  const outline = findOutline(state.snapshot, block.owner);
+  return outline ? findBlock(outline, block.id) : undefined;
 }
 
 /** A frozen box, for an anchor that will not outlive the edit it opens. */
@@ -288,8 +288,8 @@ export function useQueryResultEditor({
       setActive({ phase: "loading", binding, origin, anchor });
       void (async () => {
         try {
-          if (!session.getState().hydratedPages.has(binding.block.page_id)) {
-            await session.hydratePage(binding.block.page_id);
+          if (!session.getState().hydratedOutlines.has(outlineOwnerKey(binding.block.owner))) {
+            await session.hydrateOutline(binding.block.owner);
           }
           if (sequence !== request.current) return;
           const block = blockFrom(session.getState(), binding.block);
@@ -348,7 +348,7 @@ export function useQueryResultEditor({
       try {
         await session.execute({
           type: "splice_markdown",
-          page_id: current.binding.block.page_id,
+          owner: current.binding.block.owner,
           block_id: current.binding.block.id,
           ...splice,
         });
@@ -450,7 +450,7 @@ export function useQueryResultEditor({
       if (!(await commit(false, next))) return;
       const owner = {
         kind: "block",
-        page_id: current.binding.block.page_id,
+        owner: current.binding.block.owner,
         id: current.binding.block.id,
       } as const;
       try {
@@ -511,7 +511,7 @@ export function useQueryResultEditor({
           type: "add_tag",
           entity: {
             kind: "block",
-            page_id: current.binding.block.page_id,
+            owner: current.binding.block.owner,
             id: current.binding.block.id,
           },
           tag_id: option.id,
@@ -572,7 +572,7 @@ export function useQueryResultEditor({
   );
 
   const activeBlockKey = activeBlock && active
-    ? `${active.binding.block.page_id}:${active.binding.block.id}`
+    ? `${outlineOwnerKey(active.binding.block.owner)}:${active.binding.block.id}`
     : null;
   useEffect(() => {
     if (!activeBlockKey) return;
@@ -625,7 +625,7 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
         target={{
           kind: "block",
           id: block.id,
-          pageId: active.binding.block.page_id,
+          owner: active.binding.block.owner,
           bag: block.properties,
         }}
         anchor={active.anchor}
@@ -636,7 +636,7 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
   }
   return (
     <TagPicker
-      pageId={active.binding.block.page_id}
+      owner={active.binding.block.owner}
       block={block}
       anchor={active.anchor}
       onClose={editor.cancel}
@@ -965,10 +965,10 @@ function TaskMenuFor({
   value: string;
 }): ReactNode {
   if (binding.key === TASK_STATUS_KEY) {
-    return <TaskStatusMenu pageId={binding.block.page_id} block={block} status={value} />;
+    return <TaskStatusMenu owner={binding.block.owner} block={block} status={value} />;
   }
   if (binding.key === TASK_PRIORITY_KEY) {
-    return <TaskPriorityMenu pageId={binding.block.page_id} block={block} priority={value} />;
+    return <TaskPriorityMenu owner={binding.block.owner} block={block} priority={value} />;
   }
   return null;
 }

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Undo and redo can change an entity outside the visible page. The product makes
+Undo and redo can change an entity outside the visible outline. The product makes
 that result discoverable without coupling the Rust core to routes, viewport
 state, or focus policy.
 
@@ -16,8 +16,8 @@ commands remain canonical state but are not undoable in the new session.
 `CommandResult.history_effect` is present only for a changed undo or redo and
 contains:
 
-- `scope`: `entity`, `page`, or `graph`;
-- `affected_pages`: the page IDs whose hydrated snapshots may be stale;
+- `scope`: `entity`, `outline`, or `graph`;
+- `affected_outlines`: the page or tag owners whose hydrated trees may be stale;
 - `reveal`: at most one live page or block reference after the operation.
 
 The effect describes semantic impact, not presentation instructions. It never
@@ -37,7 +37,7 @@ of publishing an uncorrelated effect.
 Each entry records:
 
 - semantic scope;
-- affected pages;
+- affected outline owners;
 - ordered target candidates for undo and redo.
 
 Candidates are resolved only after Loro finishes the operation. The first live
@@ -46,17 +46,17 @@ block or page when available. Loro tree nodes may receive a new internal ID when
 an insertion is redone or a deletion is undone, so those entries record a tree
 position and resolve the resulting live block rather than returning a stale ID.
 
-Graph-wide commands such as tag deletion report affected pages for cache
+Graph-wide commands such as tag deletion report affected outlines for cache
 reconciliation but deliberately have no reveal target. The metadata is not CRDT
 state, is not synced, and does not change the persisted graph schema.
 
 ## Session Ownership
 
 `GraphSession` serializes the history command before any navigation. It uses
-`affected_pages` to refresh only destination pages that are already hydrated.
-The normal routed page loader hydrates a destination that was not previously in
+`affected_outlines` to refresh only owners that are already hydrated. The normal
+routed page or tag loader hydrates a destination that was not previously in
 memory. If persistence fails after an in-memory history mutation, the session
-conservatively reconciles every hydrated page because no result metadata was
+conservatively reconciles every hydrated outline because no result metadata was
 returned.
 
 Navigation never begins before command execution and reconciliation succeed.
@@ -73,21 +73,21 @@ After a successful result it applies this policy:
 
 1. Graph scope or no live target: keep the current route.
 2. Page target: navigate only when another page is visible.
-3. Block target on another page: retain a pending reveal and navigate to the
-   page's canonical regular-page or journal route.
-4. Block target on the mounted page: hand it directly to the registered
+3. Block target under another owner: retain a pending reveal and navigate to the
+   owner's canonical page, journal, or tag route.
+4. Block target under the mounted owner: hand it directly to the registered
    outliner revealer.
 
 The pending reveal survives the route transition. The destination outliner
-registers again after page hydration, allowing the coordinator to retry a target
-that was absent from the initial page summary.
+registers again after outline hydration, allowing the coordinator to retry a target
+that was absent from the initial graph summary.
 
 ## Outliner Reveal Policy
 
 The outliner owns view mechanics because it owns collapsed state, editor focus,
 and the virtualizer. For an accepted block request it:
 
-1. verifies the block exists in the full authoritative page tree;
+1. verifies the block exists in the full authoritative owner tree;
 2. expands every collapsed ancestor;
 3. waits until the block enters the visible flattened rows;
 4. scrolls the virtualizer to its row;
@@ -100,8 +100,8 @@ its current caret rather than resetting it.
 
 ## Verification
 
-Core tests cover cross-page effects, graph-scoped effects, deleted-block ID
-resolution, and redo fallbacks. Component tests cover same-page ancestor
-expansion, cross-page routing and reveal, focus preservation, and graph-wide
+Core tests cover cross-owner effects, graph-scoped effects, deleted-block ID
+resolution, and redo fallbacks. Component tests cover same-owner ancestor
+expansion, cross-owner routing and reveal, focus preservation, and graph-wide
 route stability. The fake CorePort mirrors the semantic metadata stacks so UI
 tests exercise the same boundary as the Rust runtime.

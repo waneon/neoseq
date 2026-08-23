@@ -7,7 +7,7 @@
 // page, tag, aggregate, or hand-written row keeps the generic result fallback.
 
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
-import { findBlock, findPage, stringValue } from "../../core-port/snapshot";
+import { findBlock, findOutline, stringValue } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockChips } from "../properties/BlockChips";
@@ -61,8 +61,12 @@ export function QueryListView({
     >
       {rows.map((row) => {
         const entity = row.subject;
-        const page = entity?.kind === "block" ? findPage(context.snapshot, entity.page_id) : undefined;
-        const block = entity?.kind === "block" && page ? findBlock(page, entity.id) : undefined;
+        const outline = entity?.kind === "block"
+          ? findOutline(context.snapshot, entity.owner)
+          : undefined;
+        const block = entity?.kind === "block" && outline
+          ? findBlock(outline, entity.id)
+          : undefined;
         if (!block || entity?.kind !== "block") {
           return (
             <GenericResultRow
@@ -178,7 +182,7 @@ export function QueryListView({
               )}
               {block.tags.length > 0 && (
                 <div className="outline-tags">
-                  <TagChips pageId={entity.page_id} block={block} variant="reference" />
+                  <TagChips owner={entity.owner} block={block} variant="reference" />
                 </div>
               )}
               <BlockChips

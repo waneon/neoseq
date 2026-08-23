@@ -511,10 +511,10 @@ function ShellBody({
       const result = await session.query({
         language: "sparql-1.1/neoseq-v1",
         source: `PREFIX neo: <urn:neoseq:vocab:v1:>
-SELECT ?entity ?content ?page WHERE {
-  { ?entity a neo:Page; neo:content ?content. BIND(?entity AS ?page) }
+SELECT ?entity ?content WHERE {
+  { ?entity a neo:Page; neo:content ?content. }
   UNION
-  { ?entity a neo:Block; neo:content ?content; neo:page ?page. }
+  { ?entity a neo:Block; neo:content ?content. }
   FILTER(neo:matchesText(?content, ?needle))
 } ORDER BY ?content LIMIT 20`,
         bindings: {
@@ -528,25 +528,21 @@ SELECT ?entity ?content ?page WHERE {
       if (result.kind !== "select") return [];
       return result.rows.flatMap((row, index) => {
         const entity = row.entity;
-        const page = row.page;
         const content = literalText(row.content);
-        const pageId = page?.kind === "iri" && page.entity?.kind === "page"
-          ? page.entity.id
-          : null;
-        if (!pageId || entity?.kind !== "iri" || !entity.entity) return [];
+        if (entity?.kind !== "iri" || !entity.entity) return [];
         const isBlock = entity.entity.kind === "block";
         return [{
           id: `search-${index}-${entity.value}`,
           group: "Search" as const,
-          label: content || (isBlock ? entity.entity.id : pageId),
+          label: content || entity.entity.id,
           hint: isBlock ? message("commands.blockHint") : message("commands.hintPage"),
           icon: <SearchIcon aria-hidden />,
           pointerRoute: message("shell.search"),
-          run: () => navigate(`/g/${graphId}/p/${pageId}`),
+          run: () => history.open(entity.entity!),
         }];
       });
     },
-    [graphId, message, navigate, session],
+    [history, message, session],
   );
 
   // A calm, delayed loader (rather than a full-bleed card) prevents the

@@ -1,7 +1,7 @@
 // Pure view helpers over the block tree DTO: flattening for the
 // virtualized outline, sibling/position lookups for keyboard commands.
 
-import type { BlockSnapshot, PageSnapshot } from "../core-port/snapshot";
+import type { BlockSnapshot } from "../core-port/snapshot";
 
 export interface OutlineRow {
   block: BlockSnapshot;
@@ -15,7 +15,7 @@ export interface OutlineRow {
 }
 
 /** Flattens the visible tree in document order, honoring collapsed nodes. */
-export function flattenOutline(page: PageSnapshot, collapsedIds: ReadonlySet<string>): OutlineRow[] {
+export function flattenOutline(outline: { blocks: BlockSnapshot[] }, collapsedIds: ReadonlySet<string>): OutlineRow[] {
   const rows: OutlineRow[] = [];
   const walk = (blocks: BlockSnapshot[], depth: number, parentId: string | null) => {
     blocks.forEach((block, index) => {
@@ -32,7 +32,7 @@ export function flattenOutline(page: PageSnapshot, collapsedIds: ReadonlySet<str
       if (!collapsed) walk(block.children, depth + 1, block.id);
     });
   };
-  walk(page.blocks, 0, null);
+  walk(outline.blocks, 0, null);
   return rows;
 }
 

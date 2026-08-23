@@ -13,7 +13,7 @@ import type {
   ExecuteRequest,
   OpenGraphRequest,
   QueryRequest,
-  ReadPageRequest,
+  ReadOutlineRequest,
   ReadRequest,
   SubscribeRequest,
 } from "./generated/core-port";
@@ -78,7 +78,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "open_graph": await ensureWasm(); value = await openGraph(payload as OpenGraphRequest); break;
         case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest); break;
         case "read": await ensureWasm(); value = read(payload as ReadRequest); break;
-        case "read_page": await ensureWasm(); value = readPage(payload as ReadPageRequest); break;
+        case "read_outline": await ensureWasm(); value = readOutline(payload as ReadOutlineRequest); break;
         case "query": await ensureWasm(); value = query(payload as QueryRequest); break;
         case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
         case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
@@ -308,9 +308,11 @@ function read(request: ReadRequest) {
   return { summary: JSON.parse(requireState(request.graph_handle).core.summaryJson()) };
 }
 
-function readPage(request: ReadPageRequest) {
+function readOutline(request: ReadOutlineRequest) {
   return {
-    page: JSON.parse(requireState(request.graph_handle).core.pageSnapshotJson(request.page_id)),
+    outline: JSON.parse(
+      requireState(request.graph_handle).core.outlineSnapshotJson(JSON.stringify(request.owner)),
+    ),
   };
 }
 

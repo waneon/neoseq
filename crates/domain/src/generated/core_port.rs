@@ -73,14 +73,14 @@ pub struct ReadResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ReadPageRequest {
+pub struct ReadOutlineRequest {
     pub graph_handle: String,
-    pub page_id: String,
+    pub owner: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct ReadPageResponse {
-    pub page: Value,
+pub struct ReadOutlineResponse {
+    pub outline: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -86,6 +86,15 @@ export interface BlockSnapshot {
   children: BlockSnapshot[];
 }
 
+export type OutlineOwner =
+  | { kind: "page"; id: string }
+  | { kind: "tag"; id: string };
+
+export interface OutlineSnapshot {
+  owner: OutlineOwner;
+  blocks: BlockSnapshot[];
+}
+
 export interface PageSnapshot {
   id: string;
   title: string;
@@ -106,13 +115,16 @@ export interface TagSnapshot {
   name: string;
   properties: PropertyField[];
   defaults: PropertyField[];
+  blocks: BlockSnapshot[];
 }
+
+type TagSummary = Omit<TagSnapshot, "blocks">;
 
 export interface GraphSummary {
   schema_version: number;
   graph_id: string;
   pages: PageSummary[];
-  tags: TagSnapshot[];
+  tags: TagSummary[];
   quarantined: string[];
 }
 
@@ -133,10 +145,12 @@ export const EMPTY_SNAPSHOT: GraphSnapshot = {
 };
 
 export function mergeSummary(summary: GraphSummary, current: GraphSnapshot = EMPTY_SNAPSHOT): GraphSnapshot {
-  const hydrated = new Map(current.pages.map((page) => [page.id, page.blocks]));
+  const hydratedPages = new Map(current.pages.map((page) => [page.id, page.blocks]));
+  const hydratedTags = new Map(current.tags.map((tag) => [tag.id, tag.blocks]));
   return {
     ...summary,
-    pages: summary.pages.map((page) => ({ ...page, blocks: hydrated.get(page.id) ?? [] })),
+    pages: summary.pages.map((page) => ({ ...page, blocks: hydratedPages.get(page.id) ?? [] })),
+    tags: summary.tags.map((tag) => ({ ...tag, blocks: hydratedTags.get(tag.id) ?? [] })),
   };
 }
 
@@ -144,6 +158,23 @@ export function mergePage(snapshot: GraphSnapshot, page: PageSnapshot): GraphSna
   return {
     ...snapshot,
     pages: snapshot.pages.map((current) => (current.id === page.id ? page : current)),
+  };
+}
+
+export function mergeOutline(snapshot: GraphSnapshot, outline: OutlineSnapshot): GraphSnapshot {
+  if (outline.owner.kind === "page") {
+    return {
+      ...snapshot,
+      pages: snapshot.pages.map((page) =>
+        page.id === outline.owner.id ? { ...page, blocks: outline.blocks } : page,
+      ),
+    };
+  }
+  return {
+    ...snapshot,
+    tags: snapshot.tags.map((tag) =>
+      tag.id === outline.owner.id ? { ...tag, blocks: outline.blocks } : tag,
+    ),
   };
 }
 
@@ -202,14 +233,31 @@ export function findPage(snapshot: GraphSnapshot, pageId: string): PageSnapshot 
   return snapshot.pages.find((page) => page.id === pageId);
 }
 
+export function outlineOwnerKey(owner: OutlineOwner): string {
+  return `${owner.kind}:${owner.id}`;
+}
+
+export function sameOutlineOwner(left: OutlineOwner, right: OutlineOwner): boolean {
+  return left.kind === right.kind && left.id === right.id;
+}
+
+export function findOutline(
+  snapshot: GraphSnapshot,
+  owner: OutlineOwner,
+): PageSnapshot | TagSnapshot | undefined {
+  return owner.kind === "page"
+    ? findPage(snapshot, owner.id)
+    : findTag(snapshot, owner.id);
+}
+
 export function findJournalPage(snapshot: GraphSnapshot, date: string): PageSnapshot | undefined {
   return snapshot.pages.find(
     (page) => pageKind(page) === "journal" && journalDate(page) === date,
   );
 }
 
-export function findBlock(page: PageSnapshot, blockId: string): BlockSnapshot | undefined {
-  const stack = [...page.blocks];
+export function findBlock(outline: { blocks: BlockSnapshot[] }, blockId: string): BlockSnapshot | undefined {
+  const stack = [...outline.blocks];
   while (stack.length > 0) {
     const block = stack.pop()!;
     if (block.id === blockId) return block;

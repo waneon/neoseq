@@ -18,7 +18,7 @@ async function mountTagged() {
   });
   await session.execute({
     type: "insert_block",
-    page_id: "home",
+    owner: { kind: "page", id: "home" },
     parent: null,
     index: 0,
     markdown: "existing status",
@@ -34,7 +34,7 @@ describe("first-class tags and tag defaults", () => {
     // The block already tracks its own status.
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });
@@ -58,7 +58,7 @@ describe("first-class tags and tag defaults", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       tag_id: "project",
     });
 
@@ -82,7 +82,7 @@ describe("first-class tags and tag defaults", () => {
     const { session } = await mountTagged();
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       tag_id: "project",
     });
     expect(await screen.findByTestId("tag-chip")).toHaveTextContent("#Project");
@@ -160,7 +160,7 @@ describe("the # tag menu in a block", () => {
     const user = userEvent.setup();
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       tag_id: "project",
     });
     const textarea = await screen.findByLabelText("Block text");
@@ -359,14 +359,14 @@ async function mountTagPage() {
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   await harness.session.execute({
     type: "insert_block",
-    page_id: "home",
+    owner: { kind: "page", id: "home" },
     parent: null,
     index: 0,
     markdown: "ship the thing",
   });
   await harness.session.execute({
     type: "add_tag",
-    entity: { kind: "block", page_id: "home", id: "b-1" },
+    entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
     tag_id: "project",
   });
   await screen.findByTestId("tag-title");
@@ -381,6 +381,22 @@ function tagQuery(session: Awaited<ReturnType<typeof mountTagPage>>["session"]) 
 }
 
 describe("a tag's own page", () => {
+  it("writes blocks into the tag's own outline", async () => {
+    const { session } = await mountTagPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("outline-start"));
+    const editor = await screen.findByLabelText("Block text");
+    await user.type(editor, "Notes that belong to the tag");
+    await user.tab();
+
+    await waitFor(() => {
+      const tag = session.getState().snapshot.tags.find((item) => item.id === "project");
+      expect(tag?.blocks[0]?.markdown).toBe("Notes that belong to the tag");
+    });
+    expect(session.getState().snapshot.pages[0].blocks[0].markdown).toBe("ship the thing");
+  });
+
   it("opens on the tag's own query without writing anything", async () => {
     const { session, port } = await mountTagPage();
 
@@ -413,7 +429,7 @@ describe("a tag's own page", () => {
 
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", page_id: "home", id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       tag_id: "project",
     });
     const inherited = session.getState().snapshot.pages[0].blocks[0].properties

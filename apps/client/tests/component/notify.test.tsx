@@ -188,7 +188,7 @@ describe("wiring", () => {
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "alpha",

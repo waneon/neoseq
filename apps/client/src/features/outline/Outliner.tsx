@@ -54,8 +54,14 @@ import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
-import type { PageSnapshot } from "../../core-port/snapshot";
-import { findBlock, findPage, queryDocument, stringValue } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
+import {
+  findBlock,
+  findOutline,
+  queryDocument,
+  sameOutlineOwner,
+  stringValue,
+} from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions, type HistoryRevealRequest } from "../history/context";
@@ -173,7 +179,7 @@ interface EditorContext {
   session: GraphSession;
   notify: Notifier;
   message: MessageFunction;
-  pageId: string;
+  owner: OutlineOwner;
   readonly: boolean;
   focusedId: string | null;
   pendingCaret: RefObject<number | null>;
@@ -271,10 +277,12 @@ interface EditorContext {
 }
 
 export function Outliner({
-  page,
+  owner,
+  blocks,
   scrollElement,
 }: {
-  page: PageSnapshot;
+  owner: OutlineOwner;
+  blocks: BlockSnapshot[];
   scrollElement: HTMLElement | null;
 }) {
   const session = useSession();
@@ -368,7 +376,8 @@ export function Outliner({
   } | null>(null);
   /** A `#` choice made on a pending row, replayed once the real id lands. */
   const pendingTag = useRef<{ blockId: string; option: TagOption } | null>(null);
-  const pageRef = useRef(page);
+  const ownerRef = useRef(owner);
+  const outlineRef = useRef({ blocks });
   const collapsedRef = useRef(collapsed);
   const rowsRef = useRef<OutlineRow[]>([]);
   const selectedRef = useRef<ReadonlySet<string>>(selected);
@@ -385,12 +394,14 @@ export function Outliner({
   // GraphSession resolves commands only after reconciling its snapshot. Read
   // that snapshot directly during the temp-id handoff so a parent render that
   // still carries the previous page object cannot briefly remove the editor.
-  const authoritativePage = findPage(state.snapshot, page.id) ?? page;
-  pageRef.current = authoritativePage;
+  const authoritativeOutline = findOutline(state.snapshot, owner);
+  const outline = authoritativeOutline ?? { blocks };
+  ownerRef.current = owner;
+  outlineRef.current = outline;
   collapsedRef.current = collapsed;
   selectedRef.current = selected;
 
-  const rows = withPendingRows(flattenOutline(authoritativePage, collapsed), draftState.pendingRows);
+  const rows = withPendingRows(flattenOutline(outline, collapsed), draftState.pendingRows);
   rowsRef.current = rows;
   const readonly = state.mode === "readonly";
   const selectionCount = useMemo(
@@ -410,11 +421,11 @@ export function Outliner({
     const autoCloserIds: string[] = [];
     for (const id of draftStateRef.current.drafts.keys()) {
       if (id === focusedId || isPendingId(id)) continue;
-      const block = findBlock(pageRef.current, id);
+      const block = findBlock(outlineRef.current, id);
       if (!block || block.markdown === draftStateRef.current.drafts.get(id)) draftIds.push(id);
     }
     for (const id of draftStateRef.current.autoClosers.keys()) {
-      if (!isPendingId(id) && !findBlock(pageRef.current, id)) {
+      if (!isPendingId(id) && !findBlock(outlineRef.current, id)) {
         autoCloserIds.push(id);
       }
     }
@@ -428,7 +439,7 @@ export function Outliner({
   useEffect(() => {
     if (selectedRef.current.size === 0) return;
     const live = new Set(
-      [...selectedRef.current].filter((id) => findBlock(pageRef.current, id) !== undefined),
+      [...selectedRef.current].filter((id) => findBlock(outlineRef.current, id) !== undefined),
     );
     if (live.size !== selectedRef.current.size) setSelected(live);
   }, [state.revision]);
@@ -512,7 +523,7 @@ export function Outliner({
       session
         .execute({
           type: "splice_markdown",
-          page_id: pageRef.current.id,
+          owner: ownerRef.current,
           block_id: id,
           ...splice,
         })
@@ -561,7 +572,7 @@ export function Outliner({
       void history
         .run(redo ? "redo" : "undo", {
           kind: "outline",
-          pageId: pageRef.current.id,
+          owner: ownerRef.current,
           blockId: id,
         })
         .then(() => {
@@ -663,7 +674,7 @@ export function Outliner({
       try {
         await session.execute({
           type: "add_tag",
-          entity: { kind: "block", page_id: pageRef.current.id, id: blockId },
+          entity: { kind: "block", owner: ownerRef.current, id: blockId },
           tag_id: option.id,
         });
       } catch (error) {
@@ -684,7 +695,7 @@ export function Outliner({
    */
   const createQuery = useCallback(
     async (blockId: string, advanced: boolean) => {
-      const owner = { kind: "block", page_id: pageRef.current.id, id: blockId } as const;
+      const owner = { kind: "block", owner: ownerRef.current, id: blockId } as const;
       const plan = defaultPlan();
       try {
         await session.execute(advanced
@@ -711,9 +722,9 @@ export function Outliner({
     // component's last render. Compute the next insert from GraphSession's
     // current snapshot, not the render-time page ref, so parent/index cannot
     // lag behind an indent or outdent that just completed.
-    const currentPage =
-      findPage(session.getState().snapshot, pageRef.current.id) ?? pageRef.current;
-    const source = flattenOutline(currentPage, collapsedRef.current).find(
+    const currentOutline =
+      findOutline(session.getState().snapshot, ownerRef.current) ?? outlineRef.current;
+    const source = flattenOutline(currentOutline, collapsedRef.current).find(
       (row) => row.block.id === head.anchorId,
     );
     if (!source) {
@@ -731,14 +742,14 @@ export function Outliner({
     const command: Command = head.splitIndex === undefined
       ? {
           type: "insert_block",
-          page_id: currentPage.id,
+          owner: ownerRef.current,
           parent: head.mode === "child" ? head.anchorId : source.parentId,
           index: head.mode === "before" ? source.index : head.mode === "child" ? 0 : source.index + 1,
           markdown: head.baseline,
         }
       : {
           type: "split_block",
-          page_id: currentPage.id,
+          owner: ownerRef.current,
           block_id: head.anchorId,
           index: head.splitIndex,
           placement,
@@ -788,7 +799,7 @@ export function Outliner({
               void session
                 .execute({
                   type: "set_property",
-                  owner: { kind: "block", page_id: pageRef.current.id, id: realId },
+                  owner: { kind: "block", owner: ownerRef.current, id: realId },
                   key: action.key,
                   value: action.value,
                 })
@@ -826,7 +837,7 @@ export function Outliner({
             await session
               .execute({
                 type: kind === "indent" ? "indent_blocks" : "outdent_blocks",
-                page_id: pageRef.current.id,
+                owner: ownerRef.current,
                 block_ids: [realId],
               })
               .catch((error: unknown) => {
@@ -1112,7 +1123,7 @@ export function Outliner({
         {
           type: "move_blocks",
           block_ids: roots.map((root) => root.block.id),
-          page_id: pageRef.current.id,
+          owner: ownerRef.current,
           parent: target.parentId,
           index: anchor + 1,
         },
@@ -1231,7 +1242,7 @@ export function Outliner({
     (_inputMethod: InputMethod) => {
       const fragment = createOutlineFragment(
         state.snapshot,
-        authoritativePage,
+        outline,
         selectedRef.current,
       );
       if (!fragment) return;
@@ -1239,7 +1250,7 @@ export function Outliner({
         notify.failure(message("failure.copyBlocks"), error);
       });
     },
-    [authoritativePage, message, notify, state.snapshot],
+    [message, notify, outline, state.snapshot],
   );
 
   const onCopySelection = useCallback(
@@ -1247,14 +1258,14 @@ export function Outliner({
       if (selectedRef.current.size === 0) return;
       const fragment = createOutlineFragment(
         state.snapshot,
-        authoritativePage,
+        outline,
         selectedRef.current,
       );
       if (!fragment) return;
       event.preventDefault();
       setClipboardData(event.clipboardData, buildClipboardBundle(fragment));
     },
-    [authoritativePage, state.snapshot],
+    [outline, state.snapshot],
   );
 
   const pasteOutline = useCallback(
@@ -1269,7 +1280,7 @@ export function Outliner({
         : null;
       void session.execute({
         type: "insert_outline",
-        page_id: authoritativePage.id,
+        owner,
         parent: row.parentId,
         index: replace ? row.index : row.index + 1,
         replace,
@@ -1283,7 +1294,7 @@ export function Outliner({
         },
       );
     },
-    [authoritativePage.id, flushNow, message, notify, readonly, session, setFocus],
+    [flushNow, message, notify, owner, readonly, session, setFocus],
   );
 
   const pasteFragment = useCallback(
@@ -1298,7 +1309,7 @@ export function Outliner({
         : null;
       void session.execute({
         type: "paste_outline",
-        page_id: authoritativePage.id,
+        owner,
         parent: row.parentId,
         index: replace ? row.index : row.index + 1,
         replace,
@@ -1312,7 +1323,7 @@ export function Outliner({
         },
       );
     },
-    [authoritativePage.id, flushNow, message, notify, readonly, session, setFocus],
+    [flushNow, message, notify, owner, readonly, session, setFocus],
   );
 
   const slashItems = useMemo(() => buildSlashItems(message), [message]);
@@ -1324,16 +1335,16 @@ export function Outliner({
 
   const hashResults = useMemo<TagOption[]>(() => {
     if (!hashRequest) return [];
-    const present = new Set(findBlock(authoritativePage, hashRequest.blockId)?.tags ?? []);
+    const present = new Set(findBlock(outline, hashRequest.blockId)?.tags ?? []);
     return filterTagOptions(state.snapshot.tags, hashRequest.query, present, compare);
-  }, [authoritativePage, compare, hashRequest, state.snapshot.tags]);
+  }, [compare, hashRequest, outline, state.snapshot.tags]);
   const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
 
   const editor: EditorContext = {
     session,
     notify,
     message,
-    pageId: authoritativePage.id,
+    owner,
     readonly,
     focusedId,
     pendingCaret,
@@ -1351,7 +1362,7 @@ export function Outliner({
     selectionCount,
     revision: state.revision,
     presence: [...state.presence.values()].filter(
-      (peer) => peer.page_id === authoritativePage.id,
+      (peer) => peer.owner !== undefined && sameOutlineOwner(peer.owner, owner),
     ),
     setFocus,
     releaseFocus,
@@ -1360,7 +1371,7 @@ export function Outliner({
       // publish is a worker round-trip plus a socket frame. Peers reading a
       // caret 150ms late is invisible; a frame per keystroke is not free.
       presenceDraft.current = {
-        page_id: authoritativePage.id,
+        owner,
         block_id: blockId,
         anchor: textarea.selectionStart,
         head: textarea.selectionEnd,
@@ -1432,7 +1443,7 @@ export function Outliner({
         void session
           .execute({
             type: "set_property",
-            owner: { kind: "block", page_id: authoritativePage.id, id: row.block.id },
+            owner: { kind: "block", owner, id: row.block.id },
             key: chosen.action.key,
             value: chosen.action.value,
           })
@@ -1484,7 +1495,7 @@ export function Outliner({
     toggleCollapse: (id) => {
       const expanding = collapsedRef.current.has(id);
       const next = nextCollapsed(collapsedRef.current, id);
-      const after = flattenOutline(pageRef.current, next);
+      const after = flattenOutline(outlineRef.current, next);
       setCollapsed(next);
 
       // Expanding is the one structural change in the outline that leaves no
@@ -1660,7 +1671,7 @@ export function Outliner({
       void session
         .execute({
           type: "insert_block",
-          page_id: authoritativePage.id,
+          owner,
           parent: null,
           index,
           markdown: "",
@@ -1687,7 +1698,7 @@ export function Outliner({
         void run(
           {
             type: "indent_blocks",
-            page_id: authoritativePage.id,
+            owner,
             block_ids: [row.block.id],
           },
           message("failure.indentBlock"),
@@ -1698,7 +1709,7 @@ export function Outliner({
         void run(
           {
             type: "outdent_blocks",
-            page_id: authoritativePage.id,
+            owner,
             block_ids: [row.block.id],
           },
           message("failure.outdentBlock"),
@@ -1712,7 +1723,7 @@ export function Outliner({
           {
             type: "move_blocks",
             block_ids: [row.block.id],
-            page_id: authoritativePage.id,
+            owner,
             parent: row.parentId,
             index: target,
           },
@@ -1725,7 +1736,7 @@ export function Outliner({
         void run(
           {
             type: "delete_blocks",
-            page_id: authoritativePage.id,
+            owner,
             block_ids: [row.block.id],
           },
           message("failure.deleteBlock"),
@@ -1741,7 +1752,7 @@ export function Outliner({
         void run(
           {
             type: "indent_blocks",
-            page_id: authoritativePage.id,
+            owner,
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.indentBlock"),
@@ -1753,7 +1764,7 @@ export function Outliner({
         void run(
           {
             type: "outdent_blocks",
-            page_id: authoritativePage.id,
+            owner,
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.outdentBlock"),
@@ -1768,7 +1779,7 @@ export function Outliner({
         void run(
           {
             type: "delete_blocks",
-            page_id: authoritativePage.id,
+            owner,
             block_ids: roots.map((root) => root.block.id),
           },
           message("failure.deleteBlocks", { count: roots.length }),
@@ -1790,7 +1801,7 @@ export function Outliner({
   });
 
   const revealHistoryTarget = useCallback((request: HistoryRevealRequest) => {
-    const allRows = flattenOutline(pageRef.current, new Set());
+    const allRows = flattenOutline(outlineRef.current, new Set());
     const target = allRows.find((row) => row.block.id === request.blockId);
     if (!target) return false;
 
@@ -1825,8 +1836,8 @@ export function Outliner({
   // Re-register after reconciliation so a cross-page request can be retried as
   // soon as the destination page is present in the authoritative snapshot.
   useEffect(
-    () => history.registerRevealer(authoritativePage.id, revealHistoryTarget),
-    [authoritativePage.id, history, revealHistoryTarget, state.revision],
+    () => history.registerRevealer(owner, revealHistoryTarget),
+    [history, owner, revealHistoryTarget, state.revision],
   );
 
   useEffect(() => {
@@ -1952,9 +1963,9 @@ export function Outliner({
   };
 
   const propertyBlock = propertyRequest
-    ? findBlock(authoritativePage, propertyRequest.blockId)
+    ? findBlock(outline, propertyRequest.blockId)
     : undefined;
-  const tagBlock = tagRequest ? findBlock(authoritativePage, tagRequest.blockId) : undefined;
+  const tagBlock = tagRequest ? findBlock(outline, tagRequest.blockId) : undefined;
 
   const closePropertyPicker = () => {
     const anchor = propertyRequest?.anchor;
@@ -2084,7 +2095,7 @@ export function Outliner({
               editor.dismissTransient();
               return;
             }
-            editor.insertRootBlock(authoritativePage.blocks.length);
+            editor.insertRootBlock(outline.blocks.length);
           }}
           aria-label={message("outline.addBlock")}
           data-testid="outline-append"
@@ -2096,7 +2107,7 @@ export function Outliner({
           target={{
             kind: "block",
             id: propertyBlock.id,
-            pageId: authoritativePage.id,
+            owner,
             bag: propertyBlock.properties,
           }}
           anchor={propertyRequest.anchor}
@@ -2106,7 +2117,7 @@ export function Outliner({
       )}
       {tagRequest && tagBlock && (
         <TagPicker
-          pageId={authoritativePage.id}
+          owner={owner}
           block={tagBlock}
           anchor={tagRequest.anchor}
           onClose={closeTagPicker}
@@ -2919,11 +2930,11 @@ function BlockRow({
         {marks > 0 && (
           <span className="task-marks">
             {taskStatus !== undefined && (
-              <TaskStatusControl pageId={editor.pageId} block={row.block} status={taskStatus} />
+              <TaskStatusControl owner={editor.owner} block={row.block} status={taskStatus} />
             )}
             {taskPriority !== undefined && (
               <TaskPriorityControl
-                pageId={editor.pageId}
+                owner={editor.owner}
                 block={row.block}
                 priority={taskPriority}
               />
@@ -3010,7 +3021,7 @@ function BlockRow({
             {/* A reference, not a delete button: the chip goes to the tag, which
                 now has a place of its own. Writing tags stays on the bullet's
                 menu, where a destructive verb belongs. */}
-            <TagChips pageId={editor.pageId} block={row.block} variant="reference" />
+            <TagChips owner={editor.owner} block={row.block} variant="reference" />
           </div>
         )}
         {!pending && (
@@ -3020,7 +3031,7 @@ function BlockRow({
           />
         )}
         {!pending && queryDocument(row.block.properties) !== undefined && (
-          <QueryBlock pageId={editor.pageId} block={row.block} />
+          <QueryBlock owner={editor.owner} block={row.block} />
         )}
       </BlockBody>
     </BlockRowFrame>

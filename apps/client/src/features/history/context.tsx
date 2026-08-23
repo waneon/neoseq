@@ -10,10 +10,16 @@ import { useNavigate } from "react-router";
 import type { CommandResult, EntityRef } from "../../core-port/commands";
 import type { QueryEntityRef } from "../../generated/core-port";
 import type { GraphSession } from "../../core-port/session";
-import { findPage, journalDate, pageKind } from "../../core-port/snapshot";
+import {
+  findPage,
+  journalDate,
+  outlineOwnerKey,
+  pageKind,
+  type OutlineOwner,
+} from "../../core-port/snapshot";
 
 export type HistoryInvocation =
-  | { kind: "outline"; pageId: string; blockId: string }
+  | { kind: "outline"; owner: OutlineOwner; blockId: string }
   | { kind: "global-shortcut" }
   | { kind: "palette" };
 
@@ -26,18 +32,18 @@ export interface HistoryRevealRequest {
 type RevealHandler = (request: HistoryRevealRequest) => boolean;
 
 interface RegisteredRevealer {
-  pageId: string;
+  owner: OutlineOwner;
   handler: RevealHandler;
 }
 
 interface PendingReveal {
-  pageId: string;
+  owner: OutlineOwner;
   request: HistoryRevealRequest;
 }
 
 export interface HistoryActions {
   run(direction: "undo" | "redo", invocation: HistoryInvocation): Promise<CommandResult>;
-  registerRevealer(pageId: string, handler: RevealHandler): () => void;
+  registerRevealer(owner: OutlineOwner, handler: RevealHandler): () => void;
   /**
    * Opens one entity, wherever it lives: the page it is on, then the block
    * itself. Undo/redo is one caller; following a query result is another, and
@@ -67,11 +73,11 @@ export function HistoryProvider({
   const revealer = useRef<RegisteredRevealer | null>(null);
   const pending = useRef<PendingReveal | null>(null);
 
-  const registerRevealer = useCallback((pageId: string, handler: RevealHandler) => {
-    const registration = { pageId, handler };
+  const registerRevealer = useCallback((owner: OutlineOwner, handler: RevealHandler) => {
+    const registration = { owner, handler };
     revealer.current = registration;
     const request = pending.current;
-    if (request?.pageId === pageId && handler(request.request)) {
+    if (request && outlineOwnerKey(request.owner) === outlineOwnerKey(owner) && handler(request.request)) {
       pending.current = null;
     }
     return () => {
@@ -79,19 +85,26 @@ export function HistoryProvider({
     };
   }, []);
 
-  const routeForPage = useCallback((pageId: string) => {
-    const page = findPage(session.getState().snapshot, pageId);
+  const routeForOwner = useCallback((owner: OutlineOwner) => {
+    if (owner.kind === "tag") {
+      return `/g/${graphId}/t/${encodeURIComponent(owner.id)}`;
+    }
+    const page = findPage(session.getState().snapshot, owner.id);
     const date = page && pageKind(page) === "journal" ? journalDate(page) : undefined;
     return date
       ? `/g/${graphId}/journal/${date}`
-      : `/g/${graphId}/p/${encodeURIComponent(pageId)}`;
+      : `/g/${graphId}/p/${encodeURIComponent(owner.id)}`;
   }, [graphId, session]);
 
   const reveal = useCallback((target: EntityRef, focus = false) => {
-    const pageId = target.kind === "page" ? target.id : target.page_id;
+    const owner: OutlineOwner = target.kind === "page"
+      ? { kind: "page", id: target.id }
+      : target.owner;
     const current = revealer.current;
     if (target.kind === "page") {
-      if (current?.pageId !== pageId) navigate(routeForPage(pageId));
+      if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner)) {
+        navigate(routeForOwner(owner));
+      }
       return;
     }
     const request: HistoryRevealRequest = {
@@ -99,10 +112,10 @@ export function HistoryProvider({
       blockId: target.id,
       focus,
     };
-    if (current?.pageId === pageId && current.handler(request)) return;
-    pending.current = { pageId, request };
-    if (current?.pageId !== pageId) navigate(routeForPage(pageId));
-  }, [navigate, routeForPage]);
+    if (current && outlineOwnerKey(current.owner) === outlineOwnerKey(owner) && current.handler(request)) return;
+    pending.current = { owner, request };
+    if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner)) navigate(routeForOwner(owner));
+  }, [navigate, routeForOwner]);
 
   const open = useCallback((target: QueryEntityRef) => {
     if (target.kind === "tag") {
@@ -111,7 +124,7 @@ export function HistoryProvider({
     }
     reveal(target.kind === "page"
       ? { kind: "page", id: target.id }
-      : { kind: "block", page_id: target.page_id, id: target.id });
+      : { kind: "block", owner: target.owner, id: target.id });
   }, [graphId, navigate, reveal]);
 
   const run = useCallback(async (

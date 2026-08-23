@@ -176,7 +176,7 @@ export async function runIndexedDbPersistenceCorpus() {
 
 export async function runWorkerCorePortCorpus() {
   assert(golden.contract_version === CORE_PORT_VERSION, "golden contract version mismatch");
-  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "read_page", "query", "subscribe", "close_graph"]), "golden operations changed");
+  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "read_outline", "query", "subscribe", "close_graph"]), "golden operations changed");
   const graph = graphId("worker-port");
   const worker = new TestCoreWorker();
   await expectCode(worker.read({ graph_handle: "missing" }), "graph_not_open");
@@ -193,8 +193,14 @@ export async function runWorkerCorePortCorpus() {
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
   assert((read.summary as Snapshot).schema_version === 1, "worker read did not return schema v1");
-  const page = await worker.readPage({ graph_handle: opened.graph_handle, page_id: "home" });
-  assert((page.page as { id: string }).id === "home", "worker page read returned the wrong page");
+  const outline = await worker.readOutline({
+    graph_handle: opened.graph_handle,
+    owner: { kind: "page", id: "home" },
+  });
+  assert(
+    (outline.outline as { owner: { id: string } }).owner.id === "home",
+    "worker outline read returned the wrong owner",
+  );
   const queried = await worker.query({
     graph_handle: opened.graph_handle,
     query: {

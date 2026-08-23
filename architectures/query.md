@@ -30,7 +30,7 @@ The projection emits no blank nodes. Its principal triples are:
 | Loro/domain value | RDF projection |
 | --- | --- |
 | live page | `rdf:type neo:Page`, `neo:content` |
-| live block | `rdf:type neo:Block`, `neo:content`, `neo:page`, `neo:parent`, `neo:siblingIndex` |
+| live block | `rdf:type neo:Block`, `neo:content`, `neo:owner`, `neo:parent`, `neo:siblingIndex`; page-owned blocks also have `neo:page` |
 | live tag | `rdf:type neo:Tag`, `neo:name` |
 | node tag reference | `neo:tag <tag-entity-IRI>` |
 | entity property field `k` | `<subject> neo:hasProperty <property-key-IRI>` |
@@ -39,9 +39,10 @@ The projection emits no blank nodes. Its principal triples are:
 | tag default field `k` | `<tag> neo:hasDefaultProperty <property-key-IRI>` |
 | tag default `k = v` | `<tag> def:<encoded-k> <typed-v>` |
 
-A root block's parent is its page IRI; other blocks point to their parent block.
-`neo:page` is materialized on every block for fast page scoping. Sibling indexes
-are zero-based `xsd:integer` values derived from the current visible tree order.
+A root block's parent and `neo:owner` are its page or tag IRI; other blocks point
+to their parent block while retaining the same owner. `neo:page` remains on
+page-owned blocks for compatible fast page scoping and is absent from tag-owned
+blocks. Sibling indexes are zero-based `xsd:integer` values derived from the current visible tree order.
 Standard property paths such as `neo:parent+` express ancestry; a private reachability
 accelerator may optimize them without changing the RDF projection.
 
@@ -53,7 +54,7 @@ idempotent member identity. A dangling page or tag reference remains an object
 IRI even when no live subject describes it.
 An empty field emits only its presence relation and no value predicate.
 
-Soft-deleted entities and blocks hidden by a deleted page are absent from the
+Soft-deleted entities and blocks hidden by a deleted page or tag are absent from the
 default projection. Tombstone resolution remains a core read concern rather
 than implicit SPARQL filtering. Quarantined values never enter the index.
 
@@ -67,7 +68,7 @@ Each open graph owns an Oxigraph in-memory store backed by:
 
 - an RDF-term dictionary and the store's triple permutations;
 - Oxigraph's SPARQL parser, optimizer, and evaluator;
-- a compact page-to-entity-subject ledger for targeted retraction;
+- a compact outline-owner-to-entity-subject ledger for targeted retraction;
 - a normalized-text cache and compressed trigram postings used by the versioned
   `neo:matchesText` function;
 - compressed exact-property postings and typed ordered property values used for
@@ -86,8 +87,8 @@ Every runtime revision records the graph ID and sorted Loro state frontier and
 exposes projection/profile/analyzer version constants. Standalone projection
 tests use the validated snapshot fingerprint as a deterministic frontier.
 The current client does not persist the index: every open deterministically
-rebuilds it. Cold construction streams validated tags and one complete page at
-a time from Loro into a bounded Oxigraph bulk loader. It does not materialize a
+rebuilds it. Cold construction streams one complete page or tag publication
+unit at a time from Loro into a bounded Oxigraph bulk loader. It does not materialize a
 complete domain snapshot, graph-wide projection, or duplicate triple ledger.
 A future persisted cache must key all profile versions and the Loro frontier
 and fall back to this same streaming rebuild path on any mismatch.
@@ -232,9 +233,9 @@ unknown plan versions, and hand-written SPARQL results remain read-only. SPARQL
 Update is not introduced.
 
 RDF rows are display data rather than edit baselines. Entering an editor lazily
-hydrates the subject's canonical page and reads its `BlockSnapshot`; only the
+hydrates the subject's canonical outline owner and reads its `BlockSnapshot`; only the
 active table result pays that cost. A block list is an entity projection: it
-deduplicates and hydrates the result subjects' pages as one session operation, then
+deduplicates and hydrates the result subjects' page or tag outlines as one session operation, then
 renders canonical block snapshots through the same presentation primitives as
 the outline. Direct block fields use the native block presentation; selected
 aggregates and structural relations remain supplemental query facts. Embedded
@@ -254,7 +255,7 @@ closes. A failed write keeps its draft and an in-place retry route.
 Writable plain content uses one textarea before and after focus, so a pointer
 press places the native caret and starts editing in the same interaction.
 Rendered Markdown uses the outline's preview-to-source caret hand-off. A
-cross-page result stays read-only only while its canonical block hydrates; the
+cross-owner result stays read-only only while its canonical block hydrates; the
 input element itself remains stable.
 
 Canonical mutations publish the next index revision and conservatively rerun

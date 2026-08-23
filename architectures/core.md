@@ -39,6 +39,8 @@ into Loro operations and Loro changes back into domain DTOs.
   immutable snapshot backed by finer-grained CRDT containers.
 - `TagId` identifies a graph-scoped tag independently of pages. Page roots and
   blocks carry `TagId` sets outside their property bags.
+- `OutlineOwner` identifies the page or tag whose movable block tree contains a
+  block. Block IDs are always interpreted together with this owner.
 
 Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
@@ -65,8 +67,8 @@ commands are:
 
 - ensure, rename a regular page, and soft-delete a page;
 - ensure a journal page for a local date;
-- insert, split, and edit a block, and indent, outdent, move, or delete one or
-  more block subtrees;
+- insert, split, and edit a block in a page or tag outline, and indent, outdent,
+  move, or delete one or more owner-local block subtrees;
 - ensure, set, clear, or remove typed fields and mutate repeated members through
   the same owner-based command family;
 - edit structured properties through schema-owned semantic commands, including
@@ -136,7 +138,7 @@ features use well-known properties rather than new persisted fields:
   journal presentation; `content` is block Markdown for non-root nodes.
 - `builtin.created-at: String` and `builtin.updated-at: String` are initialized to
   the same command timestamp for every page, block, and tag. Direct mutation
-  advances `updated-at`; block mutation also touches its owning page, while
+  advances `updated-at`; block mutation also touches its owning page or tag, while
   descendant changes do not touch ancestor blocks. Page and tag deletion sets
   `builtin.deleted-at` and advances `updated-at`; restore clears `deleted-at` and
   advances `updated-at`. Tag deletion also touches every block and owning page
@@ -178,7 +180,7 @@ conflict rule. This avoids hidden retroactive changes and makes the result
 representable as ordinary CRDT operations.
 
 `RemoveTag(node, tag)` detaches one membership. `DeleteTag(tag)` is graph-wide:
-the core plans every page root and reachable block carrying the tag, then sets
+the core plans every page root and reachable block in page or tag outlines carrying the tag, then sets
 the tag tombstone and removes those memberships in the command's single Loro
 transaction and undo item. It also scans soft-deleted pages so restoring a page
 cannot revive a deleted membership. Snapshot projection intersects stored
@@ -214,8 +216,8 @@ structural condition is checked by the read-only plan before the first CRDT
 mutation.
 
 The runtime keeps ephemeral semantic metadata beside each local Loro undo item.
-An undo or redo result includes its scope, affected page IDs, and at most one
-currently live page/block reveal target. This metadata is presentation-neutral:
+An undo or redo result includes its scope, affected outline owners, and at most
+one currently live page/block reveal target. This metadata is presentation-neutral:
 the core never chooses a route, scrolls, or focuses UI. See
 [`history-navigation.md`](history-navigation.md) for the contract and client
 policy.
@@ -243,7 +245,7 @@ prevents one replica from discarding operations another replica still needs.
 
 Callers receive immutable DTOs:
 
-- tag registries, page summaries, and page/block trees for viewport hydration;
+- page and tag summaries plus owner-local block trees for viewport hydration;
 - block detail and typed property values;
 - SPARQL `SELECT` rows or `ASK` booleans with RDF terms, typed entity references,
   and the projected Loro frontier;
@@ -276,7 +278,7 @@ types remain private to `graph-core`.
 - One graph actor serializes writes; independent graphs run concurrently.
 - Text input is coalesced into short command groups while preserving IME
   composition boundaries.
-- Tree/page hydration is paged or viewport-based; the complete graph is not
+- Outline hydration is owner- or viewport-based; the complete graph is not
   copied through the JS boundary after each edit.
 - RDF index updates consume changed entity IDs/fields from Loro events, replace
   their emitted triples atomically, and use full snapshots only for rebuild.

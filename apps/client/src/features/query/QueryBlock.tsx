@@ -10,26 +10,27 @@
 // the contract: where the document is written, and the one verb a block's query
 // has that a tag's does not — removing it.
 
-import type { BlockSnapshot } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
+import { outlineOwnerKey } from "../../core-port/snapshot";
 import { queryDocument } from "../../core-port/snapshot";
 import { useNotify } from "../notify/context";
 import { useSession } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { QueryPanel } from "./QueryPanel";
 
-export function QueryBlock({ pageId, block }: { pageId: string; block: BlockSnapshot }) {
+export function QueryBlock({ owner: outlineOwner, block }: { owner: OutlineOwner; block: BlockSnapshot }) {
   const session = useSession();
   const notify = useNotify();
   const { message } = useI18n();
   const document = queryDocument(block.properties);
-  const owner = { kind: "block", page_id: pageId, id: block.id } as const;
+  const owner = { kind: "block", owner: outlineOwner, id: block.id } as const;
 
   if (!document) return null;
 
   return (
     <QueryPanel
       owner={owner}
-      executionKey={JSON.stringify([pageId, block.id])}
+      executionKey={JSON.stringify([outlineOwnerKey(outlineOwner), block.id])}
       document={document}
       variant="inline"
       label={message("query.section")}

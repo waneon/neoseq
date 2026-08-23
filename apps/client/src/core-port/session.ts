@@ -3,8 +3,8 @@
 // exposes an immutable state object for React (useSyncExternalStore).
 //
 // The UI never holds a mutable replica of pages/blocks/properties. It keeps
-// immutable DTOs from the core: a graph summary plus page snapshots hydrated
-// on demand and refreshed after commands that affect those pages.
+// immutable DTOs from the core: a graph summary plus page/tag outlines hydrated
+// on demand and refreshed after commands that affect those owners.
 
 import type {
   CorePort,
@@ -31,8 +31,8 @@ import {
 } from "../features/sync/SyncAgent";
 import type { Command, CommandResult } from "./commands";
 import { envelope } from "./commands";
-import type { GraphSnapshot, GraphSummary, PageSnapshot } from "./snapshot";
-import { EMPTY_SNAPSHOT, mergePage, mergeSummary } from "./snapshot";
+import type { GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot } from "./snapshot";
+import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 
 const COMMAND_TIMEOUT_MS = 10_000;
@@ -50,11 +50,11 @@ export interface SessionState {
   capabilities: StorageCapabilitiesDto | null;
   recovery: RecoveryDto | null;
   error: CorePortError | null;
-  /** Increments on every authoritative summary or page refresh. */
+  /** Increments on every authoritative summary or outline refresh. */
   revision: number;
   /** Increments only when canonical graph data may have changed. */
   canonicalRevision: number;
-  hydratedPages: ReadonlySet<string>;
+  hydratedOutlines: ReadonlySet<string>;
   sync: RemoteSyncState;
   live: LiveState;
   presence: ReadonlyMap<string, PeerPresence>;
@@ -81,9 +81,9 @@ export interface SessionPort extends CorePort {
 
 type ReconcileScope =
   | { kind: "summary" }
-  | { kind: "page"; pageId: string }
-  | { kind: "pages"; pageIds: readonly string[] }
-  | { kind: "all-hydrated-pages" };
+  | { kind: "outline"; owner: OutlineOwner }
+  | { kind: "outlines"; owners: readonly OutlineOwner[] }
+  | { kind: "all-hydrated-outlines" };
 
 export class GraphSession {
   private state: SessionState;
@@ -112,7 +112,7 @@ export class GraphSession {
       error: null,
       revision: 0,
       canonicalRevision: 0,
-      hydratedPages: new Set(),
+      hydratedOutlines: new Set(),
       sync: remote ? { kind: "pending", count: 0 } : { kind: "local" },
       live: remote ? "connecting" : "local",
       presence: new Map(),
@@ -178,7 +178,7 @@ export class GraphSession {
 
   /**
    * Executes a domain command. Commands are serialized; the returned promise
-   * resolves after the authoritative summary/page state has been reconciled.
+   * resolves after the authoritative summary/outline state has been reconciled.
    */
   execute(command: Command): Promise<CommandResult> {
     const tracked = this.queue.then(() => this.executeNow(command));
@@ -193,25 +193,36 @@ export class GraphSession {
     this.patch({ capabilities });
   }
 
-  hydratePage(pageId: string): Promise<void> {
-    if (this.state.hydratedPages.has(pageId)) return Promise.resolve();
-    const run = this.queue.then(() => this.hydratePageNow(pageId));
+  hydrateOutline(owner: OutlineOwner): Promise<void> {
+    if (this.state.hydratedOutlines.has(outlineOwnerKey(owner))) return Promise.resolve();
+    const run = this.queue.then(() => this.hydrateOutlineNow(owner));
     this.queue = run.catch(() => undefined);
     return run;
   }
 
+  hydratePage(pageId: string): Promise<void> {
+    return this.hydrateOutline({ kind: "page", id: pageId });
+  }
+
   /**
-   * Hydrates several canonical pages as one session read. Query entity views use
+   * Hydrates several canonical outlines as one session read. Query entity views use
    * this to resolve a set of block references without publishing one partial UI
-   * snapshot per page. The CorePort is still page-shaped; each unique page is
-   * read once and the immutable client snapshot is replaced once at the end.
+   * snapshot per owner. Each unique outline is read once and the immutable
+   * client snapshot is replaced once at the end.
    */
-  hydratePages(pageIds: readonly string[]): Promise<void> {
-    const missing = [...new Set(pageIds)].filter((id) => !this.state.hydratedPages.has(id));
+  hydrateOutlines(owners: readonly OutlineOwner[]): Promise<void> {
+    const unique = new Map(owners.map((owner) => [outlineOwnerKey(owner), owner]));
+    const missing = [...unique.values()].filter(
+      (owner) => !this.state.hydratedOutlines.has(outlineOwnerKey(owner)),
+    );
     if (missing.length === 0) return Promise.resolve();
-    const run = this.queue.then(() => this.hydratePagesNow(missing));
+    const run = this.queue.then(() => this.hydrateOutlinesNow(missing));
     this.queue = run.catch(() => undefined);
     return run;
+  }
+
+  hydratePages(pageIds: readonly string[]): Promise<void> {
+    return this.hydrateOutlines(pageIds.map((id) => ({ kind: "page", id })));
   }
 
   /** Retries the pending durable write after a storage failure. */
@@ -336,7 +347,7 @@ export class GraphSession {
       const importRemote = this.port.importRemote;
       if (!importRemote) throw new Error("remote import is unavailable");
       await importRemote.call(this.port, this.handle, bytes);
-      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" }, true);
+      await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
     });
     this.queue = run.catch(() => undefined);
     return run;
@@ -357,40 +368,41 @@ export class GraphSession {
         historyEpoch,
         serverVersionVector,
       );
-      await this.reconcile(this.state.save, { kind: "all-hydrated-pages" }, true);
+      await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
     });
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  private async hydratePageNow(pageId: string): Promise<void> {
-    if (this.state.status !== "ready" || this.state.hydratedPages.has(pageId)) return;
-    const response = await this.port.readPage({ graph_handle: this.handle, page_id: pageId });
-    const hydratedPages = new Set(this.state.hydratedPages);
-    hydratedPages.add(pageId);
+  private async hydrateOutlineNow(owner: OutlineOwner): Promise<void> {
+    const key = outlineOwnerKey(owner);
+    if (this.state.status !== "ready" || this.state.hydratedOutlines.has(key)) return;
+    const response = await this.port.readOutline({ graph_handle: this.handle, owner });
+    const hydratedOutlines = new Set(this.state.hydratedOutlines);
+    hydratedOutlines.add(key);
     this.patch({
-      snapshot: mergePage(this.state.snapshot, response.page as PageSnapshot),
-      hydratedPages,
+      snapshot: mergeOutline(this.state.snapshot, response.outline as OutlineSnapshot),
+      hydratedOutlines,
       revision: this.state.revision + 1,
     });
   }
 
-  private async hydratePagesNow(pageIds: readonly string[]): Promise<void> {
+  private async hydrateOutlinesNow(owners: readonly OutlineOwner[]): Promise<void> {
     if (this.state.status !== "ready") return;
-    const present = new Set(this.state.snapshot.pages.map((page) => page.id));
-    const missing = [...new Set(pageIds)].filter(
-      (id) => present.has(id) && !this.state.hydratedPages.has(id),
+    const missing = owners.filter((owner) =>
+      outlineExists(this.state.snapshot, owner)
+      && !this.state.hydratedOutlines.has(outlineOwnerKey(owner)),
     );
     if (missing.length === 0) return;
 
     let snapshot = this.state.snapshot;
-    for (const id of missing) {
-      const response = await this.port.readPage({ graph_handle: this.handle, page_id: id });
-      snapshot = mergePage(snapshot, response.page as PageSnapshot);
+    for (const owner of missing) {
+      const response = await this.port.readOutline({ graph_handle: this.handle, owner });
+      snapshot = mergeOutline(snapshot, response.outline as OutlineSnapshot);
     }
-    const hydratedPages = new Set(this.state.hydratedPages);
-    for (const id of missing) hydratedPages.add(id);
-    this.patch({ snapshot, hydratedPages, revision: this.state.revision + 1 });
+    const hydratedOutlines = new Set(this.state.hydratedOutlines);
+    for (const owner of missing) hydratedOutlines.add(outlineOwnerKey(owner));
+    this.patch({ snapshot, hydratedOutlines, revision: this.state.revision + 1 });
   }
 
   /** Drains events, refreshes graph metadata, then rehydrates the command's impact scope. */
@@ -410,28 +422,27 @@ export class GraphSession {
     }
     const read = await this.port.read({ graph_handle: this.handle });
     let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
-    const pageIdsToRead = scope.kind === "all-hydrated-pages"
-      ? [...this.state.hydratedPages]
-      : scope.kind === "pages"
-        ? scope.pageIds.filter((id) => this.state.hydratedPages.has(id))
-      : scope.kind === "page"
-        ? [scope.pageId]
+    const ownersToRead = scope.kind === "all-hydrated-outlines"
+      ? [...this.state.hydratedOutlines].map(parseOutlineKey)
+      : scope.kind === "outlines"
+        ? scope.owners.filter((owner) => this.state.hydratedOutlines.has(outlineOwnerKey(owner)))
+      : scope.kind === "outline"
+        ? [scope.owner]
         : [];
-    for (const id of pageIdsToRead) {
-      if (!snapshot.pages.some((page) => page.id === id)) continue;
-      const response = await this.port.readPage({ graph_handle: this.handle, page_id: id });
-      snapshot = mergePage(snapshot, response.page as PageSnapshot);
+    for (const owner of ownersToRead) {
+      if (!outlineExists(snapshot, owner)) continue;
+      const response = await this.port.readOutline({ graph_handle: this.handle, owner });
+      snapshot = mergeOutline(snapshot, response.outline as OutlineSnapshot);
     }
-    const pageIds = new Set(snapshot.pages.map((page) => page.id));
-    const hydratedPages = new Set(
-      [...this.state.hydratedPages].filter((id) => pageIds.has(id)),
+    const hydratedOutlines = new Set(
+      [...this.state.hydratedOutlines].filter((key) => outlineExists(snapshot, parseOutlineKey(key))),
     );
-    for (const id of pageIdsToRead) {
-      if (pageIds.has(id)) hydratedPages.add(id);
+    for (const owner of ownersToRead) {
+      if (outlineExists(snapshot, owner)) hydratedOutlines.add(outlineOwnerKey(owner));
     }
     this.patch({
       snapshot,
-      hydratedPages,
+      hydratedOutlines,
       save,
       revision: this.state.revision + 1,
       canonicalRevision: canonicalChanged
@@ -456,6 +467,7 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "rename_page":
     case "delete_page":
     case "restore_page":
+      return { kind: "outline", owner: { kind: "page", id: command.page_id } };
     case "insert_block":
     case "split_block":
     case "insert_outline":
@@ -466,12 +478,14 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "indent_blocks":
     case "outdent_blocks":
     case "delete_blocks":
-      return { kind: "page", pageId: command.page_id };
+      return { kind: "outline", owner: command.owner };
     case "add_tag":
     case "remove_tag":
       return {
-        kind: "page",
-        pageId: command.entity.kind === "block" ? command.entity.page_id : command.entity.id,
+        kind: "outline",
+        owner: command.entity.kind === "block"
+          ? command.entity.owner
+          : { kind: "page", id: command.entity.id },
       };
     case "ensure_property":
     case "set_property":
@@ -491,28 +505,46 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
       return command.owner.kind === "tag" || command.owner.kind === "tag_default"
         ? { kind: "summary" }
         : {
-            kind: "page",
-            pageId: command.owner.kind === "block" ? command.owner.page_id : command.owner.id,
+            kind: "outline",
+            owner: command.owner.kind === "block"
+              ? command.owner.owner
+              : { kind: "page", id: command.owner.id },
           };
     case "ensure_journal":
       return result?.created_page
-        ? { kind: "page", pageId: result.created_page }
+        ? { kind: "outline", owner: { kind: "page", id: result.created_page } }
         : { kind: "summary" };
     case "delete_tag":
-      return { kind: "all-hydrated-pages" };
+      return { kind: "all-hydrated-outlines" };
     case "undo":
     case "redo":
-      if (!result) return { kind: "all-hydrated-pages" };
+      if (!result) return { kind: "all-hydrated-outlines" };
       if (!result.changed) return { kind: "summary" };
       if (!result.history_effect) {
         throw new Error("changed history command omitted its effect");
       }
-      return { kind: "pages", pageIds: result.history_effect.affected_pages };
+      return { kind: "outlines", owners: result.history_effect.affected_outlines };
     case "ensure_tag":
     case "rename_tag":
     case "restore_tag":
       return { kind: "summary" };
   }
+}
+
+function parseOutlineKey(key: string): OutlineOwner {
+  const separator = key.indexOf(":");
+  const kind = key.slice(0, separator);
+  const id = key.slice(separator + 1);
+  if ((kind !== "page" && kind !== "tag") || !id) {
+    throw new Error(`invalid outline key: ${key}`);
+  }
+  return { kind, id };
+}
+
+function outlineExists(snapshot: GraphSnapshot, owner: OutlineOwner): boolean {
+  return owner.kind === "page"
+    ? snapshot.pages.some((page) => page.id === owner.id)
+    : snapshot.tags.some((tag) => tag.id === owner.id);
 }
 
 function randomPeerId(): number {

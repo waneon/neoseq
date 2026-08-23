@@ -1,5 +1,6 @@
 import type { OutboxMessage, SyncState } from "../../core-worker";
 import type { RemoteGraphConnection } from "../../core-port/directory";
+import type { OutlineOwner } from "../../core-port/snapshot";
 import { readAuthSession } from "./auth";
 
 export type RemoteSyncState =
@@ -14,7 +15,7 @@ export type LiveState = "local" | "connecting" | "live" | "offline" | "paused";
 export interface PeerPresence {
   session_id: string;
   principal: string;
-  page_id?: string;
+  owner?: OutlineOwner;
   block_id?: string;
   anchor?: number;
   head?: number;

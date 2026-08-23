@@ -4,11 +4,18 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OutlineOwner {
+    Page { id: PageId },
+    Tag { id: TagId },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EntityId {
     Page { id: PageId },
-    Block { page_id: PageId, id: BlockId },
+    Block { owner: OutlineOwner, id: BlockId },
 }
 
 /// What a property is written on. A tag owns two bags and they mean different
@@ -18,7 +25,7 @@ pub enum EntityId {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PropertyOwner {
     Page { id: PageId },
-    Block { page_id: PageId, id: BlockId },
+    Block { owner: OutlineOwner, id: BlockId },
     Tag { tag_id: TagId },
     TagDefault { tag_id: TagId },
 }
@@ -58,38 +65,38 @@ pub enum Command {
         tag_id: TagId,
     },
     InsertBlock {
-        page_id: PageId,
+        owner: OutlineOwner,
         parent: Option<BlockId>,
         index: usize,
         markdown: String,
     },
     SplitBlock {
-        page_id: PageId,
+        owner: OutlineOwner,
         block_id: BlockId,
         index: usize,
         placement: SplitPlacement,
     },
     InsertOutline {
-        page_id: PageId,
+        owner: OutlineOwner,
         parent: Option<BlockId>,
         index: usize,
         replace: Option<BlockId>,
         items: Vec<OutlineItem>,
     },
     PasteOutline {
-        page_id: PageId,
+        owner: OutlineOwner,
         parent: Option<BlockId>,
         index: usize,
         replace: Option<BlockId>,
         fragment: OutlineFragment,
     },
     EditMarkdown {
-        page_id: PageId,
+        owner: OutlineOwner,
         block_id: BlockId,
         markdown: String,
     },
     SpliceMarkdown {
-        page_id: PageId,
+        owner: OutlineOwner,
         block_id: BlockId,
         index: usize,
         delete: usize,
@@ -97,20 +104,20 @@ pub enum Command {
     },
     MoveBlocks {
         block_ids: Vec<BlockId>,
-        page_id: PageId,
+        owner: OutlineOwner,
         parent: Option<BlockId>,
         index: usize,
     },
     IndentBlocks {
-        page_id: PageId,
+        owner: OutlineOwner,
         block_ids: Vec<BlockId>,
     },
     OutdentBlocks {
-        page_id: PageId,
+        owner: OutlineOwner,
         block_ids: Vec<BlockId>,
     },
     DeleteBlocks {
-        page_id: PageId,
+        owner: OutlineOwner,
         block_ids: Vec<BlockId>,
     },
     EnsureProperty {
@@ -347,14 +354,14 @@ pub struct CommandResult {
 #[serde(rename_all = "snake_case")]
 pub enum HistoryScope {
     Entity,
-    Page,
+    Outline,
     Graph,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEffect {
     pub scope: HistoryScope,
-    pub affected_pages: Vec<PageId>,
+    pub affected_outlines: Vec<OutlineOwner>,
     pub reveal: Option<EntityId>,
 }
 
@@ -390,6 +397,12 @@ pub struct PageSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutlineSnapshot {
+    pub owner: OutlineOwner,
+    pub blocks: Vec<BlockSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphSnapshot {
     pub schema_version: u32,
     pub graph_id: GraphId,
@@ -403,7 +416,7 @@ pub struct GraphSummary {
     pub schema_version: u32,
     pub graph_id: GraphId,
     pub pages: Vec<PageSummary>,
-    pub tags: Vec<TagSnapshot>,
+    pub tags: Vec<TagSummary>,
     pub quarantined: Vec<String>,
 }
 
@@ -417,6 +430,15 @@ pub struct PageSummary {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagSnapshot {
+    pub id: TagId,
+    pub name: String,
+    pub properties: PropertyBag,
+    pub defaults: PropertyBag,
+    pub blocks: Vec<BlockSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagSummary {
     pub id: TagId,
     pub name: String,
     pub properties: PropertyBag,

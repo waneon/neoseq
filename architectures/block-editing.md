@@ -24,7 +24,7 @@ Editable plain text keeps one textarea DOM boundary at rest and while focused.
 Focus starts the surface's draft session, so the browser retains the pointer's
 native caret instead of spending the first click replacing a display trigger.
 Rendered Markdown follows the outline's existing preview-to-source hand-off.
-An unhydrated cross-page result remains temporarily read-only until its
+An unhydrated cross-owner result remains temporarily read-only until its
 canonical block is available, without replacing the input element.
 
 ## Surface Adapters
@@ -50,8 +50,8 @@ ownership and is not part of this architecture.
 
 Focused block targets register with the command bridge in focus order. The most
 recent live target wins; removing a nested query target restores its containing
-outline target. The mounted page is only the fallback when no block target is
-active. A request captures stable page and block IDs before opening a picker, so
+outline target. The mounted page or tag is only the fallback when no block target is
+active. A request captures the stable outline owner and block ID before opening a picker, so
 later focus changes cannot retarget the mutation.
 
 ## Verification

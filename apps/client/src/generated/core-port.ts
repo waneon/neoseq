@@ -11,11 +11,12 @@ export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; c
 export interface ExecuteResponse { result: unknown; save_status: SaveStatusDto; }
 export interface ReadRequest { graph_handle: string; }
 export interface ReadResponse { summary: unknown; }
-export interface ReadPageRequest { graph_handle: string; page_id: string; }
-export interface ReadPageResponse { page: unknown; }
+export type OutlineOwnerDto = { kind: "page"; id: string } | { kind: "tag"; id: string };
+export interface ReadOutlineRequest { graph_handle: string; owner: OutlineOwnerDto; }
+export interface ReadOutlineResponse { outline: unknown; }
 export type QueryEntityRef =
   | { kind: "page"; id: string }
-  | { kind: "block"; page_id: string; id: string }
+  | { kind: "block"; owner: OutlineOwnerDto; id: string }
   | { kind: "tag"; id: string };
 export type RdfTerm =
   | { kind: "iri"; value: string; entity?: QueryEntityRef | null }
@@ -57,7 +58,7 @@ export interface CorePort {
   openGraph(request: OpenGraphRequest): Promise<OpenGraphResponse>;
   execute(request: ExecuteRequest): Promise<ExecuteResponse>;
   read(request: ReadRequest): Promise<ReadResponse>;
-  readPage(request: ReadPageRequest): Promise<ReadPageResponse>;
+  readOutline(request: ReadOutlineRequest): Promise<ReadOutlineResponse>;
   query(request: QueryRequest): Promise<QueryResponse>;
   subscribe(request: SubscribeRequest): Promise<SubscribeResponse>;
   closeGraph(request: CloseGraphRequest): Promise<CloseGraphResponse>;

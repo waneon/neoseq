@@ -1,5 +1,7 @@
 use crate::{CoreError, GraphChangeSet, GraphCore};
-use domain::{CommandEnvelope, CommandResult, GraphSnapshot, GraphSummary, PageId, PageSnapshot};
+use domain::{
+    CommandEnvelope, CommandResult, GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot,
+};
 use query::{GraphIndex, QueryError, QueryRequest, QueryResult};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -179,8 +181,8 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         Ok(self.core.summary()?)
     }
 
-    pub fn read_page(&self, page_id: &PageId) -> Result<PageSnapshot, RuntimeError> {
-        Ok(self.core.page_snapshot(page_id)?)
+    pub fn read_outline(&self, owner: &OutlineOwner) -> Result<OutlineSnapshot, RuntimeError> {
+        Ok(self.core.outline_snapshot(owner)?)
     }
 
     pub fn query(&self, request: QueryRequest) -> Result<QueryResult, RuntimeError> {
@@ -438,7 +440,9 @@ mod tests {
                 graph_id: graph.clone(),
                 command_id: CommandId::new("block").unwrap(),
                 command: Command::InsertBlock {
-                    page_id: page_id.clone(),
+                    owner: OutlineOwner::Page {
+                        id: page_id.clone(),
+                    },
                     parent: None,
                     index: 0,
                     markdown: "before".into(),
@@ -452,7 +456,7 @@ mod tests {
                 graph_id: graph,
                 command_id: CommandId::new("edit").unwrap(),
                 command: Command::EditMarkdown {
-                    page_id,
+                    owner: OutlineOwner::Page { id: page_id },
                     block_id,
                     markdown: "after".into(),
                 },

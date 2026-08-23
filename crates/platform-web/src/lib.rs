@@ -229,10 +229,10 @@ impl WasmGraphCore {
         serde_json::to_string(&self.inner.summary().map_err(js_error)?).map_err(js_error)
     }
 
-    #[wasm_bindgen(js_name = pageSnapshotJson)]
-    pub fn page_snapshot_json(&self, page_id: &str) -> Result<String, JsValue> {
-        let page_id = domain::PageId::new(page_id).map_err(js_error)?;
-        serde_json::to_string(&self.inner.page_snapshot(&page_id).map_err(js_error)?)
+    #[wasm_bindgen(js_name = outlineSnapshotJson)]
+    pub fn outline_snapshot_json(&self, owner: &str) -> Result<String, JsValue> {
+        let owner: domain::OutlineOwner = serde_json::from_str(owner).map_err(js_error)?;
+        serde_json::to_string(&self.inner.outline_snapshot(&owner).map_err(js_error)?)
             .map_err(js_error)
     }
 

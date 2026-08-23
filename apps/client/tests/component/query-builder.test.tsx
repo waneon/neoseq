@@ -21,7 +21,7 @@ async function mountPage(custom?: ReactElement): Promise<Harness> {
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   await harness.session.execute({
     type: "insert_block",
-    page_id: "home",
+    owner: { kind: "page", id: "home" },
     parent: null,
     index: 0,
     markdown: "",
@@ -216,7 +216,7 @@ describe("the query builder", () => {
         q_subject: {
           kind: "iri",
           value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block", page_id: "home", id: "b-2" },
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
         },
         text: {
           kind: "literal",
@@ -293,7 +293,7 @@ describe("query result views", () => {
           q_subject: {
             kind: "iri",
             value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", page_id: "home", id: "b-2" },
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
           },
           text: {
             kind: "literal",
@@ -315,7 +315,7 @@ describe("query result views", () => {
     // canonical invalidation run the query with the row in place.
     await harness.session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 1,
       markdown,
@@ -494,7 +494,7 @@ describe("query result views", () => {
         q_subject: {
           kind: "iri" as const,
           value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block" as const, page_id: "home", id: "b-2" },
+          entity: { kind: "block" as const, owner: { kind: "page", id: "home" }, id: "b-2" },
         },
         ...(priority ? {
           priority: {
@@ -509,7 +509,7 @@ describe("query result views", () => {
     };
     await harness.session.execute({
       type: "set_query_plan",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
@@ -539,7 +539,7 @@ describe("query result views", () => {
           q_subject: {
             kind: "iri",
             value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", page_id: "home", id: "b-2" },
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
           },
           text: {
             kind: "literal",
@@ -556,7 +556,7 @@ describe("query result views", () => {
           q_subject: {
             kind: "iri",
             value: "urn:neoseq:entity:test-graph:block:b-3",
-            entity: { kind: "block", page_id: "home", id: "b-3" },
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-3" },
           },
           text: {
             kind: "literal",
@@ -575,7 +575,7 @@ describe("query result views", () => {
     };
     await harness.session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 2,
       markdown: "Alpha",
@@ -594,7 +594,7 @@ describe("query result views", () => {
       const view = storedQuery(harness)!.views[0]!;
       await harness.session.execute({
         type: "put_query_view",
-        owner: { kind: "block", page_id: "home", id: "b-1" },
+        owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
         view: {
           ...view,
           options: { ...view.options, sort: [{ variable: "text", descending }] },
@@ -676,7 +676,7 @@ describe("query result views", () => {
     const current = storedQuery(harness)!.views[0]!;
     await harness.session.execute({
       type: "put_query_view",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       view: {
         ...current,
         columns: current.columns.map((column) =>
@@ -726,10 +726,10 @@ describe("query result views", () => {
 
   it("renders a block result from its canonical snapshot through the shared block presentation", async () => {
     const harness = await withResult("Stale RDF text");
-    const owner = { kind: "block" as const, page_id: "home", id: "b-2" };
+    const owner = { kind: "block" as const, owner: { kind: "page", id: "home" }, id: "b-2" };
     await harness.session.execute({
       type: "edit_markdown",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       block_id: "b-2",
       markdown: "Canonical **block** text",
     });
@@ -927,7 +927,7 @@ describe("query result views", () => {
         q_subject: {
           kind: "iri",
           value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block", page_id: "home", id: "b-2" },
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
         },
         text: {
           kind: "literal",
@@ -945,7 +945,7 @@ describe("query result views", () => {
     };
     await harness.session.execute({
       type: "set_query_plan",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
@@ -953,7 +953,7 @@ describe("query result views", () => {
     // query's task mark. The retained field must not also leak into BlockChips.
     await harness.session.execute({
       type: "ensure_property",
-      owner: { kind: "block", page_id: "home", id: "b-2" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
       key: "builtin.task-status",
       value_type: "string",
       cardinality: "single",
@@ -1007,7 +1007,7 @@ describe("query result views", () => {
     };
     await harness.session.execute({
       type: "set_property",
-      owner: { kind: "block", page_id: "home", id: "b-2" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
       key: "user.pin-check",
       value: { type: "string", value: "changed" },
     });

@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router";
 import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
-import { findPage, journalDate, pageKind, pageTitle, stringValue } from "../../core-port/snapshot";
+import {
+  findPage,
+  journalDate,
+  outlineOwnerKey,
+  pageKind,
+  pageTitle,
+  stringValue,
+} from "../../core-port/snapshot";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
@@ -53,9 +60,13 @@ export function PageView() {
   }, [message, notify, pageId, session]);
 
   useEffect(() => {
-    if (!page || state.status !== "ready" || state.hydratedPages.has(pageId)) return;
+    if (
+      !page
+      || state.status !== "ready"
+      || state.hydratedOutlines.has(outlineOwnerKey({ kind: "page", id: pageId }))
+    ) return;
     load();
-  }, [load, page, pageId, state.hydratedPages, state.status]);
+  }, [load, page, pageId, state.hydratedOutlines, state.status]);
 
   if (!page) {
     // Deleted pages are soft-deleted and leave the snapshot, so a missing
@@ -158,7 +169,11 @@ export function PageBody({
         <AutoHeight>
           <PageProperties page={page} open={propsOpen} onOpenChange={setPropsOpen} />
         </AutoHeight>
-        <Outliner page={page} scrollElement={scrollElement} />
+        <Outliner
+          owner={{ kind: "page", id: page.id }}
+          blocks={page.blocks}
+          scrollElement={scrollElement}
+        />
       </article>
     </div>
   );

@@ -9,7 +9,6 @@ import {
 import type {
   BlockSnapshot,
   GraphSnapshot,
-  PageSnapshot,
   PropertyField,
   PropertyValue,
 } from "../../core-port/snapshot";
@@ -65,7 +64,7 @@ export function serializeOutlineSelection(
  */
 export function createOutlineFragment(
   snapshot: GraphSnapshot,
-  page: PageSnapshot,
+  outline: { blocks: BlockSnapshot[] },
   selected: ReadonlySet<string>,
 ): OutlineFragment | null {
   const items: OutlineFragmentItem[] = [];
@@ -97,7 +96,7 @@ export function createOutlineFragment(
       else visit(block.children);
     }
   };
-  visit(page.blocks);
+  visit(outline.blocks);
   if (items.length === 0) return null;
 
   const tags = [...tagIds]

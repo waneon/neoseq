@@ -4,14 +4,14 @@ use self::outline::OutlinePlan;
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, EntityId,
     GraphId, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND,
-    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentPage, PageId, PageSnapshot,
-    PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader,
-    PropertyError, PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType,
-    PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE,
-    QUERY_PROPERTY_KEY, QueryPlan, QueryView, QueryViewColumn, QueryViewId, QueryViewKind,
-    QueryViewOptions, SplitPlacement, TagId, TagSnapshot, property_copy_policy, validate_property,
-    validate_property_field, validate_property_shape, validate_property_target,
-    validate_property_write,
+    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentPage, OutlineOwner, OutlineSnapshot,
+    PageId, PageSnapshot, PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument,
+    PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
+    PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
+    QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryPlan, QueryView, QueryViewColumn, QueryViewId,
+    QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
+    property_copy_policy, validate_property, validate_property_field, validate_property_shape,
+    validate_property_target, validate_property_write,
 };
 use loro::{
     Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
@@ -75,21 +75,21 @@ impl PreparedCommand<'_> {
 }
 
 #[derive(Debug, Clone)]
-struct TagDetachPage {
-    page_id: PageId,
+struct TagDetachOutline {
+    owner: OutlineOwner,
     root: bool,
     blocks: Vec<BlockId>,
 }
 
 #[derive(Debug, Clone)]
 struct TagDetachPlan {
-    pages: Vec<TagDetachPage>,
+    outlines: Vec<TagDetachOutline>,
 }
 
 #[derive(Debug, Clone)]
 struct HistoryEntry {
     scope: HistoryScope,
-    affected_pages: Vec<PageId>,
+    affected_outlines: Vec<OutlineOwner>,
     undo_candidates: Vec<HistoryTarget>,
     redo_candidates: Vec<HistoryTarget>,
 }
@@ -98,7 +98,7 @@ struct HistoryEntry {
 enum HistoryTarget {
     Entity(EntityId),
     BlockPosition {
-        page_id: PageId,
+        owner: OutlineOwner,
         parent: Option<BlockId>,
         index: usize,
     },
@@ -214,10 +214,10 @@ impl HistoryPlan {
     fn finish(mut self, result: &CommandResult, core: &GraphCore) -> HistoryEntry {
         if self.redo_created_block
             && let Some(block_id) = &result.created_block
-            && let Some(page_id) = self.entry.affected_pages.first()
+            && let Some(owner) = self.entry.affected_outlines.first()
         {
             let target = core
-                .outline_state(page_id)
+                .outline_state(owner)
                 .ok()
                 .and_then(|state| {
                     let parent = state.parents.get(block_id)?.clone();
@@ -227,14 +227,14 @@ impl HistoryPlan {
                         .iter()
                         .position(|item| item == block_id)?;
                     Some(HistoryTarget::BlockPosition {
-                        page_id: page_id.clone(),
+                        owner: owner.clone(),
                         parent,
                         index,
                     })
                 })
                 .unwrap_or_else(|| {
                     HistoryTarget::Entity(EntityId::Block {
-                        page_id: page_id.clone(),
+                        owner: owner.clone(),
                         id: block_id.clone(),
                     })
                 });
@@ -405,7 +405,7 @@ impl GraphCore {
         doc.set_peer_id(peer_id)?;
         verify_schema(&doc, &graph_id)?;
         validate_unique_entity_names(&doc)?;
-        enable_page_outlines(&doc)?;
+        enable_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
         Ok(Self {
             graph_id,
@@ -441,7 +441,7 @@ impl GraphCore {
         let peer_id = self.doc.peer_id();
         self.doc = backup;
         self.doc.set_peer_id(peer_id)?;
-        enable_page_outlines(&self.doc)?;
+        enable_outlines(&self.doc)?;
         self.reset_local_history();
         Ok(())
     }
@@ -715,11 +715,8 @@ impl GraphCore {
 
     pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
         let mut quarantined = Vec::new();
-        let tags = tag_snapshots(&self.doc, &mut quarantined);
-        let live_tags = tags
-            .iter()
-            .map(|tag| tag.id.clone())
-            .collect::<BTreeSet<_>>();
+        let live_tags = live_tag_ids(&self.doc);
+        let tags = tag_snapshots(&self.doc, &live_tags, &mut quarantined)?;
         let pages = self.doc.get_map("pages");
         let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
 
@@ -764,22 +761,39 @@ impl GraphCore {
     }
 
     pub fn summary(&self) -> Result<GraphSummary, CoreError> {
-        let snapshot = self.snapshot_metadata()?;
+        let mut quarantined = Vec::new();
+        let live_tags = live_tag_ids(&self.doc);
+        let pages = self.doc.get_map("pages");
+        let mut page_summaries = BTreeMap::<PageId, PageSummary>::new();
+        pages.for_each(|raw_id, value| {
+            let Ok(page_id) = PageId::new(raw_id) else {
+                quarantined.push(format!("page:{raw_id}:invalid-id"));
+                return;
+            };
+            let Some(page) = value_into_map(value) else {
+                quarantined.push(format!("page:{raw_id}:not-map"));
+                return;
+            };
+            if let Some(page) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) {
+                page_summaries.insert(
+                    page_id,
+                    PageSummary {
+                        id: page.id,
+                        title: page.title,
+                        properties: page.properties,
+                        tags: page.tags,
+                    },
+                );
+            }
+        });
+        let tags = tag_summaries(&self.doc, &mut quarantined);
+        quarantined.sort();
         Ok(GraphSummary {
-            schema_version: snapshot.schema_version,
-            graph_id: snapshot.graph_id,
-            pages: snapshot
-                .pages
-                .into_iter()
-                .map(|page| PageSummary {
-                    id: page.id,
-                    title: page.title,
-                    properties: page.properties,
-                    tags: page.tags,
-                })
-                .collect(),
-            tags: snapshot.tags,
-            quarantined: snapshot.quarantined,
+            schema_version: SCHEMA_VERSION,
+            graph_id: self.graph_id.clone(),
+            pages: page_summaries.into_values().collect(),
+            tags,
+            quarantined,
         })
     }
 
@@ -789,19 +803,37 @@ impl GraphCore {
         let live_tags = live_tag_ids(&self.doc);
         let mut snapshot = page_metadata(page_id, &page, &live_tags, &mut quarantined)
             .ok_or_else(|| CoreError::PageDeleted(page_id.clone()))?;
-        let outline = page
-            .get("outline")
-            .and_then(value_into_tree)
-            .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".to_owned()))?;
+        snapshot.blocks = self
+            .outline_snapshot(&OutlineOwner::Page {
+                id: page_id.clone(),
+            })?
+            .blocks;
+        Ok(snapshot)
+    }
+
+    pub fn outline_snapshot(&self, owner: &OutlineOwner) -> Result<OutlineSnapshot, CoreError> {
+        self.require_live_outline_owner(owner)?;
+        let Some(outline) = self.existing_outline(owner)? else {
+            return Ok(OutlineSnapshot {
+                owner: owner.clone(),
+                blocks: Vec::new(),
+            });
+        };
+        let live_tags = live_tag_ids(&self.doc);
+        let mut quarantined = Vec::new();
+        let mut blocks = Vec::new();
         for root in outline.roots() {
-            snapshot.blocks.push(block_snapshot(
+            blocks.push(block_snapshot(
                 &outline,
                 root,
                 &live_tags,
                 &mut quarantined,
             )?);
         }
-        Ok(snapshot)
+        Ok(OutlineSnapshot {
+            owner: owner.clone(),
+            blocks,
+        })
     }
 
     /// Materializes only the projection units named by a change set. `None`
@@ -827,7 +859,12 @@ impl GraphCore {
         let mut removed_tags = Vec::new();
         for tag_id in &changes.tags {
             let mut quarantined = Vec::new();
-            if let Some(tag) = tag_snapshot_by_id(&self.doc, tag_id, &mut quarantined) {
+            if let Some(tag) = tag_snapshot_by_id(
+                &self.doc,
+                tag_id,
+                &live_tag_ids(&self.doc),
+                &mut quarantined,
+            )? {
                 tags.push(tag);
             } else {
                 removed_tags.push(tag_id.clone());
@@ -849,11 +886,8 @@ impl GraphCore {
         &self,
     ) -> Result<impl Iterator<Item = Result<IndexUnit, CoreError>> + '_, CoreError> {
         let mut quarantined = Vec::new();
-        let tags = tag_snapshots(&self.doc, &mut quarantined);
-        let live_tags = tags
-            .iter()
-            .map(|tag| tag.id.clone())
-            .collect::<BTreeSet<_>>();
+        let live_tags = live_tag_ids(&self.doc);
+        let tags = tag_snapshots(&self.doc, &live_tags, &mut quarantined)?;
         let pages = self.doc.get_map("pages");
         let mut page_ids = BTreeSet::new();
         pages.for_each(|raw_id, value| {
@@ -894,38 +928,6 @@ impl GraphCore {
                 .push(block_snapshot(&outline, root, live_tags, &mut quarantined)?);
         }
         Ok(Some(snapshot))
-    }
-
-    fn snapshot_metadata(&self) -> Result<GraphSnapshot, CoreError> {
-        let mut quarantined = Vec::new();
-        let tags = tag_snapshots(&self.doc, &mut quarantined);
-        let live_tags = tags
-            .iter()
-            .map(|tag| tag.id.clone())
-            .collect::<BTreeSet<_>>();
-        let pages = self.doc.get_map("pages");
-        let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
-        pages.for_each(|raw_id, value| {
-            let Ok(page_id) = PageId::new(raw_id) else {
-                quarantined.push(format!("page:{raw_id}:invalid-id"));
-                return;
-            };
-            let Some(page) = value_into_map(value) else {
-                quarantined.push(format!("page:{raw_id}:not-map"));
-                return;
-            };
-            if let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) {
-                snapshots.insert(page_id, snapshot);
-            }
-        });
-        quarantined.sort();
-        Ok(GraphSnapshot {
-            schema_version: SCHEMA_VERSION,
-            graph_id: self.graph_id.clone(),
-            pages: snapshots.into_values().collect(),
-            tags,
-            quarantined,
-        })
     }
 
     pub fn canonical_json(&self) -> Result<String, CoreError> {
@@ -970,23 +972,23 @@ impl GraphCore {
         let plan = match command {
             Command::MoveBlocks {
                 block_ids,
-                page_id,
+                owner,
                 parent,
                 index,
             } => CommandPlan::Outline(self.plan_move_blocks(
-                page_id,
+                owner,
                 block_ids,
                 parent.as_ref(),
                 *index,
             )?),
-            Command::IndentBlocks { page_id, block_ids } => {
-                CommandPlan::Outline(self.plan_indent_blocks(page_id, block_ids)?)
+            Command::IndentBlocks { owner, block_ids } => {
+                CommandPlan::Outline(self.plan_indent_blocks(owner, block_ids)?)
             }
-            Command::OutdentBlocks { page_id, block_ids } => {
-                CommandPlan::Outline(self.plan_outdent_blocks(page_id, block_ids)?)
+            Command::OutdentBlocks { owner, block_ids } => {
+                CommandPlan::Outline(self.plan_outdent_blocks(owner, block_ids)?)
             }
-            Command::DeleteBlocks { page_id, block_ids } => {
-                CommandPlan::Outline(self.plan_delete_blocks(page_id, block_ids)?)
+            Command::DeleteBlocks { owner, block_ids } => {
+                CommandPlan::Outline(self.plan_delete_blocks(owner, block_ids)?)
             }
             Command::DeleteTag { tag_id } => CommandPlan::TagDetach(self.plan_delete_tag(tag_id)?),
             Command::PasteOutline { fragment, .. } => {
@@ -1032,26 +1034,26 @@ impl GraphCore {
                 ensure_tag_name_available(&self.doc, tag_id, name)?;
             }
             Command::InsertBlock {
-                page_id,
+                owner,
                 parent,
                 markdown,
                 ..
             } => {
-                self.require_live_page(page_id)?;
+                self.require_live_outline_owner(owner)?;
                 validate_text(markdown, 1_048_576)?;
                 if let Some(parent) = parent {
-                    self.require_block(page_id, parent)?;
+                    self.require_block(owner, parent)?;
                 }
             }
             Command::SplitBlock {
-                page_id,
+                owner,
                 block_id,
                 index,
                 placement,
             } => {
-                self.require_live_page(page_id)?;
-                self.require_block(page_id, block_id)?;
-                let length = self.block_text(page_id, block_id)?.len_unicode();
+                self.require_live_outline_owner(owner)?;
+                self.require_block(owner, block_id)?;
+                let length = self.block_text(owner, block_id)?.len_unicode();
                 if *index > length {
                     return Err(CoreError::InvalidHierarchy(
                         "block split is out of bounds".into(),
@@ -1064,17 +1066,17 @@ impl GraphCore {
                 }
             }
             Command::InsertOutline {
-                page_id,
+                owner,
                 parent,
                 replace,
                 items,
                 ..
             } => {
-                self.require_live_page(page_id)?;
+                self.require_live_outline_owner(owner)?;
                 if replace.is_none()
                     && let Some(parent) = parent
                 {
-                    self.require_block(page_id, parent)?;
+                    self.require_block(owner, parent)?;
                 }
                 if items.is_empty() {
                     return Err(CoreError::InvalidHierarchy(
@@ -1109,8 +1111,8 @@ impl GraphCore {
                     previous_depth = item.depth;
                 }
                 if let Some(block_id) = replace {
-                    self.require_block(page_id, block_id)?;
-                    if !self.block_text(page_id, block_id)?.to_string().is_empty() {
+                    self.require_block(owner, block_id)?;
+                    if !self.block_text(owner, block_id)?.to_string().is_empty() {
                         return Err(CoreError::InvalidHierarchy(
                             "outline replacement block is not empty".into(),
                         ));
@@ -1118,22 +1120,22 @@ impl GraphCore {
                 }
             }
             Command::PasteOutline {
-                page_id,
+                owner,
                 parent,
                 replace,
                 fragment,
                 ..
             } => {
-                self.require_live_page(page_id)?;
+                self.require_live_outline_owner(owner)?;
                 if replace.is_none()
                     && let Some(parent) = parent
                 {
-                    self.require_block(page_id, parent)?;
+                    self.require_block(owner, parent)?;
                 }
                 self.validate_outline_fragment(fragment)?;
                 if let Some(block_id) = replace {
-                    self.require_block(page_id, block_id)?;
-                    if !self.block_is_plain_empty(page_id, block_id)? {
+                    self.require_block(owner, block_id)?;
+                    if !self.block_is_plain_empty(owner, block_id)? {
                         return Err(CoreError::InvalidHierarchy(
                             "outline replacement block contains content or metadata".into(),
                         ));
@@ -1141,20 +1143,20 @@ impl GraphCore {
                 }
             }
             Command::EditMarkdown {
-                page_id,
+                owner,
                 block_id,
                 markdown,
             } => {
-                self.require_block(page_id, block_id)?;
+                self.require_block(owner, block_id)?;
                 validate_text(markdown, 1_048_576)?;
             }
             Command::SpliceMarkdown {
-                page_id,
+                owner,
                 block_id,
                 insert,
                 ..
             } => {
-                self.require_block(page_id, block_id)?;
+                self.require_block(owner, block_id)?;
                 validate_text(insert, 1_048_576)?;
             }
             Command::MoveBlocks { .. }
@@ -1371,12 +1373,12 @@ impl GraphCore {
                 )?;
             }
             Command::InsertBlock {
-                page_id,
+                owner,
                 parent,
                 index,
                 markdown,
             } => {
-                let outline = self.page_outline(page_id)?;
+                let outline = self.ensure_outline(owner)?;
                 let parent_tree = parent.as_ref().map(tree_id).transpose()?;
                 let available = parent_tree.map_or_else(
                     || outline.roots().len(),
@@ -1389,12 +1391,12 @@ impl GraphCore {
                 result.created_block = Some(block_id(node));
             }
             Command::SplitBlock {
-                page_id,
+                owner,
                 block_id: target_id,
                 index,
                 placement,
             } => {
-                let outline = self.page_outline(page_id)?;
+                let outline = self.outline(owner)?;
                 let target = require_block_in(&outline, target_id)?;
                 let (parent, position) = match placement {
                     SplitPlacement::FirstChild => (Some(target), 0),
@@ -1418,7 +1420,7 @@ impl GraphCore {
                         (parent, target_position + offset)
                     }
                 };
-                let text = self.block_text(page_id, target_id)?;
+                let text = self.block_text(owner, target_id)?;
                 let tail = if *index == 0 {
                     String::new()
                 } else {
@@ -1432,13 +1434,13 @@ impl GraphCore {
                 result.created_block = Some(block_id(node));
             }
             Command::InsertOutline {
-                page_id,
+                owner,
                 parent,
                 index,
                 replace,
                 items,
             } => {
-                let outline = self.page_outline(page_id)?;
+                let outline = self.ensure_outline(owner)?;
                 let requested_parent = parent.as_ref().map(tree_id).transpose()?;
                 let mut base_parent = requested_parent;
                 let mut base_index = *index;
@@ -1470,7 +1472,7 @@ impl GraphCore {
                     let node = if position == 0 {
                         if let Some(replace_id) = replace {
                             let target = require_block_in(&outline, replace_id)?;
-                            replace_text(&self.block_text(page_id, replace_id)?, &item.markdown)?;
+                            replace_text(&self.block_text(owner, replace_id)?, &item.markdown)?;
                             target
                         } else {
                             let available = base_parent.map_or_else(
@@ -1515,12 +1517,12 @@ impl GraphCore {
                         levels.truncate(item.depth + 1);
                     }
                     let created_id = block_id(node);
-                    self.touch_block(page_id, &created_id, now)?;
+                    self.touch_block(owner, &created_id, now)?;
                     result.created_block = Some(created_id);
                 }
             }
             Command::PasteOutline {
-                page_id,
+                owner,
                 parent,
                 index,
                 replace,
@@ -1538,7 +1540,7 @@ impl GraphCore {
                     self.ensure_tag(target_id, name, now)?;
                 }
 
-                let outline = self.page_outline(page_id)?;
+                let outline = self.ensure_outline(owner)?;
                 let requested_parent = parent.as_ref().map(tree_id).transpose()?;
                 let mut base_parent = requested_parent;
                 let mut base_index = *index;
@@ -1570,7 +1572,7 @@ impl GraphCore {
                     let node = if position == 0 {
                         if let Some(replace_id) = replace {
                             let target = require_block_in(&outline, replace_id)?;
-                            replace_text(&self.block_text(page_id, replace_id)?, &item.markdown)?;
+                            replace_text(&self.block_text(owner, replace_id)?, &item.markdown)?;
                             target
                         } else {
                             let available = base_parent.map_or_else(
@@ -1630,29 +1632,29 @@ impl GraphCore {
                         levels.truncate(item.depth + 1);
                     }
                     let created_id = block_id(node);
-                    self.touch_block(page_id, &created_id, now)?;
+                    self.touch_block(owner, &created_id, now)?;
                     result.created_block = Some(created_id);
                 }
             }
             Command::EditMarkdown {
-                page_id,
+                owner,
                 block_id,
                 markdown,
             } => {
-                let text = self.block_text(page_id, block_id)?;
+                let text = self.block_text(owner, block_id)?;
                 if text.len_unicode() > 0 {
                     text.delete(0, text.len_unicode())?;
                 }
                 text.insert(0, markdown)?;
             }
             Command::SpliceMarkdown {
-                page_id,
+                owner,
                 block_id,
                 index,
                 delete,
                 insert,
             } => {
-                let text = self.block_text(page_id, block_id)?;
+                let text = self.block_text(owner, block_id)?;
                 if index.saturating_add(*delete) > text.len_unicode() {
                     return Err(CoreError::InvalidHierarchy(
                         "markdown splice is out of bounds".into(),
@@ -1666,31 +1668,31 @@ impl GraphCore {
                 }
             }
             Command::MoveBlocks {
-                page_id,
+                owner,
                 parent,
                 index,
                 ..
             } => {
                 let plan = prepared.outline();
-                self.move_blocks(&plan.roots, page_id, parent.as_ref(), *index)?;
+                self.move_blocks(&plan.roots, owner, parent.as_ref(), *index)?;
             }
-            Command::IndentBlocks { page_id, .. } => {
+            Command::IndentBlocks { owner, .. } => {
                 let plan = prepared.outline();
                 for block_id in &plan.roots {
-                    self.indent(page_id, block_id)?;
+                    self.indent(owner, block_id)?;
                 }
             }
-            Command::OutdentBlocks { page_id, .. } => {
+            Command::OutdentBlocks { owner, .. } => {
                 let plan = prepared.outline();
                 for block_id in &plan.roots {
-                    self.outdent(page_id, block_id)?;
+                    self.outdent(owner, block_id)?;
                 }
             }
-            Command::DeleteBlocks { page_id, .. } => {
+            Command::DeleteBlocks { owner, .. } => {
                 let plan = prepared.outline();
-                let outline = self.page_outline(page_id)?;
+                let outline = self.outline(owner)?;
                 for block_id in &plan.roots {
-                    self.touch_block(page_id, block_id, now)?;
+                    self.touch_block(owner, block_id, now)?;
                     outline.delete(tree_id(block_id)?)?;
                 }
             }
@@ -1825,49 +1827,49 @@ impl GraphCore {
             Command::RenamePage { page_id, .. }
             | Command::DeletePage { page_id }
             | Command::RestorePage { page_id } => self.touch_page(page_id, now)?,
-            Command::InsertBlock { page_id, .. } => {
+            Command::InsertBlock { owner, .. } => {
                 if let Some(block_id) = &result.created_block {
-                    self.touch_block(page_id, block_id, now)?;
+                    self.touch_block(owner, block_id, now)?;
                 }
-                self.touch_page(page_id, now)?;
+                self.touch_outline_owner(owner, now)?;
             }
             Command::SplitBlock {
-                page_id,
+                owner,
                 block_id,
                 index,
                 ..
             } => {
                 if *index > 0 {
-                    self.touch_block(page_id, block_id, now)?;
+                    self.touch_block(owner, block_id, now)?;
                 }
                 if let Some(created) = &result.created_block {
-                    self.touch_block(page_id, created, now)?;
+                    self.touch_block(owner, created, now)?;
                 }
-                self.touch_page(page_id, now)?;
+                self.touch_outline_owner(owner, now)?;
             }
-            Command::InsertOutline { page_id, .. } | Command::PasteOutline { page_id, .. } => {
-                self.touch_page(page_id, now)?
+            Command::InsertOutline { owner, .. } | Command::PasteOutline { owner, .. } => {
+                self.touch_outline_owner(owner, now)?
             }
             Command::EditMarkdown {
-                page_id, block_id, ..
+                owner, block_id, ..
             }
             | Command::SpliceMarkdown {
-                page_id, block_id, ..
+                owner, block_id, ..
             } => {
-                self.touch_block(page_id, block_id, now)?;
-                self.touch_page(page_id, now)?;
+                self.touch_block(owner, block_id, now)?;
+                self.touch_outline_owner(owner, now)?;
             }
             Command::MoveBlocks {
-                page_id, block_ids, ..
+                owner, block_ids, ..
             }
-            | Command::IndentBlocks { page_id, block_ids }
-            | Command::OutdentBlocks { page_id, block_ids } => {
+            | Command::IndentBlocks { owner, block_ids }
+            | Command::OutdentBlocks { owner, block_ids } => {
                 for block_id in block_ids {
-                    self.touch_block(page_id, block_id, now)?;
+                    self.touch_block(owner, block_id, now)?;
                 }
-                self.touch_page(page_id, now)?;
+                self.touch_outline_owner(owner, now)?;
             }
-            Command::DeleteBlocks { page_id, .. } => self.touch_page(page_id, now)?,
+            Command::DeleteBlocks { owner, .. } => self.touch_outline_owner(owner, now)?,
             Command::EnsureProperty { owner, .. }
             | Command::SetProperty { owner, .. }
             | Command::ClearPropertyValues { owner, .. }
@@ -1904,9 +1906,9 @@ impl GraphCore {
     fn touch_entity(&self, entity: &EntityId, now: &str) -> Result<(), CoreError> {
         match entity {
             EntityId::Page { id } => self.touch_page(id, now),
-            EntityId::Block { page_id, id } => {
-                self.touch_block(page_id, id, now)?;
-                self.touch_page(page_id, now)
+            EntityId::Block { owner, id } => {
+                self.touch_block(owner, id, now)?;
+                self.touch_outline_owner(owner, now)
             }
         }
     }
@@ -1914,9 +1916,9 @@ impl GraphCore {
     fn touch_property_owner(&self, owner: &PropertyOwner, now: &str) -> Result<(), CoreError> {
         match owner {
             PropertyOwner::Page { id } => self.touch_page(id, now),
-            PropertyOwner::Block { page_id, id } => {
-                self.touch_block(page_id, id, now)?;
-                self.touch_page(page_id, now)
+            PropertyOwner::Block { owner, id } => {
+                self.touch_block(owner, id, now)?;
+                self.touch_outline_owner(owner, now)
             }
             PropertyOwner::Tag { tag_id } | PropertyOwner::TagDefault { tag_id } => {
                 self.touch_tag(tag_id, now)
@@ -1934,12 +1936,12 @@ impl GraphCore {
 
     fn touch_block(
         &self,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         block_id: &BlockId,
         now: &str,
     ) -> Result<(), CoreError> {
         set_single(
-            &self.block_bag(page_id, block_id)?,
+            &self.block_bag(owner, block_id)?,
             &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
@@ -1951,6 +1953,13 @@ impl GraphCore {
             &key("builtin.updated-at"),
             &PropertyValue::String(now.to_owned()),
         )
+    }
+
+    fn touch_outline_owner(&self, owner: &OutlineOwner, now: &str) -> Result<(), CoreError> {
+        match owner {
+            OutlineOwner::Page { id } => self.touch_page(id, now),
+            OutlineOwner::Tag { id } => self.touch_tag(id, now),
+        }
     }
 
     fn ensure_page(
@@ -2044,6 +2053,8 @@ impl GraphCore {
         let tag = tags.ensure_mergeable_map(tag_id.as_str())?;
         let properties = tag.ensure_mergeable_map("properties")?;
         let _ = tag.ensure_mergeable_map("defaults")?;
+        let outline = tag.ensure_mergeable_tree("outline")?;
+        outline.enable_fractional_index(0);
         if existed {
             return Ok(None);
         }
@@ -2280,11 +2291,11 @@ impl GraphCore {
 
     fn block_is_plain_empty(
         &self,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         block_id: &BlockId,
     ) -> Result<bool, CoreError> {
-        let page = self.page_snapshot(page_id)?;
-        let block = find_snapshot_block(&page.blocks, block_id)
+        let outline = self.outline_snapshot(owner)?;
+        let block = find_snapshot_block(&outline.blocks, block_id)
             .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
         Ok(block.markdown.is_empty()
             && block.tags.is_empty()
@@ -2301,17 +2312,17 @@ impl GraphCore {
         prepared: &CommandPlan,
     ) -> Result<Option<HistoryPlan>, CoreError> {
         let plan = |scope,
-                    mut affected_pages: Vec<PageId>,
+                    mut affected_outlines: Vec<OutlineOwner>,
                     undo_candidates,
                     redo_candidates,
                     redo_created_block,
                     redo_created_page| {
-            affected_pages.sort();
-            affected_pages.dedup();
+            affected_outlines.sort();
+            affected_outlines.dedup();
             Some(HistoryPlan {
                 entry: HistoryEntry {
                     scope,
-                    affected_pages,
+                    affected_outlines,
                     undo_candidates,
                     redo_candidates,
                 },
@@ -2324,20 +2335,26 @@ impl GraphCore {
                 id: page_id.clone(),
             })
         };
-        let block = |page_id: &PageId, block_id: &BlockId| {
+        let block = |owner: &OutlineOwner, block_id: &BlockId| {
             HistoryTarget::Entity(EntityId::Block {
-                page_id: page_id.clone(),
+                owner: owner.clone(),
                 id: block_id.clone(),
             })
         };
+        let outline_target = |owner: &OutlineOwner| match owner {
+            OutlineOwner::Page { id } => Some(page(id)),
+            OutlineOwner::Tag { .. } => None,
+        };
         let entity_plan = |entity: &EntityId| {
-            let (scope, page_id) = match entity {
-                EntityId::Page { id } => (HistoryScope::Page, id.clone()),
-                EntityId::Block { page_id, .. } => (HistoryScope::Entity, page_id.clone()),
+            let (scope, owner) = match entity {
+                EntityId::Page { id } => {
+                    (HistoryScope::Outline, OutlineOwner::Page { id: id.clone() })
+                }
+                EntityId::Block { owner, .. } => (HistoryScope::Entity, owner.clone()),
             };
             plan(
                 scope,
-                vec![page_id],
+                vec![owner],
                 vec![HistoryTarget::Entity(entity.clone())],
                 vec![HistoryTarget::Entity(entity.clone())],
                 false,
@@ -2346,8 +2363,8 @@ impl GraphCore {
         };
         let owner_plan = |owner: &PropertyOwner| match owner {
             PropertyOwner::Page { id } => entity_plan(&EntityId::Page { id: id.clone() }),
-            PropertyOwner::Block { page_id, id } => entity_plan(&EntityId::Block {
-                page_id: page_id.clone(),
+            PropertyOwner::Block { owner, id } => entity_plan(&EntityId::Block {
+                owner: owner.clone(),
                 id: id.clone(),
             }),
             PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => plan(
@@ -2362,8 +2379,10 @@ impl GraphCore {
 
         Ok(match command {
             Command::EnsurePage { page_id, .. } => plan(
-                HistoryScope::Page,
-                vec![page_id.clone()],
+                HistoryScope::Outline,
+                vec![OutlineOwner::Page {
+                    id: page_id.clone(),
+                }],
                 Vec::new(),
                 Vec::new(),
                 false,
@@ -2372,8 +2391,10 @@ impl GraphCore {
             Command::EnsureJournal { date } => {
                 let page_id = self.journal_page_id(date);
                 plan(
-                    HistoryScope::Page,
-                    vec![page_id.clone()],
+                    HistoryScope::Outline,
+                    vec![OutlineOwner::Page {
+                        id: page_id.clone(),
+                    }],
                     Vec::new(),
                     vec![page(&page_id)],
                     false,
@@ -2381,24 +2402,30 @@ impl GraphCore {
                 )
             }
             Command::RenamePage { page_id, .. } => plan(
-                HistoryScope::Page,
-                vec![page_id.clone()],
+                HistoryScope::Outline,
+                vec![OutlineOwner::Page {
+                    id: page_id.clone(),
+                }],
                 vec![page(page_id)],
                 vec![page(page_id)],
                 false,
                 false,
             ),
             Command::DeletePage { page_id } => plan(
-                HistoryScope::Page,
-                vec![page_id.clone()],
+                HistoryScope::Outline,
+                vec![OutlineOwner::Page {
+                    id: page_id.clone(),
+                }],
                 vec![page(page_id)],
                 Vec::new(),
                 false,
                 false,
             ),
             Command::RestorePage { page_id } => plan(
-                HistoryScope::Page,
-                vec![page_id.clone()],
+                HistoryScope::Outline,
+                vec![OutlineOwner::Page {
+                    id: page_id.clone(),
+                }],
                 Vec::new(),
                 vec![page(page_id)],
                 false,
@@ -2420,138 +2447,135 @@ impl GraphCore {
                     CommandPlan::TagDetach(plan) => plan,
                     _ => unreachable!("tag deletion was prepared without a detach plan"),
                 }
-                .pages
+                .outlines
                 .iter()
-                .map(|entry| entry.page_id.clone())
+                .map(|entry| entry.owner.clone())
                 .collect(),
                 Vec::new(),
                 Vec::new(),
                 false,
                 false,
             ),
-            Command::InsertBlock {
-                page_id, parent, ..
-            } => plan(
+            Command::InsertBlock { owner, parent, .. } => plan(
                 HistoryScope::Entity,
-                vec![page_id.clone()],
+                vec![owner.clone()],
                 parent
                     .as_ref()
-                    .map(|id| block(page_id, id))
+                    .map(|id| block(owner, id))
                     .into_iter()
-                    .chain([page(page_id)])
+                    .chain(outline_target(owner))
                     .collect(),
                 Vec::new(),
                 true,
                 false,
             ),
             Command::SplitBlock {
-                page_id, block_id, ..
+                owner, block_id, ..
             } => plan(
                 HistoryScope::Entity,
-                vec![page_id.clone()],
-                vec![block(page_id, block_id), page(page_id)],
-                vec![block(page_id, block_id)],
+                vec![owner.clone()],
+                [block(owner, block_id)]
+                    .into_iter()
+                    .chain(outline_target(owner))
+                    .collect(),
+                vec![block(owner, block_id)],
                 true,
                 false,
             ),
-            Command::InsertOutline {
-                page_id, parent, ..
-            } => plan(
+            Command::InsertOutline { owner, parent, .. } => plan(
                 HistoryScope::Entity,
-                vec![page_id.clone()],
+                vec![owner.clone()],
                 parent
                     .as_ref()
-                    .map(|id| block(page_id, id))
+                    .map(|id| block(owner, id))
                     .into_iter()
-                    .chain([page(page_id)])
+                    .chain(outline_target(owner))
                     .collect(),
                 Vec::new(),
                 true,
                 false,
             ),
-            Command::PasteOutline {
-                page_id, parent, ..
-            } => plan(
+            Command::PasteOutline { owner, parent, .. } => plan(
                 HistoryScope::Entity,
-                vec![page_id.clone()],
+                vec![owner.clone()],
                 parent
                     .as_ref()
-                    .map(|id| block(page_id, id))
+                    .map(|id| block(owner, id))
                     .into_iter()
-                    .chain([page(page_id)])
+                    .chain(outline_target(owner))
                     .collect(),
                 Vec::new(),
                 true,
                 false,
             ),
             Command::EditMarkdown {
-                page_id, block_id, ..
+                owner, block_id, ..
             }
             | Command::SpliceMarkdown {
-                page_id, block_id, ..
+                owner, block_id, ..
             } => plan(
                 HistoryScope::Entity,
-                vec![page_id.clone()],
-                vec![block(page_id, block_id)],
-                vec![block(page_id, block_id)],
+                vec![owner.clone()],
+                vec![block(owner, block_id)],
+                vec![block(owner, block_id)],
                 false,
                 false,
             ),
-            Command::MoveBlocks { page_id, .. } => {
+            Command::MoveBlocks { owner, .. } => {
                 let candidates = match prepared {
                     CommandPlan::Outline(plan) => &plan.roots,
                     _ => unreachable!("block move was prepared without an outline plan"),
                 }
                 .iter()
-                .map(|id| block(page_id, id))
-                .chain([page(page_id)])
+                .map(|id| block(owner, id))
+                .chain(outline_target(owner))
                 .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
-                    vec![page_id.clone()],
+                    vec![owner.clone()],
                     candidates.clone(),
                     candidates,
                     false,
                     false,
                 )
             }
-            Command::IndentBlocks { page_id, .. } => {
+            Command::IndentBlocks { owner, .. } => {
                 let candidates = match prepared {
                     CommandPlan::Outline(plan) => &plan.roots,
                     _ => unreachable!("block indent was prepared without an outline plan"),
                 }
                 .iter()
-                .map(|id| block(page_id, id))
-                .chain([page(page_id)])
+                .map(|id| block(owner, id))
+                .chain(outline_target(owner))
                 .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
-                    vec![page_id.clone()],
+                    vec![owner.clone()],
                     candidates.clone(),
                     candidates,
                     false,
                     false,
                 )
             }
-            Command::OutdentBlocks { page_id, .. } => {
+            Command::OutdentBlocks { owner, .. } => {
                 let candidates = match prepared {
                     CommandPlan::Outline(plan) => &plan.roots,
                     _ => unreachable!("block outdent was prepared without an outline plan"),
                 }
                 .iter()
-                .map(|id| block(page_id, id))
-                .chain([page(page_id)])
+                .map(|id| block(owner, id))
+                .chain(outline_target(owner))
                 .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
-                    vec![page_id.clone()],
+                    vec![owner.clone()],
                     candidates.clone(),
                     candidates,
                     false,
                     false,
                 )
             }
-            Command::DeleteBlocks { page_id, .. } => {
+            Command::DeleteBlocks { owner, .. } => {
                 let outline = match prepared {
                     CommandPlan::Outline(plan) => plan,
                     _ => unreachable!("block deletion was prepared without an outline plan"),
@@ -2568,12 +2592,12 @@ impl GraphCore {
                             .iter()
                             .position(|item| item == id)?;
                         Some(HistoryTarget::BlockPosition {
-                            page_id: page_id.clone(),
+                            owner: owner.clone(),
                             parent,
                             index,
                         })
                     })
-                    .chain([page(page_id)])
+                    .chain(outline_target(owner))
                     .collect::<Vec<_>>();
                 let mut redo_candidates = Vec::new();
                 if let Some(first) = outline.roots.first()
@@ -2586,16 +2610,16 @@ impl GraphCore {
                             .and_then(|position| position.checked_sub(1))
                             .map(|position| siblings[position].clone())
                     }) {
-                        redo_candidates.push(block(page_id, &previous));
+                        redo_candidates.push(block(owner, &previous));
                     }
                     if let Some(parent) = parent {
-                        redo_candidates.push(block(page_id, &parent));
+                        redo_candidates.push(block(owner, &parent));
                     }
                 }
-                redo_candidates.push(page(page_id));
+                redo_candidates.extend(outline_target(owner));
                 plan(
                     HistoryScope::Entity,
-                    vec![page_id.clone()],
+                    vec![owner.clone()],
                     undo_candidates,
                     redo_candidates,
                     false,
@@ -2629,7 +2653,7 @@ impl GraphCore {
         };
         HistoryEffect {
             scope: entry.scope,
-            affected_pages: entry.affected_pages.clone(),
+            affected_outlines: entry.affected_outlines.clone(),
             reveal: candidates
                 .iter()
                 .find_map(|target| self.resolve_history_target(target)),
@@ -2640,14 +2664,14 @@ impl GraphCore {
         match target {
             HistoryTarget::Entity(entity) => self.entity_is_live(entity).then(|| entity.clone()),
             HistoryTarget::BlockPosition {
-                page_id,
+                owner,
                 parent,
                 index,
             } => {
-                let state = self.outline_state(page_id).ok()?;
+                let state = self.outline_state(owner).ok()?;
                 let id = state.children.get(parent)?.get(*index)?.clone();
                 Some(EntityId::Block {
-                    page_id: page_id.clone(),
+                    owner: owner.clone(),
                     id,
                 })
             }
@@ -2657,45 +2681,61 @@ impl GraphCore {
     fn entity_is_live(&self, entity: &EntityId) -> bool {
         match entity {
             EntityId::Page { id } => self.require_live_page(id).is_ok(),
-            EntityId::Block { page_id, id } => {
-                self.require_live_page(page_id).is_ok() && self.require_block(page_id, id).is_ok()
+            EntityId::Block { owner, id } => {
+                self.require_live_outline_owner(owner).is_ok()
+                    && self.require_block(owner, id).is_ok()
             }
         }
     }
 
     fn plan_delete_tag(&self, tag_id: &TagId) -> Result<TagDetachPlan, CoreError> {
-        let mut page_maps = Vec::new();
+        let mut owners = Vec::new();
         self.doc.get_map("pages").for_each(|raw_id, value| {
             if let (Ok(page_id), Some(page)) = (PageId::new(raw_id), value_into_map(value)) {
-                page_maps.push((page_id, page));
+                owners.push((OutlineOwner::Page { id: page_id }, page));
             }
         });
-        page_maps.sort_by(|left, right| left.0.cmp(&right.0));
+        self.doc.get_map("tags").for_each(|raw_id, value| {
+            if let (Ok(owner_id), Some(tag)) = (TagId::new(raw_id), value_into_map(value)) {
+                owners.push((OutlineOwner::Tag { id: owner_id }, tag));
+            }
+        });
+        owners.sort_by(|left, right| left.0.cmp(&right.0));
 
-        let mut pages = Vec::new();
-        for (page_id, page) in page_maps {
-            let root = page
-                .get("root")
-                .and_then(value_into_map)
-                .ok_or_else(|| CoreError::InvalidHierarchy("page root node is missing".into()))?;
-            let root_tagged = node_has_tag(&root, tag_id);
-            let outline = page
-                .get("outline")
-                .and_then(value_into_tree)
-                .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".into()))?;
+        let mut outlines = Vec::new();
+        for (owner, map) in owners {
+            let root_tagged = match &owner {
+                OutlineOwner::Page { .. } => map
+                    .get("root")
+                    .and_then(value_into_map)
+                    .ok_or_else(|| CoreError::InvalidHierarchy("page root node is missing".into()))
+                    .map(|root| node_has_tag(&root, tag_id))?,
+                OutlineOwner::Tag { .. } => false,
+            };
+            let outline = match map.get("outline") {
+                Some(value) => value_into_tree(value).ok_or_else(|| {
+                    CoreError::InvalidHierarchy("owner outline is invalid".into())
+                })?,
+                None if matches!(owner, OutlineOwner::Tag { .. }) => continue,
+                None => {
+                    return Err(CoreError::InvalidHierarchy(
+                        "owner outline is missing".into(),
+                    ));
+                }
+            };
             let mut blocks = Vec::new();
             for node in outline.roots() {
                 collect_tagged_blocks(&outline, node, tag_id, &mut blocks)?;
             }
             if root_tagged || !blocks.is_empty() {
-                pages.push(TagDetachPage {
-                    page_id,
+                outlines.push(TagDetachOutline {
+                    owner,
                     root: root_tagged,
                     blocks,
                 });
             }
         }
-        Ok(TagDetachPlan { pages })
+        Ok(TagDetachPlan { outlines })
     }
 
     fn apply_delete_tag(
@@ -2709,21 +2749,24 @@ impl GraphCore {
             &key("builtin.deleted-at"),
             &PropertyValue::String(now.to_owned()),
         )?;
-        for page in &plan.pages {
-            if page.root {
-                self.page_root(&page.page_id)?
+        for entry in &plan.outlines {
+            if entry.root {
+                let OutlineOwner::Page { id } = &entry.owner else {
+                    unreachable!("only page roots can carry tags")
+                };
+                self.page_root(id)?
                     .ensure_mergeable_map("tag_refs")?
                     .delete(tag_id.as_str())?;
             }
-            let outline = self.page_outline(&page.page_id)?;
-            for block_id in &page.blocks {
+            let outline = self.outline(&entry.owner)?;
+            for block_id in &entry.blocks {
                 outline
                     .get_meta(require_block_in(&outline, block_id)?)?
                     .ensure_mergeable_map("tag_refs")?
                     .delete(tag_id.as_str())?;
-                self.touch_block(&page.page_id, block_id, now)?;
+                self.touch_block(&entry.owner, block_id, now)?;
             }
-            self.touch_page(&page.page_id, now)?;
+            self.touch_outline_owner(&entry.owner, now)?;
         }
         Ok(())
     }
@@ -2731,11 +2774,11 @@ impl GraphCore {
     fn move_blocks(
         &self,
         block_ids: &[BlockId],
-        page_id: &PageId,
+        owner: &OutlineOwner,
         parent: Option<&BlockId>,
         index: usize,
     ) -> Result<(), CoreError> {
-        let outline = self.page_outline(page_id)?;
+        let outline = self.outline(owner)?;
         let root_ids = block_ids.iter().cloned().collect::<BTreeSet<_>>();
         let parent_tree = parent.map(tree_id).transpose()?;
         let stationary = parent_tree.map_or_else(
@@ -2772,7 +2815,7 @@ impl GraphCore {
                 }
                 None => 0,
             };
-            self.move_block(block_id, page_id, parent, destination)?;
+            self.move_block(block_id, owner, parent, destination)?;
             anchor = Some(block_id.clone());
         }
         Ok(())
@@ -2781,11 +2824,11 @@ impl GraphCore {
     fn move_block(
         &self,
         block_id: &BlockId,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         parent: Option<&BlockId>,
         index: usize,
     ) -> Result<(), CoreError> {
-        let outline = self.page_outline(page_id)?;
+        let outline = self.outline(owner)?;
         let block = tree_id(block_id)?;
         let parent = parent.map(tree_id).transpose()?;
         let available = parent.map_or_else(
@@ -2809,8 +2852,8 @@ impl GraphCore {
         Ok(())
     }
 
-    fn indent(&self, page_id: &PageId, block_id: &BlockId) -> Result<(), CoreError> {
-        let outline = self.page_outline(page_id)?;
+    fn indent(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<(), CoreError> {
+        let outline = self.outline(owner)?;
         let block = tree_id(block_id)?;
         let parent = outline
             .parent(block)
@@ -2830,8 +2873,8 @@ impl GraphCore {
         Ok(())
     }
 
-    fn outdent(&self, page_id: &PageId, block_id: &BlockId) -> Result<(), CoreError> {
-        let outline = self.page_outline(page_id)?;
+    fn outdent(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<(), CoreError> {
+        let outline = self.outline(owner)?;
         let block = tree_id(block_id)?;
         let Some(TreeParentId::Node(parent)) = outline.parent(block) else {
             return Err(CoreError::InvalidHierarchy(
@@ -2866,18 +2909,60 @@ impl GraphCore {
         Ok(page)
     }
 
-    fn page_outline(&self, page_id: &PageId) -> Result<LoroTree, CoreError> {
+    fn outline(&self, owner: &OutlineOwner) -> Result<LoroTree, CoreError> {
+        self.existing_outline(owner)?
+            .ok_or_else(|| CoreError::InvalidHierarchy("owner outline is missing".to_owned()))
+    }
+
+    /// Returns the persisted outline without changing the document. Tags from
+    /// schema-v1 graphs may predate tag-owned outlines, in which case the
+    /// absent tree has the semantic value of an empty outline.
+    fn existing_outline(&self, owner: &OutlineOwner) -> Result<Option<LoroTree>, CoreError> {
+        let value = self.require_outline_owner(owner)?.get("outline");
+        let Some(value) = value else {
+            return match owner {
+                OutlineOwner::Tag { .. } => Ok(None),
+                OutlineOwner::Page { .. } => Err(CoreError::InvalidHierarchy(
+                    "owner outline is missing".to_owned(),
+                )),
+            };
+        };
+        let outline = value_into_tree(value)
+            .ok_or_else(|| CoreError::InvalidHierarchy("owner outline is invalid".to_owned()))?;
+        outline.enable_fractional_index(0);
+        Ok(Some(outline))
+    }
+
+    /// Materializes a legacy tag's empty outline inside the command that first
+    /// writes to it, so persistence exports the migration and the user change
+    /// as one causally complete update.
+    fn ensure_outline(&self, owner: &OutlineOwner) -> Result<LoroTree, CoreError> {
+        if let Some(outline) = self.existing_outline(owner)? {
+            return Ok(outline);
+        }
         let outline = self
-            .require_page(page_id)?
-            .get("outline")
-            .and_then(value_into_tree)
-            .ok_or_else(|| CoreError::InvalidHierarchy("page outline is missing".to_owned()))?;
+            .require_outline_owner(owner)?
+            .ensure_mergeable_tree("outline")?;
         outline.enable_fractional_index(0);
         Ok(outline)
     }
 
-    fn require_block(&self, page_id: &PageId, block_id: &BlockId) -> Result<TreeID, CoreError> {
-        let outline = self.page_outline(page_id)?;
+    fn require_outline_owner(&self, owner: &OutlineOwner) -> Result<LoroMap, CoreError> {
+        match owner {
+            OutlineOwner::Page { id } => self.require_page(id),
+            OutlineOwner::Tag { id } => self.require_tag(id),
+        }
+    }
+
+    fn require_live_outline_owner(&self, owner: &OutlineOwner) -> Result<LoroMap, CoreError> {
+        match owner {
+            OutlineOwner::Page { id } => self.require_live_page(id),
+            OutlineOwner::Tag { id } => self.require_live_tag(id),
+        }
+    }
+
+    fn require_block(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<TreeID, CoreError> {
+        let outline = self.outline(owner)?;
         require_block_in(&outline, block_id)
     }
 
@@ -2917,15 +3002,15 @@ impl GraphCore {
         Ok(self.require_tag(tag_id)?.ensure_mergeable_map(name)?)
     }
 
-    fn block_bag(&self, page_id: &PageId, block_id: &BlockId) -> Result<LoroMap, CoreError> {
-        let outline = self.page_outline(page_id)?;
+    fn block_bag(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<LoroMap, CoreError> {
+        let outline = self.outline(owner)?;
         Ok(outline
             .get_meta(require_block_in(&outline, block_id)?)?
             .ensure_mergeable_map("properties")?)
     }
 
-    fn block_text(&self, page_id: &PageId, block_id: &BlockId) -> Result<LoroText, CoreError> {
-        let outline = self.page_outline(page_id)?;
+    fn block_text(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<LoroText, CoreError> {
+        let outline = self.outline(owner)?;
         Ok(outline
             .get_meta(require_block_in(&outline, block_id)?)?
             .ensure_mergeable_text("content")?)
@@ -2934,14 +3019,14 @@ impl GraphCore {
     fn entity_bag(&self, entity: &EntityId) -> Result<LoroMap, CoreError> {
         match entity {
             EntityId::Page { id } => self.page_properties(id),
-            EntityId::Block { page_id, id } => self.block_bag(page_id, id),
+            EntityId::Block { owner, id } => self.block_bag(owner, id),
         }
     }
 
     fn property_owner_bag(&self, owner: &PropertyOwner) -> Result<LoroMap, CoreError> {
         match owner {
             PropertyOwner::Page { id } => self.page_properties(id),
-            PropertyOwner::Block { page_id, id } => self.block_bag(page_id, id),
+            PropertyOwner::Block { owner, id } => self.block_bag(owner, id),
             PropertyOwner::Tag { tag_id } => self.tag_bag(tag_id, "properties"),
             PropertyOwner::TagDefault { tag_id } => self.tag_bag(tag_id, "defaults"),
         }
@@ -2963,8 +3048,8 @@ impl GraphCore {
     fn entity_tags(&self, entity: &EntityId) -> Result<LoroMap, CoreError> {
         match entity {
             EntityId::Page { id } => Ok(self.page_root(id)?.ensure_mergeable_map("tag_refs")?),
-            EntityId::Block { page_id, id } => {
-                let outline = self.page_outline(page_id)?;
+            EntityId::Block { owner, id } => {
+                let outline = self.outline(owner)?;
                 Ok(outline
                     .get_meta(require_block_in(&outline, id)?)?
                     .ensure_mergeable_map("tag_refs")?)
@@ -2977,8 +3062,8 @@ impl GraphCore {
             EntityId::Page { id } => {
                 self.require_page(id)?;
             }
-            EntityId::Block { page_id, id } => {
-                self.require_block(page_id, id)?;
+            EntityId::Block { owner, id } => {
+                self.require_block(owner, id)?;
             }
         }
         Ok(())
@@ -2989,8 +3074,8 @@ impl GraphCore {
             PropertyOwner::Page { id } => {
                 self.require_page(id)?;
             }
-            PropertyOwner::Block { page_id, id } => {
-                self.require_block(page_id, id)?;
+            PropertyOwner::Block { owner, id } => {
+                self.require_block(owner, id)?;
             }
             PropertyOwner::Tag { tag_id } | PropertyOwner::TagDefault { tag_id } => {
                 self.require_tag(tag_id)?;
@@ -3032,6 +3117,15 @@ fn rewrite_graph_scoped_query_iris(
         for name in ["properties", "defaults"] {
             if let Some(properties) = tag.get(name).and_then(value_into_map) {
                 property_bags.push(properties);
+            }
+        }
+        if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
+            for node in outline.nodes() {
+                if let Ok(meta) = outline.get_meta(node)
+                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                {
+                    property_bags.push(properties);
+                }
             }
         }
     });
@@ -3136,7 +3230,7 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
 
 fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
     let mut quarantined = Vec::new();
-    tag_snapshots(doc, &mut quarantined)
+    tag_summaries(doc, &mut quarantined)
         .into_iter()
         .map(|tag| (tag.id, tag.name))
         .collect()
@@ -3144,7 +3238,7 @@ fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
 
 fn live_tag_ids(doc: &LoroDoc) -> BTreeSet<TagId> {
     let mut quarantined = Vec::new();
-    tag_snapshots(doc, &mut quarantined)
+    tag_summaries(doc, &mut quarantined)
         .into_iter()
         .map(|tag| tag.id)
         .collect()
@@ -3966,7 +4060,7 @@ fn page_metadata(
     })
 }
 
-fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapshot> {
+fn tag_summaries(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSummary> {
     let tags = doc.get_map("tags");
     let mut snapshots = BTreeMap::new();
     tags.for_each(|raw_id, value| {
@@ -3978,30 +4072,84 @@ fn tag_snapshots(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSnapsho
             quarantined.push(format!("tag:{raw_id}:not-map"));
             return;
         };
-        if let Some(snapshot) = tag_snapshot(&tag_id, &tag, quarantined) {
+        if let Some(snapshot) = tag_summary(&tag_id, &tag, quarantined) {
             snapshots.insert(tag_id, snapshot);
         }
     });
     snapshots.into_values().collect()
 }
 
+fn tag_outline(tag: &LoroMap) -> Result<Option<LoroTree>, CoreError> {
+    let Some(value) = tag.get("outline") else {
+        return Ok(None);
+    };
+    let outline = value_into_tree(value)
+        .ok_or_else(|| CoreError::InvalidHierarchy("tag outline is invalid".to_owned()))?;
+    outline.enable_fractional_index(0);
+    Ok(Some(outline))
+}
+
+fn tag_snapshots(
+    doc: &LoroDoc,
+    live_tags: &BTreeSet<TagId>,
+    quarantined: &mut Vec<String>,
+) -> Result<Vec<TagSnapshot>, CoreError> {
+    let mut snapshots = Vec::new();
+    for summary in tag_summaries(doc, quarantined) {
+        let tag = doc
+            .get_map("tags")
+            .get(summary.id.as_str())
+            .and_then(value_into_map)
+            .ok_or_else(|| CoreError::TagNotFound(summary.id.clone()))?;
+        let mut blocks = Vec::new();
+        if let Some(outline) = tag_outline(&tag)? {
+            for root in outline.roots() {
+                blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
+            }
+        }
+        snapshots.push(TagSnapshot {
+            id: summary.id,
+            name: summary.name,
+            properties: summary.properties,
+            defaults: summary.defaults,
+            blocks,
+        });
+    }
+    Ok(snapshots)
+}
+
 fn tag_snapshot_by_id(
     doc: &LoroDoc,
     tag_id: &TagId,
+    live_tags: &BTreeSet<TagId>,
     quarantined: &mut Vec<String>,
-) -> Option<TagSnapshot> {
+) -> Result<Option<TagSnapshot>, CoreError> {
     let tag = doc
         .get_map("tags")
         .get(tag_id.as_str())
-        .and_then(value_into_map)?;
-    tag_snapshot(tag_id, &tag, quarantined)
+        .and_then(value_into_map);
+    let Some(tag) = tag else {
+        return Ok(None);
+    };
+    let Some(summary) = tag_summary(tag_id, &tag, quarantined) else {
+        return Ok(None);
+    };
+    let mut blocks = Vec::new();
+    if let Some(outline) = tag_outline(&tag)? {
+        for root in outline.roots() {
+            blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
+        }
+    }
+    Ok(Some(TagSnapshot {
+        id: summary.id,
+        name: summary.name,
+        properties: summary.properties,
+        defaults: summary.defaults,
+        blocks,
+    }))
 }
 
-fn tag_snapshot(
-    tag_id: &TagId,
-    tag: &LoroMap,
-    quarantined: &mut Vec<String>,
-) -> Option<TagSnapshot> {
+fn tag_summary(tag_id: &TagId, tag: &LoroMap, quarantined: &mut Vec<String>) -> Option<TagSummary> {
     let Some(name) = map_string(tag, "name") else {
         quarantined.push(format!("tag:{tag_id}:missing-name"));
         return None;
@@ -4019,7 +4167,7 @@ fn tag_snapshot(
         validate_property_write(&field.key, PropertyTarget::TagDefault).is_ok()
             && validate_property_field(field).is_ok()
     });
-    Some(TagSnapshot {
+    Some(TagSummary {
         id: tag_id.clone(),
         name,
         properties,
@@ -4133,16 +4281,17 @@ fn value_into_text(value: ValueOrContainer) -> Option<LoroText> {
     }
 }
 
-fn enable_page_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
-    let pages = doc.get_map("pages");
+fn enable_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
     let mut outlines = Vec::new();
-    pages.for_each(|_, value| {
-        if let Some(page) = value_into_map(value)
-            && let Some(outline) = page.get("outline").and_then(value_into_tree)
-        {
-            outlines.push(outline);
-        }
-    });
+    for root in [doc.get_map("pages"), doc.get_map("tags")] {
+        root.for_each(|_, value| {
+            if let Some(owner) = value_into_map(value)
+                && let Some(outline) = owner.get("outline").and_then(value_into_tree)
+            {
+                outlines.push(outline);
+            }
+        });
+    }
     for outline in outlines {
         outline.enable_fractional_index(0);
     }
@@ -4202,7 +4351,9 @@ mod tests {
             envelope(
                 command_id,
                 Command::InsertBlock {
-                    page_id: page_id.clone(),
+                    owner: OutlineOwner::Page {
+                        id: page_id.clone(),
+                    },
                     parent: None,
                     index,
                     markdown: markdown.into(),
@@ -4243,6 +4394,138 @@ mod tests {
     }
 
     #[test]
+    fn model_tag_owns_an_editable_outline() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag = TagId::new("project").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: tag.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+
+        let created = core
+            .execute(
+                envelope(
+                    "block",
+                    Command::InsertBlock {
+                        owner: OutlineOwner::Tag { id: tag.clone() },
+                        parent: None,
+                        index: 0,
+                        markdown: "Tag notes".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        let block = created.result.created_block.unwrap();
+
+        core.execute(
+            envelope(
+                "edit",
+                Command::EditMarkdown {
+                    owner: OutlineOwner::Tag { id: tag.clone() },
+                    block_id: block,
+                    markdown: "Edited tag notes".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let undo = core.execute(envelope("undo", Command::Undo), "t4").unwrap();
+        assert_eq!(
+            undo.result.history_effect.unwrap().affected_outlines,
+            [OutlineOwner::Tag { id: tag.clone() }]
+        );
+        assert_eq!(
+            core.snapshot().unwrap().tags[0].blocks[0].markdown,
+            "Tag notes"
+        );
+        core.execute(envelope("redo", Command::Redo), "t5").unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(snapshot.tags[0].blocks[0].markdown, "Edited tag notes");
+        assert!(snapshot.pages.is_empty());
+    }
+
+    #[test]
+    fn legacy_tags_without_outlines_open_as_empty_and_materialize_on_first_write() {
+        let legacy_tag = TagId::new("legacy-tag").unwrap();
+        let legacy = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag = legacy
+            .doc
+            .get_map("tags")
+            .ensure_mergeable_map(legacy_tag.as_str())
+            .unwrap();
+        tag.insert("name", "Legacy tag").unwrap();
+        initialize_lifecycle(&tag.ensure_mergeable_map("properties").unwrap(), "t1").unwrap();
+        tag.ensure_mergeable_map("defaults").unwrap();
+        legacy.doc.commit();
+        let baseline = legacy.export_snapshot().unwrap();
+
+        let mut restored = GraphCore::from_snapshot(graph(), 2, &baseline).unwrap();
+        let units = restored
+            .index_units()
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(units.len(), 1);
+        assert!(restored.snapshot().unwrap().tags[0].blocks.is_empty());
+        assert!(
+            restored
+                .outline_snapshot(&OutlineOwner::Tag {
+                    id: legacy_tag.clone(),
+                })
+                .unwrap()
+                .blocks
+                .is_empty()
+        );
+
+        let inserted = restored
+            .execute(
+                envelope(
+                    "legacy-first-block",
+                    Command::InsertBlock {
+                        owner: OutlineOwner::Tag {
+                            id: legacy_tag.clone(),
+                        },
+                        parent: None,
+                        index: 0,
+                        markdown: "Migrated safely".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        assert!(!inserted.update.is_empty());
+
+        let mut replayed = GraphCore::from_snapshot(graph(), 3, &baseline).unwrap();
+        replayed.import_remote(&inserted.update).unwrap();
+        assert_eq!(
+            replayed.snapshot().unwrap().tags[0].blocks[0].markdown,
+            "Migrated safely"
+        );
+
+        let mut deletable = GraphCore::from_snapshot(graph(), 4, &baseline).unwrap();
+        deletable
+            .execute(
+                envelope(
+                    "delete-legacy-tag",
+                    Command::DeleteTag { tag_id: legacy_tag },
+                ),
+                "t3",
+            )
+            .unwrap();
+        assert!(deletable.summary().unwrap().tags.is_empty());
+    }
+
+    #[test]
     fn projection_changes_track_local_and_remote_page_edits() {
         let mut left = GraphCore::new(graph(), 1, "t0").unwrap();
         let created = left
@@ -4268,7 +4551,7 @@ mod tests {
                 envelope(
                     "edit",
                     Command::EditMarkdown {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         block_id: block,
                         markdown: "after".into(),
                     },
@@ -4333,7 +4616,7 @@ mod tests {
                     "add-tag",
                     Command::AddTag {
                         entity: EntityId::Block {
-                            page_id: page(),
+                            owner: OutlineOwner::Page { id: page() },
                             id: block_id,
                         },
                         tag_id: tag_id.clone(),
@@ -4513,7 +4796,7 @@ mod tests {
         let block = insert_root(&mut core, "block", &page(), 0, "query");
         let source = "SELECT ?item WHERE {}";
         let owner = PropertyOwner::Block {
-            page_id: page(),
+            owner: OutlineOwner::Page { id: page() },
             id: block.clone(),
         };
 
@@ -4625,7 +4908,7 @@ mod tests {
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
         let owner = PropertyOwner::Block {
-            page_id: page(),
+            owner: OutlineOwner::Page { id: page() },
             id: block.clone(),
         };
         let read = |core: &GraphCore| {
@@ -4735,7 +5018,7 @@ mod tests {
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
         let owner = PropertyOwner::Block {
-            page_id: page(),
+            owner: OutlineOwner::Page { id: page() },
             id: block,
         };
         core.execute(
@@ -4850,7 +5133,7 @@ mod tests {
                 envelope(
                     "b",
                     Command::InsertBlock {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         parent: None,
                         index: 0,
                         markdown: "hello".into(),
@@ -4894,7 +5177,7 @@ mod tests {
                 "tag",
                 Command::AddTag {
                     entity: EntityId::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: block.clone(),
                     },
                     tag_id: tag.clone(),
@@ -4908,7 +5191,7 @@ mod tests {
                 "direct",
                 Command::SetProperty {
                     owner: PropertyOwner::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: block.clone(),
                     },
                     key: key("builtin.task-status"),
@@ -4923,7 +5206,7 @@ mod tests {
                 "tag-again",
                 Command::AddTag {
                     entity: EntityId::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: block.clone(),
                     },
                     tag_id: tag.clone(),
@@ -4950,7 +5233,7 @@ mod tests {
                     id,
                     Command::AddRepeatedProperty {
                         owner: PropertyOwner::Block {
-                            page_id: page(),
+                            owner: OutlineOwner::Page { id: page() },
                             id: block.clone(),
                         },
                         key: key("user.labels"),
@@ -4966,7 +5249,7 @@ mod tests {
                 "repeat-remove",
                 Command::RemoveRepeatedProperty {
                     owner: PropertyOwner::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: block,
                     },
                     key: key("user.labels"),
@@ -5040,7 +5323,7 @@ mod tests {
                 "apply-tag",
                 Command::AddTag {
                     entity: EntityId::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: block.clone(),
                     },
                     tag_id: tag,
@@ -5081,7 +5364,7 @@ mod tests {
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "work");
         let owner = PropertyOwner::Block {
-            page_id: page(),
+            owner: OutlineOwner::Page { id: page() },
             id: block,
         };
         let key = key("builtin.task-status");
@@ -5199,7 +5482,9 @@ mod tests {
                     "move-second-1-after-second-2",
                     Command::MoveBlocks {
                         block_ids: vec![moving],
-                        page_id: second_page.clone(),
+                        owner: OutlineOwner::Page {
+                            id: second_page.clone(),
+                        },
                         parent: None,
                         index: 1,
                     },
@@ -5234,7 +5519,7 @@ mod tests {
                 "property",
                 Command::SetProperty {
                     owner: PropertyOwner::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: target.clone(),
                     },
                     key: key("builtin.task-status"),
@@ -5261,7 +5546,7 @@ mod tests {
                 "add-tag",
                 Command::AddTag {
                     entity: EntityId::Block {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         id: target.clone(),
                     },
                     tag_id: project.clone(),
@@ -5274,7 +5559,7 @@ mod tests {
             envelope(
                 "child",
                 Command::InsertBlock {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     parent: Some(target.clone()),
                     index: 0,
                     markdown: "child".into(),
@@ -5288,7 +5573,7 @@ mod tests {
             envelope(
                 "split-leading",
                 Command::SplitBlock {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_id: target.clone(),
                     index: 0,
                     placement: SplitPlacement::Before,
@@ -5334,7 +5619,7 @@ mod tests {
             envelope(
                 "split-middle",
                 Command::SplitBlock {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_id: target.clone(),
                     index: 2,
                     placement: SplitPlacement::After,
@@ -5371,7 +5656,7 @@ mod tests {
                 envelope(
                     "child",
                     Command::InsertBlock {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         parent: Some(subtree.clone()),
                         index: 0,
                         markdown: "child".into(),
@@ -5389,7 +5674,7 @@ mod tests {
             envelope(
                 "delete-many",
                 Command::DeleteBlocks {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_ids: vec![child, sibling, subtree],
                 },
             ),
@@ -5426,7 +5711,7 @@ mod tests {
             envelope(
                 "paste-outline",
                 Command::InsertOutline {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     parent: None,
                     index: 0,
                     replace: Some(empty),
@@ -5502,7 +5787,7 @@ mod tests {
             envelope(
                 "paste-rich-outline",
                 Command::PasteOutline {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     parent: None,
                     index: 0,
                     replace: Some(empty),
@@ -5612,7 +5897,7 @@ mod tests {
                 envelope(
                     "reject-document",
                     Command::PasteOutline {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         parent: None,
                         index: 0,
                         replace: None,
@@ -5645,7 +5930,7 @@ mod tests {
                 envelope(
                     "reject-descriptor",
                     Command::PasteOutline {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         parent: None,
                         index: 0,
                         replace: None,
@@ -5682,7 +5967,9 @@ mod tests {
                     graph_id: target_graph.clone(),
                     command_id: CommandId::new("empty").unwrap(),
                     command: Command::InsertBlock {
-                        page_id: destination.clone(),
+                        owner: OutlineOwner::Page {
+                            id: destination.clone(),
+                        },
                         parent: None,
                         index: 0,
                         markdown: String::new(),
@@ -5702,7 +5989,9 @@ mod tests {
                 graph_id: target_graph.clone(),
                 command_id: CommandId::new("paste").unwrap(),
                 command: Command::PasteOutline {
-                    page_id: destination.clone(),
+                    owner: OutlineOwner::Page {
+                        id: destination.clone(),
+                    },
                     parent: None,
                     index: 0,
                     replace: Some(empty),
@@ -5797,7 +6086,7 @@ mod tests {
             envelope(
                 "move-many",
                 Command::MoveBlocks {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_ids: vec![first, second],
                     parent: None,
                     index: 1,
@@ -5842,7 +6131,7 @@ mod tests {
             envelope(
                 "invalid-indent-many",
                 Command::IndentBlocks {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_ids: vec![parent.clone(), first.clone()],
                 },
             ),
@@ -5855,7 +6144,7 @@ mod tests {
             envelope(
                 "indent-many",
                 Command::IndentBlocks {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_ids: vec![first.clone(), second.clone()],
                 },
             ),
@@ -5884,7 +6173,7 @@ mod tests {
             envelope(
                 "outdent-many",
                 Command::OutdentBlocks {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_ids: vec![first, second],
                 },
             ),
@@ -5931,7 +6220,7 @@ mod tests {
                 envelope(
                     "wrong-owner",
                     Command::EditMarkdown {
-                        page_id: second_page,
+                        owner: OutlineOwner::Page { id: second_page },
                         block_id: first_block,
                         markdown: "not allowed".into(),
                     },
@@ -5964,7 +6253,7 @@ mod tests {
             (
                 "tag-block",
                 EntityId::Block {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     id: block.clone(),
                 },
             ),
@@ -5989,7 +6278,7 @@ mod tests {
         for field in ["content", "properties", "tag_refs"] {
             assert!(root.get(field).is_some(), "page root lacks {field}");
         }
-        let outline = core.page_outline(&page()).unwrap();
+        let outline = core.outline(&OutlineOwner::Page { id: page() }).unwrap();
         let block_meta = outline.get_meta(tree_id(&block).unwrap()).unwrap();
         for field in ["content", "properties", "tag_refs"] {
             assert!(block_meta.get(field).is_some(), "block lacks {field}");
@@ -6016,7 +6305,7 @@ mod tests {
             envelope(
                 "edit-timestamp",
                 Command::EditMarkdown {
-                    page_id: page(),
+                    owner: OutlineOwner::Page { id: page() },
                     block_id: block,
                     markdown: "updated child".into(),
                 },
@@ -6049,7 +6338,9 @@ mod tests {
                 envelope(
                     "nested-block",
                     Command::InsertBlock {
-                        page_id: live_page.clone(),
+                        owner: OutlineOwner::Page {
+                            id: live_page.clone(),
+                        },
                         parent: Some(live_block.clone()),
                         index: 0,
                         markdown: "nested".into(),
@@ -6098,21 +6389,27 @@ mod tests {
             (
                 "tag-live-block",
                 EntityId::Block {
-                    page_id: live_page.clone(),
+                    owner: OutlineOwner::Page {
+                        id: live_page.clone(),
+                    },
                     id: live_block.clone(),
                 },
             ),
             (
                 "tag-deleted-block",
                 EntityId::Block {
-                    page_id: deleted_page.clone(),
+                    owner: OutlineOwner::Page {
+                        id: deleted_page.clone(),
+                    },
                     id: deleted_block.clone(),
                 },
             ),
             (
                 "tag-nested-block",
                 EntityId::Block {
-                    page_id: live_page.clone(),
+                    owner: OutlineOwner::Page {
+                        id: live_page.clone(),
+                    },
                     id: nested_block.clone(),
                 },
             ),
@@ -6163,7 +6460,9 @@ mod tests {
         assert!(!node_has_tag(&core.page_root(&live_page).unwrap(), &tag));
         assert!(!node_has_tag(
             &core
-                .page_outline(&deleted_page)
+                .outline(&OutlineOwner::Page {
+                    id: deleted_page.clone(),
+                })
                 .unwrap()
                 .get_meta(tree_id(&deleted_block).unwrap())
                 .unwrap(),
@@ -6176,8 +6475,15 @@ mod tests {
         let effect = undo.result.history_effect.unwrap();
         assert_eq!(effect.scope, HistoryScope::Graph);
         assert_eq!(
-            effect.affected_pages,
-            [deleted_page.clone(), live_page.clone()]
+            effect.affected_outlines,
+            [
+                OutlineOwner::Page {
+                    id: deleted_page.clone(),
+                },
+                OutlineOwner::Page {
+                    id: live_page.clone(),
+                },
+            ]
         );
         assert_eq!(effect.reveal, None);
         let snapshot = core.snapshot().unwrap();
@@ -6196,7 +6502,9 @@ mod tests {
         );
         assert!(node_has_tag(
             &core
-                .page_outline(&deleted_page)
+                .outline(&OutlineOwner::Page {
+                    id: deleted_page.clone(),
+                })
                 .unwrap()
                 .get_meta(tree_id(&deleted_block).unwrap())
                 .unwrap(),
@@ -6222,7 +6530,9 @@ mod tests {
         assert!(snapshot.pages[0].blocks[0].children[0].tags.is_empty());
         assert!(!node_has_tag(
             &core
-                .page_outline(&deleted_page)
+                .outline(&OutlineOwner::Page {
+                    id: deleted_page.clone(),
+                })
                 .unwrap()
                 .get_meta(tree_id(&deleted_block).unwrap())
                 .unwrap(),
@@ -6245,7 +6555,9 @@ mod tests {
             envelope(
                 "edit-second",
                 Command::EditMarkdown {
-                    page_id: second_page.clone(),
+                    owner: OutlineOwner::Page {
+                        id: second_page.clone(),
+                    },
                     block_id: second.clone(),
                     markdown: "changed".into(),
                 },
@@ -6259,7 +6571,9 @@ mod tests {
         assert_eq!(
             undo.result.history_effect.unwrap().reveal,
             Some(EntityId::Block {
-                page_id: second_page.clone(),
+                owner: OutlineOwner::Page {
+                    id: second_page.clone()
+                },
                 id: second,
             })
         );
@@ -6268,7 +6582,9 @@ mod tests {
             envelope(
                 "delete-block",
                 Command::DeleteBlocks {
-                    page_id: first_page.clone(),
+                    owner: OutlineOwner::Page {
+                        id: first_page.clone(),
+                    },
                     block_ids: vec![deleted.clone()],
                 },
             ),
@@ -6283,7 +6599,9 @@ mod tests {
         assert_eq!(
             undo.result.history_effect.unwrap().reveal,
             Some(EntityId::Block {
-                page_id: first_page.clone(),
+                owner: OutlineOwner::Page {
+                    id: first_page.clone()
+                },
                 id: restored.id,
             })
         );
@@ -6293,7 +6611,9 @@ mod tests {
         assert_eq!(
             redo.result.history_effect.unwrap().reveal,
             Some(EntityId::Block {
-                page_id: first_page.clone(),
+                owner: OutlineOwner::Page {
+                    id: first_page.clone()
+                },
                 id: previous,
             })
         );
@@ -6309,7 +6629,7 @@ mod tests {
         assert_eq!(
             redo.result.history_effect.unwrap().reveal,
             Some(EntityId::Block {
-                page_id: first_page,
+                owner: OutlineOwner::Page { id: first_page },
                 id: recreated.id,
             })
         );
@@ -6776,7 +7096,7 @@ mod tests {
                     "query",
                     Command::SetQuerySource {
                         owner: PropertyOwner::Block {
-                            page_id: page(),
+                            owner: OutlineOwner::Page { id: page() },
                             id: block,
                         },
                         source: format!("SELECT ?page WHERE {{ BIND(<{old_iri}> AS ?page) }}"),
@@ -6871,7 +7191,7 @@ mod tests {
                 envelope(
                     "root",
                     Command::InsertBlock {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         parent: None,
                         index: 0,
                         markdown: String::new(),
@@ -6888,7 +7208,7 @@ mod tests {
                 envelope(
                     "child",
                     Command::InsertBlock {
-                        page_id: page(),
+                        owner: OutlineOwner::Page { id: page() },
                         parent: Some(root),
                         index: 0,
                         markdown: String::new(),
@@ -6900,7 +7220,9 @@ mod tests {
             .result
             .created_block
             .unwrap();
-        let corrupt_bag = core.block_bag(&page(), &child).unwrap();
+        let corrupt_bag = core
+            .block_bag(&OutlineOwner::Page { id: page() }, &child)
+            .unwrap();
         ensure_property_field(
             &corrupt_bag,
             &key("builtin.page-kind"),

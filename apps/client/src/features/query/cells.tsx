@@ -11,7 +11,13 @@ import { CheckIcon, MinusIcon } from "lucide-react";
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
-import { findPage, findTag, journalDate, pageTitle } from "../../core-port/snapshot";
+import {
+  findPage,
+  findTag,
+  journalDate,
+  outlineOwnerKey,
+  pageTitle,
+} from "../../core-port/snapshot";
 import { valueTypeOf } from "../../entities/properties";
 import { LIST_SEPARATOR } from "../../entities/query-compile";
 import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
@@ -69,7 +75,7 @@ export interface CellContext {
 
 export function entityRefKey(entity: QueryEntityRef): string {
   return entity.kind === "block"
-    ? `block:${entity.page_id}:${entity.id}`
+    ? `block:${outlineOwnerKey(entity.owner)}:${entity.id}`
     : `${entity.kind}:${entity.id}`;
 }
 

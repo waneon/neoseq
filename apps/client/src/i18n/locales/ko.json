@@ -114,6 +114,7 @@
   "failure.lastEdit": "마지막 편집을 적용하지 못했습니다",
   "failure.loadJournal": "이 저널 날짜를 불러오지 못했습니다",
   "failure.loadPage": "페이지를 불러오지 못했습니다",
+  "failure.loadTag": "태그를 불러오지 못했습니다",
   "failure.moveBlockDown": "블록을 아래로 옮기지 못했습니다",
   "failure.moveBlockUp": "블록을 위로 옮기지 못했습니다",
   "failure.moveBlocks": "{count, plural, other {블록 #개를 옮기지 못했습니다}}",

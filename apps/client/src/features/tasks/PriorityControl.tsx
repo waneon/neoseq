@@ -15,7 +15,7 @@
 // property picker.
 
 import { MinusIcon } from "lucide-react";
-import type { BlockSnapshot } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,11 +37,11 @@ import { PriorityGlyph } from "./glyphs";
 import { priorityLabel } from "./labels";
 
 export function TaskPriorityControl({
-  pageId,
+  owner,
   block,
   priority,
 }: {
-  pageId: string;
+  owner: OutlineOwner;
   block: BlockSnapshot;
   priority: string;
 }) {
@@ -63,25 +63,25 @@ export function TaskPriorityControl({
           <PriorityGlyph priority={priority} />
         </button>
       </DropdownMenuTrigger>
-      <TaskPriorityMenu pageId={pageId} block={block} priority={priority} />
+      <TaskPriorityMenu owner={owner} block={block} priority={priority} />
     </DropdownMenu>
   );
 }
 
 /** The rows a priority choice offers, for whatever trigger opened them. */
 export function TaskPriorityMenu({
-  pageId,
+  owner,
   block,
   priority,
 }: {
-  pageId: string;
+  owner: OutlineOwner;
   block: BlockSnapshot;
   priority: string;
 }) {
   const session = useSession();
   const notify = useNotify();
   const { message } = useI18n();
-  const entity = { kind: "block", page_id: pageId, id: block.id } as const;
+  const entity = { kind: "block", owner, id: block.id } as const;
 
   const run = (command: Parameters<typeof session.execute>[0]) =>
     session.execute(command).catch((error: unknown) => {

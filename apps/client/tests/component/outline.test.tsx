@@ -18,7 +18,7 @@ async function mountOutline(markdowns: string[] = ["alpha"]) {
   for (const [index, markdown] of markdowns.entries()) {
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index,
       markdown,
@@ -227,7 +227,7 @@ describe("outliner keyboard commands", () => {
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "alpha",
@@ -272,7 +272,11 @@ describe("outliner keyboard commands", () => {
       <MemoryRouter>
         <SessionContext.Provider value={session}>
           <HistoryProvider session={session} graphId="pending-handoff">
-            <Outliner page={frozenPage} scrollElement={null} />
+            <Outliner
+              owner={{ kind: "page", id: frozenPage.id }}
+              blocks={frozenPage.blocks}
+              scrollElement={null}
+            />
           </HistoryProvider>
         </SessionContext.Provider>
       </MemoryRouter>,
@@ -346,7 +350,7 @@ describe("outliner keyboard commands", () => {
     const original = findPage(session.getState().snapshot, "home")!.blocks[0];
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", page_id: "home", id: original.id },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: original.id },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });

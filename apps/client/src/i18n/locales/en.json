@@ -114,6 +114,7 @@
   "failure.lastEdit": "Your last edit couldn’t be applied",
   "failure.loadJournal": "Couldn’t load this journal day",
   "failure.loadPage": "Couldn’t load this page",
+  "failure.loadTag": "Couldn’t load this tag",
   "failure.moveBlockDown": "Couldn’t move that block down",
   "failure.moveBlockUp": "Couldn’t move that block up",
   "failure.moveBlocks": "{count, plural, one {Couldn’t move that block} other {Couldn’t move all # blocks}}",

@@ -4,7 +4,7 @@
     "open_graph",
     "execute",
     "read",
-    "read_page",
+    "read_outline",
     "query",
     "subscribe",
     "close_graph"
@@ -35,7 +35,7 @@
     "open": "summary_available",
     "execute": "saved_locally",
     "read": "schema_v1_summary",
-    "read_page": "page_snapshot",
+    "read_outline": "outline_snapshot",
     "query": "select_result",
     "subscribe": ["semantic", "saved_locally"],
     "timeout_error": "command_timeout"

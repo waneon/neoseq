@@ -1,5 +1,5 @@
 use super::{CoreError, GraphCore, MAX_STRUCTURAL_TARGETS};
-use domain::{BlockId, BlockSnapshot, PageId, PageSnapshot};
+use domain::{BlockId, BlockSnapshot, OutlineOwner};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone)]
@@ -16,13 +16,13 @@ pub(super) struct OutlineState {
 }
 
 impl OutlineState {
-    fn from_page(page: &PageSnapshot) -> Self {
+    fn from_blocks(blocks: &[BlockSnapshot]) -> Self {
         let mut state = Self {
             parents: BTreeMap::new(),
             children: BTreeMap::new(),
             document_order: Vec::new(),
         };
-        state.add_blocks(&page.blocks, None);
+        state.add_blocks(blocks, None);
         state
     }
 
@@ -209,18 +209,20 @@ impl OutlineState {
 }
 
 impl GraphCore {
-    pub(super) fn outline_state(&self, page_id: &PageId) -> Result<OutlineState, CoreError> {
-        Ok(OutlineState::from_page(&self.page_snapshot(page_id)?))
+    pub(super) fn outline_state(&self, owner: &OutlineOwner) -> Result<OutlineState, CoreError> {
+        Ok(OutlineState::from_blocks(
+            &self.outline_snapshot(owner)?.blocks,
+        ))
     }
 
     pub(super) fn plan_move_blocks(
         &self,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         block_ids: &[BlockId],
         parent: Option<&BlockId>,
         index: usize,
     ) -> Result<OutlinePlan, CoreError> {
-        let before = self.outline_state(page_id)?;
+        let before = self.outline_state(owner)?;
         let roots = before.roots(block_ids)?;
         let mut after = before.clone();
         after.move_group(&roots, parent.cloned(), index)?;
@@ -229,10 +231,10 @@ impl GraphCore {
 
     pub(super) fn plan_indent_blocks(
         &self,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         block_ids: &[BlockId],
     ) -> Result<OutlinePlan, CoreError> {
-        let before = self.outline_state(page_id)?;
+        let before = self.outline_state(owner)?;
         let roots = before.roots(block_ids)?;
         let mut after = before.clone();
         for block_id in &roots {
@@ -243,10 +245,10 @@ impl GraphCore {
 
     pub(super) fn plan_outdent_blocks(
         &self,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         block_ids: &[BlockId],
     ) -> Result<OutlinePlan, CoreError> {
-        let before = self.outline_state(page_id)?;
+        let before = self.outline_state(owner)?;
         let mut roots = before.roots(block_ids)?;
         let mut after = before.clone();
         roots.reverse();
@@ -258,10 +260,10 @@ impl GraphCore {
 
     pub(super) fn plan_delete_blocks(
         &self,
-        page_id: &PageId,
+        owner: &OutlineOwner,
         block_ids: &[BlockId],
     ) -> Result<OutlinePlan, CoreError> {
-        let before = self.outline_state(page_id)?;
+        let before = self.outline_state(owner)?;
         Ok(OutlinePlan {
             roots: before.roots(block_ids)?,
             before,

@@ -20,7 +20,7 @@ document-property data. There is no migration ledger in the current
 document; Step 9 introduces migration metadata alongside the first real schema
 transition.
 
-## Pages, Nodes, and Ordering
+## Outline Owners, Nodes, and Ordering
 
 `pages` is keyed by stable `PageId`. Each page contains:
 
@@ -41,10 +41,18 @@ by that semantic property before deriving an ID.
 Regular page names are unique after whitespace normalization and Unicode
 lowercasing. Stable IDs, not names, are identity.
 
+Each tag record likewise owns metadata, defaults, and a direct
+`outline: MovableTree<NodeData>`. The tag is the owner; there is no backing page,
+and placing a block in that tree does not add the tag to the block.
+Schema-v1 tag records written before tag outlines existed may omit `outline`.
+Readers interpret that absence as an empty tree; the first block-creating
+command materializes the tree and persists it with the same causal update.
+An existing non-tree value remains invalid rather than being silently replaced.
+
 Every outline node is a block. Its Loro tree ID is the external `BlockId`, and
-the containing page tree determines ownership. Indent, outdent, reorder, and
-move stay within a page. Moving content between pages is an explicit copy with
-new block IDs.
+the containing page or tag tree determines ownership. Indent, outdent, reorder,
+and move stay within one owner. Moving content between owners is an explicit
+copy with new block IDs.
 
 An Enter split preserves the source block's identity. A leading split inserts
 an empty sibling before it; a middle split retains metadata on the head and
@@ -90,7 +98,7 @@ retroactive. See [Property fields](properties.md).
 
 Pages, blocks, and tags initialize `builtin.created-at` and
 `builtin.updated-at` together. Direct mutation advances `updated-at`; a block
-mutation also touches its page. Page and tag deletion sets `builtin.deleted-at`,
+mutation also touches its outline owner. Page and tag deletion sets `builtin.deleted-at`,
 and restore clears it. Tag deletion also advances timestamps on nodes and owning
 pages whose membership it removes. `created-at` never changes.
 
@@ -99,10 +107,10 @@ pages whose membership it removes. `created-at` never changes.
 The runtime validates these invariants before publishing state:
 
 - the stored graph ID and schema version match the opened graph;
-- every visible block is reachable exactly once from its page tree;
+- every visible block is reachable exactly once from its page or tag tree;
 - no visible hierarchy cycle exists;
 - regular page and tag names are unique in their separate namespaces;
-- properties and tag records have valid encodings.
+- properties and tag records have valid encodings;
 - published page and block tag memberships resolve to live tag records.
 
 Local commands are preflighted against current state. Remote updates are first

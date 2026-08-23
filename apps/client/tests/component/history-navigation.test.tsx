@@ -26,21 +26,21 @@ describe("history navigation", () => {
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     const parent = await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "parent",
     });
     const child = await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: parent.created_block,
       index: 0,
       markdown: "before",
     });
     await session.execute({
       type: "edit_markdown",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       block_id: child.created_block!,
       markdown: "after",
     });
@@ -68,21 +68,21 @@ describe("history navigation", () => {
     await session.execute({ type: "ensure_page", page_id: "target", title: "Target" });
     await session.execute({
       type: "insert_block",
-      page_id: "home",
+      owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "stay here",
     });
     const inserted = await session.execute({
       type: "insert_block",
-      page_id: "target",
+      owner: { kind: "page", id: "target" },
       parent: null,
       index: 0,
       markdown: "before",
     });
     await session.execute({
       type: "edit_markdown",
-      page_id: "target",
+      owner: { kind: "page", id: "target" },
       block_id: inserted.created_block!,
       markdown: "after",
     });

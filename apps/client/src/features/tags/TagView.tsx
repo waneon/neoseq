@@ -17,11 +17,11 @@
 // and writes nothing; the first edit — a condition, a column, a second view — is
 // what brings the document into existence.
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
-import { findTag, queryDocument, stringValue } from "../../core-port/snapshot";
+import { findTag, outlineOwnerKey, queryDocument, stringValue } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
 import { configuredTimezone } from "../../entities/journal";
 import { tagPlan } from "../../entities/query-plan";
@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { useNotify } from "../notify/context";
+import { Outliner } from "../outline/Outliner";
 import { Tombstone } from "../page/PageView";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { QueryPanel } from "../query/QueryPanel";
@@ -57,6 +58,23 @@ export function TagView() {
   const notify = useNotify();
   const { message } = useI18n();
   const tag = findTag(state.snapshot, tagId);
+  const load = useCallback<() => void>(() => {
+    void session.hydrateOutline({ kind: "tag", id: tagId }).catch((error: unknown) => {
+      notify.failure(message("failure.loadTag"), error, {
+        label: message("common.retry"),
+        run: load,
+      });
+    });
+  }, [message, notify, session, tagId]);
+
+  useEffect(() => {
+    if (
+      !tag
+      || state.status !== "ready"
+      || state.hydratedOutlines.has(outlineOwnerKey({ kind: "tag", id: tagId }))
+    ) return;
+    load();
+  }, [load, state.hydratedOutlines, state.status, tag, tagId]);
 
   if (!tag) {
     // A deleted tag leaves the snapshot, so a missing one is either deleted or
@@ -96,13 +114,14 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
   const [picker, setPicker] = useState<{ key?: string; anchor: HTMLElement | null } | null>(null);
   const [identityAt, setIdentityAt] = useState<HTMLElement | null>(null);
   const [menuAt, setMenuAt] = useState<MenuPoint | null>(null);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
   const readonly = state.mode === "readonly";
   const document = queryDocument(tag.properties);
   const group = tagGroup(tag);
 
   return (
-    <div className="page-scroll">
+    <div className="page-scroll" ref={setScrollElement}>
       <article className="page-body enter-fade-view">
         {/* The tag's own handle: right-clicking the name is where its verbs are,
             exactly as a page's are on a page's title row. The mark before it is
@@ -142,6 +161,11 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
         <TagDefaults
           tag={tag}
           onEdit={readonly ? undefined : (key, anchor) => setPicker({ key, anchor })}
+        />
+        <Outliner
+          owner={{ kind: "tag", id: tag.id }}
+          blocks={tag.blocks}
+          scrollElement={scrollElement}
         />
         <QueryPanel
           owner={{ kind: "tag", tag_id: tag.id }}

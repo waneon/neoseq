@@ -254,10 +254,10 @@ the query block's own `Remove query` issues.
 
 - Targets and bags are derived from `SessionState.snapshot` on every render.
 - The picker never mutates a snapshot or renders an optimistic property row.
-- Session reconciliation refreshes the owning page before the new row appears.
-- If the target leaves the current page, the outliner can no longer resolve it
+- Session reconciliation refreshes the owning page or tag outline before the new row appears.
+- If the target leaves the current outline, the outliner can no longer resolve it
   and therefore unmounts the picker.
-- Page and block pickers are owned by their routed view and disappear with it.
+- Entity and block pickers are owned by their routed view and disappear with it.
 - Read-only state keeps rows readable and disables mutation actions.
 
 ## Validation and Failure Reporting

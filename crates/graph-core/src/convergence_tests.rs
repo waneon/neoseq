@@ -1,7 +1,7 @@
 use crate::GraphCore;
 use domain::{
-    BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, PageId,
-    PropertyKey, PropertyOwner, PropertyValue, QueryView, QueryViewId, QueryViewKind,
+    BlockId, Command, CommandEnvelope, CommandId, EntityId, GraphId, LocalDate, OutlineOwner,
+    PageId, PropertyKey, PropertyOwner, PropertyValue, QueryView, QueryViewId, QueryViewKind,
     QueryViewOptions, TagId,
 };
 
@@ -95,7 +95,7 @@ fn base_fixture(seed: u64) -> Fixture {
                 graph_id: graph.clone(),
                 command_id: CommandId::new(format!("base-block-{sequence}")).unwrap(),
                 command: Command::InsertBlock {
-                    page_id: page_a.clone(),
+                    owner: OutlineOwner::Page { id: page_a.clone() },
                     parent,
                     index: sequence,
                     markdown: markdown.into(),
@@ -120,7 +120,7 @@ fn base_fixture(seed: u64) -> Fixture {
         20,
         Command::SetProperty {
             owner: PropertyOwner::Block {
-                page_id: page_a.clone(),
+                owner: OutlineOwner::Page { id: page_a.clone() },
                 id: text.clone(),
             },
             key: key("builtin.task-status"),
@@ -134,7 +134,7 @@ fn base_fixture(seed: u64) -> Fixture {
         21,
         Command::AddTag {
             entity: EntityId::Block {
-                page_id: page_a.clone(),
+                owner: OutlineOwner::Page { id: page_a.clone() },
                 id: text.clone(),
             },
             tag_id: tag_a.clone(),
@@ -179,7 +179,9 @@ fn run_seed(seed: u64) {
         left_peer,
         0,
         Command::SpliceMarkdown {
-            page_id: fixture.page_a.clone(),
+            owner: OutlineOwner::Page {
+                id: fixture.page_a.clone(),
+            },
             block_id: fixture.text.clone(),
             index: insert_at,
             delete: 1,
@@ -192,7 +194,9 @@ fn run_seed(seed: u64) {
         right_peer,
         0,
         Command::SpliceMarkdown {
-            page_id: fixture.page_a.clone(),
+            owner: OutlineOwner::Page {
+                id: fixture.page_a.clone(),
+            },
             block_id: fixture.text.clone(),
             index: insert_at,
             delete: 1,
@@ -206,7 +210,9 @@ fn run_seed(seed: u64) {
         1,
         Command::MoveBlocks {
             block_ids: vec![fixture.moving.clone()],
-            page_id: fixture.page_a.clone(),
+            owner: OutlineOwner::Page {
+                id: fixture.page_a.clone(),
+            },
             parent: None,
             index: 0,
         },
@@ -218,7 +224,9 @@ fn run_seed(seed: u64) {
         1,
         Command::MoveBlocks {
             block_ids: vec![fixture.moving.clone()],
-            page_id: fixture.page_a.clone(),
+            owner: OutlineOwner::Page {
+                id: fixture.page_a.clone(),
+            },
             parent: Some(fixture.alternate_parent.clone()),
             index: 0,
         },
@@ -229,7 +237,9 @@ fn run_seed(seed: u64) {
         left_peer,
         2,
         Command::DeleteBlocks {
-            page_id: fixture.page_a.clone(),
+            owner: OutlineOwner::Page {
+                id: fixture.page_a.clone(),
+            },
             block_ids: vec![fixture.ancestor.clone()],
         },
     );
@@ -240,7 +250,9 @@ fn run_seed(seed: u64) {
         2,
         Command::MoveBlocks {
             block_ids: vec![fixture.descendant.clone()],
-            page_id: fixture.page_a.clone(),
+            owner: OutlineOwner::Page {
+                id: fixture.page_a.clone(),
+            },
             parent: None,
             index: 1,
         },
@@ -252,7 +264,9 @@ fn run_seed(seed: u64) {
         3,
         Command::SetProperty {
             owner: PropertyOwner::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             key: key("builtin.task-status"),
@@ -266,7 +280,9 @@ fn run_seed(seed: u64) {
         3,
         Command::RemoveProperty {
             owner: PropertyOwner::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             key: key("builtin.task-status"),
@@ -279,7 +295,9 @@ fn run_seed(seed: u64) {
         4,
         Command::AddTag {
             entity: EntityId::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             tag_id: fixture.tag_b.clone(),
@@ -292,7 +310,9 @@ fn run_seed(seed: u64) {
         4,
         Command::RemoveTag {
             entity: EntityId::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             tag_id: fixture.tag_a.clone(),
@@ -323,7 +343,9 @@ fn run_seed(seed: u64) {
         6,
         Command::AddTag {
             entity: EntityId::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             tag_id: fixture.tag_b.clone(),
@@ -336,7 +358,9 @@ fn run_seed(seed: u64) {
         6,
         Command::SetProperty {
             owner: PropertyOwner::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             key: key("builtin.task-priority"),
@@ -398,7 +422,9 @@ fn convergence_deleted_tag_is_not_published_after_concurrent_add() {
         0,
         Command::AddTag {
             entity: EntityId::Block {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 id: fixture.text.clone(),
             },
             tag_id: fixture.tag_b.clone(),
@@ -438,7 +464,9 @@ fn gc_checkpoint_drops_repeated_edit_history_without_changing_state() {
             77,
             1_000 + sequence,
             Command::SpliceMarkdown {
-                page_id: fixture.page_a.clone(),
+                owner: OutlineOwner::Page {
+                    id: fixture.page_a.clone(),
+                },
                 block_id: fixture.text.clone(),
                 index: 0,
                 delete: 1,
@@ -482,7 +510,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
                 graph_id: graph.clone(),
                 command_id: CommandId::new("query-block").unwrap(),
                 command: Command::InsertBlock {
-                    page_id: page.clone(),
+                    owner: OutlineOwner::Page { id: page.clone() },
                     parent: None,
                     index: 0,
                     markdown: "Query".into(),
@@ -495,7 +523,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         .created_block
         .unwrap();
     let owner = PropertyOwner::Block {
-        page_id: page.clone(),
+        owner: OutlineOwner::Page { id: page.clone() },
         id: block,
     };
     execute(

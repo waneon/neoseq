@@ -1,8 +1,8 @@
 //! Reproducible RDF projection and read-only SPARQL execution.
 
 use domain::{
-    BlockSnapshot, GraphId, GraphSnapshot, PageId, PageSnapshot, PropertyBag, PropertyValue, TagId,
-    TagSnapshot,
+    BlockSnapshot, GraphId, GraphSnapshot, OutlineOwner, PageId, PageSnapshot, PropertyBag,
+    PropertyValue, TagId, TagSnapshot,
 };
 use oxigraph::model::{
     Dataset, GraphNameRef, Literal, NamedNode, Quad, QuadRef, Term, Triple, Variable,
@@ -40,7 +40,7 @@ const MIN_TOP_K_CANDIDATE_COUNT: u64 = 5_000;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryEntityRef {
     Page { id: String },
-    Block { page_id: String, id: String },
+    Block { owner: OutlineOwner, id: String },
     Tag { id: String },
 }
 
@@ -568,7 +568,7 @@ pub struct GraphIndex {
     graph_id: GraphId,
     store: Store,
     entity_refs: HashMap<String, QueryEntityRef>,
-    page_entities: HashMap<PageId, BTreeSet<String>>,
+    owner_entities: HashMap<OutlineOwner, BTreeSet<String>>,
     text_index: TextIndex,
     property_index: PropertyIndex,
     normalized_text: Arc<HashMap<String, String>>,
@@ -622,7 +622,7 @@ impl GraphIndex {
             graph_id,
             store,
             entity_refs: projected.entity_refs,
-            page_entities: projected.page_entities,
+            owner_entities: projected.owner_entities,
             text_index: projected.text_index,
             property_index: projected.property_index,
             normalized_text: Arc::new(projected.normalized_text),
@@ -690,33 +690,34 @@ impl GraphIndex {
     pub fn apply_delta(&mut self, delta: IndexDelta) -> Result<bool, QueryError> {
         let mut projected = Projection::default();
         let mut replaced = BTreeSet::new();
-        let mut page_ids = delta.removed_pages.into_iter().collect::<BTreeSet<_>>();
+        let mut owners = delta
+            .removed_pages
+            .into_iter()
+            .map(|id| OutlineOwner::Page { id })
+            .chain(
+                delta
+                    .removed_tags
+                    .into_iter()
+                    .map(|id| OutlineOwner::Tag { id }),
+            )
+            .collect::<BTreeSet<_>>();
         for page in &delta.pages {
-            page_ids.insert(page.id.clone());
+            owners.insert(OutlineOwner::Page {
+                id: page.id.clone(),
+            });
             project_page(&mut projected, &self.graph_id, page)?;
         }
-        for page_id in &page_ids {
-            if let Some(keys) = self.page_entities.get(page_id) {
-                replaced.extend(keys.iter().cloned());
-            }
-            if let Some(keys) = projected.page_entities.get(page_id) {
-                replaced.extend(keys.iter().cloned());
-            }
-        }
-
         for tag in &delta.tags {
-            let key = entity_iri(&self.graph_id, "tag", tag.id.as_str())?
-                .as_str()
-                .to_owned();
-            replaced.insert(key);
+            owners.insert(OutlineOwner::Tag { id: tag.id.clone() });
             project_tag(&mut projected, &self.graph_id, tag)?;
         }
-        for tag_id in delta.removed_tags {
-            replaced.insert(
-                entity_iri(&self.graph_id, "tag", tag_id.as_str())?
-                    .as_str()
-                    .to_owned(),
-            );
+        for owner in &owners {
+            if let Some(keys) = self.owner_entities.get(owner) {
+                replaced.extend(keys.iter().cloned());
+            }
+            if let Some(keys) = projected.owner_entities.get(owner) {
+                replaced.extend(keys.iter().cloned());
+            }
         }
 
         let mut previous = BTreeMap::new();
@@ -780,10 +781,10 @@ impl GraphIndex {
                 self.property_index.insert_subject(id, triples);
             }
         }
-        for page_id in page_ids {
-            self.page_entities.remove(&page_id);
-            if let Some(keys) = projected.page_entities.remove(&page_id) {
-                self.page_entities.insert(page_id, keys);
+        for owner in owners {
+            self.owner_entities.remove(&owner);
+            if let Some(keys) = projected.owner_entities.remove(&owner) {
+                self.owner_entities.insert(owner, keys);
             }
         }
         self.frontier = delta.frontier;
@@ -990,7 +991,7 @@ impl GraphIndex {
 struct Projection {
     entities: BTreeMap<String, HashSet<Triple>>,
     entity_refs: BTreeMap<String, QueryEntityRef>,
-    page_entities: BTreeMap<PageId, BTreeSet<String>>,
+    owner_entities: BTreeMap<OutlineOwner, BTreeSet<String>>,
     entity_text: BTreeMap<String, String>,
 }
 
@@ -999,7 +1000,7 @@ struct ProjectionStream<I> {
     units: I,
     pending: std::vec::IntoIter<Quad>,
     entity_refs: HashMap<String, QueryEntityRef>,
-    page_entities: HashMap<PageId, BTreeSet<String>>,
+    owner_entities: HashMap<OutlineOwner, BTreeSet<String>>,
     text_index: TextIndex,
     property_index: PropertyIndex,
     normalized_text: HashMap<String, String>,
@@ -1008,7 +1009,7 @@ struct ProjectionStream<I> {
 
 struct ProjectionBuild {
     entity_refs: HashMap<String, QueryEntityRef>,
-    page_entities: HashMap<PageId, BTreeSet<String>>,
+    owner_entities: HashMap<OutlineOwner, BTreeSet<String>>,
     text_index: TextIndex,
     property_index: PropertyIndex,
     normalized_text: HashMap<String, String>,
@@ -1025,7 +1026,7 @@ where
             units,
             pending: Vec::new().into_iter(),
             entity_refs: HashMap::new(),
-            page_entities: HashMap::new(),
+            owner_entities: HashMap::new(),
             text_index: TextIndex::default(),
             property_index: PropertyIndex::default(),
             normalized_text: HashMap::new(),
@@ -1036,7 +1037,7 @@ where
     fn finish(self) -> ProjectionBuild {
         ProjectionBuild {
             entity_refs: self.entity_refs,
-            page_entities: self.page_entities,
+            owner_entities: self.owner_entities,
             text_index: self.text_index,
             property_index: self.property_index,
             normalized_text: self.normalized_text,
@@ -1046,15 +1047,18 @@ where
 
     fn project_unit(&mut self, unit: IndexUnit) -> Result<(), QueryError> {
         let mut projected = Projection::default();
-        let page_id = match unit {
+        let owner = match unit {
             IndexUnit::Page(page) => {
-                let page_id = page.id.clone();
+                let owner = OutlineOwner::Page {
+                    id: page.id.clone(),
+                };
                 project_page(&mut projected, &self.graph_id, &page)?;
-                Some(page_id)
+                owner
             }
             IndexUnit::Tag(tag) => {
+                let owner = OutlineOwner::Tag { id: tag.id.clone() };
                 project_tag(&mut projected, &self.graph_id, &tag)?;
-                None
+                owner
             }
         };
         if projected
@@ -1067,10 +1071,8 @@ where
             ));
         }
 
-        if let Some(page_id) = page_id {
-            let keys = projected.page_entities.remove(&page_id).unwrap_or_default();
-            self.page_entities.insert(page_id.clone(), keys);
-        }
+        let keys = projected.owner_entities.remove(&owner).unwrap_or_default();
+        self.owner_entities.insert(owner, keys);
         for (key, value) in projected.entity_text {
             self.text_index
                 .insert(key, value, &mut self.normalized_text)?;
@@ -1160,16 +1162,21 @@ fn project_page(
     )?;
     add_tags(&mut triples, &page_iri, &page.tags, graph_id)?;
     projection
-        .page_entities
-        .entry(page.id.clone())
+        .owner_entities
+        .entry(OutlineOwner::Page {
+            id: page.id.clone(),
+        })
         .or_default()
         .insert(key.clone());
     projection
         .entity_text
         .insert(key.clone(), page.title.clone());
     projection.entities.insert(key, triples);
+    let owner = OutlineOwner::Page {
+        id: page.id.clone(),
+    };
     for (index, block) in page.blocks.iter().enumerate() {
-        project_block(projection, graph_id, &page.id, &page_iri, block, index)?;
+        project_block(projection, graph_id, &owner, &page_iri, block, index)?;
     }
     Ok(())
 }
@@ -1212,26 +1219,38 @@ fn project_tag(
         DEFAULT_PROPERTY_NS,
         graph_id,
     )?;
+    projection
+        .owner_entities
+        .entry(OutlineOwner::Tag { id: tag.id.clone() })
+        .or_default()
+        .insert(key.clone());
     projection.entity_text.insert(key.clone(), tag.name.clone());
     projection.entities.insert(key, triples);
+    let owner = OutlineOwner::Tag { id: tag.id.clone() };
+    for (index, block) in tag.blocks.iter().enumerate() {
+        project_block(projection, graph_id, &owner, &tag_iri, block, index)?;
+    }
     Ok(())
 }
 
 fn project_block(
     projection: &mut Projection,
     graph_id: &GraphId,
-    page_id: &PageId,
+    owner: &OutlineOwner,
     parent: &NamedNode,
     block: &BlockSnapshot,
     sibling_index: usize,
 ) -> Result<(), QueryError> {
     let block_iri = entity_iri(graph_id, "block", block.id.as_str())?;
-    let page_iri = entity_iri(graph_id, "page", page_id.as_str())?;
+    let owner_iri = match owner {
+        OutlineOwner::Page { id } => entity_iri(graph_id, "page", id.as_str())?,
+        OutlineOwner::Tag { id } => entity_iri(graph_id, "tag", id.as_str())?,
+    };
     let key = block_iri.as_str().to_owned();
     projection.entity_refs.insert(
         key.clone(),
         QueryEntityRef::Block {
-            page_id: page_id.to_string(),
+            owner: owner.clone(),
             id: block.id.to_string(),
         },
     );
@@ -1246,7 +1265,18 @@ fn project_block(
         named_ref("content")?,
         Literal::new_simple_literal(&block.markdown),
     ));
-    triples.insert(Triple::new(block_iri.clone(), named_ref("page")?, page_iri));
+    triples.insert(Triple::new(
+        block_iri.clone(),
+        named_ref("owner")?,
+        owner_iri.clone(),
+    ));
+    if matches!(owner, OutlineOwner::Page { .. }) {
+        triples.insert(Triple::new(
+            block_iri.clone(),
+            named_ref("page")?,
+            owner_iri,
+        ));
+    }
     triples.insert(Triple::new(
         block_iri.clone(),
         named_ref("parent")?,
@@ -1266,8 +1296,8 @@ fn project_block(
     )?;
     add_tags(&mut triples, &block_iri, &block.tags, graph_id)?;
     projection
-        .page_entities
-        .entry(page_id.clone())
+        .owner_entities
+        .entry(owner.clone())
         .or_default()
         .insert(key.clone());
     projection
@@ -1275,7 +1305,7 @@ fn project_block(
         .insert(key.clone(), block.markdown.clone());
     projection.entities.insert(key, triples);
     for (index, child) in block.children.iter().enumerate() {
-        project_block(projection, graph_id, page_id, &block_iri, child, index)?;
+        project_block(projection, graph_id, owner, &block_iri, child, index)?;
     }
     Ok(())
 }
@@ -2706,6 +2736,7 @@ mod tests {
                     "builtin.task-priority",
                     PropertyValue::String("high".into()),
                 )],
+                blocks: vec![],
             }],
             quarantined: vec![],
         }
@@ -2963,7 +2994,7 @@ mod tests {
     #[test]
     fn projects_entities_properties_tags_and_hierarchy() {
         let index = GraphIndex::new(&snapshot()).unwrap();
-        assert_eq!(index.triple_count(), 27);
+        assert_eq!(index.triple_count(), 28);
         let triples = index.semantic_triples().join("\n");
         assert!(triples.contains("urn:neoseq:property:builtin.task-status"));
         assert!(triples.contains("urn:neoseq:default-property:builtin.task-priority"));
@@ -2974,6 +3005,41 @@ mod tests {
         assert!(triples.contains("query%20graph"));
         assert!(triples.contains("<urn:neoseq:property-key:user.empty>"));
         assert!(!triples.contains("<urn:neoseq:property:user.empty>"));
+    }
+
+    #[test]
+    fn projects_tag_owned_blocks_with_their_outline_owner() {
+        let mut source = snapshot();
+        source.tags[0].blocks.push(BlockSnapshot {
+            id: BlockId::new("tag-note").unwrap(),
+            markdown: "Notes about this tag".into(),
+            properties: vec![],
+            tags: vec![],
+            children: vec![],
+        });
+        let tag_iri = entity_iri(&source.graph_id, "tag", "project").unwrap();
+        let index = GraphIndex::new(&source).unwrap();
+        let query = request(&format!(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             SELECT ?block WHERE {{ ?block a neo:Block; neo:owner <{}> }}",
+            tag_iri.as_str(),
+        ));
+        let QueryResult::Select { rows, .. } = index.execute(query).unwrap() else {
+            panic!("expected SELECT")
+        };
+        assert!(matches!(
+            rows.as_slice(),
+            [row] if matches!(
+                row.get("block"),
+                Some(RdfTerm::Iri {
+                    entity: Some(QueryEntityRef::Block {
+                        owner: OutlineOwner::Tag { id },
+                        id: block,
+                    }),
+                    ..
+                }) if id.as_str() == "project" && block == "tag-note"
+            )
+        ));
     }
 
     #[test]

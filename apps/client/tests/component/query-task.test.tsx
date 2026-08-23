@@ -9,7 +9,7 @@ async function mountProjection() {
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   await harness.session.execute({
     type: "insert_block",
-    page_id: "home",
+    owner: { kind: "page", id: "home" },
     parent: null,
     index: 0,
     markdown: "Overdue work",
@@ -29,7 +29,7 @@ describe("query and task projections", () => {
 
     await session.execute({
       type: "set_query_source",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       source: "ASK { ?block ?predicate ?value }",
     });
     // Activation is a demand read. Microtasks are enough to cross the session
@@ -64,7 +64,7 @@ describe("query and task projections", () => {
         block: {
           kind: "iri",
           value: "urn:neoseq:entity:test-graph:block:b-1",
-          entity: { kind: "block", page_id: "home", id: "b-1" },
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
         },
         status: {
           kind: "literal",
@@ -77,7 +77,7 @@ describe("query and task projections", () => {
     };
     await session.execute({
       type: "set_query_source",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 
@@ -114,7 +114,7 @@ describe("query and task projections", () => {
     const { session } = await mountProjection();
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", page_id: "home", id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       key: "builtin.task-status",
       value: { type: "string", value: "blocked" },
     });
@@ -133,7 +133,7 @@ describe("query and task projections", () => {
 
   it("puts priority at the head of the line and dates in the chip strip", async () => {
     const { session } = await mountProjection();
-    const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
+    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
     await session.execute({
       type: "set_property",
       owner,
@@ -170,7 +170,7 @@ describe("query and task projections", () => {
 
   it("rolls a recurring task forward instead of settling it", async () => {
     const { session } = await mountProjection();
-    const owner = { kind: "block", page_id: "home", id: "b-1" } as const;
+    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
     for (const command of [
       { key: "builtin.task-status", value: { type: "string", value: "todo" } },
       { key: "builtin.task-scheduled", value: { type: "date", value: "2026-08-21" } },

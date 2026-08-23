@@ -18,7 +18,7 @@ Future Tauri shells reuse this interaction model through the same CorePort.
 The frontend depends on the asynchronous CorePort v1 operations:
 
 ```text
-open_graph, execute, read, read_page, query, subscribe, close_graph
+open_graph, execute, read, read_outline, query, subscribe, close_graph
 ```
 
 DTOs are generated from
@@ -29,7 +29,7 @@ fault controls are adapter operations outside the portable product contract.
 
 `GraphSession` serializes local commands and remote imports. After either it
 drains semantic events, refreshes the graph summary, and rehydrates affected
-pages. It owns subscription cursors, turns an ambiguous storage failure into a
+page or tag outlines. It owns subscription cursors, turns an ambiguous storage failure into a
 retry of the exact pending update, and delegates remote transport state to one
 `SyncAgent` per remote graph. Callers see immutable DTOs and cannot hold a Loro
 container.
@@ -88,6 +88,10 @@ deletion and subtree deletion cannot be confused. Pure selection arithmetic
 lives in `features/outline/selection.ts`; browser tests own geometry-dependent
 marquee and drag behavior.
 
+One owner-parameterized `Outliner` serves page, journal, and tag routes. Commands,
+presence, hydration, query-result editing, and history identify its
+`OutlineOwner` (`page` or `tag`); no tag route creates a hidden backing page.
+
 Transient outline layers and pointer gestures are closed state machines in
 `features/outline/interaction-state.ts`. Exactly one property, tag, completion,
 or block menu overlay may be open, and a pointer is exactly idle, selecting, or
@@ -127,14 +131,14 @@ compact phrasing-only projection. See
 
 Builder-authored block query results reuse that text intent and the shared
 property/tag controls through a query-level edit coordinator. The coordinator
-hydrates only the active result's page, owns one draft across Table/List view
+hydrates only the active result's outline owner, owns one draft across Table/List view
 changes, and sends ordinary domain commands. A result that stops matching while
 active stays pinned until its editor closes; query rows themselves are never
 optimistically rewritten. Hand-written SPARQL, summaries, and derived relation
 columns remain read-only.
 
 The session exposes separate presentation and canonical revisions. Authoritative
-page hydration advances the former so mounted views reconcile, while only a
+outline hydration advances the former so mounted views reconcile, while only a
 possible graph mutation or remote import advances the latter and invalidates
 visible queries.
 

@@ -2,7 +2,7 @@ use crate::{FaultPoint, NativeCorePort, SqliteGraphRepository};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, Command, CommandEnvelope, CommandId, CorePortErrorCode,
     ExecuteRequest, GraphId, GraphLocatorDto, OpenGraphRequest, PageId, QueryRequestDto,
-    ReadPageRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
+    ReadOutlineRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
 };
 use graph_core::GraphLocator;
 use serde_json::{Value, json};
@@ -116,14 +116,14 @@ fn core_port_native_contract_suite_matches_current_golden() {
     assert_eq!(read.summary["schema_version"], 1);
     assert_eq!(read.summary["pages"].as_array().unwrap().len(), 1);
     assert_eq!(golden["transcript"]["read"], "schema_v1_summary");
-    let page = port
-        .read_page(ReadPageRequest {
+    let outline = port
+        .read_outline(ReadOutlineRequest {
             graph_handle: opened.graph_handle.clone(),
-            page_id: "home".to_owned(),
+            owner: json!({ "kind": "page", "id": "home" }),
         })
         .unwrap();
-    assert_eq!(page.page["id"], "home");
-    assert_eq!(golden["transcript"]["read_page"], "page_snapshot");
+    assert_eq!(outline.outline["owner"]["id"], "home");
+    assert_eq!(golden["transcript"]["read_outline"], "outline_snapshot");
 
     let queried = port
         .query(QueryRequestDto {

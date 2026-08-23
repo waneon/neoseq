@@ -11,8 +11,8 @@ import type {
   QueryResponse,
   ReadRequest,
   ReadResponse,
-  ReadPageRequest,
-  ReadPageResponse,
+  ReadOutlineRequest,
+  ReadOutlineResponse,
   SubscribeRequest,
   SubscribeResponse,
   StorageCapabilitiesDto,
@@ -55,7 +55,7 @@ export type WorkerOperation =
   | "open_graph"
   | "execute"
   | "read"
-  | "read_page"
+  | "read_outline"
   | "query"
   | "subscribe"
   | "close_graph"
@@ -106,8 +106,8 @@ export class CoreWorker implements CorePort {
     return this.request("read", request);
   }
 
-  readPage(request: ReadPageRequest): Promise<ReadPageResponse> {
-    return this.request("read_page", request);
+  readOutline(request: ReadOutlineRequest): Promise<ReadOutlineResponse> {
+    return this.request("read_outline", request);
   }
 
   query(request: QueryRequest): Promise<QueryResponse> {

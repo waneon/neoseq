@@ -19,7 +19,7 @@
 // radio rows. § Choice says two controls that look alike may not open different
 // popups; the corollary is that one value may not have two popups either.
 
-import type { BlockSnapshot } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { dateValue, stringValue } from "../../core-port/snapshot";
 import { MinusIcon } from "lucide-react";
 import type { Command } from "../../core-port/commands";
@@ -48,11 +48,11 @@ import { TaskStatusGlyph } from "./glyphs";
 import { statusLabel } from "./labels";
 
 export function TaskStatusControl({
-  pageId,
+  owner,
   block,
   status,
 }: {
-  pageId: string;
+  owner: OutlineOwner;
   block: BlockSnapshot;
   status: string;
 }) {
@@ -72,25 +72,25 @@ export function TaskStatusControl({
           <TaskStatusGlyph status={status} />
         </button>
       </DropdownMenuTrigger>
-      <TaskStatusMenu pageId={pageId} block={block} status={status} />
+      <TaskStatusMenu owner={owner} block={block} status={status} />
     </DropdownMenu>
   );
 }
 
 /** The rows a status choice offers, for whatever trigger opened them. */
 export function TaskStatusMenu({
-  pageId,
+  owner,
   block,
   status,
 }: {
-  pageId: string;
+  owner: OutlineOwner;
   block: BlockSnapshot;
   status: string;
 }) {
   const session = useSession();
   const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
-  const entity = { kind: "block", page_id: pageId, id: block.id } as const;
+  const entity = { kind: "block", owner, id: block.id } as const;
 
   const run = (commands: Command[]) =>
     commands
