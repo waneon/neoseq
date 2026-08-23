@@ -158,6 +158,12 @@
      is the same idea one notch stronger, because there is more room above it. */
   --lit-edge: inset 0 1px 0 oklch(1 0 0 / 0.16);
 
+  /* How far the focus halo reaches past the control it is drawn on. It is a
+     figure and not a shadow because the reach is also a *layout* fact: a scroll
+     container holding fields has to leave this much room inside its clip, or it
+     crops the ring of whatever is focused against its edge. */
+  --halo: 3px;
+
   /* ── The tone map ──
      The five steps a *preference* is allowed to name, and the only place a
      preference name becomes a colour. A surface carries `data-palette="accent"`
@@ -220,12 +226,12 @@
   --text-lg: 18px;
   --lh-lg: 26px;
   --track-lg: -0.014em;
-  --text-xl: 30px;
-  --lh-xl: 38px;
-  --track-xl: -0.024em;
+  --text-xl: 34px;
+  --lh-xl: 43px;
+  --track-xl: -0.026em;
 
   /* Headings *inside a block*. Four steps rather than the three this scale used
-     to spend: the top one lands just under the page title, so an `#` heading
+     to spend: the top one stays under the page title, so an `#` heading
      reads as the largest thing in the writing and still never ties with the name
      of the page it is written on, and the bottom one is the body size exactly, so
      `####` is a bold line rather than a size nobody asked for. */
@@ -264,7 +270,9 @@
   --rail-w: 248px;
   --drawer-w: min(308px, 84vw);
   --topbar-h: 48px;
-  --title-row-h: 44px;
+  /* The display line plus the six pixels of air it has always had over it. It is
+     a floor, not a height: a name that wraps takes the rows it needs. */
+  --title-row-h: 49px;
   --row-h: 32px;
   /* One indent used to be 24px, which is where an outliner's depth stops being
      legible: at three levels the difference between two siblings and a parent and
@@ -2165,11 +2173,13 @@ button.chip:focus-visible .chip-glyph .chip-x {
    questions underneath, that reach is also the gap between the day's last line
    and its first answer — and at 40vh the two read as separate screens rather
    than as one day, with a scroll between the writing and the answers the writing
-   is about. Halved, the region is still a target several rows tall and the two
-   bodies are one page. Both the zone and the empty page's placeholder take it
-   from here, so nothing steps when the first block lands. */
+   is about. Under the day it keeps three fifths of it: enough that the writing
+   and its answers are two things, little enough that they are one page, and
+   still a target three rows tall to start a line in. Both the zone and the empty
+   page's placeholder take it from here, so nothing steps when the first block
+   lands. */
 .page-body:has(> .journal-queries) {
-  --append-h: min(20vh, 160px);
+  --append-h: min(12vh, 96px);
 }
 
 /* Each panel already carries the gap above; here the flex gap owns it, so the
@@ -5819,11 +5829,21 @@ button.query-list-status[data-active="true"] {
   line-height: var(--lh-xs);
 }
 
+/* The value stage scrolls, and a focused field's accent halo reaches `--halo`
+   past its own box — so `overflow` cut it off on the three sides where the
+   field met this container's edge and kept only the stretch below it, where the
+   content runs on. What the reader saw was not a ring around the date field but
+   a band of accent under it, which reads as a highlighted background rather than
+   as focus. The container takes the halo's own reach as padding and gives the
+   same figure straight back as margin: every row stays at the x and y it was
+   already at, and the ring is whole. */
 .property-picker-value {
   display: flex;
   min-height: 0;
   flex-direction: column;
   gap: var(--sp-2);
+  margin: calc(var(--halo) * -1);
+  padding: var(--halo);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -6863,8 +6883,8 @@ button.tag-mark:focus-visible {
    the thread both derive from `--gutter`, so they follow it. */
 @media (max-width: 600px) {
   :root {
-    --text-xl: clamp(24px, 6vw, 30px);
-    --track-xl: -0.015em;
+    --text-xl: clamp(27px, 6.8vw, 34px);
+    --track-xl: -0.016em;
     --gutter: var(--sp-4);
     /* Depth still has to read, but on a 360px screen every indent is spent out
        of the measure rather than out of a margin, so it gives back four pixels. */

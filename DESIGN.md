@@ -55,7 +55,7 @@ typography:
   sm:  { size: 14px, line: 20px, track: -0.006em, weight: 400 }  # UI default, property chips
   md:  { size: 16px, line: 26px, track: 0em,      weight: 400 }  # block text, page body
   lg:  { size: 18px, line: 26px, track: -0.014em, weight: 600 }  # section headings, dialog titles
-  xl:  { size: 30px, line: 38px, track: -0.024em, weight: 600 }  # page/journal titles (<h1>)
+  xl:  { size: 34px, line: 43px, track: -0.026em, weight: 600 }  # page/journal titles (<h1>)
   weights: "normal 400 · medium 500 · strong 600"
   mono-xs: { size: 12px, line: 16px }                            # identifiers only
   group-label: { size: 12px, track: +0.06em, weight: 600, color: "{ink-3}" }  # every list divider
@@ -65,6 +65,7 @@ typography:
 spacing: "sp-0…sp-8 = 2 4 8 12 16 24 32 48 64"
 
 metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar 48 ·
+  title-row 49 (the display line and the air over it; a floor, not a height) ·
   text-inset 26 (slot + gap + padding — where the writing starts; the page's own
     material starts at the gutter, § Two edges) ·
   mark-slot 16 + mark-gap 9 (the rail's one glyph column) ·
@@ -73,9 +74,10 @@ metrics: "measure 848px (~87ch) · gutter 24 (16 ≤600px) · rail 248 · topbar
   settings-shell round(down, clamp(272, 100dvh − 128, 408), 1px) — one height,
     every section ·
   hit-target 24 (32 ≤600px, and the icon button grows with it) ·
-  append min(40vh, 320px), halved to min(20vh, 160px) where standing questions follow —
-    the reach is the offer to keep writing when nothing is under it, and the gap between
-    the writing and its answers when something is"
+  append min(40vh, 320px), three fifths of it — min(12vh, 96px) — where standing
+    questions follow: the reach is the offer to keep writing when nothing is under it,
+    and the gap between the writing and its answers when something is, and a gap asks
+    for a smaller figure than an invitation does"
 
 radius: "r-1 4px key badges · r-2 7px controls · r-3 12px panels ·
   r-4 16px dialogs and the palette · r-full the bullet dot and every chip —
@@ -90,6 +92,9 @@ elevation:                             # a control is raised or inset, never fla
   e2: "ring + soft cast — floating: menus, popovers, toasts"
   e3: "ring + deep cast — modal: dialogs, the palette"
   lit-edge: "inset 0 1px 0 white/16% (10% dark) — the top of any filled control"
+  halo: "3px of {accent-soft} outside a focused control — a *layout* figure as much as a
+    shadow: a scrolling container holding fields leaves this much room inside its own
+    clip, or it crops the ring of whatever is focused against its edge"
 
 motion:
   durations: "press 80 · view 120 · overlay 170 · disclose 200 · size 260 (ms)"
@@ -261,7 +266,7 @@ at 18px+; locale overrides may zero it but never add a sixth size.
 - **Weight rests at 400.** The scale used to start at 500, which made every label, row and
   heading arrive at nearly the same weight; rising to 500 now means "this one", and 600 is
   genuinely a heading.
-- **Markdown headings** get four steps, anchored under the 30px page title and on the body
+- **Markdown headings** get four steps, anchored under the page title and on the body
   size; `#####` and deeper repeat the body size in `--ink-2`. No heading draws a rule — in
   an outline a full-measure rule under one bullet is a page divider the next row contradicts.
 - **The mono voice** is for identifiers only — property keys, graph ids, ISO dates, SPARQL —
@@ -570,12 +575,17 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   is ordered, and how it is drawn — four controls in one place, revealed together. It carries
   no lit state, unlike the sort control's: a query with no conditions is one nobody has
   written yet, so a mark for "this answer is narrowed" would be on for every query in the
-  graph, and what the conditions *are* the caption already says in words. The builder reads
-  as a sentence in rows — a
-  lead column, controls that read as words, one left edge, groups are depth not cards — and
-  the row limit is a clause like the others: its lead word in the lead column, its field on
-  the same left edge as the subject's, rather than two knobs held behind a seam at the end of
-  the line answering to no word at all.
+  graph, and what the conditions *are* the caption already says in words. **Both disclosures
+  are remembered** — in this browser, per graph and per query, beside the theme and the rail's
+  width: a question left open comes back open and a folded answer comes back folded, because
+  a preference the reader has to state again after every reload is one the product is not
+  keeping. Each list names only the departures from the surface's own answer, so a graph
+  nobody has touched stores nothing, and a query with no conditions still opens its editor
+  however often it is met. The builder reads as a sentence in rows — a lead column, controls
+  that read as words, one left edge, groups are depth not cards — and the row limit is a
+  clause like the others: its lead word in the lead column, its field on the same left edge
+  as the subject's, rather than two knobs held behind a seam at the end of the line answering
+  to no word at all.
   **The sentence asks; it does not lay out.** What an answer shows and which way it is
   ordered are changed while *reading* it, so they are controls on the answer and not rows
   in the editor: a `Show` row and a `Sort by` row stated both one surface away from where

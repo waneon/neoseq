@@ -9,7 +9,9 @@ import {
   queryExecutionSignature,
 } from "../../src/features/query/execution";
 import {
+  queryEditorIsOpen,
   queryResultsAreOpen,
+  rememberQueryEditorOpen,
   rememberQueryResultsOpen,
   resetQueryDisclosure,
 } from "../../src/features/query/presentation";
@@ -102,6 +104,27 @@ describe("query disclosure", () => {
     expect(queryResultsAreOpen("one", "home:block")).toBe(true);
     // Nothing folded is nothing stored.
     expect(localStorage.getItem("neoseq.query-disclosure.v1")).toBeNull();
+  });
+
+  it("remembers an opened question the same way, per graph and per query", () => {
+    // Unpressed, the surface's own answer stands: shut over a query that reads,
+    // open over one with nothing to say yet.
+    expect(queryEditorIsOpen("one", "home:block", false)).toBe(false);
+    expect(queryEditorIsOpen("one", "home:block", true)).toBe(true);
+
+    rememberQueryEditorOpen("one", "home:block", true);
+    expect(queryEditorIsOpen("one", "home:block", false)).toBe(true);
+    // Opening one question says nothing about another, or about the same query
+    // in a different graph.
+    expect(queryEditorIsOpen("one", "home:other", false)).toBe(false);
+    expect(queryEditorIsOpen("two", "home:block", false)).toBe(false);
+    // The two disclosures are independent: opening the editor folds nothing.
+    expect(queryResultsAreOpen("one", "home:block")).toBe(true);
+
+    rememberQueryEditorOpen("one", "home:block", false);
+    expect(queryEditorIsOpen("one", "home:block", false)).toBe(false);
+    // Nothing opened is nothing stored.
+    expect(localStorage.getItem("neoseq.query-editor.v1")).toBeNull();
   });
 });
 

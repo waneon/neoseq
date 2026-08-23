@@ -125,7 +125,9 @@ import { useQueryAnswer } from "./execution";
 import { answerLabel, columnLabel, fieldLabel } from "./labels";
 import { orderBlockRows, orderResultRows, type ListSortField } from "./ordering";
 import {
+  queryEditorIsOpen,
   queryResultsAreOpen,
+  rememberQueryEditorOpen,
   rememberQueryResultsOpen,
 } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
@@ -220,10 +222,14 @@ export function QueryPanel({
   // one that has: a query with no conditions has nothing to say in its caption, so
   // showing it the builder is the only honest first screen. Once a reader has
   // shaped it, reopening the page shows them the answer they shaped it for. Which
-  // it is, is theirs from the first press — never re-derived under their hands.
-  const [editing, setEditing] = useState(
-    () => owner !== null && unwritten(storedPlan ?? seedPlan ?? null),
-  );
+  // it is, is theirs from the first press — never re-derived under their hands,
+  // and remembered in this browser past the visit that pressed it, the way the
+  // fold under it is (§ presentation).
+  const [editing, setEditing] = useState(() => hosted && queryEditorIsOpen(
+    session.graphId,
+    executionKey,
+    unwritten(storedPlan ?? seedPlan ?? null),
+  ));
   const [showSource, setShowSource] = useState(false);
   // Reading is never read-only. Without a document to write the order into, it
   // lives here for as long as the surface is mounted — and it has to live *here*
@@ -750,6 +756,15 @@ export function QueryPanel({
     || (select && visibleRows.length > 0),
   );
 
+  /* The two disclosures of one surface, and each remembers its own answer. The
+     question is the reader's working state, not the query's, so it is written
+     where the fold is: in this browser, against this graph and this key. */
+  const toggleEditing = () => {
+    const nextOpen = !editing;
+    rememberQueryEditorOpen(session.graphId, executionKey, nextOpen);
+    setEditing(nextOpen);
+  };
+
   const toggleResults = async () => {
     const nextOpen = !resultsOpen;
     if (!nextOpen && resultEditor.active) {
@@ -945,7 +960,7 @@ export function QueryPanel({
               // answer is narrowed" would be on for every query in the graph.
               // What the conditions *are* is stated in words, in the caption.
               data-testid="query-conditions-trigger"
-              onClick={() => setEditing((open) => !open)}
+              onClick={toggleEditing}
             >
               <ListFilterIcon aria-hidden />
             </button>

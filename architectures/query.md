@@ -250,8 +250,14 @@ The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view
 overrides, whether the editor or result is open, and editor drafts do not
-synchronize. Result disclosure has graph-session lifetime: it survives route and
-virtualized-row remounts for one reader, but a new session starts expanded.
+synchronize.
+
+Both disclosures — the editor over the question, the fold over the answer — are
+reader preferences held in browser storage rather than in the graph, keyed by
+graph id and execution key. Each is one bounded list naming only its departures
+from the surface's own default: the answers folded, and the editors opened. They
+survive a reload and a new session; an editor the reader has never pressed still
+follows the surface, which opens it for a query that has no conditions yet.
 
 ## Editable Result Projection
 
