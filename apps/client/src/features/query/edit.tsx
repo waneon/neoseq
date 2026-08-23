@@ -932,6 +932,7 @@ function QueryMarkdownField({
                 selectionEnd: event.currentTarget.selectionEnd,
                 editable: true,
                 supportsVisualLine: false,
+                supportsCrossBlockWords: false,
               },
               vimKeyFromEvent(event),
             );

@@ -30,6 +30,14 @@ pub enum PropertyOwner {
     TagDefault { tag_id: TagId },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkdownSplice {
+    pub block_id: BlockId,
+    pub index: usize,
+    pub delete: usize,
+    pub insert: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
@@ -101,6 +109,10 @@ pub enum Command {
         index: usize,
         delete: usize,
         insert: String,
+    },
+    SpliceMarkdowns {
+        owner: OutlineOwner,
+        splices: Vec<MarkdownSplice>,
     },
     MoveBlocks {
         block_ids: Vec<BlockId>,

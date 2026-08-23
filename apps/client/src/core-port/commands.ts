@@ -59,6 +59,11 @@ export type Command =
     }
   | { type: "edit_markdown"; owner: OutlineOwner; block_id: string; markdown: string }
   | { type: "splice_markdown"; owner: OutlineOwner; block_id: string; index: number; delete: number; insert: string }
+  | {
+      type: "splice_markdowns";
+      owner: OutlineOwner;
+      splices: Array<{ block_id: string; index: number; delete: number; insert: string }>;
+    }
   | { type: "move_blocks"; block_ids: string[]; owner: OutlineOwner; parent: string | null; index: number }
   | { type: "indent_blocks"; owner: OutlineOwner; block_ids: string[] }
   | { type: "outdent_blocks"; owner: OutlineOwner; block_ids: string[] }

@@ -6,12 +6,14 @@
 
 export type VimMode = "normal" | "insert" | "operator-pending" | "visual-line";
 export type VimOperator = "delete" | "change" | "indent" | "outdent";
+export type VimTextObjectModifier = "inner" | "around";
 
 export interface VimState {
   mode: VimMode;
   count: string;
   operator: VimOperator | null;
   operatorCount: number;
+  textObject: VimTextObjectModifier | null;
   prefix: "g" | null;
   /** Logical column retained across vertical motion. */
   desiredColumn: number | null;
@@ -24,6 +26,8 @@ export interface VimSnapshot {
   editable: boolean;
   /** Whether this host can turn a linewise selection into structural units. */
   supportsVisualLine?: boolean;
+  /** Whether word motions may continue through adjacent text units. */
+  supportsCrossBlockWords?: boolean;
 }
 
 export interface VimKey {
@@ -37,12 +41,23 @@ export interface VimKey {
 export type VimSurfaceCommand =
   | { type: "focus"; direction: -1 | 1; count: number; column: number }
   | { type: "focus-edge"; edge: "first" | "last" }
+  | VimWordMotionCommand
   | { type: "open"; side: "before" | "after" }
   | { type: "delete-unit"; count: number }
   | { type: "indent"; count: number }
   | { type: "outdent"; count: number }
   | { type: "history"; redo: boolean }
   | VimVisualLineCommand;
+
+export type VimWordMotion = "w" | "b" | "e";
+
+export interface VimWordMotionCommand {
+  type: "word-motion";
+  motion: VimWordMotion;
+  count: number;
+  caret: number;
+  operator: "delete" | "change" | null;
+}
 
 export type VimVisualLineCommand =
   | {
@@ -84,6 +99,7 @@ export function initialVimState(mode: VimMode = "normal"): VimState {
     count: "",
     operator: null,
     operatorCount: 1,
+    textObject: null,
     prefix: null,
     desiredColumn: null,
   };
@@ -197,6 +213,85 @@ function graphemes(value: string): Grapheme[] {
   return result;
 }
 
+interface TextRun {
+  start: number;
+  end: number;
+  kind: WordClass;
+}
+
+function textRuns(value: string): TextRun[] {
+  const runs: TextRun[] = [];
+  for (const item of graphemes(value)) {
+    const prior = runs[runs.length - 1];
+    if (prior?.kind === item.kind) {
+      prior.end = item.end;
+    } else {
+      runs.push({ ...item });
+    }
+  }
+  return runs;
+}
+
+function runIndexAt(items: readonly TextRun[], position: number): number {
+  const containing = items.findIndex((item) => position >= item.start && position < item.end);
+  if (containing >= 0) return containing;
+  return position >= (items[items.length - 1]?.end ?? 0) ? items.length - 1 : 0;
+}
+
+function innerWordRange(
+  items: readonly TextRun[],
+  index: number,
+  count: number,
+): { from: number; to: number } | null {
+  const end = index + count - 1;
+  if (end >= items.length) return null;
+  return { from: items[index].start, to: items[end].end };
+}
+
+function aroundWordRange(
+  items: readonly TextRun[],
+  index: number,
+  count: number,
+): { from: number; to: number } | null {
+  if (items[index].kind === "space") {
+    let end = index;
+    let words = 0;
+    while (end + 1 < items.length && words < count) {
+      end += 1;
+      if (items[end].kind !== "space") words += 1;
+    }
+    return words === count ? { from: items[index].start, to: items[end].end } : null;
+  }
+
+  let end = index;
+  let words = 1;
+  while (end + 1 < items.length && words < count) {
+    end += 1;
+    if (items[end].kind !== "space") words += 1;
+  }
+  if (words < count) return null;
+  if (items[end + 1]?.kind === "space") {
+    end += 1;
+    return { from: items[index].start, to: items[end].end };
+  }
+  const start = items[index - 1]?.kind === "space" ? index - 1 : index;
+  return { from: items[start].start, to: items[end].end };
+}
+
+function wordTextObjectRange(
+  value: string,
+  position: number,
+  modifier: VimTextObjectModifier,
+  count: number,
+): { from: number; to: number } | null {
+  const items = textRuns(value);
+  if (items.length === 0) return null;
+  const index = runIndexAt(items, Math.max(0, Math.min(position, value.length)));
+  return modifier === "inner"
+    ? innerWordRange(items, index, count)
+    : aroundWordRange(items, index, count);
+}
+
 function graphemeIndexAt(items: readonly Grapheme[], position: number): number {
   const containing = items.findIndex((item) => position >= item.start && position < item.end);
   if (containing >= 0) return containing;
@@ -234,12 +329,126 @@ function wordEnd(value: string, position: number, count: number): number {
   let index = graphemeIndexAt(items, position);
   if (index < 0) return Math.max(0, value.length - 1);
   for (let step = 0; step < count; step += 1) {
-    while (index < items.length && items[index].kind === "space") index += 1;
+    let crossedSpace = false;
+    while (index < items.length && items[index].kind === "space") {
+      crossedSpace = true;
+      index += 1;
+    }
+    if (
+      !crossedSpace
+      && index < items.length
+      && items[index].kind !== "space"
+      && items[index + 1]?.kind !== items[index].kind
+    ) {
+      index += 1;
+      while (index < items.length && items[index].kind === "space") index += 1;
+    }
+    if (index >= items.length) return items[items.length - 1]?.start ?? 0;
     const current = items[index]?.kind;
     while (index + 1 < items.length && items[index + 1].kind === current) index += 1;
     if (step < count - 1) index += 1;
   }
   return items[Math.min(index, items.length - 1)]?.start ?? value.length;
+}
+
+export interface VimWordPosition {
+  unit: number;
+  offset: number;
+}
+
+export interface VimWordEdit {
+  unit: number;
+  from: number;
+  to: number;
+}
+
+interface JoinedTextUnits {
+  value: string;
+  starts: number[];
+}
+
+function joinTextUnits(values: readonly string[]): JoinedTextUnits {
+  const starts: number[] = [];
+  let offset = 0;
+  for (const value of values) {
+    starts.push(offset);
+    offset += value.length + 1;
+  }
+  return { value: values.join("\n"), starts };
+}
+
+function positionInUnits(
+  values: readonly string[],
+  starts: readonly number[],
+  position: number,
+): VimWordPosition {
+  if (values.length === 0) return { unit: 0, offset: 0 };
+  const last = values.length - 1;
+  const clamped = Math.max(0, Math.min(position, starts[last] + values[last].length));
+  let unit = starts.length - 1;
+  while (unit > 0 && starts[unit] > clamped) unit -= 1;
+  return {
+    unit,
+    offset: Math.min(values[unit].length, clamped - starts[unit]),
+  };
+}
+
+function globalWordMotion(
+  value: string,
+  position: number,
+  motion: VimWordMotion,
+  count: number,
+): number {
+  if (motion === "w") return wordForward(value, position, count);
+  if (motion === "b") return wordBackward(value, position, count);
+  return wordEnd(value, position, count);
+}
+
+/** A pure word motion over text units separated by structural newlines. */
+export function wordMotionAcrossUnits(
+  values: readonly string[],
+  start: VimWordPosition,
+  motion: VimWordMotion,
+  count: number,
+): VimWordPosition {
+  if (values.length === 0) return start;
+  const joined = joinTextUnits(values);
+  const unit = Math.max(0, Math.min(start.unit, values.length - 1));
+  const local = Math.max(0, Math.min(start.offset, values[unit].length));
+  const target = globalWordMotion(
+    joined.value,
+    joined.starts[unit] + local,
+    motion,
+    Math.max(1, count),
+  );
+  return positionInUnits(values, joined.starts, target);
+}
+
+/** Text spans removed by an operator; structural separators are never edits. */
+export function wordEditsAcrossUnits(
+  values: readonly string[],
+  start: VimWordPosition,
+  motion: VimWordMotion,
+  count: number,
+): { caret: VimWordPosition; edits: VimWordEdit[] } {
+  if (values.length === 0) return { caret: start, edits: [] };
+  const joined = joinTextUnits(values);
+  const unit = Math.max(0, Math.min(start.unit, values.length - 1));
+  const local = Math.max(0, Math.min(start.offset, values[unit].length));
+  const origin = joined.starts[unit] + local;
+  const target = globalWordMotion(joined.value, origin, motion, Math.max(1, count));
+  const from = Math.min(origin, target);
+  const to = target >= origin && motion === "e"
+    ? nextBoundary(joined.value, target)
+    : Math.max(origin, target);
+  const edits: VimWordEdit[] = [];
+  values.forEach((value, index) => {
+    const unitStart = joined.starts[index];
+    const editFrom = Math.max(0, from - unitStart);
+    const editTo = Math.min(value.length, to - unitStart);
+    if (editTo > editFrom) edits.push({ unit: index, from: editFrom, to: editTo });
+  });
+  return { caret: positionInUnits(values, joined.starts, from), edits };
 }
 
 function lineStarts(value: string): number[] {
@@ -410,7 +619,7 @@ function motionFor(
   return null;
 }
 
-function normalCaretAfterEdit(value: string, position: number): number {
+export function normalCaretAfterEdit(value: string, position: number): number {
   if (value.length === 0) return 0;
   if (position < value.length) return position;
   return previousBoundary(value, value.length);
@@ -447,6 +656,10 @@ function operatorRange(snapshot: VimSnapshot, motion: TextMotion): { from: numbe
   return { from: motion.position, to: start };
 }
 
+function isWordMotion(key: string): key is VimWordMotion {
+  return key === "w" || key === "b" || key === "e";
+}
+
 function interpretOperator(
   state: VimState,
   snapshot: VimSnapshot,
@@ -456,6 +669,27 @@ function interpretOperator(
     return result(appendCount(state, key.key));
   }
   const count = state.operatorCount * parsedCount(state.count);
+  const editsText = state.operator === "delete" || state.operator === "change";
+  if (editsText && state.textObject === null && (key.key === "i" || key.key === "a")) {
+    return result({
+      ...state,
+      textObject: key.key === "i" ? "inner" : "around",
+    });
+  }
+  if (state.textObject !== null) {
+    if (!editsText || key.key !== "w" || !snapshot.editable) return result(normalState());
+    const range = wordTextObjectRange(
+      snapshot.value,
+      snapshot.selectionStart,
+      state.textObject,
+      count,
+    );
+    if (!range || range.from === range.to) return result(normalState());
+    const changing = state.operator === "change";
+    return result(changing ? initialVimState("insert") : normalState(), [
+      editEffect(snapshot, range.from, range.to, "", changing),
+    ]);
+  }
   if (
     (state.operator === "delete" && key.key === "d")
     || (state.operator === "change" && key.key === "c")
@@ -482,6 +716,22 @@ function interpretOperator(
   }
   if (state.operator !== "delete" && state.operator !== "change") {
     return result(normalState());
+  }
+  if (snapshot.supportsCrossBlockWords && isWordMotion(key.key)) {
+    if (!snapshot.editable) return result(normalState());
+    const changing = state.operator === "change";
+    return result(changing ? initialVimState("insert") : normalState(), [
+      {
+        kind: "surface",
+        command: {
+          type: "word-motion",
+          motion: key.key,
+          count,
+          caret: snapshot.selectionStart,
+          operator: state.operator,
+        },
+      },
+    ]);
   }
   const motion = motionFor(snapshot, key.key, count, state.desiredColumn);
   if (!motion || motion.kind === "surface") return result(normalState());
@@ -670,6 +920,20 @@ function interpretNormal(
     return result(changing ? initialVimState("insert") : normalState(), to > from
       ? [editEffect(snapshot, from, to, "", changing)]
       : []);
+  }
+  if (snapshot.supportsCrossBlockWords && isWordMotion(key.key)) {
+    return result(normalState(), [
+      {
+        kind: "surface",
+        command: {
+          type: "word-motion",
+          motion: key.key,
+          count,
+          caret: snapshot.selectionStart,
+          operator: null,
+        },
+      },
+    ]);
   }
   const motion = motionFor(snapshot, key.key, count, state.desiredColumn);
   if (motion?.kind === "surface") {

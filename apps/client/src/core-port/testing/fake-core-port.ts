@@ -568,6 +568,17 @@ export class FakeCorePort implements SessionPort {
         block.markdown = points.join("");
         break;
       }
+      case "splice_markdowns":
+        for (const splice of command.splices) {
+          const block = this.requireBlock(command.owner, splice.block_id).block;
+          const points = Array.from(block.markdown);
+          if (splice.index + splice.delete > points.length) {
+            fail("internal", "markdown splice is out of bounds");
+          }
+          points.splice(splice.index, splice.delete, ...Array.from(splice.insert));
+          block.markdown = points.join("");
+        }
+        break;
       case "move_blocks": {
         const roots = this.structuralRoots(command.owner, command.block_ids);
         const rootSet = new Set(roots);
@@ -923,6 +934,10 @@ export class FakeCorePort implements SessionPort {
           [block(command.owner, command.block_id)],
           [block(command.owner, command.block_id)],
         );
+      case "splice_markdowns": {
+        const candidates = command.splices.map((splice) => block(command.owner, splice.block_id));
+        return outlineEntry(command.owner, candidates, clone(candidates));
+      }
       case "move_blocks":
       case "indent_blocks":
       case "outdent_blocks": {
@@ -1067,6 +1082,10 @@ export class FakeCorePort implements SessionPort {
       case "edit_markdown":
       case "splice_markdown":
         this.touchBlock(command.owner, command.block_id, timestamp);
+        this.touchOutline(command.owner, timestamp);
+        break;
+      case "splice_markdowns":
+        for (const splice of command.splices) this.touchBlock(command.owner, splice.block_id, timestamp);
         this.touchOutline(command.owner, timestamp);
         break;
       case "move_blocks":

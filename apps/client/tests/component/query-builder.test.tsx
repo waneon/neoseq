@@ -811,9 +811,11 @@ describe("query result views", () => {
       await user.keyboard(" now{Escape}");
       await user.keyboard("0dw");
       expect(editor).toHaveValue("the builder now");
+      await user.keyboard("ciwThat{Escape}");
+      expect(editor).toHaveValue("That builder now");
 
       await user.click(screen.getByRole("button", { name: "Collapse 1 result" }));
-      await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("the builder now"));
+      await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("That builder now"));
     } finally {
       localStorage.clear();
       resetAppSettingsCache();

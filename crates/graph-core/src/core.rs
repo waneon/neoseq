@@ -1159,6 +1159,29 @@ impl GraphCore {
                 self.require_block(owner, block_id)?;
                 validate_text(insert, 1_048_576)?;
             }
+            Command::SpliceMarkdowns { owner, splices } => {
+                if splices.is_empty() || splices.len() > MAX_STRUCTURAL_TARGETS {
+                    return Err(CoreError::InvalidHierarchy(
+                        "markdown splice batch must contain between 1 and 10000 blocks".into(),
+                    ));
+                }
+                let mut seen = BTreeSet::new();
+                for splice in splices {
+                    if !seen.insert(splice.block_id.clone()) {
+                        return Err(CoreError::InvalidHierarchy(
+                            "markdown splice batch contains a duplicate block".into(),
+                        ));
+                    }
+                    self.require_block(owner, &splice.block_id)?;
+                    validate_text(&splice.insert, 1_048_576)?;
+                    let text = self.block_text(owner, &splice.block_id)?;
+                    if splice.index.saturating_add(splice.delete) > text.len_unicode() {
+                        return Err(CoreError::InvalidHierarchy(
+                            "markdown splice is out of bounds".into(),
+                        ));
+                    }
+                }
+            }
             Command::MoveBlocks { .. }
             | Command::IndentBlocks { .. }
             | Command::OutdentBlocks { .. }
@@ -1667,6 +1690,17 @@ impl GraphCore {
                     text.insert(*index, insert)?;
                 }
             }
+            Command::SpliceMarkdowns { owner, splices } => {
+                for splice in splices {
+                    let text = self.block_text(owner, &splice.block_id)?;
+                    if splice.delete > 0 {
+                        text.delete(splice.index, splice.delete)?;
+                    }
+                    if !splice.insert.is_empty() {
+                        text.insert(splice.index, &splice.insert)?;
+                    }
+                }
+            }
             Command::MoveBlocks {
                 owner,
                 parent,
@@ -1857,6 +1891,12 @@ impl GraphCore {
                 owner, block_id, ..
             } => {
                 self.touch_block(owner, block_id, now)?;
+                self.touch_outline_owner(owner, now)?;
+            }
+            Command::SpliceMarkdowns { owner, splices } => {
+                for splice in splices {
+                    self.touch_block(owner, &splice.block_id, now)?;
+                }
                 self.touch_outline_owner(owner, now)?;
             }
             Command::MoveBlocks {
@@ -2521,6 +2561,20 @@ impl GraphCore {
                 false,
                 false,
             ),
+            Command::SpliceMarkdowns { owner, splices } => {
+                let candidates = splices
+                    .iter()
+                    .map(|splice| block(owner, &splice.block_id))
+                    .collect::<Vec<_>>();
+                plan(
+                    HistoryScope::Entity,
+                    vec![owner.clone()],
+                    candidates.clone(),
+                    candidates,
+                    false,
+                    false,
+                )
+            }
             Command::MoveBlocks { owner, .. } => {
                 let candidates = match prepared {
                     CommandPlan::Outline(plan) => &plan.roots,
@@ -3329,7 +3383,9 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::InsertOutline { .. }
         | Command::PasteOutline { .. } => "BlockInserted",
         Command::SplitBlock { .. } => "BlockSplit",
-        Command::EditMarkdown { .. } | Command::SpliceMarkdown { .. } => "BlockTextChanged",
+        Command::EditMarkdown { .. }
+        | Command::SpliceMarkdown { .. }
+        | Command::SpliceMarkdowns { .. } => "BlockTextChanged",
         Command::MoveBlocks { .. }
         | Command::IndentBlocks { .. }
         | Command::OutdentBlocks { .. } => "SubtreeMoved",
@@ -4325,7 +4381,7 @@ fn map_bool(map: &LoroMap, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::{CommandId, LocalDate, QueryViewSort};
+    use domain::{CommandId, LocalDate, MarkdownSplice, QueryViewSort};
 
     fn graph() -> GraphId {
         GraphId::new("test-graph").unwrap()
@@ -5644,6 +5700,52 @@ mod tests {
         assert_eq!(restored.blocks.len(), 1);
         assert_eq!(restored.blocks[0].id, target);
         assert_eq!(restored.blocks[0].markdown, "한글tail");
+    }
+
+    #[test]
+    fn plural_markdown_splice_preserves_blocks_and_undoes_once() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let first = insert_root(&mut core, "first", &page(), 0, "one tail");
+        let second = insert_root(&mut core, "second", &page(), 1, "next words");
+
+        core.execute(
+            envelope(
+                "splice-many",
+                Command::SpliceMarkdowns {
+                    owner: OutlineOwner::Page { id: page() },
+                    splices: vec![
+                        MarkdownSplice {
+                            block_id: first.clone(),
+                            index: 4,
+                            delete: 4,
+                            insert: String::new(),
+                        },
+                        MarkdownSplice {
+                            block_id: second.clone(),
+                            index: 0,
+                            delete: 5,
+                            insert: String::new(),
+                        },
+                    ],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let changed = core.page_snapshot(&page()).unwrap();
+        assert_eq!(changed.blocks.len(), 2);
+        assert_eq!(changed.blocks[0].id, first);
+        assert_eq!(changed.blocks[0].markdown, "one ");
+        assert_eq!(changed.blocks[1].id, second);
+        assert_eq!(changed.blocks[1].markdown, "words");
+
+        core.execute(envelope("undo-splice-many", Command::Undo), "t4")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(restored.blocks.len(), 2);
+        assert_eq!(restored.blocks[0].markdown, "one tail");
+        assert_eq!(restored.blocks[1].markdown, "next words");
     }
 
     #[test]

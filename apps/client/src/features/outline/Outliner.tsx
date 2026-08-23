@@ -120,9 +120,13 @@ import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
 import {
   caretForVerticalEntry,
+  normalCaretAfterEdit,
+  wordEditsAcrossUnits,
+  wordMotionAcrossUnits,
   type VimMode,
   type VimSurfaceCommand,
   type VimVisualLineCommand,
+  type VimWordMotionCommand,
 } from "../blocks/editor/vim/engine";
 import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
 import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
@@ -288,6 +292,12 @@ interface EditorContext {
     command: VimVisualLineCommand,
     row?: OutlineRow,
     rows?: OutlineRow[],
+  ): void;
+  runVimWordMotion(
+    command: VimWordMotionCommand,
+    row: OutlineRow,
+    rows: OutlineRow[],
+    textarea: HTMLTextAreaElement,
   ): void;
   /** Pointer entry points for the selection strip and the bullet handle. */
   onGripPointerDown(row: OutlineRow, event: ReactPointerEvent): void;
@@ -662,6 +672,23 @@ export function Outliner({
     },
     [dispatchDraft, flushNow, history, message, notify],
   );
+
+  const publishSelection = useCallback((blockId: string, textarea: HTMLTextAreaElement) => {
+    // Coalesced: `select` fires for every keystroke and caret move, and each
+    // publish is a worker round-trip plus a socket frame. Peers reading a
+    // caret 150ms late is invisible; a frame per keystroke is not free.
+    presenceDraft.current = {
+      owner,
+      block_id: blockId,
+      anchor: textarea.selectionStart,
+      head: textarea.selectionEnd,
+    };
+    if (presenceTimer.current !== null) return;
+    presenceTimer.current = window.setTimeout(() => {
+      presenceTimer.current = null;
+      if (presenceDraft.current) session.publishPresence(presenceDraft.current);
+    }, PRESENCE_PUBLISH_MS);
+  }, [owner, session]);
 
   const focusedRef = useRef<string | null>(null);
   const setFocus = useCallback((id: string | null, caret?: number) => {
@@ -1131,6 +1158,123 @@ export function Outliner({
     takeTreeFocus,
     vim.reset,
     visualCaret,
+  ]);
+
+  const runVimWordMotion = useCallback((
+    command: VimWordMotionCommand,
+    row: OutlineRow,
+    allRows: OutlineRow[],
+    textarea: HTMLTextAreaElement,
+  ) => {
+    const units = allRows.filter((entry) => !isPendingId(entry.block.id));
+    const current = units.findIndex((entry) => entry.block.id === row.block.id);
+    if (current < 0) return;
+    const values = units.map((entry) => (
+      draftStateRef.current.drafts.get(entry.block.id) ?? entry.block.markdown
+    ));
+
+    if (command.operator === null) {
+      const target = wordMotionAcrossUnits(
+        values,
+        { unit: current, offset: command.caret },
+        command.motion,
+        command.count,
+      );
+      const targetRow = units[target.unit];
+      if (!targetRow) return;
+      if (targetRow.block.id === row.block.id) {
+        textarea.setSelectionRange(target.offset, target.offset);
+        publishSelection(row.block.id, textarea);
+        return;
+      }
+      flushNow(row.block.id);
+      setFocus(targetRow.block.id, target.offset);
+      return;
+    }
+
+    if (readonly) return;
+    const plan = wordEditsAcrossUnits(
+      values,
+      { unit: current, offset: command.caret },
+      command.motion,
+      command.count,
+    );
+    if (plan.edits.length === 0) {
+      if (command.operator === "change") vim.reset();
+      return;
+    }
+
+    const updates = plan.edits.map((edit) => {
+      const targetRow = units[edit.unit];
+      const value = values[edit.unit];
+      return {
+        row: targetRow,
+        value,
+        next: `${value.slice(0, edit.from)}${value.slice(edit.to)}`,
+        from: edit.from,
+        to: edit.to,
+      };
+    }).filter((update) => update.row !== undefined);
+    if (updates.length === 0) return;
+
+    for (const update of updates) flushNow(update.row.block.id);
+    draftInputRevision.current += 1;
+    for (const update of updates) {
+      dispatchDraft({
+        type: "edit",
+        id: update.row.block.id,
+        value: update.next,
+        baselineIfAbsent: update.row.block.markdown,
+        autoClosers: [],
+      });
+    }
+    setSlashRequest(null);
+    setHashRequest(null);
+
+    const caretRow = units[plan.caret.unit];
+    if (!caretRow) return;
+    const caretValue = updates.find((update) => update.row.block.id === caretRow.block.id)?.next
+      ?? values[plan.caret.unit];
+    const caret = command.operator === "change"
+      ? Math.min(plan.caret.offset, caretValue.length)
+      : normalCaretAfterEdit(caretValue, plan.caret.offset);
+    const currentUpdate = updates.find((update) => update.row.block.id === row.block.id);
+    if (caretRow.block.id === row.block.id) {
+      if (currentUpdate) textarea.value = currentUpdate.next;
+      textarea.setSelectionRange(caret, caret);
+      publishSelection(row.block.id, textarea);
+    } else {
+      setFocus(caretRow.block.id, caret);
+    }
+
+    const ids = updates.map((update) => update.row.block.id);
+    void session.execute({
+      type: "splice_markdowns",
+      owner,
+      splices: updates.map((update) => {
+        const index = codePointIndex(update.value, update.from);
+        return {
+          block_id: update.row.block.id,
+          index,
+          delete: codePointIndex(update.value, update.to) - index,
+          insert: "",
+        };
+      }),
+    }).catch((error: unknown) => {
+      dispatchDraft({ type: "clear", ids });
+      notify.failure(message("failure.lastEdit"), error);
+    });
+  }, [
+    dispatchDraft,
+    flushNow,
+    message,
+    notify,
+    owner,
+    publishSelection,
+    readonly,
+    session,
+    setFocus,
+    vim.reset,
   ]);
 
   // ── pointer plumbing ────────────────────────────────────────────────────
@@ -1619,22 +1763,7 @@ export function Outliner({
     ),
     setFocus,
     releaseFocus,
-    publishSelection: (blockId, textarea) => {
-      // Coalesced: `select` fires for every keystroke and caret move, and each
-      // publish is a worker round-trip plus a socket frame. Peers reading a
-      // caret 150ms late is invisible; a frame per keystroke is not free.
-      presenceDraft.current = {
-        owner,
-        block_id: blockId,
-        anchor: textarea.selectionStart,
-        head: textarea.selectionEnd,
-      };
-      if (presenceTimer.current !== null) return;
-      presenceTimer.current = window.setTimeout(() => {
-        presenceTimer.current = null;
-        if (presenceDraft.current) session.publishPresence(presenceDraft.current);
-      }, PRESENCE_PUBLISH_MS);
-    },
+    publishSelection,
     takeTreeFocus,
     selectOnly: (row) => {
       if (isPendingId(row.block.id)) return;
@@ -1967,6 +2096,7 @@ export function Outliner({
       );
     },
     runVimVisualLine,
+    runVimWordMotion,
     insertRootBlock: (index) => {
       void session
         .execute({
@@ -2961,6 +3091,7 @@ function handleOutlineVim(
       selectionEnd: textarea.selectionEnd,
       editable: !editor.readonly,
       supportsVisualLine: !editor.readonly && !isPendingId(row.block.id),
+      supportsCrossBlockWords: !isPendingId(row.block.id),
     },
     vimKeyFromEvent(event),
   );
@@ -2969,7 +3100,7 @@ function handleOutlineVim(
 
   for (const effect of interpretation.effects) {
     if (effect.kind === "surface") {
-      runOutlineVimSurface(editor, row, rows, effect.command);
+      runOutlineVimSurface(editor, row, rows, textarea, effect.command);
       continue;
     }
     applyVimTextEffect(textarea, effect, (value, element, edit) => {
@@ -2987,6 +3118,7 @@ function runOutlineVimSurface(
   editor: EditorContext,
   row: OutlineRow,
   rows: OutlineRow[],
+  textarea: HTMLTextAreaElement,
   command: VimSurfaceCommand,
 ): void {
   if (command.type === "visual-line") {
@@ -2995,6 +3127,10 @@ function runOutlineVimSurface(
   }
   if (command.type === "history") {
     editor.runHistory(row.block.id, command.redo);
+    return;
+  }
+  if (command.type === "word-motion") {
+    editor.runVimWordMotion(command, row, rows, textarea);
     return;
   }
   if (command.type === "focus") {

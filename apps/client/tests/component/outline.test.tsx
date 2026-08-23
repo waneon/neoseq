@@ -97,6 +97,70 @@ describe("outliner keyboard commands", () => {
     }
   });
 
+  it("carries word motions and one undoable operator across block text", async () => {
+    setEditorKeymap("vim");
+    try {
+      const { session } = await mountOutline(["one tail", "next words", "last"]);
+      const user = userEvent.setup();
+      const inputs = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+      await user.click(inputs[0]);
+      await user.keyboard("{Escape}");
+      inputs[0].setSelectionRange(4, 4);
+
+      await user.keyboard("2w");
+      await waitFor(() => expect(inputs[1]).toHaveFocus());
+      expect([inputs[1].selectionStart, inputs[1].selectionEnd]).toEqual([5, 5]);
+
+      inputs[1].setSelectionRange(0, 0);
+      await user.keyboard("b");
+      await waitFor(() => expect(inputs[0]).toHaveFocus());
+      expect([inputs[0].selectionStart, inputs[0].selectionEnd]).toEqual([4, 4]);
+
+      inputs[0].setSelectionRange(7, 7);
+      await user.keyboard("e");
+      await waitFor(() => expect(inputs[1]).toHaveFocus());
+      expect([inputs[1].selectionStart, inputs[1].selectionEnd]).toEqual([3, 3]);
+
+      await user.click(inputs[0]);
+      await user.keyboard("{Escape}");
+      inputs[0].setSelectionRange(4, 4);
+      await user.keyboard("d2w");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual(["one ", "words", "last"]);
+      });
+      expect(findPage(session.getState().snapshot, "home")?.blocks).toHaveLength(3);
+
+      await user.keyboard("u");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual([
+          "one tail",
+          "next words",
+          "last",
+        ]);
+      });
+
+      const restored = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+      await user.click(restored[1]);
+      await user.keyboard("{Escape}");
+      restored[1].setSelectionRange(1, 1);
+      await user.keyboard("ciwfresh{Escape}");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual([
+          "one tail",
+          "fresh words",
+          "last",
+        ]);
+      });
+      expect(findPage(session.getState().snapshot, "home")?.blocks).toHaveLength(3);
+    } finally {
+      localStorage.clear();
+      resetAppSettingsCache();
+    }
+  });
+
   it("extends Visual Line across visible blocks and restores the caret at its head", async () => {
     setEditorKeymap("vim");
     try {
