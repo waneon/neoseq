@@ -1325,7 +1325,15 @@ export function EditableCellValue({
     );
   }
   const displayContext = binding ? { ...context, onOpen: undefined } : context;
-  const value = <CellValue term={term} column={column} context={displayContext} subject={row.subject} />;
+  const value = (
+    <CellValue
+      term={term}
+      column={column}
+      context={displayContext}
+      subject={row.subject}
+      row={row.values}
+    />
+  );
   if (!binding) return className ? <span className={className}>{value}</span> : value;
 
   if (current?.phase === "error") {

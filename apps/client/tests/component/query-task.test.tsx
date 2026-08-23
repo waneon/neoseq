@@ -84,11 +84,14 @@ describe("query and task projections", () => {
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 
-    // The caption names the language and the rows are there to read. A document
-    // with no plan has no editor to open, so there is no control offering one.
-    const summary = await screen.findByTestId("query-summary");
-    expect(summary).toHaveTextContent("SPARQL");
-    expect(summary.tagName).toBe("SPAN");
+    // Nobody named it and it has no plan to read back, so the count is the whole
+    // header. A document with no plan has no editor to open either, so there is
+    // no control offering one.
+    // Re-read each attempt: a first run with nothing to fold is a static caption,
+    // and the answer's arrival replaces it with the disclosure.
+    await waitFor(() =>
+      expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
+    expect(screen.queryByTestId("query-title")).not.toBeInTheDocument();
     expect(screen.queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
     // Which revision answered is a diagnostic, so it is written where a test or a

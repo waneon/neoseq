@@ -167,9 +167,18 @@ const AUDIT = /* language=JavaScript */ `
     return null;
   };
   // Only the *start of a line* has a left edge worth comparing. Something that
-  // follows text in its own row is positioned by that text, and something in a
-  // grid's second column is positioned by the first — neither is a column edge,
-  // and treating them as one reports every inline sentence as a defect.
+  // follows content in its own row is positioned by that content, and something
+  // in a grid's second column is positioned by the first — neither is a column
+  // edge, and treating them as one reports every inline sentence as a defect.
+  //
+  // A *field* is content. An input has no text content, so a row reading
+  // "[ 100 ] (x) Unique rows" used to call the checkbox's label a line start,
+  // and then reported the 1.67px between it and the second control of the
+  // clause above as a near miss — two unrelated columns compared for the one
+  // reason this predicate exists to rule out.
+  const contentful = (el) =>
+    ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) ||
+    Boolean(el.textContent && el.textContent.trim());
   const lineStart = (el) => {
     const parent = el.parentElement;
     if (!parent) return true;
@@ -182,7 +191,7 @@ const AUDIT = /* language=JavaScript */ `
     for (const sib of [...parent.children]) {
       if (sib === el) break;
       if (!visible(sib)) continue;
-      if (!sib.textContent || !sib.textContent.trim()) continue;
+      if (!contentful(sib)) continue;
       if (sib.getBoundingClientRect().right <= left + 0.5) return false;
     }
     return true;

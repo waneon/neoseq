@@ -264,7 +264,7 @@ describe("reading a standing question", () => {
     const harness = await mountAt(`/g/${GRAPH_ID}/journal`);
     await seed(harness);
     const section = await screen.findByTestId("journal-queries");
-    expect(within(section).getByTestId("query-summary")).toHaveTextContent("Scheduled");
+    expect(within(section).getByTestId("query-title")).toHaveTextContent("Scheduled");
 
     // A canonical change reruns what is mounted, which is how a standing question
     // stays current while the day is being written.
@@ -280,9 +280,8 @@ describe("reading a standing question", () => {
     await seed(harness, { plan: defaultPlan("block") });
     const section = await screen.findByTestId("journal-queries");
 
-    // The caption is a caption: there is nothing on this surface to disclose,
-    // because the question is not written here.
-    expect(within(section).getByTestId("query-summary").tagName).toBe("SPAN");
+    // The title is a title: there is nothing on this surface to disclose, because
+    // the question is not authored here.
     expect(within(section).queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
     expect(within(section).queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
     // The question is external to this surface; its saved presentation is not.

@@ -355,7 +355,8 @@ test("a tag's page carries its query, and the query's views are its tabs", async
   await expect(page.getByTestId("tag-title")).toHaveValue("Reading");
   // The seeded query answers what the tag is for, without anyone writing it.
   const query = page.getByTestId("query-block");
-  await expect(query.getByTestId("query-summary")).toContainText("#Reading");
+  await expect(query.getByTestId("query-conditions-trigger"))
+    .toHaveAttribute("title", /#Reading/);
   await expect(query.getByTestId("query-count")).toContainText("1 result");
   await expect(query.getByTestId("query-table")).toBeVisible();
 

@@ -10,7 +10,7 @@
 //
 // **Today only.** A relative operand resolves against the reader's own today
 // every time it runs, so `due tomorrow` asked on a page dated last March would
-// answer about tomorrow and caption itself as if it were about March. A standing
+// answer about tomorrow while its title said March. A standing
 // question belongs to the day it is standing in.
 //
 // **Below the append zone, never inside it.** The region under the last block is
@@ -68,7 +68,7 @@ export function JournalQueries() {
           }}
           executionKey={defaultQueryKey(query)}
           variant="inline"
-          caption={query.title || undefined}
+          title={query.title || undefined}
           label={query.title || message("settings.defaultQueries")}
           actions={
             <DropdownMenuItem

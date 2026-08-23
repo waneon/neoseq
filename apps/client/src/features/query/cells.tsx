@@ -2,9 +2,10 @@
 //
 // A SPARQL row is terms; a person reads pages, dates, tags and tasks. The
 // difference is carried by the *column*, which knows what it asked the graph
-// for — so a `builtin.task-deadline` cell prints a date in the reader's own
-// journal format and a `tags` cell prints tag chips, while a hand-written query
-// with no plan behind it falls back to plain terms.
+// for — so a `builtin.task-deadline` cell prints the day in the pill every
+// moment in this product wears, tinted by how far off it is, and a `tags` cell
+// prints tag chips, while a hand-written query with no plan behind it falls back
+// to plain terms.
 
 import type { ReactNode } from "react";
 import { CheckIcon, MinusIcon } from "lucide-react";
@@ -19,11 +20,15 @@ import {
   pageTitle,
 } from "../../core-port/snapshot";
 import { valueTypeOf } from "../../entities/properties";
-import { LIST_SEPARATOR } from "../../entities/query-compile";
+import { LIST_SEPARATOR, momentTimeVariable } from "../../entities/query-compile";
 import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
+import type { ToneName } from "../../entities/settings";
 import {
+  isTaskDateKey,
+  isTimeOfDay,
   TASK_PRIORITY_KEY,
   TASK_STATUS_KEY,
+  type DueTier,
 } from "../../entities/tasks";
 import type { MessageFunction } from "../../i18n";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
@@ -68,9 +73,23 @@ export interface CellContext {
   subjectVariable?: string | null;
   message: MessageFunction;
   formatDate: (date: string) => string;
+  /** The reader's own clock, so a moment reads here as it reads under a block. */
+  formatTime: (time: string) => string;
   compare: (left: string, right: string) => number;
   /** Opens the thing a cell names. */
   onOpen?: (entity: QueryEntityRef) => void;
+  /**
+   * How far off a moment is — the step it falls in and the tone the reader chose
+   * for that step — or `undefined` where the row has no urgency left to report.
+   * The surface resolves it rather than the cell, because whether a row is
+   * settled is a fact about the row and the thresholds are a preference; the
+   * cell hands over the moment it is drawing, day and time both.
+   */
+  dueTone?: (
+    date: string,
+    time: string | undefined,
+    row: ResultRow,
+  ) => { tier: DueTier; tone: ToneName } | undefined;
 }
 
 export function entityRefKey(entity: QueryEntityRef): string {
@@ -208,12 +227,18 @@ export function CellValue({
   column,
   context,
   subject,
+  row,
 }: {
   term: RdfTerm | undefined;
   column: ResultColumn;
   context: CellContext;
   /** The row's own entity, which lets the result layer route or edit it. */
   subject?: QueryEntityRef;
+  /**
+   * The row this cell is one of. A moment reads by how far off it is, and
+   * whether there is any urgency left to report is a fact about the row.
+   */
+  row?: ResultRow;
 }): ReactNode {
   // A row's text is its name. The result layer may wrap it with an editor and a
   // separate open control; the plain renderer remains a route. A block with
@@ -270,6 +295,15 @@ export function CellValue({
       </span>
     );
   }
+  // A moment is a bubble tinted by how far off it is — the same object the strip
+  // under a block draws, so `Scheduled` reads the same whether the reader met it
+  // in the outline or in a column of a table (§ Tasks / Due tones). The tint is
+  // the second reading of a date the cell writes out in full, and `Overdue` is
+  // written in words, so nothing here is colour-only. No glyph: in a column the
+  // heading already says which moment this is.
+  if (key && isTaskDateKey(key) && term.kind === "literal" && term.datatype === XSD_DATE) {
+    return <DueValue date={term.value} column={column} context={context} row={row} />;
+  }
   if (key && valueTypeOf(key) === "checkbox" && term.kind === "literal") {
     const checked = term.value === "true";
     return (
@@ -287,4 +321,58 @@ export function CellValue({
     return <span>{context.formatDate(term.value)}</span>;
   }
   return <span>{term.value}</span>;
+}
+
+/**
+ * One moment, as the object it is everywhere else in the product: the day, the
+ * time of day where there is one, in a pill the tone of how far off it is.
+ *
+ * The time is not a column of its own and never was — it rides along with the
+ * day's column in the compiler's own namespace (§ momentTimeVariable), because
+ * a moment is a day plus an optional time and half of one is not a moment. That
+ * also makes the tier here the *moment's*: a job due at nine this morning is
+ * overdue by ten, and reads that way in a table exactly as it does in the
+ * outline.
+ */
+function DueValue({
+  date,
+  column,
+  context,
+  row,
+}: {
+  date: string;
+  column: ResultColumn;
+  context: CellContext;
+  row?: ResultRow;
+}) {
+  const companion = row?.[momentTimeVariable(column.variable)];
+  // A stored time that is not one is the reader's own string: it does not
+  // refine the day and it does not get drawn as if it did.
+  const time = companion?.kind === "literal" && isTimeOfDay(companion.value)
+    ? companion.value
+    : undefined;
+  const due = row ? context.dueTone?.(date, time, row) : undefined;
+  const day = context.formatDate(date);
+  const clock = time ? context.formatTime(time) : null;
+  const overdue = due?.tier === "overdue";
+  return (
+    <span
+      className="query-due"
+      data-due={due?.tier}
+      data-palette={due?.tone}
+      // A column is 180px wide and a date spelled out with its weekday is not,
+      // so the moment ellipsises here more often than it does anywhere else.
+      // The whole of it stays readable: nothing in the product is cut off with
+      // no way to read the rest (§ Accessibility).
+      title={[day, clock, overdue ? context.message("task.overdue") : null]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      <span className="query-due-date">{day}</span>
+      {clock && <span className="query-due-time">{clock}</span>}
+      {overdue && (
+        <span className="query-due-overdue">{context.message("task.overdue")}</span>
+      )}
+    </span>
+  );
 }

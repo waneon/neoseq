@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ReactElement } from "react";
 import { CorePortFailure } from "../../src/core-worker";
 import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
-import { compilePlan } from "../../src/entities/query-compile";
+import { compilePlan, momentTimeVariable } from "../../src/entities/query-compile";
 import { decodePlan } from "../../src/entities/query-plan";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
@@ -272,13 +272,12 @@ describe("the query builder", () => {
       frontier: "fake-7",
     };
 
-    const summary = screen.getByTestId("query-summary");
     const conditions = screen.getByTestId("query-conditions-trigger");
-    // The phrase states the question; the control beside the answer opens the
-    // editor that wrote it.
-    expect(summary.tagName).toBe("SPAN");
+    // The phrase is the name of the control that opens the editor that wrote it,
+    // rather than a line printed over every answer forever.
+    expect(screen.queryByTestId("query-title")).not.toBeInTheDocument();
     expect(conditions).toHaveAttribute("aria-expanded", "true");
-    expect(summary).toHaveTextContent("Blocks");
+    expect(conditions).toHaveAttribute("title", "Blocks");
 
     await user.click(screen.getByTestId("qb-add-condition"));
     const condition = await screen.findByTestId("qb-condition");
@@ -286,10 +285,9 @@ describe("the query builder", () => {
     await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
 
     // Word for word the builder's own vocabulary, and it tracks the plan in hand
-    // rather than the one last written to the document. The middot between its
-    // halves is drawn rather than written: it is punctuation, not a word.
-    await waitFor(() => expect(summary).toHaveTextContent("Status is Doing"));
-    expect(summary).toHaveTextContent("Blocks");
+    // rather than the one last written to the document.
+    await waitFor(() =>
+      expect(conditions).toHaveAttribute("title", "Blocks · Status is Doing"));
 
     await waitFor(() =>
       expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
@@ -310,11 +308,13 @@ describe("the query builder", () => {
 
     const count = await screen.findByTestId("query-count");
     await waitFor(() => expect(count).toHaveTextContent("No results"));
-    expect(count.tagName).toBe("SPAN");
-    expect(count).not.toHaveAttribute("aria-expanded");
-    // It keeps the disclosure's place and gives up the chevron's slot, so the
-    // header does not shift sideways when an answer arrives.
+    // A caption, not a control with its affordance rubbed out: no chevron, and
+    // nothing to press.
     expect(count).toHaveAttribute("data-static");
+    // It keeps the chevron's slot all the same, so the header does not shift
+    // sideways the moment an answer arrives — which is a fact about the CSS, and
+    // `geometry.spec` is where columns are measured.
+    expect(screen.getByTestId("query-disclosure").tagName).toBe("SPAN");
   });
 
   it("never offers the query property through the picker", async () => {
@@ -1130,6 +1130,70 @@ describe("query result views", () => {
     });
     const page = findPage(harness.session.getState().snapshot, "home");
     expect(stringValue(page?.properties ?? [], "builtin.task-status")).toBeUndefined();
+  });
+
+  it("draws a moment in a table cell as one object: the day, its time, its tone", async () => {
+    const harness = await withResult();
+    const query = storedQuery(harness)!;
+    const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
+    const nextPlan = {
+      ...plan,
+      columns: [
+        ...plan.columns,
+        {
+          id: "scheduled",
+          source: { kind: "property" as const, key: "builtin.task-scheduled" },
+        },
+      ],
+    };
+    harness.port.queryResult = {
+      kind: "select",
+      variables: ["q_subject", "text", "page", "scheduled", momentTimeVariable("scheduled")],
+      rows: [{
+        q_subject: {
+          kind: "iri",
+          value: "urn:neoseq:entity:test-graph:block:b-2",
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+        },
+        text: {
+          kind: "literal",
+          value: "Ship the builder",
+          datatype: "http://www.w3.org/2001/XMLSchema#string",
+        },
+        scheduled: {
+          kind: "literal",
+          value: "2026-08-21",
+          datatype: "http://www.w3.org/2001/XMLSchema#date",
+        },
+        [momentTimeVariable("scheduled")]: {
+          kind: "literal",
+          value: "09:30",
+          datatype: "http://www.w3.org/2001/XMLSchema#string",
+        },
+      }],
+      revision: 6,
+      frontier: "fake-6",
+    };
+    await harness.session.execute({
+      type: "set_query_plan",
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      plan: { version: 1, payload: JSON.stringify(nextPlan) },
+      source: compilePlan(nextPlan).source,
+    });
+
+    const table = await screen.findByTestId("query-table");
+    // The day and the time of day are one fact, drawn as the pill the strip
+    // under a block draws — and a day in the past on an unsettled row says
+    // `Overdue` in words rather than in colour alone.
+    const moment = await waitFor(() => within(table).getByTestId("query-edit-scheduled"));
+    expect(moment).toHaveTextContent("09:30");
+    const pill = moment.querySelector(".query-due")!;
+    expect(pill).toHaveAttribute("data-due", "overdue");
+    expect(pill).toHaveAttribute("data-palette", "danger");
+    // The time rode along in the compiler's own namespace, so it is part of the
+    // moment and never a column of its own.
+    expect(within(table).queryAllByRole("columnheader").map((cell) => cell.textContent))
+      .toEqual(["Text", "Page", "Scheduled"]);
   });
 
   it("uses only the canonical task field in a block list", async () => {

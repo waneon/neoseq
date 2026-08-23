@@ -22,6 +22,7 @@ const context: CellContext = {
   snapshot: EMPTY_SNAPSHOT,
   message: ((key: string) => key) as CellContext["message"],
   formatDate: (value) => value,
+  formatTime: (value) => value,
   compare: new Intl.Collator("ko", {
     usage: "sort",
     sensitivity: "base",

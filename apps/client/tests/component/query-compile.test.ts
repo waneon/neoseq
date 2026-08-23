@@ -11,6 +11,8 @@ import {
   compileEntityProjection,
   compilePlan,
   entityIri,
+  isCompilerVariable,
+  momentTimeVariable,
   planBindings,
   resolveRelativeDate,
 } from "../../src/entities/query-compile";
@@ -211,6 +213,59 @@ describe("query plan compilation", () => {
     expect(source).toContain('GROUP_CONCAT(DISTINCT ?q_a1; SEPARATOR="\\u001F") AS ?tags');
     expect(source).toContain("(COUNT(DISTINCT ?q_subject) AS ?total)");
     expect(source).toContain("GROUP BY ?status");
+  });
+
+  it("selects the time of day beside the moment it refines, as no column of its own", () => {
+    const plan: QueryPlan = {
+      ...defaultPlan("block"),
+      columns: [
+        { id: "scheduled", source: { kind: "property", key: "builtin.task-scheduled" } },
+        { id: "deadline", source: { kind: "property", key: "builtin.task-deadline" } },
+        { id: "status", source: { kind: "property", key: "builtin.task-status" } },
+      ],
+    };
+    const { source, variables } = compilePlan(plan);
+    // A moment is a day plus an optional time, so a column that shows one asks
+    // for both. Only the moments get a companion — a status has no time.
+    expect(variables).toEqual([
+      "q_subject",
+      "scheduled",
+      momentTimeVariable("scheduled"),
+      "deadline",
+      momentTimeVariable("deadline"),
+      "status",
+    ]);
+    expect(source).toContain(
+      "OPTIONAL { ?q_subject prop:builtin.task-scheduled-time ?q_time_scheduled }",
+    );
+    expect(source).toContain(
+      "OPTIONAL { ?q_subject prop:builtin.task-deadline-time ?q_time_deadline }",
+    );
+    // The companion lives in the compiler's own namespace, which is what keeps
+    // it out of the columns a table draws (§ resultColumns).
+    expect(variables.filter(isCompilerVariable)).toEqual([
+      "q_subject",
+      momentTimeVariable("scheduled"),
+      momentTimeVariable("deadline"),
+    ]);
+  });
+
+  it("asks for no time beside a moment it is summarizing", () => {
+    const plan: QueryPlan = {
+      ...defaultPlan("block"),
+      columns: [
+        {
+          id: "latest",
+          source: { kind: "property", key: "builtin.task-scheduled" },
+          aggregate: "max",
+        },
+      ],
+    };
+    const { source, variables } = compilePlan(plan);
+    // The latest of a set of days is a day. There is no one time of day it is
+    // at, so nothing pretends there is.
+    expect(variables).toEqual(["latest"]);
+    expect(source).not.toContain("task-scheduled-time");
   });
 
   it("compiles an entity projection without table columns or their aggregates", () => {

@@ -411,8 +411,10 @@ describe("a tag's own page", () => {
     expect(screen.getByTestId("tag-title")).toHaveValue("Project");
     const block = await screen.findByTestId("query-block");
     expect(block).toHaveAttribute("data-variant", "page");
-    // The seed asks the one question a tag is for, with the tag itself bound.
-    expect(within(block).getByTestId("query-summary")).toHaveTextContent("#Project");
+    // The seed asks the one question a tag is for, with the tag itself bound, and
+    // the phrase for it names the control that opens it.
+    expect(within(block).getByTestId("query-conditions-trigger"))
+      .toHaveAttribute("title", expect.stringContaining("#Project"));
     const request = port.queryRequests.at(-1);
     expect(
       Object.values(request?.query.bindings ?? {}).map((term) => term.value),

@@ -10,15 +10,20 @@
 // build with no plan still runs, and still reads; it simply has no editor here.
 //
 // **The answer is the object; the question is a disclosure.** At rest a query is
-// one caption line and its result — how much it found, the plan read back as a
-// phrase, and nothing else. The count *leads* that line, because the answer is
-// what the surface is for and folding it is the one gesture a reader repeats;
-// the phrase stands beside it as a caption. The editor that wrote the phrase
-// opens from an icon among the controls that act on the answer — beside what a
-// table shows, how it is ordered, and how it is drawn, which with the question
-// itself are the four things a reader reaches for while reading — so the five
-// rows of authoring that used to sit permanently above every answer are there
-// when someone is authoring and absent when nobody is.
+// its name, how much it found, and the result — nothing else. The name *leads*
+// the line and the count ends it, and both live inside one control that spans
+// the line: folding is the gesture a reader repeats, so it gets the widest
+// target on the surface. Where nobody named the query there is no title and the
+// count leads alone. The editor opens from an icon among the controls that act
+// on the answer — beside what a table shows, how it is ordered, and how it is
+// drawn, which with the question itself are the four things a reader reaches for
+// while reading — so the five rows of authoring that used to sit permanently
+// above every answer are there when someone is authoring and absent when nobody
+// is. **The plan read back as a phrase is not printed.** A machine-written
+// sentence stated over every answer forever — `Blocks · Tag is #neoseq · Status
+// is any of To-do, Doing` — is chrome that repeats what the builder one hover
+// away already says in rows, and it is noise beside a question the reader has
+// already named. It is the name of the control that opens the question instead.
 //
 // **One surface, two grounds.** Embedded in the outline (`inline`) a query is a
 // paragraph that answers itself, so its views live in a menu and its chrome waits
@@ -43,7 +48,7 @@
 // that holds it must not turn a result back into an empty first frame when it
 // returns.
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -78,14 +83,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
-import { todayLocalDate } from "../../entities/journal";
+import { nowLocalTime, todayLocalDate } from "../../entities/journal";
+import {
+  dueTierOf,
+  dueToneOf,
+  isSettledStatus,
+  TASK_STATUS_KEY,
+} from "../../entities/tasks";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
   compileEntityProjection,
   compilePlan,
+  isCompilerVariable,
   planBindings,
   QUERY_LANGUAGE,
-  SUBJECT_VARIABLE,
 } from "../../entities/query-compile";
 import {
   inferOrderSemantics,
@@ -111,6 +122,7 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
+import { useDueTiers } from "../settings/preferences";
 import { QueryBuilder } from "./QueryBuilder";
 import {
   columnChoices,
@@ -185,11 +197,11 @@ export interface QueryPanelProps {
   /** The section's accessible name. */
   label: string;
   /**
-   * The name the reader gave this query, when they gave it one. It takes the
-   * caption's lead and the plan keeps the qualifier, so `Scheduled · Deadline is
-   * before tomorrow` is one sentence about one question.
+   * The name the reader gave this query, when they gave it one. It is the
+   * panel's title — the largest thing on the surface, because a standing
+   * question is known by what its owner called it and not by what it asks.
    */
-  caption?: string;
+  title?: string;
   /** Rows this surface's host adds to the actions menu, above its own verbs. */
   actions?: ReactNode;
   /** The block's own `Remove query`. A tag's query is part of the tag. */
@@ -201,7 +213,7 @@ export function QueryPanel({
   executionKey,
   variant,
   label,
-  caption,
+  title,
   actions,
   onRemove,
 }: QueryPanelProps) {
@@ -210,7 +222,8 @@ export function QueryPanel({
   const state = useSessionState();
   const notify = useNotify();
   const history = useHistoryActions();
-  const { message, formatJournalDate, compare } = useI18n();
+  const { message, formatJournalDate, formatTimeOfDay, compare } = useI18n();
+  const dueTiers = useDueTiers();
   const readonly = state.mode === "readonly";
   /** The question itself and the collection around its current view. */
   const canEditDefinition = binding.kind === "managed" && !readonly;
@@ -228,7 +241,7 @@ export function QueryPanel({
 
   const [plan, setPlan] = useState<QueryPlan | null>(storedPlan ?? seedPlan ?? null);
   // The editor opens for a query that has not been written yet and stays shut for
-  // one that has: a query with no conditions has nothing to say in its caption, so
+  // one that has: a query with no conditions has nothing to say about itself, so
   // showing it the builder is the only honest first screen. Once a reader has
   // shaped it, reopening the page shows them the answer they shaped it for. Which
   // it is, is theirs from the first press — never re-derived under their hands,
@@ -338,6 +351,36 @@ export function QueryPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, compiled, storedPayload, canEditDefinition, session]);
 
+  const select = result?.kind === "select" ? result : null;
+  const columns = useMemo(
+    () => (select ? resultColumns(select, plan, activeView, message) : []),
+    [select, activeView, plan, message],
+  );
+  /** Where a row states its own task status, which is what settles a moment. */
+  const statusVariable = columns.find((column) =>
+    column.source?.kind === "property" && column.source.key === TASK_STATUS_KEY)?.variable;
+
+  /**
+   * How far off a moment is, for every renderer that draws one. The thresholds
+   * and the tones are the reader's (§ Settings / Tasks), and a settled row has
+   * no urgency left to report — the same two rules the strip under a block
+   * follows, so one task cannot be red in a table and grey in a list. The time
+   * of day is the cell's to supply, and it decides only *today*: a job due at
+   * nine this morning is overdue by ten.
+   *
+   * `today` is read at call time rather than captured: a journal left open past
+   * midnight must not keep yesterday's opinion of what is overdue.
+   */
+  const dueTone = useCallback(
+    (date: string, time: string | undefined, row: ResultRow) => {
+      const status = statusVariable ? row[statusVariable] : undefined;
+      if (status?.kind === "literal" && isSettledStatus(status.value)) return undefined;
+      const tier = dueTierOf(date, time, todayLocalDate(), nowLocalTime(), dueTiers);
+      return { tier, tone: dueToneOf(tier, dueTiers) };
+    },
+    [statusVariable, dueTiers],
+  );
+
   // Both derived once, not once per render: a canonical revision re-renders every
   // mounted query, and the table rebuilds its column models whenever either of
   // these changes identity.
@@ -346,11 +389,22 @@ export function QueryPanel({
     subjectVariable: executionCompiled?.subjectVariable ?? null,
     message,
     formatDate: formatJournalDate,
+    formatTime: formatTimeOfDay,
     compare,
+    dueTone,
     onOpen: (entity: QueryEntityRef) => {
       history.open(entity);
     },
-  }), [state.snapshot, executionCompiled?.subjectVariable, message, formatJournalDate, compare, history]);
+  }), [
+    state.snapshot,
+    executionCompiled?.subjectVariable,
+    message,
+    formatJournalDate,
+    formatTimeOfDay,
+    compare,
+    dueTone,
+    history,
+  ]);
 
   const resultEditor = useQueryResultEditor({
     session,
@@ -359,11 +413,6 @@ export function QueryPanel({
     message,
   });
 
-  const select = result?.kind === "select" ? result : null;
-  const columns = useMemo(
-    () => (select ? resultColumns(select, plan, activeView, message) : []),
-    [select, activeView, plan, message],
-  );
   const resultRows = useMemo(
     () => resultViewRows((select?.rows ?? []) as ResultRow[], cellContext),
     [select, cellContext],
@@ -450,18 +499,17 @@ export function QueryPanel({
   );
   const visibleRows = activeView.kind === "list" ? listRows : tableRows;
 
-  // The caption follows the plan in hand, not the saved one, so the phrase tracks
-  // the builder keystroke for keystroke and is already true when it closes. A name
-  // the reader typed takes the lead and leaves the plan its qualifier: `Scheduled`
-  // is what they call this question, `Deadline is before tomorrow` is what it asks.
+  // The plan read back as a phrase, following the plan in hand rather than the
+  // saved one so it tracks the builder keystroke for keystroke. It is no longer
+  // printed in the header: a machine-written sentence stated permanently over
+  // every answer is chrome, and the question already has a name where anybody
+  // gave it one. It stays the name of the control that *opens* the question, so
+  // reading what a query asks costs one hover rather than a line of the surface.
   const summary = useMemo<QuerySummary>(
-    () => {
-      const derived = plan
-        ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
-        : { lead: "SPARQL", detail: null };
-      return caption ? { lead: caption, detail: derived.detail } : derived;
-    },
-    [caption, plan, state.snapshot, message, formatJournalDate],
+    () => (plan
+      ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
+      : { lead: "SPARQL", detail: null }),
+    [plan, state.snapshot, message, formatJournalDate],
   );
 
   if (!document && !seedPlan) return null;
@@ -920,7 +968,7 @@ export function QueryPanel({
       // Diagnostic, not chrome. Which index revision answered is the first thing
       // to know when a result looks stale and the last thing a reader of the
       // answer cares about, so it is written where a test or a console can read
-      // it and the caption stays a sentence about the query.
+      // it and the header stays the query's name and how much it found.
       data-revision={result?.revision}
     >
       {tabbed && (
@@ -939,29 +987,35 @@ export function QueryPanel({
         />
       )}
       <div className="query-header">
-        {/* How much it found — the one fact about a result that is not in the
-            result, and the disclosure for the result itself. It leads the line
-            because the answer is what this surface is for and folding it is the
-            gesture a reader repeats; it takes the caption's own shape, a chevron
-            and a phrase, because the two are the same kind of thing: a line of
-            words that opens what it names.
+        {/* The name of the question, and how much it found — the two facts a
+            folded query still has to state, in the one control that folds it.
+            The disclosure spans the line rather than hugging its own words: the
+            gesture a reader repeats deserves the widest target on the surface,
+            and the name and the count then land where a reader looks for them —
+            the title at the left edge, the count at the far end.
+
+            **The name leads and the count follows it.** A named question is
+            known by its name; the count is a fact *about* its answer, so it is
+            stated at the end of the line in the metadata voice. Where nobody
+            named the query there is no title, and the count takes the lead as
+            the only thing there is to name the answer by.
 
             On the first run there is nothing to count yet and it says so;
             afterwards a rerun updates the number in place rather than flickering
             `running` over it on every debounced keystroke. */}
-        {resultLabel && (resultCanCollapse ? (
+        {(title || resultLabel) && (resultCanCollapse ? (
           <button
             type="button"
-            className="query-count query-results-toggle"
+            className="query-disclosure"
+            data-titled={title ? true : undefined}
             aria-expanded={resultsOpen}
             aria-controls={outputId}
             aria-label={message(
               resultsOpen ? "query.collapseResults" : "query.expandResults",
-              { result: resultLabel },
+              { result: [title, resultLabel].filter(Boolean).join(" · ") },
             )}
             aria-busy={loading || undefined}
-            data-state={error ? "error" : loading ? "loading" : "success"}
-            data-testid="query-count"
+            data-testid="query-disclosure"
             onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
             onClick={() => void toggleResults()}
           >
@@ -970,39 +1024,41 @@ export function QueryPanel({
             {resultsOpen
               ? <ChevronDownIcon aria-hidden />
               : <ChevronRightIcon aria-hidden />}
-            <span>{resultLabel}</span>
+            {title && (
+              <span className="query-title" data-testid="query-title">{title}</span>
+            )}
+            {resultLabel && (
+              <span
+                className="query-count"
+                data-state={error ? "error" : undefined}
+                data-testid="query-count"
+              >
+                {resultLabel}
+              </span>
+            )}
           </button>
         ) : (
           <span
-            className="query-count"
-            data-static
-            data-testid="query-count"
-            aria-busy={loading || undefined}
+            className="query-disclosure"
+            data-titled={title ? true : undefined}
+            data-testid="query-disclosure"
           >
-            {resultLabel}
+            {title && (
+              <span className="query-title" data-testid="query-title">{title}</span>
+            )}
+            {resultLabel && (
+              <span
+                className="query-count"
+                data-static
+                data-state={error ? "error" : undefined}
+                data-testid="query-count"
+                aria-busy={loading || undefined}
+              >
+                {resultLabel}
+              </span>
+            )}
           </span>
         ))}
-
-        {/* The plan read back as a phrase, tracking the builder keystroke for
-            keystroke: what this query asks, in the words the builder said it in.
-            A caption and only that. The editor that wrote it is a control on the
-            answer like the other three, so the phrase names the question without
-            claiming to be the way in — which is also what lets a surface that may
-            not write the document state it in exactly the same voice.
-
-            The qualifier ellipsises when the block is narrow, so the sentence
-            carries its own whole text: nothing in the product is cut off with no
-            way to read the rest (§ Layout). */}
-        <span
-          className="query-summary"
-          title={summaryLabel(summary)}
-          data-testid="query-summary"
-        >
-          <span className="query-summary-lead">{summary.lead}</span>
-          {summary.detail && (
-            <span className="query-summary-detail">{summary.detail}</span>
-          )}
-        </span>
 
         <div className="query-header-actions">
           {/* What it asks, then what the table shows, then how it is ordered,
@@ -1021,10 +1077,14 @@ export function QueryPanel({
               aria-expanded={editing}
               aria-controls={editing ? builderId : undefined}
               aria-label={message("query.conditions")}
+              // The plan read back as a phrase, on the control that opens it:
+              // what a query asks is written in the words the builder said it
+              // in, one hover from the answer, rather than printed permanently
+              // over every result whether anybody is reading it or not.
+              title={summaryLabel(summary)}
               // No lit state here, unlike the sort control's: a query with no
               // conditions is one nobody has written yet, so a mark for "this
               // answer is narrowed" would be on for every query in the graph.
-              // What the conditions *are* is stated in words, in the caption.
               data-testid="query-conditions-trigger"
               onClick={toggleEditing}
             >
@@ -1226,12 +1286,14 @@ function resultColumns(
   const planned = new Map<string, PlanColumn>();
   if (plan) for (const column of plan.columns) planned.set(columnVariable(column), column);
   const widths = new Map(view.columns.map((column) => [column.variable, column.width]));
-  // Row identity is carried, not shown: it is what a text cell links to. The
-  // compiler's own name for it is never a column, whether or not *this* plan
-  // still carries one — a plan that has just gained a summary drops the subject,
-  // and the answer it drops it from is on screen until the next one lands.
+  // What the compiler selected for itself is carried, not shown: row identity,
+  // which is what a text cell links to, and the time of day that refines a
+  // moment's column. Neither is ever a column, whether or not *this* plan still
+  // carries one — a plan that has just gained a summary drops the subject, and
+  // the answer it drops it from is on screen until the next one lands. A
+  // hand-written query keeps every variable it selected: they are its own.
   return select.variables
-    .filter((variable) => !(plan && variable === SUBJECT_VARIABLE))
+    .filter((variable) => !(plan && isCompilerVariable(variable)))
     .map((variable) => {
     const column = planned.get(variable);
     const ordering = column

@@ -85,7 +85,8 @@ radius: "r-1 4px key badges · r-2 7px controls · r-3 12px panels ·
 
 elevation:                             # a control is raised or inset, never flat
   e1: "inset ring of {line} — a field, and anything standing in for one"
-  e1-chip: "inset ring of {line-strong} — a chip, whose edge is written rather than implied"
+  e1-chip: "inset ring of {line-strong} — a chip, whose edge is written rather than implied,
+    and the query panel, whose edge has to be found against a page of white writing"
   e1-raised: "ring + a 1px lit top edge + a short contact cast — a button, a card;
     filled with {raised}, never {canvas}, which is the lightest surface in one mode
     and the darkest in the other"
@@ -556,28 +557,55 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   key/value panel on a real one. The menu is controlled and the press hydrates first, so which
   control opens never depends on what happens to be in memory. Done and cancelled strike the
   line. A moment is a day plus an optional time; a missed one says `Overdue` in words;
-  urgency thresholds and tones are the reader's, the step order is not.
-- **Query.** The answer is an *object*: the canvas shows through and one hairline
-  closes it, so the question can take the inset `surface-1` fill and the answer can sit on
-  the page's own ground. **One surface, two grounds.** Embedded in the outline it is a
+  urgency thresholds and tones are the reader's, the step order is not. **A moment is one
+  object wherever it is drawn** — the day, its time of day where it has one, in a pill the
+  tone of how far off it is: under a block it is a chip, because pressing it edits the moment;
+  in a query cell it is the same pill without the chip's verb, because the cell around it is
+  what the reader presses. A column of dates in plain text was the one place in the product
+  where a task's urgency stopped being visible, so the same job read as urgent in the outline
+  and as data in a table. The tint is never the only reading: the day is written, `Overdue` is
+  a word, and a settled row drops the tone altogether — it has no urgency left to report.
+  **A time of day is never a column.** On its own it means nothing at all, which is why the
+  columns panel does not offer it; but half a moment is not a moment, so the day's column
+  carries the time beside it and draws both. That is also what makes the tier the *moment's*
+  rather than the day's: a job due at nine this morning is overdue by ten, in a table exactly
+  as in the outline.
+- **Query.** The answer is an *object*, and an object is a **ground of its own**: the
+  inset `surface-1` fill, closed by the chip's `line-strong` ring. Both, not either — the fill
+  alone is a 1.9% step whose edge the eye has to guess, and the hairline alone draws an edge
+  and then leaves the inside identical to the page, so on a journal of white writing a panel
+  of answers read as writing with a faint line round it. The table's own header is a hairline
+  rather than a band, so nothing puts two greys against each other.
+  **One surface, two grounds.** Embedded in the outline it is a
   paragraph that answers itself, so its chrome waits for a pointer and its saved views stay
   in a menu — a row of tabs growing out of a bullet is a second interface inside a sentence.
   Given a page of its own — a tag's — the query *is* the body, so its views become the
   page's own instrument: a permanent strip the reader names, arranges, and deletes. The
   document underneath is identical; only how much of it the surface may state permanently
-  differs. At rest the header is the count and the question. **The count leads the line** —
-  the answer is what the surface is for, and folding it is the gesture a reader repeats — and
-  the plan read back as a phrase is the caption beside it. The count takes the caption's own
-  shape, a chevron and a phrase on a ghost ground, because the two are the same kind of
-  thing: a filled chip held at the far end of the line was a badge wearing a disclosure's
-  job, at whichever x the question happened to push it to. An empty count keeps that place
-  and hands the chevron's slot back to its own text. Folding hides the mounted answer
-  immediately and never pauses its execution. **The editor is a control on the answer.** What
+  differs. At rest the header is the query's **name** and how much it found, and nothing else.
+  **The name leads the line and the count ends it**, both inside one control that spans the
+  line: folding the answer is the gesture a reader repeats, so it gets the widest target on
+  the surface rather than a chip the width of its own words. The name is a title at the
+  section-heading size, because a standing question is known by what its owner called it; the
+  count is a fact *about* the answer rather than a name for it, so it is held at the far end
+  in the metadata voice. Where nobody named the query there is no title and the count leads
+  alone. An answer with nothing to fold has no chevron and *keeps its slot* anyway: a standing
+  question is asked again on every keystroke of the day it sits under, and an answer arriving
+  may not slide the line it arrives on eighteen pixels sideways — an empty gutter is a
+  quieter thing than a header that moves.
+  **The plan read back as a phrase is not printed.** `Blocks · Tag is #neoseq · Status is any
+  of To-do, Doing` stated permanently over every answer is a machine's sentence where a
+  reader looks for a title — it repeats what the builder one hover away already says in rows,
+  and it says it whether anybody is reading it or not. It is the *name of the control that
+  opens the question* instead, so reading what a query asks costs a hover rather than a line
+  of every surface that answers one.
+  Folding hides the mounted answer immediately and never pauses its execution.
+  **The editor is a control on the answer.** What
   a query asks is opened from an icon beside the ones that change what a table shows, how it
   is ordered, and how it is drawn — four controls in one place, revealed together. It carries
   no lit state, unlike the sort control's: a query with no conditions is one nobody has
   written yet, so a mark for "this answer is narrowed" would be on for every query in the
-  graph, and what the conditions *are* the caption already says in words. **Both disclosures
+  graph — and what the conditions *are* is the control's own name, read on hover. **Both disclosures
   are remembered** — in this browser, per graph and per query, beside the theme and the rail's
   width: a question left open comes back open and a folded answer comes back folded, because
   a preference the reader has to state again after every reload is one the product is not
@@ -643,9 +671,13 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   so they take the same ink the outline gives them and the header stays the quieter of the
   two, and they sit on their row's centre line, because a row is as tall as its tallest cell
   and hanging every other cell from its ceiling is that difference made visible.
+  **A list hangs from an indent.** A query's rows sit one bullet slot in from the panel's own
+  edge, the way an answer sits *under* its question rather than beside it — so the panel reads
+  as one object with a heading and a body, not as two runs of content sharing a left edge. A
+  table does not: a grid's header rule and row seams have to span the object they describe.
   **A surface may present a question it cannot author.** A graph's standing queries are
-  set up in that graph's Settings and answered under the day, so there the phrase is the same
-  caption it is everywhere and what is missing is the way into the question: nothing offers a
+  set up in that graph's Settings and answered under the day, so there the title is the same
+  title it is everywhere and what is missing is the way into the question: nothing offers a
   builder for a question authored elsewhere, because that would be a promise the surface cannot
   keep. The document's identity is not discarded, though. Its current saved view is shaped where
   the answer is read, so layout and sort controls remain on the answer and a table's column order,
@@ -656,7 +688,11 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   rather than to the question. Under the journal they sit *after* the append
   zone, which keeps its whole reach, and nothing separates them from the writing but
   that: each is already a bounded object on the canvas, and a heading over them would
-  name what their captions already name one at a time.
+  name what their titles already name one at a time. **They are spaced as sections, not as
+  rows**: each is a whole question with a title and a body of answers, so the air between two
+  of them has to read as "a different question" rather than as "the next line". Set closer
+  together than a panel's own title is to its own first row — which is the one comparison a
+  reader actually makes — the whole run read as a single list of results.
 - **Status slots.** Save, sync, live share one language: nothing when steady, a 5px dot
   after 600ms while working, a `--danger` dot with a plain-text reason on failure — each
   failure reported by exactly one surface.

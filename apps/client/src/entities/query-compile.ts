@@ -10,6 +10,7 @@
 import type { RdfTerm } from "../generated/core-port";
 import { addDays } from "./journal";
 import { valueTypeOf } from "./properties";
+import { isTaskDateKey, timeKeyFor } from "./tasks";
 import {
   columnVariable,
   fieldType,
@@ -387,6 +388,37 @@ function aggregateExpression(column: PlanColumn, inner: string): string {
  */
 export const SUBJECT_VARIABLE = "q_subject";
 
+/**
+ * Whether a variable belongs to the compiler rather than to a column. `q_` is
+ * the compiler's reserved namespace and `columnVariable` moves any column that
+ * would land in it aside, so the test is the prefix and nothing else. A
+ * hand-written query is not held to this: its variables are its own.
+ */
+export function isCompilerVariable(variable: string): boolean {
+  return variable.startsWith("q_");
+}
+
+/**
+ * The companion a moment's column travels with: the time of day that refines it.
+ *
+ * A time of day is not a column. On its own it means nothing at all, which is
+ * why it is a feature-only property and the columns panel never offers it
+ * (§ Properties). But a moment *is* a day plus an optional time, so a column
+ * that shows one has to carry both — and it carries the second here, in the
+ * compiler's own namespace, where no column id can reach and no table will draw
+ * it as a column of its own.
+ */
+export function momentTimeVariable(variable: string): string {
+  return `q_time_${variable}`;
+}
+
+/** The time key a column's own values are refined by, where it has one. */
+function momentTimeKey(column: PlanColumn): string | null {
+  if (column.aggregate) return null;
+  if (column.source.kind !== "property") return null;
+  return isTaskDateKey(column.source.key) ? timeKeyFor(column.source.key) : null;
+}
+
 function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
   const self = SUBJECT_VARIABLE;
   const emitter = new Emitter(plan.subject, `?${self}`, runtime);
@@ -418,6 +450,18 @@ function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
     variables.push(variable);
     projection.push(`?${variable}`);
     grouped.push(`?${variable}`);
+
+    // A moment is a day plus an optional time, so the day's column selects the
+    // time beside it. It is single-valued on the same subject, so it cannot
+    // multiply a row, and it groups with the column it refines.
+    const timeKey = momentTimeKey(column);
+    if (timeKey) {
+      const companion = momentTimeVariable(variable);
+      where.push(`  OPTIONAL { ${emitter.self} ${propertyPredicate(timeKey)} ?${companion} }`);
+      variables.push(companion);
+      projection.push(`?${companion}`);
+      grouped.push(`?${companion}`);
+    }
   }
 
   // Every row has to know which thing it is before it can be opened, so the

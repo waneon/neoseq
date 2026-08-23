@@ -1,10 +1,15 @@
 // The query, restated in one line.
 //
-// A collapsed query still has to say what it asks, or collapsing it would hide
-// the only thing that tells two queries on the same page apart. So the header
-// carries the plan read back as a phrase — `Blocks · Status is Done` — built from
-// the same `labels` vocabulary the builder's own rows print, so the sentence a
-// reader collapses is word-for-word the sentence they reopen.
+// The plan read back as a phrase — `Blocks · Status is Done` — built from the same
+// `labels` vocabulary the builder's own rows print, so what a reader is told the
+// query asks is word-for-word what they find when they open it.
+//
+// It is not printed over the answer. A machine-written sentence stated
+// permanently above every result is chrome that repeats the builder one hover
+// away, and it is noise beside a question the reader has already named. So the
+// phrase has two homes, both of them places somebody went looking for it: the
+// name of the control that opens the question, and the name Settings offers a
+// standing question that nobody has titled yet.
 //
 // It is a summary, not a transcript: two conditions per level, then a count of
 // what is left. A nested group keeps its parentheses, because "or" inside "and"
@@ -64,13 +69,7 @@ export function planSummary(plan: QueryPlan, context: SummaryContext): QuerySumm
   };
 }
 
-/**
- * The caption as one string, for the disclosure's accessible name. The middot
- * between the halves is drawn in CSS, because it is punctuation rather than part
- * of either half — which leaves the two spans adjacent in the DOM, and a name
- * computed off them would read `BlocksStatus is Doing`. So the name is stated,
- * the way every other control in the product whose text *is* its value states it.
- */
+/** The phrase as one string: `Blocks · Status is Doing`, halves and punctuation. */
 export function summaryLabel(summary: QuerySummary): string {
   return summary.detail ? `${summary.lead}${SEPARATOR}${summary.detail}` : summary.lead;
 }

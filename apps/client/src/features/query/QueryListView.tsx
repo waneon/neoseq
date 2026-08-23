@@ -329,7 +329,12 @@ function ResultFacts({
               editor={editor}
             />
           ) : (
-            <CellValue term={row.values[column.variable]} column={column} context={context} />
+            <CellValue
+              term={row.values[column.variable]}
+              column={column}
+              context={context}
+              row={row.values}
+            />
           )}
         </span>
       ))}
