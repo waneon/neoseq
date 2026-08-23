@@ -288,7 +288,8 @@ invalidate query results by itself.
 SPARQL stays the only executable query language, and the core reads nothing
 else. A **query plan** is the *authoring* representation the client's query
 builder writes that SPARQL from: a subject kind, a nested all/any/none tree of
-typed conditions, output columns with optional aggregates, and a row limit. It is
+typed conditions, output columns, and a row limit. Repeated columns are folded
+into one cell by their cardinality rather than by a reader-facing mode. The plan is
 stored beside the source in the same document so reopening a query reopens the
 builder rather than a wall of SPARQL, and so it reaches every replica.
 
@@ -323,10 +324,10 @@ Three properties of the emitted SPARQL are contractual rather than incidental:
   `EXISTS` is evaluated against the solution in hand, which is what "any of
   these is true *of this row*" means.
 
-A repeated relation folded into one cell compiles to `GROUP_CONCAT` with the
-remaining columns in `GROUP BY`. All of these shapes are covered by a
-query-crate conformance test, because the compiler that writes them lives
-outside Rust.
+A repeated relation, folded into one cell by default, compiles to `GROUP_CONCAT`
+with the remaining columns in `GROUP BY`. All of these shapes are covered by a
+query-crate conformance test, because the compiler that writes them lives outside
+Rust.
 
 ## Planning, Reactivity, and Budgets
 

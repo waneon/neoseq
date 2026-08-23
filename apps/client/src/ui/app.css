@@ -4263,49 +4263,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink);
 }
 
-/* Revealed, not summoned. How a column *arrives* — each value, or folded into
-   one — is a question about a handful of relations, and a dropdown beside every
-   switch in the list would out-shout the switches. It keeps its place in the
-   layout so nothing shifts under the pointer, and a column that is already
-   summarized states so at rest: that is a fact about the answer, not an offer. */
-.query-columns-panel .query-columns-aggregate {
-  flex: none;
-  width: auto;
-  max-width: 108px;
-  height: var(--sp-5);
-  margin-inline-end: var(--sp-1);
-  padding-inline: var(--sp-2) var(--sp-1);
-  background: transparent;
-  box-shadow: none;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  opacity: 0;
-  transition: opacity var(--dur-press) var(--ease-out);
-}
-
-.query-columns-row:hover .query-columns-aggregate,
-.query-columns-row:focus-within .query-columns-aggregate,
-.query-columns-row[data-summarized] .query-columns-aggregate {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .query-columns-panel .query-columns-aggregate {
-    opacity: 1;
-  }
-}
-
-.query-columns-panel .query-columns-aggregate:hover:not(:disabled) {
-  background: var(--surface-2);
-  box-shadow: none;
-}
-
-.query-columns-panel .query-columns-aggregate:focus-visible,
-.query-columns-panel .query-columns-aggregate[data-state="open"] {
-  background: var(--surface-2);
-  box-shadow: var(--e1);
-}
-
 /* No reserved height and no padding of its own: an empty answer is stated by the
    header's count, so the band under it must be able to be nothing at all rather
    than a 34px blank strip under every query that found nothing. Its children pad

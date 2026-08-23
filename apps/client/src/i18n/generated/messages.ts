@@ -318,7 +318,6 @@ export interface MessageArgumentMap {
   "query.aggregate.list": undefined;
   "query.aggregate.max": undefined;
   "query.aggregate.min": undefined;
-  "query.aggregate.none": undefined;
   "query.aggregate.sum": undefined;
   "query.aggregateOf": { readonly "aggregate": string | number; readonly "field": string | number };
   "query.and": undefined;
@@ -333,7 +332,6 @@ export interface MessageArgumentMap {
   "query.column.sibling_index": undefined;
   "query.column.tags": undefined;
   "query.columnActions": { readonly "column": string | number };
-  "query.columnMode": { readonly "column": string | number };
   "query.columns": undefined;
   "query.dateLabel": undefined;
   "query.deleteView": undefined;

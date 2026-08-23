@@ -86,9 +86,7 @@ import {
   graphPropertyKeys,
   QUERY_PLAN_VERSION,
   withColumn,
-  withColumnAggregate,
   withoutColumn,
-  type PlanAggregate,
   type PlanColumn,
   type QueryPlan,
 } from "../../entities/query-plan";
@@ -607,11 +605,6 @@ export function QueryPanel({
     }
   };
 
-  const summarizeColumn = (choice: ColumnChoice, aggregate: PlanAggregate | undefined) => {
-    if (!plan || !choice.column) return;
-    changePlan(withColumnAggregate(plan, choice.column.id, aggregate));
-  };
-
   // A header click is one command, not a debounced stream: the reader clicked
   // once and expects the order to be theirs from then on.
   const setSorts = (next: QueryViewSort[]) => {
@@ -838,7 +831,6 @@ export function QueryPanel({
             <QueryColumnsControl
               choices={choices}
               onToggle={toggleColumn}
-              onAggregate={summarizeColumn}
             />
           )}
           {columns.some((column) => column.sortable) && (

@@ -55,9 +55,7 @@ import {
   graphPropertyKeys,
   QUERY_PLAN_VERSION,
   withColumn,
-  withColumnAggregate,
   withoutColumn,
-  type PlanAggregate,
   type QueryPlan,
 } from "../../entities/query-plan";
 import { useQueryAnswer } from "../query/execution";
@@ -290,10 +288,6 @@ function DefaultQueryRow({
     else if (choice.column) commitPlan(withoutColumn(plan, choice.column.id));
   };
 
-  const summarizeColumn = (choice: ColumnChoice, aggregate: PlanAggregate | undefined) => {
-    if (plan && choice.column) commitPlan(withColumnAggregate(plan, choice.column.id, aggregate));
-  };
-
   return (
     <li className="default-query" data-open={open || undefined}>
       <div className="default-query-head">
@@ -442,7 +436,6 @@ function DefaultQueryRow({
               <QueryColumnsControl
                 choices={choices}
                 onToggle={toggleColumn}
-                onAggregate={summarizeColumn}
               />
             )}
           </div>

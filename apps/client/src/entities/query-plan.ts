@@ -7,6 +7,7 @@
 // `query-compile.ts` turns a plan into source and run-time parameters.
 
 import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
+import { FAVOURITE_ORDER_KEY } from "./favourites";
 import { cardinalityOf, isGenericProperty, REGISTRY, stringChoicesOf, valueTypeOf } from "./properties";
 
 export const QUERY_PLAN_VERSION = 1;
@@ -291,28 +292,42 @@ export function columnSourceKey(source: PlanColumnSource): string {
 
 /**
  * Everything a subject could be asked to show, in the order a reader meets it:
- * its own fields first, then the graph's vocabulary, then the one column that is
- * a summary rather than a field.
+ * its own fields first, then the graph's reader-facing vocabulary. Structural
+ * bookkeeping and the private favourite order are query inputs, not useful
+ * result columns.
  */
 export function columnSourcesFor(
   subject: PlanSubject,
   propertyKeys: readonly string[],
 ): PlanColumnSource[] {
   const kinds = columnKindsFor(subject)
-    .filter((kind) => kind !== "property" && kind !== "subject");
+    .filter((kind) => kind !== "property");
   return [
     ...kinds.map((kind) => ({ kind }) as PlanColumnSource),
-    ...propertyKeys.map((key) => ({ kind: "property", key }) as PlanColumnSource),
-    { kind: "subject" },
+    ...propertyKeys
+      .filter((key) => key !== FAVOURITE_ORDER_KEY)
+      .map((key) => ({ kind: "property", key }) as PlanColumnSource),
   ];
 }
 
 export function columnKindsFor(subject: PlanSubject): PlanColumnSource["kind"][] {
   if (subject === "block") {
-    return ["subject", "content", "property", "tags", "page", "parent", "sibling_index"];
+    return ["content", "property", "tags", "page"];
   }
-  if (subject === "page") return ["subject", "content", "property", "tags"];
-  return ["subject", "content", "property"];
+  if (subject === "page") return ["content", "property", "tags"];
+  return ["content", "property"];
+}
+
+/** Whether the columns panel may offer or retain this source. */
+export function isDisplayColumnSource(source: PlanColumnSource): boolean {
+  if (
+    source.kind === "subject"
+    || source.kind === "parent"
+    || source.kind === "sibling_index"
+  ) {
+    return false;
+  }
+  return source.kind !== "property" || source.key !== FAVOURITE_ORDER_KEY;
 }
 
 /** Property keys a plan may name: the graph's own writable, visible vocabulary. */
@@ -361,20 +376,6 @@ export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
   return keys;
 }
 
-export function aggregatesFor(source: PlanColumnSource): PlanAggregate[] {
-  if (source.kind === "tags") return ["list", "count"];
-  // The subject is only ever worth counting: naming it is what the content
-  // column already does, and better.
-  if (source.kind === "subject") return ["count"];
-  if (source.kind === "property") {
-    const type = valueTypeOf(source.key);
-    if (type === "number") return ["list", "count", "sum", "avg", "min", "max"];
-    if (type === "date") return ["list", "count", "min", "max"];
-    return ["list", "count"];
-  }
-  return ["list", "count"];
-}
-
 /** A repeated relation yields a row per value unless the column folds them. */
 function isMultiValued(source: PlanColumnSource): boolean {
   if (source.kind === "tags") return true;
@@ -383,8 +384,9 @@ function isMultiValued(source: PlanColumnSource): boolean {
 }
 
 /**
- * How a column arrives: folded when its relation repeats, counted when it is the
- * subject itself. Anything else shows its own value.
+ * How a column arrives: folded when its relation repeats, otherwise as its own
+ * value. Counting the subject remains here only to read plans from older peers;
+ * it is no longer an offered display field.
  */
 export function defaultAggregateFor(source: PlanColumnSource): PlanAggregate | undefined {
   if (source.kind === "subject") return "count";
@@ -524,19 +526,6 @@ export function withoutColumn(plan: QueryPlan, id: string): QueryPlan {
   return { ...plan, columns: plan.columns.filter((column) => column.id !== id) };
 }
 
-/** The plan with one column read a different way: each value, or folded. */
-export function withColumnAggregate(
-  plan: QueryPlan,
-  id: string,
-  aggregate: PlanAggregate | undefined,
-): QueryPlan {
-  return {
-    ...plan,
-    columns: plan.columns.map((column) =>
-      (column.id === id ? { ...column, aggregate } : column)),
-  };
-}
-
 // ── Serialization ─────────────────────────────────────────────────────────────
 
 export function encodePlan(plan: QueryPlan): string {
@@ -557,19 +546,26 @@ export function decodePlan(payload: string, version: number): QueryPlan | null {
   }
   if (!validPlan(parsed)) return null;
   // Stated field by field rather than spread, so a key this build no longer
-  // knows — an order a previous one wrote before the view took ordering over —
-  // is read once and then gone, instead of riding along in every save.
+  // knows is read once and then gone instead of riding along in every save.
+  // Column modes used to be a reader choice. They now follow cardinality: a
+  // repeated value is folded into one cell and every other value stays plain.
+  const columns = parsed.columns
+    .filter((column) => isDisplayColumnSource(column.source))
+    .map((column) => {
+      const aggregate = defaultAggregateFor(column.source);
+      if (aggregate) return { ...column, aggregate };
+      const { aggregate: _legacyAggregate, ...plain } = column;
+      return plain;
+    });
   return {
     version: QUERY_PLAN_VERSION,
     subject: parsed.subject,
     where: parsed.where,
-    // The subject is only ever a count. A plan that names it plainly — from a
-    // peer or from an older build — is read as the count it can actually
-    // produce, rather than as a column with nothing behind it.
-    columns: parsed.columns.map((column) =>
-      column.source.kind === "subject" && !column.aggregate
-        ? { ...column, aggregate: "count" as const }
-        : column),
+    // An old plan may have contained only a structural or summary column. Text
+    // is the one useful field every subject has, so it is the safe replacement.
+    columns: columns.length > 0
+      ? columns
+      : [{ id: "text", source: { kind: "content" } }],
     limit: parsed.limit,
     distinct: parsed.distinct === true,
   };

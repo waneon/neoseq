@@ -574,7 +574,10 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   **Columns are a table's question.** A table's switch panel is the sort panel's twin, one
   line per field with the query's own columns switched on: asking for one adds it to the
   query and to this table at once, withdrawing it hides it here and drops it from the query
-  when no other view is still asking. A list draws entities rather than a grid, so it has
+  when no other view is still asking. Each field has one natural shape: repeated values are
+  folded into one cell and singular values are shown directly, with no per-column mode to
+  choose. Structural bookkeeping, favourite order, and a count of the subject itself are
+  not display fields. A list draws entities rather than a grid, so it has
   nothing to hide a column *in* — it states every fact the query returned, and carries no
   switch at all. **A query is born with one view, named for what it shows** — `All` — rather than with a `Table` and a `List` holding
   the same rows under two names for their own shapes. Layout is a *property* of a view; a

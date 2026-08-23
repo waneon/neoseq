@@ -1,12 +1,12 @@
 // What a table shows.
 //
 // **A column is a switch, not two of them.** Everything the subject could be
-// asked for is one list — its own fields, then the graph's vocabulary, then the
-// one column that is a summary rather than a field — and each line is on or off.
-// Turning one on puts it in the query and in this table; turning it off takes it
-// out of this table, and out of the query too unless another view still asks for
-// it. One gesture, one meaning, in both the ordinary case where a query has a
-// single table and the case where it has four.
+// asked for is one list — its own useful fields, then the graph's reader-facing
+// vocabulary — and each line is on or off. Turning one on puts it in the query
+// and in this table; turning it off takes it out of this table, and out of the
+// query too unless another view still asks for it. One gesture, one meaning, in
+// both the ordinary case where a query has a single table and the case where it
+// has four. How values arrive is not another choice: cardinality decides it.
 //
 // **It belongs to the answer, not to the question.** Which columns a table shows
 // is changed while reading it, next to the order it is read in — not by opening
@@ -21,18 +21,16 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Columns3Icon, SearchIcon } from "lucide-react";
-import { MenuSelect } from "@/ui/menu-select";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import {
-  aggregatesFor,
   columnSourceKey,
-  type PlanAggregate,
+  isDisplayColumnSource,
   type PlanColumn,
   type PlanColumnSource,
   type PlanSubject,
 } from "../../entities/query-plan";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { aggregateLabel, columnSourceLabel } from "./labels";
+import { columnSourceLabel } from "./labels";
 
 /** Below this many choices the list is read at a glance and a filter is noise. */
 const SEARCH_FLOOR = 10;
@@ -67,7 +65,10 @@ export function columnChoices(
   const selected = new Map(columns.map((column) => [columnSourceKey(column.source), column]));
   const offered = new Set(sources.map(columnSourceKey));
   const orphans = columns
-    .filter((column) => !offered.has(columnSourceKey(column.source)))
+    .filter((column) => (
+      isDisplayColumnSource(column.source)
+      && !offered.has(columnSourceKey(column.source))
+    ))
     .map((column) => column.source);
   return [...sources, ...orphans].map((source) => {
     const key = columnSourceKey(source);
@@ -85,11 +86,9 @@ export function columnChoices(
 export function QueryColumnsControl({
   choices,
   onToggle,
-  onAggregate,
 }: {
   choices: ColumnChoice[];
   onToggle: (choice: ColumnChoice, shown: boolean) => void;
-  onAggregate: (choice: ColumnChoice, aggregate: PlanAggregate | undefined) => void;
 }) {
   const { message } = useI18n();
   const [open, setOpen] = useState(false);
@@ -163,7 +162,6 @@ export function QueryColumnsControl({
                   choice={choice}
                   locked={choice.shown && only}
                   onToggle={onToggle}
-                  onAggregate={onAggregate}
                 />
               ))}
             </ul>
@@ -178,25 +176,15 @@ function ColumnRow({
   choice,
   locked,
   onToggle,
-  onAggregate,
 }: {
   choice: ColumnChoice;
   locked: boolean;
   onToggle: (choice: ColumnChoice, shown: boolean) => void;
-  onAggregate: (choice: ColumnChoice, aggregate: PlanAggregate | undefined) => void;
 }) {
-  const { message } = useI18n();
-  const aggregates = aggregatesFor(choice.source);
-  // How a column arrives — each value, or folded into one — is a property of the
-  // column and is asked only of a column that is actually there. A summary the
-  // reader cannot see is a question about nothing.
-  const summarizable = choice.shown && choice.column !== null && aggregates.length > 0;
-
   return (
     <li
       className="query-columns-row"
       data-shown={choice.shown || undefined}
-      data-summarized={choice.column?.aggregate ? "" : undefined}
     >
       <label className="query-columns-toggle">
         <input
@@ -208,25 +196,6 @@ function ColumnRow({
         />
         <span className="query-columns-name">{choice.label}</span>
       </label>
-      {summarizable && (
-        <MenuSelect
-          className="query-columns-aggregate"
-          value={choice.column?.aggregate ?? ""}
-          label={message("query.columnMode", { column: choice.label })}
-          options={[
-            // A subject column has no plain reading — see `decodePlan`.
-            ...(choice.source.kind === "subject"
-              ? []
-              : [{ value: "", label: message("query.aggregate.none") }]),
-            ...aggregates.map((aggregate) => ({
-              value: aggregate,
-              label: aggregateLabel(aggregate, message),
-            })),
-          ]}
-          onValueChange={(value) =>
-            onAggregate(choice, (value || undefined) as PlanAggregate | undefined)}
-        />
-      )}
     </li>
   );
 }

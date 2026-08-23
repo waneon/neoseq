@@ -168,6 +168,37 @@ describe("the query builder", () => {
     });
   });
 
+  it("offers only useful display fields and assigns each its natural value shape", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("query-columns-trigger"));
+    const panel = await screen.findByTestId("query-columns-panel");
+
+    // Value shape follows the source's cardinality; it is no longer another
+    // choice beside the field switch.
+    expect(within(panel).queryByText("each value")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("all")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("count of")).not.toBeInTheDocument();
+
+    // Structure and private ordering help queries run, but are not facts a
+    // reader needs as result columns. Counting the subject is not a field.
+    expect(within(panel).queryByText("Parent")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("Position")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("builtin.favorite-order")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("Blocks")).not.toBeInTheDocument();
+
+    await user.click(within(panel).getByTestId("query-column-toggle-tags"));
+    await waitFor(() => {
+      const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+      expect(plan?.columns.find((column) => column.source.kind === "tags")?.aggregate)
+        .toBe("list");
+      expect(plan?.columns.find((column) => column.source.kind === "content")?.aggregate)
+        .toBeUndefined();
+    });
+  });
+
   // A built query can always be *read* as SPARQL and never converted into it, so
   // nothing a person builds can be made unbuildable by one press of a menu row.
   it("discloses the SPARQL it wrote without offering to replace it", async () => {
