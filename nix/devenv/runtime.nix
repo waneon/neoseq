@@ -16,9 +16,9 @@ let
       }
     else
       {
-        web = 4173;
-        sync = 8787;
-        postgres = 5432;
+        web = config.processes.web.ports.http.value;
+        sync = config.processes.sync-server.ports.http.value;
+        postgres = config.processes.postgres.ports.main.value;
       };
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString ports.postgres}";
   caddyfile = pkgs.writeText "neoseq.Caddyfile" ''
@@ -63,7 +63,14 @@ in
     services.postgres.port = ports.postgres;
 
     processes = {
+      postgres = lib.mkIf (!release) {
+        ports.main.allocate = 5432;
+      };
+
       web = {
+        ports = lib.mkIf (!release) {
+          http.allocate = 4173;
+        };
         exec =
           if release then
             "exec ${lib.getExe pkgs.caddy} run --config ${caddyfile} --adapter caddyfile"
@@ -79,6 +86,9 @@ in
       };
 
       sync-server = {
+        ports = lib.mkIf (!release) {
+          http.allocate = 8787;
+        };
         env = {
           DATABASE_URL = databaseUrl;
           NEOSEQ_TEST_AUTH_SECRET = "neoseq-local-development-only";
