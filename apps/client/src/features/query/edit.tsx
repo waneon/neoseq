@@ -841,6 +841,9 @@ function QueryMarkdownField({
         onFocus={(event) => {
           if (!current) editor.begin(binding, row, event.currentTarget);
         }}
+        onClick={() => {
+          if (editor.keymap === "vim") editor.vim.reset("insert");
+        }}
         onValueChange={(value, element, edit) => {
           if (!markdown) return;
           editor.setDraft(value, edit);
@@ -1004,6 +1007,9 @@ function QueryMarkdownField({
           onActivate={(caret, anchor) => {
             pendingCaret.current = caret ?? projected.length;
             const target = anchor ?? textarea.current;
+            if (editor.keymap === "vim" && !anchor?.matches(":focus-visible")) {
+              editor.vim.reset("insert");
+            }
             if (target) editor.begin(binding, row, target);
           }}
         />

@@ -1238,6 +1238,7 @@ export function Outliner({
           if (cancelled) return;
           if (!started) {
             // A press that never travelled is a click: put the caret in the line.
+            if (keymap === "vim" && !readonly) vim.reset("insert");
             setFocus(row.block.id);
             return;
           }
@@ -1245,7 +1246,7 @@ export function Outliner({
         },
       );
     },
-    [applyMove, listen, readonly, setFocus, updateAutoScroll],
+    [applyMove, keymap, listen, readonly, setFocus, updateAutoScroll, vim],
   );
 
   const onRowContextMenu = useCallback(
@@ -3148,6 +3149,11 @@ function BlockRow({
             if (!isFocused) editor.setFocus(row.block.id, -1);
             if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
           }}
+          onClick={() => {
+            if (editor.keymap === "vim" && !editor.readonly) {
+              editor.vim.reset("insert");
+            }
+          }}
           onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}
           onBlur={() => {
             editor.flushNow(row.block.id);
@@ -3178,7 +3184,16 @@ function BlockRow({
             // Read-only blocks hand over too: the textarea is the row's tab stop
             // and its arrow-key navigation, and `readOnly` is what refuses the
             // edit — not the absence of a way in.
-            onActivate={(caret) => editor.setFocus(row.block.id, caret)}
+            onActivate={(caret, anchor) => {
+              if (
+                editor.keymap === "vim"
+                && !editor.readonly
+                && !anchor?.matches(":focus-visible")
+              ) {
+                editor.vim.reset("insert");
+              }
+              editor.setFocus(row.block.id, caret);
+            }}
           />
         )}
         {peers.length > 0 && (

@@ -67,6 +67,8 @@ editor keymap, the surface's structural policy, then global modifier shortcuts.
 Normal mode rejects native text insertion at the shared input boundary without
 marking the canonical field read-only. Insert mode therefore keeps the same
 composition, auto-pair, and completion behavior as the standard keymap.
+Pointer activation enters Insert mode at the chosen caret; keyboard motion
+between blocks retains the current modal state.
 
 Text motions and motion-based delete/change operators are shared. Structural
 intents are adapted by the host: the outline treats one block as one Vim unit and

@@ -796,8 +796,10 @@ describe("query result views", () => {
       const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
 
       expect(editor).not.toHaveAttribute("readonly");
+      expect(editor).toHaveAttribute("data-vim-mode", "insert");
+      expect(screen.getByTestId("query-vim-mode-indicator")).toHaveTextContent("INSERT");
+      await user.keyboard("{Escape}");
       expect(editor).toHaveAttribute("data-vim-mode", "normal");
-      expect(screen.getByTestId("query-vim-mode-indicator")).toHaveTextContent("NORMAL");
       editor.setSelectionRange(0, 0);
       await user.keyboard("o");
       expect(editor).toHaveAttribute("data-vim-mode", "normal");

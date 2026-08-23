@@ -49,6 +49,9 @@ describe("outliner keyboard commands", () => {
       first.setSelectionRange(0, 0);
 
       expect(first).not.toHaveAttribute("readonly");
+      expect(first).toHaveAttribute("data-vim-mode", "insert");
+      expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
+      await user.keyboard("{Escape}");
       expect(first).toHaveAttribute("data-vim-mode", "normal");
       expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("NORMAL");
       await user.keyboard("w");
@@ -101,6 +104,7 @@ describe("outliner keyboard commands", () => {
       const user = userEvent.setup();
       const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
       await user.click(textarea);
+      await user.keyboard("{Escape}");
 
       // A few browser/IME combinations deliver a non-cancelable composition
       // input even when beforeinput was rejected. Normal mode restores the
@@ -142,6 +146,7 @@ describe("outliner keyboard commands", () => {
       const { session } = await mountOutline(["anchor"]);
       const user = userEvent.setup();
       await user.click(screen.getByLabelText("Block text"));
+      await user.keyboard("{Escape}");
 
       await user.keyboard("o");
       await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
