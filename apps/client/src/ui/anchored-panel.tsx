@@ -12,13 +12,15 @@
 // only part that differs — the rows.
 //
 // The one exception worth stating: the product's dropdown (`ui/menu-select`)
-// portals to the body, so a press on one of its rows lands *outside* this panel
-// in the DOM while being, to the reader, a press inside the editor they are
-// filling in. Such a press is not an outside press.
+// portals to the surface both of them belong to (§ ui/overlay-root), so a press
+// on one of its rows lands *outside* this panel in the DOM while being, to the
+// reader, a press inside the editor they are filling in. Such a press is not an
+// outside press.
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPosition, type Anchor, type AnchoredOptions } from "./anchored";
+import { useOverlayRoot } from "./overlay-root";
 
 /** What `⇥` cycles through, and what opening the panel puts the caret on. */
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),[role="button"]';
@@ -47,6 +49,7 @@ export function AnchoredPanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(anchor, options, revision);
+  const root = useOverlayRoot();
   // Callers write `onClose` inline, so the listeners read it through a ref
   // rather than being torn down and re-armed on every render of the panel.
   const closeRef = useRef(onClose);
@@ -71,6 +74,23 @@ export function AnchoredPanel({
     };
   }, [anchor]);
 
+  // `⎋` belongs to the topmost surface, and while this panel is up that is this
+  // panel. A handler on the panel itself is too late to say so: a dialog reads
+  // the key in the *capture* phase on the document, so by the time the key
+  // reaches the panel that raised it the dialog behind has already closed and
+  // taken the panel with it. The window is the one place upstream of that.
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (anchor instanceof HTMLElement) anchor.focus({ preventScroll: true });
+      closeRef.current();
+    };
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => window.removeEventListener("keydown", closeOnEscape, true);
+  }, [anchor]);
+
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       if (panelRef.current?.contains(document.activeElement)) return;
@@ -83,22 +103,18 @@ export function AnchoredPanel({
     <div
       ref={panelRef}
       className={className}
-      // Placement is inline because it is measured, and so is this: a portal
-      // lands on the body, which is exactly where a modal dialog writes
-      // `pointer-events: none` to make the page behind it inert. A panel the
-      // dialog itself summoned is not the page behind it.
+      // Placement is inline because it is measured, and so is this: a panel
+      // summoned from the page lands on the body, which is exactly where a modal
+      // writes `pointer-events: none` to make everything behind it inert. A
+      // panel summoned from inside the modal lands inside it instead
+      // (§ ui/overlay-root) and would not need this; one that opens while some
+      // *other* surface holds the lock still does.
       style={{ ...position, pointerEvents: "auto" }}
       role="dialog"
       aria-label={label}
       data-testid={testId}
+      // `⎋` is taken upstream of here, where the surfaces below cannot reach it.
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (anchor instanceof HTMLElement) anchor.focus({ preventScroll: true });
-          closeRef.current();
-          return;
-        }
         if (event.key !== "Tab") return;
         const focusable = panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
         if (!focusable || focusable.length === 0) return;
@@ -115,6 +131,6 @@ export function AnchoredPanel({
     >
       {children}
     </div>,
-    document.body,
+    root,
   );
 }

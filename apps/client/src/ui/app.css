@@ -1214,12 +1214,33 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--ink-3);
 }
 
-/* A menu of choices scrolls only when the list is long enough to need it — the
-   timezone list is four hundred rows and is the reason this cap exists. */
-.menu-select-menu {
-  max-height: min(320px, 60vh);
-  overflow-y: auto;
+/* ── A menu is never taller than the room it has ──
+   Radix measures the room left on the side it opened to and publishes it as
+   `--radix-dropdown-menu-content-available-height`. A menu that ignores it runs
+   off the bottom of the window with its last rows out of reach of every pointer,
+   so every menu caps itself there and scrolls inside itself.
+
+   The box is declared here rather than as a Tailwind utility on the component,
+   and that is the whole point of this rule: `overflow-hidden` *was* a utility on
+   `dropdown-menu-content`, utilities outrank `neoseq`, and so the `overflow-y:
+   auto` a bespoke class below asked for never once applied — a four-hundred-row
+   timezone list was clipped at 320px with no scrollbar and nothing but the
+   keyboard able to reach the rest of it. A shadcn primitive's box belongs to the
+   layer that owns every other box in the product. */
+[data-slot="dropdown-menu-content"] {
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  /* Vertical only: the horizontal clip is what keeps a row's wash inside the
+     menu's rounded corners. */
+  overflow: hidden auto;
   overscroll-behavior: contain;
+}
+
+/* A menu of choices scrolls only when the list is long enough to need it — the
+   timezone list is four hundred rows and is the reason this cap exists. It
+   still cannot outgrow the room the menu has, which is what the fallback keeps
+   true when there is no popper to ask. */
+.menu-select-menu {
+  max-height: min(320px, 60vh, var(--radix-dropdown-menu-content-available-height, 100vh));
 }
 
 /* ── The roving highlight ──
@@ -8649,11 +8670,21 @@ button.tag-mark:focus-visible {
   animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
+/* ── An arrival lets go once it has landed ──
+   The three transform arrivals below fill `backwards` and not `both`. Their last
+   keyframe *is* the resting style, so filling it forwards changes nothing a
+   reader could see — but it leaves the element animating an identity transform
+   forever, and an element with a transform is the containing block for every
+   `position: fixed` descendant. A dialog parked on `matrix(1, 0, 0, 1, 0, 0)`
+   re-anchored every panel summoned inside it to the dialog's own corner instead
+   of to the window, which is why a surface may now be portaled into the modal it
+   belongs to (§ ui/overlay-root). */
+
 /* Menus and option lists are re-clicked in quick succession, so they take the
    shortest arrival in the system: long enough to explain where the surface came
    from, short enough that it never sits between two clicks. */
 .enter-fade-fast {
-  animation: ns-rise-in 130ms var(--ease-entrance) both;
+  animation: ns-rise-in 130ms var(--ease-entrance) backwards;
 }
 
 /* A panel that floats: the palette, a dialog, an anchored picker. Same arrival,
@@ -8661,7 +8692,7 @@ button.tag-mark:focus-visible {
    through. `--transform-box` stays default: these surfaces are portaled, so no
    ancestor's own transform is in play. */
 .enter-rise {
-  animation: ns-rise-in var(--dur-overlay) var(--ease-entrance) both;
+  animation: ns-rise-in var(--dur-overlay) var(--ease-entrance) backwards;
 }
 
 /* Flipped above its anchor, so it arrives from the direction it opened. */
@@ -8672,7 +8703,7 @@ button.tag-mark:focus-visible {
 
 /* The opacity-free arrival — see `ns-drop-in`. */
 .enter-drop {
-  animation: ns-drop-in var(--dur-overlay) var(--ease-entrance) both;
+  animation: ns-drop-in var(--dur-overlay) var(--ease-entrance) backwards;
 }
 
 /* A view swap: one routed page replacing another, one settings section replacing

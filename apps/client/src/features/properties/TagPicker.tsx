@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
+import { useOverlayRoot } from "@/ui/overlay-root";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -25,6 +26,7 @@ export function TagPicker({
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(anchor, { width: 340, minWidth: 280, maxHeight: 320 });
+  const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {
@@ -84,6 +86,6 @@ export function TagPicker({
         />
       )}
     </div>,
-    document.body,
+    overlayRoot,
   );
 }

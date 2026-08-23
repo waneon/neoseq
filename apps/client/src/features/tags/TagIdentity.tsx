@@ -37,6 +37,7 @@ import {
 } from "../../entities/tag-identity";
 import { canonicalEntityName } from "../../entities/names";
 import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
+import { useOverlayRoot } from "@/ui/overlay-root";
 import { Input } from "@/ui/shadcn/input";
 import { useI18n, type MessageKey } from "../../i18n";
 import { useNotify } from "../notify/context";
@@ -130,6 +131,7 @@ export function TagIdentityPicker({
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(anchor, { width: 296, minWidth: 264, maxHeight: 440 });
+  const overlayRoot = useOverlayRoot();
   const icon = tagIcon(tag);
   const color = tagColor(tag);
 
@@ -275,7 +277,7 @@ export function TagIdentityPicker({
         <GroupField tag={tag} onChange={(next) => write(TAG_GROUP_KEY, next)} />
       </section>
     </div>,
-    document.body,
+    overlayRoot,
   );
 }
 
@@ -323,6 +325,7 @@ function GroupField({
     { matchAnchorWidth: true, maxWidth: 320, maxHeight: 220 },
     rows.length,
   );
+  const overlayRoot = useOverlayRoot();
 
   const commit = (name: string) => {
     const next = name.trim();
@@ -405,7 +408,7 @@ function GroupField({
             ))}
           </ul>
         </div>,
-        document.body,
+        overlayRoot,
       )}
     </div>
   );

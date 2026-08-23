@@ -345,7 +345,9 @@ Motion explains a change; it never decorates one.
    scale — the one animated transform, on the argument that the surface was not on screen a
    frame ago, so nothing is being moved out from under a pointer already travelling toward
    it. Opacity finishes by 40% of the duration, because a panel is read — by a person and by
-   the contrast audit — the instant it is visible.
+   the contrast audit — the instant it is visible. **An arrival lets go once it has landed**:
+   it fills backwards, never forwards, because a surface still holding an identity transform
+   is the containing block for every `position: fixed` child it hosts.
 2. **A surface read on the frame it mounts moves only.** A toast arrives unbidden and is
    announced immediately; it translates and never changes alpha, so its text is never
    composited against the page behind it.
@@ -700,7 +702,14 @@ Architecture-level invariants. Pixel specs live in `app.css` beside the tokens.
   the popup belongs to. Native stays where the platform is better: checkboxes, date and time
   inputs. A **colour** is not a list of choices and does not use the menu (§ Settings).
 - **Overlays.** All portaled, on one `--z-` scale, dismissed by outside click, `⎋`, and
-  selection. Anchored panels share one placement function: below the anchor, flipped above
+  selection. **A summoned surface lands in the modal that summoned it**, and on the page only
+  when there is none: a modal's scroll lock, its `pointer-events` lock and its focus trap all
+  stop at the dialog's own panel, so a menu or picker parked on the body behind them drew a
+  scrollbar that would not scroll, offered rows no pointer could reach, and gave its focus
+  straight back to the control that opened it. `⎋` belongs to the topmost surface, which is
+  that panel and not the dialog under it. A menu is capped at the room it actually has and
+  scrolls inside itself, and that box is declared in the design layer — a Tailwind utility on
+  the primitive outranks it and silently wins. Anchored panels share one placement function: below the anchor, flipped above
   when the room is above, `max-height` the room actually left. **Sideways it opens toward the
   middle of the window.** A *point-like* anchor — one narrower than the panel: a chip, an
   icon button, a mark — is a place rather than a field, so its panel grows away from the

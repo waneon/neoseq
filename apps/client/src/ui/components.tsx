@@ -1,10 +1,11 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Dialog as DialogRoot,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/ui/shadcn/dialog";
+import { OverlayRoot } from "@/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../i18n";
 
@@ -23,12 +24,18 @@ export function Dialog({
   children: ReactNode;
 }) {
   const { message } = useI18n();
+  // The panel itself, once it exists. Everything a dialog summons — a menu, an
+  // anchored panel, an autocomplete — is portaled into it rather than onto the
+  // body, because the scroll lock, the pointer-events lock and the focus trap a
+  // modal installs all stop at this element (§ ui/overlay-root).
+  const [surface, setSurface] = useState<HTMLElement | null>(null);
   // Rendered only while open (parents mount it conditionally), so the Radix
   // root is always open; closing via Escape, the backdrop, or the X reports
   // back through onOpenChange. Radix owns focus trapping and restoration.
   return (
     <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
+        ref={setSurface}
         closeLabel={message("common.close")}
         showCloseButton={dismissible}
         className={cn(
@@ -49,7 +56,7 @@ export function Dialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        {children}
+        <OverlayRoot node={surface}>{children}</OverlayRoot>
       </DialogContent>
     </DialogRoot>
   );

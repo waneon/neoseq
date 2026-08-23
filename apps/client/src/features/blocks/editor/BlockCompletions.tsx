@@ -9,6 +9,7 @@ import { CheckIcon, HashIcon } from "lucide-react";
 import type { TagSnapshot } from "../../../core-port/snapshot";
 import { useI18n } from "../../../i18n";
 import { useAnchoredPosition } from "@/ui/anchored";
+import { useOverlayRoot } from "@/ui/overlay-root";
 import { fuzzyScore } from "../../commands/registry";
 import {
   SLASH_GROUP_ORDER,
@@ -122,6 +123,7 @@ export function BlockTagMenu({
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(liveAnchor(request), MENU_PLACEMENT, results.length);
+  const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
     listRef.current
@@ -158,7 +160,7 @@ export function BlockTagMenu({
         </button>
       ))}
     </div>,
-    document.body,
+    overlayRoot,
   );
 }
 
@@ -178,6 +180,7 @@ export function BlockSlashMenu({
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(liveAnchor(request), MENU_PLACEMENT, results.length);
+  const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
     listRef.current
@@ -242,6 +245,6 @@ export function BlockSlashMenu({
         </div>
       ))}
     </div>,
-    document.body,
+    overlayRoot,
   );
 }

@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
 import { useAnchoredPosition } from "@/ui/anchored";
+import { useOverlayRoot } from "@/ui/overlay-root";
 import { Input } from "@/ui/shadcn/input";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
@@ -83,6 +84,7 @@ export function PageAutocomplete({
     { matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 },
     options.length,
   );
+  const overlayRoot = useOverlayRoot();
 
   const pick = async (option: Option) => {
     try {
@@ -200,7 +202,7 @@ export function PageAutocomplete({
               </ul>
             )}
           </div>,
-          document.body,
+          overlayRoot,
         )}
     </div>
   );

@@ -2,6 +2,7 @@ import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { CheckIcon } from "lucide-react";
 
+import { useOverlayRoot } from "@/ui/overlay-root";
 import { cn } from "@/lib/utils";
 
 function DropdownMenu(
@@ -29,13 +30,19 @@ function DropdownMenuContent({
   sideOffset = 6,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  // A menu opened from inside a modal belongs inside it, not on the body behind
+  // it — a non-modal menu portaled onto the body cannot be scrolled or clicked
+  // through a dialog's locks (§ ui/overlay-root).
+  const container = useOverlayRoot();
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={container}>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-[var(--z-menu)] min-w-[12rem] overflow-hidden rounded-lg bg-[var(--overlay)] p-1 text-popover-foreground shadow-[var(--e2)]",
+          // No `overflow-hidden` here: a menu's box — its cap and its scrolling —
+          // is declared in `app.css`, because a utility would outrank it and did.
+          "z-[var(--z-menu)] min-w-[12rem] rounded-lg bg-[var(--overlay)] p-1 text-popover-foreground shadow-[var(--e2)]",
           // One arrival, no exit: the menu rises the system's `--rise` and
           // settles, and Radix unmounts it immediately on close rather than
           // leaving a low-opacity ghost that is neither clickable nor

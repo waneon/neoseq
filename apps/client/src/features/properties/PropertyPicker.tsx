@@ -46,6 +46,7 @@ import {
   type RepeatUnit,
 } from "../../entities/tasks";
 import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
+import { useOverlayRoot } from "@/ui/overlay-root";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { moveOptionFocus } from "@/ui/listbox";
@@ -133,6 +134,7 @@ export function PropertyPicker({
     { width: 360, minWidth: 280, maxHeight: 420 },
     stage,
   );
+  const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {
@@ -609,7 +611,7 @@ export function PropertyPicker({
 
       {error && <p className="field-error" role="alert" data-testid="props-error">{error}</p>}
     </div>,
-    document.body,
+    overlayRoot,
   );
 }
 
