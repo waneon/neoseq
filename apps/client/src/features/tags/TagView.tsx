@@ -162,11 +162,6 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           tag={tag}
           onEdit={readonly ? undefined : (key, anchor) => setPicker({ key, anchor })}
         />
-        <Outliner
-          owner={{ kind: "tag", id: tag.id }}
-          blocks={tag.blocks}
-          scrollElement={scrollElement}
-        />
         <QueryPanel
           owner={{ kind: "tag", tag_id: tag.id }}
           executionKey={JSON.stringify(["tag", tag.id])}
@@ -174,6 +169,11 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           seedPlan={tagPlan(tag.id)}
           variant="page"
           label={message("tags.queryFor", { name: tag.name })}
+        />
+        <Outliner
+          owner={{ kind: "tag", id: tag.id }}
+          blocks={tag.blocks}
+          scrollElement={scrollElement}
         />
       </article>
       {picker && (

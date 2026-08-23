@@ -381,6 +381,14 @@ function tagQuery(session: Awaited<ReturnType<typeof mountTagPage>>["session"]) 
 }
 
 describe("a tag's own page", () => {
+  it("places its outline below the query view", async () => {
+    await mountTagPage();
+
+    const query = await screen.findByTestId("query-block");
+    const outline = await screen.findByTestId("outline-start");
+    expect(query.compareDocumentPosition(outline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("writes blocks into the tag's own outline", async () => {
     const { session } = await mountTagPage();
     const user = userEvent.setup();
