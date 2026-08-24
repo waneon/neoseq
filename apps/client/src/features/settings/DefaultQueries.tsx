@@ -202,7 +202,7 @@ function DefaultQueryRow({
     (view) => view.id === query.document.default_view_id,
   ) ?? query.document.views[0]!;
   const executeCommand = (command: Parameters<typeof session.execute>[0]): Promise<void> =>
-    session.execute(command).catch((cause: unknown) => {
+    session.execute(command).then(() => undefined).catch((cause: unknown) => {
       notify.failure(message("failure.saveQuery"), cause);
     });
   const save = (command: Parameters<typeof session.execute>[0]): void => {
