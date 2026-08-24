@@ -49,6 +49,7 @@ export function SaveStatus({
       <output
         className="save-slot"
         data-save={save.kind}
+        data-save-sequence={save.kind === "saved" ? save.sequence : undefined}
         data-save-code={save.kind === "unsaved" ? save.code : undefined}
         data-testid="save-status"
         aria-live={save.kind === "unsaved" ? "assertive" : "off"}

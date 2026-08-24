@@ -4,6 +4,7 @@ import {
   chooseFromMenu,
   createGraph,
   openBlockProperties,
+  savedSequence,
   startOutline,
   typeInFocusedBlock,
 } from "./helpers";
@@ -121,10 +122,11 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   // What a table shows is chosen on the table. One switch puts a column in the
   // query and in this view at once, and both halves survive a reload.
   await reloaded.getByTestId("query-columns-trigger").click();
+  const beforeColumn = await savedSequence(page);
   await page.getByTestId("query-column-toggle-property:builtin.task-status").click();
   await page.keyboard.press("Escape");
   await expect(reloaded.getByRole("columnheader", { name: /Status/ })).toBeVisible();
-  await awaitSaved(page);
+  await awaitSaved(page, beforeColumn);
   await page.reload();
   await expect(
     page.getByTestId("query-block").getByRole("columnheader", { name: /Status/ }),

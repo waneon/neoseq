@@ -6,6 +6,7 @@
 // Pointer-only routes are listed beside the verbs that have no key, which is what
 // makes it safe for a control to be summoned rather than permanent.
 
+import { Fragment } from "react";
 import { Dialog } from "../../ui/components";
 import { Kbd } from "../../ui/kbd";
 import { useI18n } from "../../i18n";
@@ -132,7 +133,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
             <h3>{section.title}</h3>
             <dl>
               {section.entries.map((entry) => (
-                <div key={entry.label} className="contents">
+                <Fragment key={entry.label}>
                   <dt>{entry.label}</dt>
                   <dd>
                     {entry.keys
@@ -141,7 +142,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
                         ))
                       : entry.route}
                   </dd>
-                </div>
+                </Fragment>
               ))}
             </dl>
           </section>

@@ -1774,7 +1774,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   letter-spacing: var(--track-sm);
   font-weight: var(--weight-medium);
   opacity: 0;
-  transition: opacity var(--dur-overlay) var(--ease-out);
 }
 
 .shell-topbar[data-scrolled="true"] .topbar-title {

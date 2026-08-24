@@ -12,7 +12,12 @@ export async function createGraph(page: Page, name: string): Promise<void> {
 
 export async function startOutline(page: Page): Promise<void> {
   await page.getByTestId("outline-start").click();
-  await expect(page.getByLabel("Block text")).toBeVisible();
+  const firstBlock = page.getByLabel("Block text");
+  await expect(firstBlock).toBeVisible();
+  // Reconciliation can paint the real row one microtask before the insertion
+  // promise hands it the caret. Typing at "visible" in that gap sends keys to
+  // the page instead of the editor, so wait for the user-facing postcondition.
+  await expect(firstBlock).toBeFocused();
 }
 
 export function blockTexts(page: Page): Promise<string[]> {
@@ -27,15 +32,30 @@ export function blockLevels(page: Page): Promise<string[]> {
     .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-level") ?? ""));
 }
 
-export async function awaitSaved(page: Page): Promise<void> {
-  await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
+export async function awaitSaved(page: Page, afterSequence?: string): Promise<void> {
+  const status = page.getByTestId("save-status");
+  if (afterSequence !== undefined) {
+    // Leaving the old sequence proves that the mutation reached the session;
+    // this may observe either its `saving` state or an already-finished save.
+    await expect(status).not.toHaveAttribute("data-save-sequence", afterSequence);
+  }
+  await expect(status).toHaveAttribute("data-save", "saved");
+}
+
+/** The durable revision to compare across one user gesture. */
+export async function savedSequence(page: Page): Promise<string> {
+  await awaitSaved(page);
+  const sequence = await page.getByTestId("save-status").getAttribute("data-save-sequence");
+  expect(sequence).not.toBeNull();
+  return sequence!;
 }
 
 /** Types into the focused outline block and waits until the edit is durable. */
 export async function typeInFocusedBlock(page: Page, text: string): Promise<void> {
+  const before = await savedSequence(page);
   await page.keyboard.type(text);
   await page.locator('[data-testid="outline-row"] textarea:focus').blur();
-  await awaitSaved(page);
+  await awaitSaved(page, before);
 }
 
 /** Opens the off-canvas sidebar when the mobile layout is active. */
