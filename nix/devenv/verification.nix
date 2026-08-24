@@ -70,6 +70,11 @@ in
           after = [ "contracts:check" ];
         };
 
+        "node:licenses" = {
+          description = "Check Node dependency licenses";
+          exec = "node scripts/check-node-licenses.mjs";
+        };
+
         "sync-server:test" = {
           description = "Run PostgreSQL migration, persistence, and restore tests";
           exec = databaseTest;
@@ -112,6 +117,7 @@ in
         "frontend:check"
         "frontend:test"
         "nix:hash-check"
+        "node:licenses"
         "rust:clippy"
         "rust:deny"
         "rust:fmt"

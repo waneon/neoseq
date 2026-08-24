@@ -6,6 +6,9 @@ yanked = "deny"
 
 [licenses]
 confidence-threshold = 0.8
+include-dev = true
+# cargo-deny rejects every license that is not explicitly allowed. Keep GPL and
+# AGPL identifiers out of this list; private workspace crates are handled below.
 allow = [
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
@@ -21,6 +24,7 @@ allow = [
 ]
 
 [licenses.private]
+# Neoseq itself is AGPL-3.0-only; this policy applies to external dependencies.
 ignore = true
 
 [bans]
