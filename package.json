@@ -1,6 +1,7 @@
 {
   "name": "neoseq-workspace",
   "private": true,
+  "license": "AGPL-3.0-only",
   "packageManager": "pnpm@10.34.5",
   "devDependencies": {
     "@formatjs/icu-messageformat-parser": "^3.5.16"

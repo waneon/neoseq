@@ -76,3 +76,12 @@ cargo run -p sync-server -- create-graph demo-graph alice
 cargo run -p sync-server -- grant demo-graph bob editor
 cargo run -p sync-server -- issue-token alice
 ```
+
+## License
+
+Copyright (C) 2026 Wonung Kim.
+
+Except where otherwise noted, Neoseq is licensed under the GNU Affero General
+Public License version 3 only. See [LICENSE](LICENSE). Third-party components
+retain their respective licenses as described in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
