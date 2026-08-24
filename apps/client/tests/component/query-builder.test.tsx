@@ -1,11 +1,11 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { CorePortFailure } from "../../src/core-worker";
 import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
 import { compilePlan, momentTimeVariable } from "../../src/entities/query-compile";
-import { decodePlan } from "../../src/entities/query-plan";
+import { decodePlan, tagPlan } from "../../src/entities/query-plan";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 import type { Harness } from "./harness";
@@ -16,6 +16,7 @@ import {
   type PageActions,
 } from "../../src/features/commands/context";
 import { PageView } from "../../src/features/page/PageView";
+import { QueryPanel } from "../../src/features/query/QueryPanel";
 
 async function mountPage(custom?: ReactElement): Promise<Harness> {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`, custom);
@@ -57,6 +58,26 @@ function commandBridge(): CommandBridge {
   };
 }
 
+function SeededQuerySwitcher() {
+  const [tagId, setTagId] = useState("tag-a");
+  return (
+    <>
+      <button type="button" onClick={() => setTagId("tag-b")}>Switch tag</button>
+      <QueryPanel
+        binding={{
+          kind: "managed",
+          owner: { kind: "tag", tag_id: tagId },
+          document: undefined,
+          seedPlan: tagPlan(tagId),
+        }}
+        executionKey={JSON.stringify(["tag", tagId])}
+        variant="page"
+        label="Tag query"
+      />
+    </>
+  );
+}
+
 /** The one route to a query: `/`, never the property picker. */
 async function createQuery(harness: Harness): Promise<void> {
   const user = userEvent.setup();
@@ -70,6 +91,25 @@ async function createQuery(harness: Harness): Promise<void> {
 }
 
 describe("the query builder", () => {
+  it("adopts a new seed when the same surface moves to another owner", async () => {
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, <SeededQuerySwitcher />);
+    await harness.session.execute({ type: "ensure_tag", tag_id: "tag-a", name: "Alpha" });
+    await harness.session.execute({ type: "ensure_tag", tag_id: "tag-b", name: "Beta" });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("query-conditions-trigger"));
+    await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Alpha"));
+    await user.click(screen.getByRole("button", { name: "Switch tag" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("query-conditions-trigger")).toHaveAttribute(
+        "title",
+        "Blocks · Tag is #Beta",
+      ));
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("query-conditions-trigger"));
+    await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Beta"));
+  });
+
   it("is what `/` creates, and it saves a plan beside its compiled SPARQL", async () => {
     const harness = await mountPage();
     await createQuery(harness);

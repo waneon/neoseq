@@ -136,12 +136,13 @@ declare global {
 
 const RAIL_KEY = "neoseq.rail";
 
+type ShellOverlay = "palette" | "shortcuts" | "members" | null;
 
 export function GraphShell() {
   const { graphId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const [session, setSession] = useState<GraphSession | null>(null);
+  const [createdSession, setCreatedSession] = useState<GraphSession | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -154,7 +155,7 @@ export function GraphShell() {
         return;
       }
       created = new GraphSession(graphId, worker, graphConnection(graphId));
-      setSession(created);
+      setCreatedSession(created);
       void created.open();
       const faultInjector = injectStorageFault;
       if (faultInjector) {
@@ -167,7 +168,7 @@ export function GraphShell() {
     return () => {
       cancelled = true;
       clearTestHook();
-      setSession(null);
+      setCreatedSession((current) => current === created ? null : current);
       void created?.close();
     };
   }, [graphId]);
@@ -176,6 +177,7 @@ export function GraphShell() {
     setSidebarOpen(false);
   }, [location]);
 
+  const session = createdSession?.graphId === graphId ? createdSession : null;
   if (!session) return <ShellLoading />;
   return (
     <SessionContext.Provider value={session}>
@@ -221,9 +223,7 @@ function ShellBody({
     () => graphName(graphId),
     () => graphName(graphId),
   );
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [membersOpen, setMembersOpen] = useState(false);
+  const [overlay, setOverlay] = useState<ShellOverlay>(null);
   const [theme, setThemeState] = useState<Theme>(storedTheme);
   const [railCollapsed, setRailCollapsed] = useState(() => {
     try {
@@ -249,6 +249,7 @@ function ShellBody({
 
   const openSettings = useCallback(
     (section: SettingsSection = "appearance") => {
+      setOverlay(null);
       const next = new URLSearchParams(searchParams);
       const wasOpen = next.has(SETTINGS_PARAM);
       next.set(SETTINGS_PARAM, section);
@@ -313,8 +314,8 @@ function ShellBody({
 
   const bridge = useMemo<CommandBridge>(
     () => ({
-      openPalette: () => setPaletteOpen(true),
-      openShortcuts: () => setShortcutsOpen(true),
+      openPalette: () => setOverlay("palette"),
+      openShortcuts: () => setOverlay("shortcuts"),
       openSettings,
       registerBlockProperties: (handler) => blockProperties.current.register(handler),
       setPageProperties: (handler) => {
@@ -344,7 +345,7 @@ function ShellBody({
   // surface owns the keyboard while it is up. Opening the palette over a
   // focus-trapping dialog would leave the palette's own input unable to keep
   // focus, so the global layer stands down instead of racing it.
-  const overlayOpen = settingsSection !== null || shortcutsOpen;
+  const overlayOpen = settingsSection !== null || overlay !== null;
   useEffect(() => {
     const undo = (redo: boolean) => void runHistory(
       history,
@@ -354,8 +355,8 @@ function ShellBody({
       { kind: "global-shortcut" },
     );
     const handlers: ShortcutHandler[] = [
-      { binding: bindings.palette, run: () => setPaletteOpen(true) },
-      { binding: bindings.shortcuts, run: () => setShortcutsOpen(true) },
+      { binding: bindings.palette, run: () => setOverlay("palette") },
+      { binding: bindings.shortcuts, run: () => setOverlay("shortcuts") },
       { binding: bindings.sidebar, run: toggleRail },
       { binding: bindings.settings, run: () => openSettings() },
     ];
@@ -599,7 +600,7 @@ SELECT ?entity ?content WHERE {
     onExit,
     notify,
     bridge,
-    openMembers: remote ? () => setMembersOpen(true) : null,
+    openMembers: remote ? () => setOverlay("members") : null,
     toggleRail,
     railCollapsed,
     applyTheme,
@@ -639,7 +640,7 @@ SELECT ?entity ?content WHERE {
               graphId={graphId}
               name={name}
               remote={remote !== null}
-              onManageMembers={() => setMembersOpen(true)}
+              onManageMembers={() => setOverlay("members")}
               onExit={onExit}
             />
           </div>
@@ -649,7 +650,7 @@ SELECT ?entity ?content WHERE {
               than passing for one more place you can go. */}
           <button
             className="rail-search"
-            onClick={() => setPaletteOpen(true)}
+            onClick={() => setOverlay("palette")}
             aria-label={message("commands.searchLabel")}
             aria-keyshortcuts={formatBinding(bindings.palette)}
             data-testid="open-palette"
@@ -780,7 +781,7 @@ SELECT ?entity ?content WHERE {
               )}
               <OverflowMenu
                 commands={commands}
-                onOpenPalette={() => setPaletteOpen(true)}
+                onOpenPalette={() => setOverlay("palette")}
                 bindings={bindings}
               />
             </div>
@@ -790,20 +791,20 @@ SELECT ?entity ?content WHERE {
           </div>
         </main>
       </div>
-      {paletteOpen && (
+      {overlay === "palette" && (
         <CommandPalette
           commands={commands}
           dynamic={dynamic}
           search={searchGraph}
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => setOverlay(null)}
         />
       )}
-      {shortcutsOpen && <ShortcutSheet onClose={() => setShortcutsOpen(false)} />}
-      {membersOpen && remote && (
+      {overlay === "shortcuts" && <ShortcutSheet onClose={() => setOverlay(null)} />}
+      {overlay === "members" && remote && (
         <RemoteMembersDialog
           graphId={graphId}
           connection={remote}
-          onClose={() => setMembersOpen(false)}
+          onClose={() => setOverlay(null)}
         />
       )}
       {settingsSection && (
@@ -857,13 +858,12 @@ function FavouriteRail({
   message: MessageFunction;
 }) {
   /** The row in the reader's hand, and the gap it would drop into. */
-  const [carried, setCarried] = useState<string | null>(null);
-  const [seam, setSeam] = useState<{ key: string; side: "before" | "after" } | null>(null);
+  const [drag, setDrag] = useState<{
+    carried: string;
+    seam: { key: string; side: "before" | "after" } | null;
+  } | null>(null);
 
-  const release = () => {
-    setCarried(null);
-    setSeam(null);
-  };
+  const release = () => setDrag(null);
 
   const place = (moved: Favourite, before: Favourite | null) => {
     // A row dropped back where it already was is not an edit. Dropping the
@@ -886,11 +886,16 @@ function FavouriteRail({
   };
 
   const drop = () => {
+    if (!drag?.seam) {
+      release();
+      return;
+    }
+    const { carried, seam } = drag;
     const moved = starred.find((entry) => favouriteKey(entry) === carried);
-    const at = seam ? starred.findIndex((entry) => favouriteKey(entry) === seam.key) : -1;
+    const at = starred.findIndex((entry) => favouriteKey(entry) === seam.key);
     // A row starred elsewhere while the pointer travelled can take the seam's
     // row out from under it; a drop with nowhere to land is no drop.
-    if (moved && seam && at >= 0) {
+    if (moved && at >= 0) {
       const before = seam.side === "before" ? starred[at] : starred[at + 1];
       place(moved, before ?? null);
     }
@@ -919,8 +924,8 @@ function FavouriteRail({
               : `/g/${graphId}/t/${entry.id}`}
             title={entry.name}
             data-testid="favourite-item"
-            data-dragging={carried === key || undefined}
-            data-seam={seam?.key === key ? seam.side : undefined}
+            data-dragging={drag?.carried === key || undefined}
+            data-seam={drag?.seam?.key === key ? drag.seam.side : undefined}
             draggable={!readonly}
             aria-keyshortcuts={readonly ? undefined : "Alt+ArrowUp Alt+ArrowDown"}
             onDragStart={(event) => {
@@ -929,21 +934,24 @@ function FavouriteRail({
               // being moved is held in React state, where a drop can read it.
               event.dataTransfer.setData("text/plain", entry.name);
               event.dataTransfer.effectAllowed = "move";
-              setCarried(key);
+              setDrag({ carried: key, seam: null });
             }}
             onDragEnd={release}
             onDragOver={(event) => {
-              if (carried === null || carried === key) return;
+              if (drag === null || drag.carried === key) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
               const box = event.currentTarget.getBoundingClientRect();
-              setSeam({
-                key,
-                side: event.clientY < box.top + box.height / 2 ? "before" : "after",
+              setDrag({
+                ...drag,
+                seam: {
+                  key,
+                  side: event.clientY < box.top + box.height / 2 ? "before" : "after",
+                },
               });
             }}
             onDrop={(event) => {
-              if (carried === null) return;
+              if (drag === null) return;
               event.preventDefault();
               drop();
             }}

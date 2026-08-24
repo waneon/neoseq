@@ -29,6 +29,7 @@ import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
 import { Dialog } from "../../ui/components";
+import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -205,88 +206,33 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
   const state = useSessionState();
   const notify = useNotify();
   const { message } = useI18n();
-  const [draft, setDraft] = useState<string | null>(null);
-  // `⏎` commits and then blurs, and the blur commits again — with the same draft,
-  // because the state update has not landed yet. One rename, reported once.
-  const pending = useRef<string | null>(null);
-
-  const commit = () => {
-    const raw = pending.current;
-    if (raw === null) return;
-    pending.current = null;
-    const next = raw.trim();
-    if (!next || next === tag.name) {
-      setDraft(null);
-      return;
-    }
-    const clash = state.snapshot.tags.find(
-      (other) => other.id !== tag.id && canonicalEntityName(other.name) === canonicalEntityName(next),
-    );
-    if (clash) {
-      setDraft(null);
-      notify.show({
-        tone: "info",
-        key: "tag-duplicate",
-        title: message("tags.duplicate", { name: next }),
-      });
-      return;
-    }
-    setDraft(next);
-    // Release only the draft this rename was for: a reader who kept typing while
-    // it was in flight has a newer one, and handing back the authoritative name
-    // would throw away the characters they just entered.
-    const release = () => setDraft((current) => (current === next ? null : current));
-    void session
-      .execute({ type: "rename_tag", tag_id: tag.id, name: next })
-      .then(release)
-      .catch((error: unknown) => {
-        release();
-        notify.failure(message("failure.renameTag", { name: tag.name }), error);
-      });
-  };
-
-  // A tag's name wraps for the same reason a page's does: a name longer than the
-  // measure in an `<input>` is a name the reader can only get at with the arrow
-  // keys. A textarea sized to its content is the same field without that.
-  const resize = (element: HTMLTextAreaElement | null) => {
-    if (!element) return;
-    element.style.height = "0";
-    element.style.height = `${element.scrollHeight}px`;
-  };
-
   return (
-    <div className="page-title-field tag-title-field">
-      <textarea
-        ref={resize}
-        rows={1}
-        className="page-title"
-        value={draft ?? tag.name}
-        aria-label={message("tags.name")}
-        data-testid="tag-title"
-        readOnly={state.mode === "readonly"}
-        onChange={(event) => {
-          // A name has no lines, so a pasted newline is a space.
-          const next = event.target.value.replace(/[\r\n]+/g, " ");
-          pending.current = next;
-          setDraft(next);
-          resize(event.currentTarget);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-            event.currentTarget.blur();
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            pending.current = null;
-            setDraft(null);
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </div>
+    <EditableTitle
+      value={tag.name}
+      label={message("tags.name")}
+      testId="tag-title"
+      className="tag-title-field"
+      readonly={state.mode === "readonly"}
+      validate={(next) => {
+        const clash = state.snapshot.tags.find(
+          (other) =>
+            other.id !== tag.id
+            && canonicalEntityName(other.name) === canonicalEntityName(next),
+        );
+        if (!clash) return true;
+        notify.show({
+          tone: "info",
+          key: "tag-duplicate",
+          title: message("tags.duplicate", { name: next }),
+        });
+        return false;
+      }}
+      onCommit={(name) =>
+        session.execute({ type: "rename_tag", tag_id: tag.id, name }).then(() => undefined)}
+      onError={(error) => {
+        notify.failure(message("failure.renameTag", { name: tag.name }), error);
+      }}
+    />
   );
 }
 
@@ -315,8 +261,7 @@ function TagMenu({
   const { message } = useI18n();
   const readonly = state.mode === "readonly";
   const starred = isFavourite(tag);
-  const [info, setInfo] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dialog, setDialog] = useState<"info" | "delete" | null>(null);
 
   return (
     <>
@@ -374,7 +319,10 @@ function TagMenu({
               </DropdownMenuItem>
             </>
           )}
-          <DropdownMenuItem data-testid="menu-tag-info" onSelect={() => setInfo(true)}>
+          <DropdownMenuItem
+            data-testid="menu-tag-info"
+            onSelect={() => setDialog("info")}
+          >
             <InfoIcon aria-hidden />
             {message("tags.info")}
           </DropdownMenuItem>
@@ -384,7 +332,7 @@ function TagMenu({
               <DropdownMenuItem
                 variant="destructive"
                 data-testid="tag-delete"
-                onSelect={() => setConfirmDelete(true)}
+                onSelect={() => setDialog("delete")}
               >
                 <Trash2Icon aria-hidden />
                 {message("tags.deleteAction")}
@@ -393,19 +341,21 @@ function TagMenu({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {info && <TagInfoDialog tag={tag} graphId={graphId} onClose={() => setInfo(false)} />}
-      {confirmDelete && (
-        <Dialog title={message("tags.deleteTitle")} onClose={() => setConfirmDelete(false)}>
+      {dialog === "info" && (
+        <TagInfoDialog tag={tag} graphId={graphId} onClose={() => setDialog(null)} />
+      )}
+      {dialog === "delete" && (
+        <Dialog title={message("tags.deleteTitle")} onClose={() => setDialog(null)}>
           <p>{message("tags.deleteConfirm", { name: tag.name })}</p>
           <div className="dialog-actions">
-            <button className="btn" onClick={() => setConfirmDelete(false)}>
+            <button className="btn" onClick={() => setDialog(null)}>
               {message("common.cancel")}
             </button>
             <button
               className="btn btn-danger"
               data-testid="confirm-delete-tag"
               onClick={() => {
-                setConfirmDelete(false);
+                setDialog(null);
                 void session
                   .execute({ type: "delete_tag", tag_id: tag.id })
                   .then(() => navigate(`/g/${graphId}/tags`))

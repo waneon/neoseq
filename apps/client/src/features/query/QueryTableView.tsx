@@ -87,6 +87,12 @@ const DEFAULT_WIDTH = 180;
 /** One layout: what every column in it is drawn at. */
 type Widths = Record<string, number>;
 
+type ColumnDrag = {
+  variable: string;
+  /** The column the seam is drawn before, or `null` for the end of the row. */
+  seamBefore?: string | null;
+} | null;
+
 // Only what this table asks a library for: the row and cell models, and whether
 // a column may be ordered. Widths are this file's own, and visibility and column
 // order are the saved view's — they persist in the graph, so they arrive here
@@ -153,9 +159,7 @@ export function QueryTableView({
   // every time — the column travelled instead of widening. The separator's own
   // pointerdown runs first and says so, and `dragstart` stands down.
   const resizingFrom = useRef(false);
-  const [dragging, setDragging] = useState<string | null>(null);
-  /** The column the seam is drawn before, or `null` for past the last one. */
-  const [seamBefore, setSeamBefore] = useState<string | null | undefined>(undefined);
+  const [drag, setDrag] = useState<ColumnDrag>(null);
 
   const definitions = useMemo<ColumnDef<typeof FEATURES, ResultViewRow, unknown>[]>(
     () =>
@@ -297,18 +301,17 @@ export function QueryTableView({
 
   /** Which side of a column the seam falls on, if it falls on this one at all. */
   const seamOf = (variable: string): "before" | "after" | undefined => {
-    if (seamBefore === variable) return "before";
-    if (seamBefore === null && variable === order[order.length - 1]) return "after";
+    if (drag?.seamBefore === variable) return "before";
+    if (drag?.seamBefore === null && variable === order[order.length - 1]) return "after";
     return undefined;
   };
 
   /** Commit a dropped heading: the running order the reader now reads. */
   const commitDrop = () => {
-    const moved = dragging;
-    const before = seamBefore;
-    setDragging(null);
-    setSeamBefore(undefined);
-    if (!onReorder || moved === null || before === undefined) return;
+    const moved = drag?.variable;
+    const before = drag?.seamBefore;
+    setDrag(null);
+    if (!onReorder || moved === undefined || before === undefined) return;
     const rest = order.filter((variable) => variable !== moved);
     const found = before === null ? -1 : rest.indexOf(before);
     const at = found < 0 ? rest.length : found;
@@ -366,8 +369,8 @@ export function QueryTableView({
                     // its column to the gesture that sizes it.
                     data-variable={header.column.id}
                     data-numeric={column?.numeric || undefined}
-                    data-dragging={dragging === header.column.id || undefined}
-                    data-seam={dragging === null ? undefined : seamOf(header.column.id)}
+                    data-dragging={drag?.variable === header.column.id || undefined}
+                    data-seam={drag === null ? undefined : seamOf(header.column.id)}
                     draggable={Boolean(onReorder) && order.length > 1}
                     onDragStart={(event) => {
                       if (resizingFrom.current) {
@@ -376,24 +379,22 @@ export function QueryTableView({
                       }
                       event.dataTransfer.setData("text/plain", label);
                       event.dataTransfer.effectAllowed = "move";
-                      setDragging(header.column.id);
+                      setDrag({ variable: header.column.id });
                     }}
-                    onDragEnd={() => {
-                      setDragging(null);
-                      setSeamBefore(undefined);
-                    }}
+                    onDragEnd={() => setDrag(null)}
                     onDragOver={(event) => {
-                      if (dragging === null || dragging === header.column.id) return;
+                      if (drag === null || drag.variable === header.column.id) return;
                       event.preventDefault();
                       event.dataTransfer.dropEffect = "move";
                       const box = event.currentTarget.getBoundingClientRect();
                       const before = event.clientX < box.left + box.width / 2;
-                      setSeamBefore(before
-                        ? header.column.id
-                        : (order[index + 1] ?? null));
+                      setDrag({
+                        ...drag,
+                        seamBefore: before ? header.column.id : (order[index + 1] ?? null),
+                      });
                     }}
                     onDrop={(event) => {
-                      if (dragging === null) return;
+                      if (drag === null) return;
                       event.preventDefault();
                       commitDrop();
                     }}
@@ -555,7 +556,7 @@ export function QueryTableView({
                     // what is being placed. Every cell draws its own two pixels
                     // and they stack into one line, which costs nothing and needs
                     // no measurement of a table that is still being laid out.
-                    data-seam={dragging === null ? undefined : seamOf(cell.column.id)}
+                    data-seam={drag === null ? undefined : seamOf(cell.column.id)}
                   >
                     {cellIndex === 0 && row.original.key === pinnedRowKey && (
                       <span className="query-result-stale" role="status">

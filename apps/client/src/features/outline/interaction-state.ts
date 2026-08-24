@@ -1,4 +1,8 @@
-import type { BlockCompletionRequest } from "../blocks/editor/BlockCompletions";
+import {
+  blockCompletionReducer,
+  type BlockCompletion,
+  type BlockCompletionState,
+} from "../blocks/editor/BlockCompletions";
 import type { DropTarget } from "./selection";
 
 export interface PropertyRequest {
@@ -14,16 +18,15 @@ export interface TagRequest {
 }
 
 export type OutlineOverlay =
-  | { kind: "none" }
+  | BlockCompletionState
   | { kind: "property"; request: PropertyRequest }
   | { kind: "tag"; request: TagRequest }
-  | { kind: "slash"; request: BlockCompletionRequest; active: number }
-  | { kind: "hash"; request: BlockCompletionRequest; active: number }
   | { kind: "menu"; blockId: string };
 
 export type OverlayAction =
   | { type: "open"; overlay: Exclude<OutlineOverlay, { kind: "none" }> }
   | { type: "close"; kind?: OutlineOverlay["kind"] }
+  | { type: "set-completion"; overlay: BlockCompletion | null }
   | { type: "activate"; kind: "slash" | "hash"; index: number }
   | { type: "replace-pending-block"; pendingId: string; blockId: string };
 
@@ -33,8 +36,15 @@ export function overlayReducer(state: OutlineOverlay, action: OverlayAction): Ou
       return action.overlay;
     case "close":
       return action.kind === undefined || state.kind === action.kind ? { kind: "none" } : state;
+    case "set-completion":
+      if (action.overlay) return action.overlay;
+      return state.kind === "slash" || state.kind === "hash"
+        ? blockCompletionReducer(state, { type: "set", completion: null })
+        : state;
     case "activate":
-      return state.kind === action.kind ? { ...state, active: action.index } : state;
+      return state.kind === "slash" || state.kind === "hash"
+        ? blockCompletionReducer(state, action)
+        : state;
     case "replace-pending-block":
       if (
         (state.kind !== "slash" && state.kind !== "hash")
@@ -42,7 +52,11 @@ export function overlayReducer(state: OutlineOverlay, action: OverlayAction): Ou
       ) {
         return state;
       }
-      return { ...state, request: { ...state.request, blockId: action.blockId } };
+      return blockCompletionReducer(state, {
+        type: "replace-block",
+        from: action.pendingId,
+        to: action.blockId,
+      });
   }
 }
 

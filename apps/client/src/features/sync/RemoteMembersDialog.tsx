@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { RemoteGraphConnection } from "../../core-port/directory";
 import { useI18n } from "../../i18n";
 import { Callout, Dialog } from "../../ui/components";
@@ -11,6 +11,7 @@ import {
   type RemoteGraphMembership,
 } from "./api";
 import { readAuthSession, writeAuthSession } from "./auth";
+import type { AsyncRequestState } from "../../lib/async";
 
 export function RemoteMembersDialog({
   graphId,
@@ -28,29 +29,28 @@ export function RemoteMembersDialog({
   const [members, setMembers] = useState<RemoteGraphMembership[]>([]);
   const [invite, setInvite] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("editor");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
+  const busy = request.status === "busy";
 
-  const refresh = async (auth = readAuthSession(connection.server_url)) => {
-    if (!auth) return;
-    setBusy(true);
-    setError(null);
-    try {
-      setMembers((await listMemberships(connection.server_url, auth, graphId)).memberships);
-    } catch {
-      // Each verb reports its own failure — a rejected invite is not a
-      // network outage, and the sentence names what the user actually tried.
-      setError(message("graph.membersLoadFailed"));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const refresh = useCallback(
+    async (auth = readAuthSession(connection.server_url)) => {
+      if (!auth) return;
+      setRequest({ status: "busy" });
+      try {
+        setMembers((await listMemberships(connection.server_url, auth, graphId)).memberships);
+        setRequest({ status: "idle" });
+      } catch {
+        // Each verb reports its own failure — a rejected invite is not a
+        // network outage, and the sentence names what the user actually tried.
+        setRequest({ status: "failed", message: message("graph.membersLoadFailed") });
+      }
+    },
+    [connection.server_url, graphId, message],
+  );
 
   useEffect(() => {
-    // One fetch per graph the dialog opens on; `refresh` is deliberately not a
-    // dependency because its identity changes with transient form state.
     void refresh();
-  }, [graphId]);
+  }, [refresh]);
 
   const saveAccount = (event: FormEvent) => {
     event.preventDefault();
@@ -64,22 +64,24 @@ export function RemoteMembersDialog({
     const auth = readAuthSession(connection.server_url);
     if (!auth || !invite.trim()) return;
     const account = invite.trim();
-    setBusy(true);
+    setRequest({ status: "busy" });
     grantMembership(connection.server_url, auth, graphId, account, role)
       .then(() => {
         setInvite("");
         return refresh(auth);
       })
       .catch(() => {
-        setBusy(false);
-        setError(message("graph.inviteFailed", { account }));
+        setRequest({
+          status: "failed",
+          message: message("graph.inviteFailed", { account }),
+        });
       });
   };
 
   return (
     <Dialog title={message("graph.membersTitle")} onClose={onClose}>
       <p className="dialog-lede">{message("graph.membersDetail")}</p>
-      {error && <Callout tone="danger">{error}</Callout>}
+      {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
       <form className="remote-account-form" onSubmit={saveAccount}>
         <label className="field-label" htmlFor="member-account-principal">{message("graph.principal")}</label>
         <Input id="member-account-principal" autoComplete="username" value={principal} onChange={(event) => setPrincipal(event.target.value)} />
@@ -106,12 +108,16 @@ export function RemoteMembersDialog({
                 onClick={() => {
                   const auth = readAuthSession(connection.server_url);
                   if (!auth) return;
-                  setBusy(true);
+                  setRequest({ status: "busy" });
                   void revokeMembership(connection.server_url, auth, graphId, member.principal_id)
                     .then(() => refresh(auth))
                     .catch(() => {
-                      setBusy(false);
-                      setError(message("graph.revokeFailed", { account: member.principal_id }));
+                      setRequest({
+                        status: "failed",
+                        message: message("graph.revokeFailed", {
+                          account: member.principal_id,
+                        }),
+                      });
                     });
                 }}
               >

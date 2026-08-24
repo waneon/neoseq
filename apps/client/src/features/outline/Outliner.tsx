@@ -114,6 +114,7 @@ import {
 } from "./clipboard";
 import type { OutlineFragment } from "../../core-port/fragment";
 import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
+import { useImmediateState, useLatest } from "../../lib/react";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
@@ -352,7 +353,7 @@ export function Outliner({
     (revision: number) => revision + 1,
     0,
   );
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focusedId, setFocusedId, focusedRef] = useImmediateState<string | null>(null);
   const [overlay, dispatchOverlay] = useReducer(overlayReducer, { kind: "none" });
   const propertyRequest = overlay.kind === "property" ? overlay.request : null;
   const tagRequest = overlay.kind === "tag" ? overlay.request : null;
@@ -402,24 +403,25 @@ export function Outliner({
         : { type: "close", kind: "menu" },
     );
   }, []);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [collapsed, setCollapsed, collapsedRef] =
+    useImmediateState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [visualLine, setVisualLineState] = useState<VisualLineRange | null>(null);
+  const [selected, setSelected, selectedRef] =
+    useImmediateState<ReadonlySet<string>>(new Set());
+  const [visualLine, setVisualLine, visualLineRef] =
+    useImmediateState<VisualLineRange | null>(null);
   const [pointerGesture, dispatchPointerGesture] = useReducer(pointerGestureReducer, {
     kind: "idle",
   });
   const dragging = pointerGesture.kind === "dragging";
   const marqueeing = pointerGesture.kind === "selecting";
   const drop = pointerGesture.kind === "dragging" ? pointerGesture.drop : null;
-  const [draftState, setDraftState] = useState(initialOutlineDraftState);
-  const draftStateRef = useRef(draftState);
+  const [draftState, setDraftState, draftStateRef] = useImmediateState(initialOutlineDraftState);
   const dispatchDraft = useCallback((action: OutlineDraftAction) => {
-    const next = outlineDraftReducer(draftStateRef.current, action);
-    draftStateRef.current = next;
-    setDraftState(next);
-  }, []);
+    setDraftState((current) => outlineDraftReducer(current, action));
+  }, [setDraftState]);
   const composing = useRef(false);
+  const mounted = useRef(true);
   const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCaret = useRef<number | null>(null);
   /**
@@ -442,12 +444,6 @@ export function Outliner({
   } | null>(null);
   /** A `#` choice made on a pending row, replayed once the real id lands. */
   const pendingTag = useRef<{ blockId: string; option: TagOption } | null>(null);
-  const ownerRef = useRef(owner);
-  const outlineRef = useRef({ blocks });
-  const collapsedRef = useRef(collapsed);
-  const rowsRef = useRef<OutlineRow[]>([]);
-  const selectedRef = useRef<ReadonlySet<string>>(selected);
-  const visualLineRef = useRef<VisualLineRange | null>(visualLine);
   const anchorId = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -463,14 +459,11 @@ export function Outliner({
   // still carries the previous page object cannot briefly remove the editor.
   const authoritativeOutline = findOutline(state.snapshot, owner);
   const outline = authoritativeOutline ?? { blocks };
-  ownerRef.current = owner;
-  outlineRef.current = outline;
-  collapsedRef.current = collapsed;
-  selectedRef.current = selected;
-  visualLineRef.current = visualLine;
+  const ownerRef = useLatest(owner);
+  const outlineRef = useLatest(outline);
 
   const rows = withPendingRows(flattenOutline(outline, collapsed), draftState.pendingRows);
-  rowsRef.current = rows;
+  const rowsRef = useLatest(rows);
   const readonly = state.mode === "readonly";
   const selectionCount = useMemo(
     () => (selected.size === 0 ? 0 : selectionSize(rows, selected)),
@@ -480,11 +473,6 @@ export function Outliner({
     const mask = coveredMask(rows, selected);
     return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
   }, [rows, selected]);
-
-  const setVisualLine = useCallback((next: VisualLineRange | null) => {
-    visualLineRef.current = next;
-    setVisualLineState(next);
-  }, []);
 
   const clearVisualLineState = useCallback(() => {
     if (!visualLineRef.current) return;
@@ -530,7 +518,6 @@ export function Outliner({
       )
     ) {
       const empty = new Set<string>();
-      selectedRef.current = empty;
       setSelected(empty);
       setVisualLine(null);
       anchorId.current = null;
@@ -542,7 +529,6 @@ export function Outliner({
       [...selectedRef.current].filter((id) => findBlock(outlineRef.current, id) !== undefined),
     );
     if (live.size !== selectedRef.current.size) {
-      selectedRef.current = live;
       setSelected(live);
     }
   }, [state.revision]);
@@ -561,14 +547,6 @@ export function Outliner({
     window.addEventListener("pointerdown", sample, true);
     return () => window.removeEventListener("pointerdown", sample, true);
   }, []);
-
-  useEffect(
-    () => () => {
-      if (revealTimer.current) clearTimeout(revealTimer.current);
-      if (presenceTimer.current !== null) clearTimeout(presenceTimer.current);
-    },
-    [],
-  );
 
   // The slash menu floats over the outline but never takes focus, so it needs
   // its own way out: a press anywhere past it, or Escape from wherever the
@@ -622,8 +600,8 @@ export function Outliner({
       if (draft === undefined || baseline === undefined) return;
       const splice = diffSplice(baseline, draft);
       if (!splice) return;
-      dispatchDraft({ type: "set-baseline", id, value: draft });
-      session
+      if (mounted.current) dispatchDraft({ type: "set-baseline", id, value: draft });
+      void session
         .execute({
           type: "splice_markdown",
           owner: ownerRef.current,
@@ -631,6 +609,7 @@ export function Outliner({
           ...splice,
         })
         .catch((error: unknown) => {
+          if (!mounted.current) return;
           // The core rejected the edit; fall back to authoritative text. The
           // row silently changing back under the caret is exactly the kind of
           // failure that has no home on screen, so it is reported.
@@ -667,6 +646,23 @@ export function Outliner({
     },
     [flush],
   );
+
+  const flushRef = useLatest(flush);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (revealTimer.current) clearTimeout(revealTimer.current);
+      if (presenceTimer.current !== null) clearTimeout(presenceTimer.current);
+      const pending = [...flushTimers.current.entries()];
+      flushTimers.current.clear();
+      for (const [, timer] of pending) clearTimeout(timer);
+      // Leaving the route must not throw away the final debounced keystroke.
+      // The command still runs, while the unmounted editor no longer updates
+      // its local baseline or reports through a surface that is gone.
+      for (const [id] of pending) flushRef.current(id);
+    };
+  }, [flushRef]);
 
   const runHistory = useCallback(
     (id: string, redo: boolean) => {
@@ -711,7 +707,6 @@ export function Outliner({
     }, PRESENCE_PUBLISH_MS);
   }, [owner, session]);
 
-  const focusedRef = useRef<string | null>(null);
   /**
    * One entrance to a caret. Pointer-owned entrances start writing; keyboard
    * and programmatic moves retain the modal state. Visual Line is cleared here
@@ -728,7 +723,6 @@ export function Outliner({
       dispatchDraft({ type: "clear-auto-closers", ids: [previous] });
     }
     pendingCaret.current = caret ?? null;
-    focusedRef.current = id;
     setFocusedId(id);
     // The caret and the block selection are two answers to "what does the next
     // command act on", so only one of them may exist at a time.
@@ -736,7 +730,6 @@ export function Outliner({
       const leavingVisualLine = visualLineRef.current !== null;
       if (selectedRef.current.size > 0) {
         const empty = new Set<string>();
-        selectedRef.current = empty;
         setSelected(empty);
       }
       clearVisualLineState();
@@ -754,7 +747,6 @@ export function Outliner({
     anchorId.current = null;
     if (selectedRef.current.size > 0) {
       const empty = new Set<string>();
-      selectedRef.current = empty;
       setSelected(empty);
     }
     leaveVisualLine();
@@ -787,7 +779,6 @@ export function Outliner({
         if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
       }
       dispatchDraft({ type: "clear-auto-closers", ids: [id] });
-      focusedRef.current = null;
       setFocusedId(null);
     });
   }, [dispatchDraft]);
@@ -801,7 +792,6 @@ export function Outliner({
     if (focusedRef.current !== null) {
       dispatchDraft({ type: "clear-auto-closers", ids: [focusedRef.current] });
     }
-    focusedRef.current = null;
     setFocusedId(null);
     const active = document.activeElement;
     if (active instanceof HTMLTextAreaElement) active.blur();
@@ -854,6 +844,36 @@ export function Outliner({
       }
     },
     [message, notify, session],
+  );
+
+  /**
+   * Drops the optimistic rows an insert never claimed. Whatever the user typed
+   * into them goes with them, so this is never allowed to happen quietly.
+   */
+  const abandonPending = useCallback(
+    (reason: string) => {
+      const pendingRows = draftStateRef.current.pendingRows;
+      const lost = pendingRows.length;
+      const typed = pendingRows.some(
+        (entry) => (draftStateRef.current.drafts.get(entry.tempId) ?? "").length > 0,
+      );
+      let fallback: string | null = null;
+      for (const entry of pendingRows) {
+        if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
+      }
+      dispatchDraft({ type: "abandon-pending" });
+      if (focusedRef.current && isPendingId(focusedRef.current)) {
+        activateBlock(fallback, undefined, "programmatic");
+      }
+      if (lost === 0) return;
+      notify.show({
+        tone: "danger",
+        key: "pending-insert-abandoned",
+        title: message("outline.newBlocksFailed", { count: lost }),
+        detail: typed ? message("outline.pendingTypedLost", { reason }) : reason,
+      });
+    },
+    [activateBlock, dispatchDraft, message, notify],
   );
 
   /** Dispatches the oldest pending creation whose anchor id is real. */
@@ -1000,38 +1020,18 @@ export function Outliner({
         pendingDispatching.current = false;
         abandonPending(failureReason(error, message));
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activateBlock, applyTagOption, dispatchDraft, message, notify, session, scheduleFlush]);
-
-  /**
-   * Drops the optimistic rows an insert never claimed. Whatever the user typed
-   * into them goes with them, so this is never allowed to happen quietly.
-   */
-  const abandonPending = useCallback(
-    (reason: string) => {
-      const pendingRows = draftStateRef.current.pendingRows;
-      const lost = pendingRows.length;
-      const typed = pendingRows.some(
-        (entry) => (draftStateRef.current.drafts.get(entry.tempId) ?? "").length > 0,
-      );
-      let fallback: string | null = null;
-      for (const entry of pendingRows) {
-        if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
-      }
-      dispatchDraft({ type: "abandon-pending" });
-      if (focusedRef.current && isPendingId(focusedRef.current)) {
-        activateBlock(fallback, undefined, "programmatic");
-      }
-      if (lost === 0) return;
-      notify.show({
-        tone: "danger",
-        key: "pending-insert-abandoned",
-        title: message("outline.newBlocksFailed", { count: lost }),
-        detail: typed ? message("outline.pendingTypedLost", { reason }) : reason,
-      });
-    },
-    [activateBlock, dispatchDraft, message, notify],
-  );
+  }, [
+    abandonPending,
+    activateBlock,
+    applyTagOption,
+    createQuery,
+    dispatchDraft,
+    flushNow,
+    message,
+    notify,
+    scheduleFlush,
+    session,
+  ]);
 
   const run = useCallback(
     (
@@ -1061,7 +1061,6 @@ export function Outliner({
     setVisualLine(null);
     anchorId.current = null;
     const empty = new Set<string>();
-    selectedRef.current = empty;
     setSelected(empty);
     activateBlock(range.headId, caret, "keyboard");
   }, [activateBlock, setVisualLine, visualCaret]);
@@ -1092,7 +1091,6 @@ export function Outliner({
       anchorId.current = range.anchorId;
       setVisualLine(range);
       const ids = selectableIds(allRows, anchor, head);
-      selectedRef.current = ids;
       setSelected(ids);
       takeTreeFocus();
       return;
@@ -1117,7 +1115,6 @@ export function Outliner({
       const next = { ...range, headId: allRows[target].block.id };
       setVisualLine(next);
       const ids = selectableIds(allRows, anchor, target);
-      selectedRef.current = ids;
       setSelected(ids);
       return;
     }
@@ -1152,7 +1149,6 @@ export function Outliner({
       setVisualLine(null);
       anchorId.current = null;
       const empty = new Set<string>();
-      selectedRef.current = empty;
       setSelected(empty);
       void run(
         { type: "delete_blocks", owner, block_ids: roots.map((entry) => entry.block.id) },
@@ -1165,7 +1161,6 @@ export function Outliner({
     setVisualLine(null);
     anchorId.current = null;
     const empty = new Set<string>();
-    selectedRef.current = empty;
     setSelected(empty);
     activateBlock(range.headId, caret, "keyboard");
     void run(
@@ -1767,6 +1762,32 @@ export function Outliner({
   }, [compare, hashRequest, outline, state.snapshot.tags]);
   const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
 
+  const updateCompletions = (
+    blockId: string,
+    value: string,
+    textarea: HTMLTextAreaElement,
+  ) => {
+    const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
+    if (slash) {
+      dispatchOverlay({
+        type: "set-completion",
+        overlay: filterSlashItems(slashItems, slash.query).length > 0
+          ? { kind: "slash", request: { blockId, ...slash, anchor: textarea }, active: 0 }
+          : null,
+      });
+      return;
+    }
+
+    const hash = detectHash(value, textarea.selectionStart, textarea.selectionEnd);
+    dispatchOverlay({
+      type: "set-completion",
+      overlay:
+        hash && filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
+          ? { kind: "hash", request: { blockId, ...hash, anchor: textarea }, active: 0 }
+          : null,
+    });
+  };
+
   const editor: EditorContext = {
     session,
     notify,
@@ -1806,9 +1827,6 @@ export function Outliner({
     },
     openMenu: setMenuFor,
     openProperties: (id, key, anchor = null) => {
-      setTagRequest(null);
-      setSlashRequest(null);
-      setHashRequest(null);
       setPropertyRequest({
         blockId: id,
         key,
@@ -1819,9 +1837,6 @@ export function Outliner({
       });
     },
     openTags: (id, anchor = null) => {
-      setPropertyRequest(null);
-      setSlashRequest(null);
-      setHashRequest(null);
       setTagRequest({ blockId: id, anchor });
     },
     closeSlash: () => setSlashRequest(null),
@@ -1972,19 +1987,7 @@ export function Outliner({
       });
       if (!composing.current) {
         scheduleFlush(row.block.id);
-        const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
-        setSlashActiveState(0);
-        setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
-          ? { blockId: row.block.id, ...slash, anchor: textarea }
-          : null);
-        const hash = slash ? null : detectHash(value, textarea.selectionStart, textarea.selectionEnd);
-        setHashActiveState(0);
-        setHashRequest(
-          hash &&
-            filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
-            ? { blockId: row.block.id, ...hash, anchor: textarea }
-            : null,
-        );
+        updateCompletions(row.block.id, value, textarea);
       }
     },
     onCompositionStart: (row) => {
@@ -1999,19 +2002,7 @@ export function Outliner({
       composing.current = false;
       scheduleFlush(row.block.id);
       const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
-      const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
-      setSlashActiveState(0);
-      setSlashRequest(slash && filterSlashItems(slashItems, slash.query).length > 0
-        ? { blockId: row.block.id, ...slash, anchor: textarea }
-        : null);
-      const hash = slash ? null : detectHash(value, textarea.selectionStart, textarea.selectionEnd);
-      setHashActiveState(0);
-      setHashRequest(
-        hash &&
-          filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
-          ? { blockId: row.block.id, ...hash, anchor: textarea }
-          : null,
-      );
+      updateCompletions(row.block.id, value, textarea);
     },
     onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event, bindings),
     flushNow,
@@ -2028,9 +2019,7 @@ export function Outliner({
     // already closed its own layer by now; what is left to undo is the outline's
     // share of the same gesture.
     dismissTransient: () => {
-      setMenuFor(null);
-      setSlashRequest(null);
-      setHashRequest(null);
+      dispatchOverlay({ type: "close" });
       if (selectedRef.current.size > 0) clearSelection();
     },
     pasteOutline,
@@ -2374,10 +2363,7 @@ export function Outliner({
       activateBlock(request.blockId, undefined, "programmatic");
     }
     pendingHistoryReveal.current = null;
-    // The virtualizer is intentionally omitted: row visibility and a new
-    // request are the only events that should repeat this one-shot reveal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activateBlock, historyRevealRevision, rows]);
+  }, [activateBlock, historyRevealRevision, rows, virtualizer]);
 
   // Keep keyboard-focused rows visible even when virtualization would have
   // recycled them — and only then.
@@ -2402,8 +2388,7 @@ export function Outliner({
       if (row.bottom > view.top && row.top < view.bottom) return;
     }
     virtualizer.scrollToIndex(index);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardTargetId]);
+  }, [keyboardTargetId, rows, scrollElement, virtualizer]);
 
   // Mod+P means "properties of what is in front of me". While a block is focused
   // that is the block; the shell falls back to the page when this slot is empty.

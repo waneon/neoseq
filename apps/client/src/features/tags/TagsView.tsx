@@ -95,9 +95,15 @@ const USAGE_OWNER = "tags:usage";
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 
 /** What is in the reader's hand. */
-type Drag =
+type Dragged =
   | { kind: "tag"; tag: TagSnapshot }
-  | { kind: "group"; name: string }
+  | { kind: "group"; name: string };
+
+type TagDrop = { group: string | null; beforeId: string | null };
+type GroupDrop = { index: number };
+type Drag =
+  | { kind: "tag"; tag: TagSnapshot; drop: TagDrop | null }
+  | { kind: "group"; name: string; drop: GroupDrop | null }
   | null;
 
 /**
@@ -107,8 +113,7 @@ type Drag =
  */
 type Drop =
   | { kind: "tag"; group: string | null; beforeId: string | null }
-  | { kind: "group"; index: number }
-  | null;
+  | { kind: "group"; index: number };
 
 export function TagsView() {
   const session = useSession();
@@ -118,7 +123,6 @@ export function TagsView() {
   const readonly = state.mode === "readonly";
   const [creatingIn, setCreatingIn] = useState<{ group: string | null } | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
-  const [drop, setDrop] = useState<Drop>(null);
 
   const tags = state.snapshot.tags;
   const groups = useMemo(() => groupedTags(tags, compare), [tags, compare]);
@@ -175,16 +179,32 @@ export function TagsView() {
     run(orderCommands(groupOrderWrites(next, at)), message("failure.fileTag", { name }));
   };
 
-  const endDrag = () => {
-    setDrag(null);
-    setDrop(null);
+  const startDrag = (item: Dragged) => {
+    if (item.kind === "tag") {
+      setDrag({ kind: "tag", tag: item.tag, drop: null });
+      return;
+    }
+    setDrag({ kind: "group", name: item.name, drop: null });
+  };
+  const endDrag = () => setDrag(null);
+
+  const setDrop = (drop: Drop) => {
+    setDrag((current) => {
+      if (current?.kind === "tag" && drop.kind === "tag") {
+        return { ...current, drop: { group: drop.group, beforeId: drop.beforeId } };
+      }
+      if (current?.kind === "group" && drop.kind === "group") {
+        return { ...current, drop: { index: drop.index } };
+      }
+      return current;
+    });
   };
 
   const commitDrop = () => {
-    if (drag?.kind === "tag" && drop?.kind === "tag") {
-      placeTag(drag.tag, drop.group, drop.beforeId);
-    } else if (drag?.kind === "group" && drop?.kind === "group") {
-      placeGroup(drag.name, drop.index);
+    if (drag?.kind === "tag" && drag.drop) {
+      placeTag(drag.tag, drag.drop.group, drag.drop.beforeId);
+    } else if (drag?.kind === "group" && drag.drop) {
+      placeGroup(drag.name, drag.drop.index);
     }
     endDrag();
   };
@@ -218,7 +238,9 @@ export function TagsView() {
       <article
         className="page-body enter-fade-view"
         onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDrag((current) => current ? { ...current, drop: null } : null);
+          }
         }}
       >
         <div className="title-row">
@@ -256,11 +278,10 @@ export function TagsView() {
                 uses={uses}
                 readonly={readonly}
                 drag={drag}
-                drop={drop}
                 creating={creatingIn?.group === group.name}
                 onCreateHere={() => setCreatingIn({ group: group.name })}
                 onCreated={() => setCreatingIn(null)}
-                onDragStart={setDrag}
+                onDragStart={startDrag}
                 onDragEnd={endDrag}
                 onDropAt={setDrop}
                 onCommit={commitDrop}
@@ -284,7 +305,6 @@ function TagGroupSection({
   uses,
   readonly,
   drag,
-  drop,
   creating,
   onCreateHere,
   onCreated,
@@ -304,11 +324,10 @@ function TagGroupSection({
   uses: Map<string, number>;
   readonly: boolean;
   drag: Drag;
-  drop: Drop;
   creating: boolean;
   onCreateHere: () => void;
   onCreated: () => void;
-  onDragStart: (drag: Drag) => void;
+  onDragStart: (drag: Dragged) => void;
   onDragEnd: () => void;
   onDropAt: (drop: Drop) => void;
   onCommit: () => void;
@@ -350,10 +369,12 @@ function TagGroupSection({
 
   const movingGroup = drag?.kind === "group";
   const takesTag = drag?.kind === "tag";
-  const groupSeam = movingGroup && drop?.kind === "group" && index >= 0
-    ? drop.index === index
+  const groupDrop = drag?.kind === "group" ? drag.drop : null;
+  const tagDrop = drag?.kind === "tag" ? drag.drop : null;
+  const groupSeam = movingGroup && groupDrop && index >= 0
+    ? groupDrop.index === index
       ? "before"
-      : drop.index === index + 1 && last
+      : groupDrop.index === index + 1 && last
         ? "after"
         : undefined
     : undefined;
@@ -483,10 +504,10 @@ function TagGroupSection({
             uses={uses.get(tag.id)}
             readonly={readonly}
             dragging={drag?.kind === "tag" && drag.tag.id === tag.id}
-            seam={drop?.kind === "tag" && drop.group === name
-              ? drop.beforeId === tag.id
+            seam={tagDrop?.group === name
+              ? tagDrop.beforeId === tag.id
                 ? "before"
-                : drop.beforeId === null && position === tags.length - 1
+                : tagDrop.beforeId === null && position === tags.length - 1
                   ? "after"
                   : undefined
               : undefined}
@@ -523,7 +544,7 @@ function TagGroupSection({
         {tags.length === 0 && !creating && (
           <li
             className="tag-group-drop"
-            data-seam={drop?.kind === "tag" && drop.group === name ? "into" : undefined}
+            data-seam={tagDrop?.group === name ? "into" : undefined}
             onDragOver={(event) => {
               if (!takesTag) return;
               event.preventDefault();

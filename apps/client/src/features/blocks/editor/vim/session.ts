@@ -1,4 +1,5 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect } from "react";
+import { useImmediateState } from "../../../../lib/react";
 import {
   initialVimState,
   interpretVimKey,
@@ -16,15 +17,11 @@ export interface VimSession {
 }
 
 export function useVimSession(enabled: boolean): VimSession {
-  const [state, setState] = useState(initialVimState);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const [state, setState, stateRef] = useImmediateState(initialVimState);
 
   const reset = useCallback((mode: VimMode = "normal") => {
-    const next = initialVimState(mode);
-    stateRef.current = next;
-    setState(next);
-  }, []);
+    setState(initialVimState(mode));
+  }, [setState]);
 
   // A keymap change must settle before the browser can deliver a pointer
   // activation. A passive effect could run after that click and overwrite the
@@ -36,11 +33,10 @@ export function useVimSession(enabled: boolean): VimSession {
   const interpret = useCallback((snapshot: VimSnapshot, key: VimKey) => {
     const next = interpretVimKey(stateRef.current, snapshot, key);
     if (next.state !== stateRef.current) {
-      stateRef.current = next.state;
       setState(next.state);
     }
     return next;
-  }, []);
+  }, [setState, stateRef]);
 
   return { state, interpret, reset };
 }

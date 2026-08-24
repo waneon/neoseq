@@ -26,6 +26,34 @@ export interface BlockCompletionRequest {
   anchor: HTMLTextAreaElement;
 }
 
+export type BlockCompletion =
+  | { kind: "slash"; request: BlockCompletionRequest; active: number }
+  | { kind: "hash"; request: BlockCompletionRequest; active: number };
+
+export type BlockCompletionState = BlockCompletion | { kind: "none" };
+
+export const NO_BLOCK_COMPLETION: BlockCompletionState = { kind: "none" };
+
+export type BlockCompletionAction =
+  | { type: "set"; completion: BlockCompletion | null }
+  | { type: "activate"; kind: BlockCompletion["kind"]; index: number }
+  | { type: "replace-block"; from: string; to: string };
+
+export function blockCompletionReducer(
+  state: BlockCompletionState,
+  action: BlockCompletionAction,
+): BlockCompletionState {
+  switch (action.type) {
+    case "set":
+      return action.completion ?? NO_BLOCK_COMPLETION;
+    case "activate":
+      return state.kind === action.kind ? { ...state, active: action.index } : state;
+    case "replace-block":
+      if (state.kind === "none" || state.request.blockId !== action.from) return state;
+      return { ...state, request: { ...state.request, blockId: action.to } };
+  }
+}
+
 export interface BlockTagOption {
   id: string;
   name: string;

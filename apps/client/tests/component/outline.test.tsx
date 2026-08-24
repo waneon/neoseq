@@ -517,6 +517,21 @@ describe("outliner keyboard commands", () => {
     });
   });
 
+  it("flushes the final debounced edit when the outline unmounts", async () => {
+    const { session, view } = await mountOutline(["alpha"]);
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, " beta");
+
+    view.unmount();
+
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home");
+      expect(page?.blocks[0].markdown).toBe("alpha beta");
+    });
+  });
+
   it("auto-pairs delimiters, steps across closers, and deletes empty pairs", async () => {
     const { session } = await mountOutline([""]);
     const user = userEvent.setup();

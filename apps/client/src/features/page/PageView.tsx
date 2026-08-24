@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
@@ -15,6 +15,7 @@ import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
 import { Dialog } from "../../ui/components";
+import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -164,7 +165,7 @@ export function PageBody({
           // The title row is the page's own handle: right-clicking it is where
           // its verbs live now that the row carries no ⋯ button.
           <div className="title-row" onContextMenu={openMenu}>
-            <EditableTitle page={page} />
+            <PageTitle page={page} />
             {menu}
           </div>
         )}
@@ -187,15 +188,11 @@ export function PageBody({
   );
 }
 
-function EditableTitle({ page }: { page: PageSnapshot }) {
+function PageTitle({ page }: { page: PageSnapshot }) {
   const session = useSession();
   const state = useSessionState();
   const notify = useNotify();
   const authoritative = pageTitle(page);
-  const [draft, setDraft] = useState<string | null>(null);
-  // `⏎` commits and then blurs, and the blur commits again — with the same draft,
-  // because the state update has not landed yet. One rename, reported once.
-  const pending = useRef<string | null>(null);
   const isJournal = pageKind(page) === "journal";
   const { message, formatJournalDate } = useI18n();
 
@@ -209,89 +206,16 @@ function EditableTitle({ page }: { page: PageSnapshot }) {
     return <h1 data-testid="journal-title">{day ? formatJournalDate(day) : authoritative}</h1>;
   }
 
-  // The draft is held until the *core* has the new title, not until the command
-  // has been sent.
-  //
-  // Dropping it on submit is what made a rename flicker: `setDraft(null)` fell
-  // back to `authoritative`, which is still the old title for as long as the
-  // command is in flight, so the field showed `Reading list` → `Reading` → (a
-  // frame or three of the old title) → `Reading`. The user watched their own edit
-  // be undone and then redone. `GraphSession` resolves a command only after it has
-  // reconciled the snapshot it produced, so releasing the draft on resolution
-  // hands over to a snapshot that already agrees with it: one value, one commit,
-  // no intermediate frame. A rejection is the one case that does snap back, and it
-  // is reported — the snap alone reads as a keystroke that never registered.
-  const commit = () => {
-    const raw = pending.current;
-    // `⏎` commits and then blurs, and the blur would commit the same draft again.
-    // Nothing pending means this draft has already been dealt with.
-    if (raw === null) return;
-    pending.current = null;
-    const next = raw.trim();
-    if (!next || next === authoritative) {
-      setDraft(null);
-      return;
-    }
-    setDraft(next);
-    // Release only the draft this rename was for. A user who kept typing while it
-    // was in flight has a newer one, and handing that back to the authoritative
-    // title would throw away the characters they just entered.
-    const release = () => setDraft((current) => (current === next ? null : current));
-    void session
-      .execute({ type: "rename_page", page_id: page.id, title: next })
-      .then(release)
-      .catch((error: unknown) => {
-        release();
-        notify.failure(message("failure.renamePage"), error);
-      });
-  };
-
-  // A page's name wraps. It was an `<input>`, which cannot: a title longer than
-  // the measure had 1836px of text in an 822px box with `overflow: clip`, so more
-  // than half of a page's own name was unreachable except by putting the caret in
-  // and walking across it with the arrow keys. A textarea sized to its content is
-  // the same field with the one behaviour a heading needs.
-  const resize = (element: HTMLTextAreaElement | null) => {
-    if (!element) return;
-    element.style.height = "0";
-    element.style.height = `${element.scrollHeight}px`;
-  };
-
   return (
-    <div className="page-title-field">
-      <textarea
-        ref={resize}
-        rows={1}
-        className="page-title"
-        value={draft ?? authoritative}
-        aria-label={message("page.title")}
-        data-testid="page-title"
-        readOnly={state.mode === "readonly"}
-        onChange={(event) => {
-          // A title has no lines, so a pasted newline is a space.
-          const next = event.target.value.replace(/[\r\n]+/g, " ");
-          pending.current = next;
-          setDraft(next);
-          resize(event.currentTarget);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-            event.currentTarget.blur();
-          } else if (event.key === "Escape") {
-            // Escape abandons the draft rather than committing it — the field had
-            // no way out before except reverting the text by hand.
-            event.preventDefault();
-            pending.current = null;
-            setDraft(null);
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </div>
+    <EditableTitle
+      value={authoritative}
+      label={message("page.title")}
+      testId="page-title"
+      readonly={state.mode === "readonly"}
+      onCommit={(title) =>
+        session.execute({ type: "rename_page", page_id: page.id, title }).then(() => undefined)}
+      onError={(error) => notify.failure(message("failure.renamePage"), error)}
+    />
   );
 }
 
@@ -324,8 +248,7 @@ function PageMenu({
   const { message } = useI18n();
   const readonly = state.mode === "readonly";
   const isJournal = pageKind(page) === "journal";
-  const [info, setInfo] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dialog, setDialog] = useState<"info" | "delete" | null>(null);
   const starred = isFavourite(page);
   const owner = { kind: "page", id: page.id } as const;
 
@@ -333,9 +256,9 @@ function PageMenu({
   // menu the single owner of what they do.
   useEffect(() => {
     bridge.setPageActions({
-      info: () => setInfo(true),
+      info: () => setDialog("info"),
       remove: () => {
-        if (!isJournal && !readonly) setConfirmDelete(true);
+        if (!isJournal && !readonly) setDialog("delete");
       },
     });
     return () => bridge.setPageActions(null);
@@ -397,7 +320,10 @@ function PageMenu({
               {message(starred ? "favourites.remove" : "favourites.add")}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setInfo(true)}>
+          <DropdownMenuItem
+            data-testid="menu-page-info"
+            onSelect={() => setDialog("info")}
+          >
             <InfoIcon aria-hidden />
             {message("page.info")}
           </DropdownMenuItem>
@@ -407,7 +333,7 @@ function PageMenu({
               <DropdownMenuItem
                 variant="destructive"
                 data-testid="delete-page"
-                onSelect={() => setConfirmDelete(true)}
+                onSelect={() => setDialog("delete")}
               >
                 <Trash2Icon aria-hidden />
                 {message("page.delete")}
@@ -416,21 +342,21 @@ function PageMenu({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {info && <PageInfoDialog page={page} onClose={() => setInfo(false)} />}
-      {confirmDelete && (
-        <Dialog title={message("page.deleteTitle")} onClose={() => setConfirmDelete(false)}>
+      {dialog === "info" && <PageInfoDialog page={page} onClose={() => setDialog(null)} />}
+      {dialog === "delete" && (
+        <Dialog title={message("page.deleteTitle")} onClose={() => setDialog(null)}>
           <p>
             {message("page.deleteConfirm", { name: pageTitle(page) })}
           </p>
           <div className="dialog-actions">
-            <button className="btn" onClick={() => setConfirmDelete(false)}>
+            <button className="btn" onClick={() => setDialog(null)}>
               {message("common.cancel")}
             </button>
             <button
               className="btn btn-danger"
               data-testid="confirm-delete-page"
               onClick={() => {
-                setConfirmDelete(false);
+                setDialog(null);
                 void session
                   .execute({ type: "delete_page", page_id: page.id })
                   .catch((error: unknown) => {

@@ -61,6 +61,12 @@ interface MenuAt {
   y: number;
 }
 
+type ViewDrag = {
+  viewId: string;
+  /** The tab the seam is drawn before, or `null` for the end of the strip. */
+  seamBefore?: string | null;
+} | null;
+
 export function QueryViewTabs({
   views,
   activeView,
@@ -91,9 +97,7 @@ export function QueryViewTabs({
   const { message } = useI18n();
   const [menuAt, setMenuAt] = useState<MenuAt | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
-  /** The tab the seam is drawn before, or `null` for the end of the strip. */
-  const [seamBefore, setSeamBefore] = useState<string | null | undefined>(undefined);
+  const [drag, setDrag] = useState<ViewDrag>(null);
   const strip = useRef<HTMLDivElement>(null);
 
   const menuView = views.find((view) => view.id === menuAt?.viewId) ?? null;
@@ -121,19 +125,20 @@ export function QueryViewTabs({
   };
 
   const endDrag = () => {
-    setDragging(null);
-    setSeamBefore(undefined);
+    setDrag(null);
   };
 
   /** Commit a dropped tab: its new place among the views, as positions. */
   const commitDrop = () => {
-    const moved = views.find((view) => view.id === dragging);
-    if (!moved || seamBefore === undefined) {
+    const moved = views.find((view) => view.id === drag?.viewId);
+    if (!moved || drag?.seamBefore === undefined) {
       endDrag();
       return;
     }
     const rest = views.filter((view) => view.id !== moved.id);
-    const found = seamBefore === null ? -1 : rest.findIndex((view) => view.id === seamBefore);
+    const found = drag.seamBefore === null
+      ? -1
+      : rest.findIndex((view) => view.id === drag.seamBefore);
     const at = found < 0 ? rest.length : found;
     endDrag();
     onReorder([...rest.slice(0, at), moved, ...rest.slice(at)]);
@@ -170,13 +175,13 @@ export function QueryViewTabs({
         onKeyDown={onKeyDown}
         onDragOver={(event) => {
           // Only the track's own padding past the last tab reaches this.
-          if (dragging === null || event.target !== event.currentTarget) return;
+          if (drag === null || event.target !== event.currentTarget) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
-          setSeamBefore(null);
+          setDrag({ ...drag, seamBefore: null });
         }}
         onDrop={(event) => {
-          if (dragging === null) return;
+          if (drag === null) return;
           event.preventDefault();
           commitDrop();
         }}
@@ -197,11 +202,11 @@ export function QueryViewTabs({
             );
           }
           const opens = current && !readonly;
-          const seam = dragging === null
+          const seam = drag === null
             ? undefined
-            : seamBefore === view.id
+            : drag.seamBefore === view.id
               ? "before"
-              : seamBefore === null && view.id === views[views.length - 1]?.id
+              : drag.seamBefore === null && view.id === views[views.length - 1]?.id
                 ? "after"
                 : undefined;
           return (
@@ -212,7 +217,7 @@ export function QueryViewTabs({
               className="query-view-tab"
               data-view-id={view.id}
               data-testid="query-view-tab"
-              data-dragging={dragging === view.id || undefined}
+              data-dragging={drag?.viewId === view.id || undefined}
               data-seam={seam}
               aria-selected={current}
               aria-controls={panelId}
@@ -223,17 +228,20 @@ export function QueryViewTabs({
               onDragStart={(event) => {
                 event.dataTransfer.setData("text/plain", view.name);
                 event.dataTransfer.effectAllowed = "move";
-                setDragging(view.id);
+                setDrag({ viewId: view.id });
               }}
               onDragEnd={endDrag}
               onDragOver={(event) => {
-                if (dragging === null || dragging === view.id) return;
+                if (drag === null || drag.viewId === view.id) return;
                 event.preventDefault();
                 event.stopPropagation();
                 event.dataTransfer.dropEffect = "move";
                 const box = event.currentTarget.getBoundingClientRect();
                 const before = event.clientX < box.left + box.width / 2;
-                setSeamBefore(before ? view.id : (views[position + 1]?.id ?? null));
+                setDrag({
+                  ...drag,
+                  seamBefore: before ? view.id : (views[position + 1]?.id ?? null),
+                });
               }}
               onClick={(event) =>
                 opens ? summon(view, pointOf(event)) : onSelect(view.id)}

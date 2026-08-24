@@ -5,14 +5,14 @@ use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, DefaultQueryId,
     DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot, GraphSummary,
     HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
-    OutlineFragmentPage, OutlineOwner, OutlineSnapshot, PageId, PageSnapshot, PageSummary,
-    PropertyBag, PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader, PropertyError,
-    PropertyField, PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue,
-    QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryOwner,
-    QueryPlan, QueryView, QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions,
-    SplitPlacement, TagId, TagSnapshot, TagSummary, property_copy_policy, validate_property,
-    validate_property_field, validate_property_shape, validate_property_target,
-    validate_property_write,
+    OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner, OutlineSnapshot, PageId,
+    PageSnapshot, PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument,
+    PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
+    PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
+    QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
+    QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
+    property_copy_policy, validate_property, validate_property_field, validate_property_shape,
+    validate_property_target, validate_property_write,
 };
 use loro::{
     Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
@@ -37,6 +37,10 @@ const TAG_OUTLINES_SCHEMA_VERSION: u32 = 3;
 const GRAPH_SETTINGS_SCHEMA_VERSION: u32 = 1;
 const MAX_DEFAULT_QUERIES: usize = 8;
 const MAX_DEFAULT_QUERY_TITLE: usize = 80;
+const MAX_ENTITY_NAME_BYTES: usize = 1024;
+const MAX_BLOCK_TEXT_BYTES: usize = 1_048_576;
+const MAX_QUERY_SOURCE_BYTES: usize = 65_536;
+const MAX_OUTLINE_FRAGMENT_BYTES: usize = 4 * MAX_BLOCK_TEXT_BYTES;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
@@ -61,6 +65,29 @@ enum CommandPlan {
     Fragment(FragmentResolution),
 }
 
+impl CommandPlan {
+    fn outline(&self) -> &OutlinePlan {
+        let Self::Outline(plan) = self else {
+            unreachable!("structural command was prepared without an outline plan")
+        };
+        plan
+    }
+
+    fn tag_detach(&self) -> &TagDetachPlan {
+        let Self::TagDetach(plan) = self else {
+            unreachable!("tag deletion was prepared without a detach plan")
+        };
+        plan
+    }
+
+    fn fragment(&self) -> &FragmentResolution {
+        let Self::Fragment(resolution) = self else {
+            unreachable!("outline paste was prepared without a fragment resolution")
+        };
+        resolution
+    }
+}
+
 #[derive(Debug)]
 struct PreparedCommand<'a> {
     command: &'a Command,
@@ -71,24 +98,15 @@ struct PreparedCommand<'a> {
 
 impl PreparedCommand<'_> {
     fn outline(&self) -> &OutlinePlan {
-        let CommandPlan::Outline(plan) = &self.plan else {
-            unreachable!("outline command was prepared without an outline plan")
-        };
-        plan
+        self.plan.outline()
     }
 
     fn tag_detach(&self) -> &TagDetachPlan {
-        let CommandPlan::TagDetach(plan) = &self.plan else {
-            unreachable!("tag deletion was prepared without a detach plan")
-        };
-        plan
+        self.plan.tag_detach()
     }
 
     fn fragment(&self) -> &FragmentResolution {
-        let CommandPlan::Fragment(resolution) = &self.plan else {
-            unreachable!("outline paste was prepared without a fragment resolution")
-        };
-        resolution
+        self.plan.fragment()
     }
 }
 
@@ -135,6 +153,39 @@ struct FragmentResolution {
     pages: BTreeMap<PageId, PageId>,
     new_tags: Vec<(TagId, String)>,
     new_pages: Vec<(PageId, OutlineFragmentPage)>,
+}
+
+trait InsertableOutlineItem {
+    fn depth(&self) -> usize;
+    fn markdown(&self) -> &str;
+}
+
+impl InsertableOutlineItem for OutlineItem {
+    fn depth(&self) -> usize {
+        self.depth
+    }
+
+    fn markdown(&self) -> &str {
+        &self.markdown
+    }
+}
+
+impl InsertableOutlineItem for OutlineFragmentItem {
+    fn depth(&self) -> usize {
+        self.depth
+    }
+
+    fn markdown(&self) -> &str {
+        &self.markdown
+    }
+}
+
+struct OutlineInsertion<'a, T> {
+    owner: &'a OutlineOwner,
+    parent: Option<&'a BlockId>,
+    index: usize,
+    replace: Option<&'a BlockId>,
+    items: &'a [T],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1083,27 +1134,27 @@ impl GraphCore {
     fn validate(&self, command: &Command) -> Result<(), CoreError> {
         match command {
             Command::EnsurePage { page_id, title } => {
-                validate_text(title, 1024)?;
+                validate_text(title, MAX_ENTITY_NAME_BYTES)?;
                 validate_name(title, "page")?;
                 if self.doc.get_map("pages").get(page_id.as_str()).is_none() {
                     ensure_page_name_available(&self.doc, page_id, title)?;
                 }
             }
             Command::EnsureTag { tag_id, name } => {
-                validate_text(name, 1024)?;
+                validate_text(name, MAX_ENTITY_NAME_BYTES)?;
                 validate_name(name, "tag")?;
                 if self.doc.get_map("tags").get(tag_id.as_str()).is_none() {
                     ensure_tag_name_available(&self.doc, tag_id, name)?;
                 }
             }
             Command::RenamePage { page_id, title } => {
-                validate_text(title, 1024)?;
+                validate_text(title, MAX_ENTITY_NAME_BYTES)?;
                 validate_name(title, "page")?;
                 self.require_page(page_id)?;
                 ensure_page_name_available(&self.doc, page_id, title)?;
             }
             Command::RenameTag { tag_id, name } => {
-                validate_text(name, 1024)?;
+                validate_text(name, MAX_ENTITY_NAME_BYTES)?;
                 validate_name(name, "tag")?;
                 self.require_tag(tag_id)?;
                 ensure_tag_name_available(&self.doc, tag_id, name)?;
@@ -1115,7 +1166,7 @@ impl GraphCore {
                 ..
             } => {
                 self.require_live_outline_owner(owner)?;
-                validate_text(markdown, 1_048_576)?;
+                validate_text(markdown, MAX_BLOCK_TEXT_BYTES)?;
                 if let Some(parent) = parent {
                     self.require_block(owner, parent)?;
                 }
@@ -1153,38 +1204,7 @@ impl GraphCore {
                 {
                     self.require_block(owner, parent)?;
                 }
-                if items.is_empty() {
-                    return Err(CoreError::InvalidHierarchy(
-                        "outline insert requires at least one item".into(),
-                    ));
-                }
-                if items.len() > MAX_STRUCTURAL_TARGETS {
-                    return Err(CoreError::InvalidHierarchy(
-                        "outline insert exceeds the block target limit".into(),
-                    ));
-                }
-                if items[0].depth != 0 {
-                    return Err(CoreError::InvalidHierarchy(
-                        "outline insert must start at depth zero".into(),
-                    ));
-                }
-                let mut previous_depth = 0;
-                let mut total_text = 0usize;
-                for item in items {
-                    if item.depth > previous_depth + 1 {
-                        return Err(CoreError::InvalidHierarchy(
-                            "outline insert skips a depth".into(),
-                        ));
-                    }
-                    validate_text(&item.markdown, 1_048_576)?;
-                    total_text = total_text.saturating_add(item.markdown.len());
-                    if total_text > 1_048_576 {
-                        return Err(CoreError::InvalidHierarchy(
-                            "outline insert exceeds the text limit".into(),
-                        ));
-                    }
-                    previous_depth = item.depth;
-                }
+                validate_outline_items(items, "insert")?;
                 if let Some(block_id) = replace {
                     self.require_block(owner, block_id)?;
                     if !self.block_text(owner, block_id)?.to_string().is_empty() {
@@ -1223,7 +1243,7 @@ impl GraphCore {
                 markdown,
             } => {
                 self.require_block(owner, block_id)?;
-                validate_text(markdown, 1_048_576)?;
+                validate_text(markdown, MAX_BLOCK_TEXT_BYTES)?;
             }
             Command::SpliceMarkdown {
                 owner,
@@ -1232,13 +1252,13 @@ impl GraphCore {
                 ..
             } => {
                 self.require_block(owner, block_id)?;
-                validate_text(insert, 1_048_576)?;
+                validate_text(insert, MAX_BLOCK_TEXT_BYTES)?;
             }
             Command::SpliceMarkdowns { owner, splices } => {
                 if splices.is_empty() || splices.len() > MAX_STRUCTURAL_TARGETS {
-                    return Err(CoreError::InvalidHierarchy(
-                        "markdown splice batch must contain between 1 and 10000 blocks".into(),
-                    ));
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "markdown splice batch must contain between 1 and {MAX_STRUCTURAL_TARGETS} blocks"
+                    )));
                 }
                 let mut seen = BTreeSet::new();
                 for splice in splices {
@@ -1248,7 +1268,7 @@ impl GraphCore {
                         ));
                     }
                     self.require_block(owner, &splice.block_id)?;
-                    validate_text(&splice.insert, 1_048_576)?;
+                    validate_text(&splice.insert, MAX_BLOCK_TEXT_BYTES)?;
                     let text = self.block_text(owner, &splice.block_id)?;
                     if splice.index.saturating_add(splice.delete) > text.len_unicode() {
                         return Err(CoreError::InvalidHierarchy(
@@ -1367,7 +1387,7 @@ impl GraphCore {
             }
             Command::SetQuerySource { owner, source } => {
                 self.validate_query_owner(owner)?;
-                if source.len() > 65_536 {
+                if source.len() > MAX_QUERY_SOURCE_BYTES {
                     return Err(CoreError::TextTooLong);
                 }
             }
@@ -1396,7 +1416,7 @@ impl GraphCore {
                     .nth(index.saturating_add(*delete))
                     .map_or(document.source.len(), |(offset, _)| offset);
                 let next_len = document.source.len() - (end_byte - start_byte) + insert.len();
-                if next_len > 65_536 {
+                if next_len > MAX_QUERY_SOURCE_BYTES {
                     return Err(CoreError::TextTooLong);
                 }
             }
@@ -1407,7 +1427,7 @@ impl GraphCore {
             } => {
                 self.validate_query_owner(owner)?;
                 plan.validate()?;
-                if source.len() > 65_536 {
+                if source.len() > MAX_QUERY_SOURCE_BYTES {
                     return Err(CoreError::TextTooLong);
                 }
             }
@@ -1579,86 +1599,17 @@ impl GraphCore {
                 replace,
                 items,
             } => {
-                let outline = self.outline(owner)?;
-                let requested_parent = parent.as_ref().map(tree_id).transpose()?;
-                let mut base_parent = requested_parent;
-                let mut base_index = *index;
-                let mut levels: Vec<TreeID> = Vec::new();
-                let mut inserted_children: BTreeMap<TreeID, usize> = BTreeMap::new();
-                let mut root_offset = 0;
-
-                if let Some(replace_id) = replace {
-                    let target = require_block_in(&outline, replace_id)?;
-                    let actual_parent = outline
-                        .parent(target)
-                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
-                    let siblings = outline.children(actual_parent).unwrap_or_default();
-                    base_index = siblings
-                        .iter()
-                        .position(|candidate| *candidate == target)
-                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
-                    base_parent = match actual_parent {
-                        TreeParentId::Node(parent) => Some(parent),
-                        TreeParentId::Root => None,
-                        TreeParentId::Deleted | TreeParentId::Unexist => {
-                            return Err(CoreError::BlockNotFound(replace_id.clone()));
-                        }
-                    };
-                    root_offset = 1;
-                }
-
-                for (position, item) in items.iter().enumerate() {
-                    let node = if position == 0 {
-                        if let Some(replace_id) = replace {
-                            let target = require_block_in(&outline, replace_id)?;
-                            replace_text(&self.block_text(owner, replace_id)?, &item.markdown)?;
-                            target
-                        } else {
-                            let available = base_parent.map_or_else(
-                                || outline.roots().len(),
-                                |parent| outline.children(parent).map_or(0, |rows| rows.len()),
-                            );
-                            let target =
-                                outline.create_at(base_parent, base_index.min(available))?;
-                            initialize_created_node(
-                                &outline.get_meta(target)?,
-                                &item.markdown,
-                                now,
-                            )?;
-                            root_offset = 1;
-                            target
-                        }
-                    } else if item.depth == 0 {
-                        let available = base_parent.map_or_else(
-                            || outline.roots().len(),
-                            |parent| outline.children(parent).map_or(0, |rows| rows.len()),
-                        );
-                        let target = outline
-                            .create_at(base_parent, (base_index + root_offset).min(available))?;
-                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
-                        root_offset += 1;
-                        target
-                    } else {
-                        let parent_node = *levels.get(item.depth - 1).ok_or_else(|| {
-                            CoreError::InvalidHierarchy("outline insert skips a depth".into())
-                        })?;
-                        let child_index = inserted_children.entry(parent_node).or_default();
-                        let target = outline.create_at(Some(parent_node), *child_index)?;
-                        *child_index += 1;
-                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
-                        target
-                    };
-
-                    if levels.len() <= item.depth {
-                        levels.push(node);
-                    } else {
-                        levels[item.depth] = node;
-                        levels.truncate(item.depth + 1);
-                    }
-                    let created_id = block_id(node);
-                    self.touch_block(owner, &created_id, now)?;
-                    result.created_block = Some(created_id);
-                }
+                result.created_block = self.insert_outline_items(
+                    OutlineInsertion {
+                        owner,
+                        parent: parent.as_ref(),
+                        index: *index,
+                        replace: replace.as_ref(),
+                        items,
+                    },
+                    now,
+                    |_, _| Ok(()),
+                )?;
             }
             Command::PasteOutline {
                 owner,
@@ -1678,102 +1629,32 @@ impl GraphCore {
                 for (target_id, name) in &resolution.new_tags {
                     self.ensure_tag(target_id, name, now)?;
                 }
-
-                let outline = self.outline(owner)?;
-                let requested_parent = parent.as_ref().map(tree_id).transpose()?;
-                let mut base_parent = requested_parent;
-                let mut base_index = *index;
-                let mut levels: Vec<TreeID> = Vec::new();
-                let mut inserted_children: BTreeMap<TreeID, usize> = BTreeMap::new();
-                let mut root_offset = 0;
-
-                if let Some(replace_id) = replace {
-                    let target = require_block_in(&outline, replace_id)?;
-                    let actual_parent = outline
-                        .parent(target)
-                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
-                    let siblings = outline.children(actual_parent).unwrap_or_default();
-                    base_index = siblings
-                        .iter()
-                        .position(|candidate| *candidate == target)
-                        .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
-                    base_parent = match actual_parent {
-                        TreeParentId::Node(parent) => Some(parent),
-                        TreeParentId::Root => None,
-                        TreeParentId::Deleted | TreeParentId::Unexist => {
-                            return Err(CoreError::BlockNotFound(replace_id.clone()));
+                result.created_block = self.insert_outline_items(
+                    OutlineInsertion {
+                        owner,
+                        parent: parent.as_ref(),
+                        index: *index,
+                        replace: replace.as_ref(),
+                        items: &fragment.items,
+                    },
+                    now,
+                    |meta, item| {
+                        let bag = meta.ensure_mergeable_map("properties")?;
+                        for field in &item.properties {
+                            write_fragment_property(&bag, field, &resolution.pages)?;
                         }
-                    };
-                    root_offset = 1;
-                }
-
-                for (position, item) in fragment.items.iter().enumerate() {
-                    let node = if position == 0 {
-                        if let Some(replace_id) = replace {
-                            let target = require_block_in(&outline, replace_id)?;
-                            replace_text(&self.block_text(owner, replace_id)?, &item.markdown)?;
-                            target
-                        } else {
-                            let available = base_parent.map_or_else(
-                                || outline.roots().len(),
-                                |parent| outline.children(parent).map_or(0, |rows| rows.len()),
-                            );
-                            let target =
-                                outline.create_at(base_parent, base_index.min(available))?;
-                            initialize_created_node(
-                                &outline.get_meta(target)?,
-                                &item.markdown,
-                                now,
-                            )?;
-                            root_offset = 1;
-                            target
+                        let tag_refs = meta.ensure_mergeable_map("tag_refs")?;
+                        for source_tag in &item.tags {
+                            let target_tag = resolution.tags.get(source_tag).ok_or_else(|| {
+                                CoreError::InvalidHierarchy(format!(
+                                    "outline fragment tag reference is missing: {source_tag}"
+                                ))
+                            })?;
+                            tag_refs.insert(target_tag.as_str(), true)?;
                         }
-                    } else if item.depth == 0 {
-                        let available = base_parent.map_or_else(
-                            || outline.roots().len(),
-                            |parent| outline.children(parent).map_or(0, |rows| rows.len()),
-                        );
-                        let target = outline
-                            .create_at(base_parent, (base_index + root_offset).min(available))?;
-                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
-                        root_offset += 1;
-                        target
-                    } else {
-                        let parent_node = *levels.get(item.depth - 1).ok_or_else(|| {
-                            CoreError::InvalidHierarchy("outline paste skips a depth".into())
-                        })?;
-                        let child_index = inserted_children.entry(parent_node).or_default();
-                        let target = outline.create_at(Some(parent_node), *child_index)?;
-                        *child_index += 1;
-                        initialize_created_node(&outline.get_meta(target)?, &item.markdown, now)?;
-                        target
-                    };
-
-                    let meta = outline.get_meta(node)?;
-                    let bag = meta.ensure_mergeable_map("properties")?;
-                    for field in &item.properties {
-                        write_fragment_property(&bag, field, &resolution.pages)?;
-                    }
-                    let tag_refs = meta.ensure_mergeable_map("tag_refs")?;
-                    for source_tag in &item.tags {
-                        let target_tag = resolution.tags.get(source_tag).ok_or_else(|| {
-                            CoreError::InvalidHierarchy(format!(
-                                "outline fragment tag reference is missing: {source_tag}"
-                            ))
-                        })?;
-                        tag_refs.insert(target_tag.as_str(), true)?;
-                    }
-
-                    if levels.len() <= item.depth {
-                        levels.push(node);
-                    } else {
-                        levels[item.depth] = node;
-                        levels.truncate(item.depth + 1);
-                    }
-                    let created_id = block_id(node);
-                    self.touch_block(owner, &created_id, now)?;
-                    result.created_block = Some(created_id);
-                }
+                        Ok(())
+                    },
+                )?;
             }
             Command::EditMarkdown {
                 owner,
@@ -2003,6 +1884,95 @@ impl GraphCore {
             self.touch_command(command, result, now)?;
         }
         Ok(())
+    }
+
+    fn insert_outline_items<T>(
+        &self,
+        insertion: OutlineInsertion<'_, T>,
+        now: &str,
+        mut decorate: impl FnMut(&LoroMap, &T) -> Result<(), CoreError>,
+    ) -> Result<Option<BlockId>, CoreError>
+    where
+        T: InsertableOutlineItem,
+    {
+        let OutlineInsertion {
+            owner,
+            parent,
+            index,
+            replace,
+            items,
+        } = insertion;
+        let outline = self.outline(owner)?;
+        let mut base_parent = parent.map(tree_id).transpose()?;
+        let mut base_index = index;
+        let mut root_offset = 0;
+
+        if let Some(replace_id) = replace {
+            let target = require_block_in(&outline, replace_id)?;
+            let actual_parent = outline
+                .parent(target)
+                .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
+            let siblings = outline.children(actual_parent).unwrap_or_default();
+            base_index = siblings
+                .iter()
+                .position(|candidate| *candidate == target)
+                .ok_or_else(|| CoreError::BlockNotFound(replace_id.clone()))?;
+            base_parent = match actual_parent {
+                TreeParentId::Node(parent) => Some(parent),
+                TreeParentId::Root => None,
+                TreeParentId::Deleted | TreeParentId::Unexist => {
+                    return Err(CoreError::BlockNotFound(replace_id.clone()));
+                }
+            };
+            root_offset = 1;
+        }
+
+        let mut levels = Vec::<TreeID>::new();
+        let mut inserted_children = BTreeMap::<TreeID, usize>::new();
+        let mut last_created = None;
+
+        for (position, item) in items.iter().enumerate() {
+            let node = if position == 0
+                && let Some(replace_id) = replace
+            {
+                let target = require_block_in(&outline, replace_id)?;
+                replace_text(&self.block_text(owner, replace_id)?, item.markdown())?;
+                target
+            } else if item.depth() == 0 {
+                let available = base_parent.map_or_else(
+                    || outline.roots().len(),
+                    |parent| outline.children(parent).map_or(0, |rows| rows.len()),
+                );
+                let target =
+                    outline.create_at(base_parent, (base_index + root_offset).min(available))?;
+                initialize_created_node(&outline.get_meta(target)?, item.markdown(), now)?;
+                root_offset += 1;
+                target
+            } else {
+                let parent_node = *levels.get(item.depth() - 1).ok_or_else(|| {
+                    CoreError::InvalidHierarchy("outline insert skips a depth".into())
+                })?;
+                let child_index = inserted_children.entry(parent_node).or_default();
+                let target = outline.create_at(Some(parent_node), *child_index)?;
+                *child_index += 1;
+                initialize_created_node(&outline.get_meta(target)?, item.markdown(), now)?;
+                target
+            };
+
+            let meta = outline.get_meta(node)?;
+            decorate(&meta, item)?;
+            if levels.len() <= item.depth() {
+                levels.push(node);
+            } else {
+                levels[item.depth()] = node;
+                levels.truncate(item.depth() + 1);
+            }
+            let created_id = block_id(node);
+            self.touch_block(owner, &created_id, now)?;
+            last_created = Some(created_id);
+        }
+
+        Ok(last_created)
     }
 
     fn touch_command(
@@ -2277,16 +2247,7 @@ impl GraphCore {
                 "unsupported outline fragment".to_owned(),
             ));
         }
-        if fragment.items.is_empty() {
-            return Err(CoreError::InvalidHierarchy(
-                "outline paste requires at least one item".to_owned(),
-            ));
-        }
-        if fragment.items.len() > MAX_STRUCTURAL_TARGETS {
-            return Err(CoreError::InvalidHierarchy(
-                "outline paste exceeds the block target limit".to_owned(),
-            ));
-        }
+        validate_outline_items(&fragment.items, "paste")?;
         if fragment.tags.len() > MAX_STRUCTURAL_TARGETS
             || fragment.pages.len() > MAX_STRUCTURAL_TARGETS
         {
@@ -2294,12 +2255,7 @@ impl GraphCore {
                 "outline paste exceeds the reference limit".to_owned(),
             ));
         }
-        if fragment.items[0].depth != 0 {
-            return Err(CoreError::InvalidHierarchy(
-                "outline paste must start at depth zero".to_owned(),
-            ));
-        }
-        if serde_json::to_vec(fragment)?.len() > 4 * 1_048_576 {
+        if serde_json::to_vec(fragment)?.len() > MAX_OUTLINE_FRAGMENT_BYTES {
             return Err(CoreError::InvalidHierarchy(
                 "outline fragment exceeds the payload limit".to_owned(),
             ));
@@ -2312,7 +2268,7 @@ impl GraphCore {
                     "outline fragment contains a duplicate tag reference".to_owned(),
                 ));
             }
-            validate_text(&tag.name, 1024)?;
+            validate_text(&tag.name, MAX_ENTITY_NAME_BYTES)?;
             validate_name(&tag.name, "tag")?;
         }
         let mut page_ids = BTreeSet::new();
@@ -2323,30 +2279,16 @@ impl GraphCore {
                 ));
             }
             if page.journal_date.is_none() {
-                validate_text(&page.title, 1024)?;
+                validate_text(&page.title, MAX_ENTITY_NAME_BYTES)?;
                 validate_name(&page.title, "page")?;
             }
         }
 
         let same_graph = fragment.source_graph_id == self.graph_id;
-        let mut previous_depth = 0;
-        let mut total_text = 0usize;
         let mut total_fields = 0usize;
         let mut referenced_tags = BTreeSet::new();
         let mut referenced_pages = BTreeSet::new();
         for item in &fragment.items {
-            if item.depth > previous_depth + 1 {
-                return Err(CoreError::InvalidHierarchy(
-                    "outline paste skips a depth".to_owned(),
-                ));
-            }
-            validate_text(&item.markdown, 1_048_576)?;
-            total_text = total_text.saturating_add(item.markdown.len());
-            if total_text > 1_048_576 {
-                return Err(CoreError::InvalidHierarchy(
-                    "outline paste exceeds the text limit".to_owned(),
-                ));
-            }
             total_fields = total_fields.saturating_add(item.properties.len());
             if total_fields > MAX_STRUCTURAL_TARGETS {
                 return Err(CoreError::InvalidHierarchy(
@@ -2400,7 +2342,6 @@ impl GraphCore {
                 }
                 referenced_tags.insert(tag_id.clone());
             }
-            previous_depth = item.depth;
         }
         if tag_ids.iter().any(|id| !referenced_tags.contains(id))
             || page_ids.iter().any(|id| !referenced_pages.contains(id))
@@ -2569,35 +2510,27 @@ impl GraphCore {
                 false,
             )
         };
-        let owner_plan = |owner: &PropertyOwner| match owner {
-            PropertyOwner::Page { id } => entity_plan(&EntityId::Page { id: id.clone() }),
-            PropertyOwner::Block { owner, id } => entity_plan(&EntityId::Block {
-                owner: owner.clone(),
-                id: id.clone(),
-            }),
-            PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => plan(
+        let graph_plan = || {
+            plan(
                 HistoryScope::Graph,
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 false,
                 false,
-            ),
+            )
+        };
+        let owner_plan = |owner: &PropertyOwner| match owner {
+            PropertyOwner::Page { id } => entity_plan(&EntityId::Page { id: id.clone() }),
+            PropertyOwner::Block { owner, id } => entity_plan(&EntityId::Block {
+                owner: owner.clone(),
+                id: id.clone(),
+            }),
+            PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => graph_plan(),
         };
         let query_owner_plan = |owner: &QueryOwner| {
-            property_owner_from_query_owner(owner).map_or_else(
-                || {
-                    plan(
-                        HistoryScope::Graph,
-                        Vec::new(),
-                        Vec::new(),
-                        Vec::new(),
-                        false,
-                        false,
-                    )
-                },
-                |owner| owner_plan(&owner),
-            )
+            property_owner_from_query_owner(owner)
+                .map_or_else(graph_plan, |owner| owner_plan(&owner))
         };
 
         Ok(match command {
@@ -2655,31 +2588,24 @@ impl GraphCore {
                 false,
             ),
             Command::EnsureTag { .. } | Command::RenameTag { .. } | Command::RestoreTag { .. } => {
-                plan(
-                    HistoryScope::Graph,
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    false,
-                )
+                graph_plan()
             }
             Command::DeleteTag { .. } => plan(
                 HistoryScope::Graph,
-                match prepared {
-                    CommandPlan::TagDetach(plan) => plan,
-                    _ => unreachable!("tag deletion was prepared without a detach plan"),
-                }
-                .outlines
-                .iter()
-                .map(|entry| entry.owner.clone())
-                .collect(),
+                prepared
+                    .tag_detach()
+                    .outlines
+                    .iter()
+                    .map(|entry| entry.owner.clone())
+                    .collect(),
                 Vec::new(),
                 Vec::new(),
                 false,
                 false,
             ),
-            Command::InsertBlock { owner, parent, .. } => plan(
+            Command::InsertBlock { owner, parent, .. }
+            | Command::InsertOutline { owner, parent, .. }
+            | Command::PasteOutline { owner, parent, .. } => plan(
                 HistoryScope::Entity,
                 vec![owner.clone()],
                 parent
@@ -2702,32 +2628,6 @@ impl GraphCore {
                     .chain(outline_target(owner))
                     .collect(),
                 vec![block(owner, block_id)],
-                true,
-                false,
-            ),
-            Command::InsertOutline { owner, parent, .. } => plan(
-                HistoryScope::Entity,
-                vec![owner.clone()],
-                parent
-                    .as_ref()
-                    .map(|id| block(owner, id))
-                    .into_iter()
-                    .chain(outline_target(owner))
-                    .collect(),
-                Vec::new(),
-                true,
-                false,
-            ),
-            Command::PasteOutline { owner, parent, .. } => plan(
-                HistoryScope::Entity,
-                vec![owner.clone()],
-                parent
-                    .as_ref()
-                    .map(|id| block(owner, id))
-                    .into_iter()
-                    .chain(outline_target(owner))
-                    .collect(),
-                Vec::new(),
                 true,
                 false,
             ),
@@ -2758,51 +2658,16 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::MoveBlocks { owner, .. } => {
-                let candidates = match prepared {
-                    CommandPlan::Outline(plan) => &plan.roots,
-                    _ => unreachable!("block move was prepared without an outline plan"),
-                }
-                .iter()
-                .map(|id| block(owner, id))
-                .chain(outline_target(owner))
-                .collect::<Vec<_>>();
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    candidates.clone(),
-                    candidates,
-                    false,
-                    false,
-                )
-            }
-            Command::IndentBlocks { owner, .. } => {
-                let candidates = match prepared {
-                    CommandPlan::Outline(plan) => &plan.roots,
-                    _ => unreachable!("block indent was prepared without an outline plan"),
-                }
-                .iter()
-                .map(|id| block(owner, id))
-                .chain(outline_target(owner))
-                .collect::<Vec<_>>();
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    candidates.clone(),
-                    candidates,
-                    false,
-                    false,
-                )
-            }
-            Command::OutdentBlocks { owner, .. } => {
-                let candidates = match prepared {
-                    CommandPlan::Outline(plan) => &plan.roots,
-                    _ => unreachable!("block outdent was prepared without an outline plan"),
-                }
-                .iter()
-                .map(|id| block(owner, id))
-                .chain(outline_target(owner))
-                .collect::<Vec<_>>();
+            Command::MoveBlocks { owner, .. }
+            | Command::IndentBlocks { owner, .. }
+            | Command::OutdentBlocks { owner, .. } => {
+                let candidates = prepared
+                    .outline()
+                    .roots
+                    .iter()
+                    .map(|id| block(owner, id))
+                    .chain(outline_target(owner))
+                    .collect::<Vec<_>>();
                 plan(
                     HistoryScope::Entity,
                     vec![owner.clone()],
@@ -2813,10 +2678,7 @@ impl GraphCore {
                 )
             }
             Command::DeleteBlocks { owner, .. } => {
-                let outline = match prepared {
-                    CommandPlan::Outline(plan) => plan,
-                    _ => unreachable!("block deletion was prepared without an outline plan"),
-                };
+                let outline = prepared.outline();
                 let state = &outline.before;
                 let undo_candidates = outline
                     .roots
@@ -2879,14 +2741,7 @@ impl GraphCore {
             Command::CreateDefaultQuery { .. }
             | Command::RenameDefaultQuery { .. }
             | Command::MoveDefaultQuery { .. }
-            | Command::DeleteDefaultQuery { .. } => plan(
-                HistoryScope::Graph,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                false,
-                false,
-            ),
+            | Command::DeleteDefaultQuery { .. } => graph_plan(),
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
                 entity_plan(entity)
             }
@@ -3670,6 +3525,46 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     }
     validate_tag_outlines(doc)?;
     verify_graph_settings(doc)
+}
+
+fn validate_outline_items<T: InsertableOutlineItem>(
+    items: &[T],
+    operation: &str,
+) -> Result<(), CoreError> {
+    if items.is_empty() {
+        return Err(CoreError::InvalidHierarchy(format!(
+            "outline {operation} requires at least one item"
+        )));
+    }
+    if items.len() > MAX_STRUCTURAL_TARGETS {
+        return Err(CoreError::InvalidHierarchy(format!(
+            "outline {operation} exceeds the block target limit"
+        )));
+    }
+    if items[0].depth() != 0 {
+        return Err(CoreError::InvalidHierarchy(format!(
+            "outline {operation} must start at depth zero"
+        )));
+    }
+
+    let mut previous_depth = 0usize;
+    let mut total_text = 0usize;
+    for item in items {
+        if item.depth() > previous_depth.saturating_add(1) {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "outline {operation} skips a depth"
+            )));
+        }
+        validate_text(item.markdown(), MAX_BLOCK_TEXT_BYTES)?;
+        total_text = total_text.saturating_add(item.markdown().len());
+        if total_text > MAX_BLOCK_TEXT_BYTES {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "outline {operation} exceeds the text limit"
+            )));
+        }
+        previous_depth = item.depth();
+    }
+    Ok(())
 }
 
 fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {

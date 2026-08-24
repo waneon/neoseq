@@ -28,11 +28,18 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
+import type { AsyncRequestState } from "../../lib/async";
 
 type LoadState =
   | { status: "loading" }
   | { status: "ready"; graphs: GraphSummary[] }
   | { status: "failed"; message: string };
+
+type GraphDialog =
+  | { kind: "rename"; graph: GraphSummary }
+  | { kind: "delete"; graph: GraphSummary }
+  | { kind: "remote-create" }
+  | null;
 
 const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
 
@@ -51,9 +58,7 @@ export function GraphPicker() {
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [newName, setNewName] = useState("");
-  const [renaming, setRenaming] = useState<GraphSummary | null>(null);
-  const [deleting, setDeleting] = useState<GraphSummary | null>(null);
-  const [remoteCreate, setRemoteCreate] = useState(false);
+  const [dialog, setDialog] = useState<GraphDialog>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const archiveInput = useRef<HTMLInputElement>(null);
@@ -147,7 +152,9 @@ export function GraphPicker() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuGroup>
-                        <DropdownMenuItem onSelect={() => setRenaming(graph)}>
+                        <DropdownMenuItem
+                          onSelect={() => setDialog({ kind: "rename", graph })}
+                        >
                           {message("graph.rename")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -173,7 +180,7 @@ export function GraphPicker() {
                       <DropdownMenuGroup>
                         <DropdownMenuItem
                           variant="destructive"
-                          onSelect={() => setDeleting(graph)}
+                          onSelect={() => setDialog({ kind: "delete", graph })}
                         >
                           {message("graph.delete")}
                         </DropdownMenuItem>
@@ -247,7 +254,7 @@ export function GraphPicker() {
               className="btn btn-ghost"
               type="button"
               disabled={importing}
-              onClick={() => setRemoteCreate(true)}
+              onClick={() => setDialog({ kind: "remote-create" })}
               data-testid="create-remote-graph"
             >
               <CloudIcon aria-hidden />
@@ -257,30 +264,30 @@ export function GraphPicker() {
         </form>
       </div>
 
-      {renaming && (
+      {dialog?.kind === "rename" && (
         <RenameDialog
-          graph={renaming}
-          onClose={() => setRenaming(null)}
+          graph={dialog.graph}
+          onClose={() => setDialog(null)}
           onRenamed={() => {
-            setRenaming(null);
+            setDialog(null);
             void refresh();
           }}
         />
       )}
-      {deleting && (
+      {dialog?.kind === "delete" && (
         <DeleteDialog
-          graph={deleting}
-          onClose={() => setDeleting(null)}
+          graph={dialog.graph}
+          onClose={() => setDialog(null)}
           onDeleted={() => {
-            setDeleting(null);
+            setDialog(null);
             void refresh();
           }}
         />
       )}
-      {remoteCreate && (
+      {dialog?.kind === "remote-create" && (
         <RemoteCreateDialog
           initialName={newName.trim() || message("graph.defaultName")}
-          onClose={() => setRemoteCreate(false)}
+          onClose={() => setDialog(null)}
           onCreated={(graph) => navigate(`/g/${graph.id}`)}
         />
       )}
@@ -317,21 +324,19 @@ function RemoteCreateDialog({
   const [serverUrl, setServerUrl] = useState(window.location.origin);
   const [principal, setPrincipal] = useState("");
   const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
+  const busy = request.status === "busy";
 
   const auth = () => ({ principal: principal.trim(), token: token.trim() });
   const remember = () => writeAuthSession(serverUrl, auth());
 
   const connectAvailable = () => {
-    setBusy(true);
-    setError(null);
+    setRequest({ status: "busy" });
     remember();
     listRemoteGraphs(serverUrl, auth())
       .then(({ graphs }) => {
         if (graphs.length === 0) {
-          setBusy(false);
-          setError(message("graph.noRemoteGraphs"));
+          setRequest({ status: "failed", message: message("graph.noRemoteGraphs") });
           return;
         }
         // The server knows ids, not names — the typed name goes to the first
@@ -348,29 +353,26 @@ function RemoteCreateDialog({
         onCreated(registered[0]);
       })
       .catch(() => {
-        setBusy(false);
-        setError(message("graph.connectRemoteFailed"));
+        setRequest({ status: "failed", message: message("graph.connectRemoteFailed") });
       });
   };
 
   return (
     <Dialog title={message("graph.remoteCreateTitle")} onClose={onClose}>
       <p className="dialog-lede">{message("graph.remoteCreateDetail")}</p>
-      {error && <Callout tone="danger">{error}</Callout>}
+      {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
       <form
         className="remote-form"
         onSubmit={(event) => {
           event.preventDefault();
-          setBusy(true);
-          setError(null);
+          setRequest({ status: "busy" });
           remember();
           createRemoteGraph(serverUrl, auth())
             .then(({ graph_id }) => {
               onCreated(registerRemoteGraph(graph_id, name.trim(), serverUrl));
             })
             .catch(() => {
-              setBusy(false);
-              setError(message("graph.createRemoteFailed"));
+              setRequest({ status: "failed", message: message("graph.createRemoteFailed") });
             });
         }}
       >

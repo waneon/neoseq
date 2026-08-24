@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -52,6 +53,7 @@ import { Input } from "@/ui/shadcn/input";
 import { moveOptionFocus } from "@/ui/listbox";
 import { MenuSelect } from "@/ui/menu-select";
 import { useI18n } from "../../i18n";
+import type { AsyncRequestState } from "../../lib/async";
 import { parseDateQuery } from "../commands/dates";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -73,7 +75,10 @@ export type PropertyTarget =
   // Same picker, stages, and owner-based property commands.
   | { kind: "tag"; id: string; bag: PropertyField[] };
 
-type Stage = "property" | "type" | "value";
+type PickerStage =
+  | { kind: "property" }
+  | { kind: "type"; key: string }
+  | { kind: "value"; key: string; valueType: PropertyValueType; draft: PropertyValue };
 
 interface Candidate {
   key: string;
@@ -98,20 +103,15 @@ export function PropertyPicker({
   const { message, compare } = useI18n();
   const readonly = state.mode === "readonly";
   const initial = initialKey?.trim() || null;
-  const [stage, setStage] = useState<Stage>(initial ? "value" : "property");
+  const [stage, setStage] = useState<PickerStage>(() => initialStage(initial, target.bag));
   const [query, setQuery] = useState("");
-  const [key, setKey] = useState<string | null>(initial);
-  const [type, setType] = useState<PropertyValueType>(() => {
-    if (!initial) return "string";
-    return valueTypeOf(initial) ?? target.bag.find((field) => field.key === initial)?.value_type ?? "string";
-  });
-  const [draft, setDraft] = useState<PropertyValue>(() => initialValue(initial, target.bag));
   const [active, setActive] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [committing, setCommitting] = useState(false);
+  const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
+  const committing = request.status === "busy";
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
+  const key = stage.kind === "property" ? null : stage.key;
 
   const owner: PropertyOwnerRef = target.kind === "page"
     ? { kind: "page", id: target.id }
@@ -132,9 +132,13 @@ export function PropertyPicker({
   const position = useAnchoredPosition(
     anchor,
     { width: 360, minWidth: 280, maxHeight: 420 },
-    stage,
+    stage.kind,
   );
   const overlayRoot = useOverlayRoot();
+  const resetStage = useCallback(() => {
+    setStage({ kind: "property" });
+    setRequest({ status: "idle" });
+  }, []);
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {
@@ -166,7 +170,7 @@ export function PropertyPicker({
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      if (stage === "property") {
+      if (stage.kind === "property") {
         // Context-menu primitives restore focus after their item has mounted
         // this portal. Reassert the dialog's initial focus afterward.
         searchRef.current?.focus({ preventScroll: true });
@@ -181,7 +185,7 @@ export function PropertyPicker({
       )?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [stage]);
+  }, [stage.kind]);
 
   useEffect(() => {
     const handleDetachedEscape = (event: globalThis.KeyboardEvent) => {
@@ -192,16 +196,12 @@ export function PropertyPicker({
         (event.target instanceof Node && panelRef.current?.contains(event.target))
       ) return;
       event.preventDefault();
-      if (stage === "property") onClose();
-      else {
-        setStage("property");
-        setKey(null);
-        setError(null);
-      }
+      if (stage.kind === "property") onClose();
+      else resetStage();
     };
     window.addEventListener("keydown", handleDetachedEscape);
     return () => window.removeEventListener("keydown", handleDetachedEscape);
-  }, [onClose, stage]);
+  }, [onClose, resetStage, stage.kind]);
 
   const visibleEntries = useMemo(
     () => target.bag.filter((entry) => isGenericProperty(entry.key)),
@@ -237,45 +237,50 @@ export function PropertyPicker({
     return result.slice(0, 12);
   }, [compare, message, query, writeTarget, visibleEntries]);
 
-  useEffect(() => setActive(0), [query, stage]);
+  useEffect(() => setActive(0), [query, stage.kind]);
 
   const run = async (command: Command): Promise<boolean> => {
-    setError(null);
-    setCommitting(true);
+    setRequest({ status: "busy" });
     try {
       await session.execute(command);
+      setRequest({ status: "idle" });
       return true;
     } catch (cause) {
       notify.failure(message("failure.setProperty"), cause);
-      setError(message("failure.setProperty"));
+      setRequest({ status: "failed", message: message("failure.setProperty") });
       return false;
-    } finally {
-      setCommitting(false);
     }
   };
 
   const chooseKey = (candidate: Candidate) => {
     const found = target.bag.find((field) => field.key === candidate.key);
     const nextType = valueTypeOf(candidate.key) ?? found?.value_type;
-    setKey(candidate.key);
     setQuery("");
     if (!nextType) {
-      setStage("type");
+      setStage({ kind: "type", key: candidate.key });
       return;
     }
-    setType(nextType);
-    setDraft(found?.values[0] ?? defaultValueFor(nextType, todayLocalDate()));
-    setStage("value");
+    setStage({
+      kind: "value",
+      key: candidate.key,
+      valueType: nextType,
+      draft: found?.values[0] ?? defaultValueFor(nextType, todayLocalDate()),
+    });
   };
 
   const chooseType = (nextType: PropertyValueType) => {
-    setType(nextType);
-    setDraft(defaultValueFor(nextType, todayLocalDate()));
-    setStage("value");
+    if (stage.kind !== "type") return;
+    setStage({
+      kind: "value",
+      key: stage.key,
+      valueType: nextType,
+      draft: defaultValueFor(nextType, todayLocalDate()),
+    });
   };
 
   const commit = async (value: PropertyValue) => {
-    if (!key || writeDisabled) return;
+    if (stage.kind !== "value" || writeDisabled) return;
+    const { key } = stage;
     const keyIssue = validateKey(key);
     const existing = target.bag.find((field) => field.key === key);
     const cardinality = existing?.cardinality === "set" ? "repeated" : cardinalityOf(key);
@@ -283,7 +288,7 @@ export function PropertyPicker({
       ?? validateWriteTarget(key, writeTarget)
       ?? validateValue(key, value, cardinality);
     if (issue) {
-      setError(validationMessage(issue, message));
+      setRequest({ status: "failed", message: validationMessage(issue, message) });
       return;
     }
     const repeated = cardinality === "repeated";
@@ -295,32 +300,36 @@ export function PropertyPicker({
   };
 
   const ensureEmpty = async () => {
-    if (!key || writeDisabled) return;
+    if (stage.kind !== "value" || writeDisabled) return;
+    const { key, valueType } = stage;
     const cardinality = cardinalityOf(key) === "repeated" ? "set" : "single";
     const saved = await run({
       type: "ensure_property",
       owner,
       key,
-      value_type: type,
+      value_type: valueType,
       cardinality,
     });
     if (saved) onClose();
   };
 
   const removeValue = async (value: PropertyValue) => {
-    if (!key || writeDisabled) return;
+    if (stage.kind !== "value" || writeDisabled) return;
+    const { key } = stage;
     const removed = await run({ type: "remove_repeated_property", owner, key, value });
     if (removed) onClose();
   };
 
   const clearValues = async () => {
-    if (!key || writeDisabled) return;
+    if (stage.kind !== "value" || writeDisabled) return;
+    const { key } = stage;
     const cleared = await run({ type: "clear_property_values", owner, key });
     if (cleared) onClose();
   };
 
   const removeField = async () => {
-    if (!key || writeDisabled) return;
+    if (stage.kind !== "value" || writeDisabled) return;
+    const { key } = stage;
     const removed = await run({ type: "remove_property", owner, key });
     if (removed) onClose();
   };
@@ -359,9 +368,12 @@ export function PropertyPicker({
   const selectedField = key ? visibleEntries.find((field) => field.key === key) : undefined;
   const selectedValues = selectedField?.values ?? [];
   const choices = key ? offeredChoices(key, stringChoicesOf(key)) : [];
+  const selectedCardinality = key === null
+    ? "single"
+    : selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single");
   // Report a bad key only when it is a dead end — while matches are still on
   // screen the query is a search, not a mistake.
-  const queryIssue = stage === "property" && query.trim() && candidates.length === 0
+  const queryIssue = stage.kind === "property" && query.trim() && candidates.length === 0
     ? validateKey(storageKeyForQuery(query))
     : null;
   const describeValue = (value: PropertyValue): string => {
@@ -400,12 +412,8 @@ export function PropertyPicker({
         if (event.key === "Escape" && !event.nativeEvent.isComposing) {
           event.preventDefault();
           event.stopPropagation();
-          if (stage === "property") onClose();
-          else {
-            setStage("property");
-            setKey(null);
-            setError(null);
-          }
+          if (stage.kind === "property") onClose();
+          else resetStage();
           return;
         }
         if (event.key === "Tab") {
@@ -426,15 +434,13 @@ export function PropertyPicker({
       }}
     >
       <div className="property-picker-head">
-        {stage !== "property" && (
+        {stage.kind !== "property" && (
           <Button
             variant="ghost"
             size="icon"
             aria-label={message("properties.back")}
             onClick={() => {
-              setStage("property");
-              setKey(null);
-              setError(null);
+              resetStage();
             }}
           >
             <ArrowLeftIcon data-icon aria-hidden />
@@ -442,19 +448,17 @@ export function PropertyPicker({
         )}
         <div>
           <strong title={key ?? undefined}>
-            {stage === "property"
+            {stage.kind === "property"
               ? message("properties.addOrChange")
-              : key
-                ? propertyDisplayName(key, message)
-                : ""}
+              : propertyDisplayName(stage.key, message)}
           </strong>
-          {stage === "value" && (
-            <span>{message(`properties.type.${type}`)}</span>
+          {stage.kind === "value" && (
+            <span>{message(`properties.type.${stage.valueType}`)}</span>
           )}
         </div>
       </div>
 
-      {stage === "property" && (
+      {stage.kind === "property" && (
         <>
           <Input
             ref={searchRef}
@@ -516,7 +520,7 @@ export function PropertyPicker({
         </>
       )}
 
-      {stage === "type" && (
+      {stage.kind === "type" && (
         <div
           className="property-picker-list"
           role="listbox"
@@ -544,19 +548,19 @@ export function PropertyPicker({
         </div>
       )}
 
-      {stage === "value" && key && (
+      {stage.kind === "value" && (
         <div className="property-picker-value">
-          {(selectedField?.cardinality === "set" || cardinalityOf(key) === "repeated") && selectedValues.length > 0 && (
+          {selectedCardinality === "set" && selectedValues.length > 0 && (
             <div className="property-picker-members">
               {selectedValues.map((value, index) => (
-                <div key={`${key}:${index}`}>
+                <div key={`${stage.key}:${index}`}>
                   <span>{formatValue(value)}</span>
                   <Button
                     variant="ghost"
                     size="icon"
                     disabled={writeDisabled || committing}
                     aria-label={message("properties.removeValue", {
-                      key: propertyDisplayName(key, message),
+                      key: propertyDisplayName(stage.key, message),
                     })}
                     onClick={() => void removeValue(value)}
                   >
@@ -566,42 +570,64 @@ export function PropertyPicker({
               ))}
             </div>
           )}
-          {(selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single")) === "single" && selectedValues[0] && (
+          {selectedCardinality === "single" && selectedValues[0] && (
             <p className="property-current-value">{describeValue(selectedValues[0])}</p>
           )}
           {selectedField && selectedValues.length === 0 && (
             <p className="property-current-value">{message("properties.noValue")}</p>
           )}
           <ValueInput
-            entryKey={key}
-            type={type}
-            value={draft}
+            entryKey={stage.key}
+            type={stage.valueType}
+            value={stage.draft}
             allowed={choices}
             bag={target.bag}
             readonly={writeDisabled || committing}
-            onChange={setDraft}
+            onChange={(draft) => {
+              setStage((current) =>
+                current.kind === "value" ? { ...current, draft } : current);
+            }}
             onCommit={(value) => void commit(value)}
             onRefine={writeRefinement}
           />
           <div className="property-picker-actions">
             {!selectedField && (
-              <Button variant="secondary" onClick={() => void ensureEmpty()} disabled={writeDisabled || committing}>
+              <Button
+                variant="secondary"
+                onClick={() => void ensureEmpty()}
+                disabled={writeDisabled || committing}
+              >
                 {message("properties.addEmpty")}
               </Button>
             )}
-            {selectedField && selectedValues.length > 0 && type !== "document" && (
-              <Button variant="secondary" onClick={() => void clearValues()} disabled={writeDisabled || committing}>
+            {selectedField && selectedValues.length > 0 && stage.valueType !== "document" && (
+              <Button
+                variant="secondary"
+                onClick={() => void clearValues()}
+                disabled={writeDisabled || committing}
+              >
                 {message("properties.clear")}
               </Button>
             )}
             {selectedField && (
-              <Button variant="destructive" onClick={() => void removeField()} disabled={writeDisabled || committing}>
+              <Button
+                variant="destructive"
+                onClick={() => void removeField()}
+                disabled={writeDisabled || committing}
+              >
                 <Trash2Icon data-icon aria-hidden />
                 {message("properties.removeProperty")}
               </Button>
             )}
-            {type !== "page" && type !== "date" && key !== TASK_REPEAT_KEY && choices.length === 0 && (
-              <Button onClick={() => void commit(draft)} disabled={writeDisabled || committing} data-testid="property-set">
+            {stage.valueType !== "page"
+              && stage.valueType !== "date"
+              && stage.key !== TASK_REPEAT_KEY
+              && choices.length === 0 && (
+              <Button
+                onClick={() => void commit(stage.draft)}
+                disabled={writeDisabled || committing}
+                data-testid="property-set"
+              >
                 {message("properties.set")}
               </Button>
             )}
@@ -609,17 +635,28 @@ export function PropertyPicker({
         </div>
       )}
 
-      {error && <p className="field-error" role="alert" data-testid="props-error">{error}</p>}
+      {request.status === "failed" && (
+        <p className="field-error" role="alert" data-testid="props-error">
+          {request.message}
+        </p>
+      )}
     </div>,
     overlayRoot,
   );
 }
 
-function initialValue(key: string | null, bag: PropertyField[]): PropertyValue {
-  if (!key) return { type: "string", value: "" };
+function initialStage(key: string | null, bag: PropertyField[]): PickerStage {
+  if (!key) return { kind: "property" };
   const existing = bag.find((field) => field.key === key)?.values[0];
-  if (existing) return existing;
-  return defaultValueFor(valueTypeOf(key) ?? "string", todayLocalDate());
+  const valueType = valueTypeOf(key)
+    ?? bag.find((field) => field.key === key)?.value_type
+    ?? "string";
+  return {
+    kind: "value",
+    key,
+    valueType,
+    draft: existing ?? defaultValueFor(valueType, todayLocalDate()),
+  };
 }
 
 function ValueInput({

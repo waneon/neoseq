@@ -21,6 +21,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPosition, type Anchor, type AnchoredOptions } from "./anchored";
 import { useOverlayRoot } from "./overlay-root";
+import { useLatest } from "../lib/react";
 
 /** What `⇥` cycles through, and what opening the panel puts the caret on. */
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),[role="button"]';
@@ -52,8 +53,7 @@ export function AnchoredPanel({
   const root = useOverlayRoot();
   // Callers write `onClose` inline, so the listeners read it through a ref
   // rather than being torn down and re-armed on every render of the panel.
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  const closeRef = useLatest(onClose);
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {

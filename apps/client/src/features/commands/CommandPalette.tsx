@@ -14,6 +14,7 @@ import { GROUP_ORDER, matchCommand, type Command, type CommandGroup } from "./re
 import { Kbd } from "../../ui/kbd";
 import { useNotify } from "../notify/context";
 import { useI18n, type MessageKey } from "../../i18n";
+import { useLatest } from "../../lib/react";
 
 const GROUP_MESSAGE = {
   Search: "commands.group.search",
@@ -113,8 +114,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
       saved.element.setSelectionRange(saved.start, saved.end ?? saved.start);
     }
   };
-  const closeRef = useRef(close);
-  closeRef.current = close;
+  const closeRef = useLatest(close);
 
   // A backstop for the one case the panel's own handler cannot see. The panel
   // holds a single focusable element, so a `⇥` off the input parks focus outside

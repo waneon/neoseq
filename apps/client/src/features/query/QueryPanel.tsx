@@ -123,6 +123,7 @@ import { useSession, useSessionState } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
 import { useDueTiers } from "../settings/preferences";
+import { useLatest } from "../../lib/react";
 import { QueryBuilder } from "./QueryBuilder";
 import {
   columnChoices,
@@ -208,7 +209,11 @@ export interface QueryPanelProps {
   onRemove?: () => void;
 }
 
-export function QueryPanel({
+export function QueryPanel(props: QueryPanelProps) {
+  return <QueryPanelSurface key={props.executionKey} {...props} />;
+}
+
+function QueryPanelSurface({
   binding,
   executionKey,
   variant,
@@ -239,7 +244,9 @@ export function QueryPanel({
   );
   const storedPayload = storedPlan ? encodePlan(storedPlan) : null;
 
-  const [plan, setPlan] = useState<QueryPlan | null>(storedPlan ?? seedPlan ?? null);
+  const incomingPlan = storedPlan ?? seedPlan ?? null;
+  const incomingPlanRef = useLatest(incomingPlan);
+  const [plan, setPlan] = useState<QueryPlan | null>(incomingPlan);
   // The editor opens for a query that has not been written yet and stays shut for
   // one that has: a query with no conditions has nothing to say about itself, so
   // showing it the builder is the only honest first screen. Once a reader has
@@ -265,8 +272,12 @@ export function QueryPanel({
   const shaped = useRef(document !== undefined);
   if (document !== undefined) shaped.current = true;
   // The authoritative document is the truth after a remote edit or a reload; the
-  // local plan is the truth while the reader is shaping it.
-  useEffect(() => setPlan(storedPlan ?? seedPlan ?? null), [storedPayload]); // eslint-disable-line react-hooks/exhaustive-deps
+  // local plan is the truth while the reader is shaping it. The encoded payload
+  // is the canonical identity: a freshly allocated but equal seed is not a new
+  // plan, while a stored payload change always adopts the latest decoded value.
+  // A different execution key remounts this surface at the public boundary, so
+  // every piece of surface-local state changes identity together.
+  useEffect(() => setPlan(incomingPlanRef.current), [incomingPlanRef, storedPayload]);
 
   const views = document?.views ?? SEED_VIEWS;
   const preferredViewId = (canManageViews ? null : localViewId)
@@ -331,6 +342,15 @@ export function QueryPanel({
     }
     return execute(command);
   };
+  const saveDefinition = useLatest(
+    (payload: string, compiledSource: string) =>
+      writeDefinition((target) => ({
+        type: "set_query_plan",
+        owner: target,
+        plan: { version: QUERY_PLAN_VERSION, payload },
+        source: compiledSource,
+      })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause)),
+  );
 
   // One command per pause in the editing, never one per keystroke — and never
   // one at all for a seed nobody has touched, which is what lets a tag page be
@@ -340,16 +360,18 @@ export function QueryPanel({
     const payload = encodePlan(plan);
     if (payload === storedPayload) return;
     const timer = window.setTimeout(() => {
-      void writeDefinition((target) => ({
-        type: "set_query_plan",
-        owner: target,
-        plan: { version: QUERY_PLAN_VERSION, payload },
-        source: compiled.source,
-      })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause));
+      void saveDefinition.current(payload, compiled.source);
     }, PLAN_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, compiled, storedPayload, canEditDefinition, session]);
+  }, [
+    canEditDefinition,
+    compiled,
+    executionKey,
+    plan,
+    saveDefinition,
+    session,
+    storedPayload,
+  ]);
 
   const select = result?.kind === "select" ? result : null;
   const columns = useMemo(

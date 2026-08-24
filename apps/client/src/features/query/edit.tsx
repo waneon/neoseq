@@ -10,6 +10,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
@@ -21,6 +22,7 @@ import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findBlock, findOutline, outlineOwnerKey } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
+import { useImmediateState } from "../../lib/react";
 import { cn } from "../../lib/utils";
 import type { Anchor } from "@/ui/anchored";
 import {
@@ -53,6 +55,8 @@ import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
 import {
   BlockSlashMenu,
   BlockTagMenu,
+  NO_BLOCK_COMPLETION,
+  blockCompletionReducer,
   detectHash,
   detectSlash,
   filterTagOptions,
@@ -195,22 +199,9 @@ export function useQueryResultEditor({
   const notify = useNotify();
   const keymap = useEditorKeymap();
   const vim = useVimSession(keymap === "vim");
-  const [active, setActiveState] = useState<ActiveEdit | null>(null);
-  const activeRef = useRef<ActiveEdit | null>(null);
+  const [active, setActive, activeRef] = useImmediateState<ActiveEdit | null>(null);
   const request = useRef(0);
   const preserveOnNextBlur = useRef(false);
-
-  const setActive = useCallback(
-    (next: ActiveEdit | null | ((current: ActiveEdit | null) => ActiveEdit | null)) => {
-      setActiveState((current) => {
-        const resolved = typeof next === "function" ? next(current) : next;
-        activeRef.current = resolved;
-        return resolved;
-      });
-    },
-    [],
-  );
-  activeRef.current = active;
 
   const cancel = useCallback(() => {
     request.current += 1;
@@ -690,15 +681,17 @@ function QueryMarkdownField({
   const previewMarkdown = Boolean(preview && !current && hasMarkdownSyntax(projected));
   const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
-  const [slashRequest, setSlashRequest] = useState<BlockCompletionRequest | null>(null);
+  const [completion, dispatchCompletion] = useReducer(
+    blockCompletionReducer,
+    NO_BLOCK_COMPLETION,
+  );
   const activateVim = (inputMethod: MarkdownActivationMethod) => {
     if (inputMethod === "pointer" && editor.keymap === "vim") {
       editor.vim.reset("insert");
     }
   };
-  const [slashActive, setSlashActive] = useState(0);
-  const [hashRequest, setHashRequest] = useState<BlockCompletionRequest | null>(null);
-  const [hashActive, setHashActive] = useState(0);
+  const slashRequest = completion.kind === "slash" ? completion.request : null;
+  const hashRequest = completion.kind === "hash" ? completion.request : null;
   /** Whether the box is hiding part of the value rather than scrolling it. */
   const [clipped, setClipped] = useState(false);
   const slashResults = useMemo(
@@ -716,42 +709,51 @@ function QueryMarkdownField({
       : [],
     [block?.tags, compare, hashRequest, state.snapshot.tags],
   );
-  const slashIndex = Math.min(slashActive, Math.max(slashResults.length - 1, 0));
-  const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
+  const slashIndex = Math.min(
+    completion.kind === "slash" ? completion.active : 0,
+    Math.max(slashResults.length - 1, 0),
+  );
+  const hashIndex = Math.min(
+    completion.kind === "hash" ? completion.active : 0,
+    Math.max(hashResults.length - 1, 0),
+  );
 
   const updateCompletions = useCallback((value: string, element: HTMLTextAreaElement) => {
     const slash = detectSlash(value, element.selectionStart, element.selectionEnd);
-    setSlashActive(0);
-    setSlashRequest(
-      slash && filterSlashItems(slashItems, slash.query).length > 0
-        ? { blockId, ...slash, anchor: element }
-        : null,
-    );
-    const hash = slash ? null : detectHash(value, element.selectionStart, element.selectionEnd);
-    setHashActive(0);
-    setHashRequest(
-      hash && filterTagOptions(
+    if (slash) {
+      dispatchCompletion({
+        type: "set",
+        completion: filterSlashItems(slashItems, slash.query).length > 0
+          ? { kind: "slash", request: { blockId, ...slash, anchor: element }, active: 0 }
+          : null,
+      });
+      return;
+    }
+
+    const hash = detectHash(value, element.selectionStart, element.selectionEnd);
+    dispatchCompletion({
+      type: "set",
+      completion: hash && filterTagOptions(
         state.snapshot.tags,
         hash.query,
         new Set(block?.tags ?? []),
         compare,
       ).length > 0
-        ? { blockId, ...hash, anchor: element }
+        ? { kind: "hash", request: { blockId, ...hash, anchor: element }, active: 0 }
         : null,
-    );
+    });
   }, [block?.tags, blockId, compare, slashItems, state.snapshot.tags]);
 
   useEffect(() => {
-    if (!slashRequest && !hashRequest) return;
+    if (completion.kind === "none") return;
     const closeOnOutsidePress = (event: PointerEvent) => {
       const node = event.target;
       if (node instanceof Element && node.closest(".slash-menu")) return;
-      setSlashRequest(null);
-      setHashRequest(null);
+      dispatchCompletion({ type: "set", completion: null });
     };
     window.addEventListener("pointerdown", closeOnOutsidePress, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-  }, [hashRequest, slashRequest]);
+  }, [completion.kind]);
 
   useLayoutEffect(() => {
     const element = textarea.current;
@@ -875,7 +877,7 @@ function QueryMarkdownField({
           if (slashRequest) {
             if (event.key === "Escape") {
               event.preventDefault();
-              setSlashRequest(null);
+              dispatchCompletion({ type: "set", completion: null });
               return;
             }
             if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
@@ -886,21 +888,25 @@ function QueryMarkdownField({
                 editor.acceptSlash(slashRequest, chosen);
                 queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
-              setSlashRequest(null);
+              dispatchCompletion({ type: "set", completion: null });
               return;
             }
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
-              setSlashActive(event.key === "ArrowDown"
-                ? Math.min(slashIndex + 1, slashResults.length - 1)
-                : Math.max(slashIndex - 1, 0));
+              dispatchCompletion({
+                type: "activate",
+                kind: "slash",
+                index: event.key === "ArrowDown"
+                  ? Math.min(slashIndex + 1, slashResults.length - 1)
+                  : Math.max(slashIndex - 1, 0),
+              });
               return;
             }
           }
           if (hashRequest) {
             if (event.key === "Escape") {
               event.preventDefault();
-              setHashRequest(null);
+              dispatchCompletion({ type: "set", completion: null });
               return;
             }
             if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
@@ -911,14 +917,18 @@ function QueryMarkdownField({
                 editor.acceptTag(hashRequest, chosen);
                 queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
-              setHashRequest(null);
+              dispatchCompletion({ type: "set", completion: null });
               return;
             }
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
-              setHashActive(event.key === "ArrowDown"
-                ? Math.min(hashIndex + 1, hashResults.length - 1)
-                : Math.max(hashIndex - 1, 0));
+              dispatchCompletion({
+                type: "activate",
+                kind: "hash",
+                index: event.key === "ArrowDown"
+                  ? Math.min(hashIndex + 1, hashResults.length - 1)
+                  : Math.max(hashIndex - 1, 0),
+              });
               return;
             }
           }
@@ -950,8 +960,7 @@ function QueryMarkdownField({
                 }
                 applyVimTextEffect(event.currentTarget, effect, (value, _element, edit) => {
                   editor.setDraft(value, edit);
-                  setSlashRequest(null);
-                  setHashRequest(null);
+                  dispatchCompletion({ type: "set", completion: null });
                 });
               }
               return;
@@ -1010,12 +1019,12 @@ function QueryMarkdownField({
           request={slashRequest}
           results={slashResults}
           active={slashIndex}
-          onHover={setSlashActive}
+          onHover={(index) => dispatchCompletion({ type: "activate", kind: "slash", index })}
           onChoose={(item) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
             editor.acceptSlash(slashRequest, item);
-            setSlashRequest(null);
+            dispatchCompletion({ type: "set", completion: null });
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
         />
@@ -1025,12 +1034,12 @@ function QueryMarkdownField({
           request={hashRequest}
           results={hashResults}
           active={hashIndex}
-          onHover={setHashActive}
+          onHover={(index) => dispatchCompletion({ type: "activate", kind: "hash", index })}
           onChoose={(option) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
             editor.acceptTag(hashRequest, option);
-            setHashRequest(null);
+            dispatchCompletion({ type: "set", completion: null });
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
         />
