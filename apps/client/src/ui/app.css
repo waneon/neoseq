@@ -8289,9 +8289,10 @@ button.tag-mark:focus-visible {
 }
 
 .shortcut-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: var(--sp-2);
+  row-gap: 1px;
 }
 
 /* The wash needs room around the text; the text needs to start where the section
@@ -8300,9 +8301,9 @@ button.tag-mark:focus-visible {
    binding in the list sat four pixels right of the heading it belonged to. */
 .shortcut-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: var(--sp-2);
   min-height: 32px;
   margin-inline: calc(var(--sp-1) * -1);
   padding: 0 var(--sp-1);
