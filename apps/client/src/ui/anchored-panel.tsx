@@ -93,7 +93,15 @@ export function AnchoredPanel({
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      if (panelRef.current?.contains(document.activeElement)) return;
+      const active = document.activeElement;
+      if (panelRef.current?.contains(active)) return;
+      // The exception stated at the head of this file, read the other way
+      // round: a dropdown of this panel's own portals out of it, so a menu the
+      // reader opened before this frame arrived holds the caret from *inside*
+      // the panel as far as they are concerned. Claiming it back would shut the
+      // menu they just opened — which is what a machine slow enough to let the
+      // press overtake the frame actually did.
+      if (active instanceof Element && active.closest('[data-slot="dropdown-menu-content"]')) return;
       panelRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);

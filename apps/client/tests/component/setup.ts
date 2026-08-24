@@ -1,4 +1,10 @@
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
+
+// The default second is a guess about how fast the machine is. Under the
+// contention of a full verification run a portalled menu can take longer to
+// mount than that, which reads as a missing element rather than a slow one.
+configure({ asyncUtilTimeout: 5_000 });
 
 // jsdom lacks layout APIs the virtualized outline touches.
 class ResizeObserverStub {
