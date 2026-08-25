@@ -1192,7 +1192,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   cursor: default;
 }
 
-.menu-select .value {
+.menu-select [data-slot="select-value"] {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1200,14 +1200,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
   white-space: nowrap;
 }
 
-.menu-select[data-placeholder="true"] .value {
+.menu-select[data-placeholder="true"] [data-slot="select-value"] {
   color: var(--ink-3);
 }
 
 /* Focused and open sit on --surface-2, where --ink-3 fails AA — the placeholder
    steps up one ink level while the field is lit (the contract's one hard rule). */
-.menu-select:focus-visible[data-placeholder="true"] .value,
-.menu-select[data-state="open"][data-placeholder="true"] .value {
+.menu-select:focus-visible[data-placeholder="true"] [data-slot="select-value"],
+.menu-select[data-state="open"][data-placeholder="true"] [data-slot="select-value"] {
   color: var(--ink-2);
 }
 
@@ -4507,7 +4507,7 @@ button.query-disclosure:focus-visible {
 
 /* --ink-3 fails AA on --surface-2, so a placeholder steps up one level for as
    long as the control is lit — the same carve-out the base field makes on focus. */
-.query-builder .menu-select:hover[data-placeholder="true"] .value {
+.query-builder .menu-select:hover[data-placeholder="true"] [data-slot="select-value"] {
   color: var(--ink-2);
 }
 

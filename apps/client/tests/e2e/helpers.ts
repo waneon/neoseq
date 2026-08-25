@@ -65,6 +65,7 @@ export async function typeInFocusedBlock(page: Page, text: string): Promise<void
     await page.keyboard.type(text);
     await page.locator('[data-testid="outline-row"] textarea:focus').blur();
   });
+  await expect(page.locator('[data-testid="outline-row"][data-focused="true"]')).toHaveCount(0);
 }
 
 /** Inserts a query without racing its reconciled slash-menu row. */
