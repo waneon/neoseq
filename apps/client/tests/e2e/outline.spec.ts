@@ -300,6 +300,71 @@ test("keeps a bulk selection contiguous when it moves into the middle", async ({
   await expect.poll(() => blockTexts(page)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
 });
 
+test("keeps selected passengers selected when undo restores their old hierarchy", async ({ page }) => {
+  await createGraph(page, "Selection Identity Graph");
+  await startOutline(page);
+
+  await mutateAndAwaitSaved(page, () =>
+    page.getByLabel("Block text").evaluate((target) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", "- 8\n- 2\n- 4");
+      target.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }));
+    }));
+  await expect.poll(() => blockTexts(page)).toEqual(["8", "2", "4"]);
+
+  const rows = page.getByTestId("outline-row");
+  const second = await rows.nth(1).boundingBox();
+  const third = await rows.nth(2).boundingBox();
+  if (!second || !third) throw new Error("selection targets have no layout");
+  await page.mouse.move(second.x + second.width * 0.7, second.y + second.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(third.x + third.width * 0.7, third.y + third.height / 2, { steps: 6 });
+  await page.mouse.up();
+
+  const handle = await page.getByTestId("block-bullet").nth(1).boundingBox();
+  const parent = await rows.nth(0).boundingBox();
+  if (!handle || !parent) throw new Error("move targets have no layout");
+  await mutateAndAwaitSaved(page, async () => {
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width * 2.5, parent.y + parent.height - 2, { steps: 8 });
+    await expect(page.getByTestId("outline-drop")).toBeVisible();
+    await page.mouse.up();
+  });
+  await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "2"]);
+
+  // The pointer range ends on `2`; `4` is selected because it is a passenger
+  // of the selected `8`. That visible membership is an identity snapshot, not
+  // a query to run again against the hierarchy produced by Undo.
+  const selectedParent = await rows.nth(0).boundingBox();
+  const firstChild = await rows.nth(1).boundingBox();
+  if (!selectedParent || !firstChild) throw new Error("nested selection has no layout");
+  await page.mouse.move(
+    selectedParent.x + selectedParent.width * 0.7,
+    selectedParent.y + selectedParent.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    firstChild.x + firstChild.width * 0.7,
+    firstChild.y + firstChild.height / 2,
+    { steps: 6 },
+  );
+  await page.mouse.up();
+  await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(2)).toHaveAttribute("data-selected", "true");
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => blockLevels(page)).toEqual(["1", "1", "1"]);
+  await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(2)).toHaveAttribute("data-selected", "true");
+});
+
 test("pastes Markdown list items as one outline history step", async ({ page }) => {
   await createGraph(page, "Clipboard Graph");
   await startOutline(page);

@@ -83,11 +83,11 @@ import {
 import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
-  dropTarget,
+  coveredIds,
   coveredMask,
+  dropTarget,
   idsInRange,
   selectionRoots,
-  selectionSize,
   type DropTarget,
 } from "./selection";
 import {
@@ -482,14 +482,14 @@ export function Outliner({
   const rows = withPendingRows(flattenOutline(outline, collapsed), draftState.pendingRows);
   const rowsRef = useLatest(rows);
   const readonly = state.mode === "readonly";
+  // `selected` is the concrete identity set the user saw selected when the
+  // gesture completed. Do not derive it again from the current hierarchy:
+  // undoing a reparent must move rows without changing which rows are selected.
+  const selectionCovered = selected;
   const selectionCount = useMemo(
-    () => (selected.size === 0 ? 0 : selectionSize(rows, selected)),
+    () => rows.reduce((count, row) => count + Number(selected.has(row.block.id)), 0),
     [rows, selected],
   );
-  const selectionCovered = useMemo(() => {
-    const mask = coveredMask(rows, selected);
-    return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
-  }, [rows, selected]);
 
   const clearVisualLineState = useCallback(() => {
     if (!visualLineRef.current) return;
@@ -1608,7 +1608,7 @@ export function Outliner({
       const startY = event.clientY;
       const moving = selectedRef.current.has(row.block.id)
         ? new Set(selectedRef.current)
-        : new Set([row.block.id]);
+        : selectableIds(rowsRef.current, index, index);
       let started = false;
       let target: DropTarget | null = null;
       const metrics = readMetrics(sectionRef.current);
@@ -1842,7 +1842,8 @@ export function Outliner({
       if (isPendingId(row.block.id)) return;
       anchorId.current = row.block.id;
       takeTreeFocus();
-      setSelected(new Set([row.block.id]));
+      const index = rowIndexOf(rowsRef.current, row.block.id);
+      setSelected(selectableIds(rowsRef.current, index, index));
     },
     openMenu: setMenuFor,
     openProperties: (id, key, anchor = null) => {
@@ -1972,11 +1973,19 @@ export function Outliner({
 
       // A row that just went out of sight cannot stay selected: ⌫ and ⇥ resolve
       // the selection against the *visible* outline, so a hidden member would
-      // make them quietly do nothing.
+      // make them quietly do nothing. Expanding a selected parent is the inverse
+      // gesture and materializes the passengers it deliberately reveals. This
+      // is a local selection gesture, unlike a later document revision, so it is
+      // allowed to change concrete membership.
       if (selectedRef.current.size > 0) {
-        const visible = new Set(after.map((row) => row.block.id));
-        const kept = new Set([...selectedRef.current].filter((entry) => visible.has(entry)));
-        if (kept.size !== selectedRef.current.size) setSelected(kept);
+        if (expanding) {
+          const expanded = coveredIds(after, selectedRef.current);
+          if (!sameIds(expanded, selectedRef.current)) setSelected(expanded);
+        } else {
+          const visible = new Set(after.map((row) => row.block.id));
+          const kept = new Set([...selectedRef.current].filter((entry) => visible.has(entry)));
+          if (kept.size !== selectedRef.current.size) setSelected(kept);
+        }
       }
     },
     draftOf: (row) => draftState.drafts.get(row.block.id) ?? row.block.markdown,
@@ -2782,7 +2791,7 @@ function sameIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean
 
 /** Real (non-pending) block ids in the inclusive row range. */
 function selectableIds(rows: readonly OutlineRow[], from: number, to: number): Set<string> {
-  const ids = idsInRange(rows, from, to);
+  const ids = coveredIds(rows, idsInRange(rows, from, to));
   for (const id of [...ids]) {
     if (isPendingId(id)) ids.delete(id);
   }

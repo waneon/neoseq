@@ -147,6 +147,32 @@ describe("block selection", () => {
     });
   });
 
+  it("keeps selected passengers selected when undo separates them from their parent", async () => {
+    const { session } = await mountRows(["eight", "two", "four"]);
+    await session.execute({
+      type: "move_blocks",
+      owner: { kind: "page", id: "home" },
+      block_ids: ["b-2", "b-3"],
+      parent: "b-1",
+      after: null,
+    });
+    await waitFor(() => expect(screen.getAllByRole("treeitem")).toHaveLength(3));
+
+    // The range ends on the first child. The second child is nevertheless a
+    // visible passenger of the selected parent and therefore part of what the
+    // user selected.
+    pressBullet(0);
+    pressBullet(1, { shiftKey: true });
+    expect(selectedTexts()).toEqual(["eight", "two", "four"]);
+
+    await session.execute({ type: "undo" });
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["eight", "two", "four"]);
+      expect(selectedTexts()).toEqual(["eight", "two", "four"]);
+    });
+  });
+
   it("select-all past the text selects the block itself", async () => {
     const user = userEvent.setup();
     await mountRows(["words", ""]);

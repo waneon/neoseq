@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { flattenOutline } from "../../src/entities/outline";
 import type { BlockSnapshot, PageSnapshot } from "../../src/core-port/snapshot";
 import {
+  coveredIds,
   dropTarget,
   idsInRange,
   selectionRoots,
@@ -45,6 +46,10 @@ describe("selection roots", () => {
   it("counts the passengers, not just the roots", () => {
     expect(selectionSize(rows, new Set(["b"]))).toBe(3);
     expect(selectionSize(rows, new Set(["a", "c"]))).toBe(2);
+  });
+
+  it("materializes passengers as stable block identities", () => {
+    expect([...coveredIds(rows, new Set(["b", "b1"]))]).toEqual(["b", "b1", "b2"]);
   });
 
   it("reads a dragged range in either direction", () => {

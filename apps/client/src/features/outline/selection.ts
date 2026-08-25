@@ -60,6 +60,22 @@ export function coveredMask(
   return mask;
 }
 
+/**
+ * The concrete block identities covered by a structural selection *now*.
+ *
+ * Keep this result as selection state rather than recomputing it after every
+ * document revision. A selected ancestor may stop being an ancestor after
+ * undo, redo, or a remote move; the blocks the user saw selected must not
+ * silently change with that later hierarchy.
+ */
+export function coveredIds(
+  rows: readonly OutlineRow[],
+  ids: ReadonlySet<string>,
+): Set<string> {
+  const mask = coveredMask(rows, ids);
+  return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
+}
+
 /** The ids in the inclusive row range `[from, to]`, in either drag direction. */
 export function idsInRange(
   rows: readonly OutlineRow[],
