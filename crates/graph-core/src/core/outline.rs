@@ -9,6 +9,13 @@ pub(super) struct OutlinePlan {
 }
 
 #[derive(Debug, Clone)]
+pub(super) struct MovePlan {
+    pub(super) outline: OutlinePlan,
+    pub(super) parent: Option<BlockId>,
+    pub(super) after: Option<BlockId>,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct OutlineState {
     pub(super) parents: BTreeMap<BlockId, Option<BlockId>>,
     pub(super) children: BTreeMap<Option<BlockId>, Vec<BlockId>>,
@@ -82,7 +89,7 @@ impl OutlineState {
         &mut self,
         roots: &[BlockId],
         parent: Option<BlockId>,
-        index: usize,
+        after: Option<BlockId>,
     ) -> Result<(), CoreError> {
         if let Some(parent_id) = &parent
             && !self.parents.contains_key(parent_id)
@@ -90,7 +97,19 @@ impl OutlineState {
             return Err(CoreError::BlockNotFound(parent_id.clone()));
         }
         let root_set = roots.iter().cloned().collect::<BTreeSet<_>>();
-        let stationary = self
+        for root in roots {
+            if parent.as_ref() == Some(root)
+                || parent
+                    .as_ref()
+                    .is_some_and(|candidate| self.is_descendant(candidate, root))
+            {
+                return Err(CoreError::InvalidHierarchy(
+                    "move would create a cycle".into(),
+                ));
+            }
+        }
+
+        let mut stationary = self
             .children
             .get(&parent)
             .cloned()
@@ -98,26 +117,41 @@ impl OutlineState {
             .into_iter()
             .filter(|id| !root_set.contains(id))
             .collect::<Vec<_>>();
-        let mut anchor = index
-            .min(stationary.len())
-            .checked_sub(1)
-            .map(|position| stationary[position].clone());
+        let destination = match &after {
+            Some(anchor) => stationary
+                .iter()
+                .position(|id| id == anchor)
+                .map(|position| position + 1)
+                .ok_or_else(|| {
+                    CoreError::InvalidHierarchy(
+                        "move anchor is not a stationary target sibling".into(),
+                    )
+                })?,
+            None => 0,
+        };
 
+        // A group move has one semantic shape: remove every root, then insert
+        // their document-ordered run once. Applying N independent moves makes
+        // each destination depend on the roots that have not moved yet.
         for root in roots {
-            let destination = match &anchor {
-                Some(anchor_id) => self
-                    .children
-                    .get(&parent)
-                    .and_then(|siblings| siblings.iter().position(|id| id == anchor_id))
-                    .map(|position| position + 1)
-                    .ok_or_else(|| {
-                        CoreError::InvalidHierarchy("move anchor is not a target sibling".into())
-                    })?,
-                None => 0,
-            };
-            self.move_one(root, parent.clone(), destination)?;
-            anchor = Some(root.clone());
+            let old_parent = self
+                .parents
+                .get(root)
+                .cloned()
+                .ok_or_else(|| CoreError::BlockNotFound(root.clone()))?;
+            let old_siblings = self
+                .children
+                .get_mut(&old_parent)
+                .ok_or_else(|| CoreError::BlockNotFound(root.clone()))?;
+            let old_position = old_siblings
+                .iter()
+                .position(|id| id == root)
+                .ok_or_else(|| CoreError::BlockNotFound(root.clone()))?;
+            old_siblings.remove(old_position);
+            self.parents.insert(root.clone(), parent.clone());
         }
+        stationary.splice(destination..destination, roots.iter().cloned());
+        self.children.insert(parent, stationary);
         Ok(())
     }
 
@@ -220,13 +254,17 @@ impl GraphCore {
         owner: &OutlineOwner,
         block_ids: &[BlockId],
         parent: Option<&BlockId>,
-        index: usize,
-    ) -> Result<OutlinePlan, CoreError> {
+        after: Option<&BlockId>,
+    ) -> Result<MovePlan, CoreError> {
         let before = self.outline_state(owner)?;
         let roots = before.roots(block_ids)?;
-        let mut after = before.clone();
-        after.move_group(&roots, parent.cloned(), index)?;
-        Ok(OutlinePlan { before, roots })
+        let mut projected = before.clone();
+        projected.move_group(&roots, parent.cloned(), after.cloned())?;
+        Ok(MovePlan {
+            outline: OutlinePlan { before, roots },
+            parent: parent.cloned(),
+            after: after.cloned(),
+        })
     }
 
     pub(super) fn plan_indent_blocks(

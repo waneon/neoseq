@@ -589,8 +589,12 @@ export class FakeCorePort implements SessionPort {
         const target = command.parent
           ? this.requireBlock(command.owner, command.parent).block.children
           : this.requireOutline(command.owner).blocks;
-        const stationary = target.filter((block) => !rootSet.has(block.id));
-        let anchor = stationary[Math.min(command.index, stationary.length) - 1] ?? null;
+        let anchor = command.after === null
+          ? null
+          : target.find((block) => block.id === command.after) ?? null;
+        if (command.after !== null && (!anchor || rootSet.has(anchor.id))) {
+          fail("internal", "move anchor is not a stationary target sibling");
+        }
         for (const blockId of roots) {
           const { block } = this.requireBlock(command.owner, blockId);
           this.detach(command.owner, blockId);

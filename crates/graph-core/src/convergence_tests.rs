@@ -31,6 +31,7 @@ fn key(value: &str) -> PropertyKey {
 }
 
 fn execute(core: &mut GraphCore, graph: &GraphId, peer: u64, sequence: usize, command: Command) {
+    let description = format!("{command:?}");
     core.execute(
         CommandEnvelope {
             graph_id: graph.clone(),
@@ -39,7 +40,7 @@ fn execute(core: &mut GraphCore, graph: &GraphId, peer: u64, sequence: usize, co
         },
         &format!("seed-{peer}-{sequence}"),
     )
-    .unwrap();
+    .unwrap_or_else(|error| panic!("{description} failed: {error:?}"));
 }
 
 fn base_fixture(seed: u64) -> Fixture {
@@ -89,7 +90,10 @@ fn base_fixture(seed: u64) -> Fixture {
             value: PropertyValue::String("high".into()),
         },
     );
-    let mut insert = |sequence, parent: Option<BlockId>, markdown: &str| {
+    let mut block_sequence = 0;
+    let mut insert = |index, parent: Option<BlockId>, markdown: &str| {
+        let sequence = block_sequence;
+        block_sequence += 1;
         core.execute(
             CommandEnvelope {
                 graph_id: graph.clone(),
@@ -97,7 +101,7 @@ fn base_fixture(seed: u64) -> Fixture {
                 command: Command::InsertBlock {
                     owner: OutlineOwner::Page { id: page_a.clone() },
                     parent,
-                    index: sequence,
+                    index,
                     markdown: markdown.into(),
                 },
             },
@@ -214,7 +218,7 @@ fn run_seed(seed: u64) {
                 id: fixture.page_a.clone(),
             },
             parent: None,
-            index: 0,
+            after: None,
         },
     );
     execute(
@@ -228,7 +232,7 @@ fn run_seed(seed: u64) {
                 id: fixture.page_a.clone(),
             },
             parent: Some(fixture.alternate_parent.clone()),
-            index: 0,
+            after: None,
         },
     );
     execute(
@@ -254,7 +258,7 @@ fn run_seed(seed: u64) {
                 id: fixture.page_a.clone(),
             },
             parent: None,
-            index: 1,
+            after: Some(fixture.text.clone()),
         },
     );
     execute(

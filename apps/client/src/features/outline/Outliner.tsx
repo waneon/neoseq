@@ -1546,21 +1546,13 @@ export function Outliner({
     (target: DropTarget, moving: ReadonlySet<string>) => {
       const roots = selectionRoots(rowsRef.current, moving);
       if (roots.length === 0) return;
-      const rootIds = new Set(roots.map((root) => root.block.id));
-      const stationary = rowsRef.current.filter(
-        (row) => row.parentId === target.parentId && !rootIds.has(row.block.id),
-      );
-      const anchor = target.afterId === null
-        ? -1
-        : stationary.findIndex((row) => row.block.id === target.afterId);
-      if (target.afterId !== null && anchor < 0) return;
       void run(
         {
           type: "move_blocks",
           block_ids: roots.map((root) => root.block.id),
           owner: ownerRef.current,
           parent: target.parentId,
-          index: anchor + 1,
+          after: target.afterId,
         },
         message("failure.moveBlocks", { count: roots.length }),
       );
@@ -2203,13 +2195,18 @@ export function Outliner({
         flushNow(row.block.id);
         const target = row.index + delta;
         if (target < 0 || target >= row.siblingCount) return;
+        const stationary = rowsRef.current.filter(
+          (candidate) => candidate.parentId === row.parentId && candidate.block.id !== row.block.id,
+        );
+        const after = target === 0 ? null : stationary[target - 1]?.block.id;
+        if (target > 0 && after === undefined) return;
         void run(
           {
             type: "move_blocks",
             block_ids: [row.block.id],
             owner,
             parent: row.parentId,
-            index: target,
+            after: after ?? null,
           },
           delta < 0 ? message("failure.moveBlockUp") : message("failure.moveBlockDown"),
         );
@@ -2684,6 +2681,7 @@ export function Outliner({
             <div
               className="outline-drop"
               data-testid="outline-drop"
+              data-after-id={drop.afterId ?? ""}
               style={
                 { top: drop.top, "--drop-depth": drop.depth } as CSSProperties
               }

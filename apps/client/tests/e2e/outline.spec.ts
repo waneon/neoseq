@@ -249,6 +249,57 @@ test("drags a range of blocks out and moves them as one", async ({ page }) => {
   await expect.poll(() => blockTexts(page)).toEqual(["three"]);
 });
 
+test("keeps a bulk selection contiguous when it moves into the middle", async ({ page }) => {
+  await createGraph(page, "Middle Selection Graph");
+  await startOutline(page);
+
+  await mutateAndAwaitSaved(page, () =>
+    page.getByLabel("Block text").evaluate((target) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", "- 1\n- 2\n- 3\n- 4\n- 5\n- 6\n- 7\n- 8\n- 9");
+      target.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }));
+    }));
+  await expect.poll(() => blockTexts(page)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+
+  const rows = page.getByTestId("outline-row");
+  const first = await rows.nth(0).boundingBox();
+  const third = await rows.nth(2).boundingBox();
+  if (!first || !third) throw new Error("selection targets have no layout");
+  await page.mouse.move(first.x + first.width * 0.7, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(third.x + third.width * 0.7, third.y + third.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(2)).toHaveAttribute("data-selected", "true");
+
+  const handle = await page.getByTestId("block-bullet").nth(0).boundingBox();
+  const sixth = await rows.nth(5).boundingBox();
+  const sixthId = await rows.nth(5).getAttribute("data-block-id");
+  if (!handle || !sixth || !sixthId) throw new Error("move targets have no identity or layout");
+  await mutateAndAwaitSaved(page, async () => {
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2, sixth.y + sixth.height - 2, { steps: 8 });
+    const drop = page.getByTestId("outline-drop");
+    await expect(drop).toBeVisible();
+    await expect(drop).toHaveAttribute("data-after-id", sixthId);
+    await page.mouse.up();
+  });
+
+  await expect.poll(() => blockTexts(page)).toEqual(["4", "5", "6", "1", "2", "3", "7", "8", "9"]);
+  await expect(rows.nth(3)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(4)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(5)).toHaveAttribute("data-selected", "true");
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => blockTexts(page)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+});
+
 test("pastes Markdown list items as one outline history step", async ({ page }) => {
   await createGraph(page, "Clipboard Graph");
   await startOutline(page);

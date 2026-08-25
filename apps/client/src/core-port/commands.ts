@@ -71,7 +71,7 @@ export type Command =
       owner: OutlineOwner;
       splices: Array<{ block_id: string; index: number; delete: number; insert: string }>;
     }
-  | { type: "move_blocks"; block_ids: string[]; owner: OutlineOwner; parent: string | null; index: number }
+  | { type: "move_blocks"; block_ids: string[]; owner: OutlineOwner; parent: string | null; after: string | null }
   | { type: "indent_blocks"; owner: OutlineOwner; block_ids: string[] }
   | { type: "outdent_blocks"; owner: OutlineOwner; block_ids: string[] }
   | { type: "delete_blocks"; owner: OutlineOwner; block_ids: string[] }

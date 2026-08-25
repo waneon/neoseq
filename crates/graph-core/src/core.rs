@@ -1,6 +1,6 @@
 mod outline;
 
-use self::outline::OutlinePlan;
+use self::outline::{MovePlan, OutlinePlan};
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, DefaultQueryId,
     DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot, GraphSummary,
@@ -60,6 +60,7 @@ const MAX_STRUCTURAL_TARGETS: usize = 10_000;
 #[derive(Debug)]
 enum CommandPlan {
     None,
+    Move(MovePlan),
     Outline(OutlinePlan),
     TagDetach(TagDetachPlan),
     Fragment(FragmentResolution),
@@ -67,8 +68,16 @@ enum CommandPlan {
 
 impl CommandPlan {
     fn outline(&self) -> &OutlinePlan {
-        let Self::Outline(plan) = self else {
-            unreachable!("structural command was prepared without an outline plan")
+        match self {
+            Self::Move(plan) => &plan.outline,
+            Self::Outline(plan) => plan,
+            _ => unreachable!("structural command was prepared without an outline plan"),
+        }
+    }
+
+    fn move_blocks(&self) -> &MovePlan {
+        let Self::Move(plan) = self else {
+            unreachable!("block move was prepared without a move plan")
         };
         plan
     }
@@ -99,6 +108,10 @@ struct PreparedCommand<'a> {
 impl PreparedCommand<'_> {
     fn outline(&self) -> &OutlinePlan {
         self.plan.outline()
+    }
+
+    fn move_blocks(&self) -> &MovePlan {
+        self.plan.move_blocks()
     }
 
     fn tag_detach(&self) -> &TagDetachPlan {
@@ -1100,12 +1113,12 @@ impl GraphCore {
                 block_ids,
                 owner,
                 parent,
-                index,
-            } => CommandPlan::Outline(self.plan_move_blocks(
+                after,
+            } => CommandPlan::Move(self.plan_move_blocks(
                 owner,
                 block_ids,
                 parent.as_ref(),
-                *index,
+                after.as_ref(),
             )?),
             Command::IndentBlocks { owner, block_ids } => {
                 CommandPlan::Outline(self.plan_indent_blocks(owner, block_ids)?)
@@ -1698,14 +1711,14 @@ impl GraphCore {
                     }
                 }
             }
-            Command::MoveBlocks {
-                owner,
-                parent,
-                index,
-                ..
-            } => {
-                let plan = prepared.outline();
-                self.move_blocks(&plan.roots, owner, parent.as_ref(), *index)?;
+            Command::MoveBlocks { owner, .. } => {
+                let plan = prepared.move_blocks();
+                self.move_blocks(
+                    &plan.outline.roots,
+                    owner,
+                    plan.parent.as_ref(),
+                    plan.after.as_ref(),
+                )?;
             }
             Command::IndentBlocks { owner, .. } => {
                 let plan = prepared.outline();
@@ -2879,79 +2892,21 @@ impl GraphCore {
         block_ids: &[BlockId],
         owner: &OutlineOwner,
         parent: Option<&BlockId>,
-        index: usize,
+        after: Option<&BlockId>,
     ) -> Result<(), CoreError> {
         let outline = self.outline(owner)?;
-        let root_ids = block_ids.iter().cloned().collect::<BTreeSet<_>>();
         let parent_tree = parent.map(tree_id).transpose()?;
-        let stationary = parent_tree.map_or_else(
-            || outline.roots(),
-            |parent| outline.children(parent).unwrap_or_default(),
-        );
-        let stationary = stationary
-            .into_iter()
-            .map(block_id)
-            .filter(|id| !root_ids.contains(id))
-            .collect::<Vec<_>>();
-        let mut anchor = index
-            .min(stationary.len())
-            .checked_sub(1)
-            .map(|position| stationary[position].clone());
+        let mut anchor = after.map(tree_id).transpose()?;
 
         for block_id in block_ids {
-            let siblings = parent_tree.map_or_else(
-                || outline.roots(),
-                |parent| outline.children(parent).unwrap_or_default(),
-            );
-            let destination = match &anchor {
-                Some(anchor_id) => {
-                    let anchor_tree = tree_id(anchor_id)?;
-                    siblings
-                        .iter()
-                        .position(|id| *id == anchor_tree)
-                        .map(|position| position + 1)
-                        .ok_or_else(|| {
-                            CoreError::InvalidHierarchy(
-                                "move anchor is not a target sibling".into(),
-                            )
-                        })?
-                }
-                None => 0,
-            };
-            self.move_block(block_id, owner, parent, destination)?;
-            anchor = Some(block_id.clone());
+            let block = tree_id(block_id)?;
+            if let Some(previous) = anchor {
+                outline.mov_after(block, previous)?;
+            } else {
+                outline.mov_to(block, parent_tree, 0)?;
+            }
+            anchor = Some(block);
         }
-        Ok(())
-    }
-
-    fn move_block(
-        &self,
-        block_id: &BlockId,
-        owner: &OutlineOwner,
-        parent: Option<&BlockId>,
-        index: usize,
-    ) -> Result<(), CoreError> {
-        let outline = self.outline(owner)?;
-        let block = tree_id(block_id)?;
-        let parent = parent.map(tree_id).transpose()?;
-        let available = parent.map_or_else(
-            || {
-                outline
-                    .roots()
-                    .into_iter()
-                    .filter(|item| *item != block)
-                    .count()
-            },
-            |parent| {
-                outline
-                    .children(parent)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|item| *item != block)
-                    .count()
-            },
-        );
-        outline.mov_to(block, parent, index.min(available))?;
         Ok(())
     }
 
@@ -6273,7 +6228,7 @@ mod tests {
         ensure_regular_page(&mut move_core, "move-page-1", &first_page);
         ensure_regular_page(&mut move_core, "move-page-2", &second_page);
         let moving = insert_root(&mut move_core, "move-second-1", &second_page, 0, "second 1");
-        insert_root(&mut move_core, "move-second-2", &second_page, 1, "second 2");
+        let second = insert_root(&mut move_core, "move-second-2", &second_page, 1, "second 2");
         insert_root(&mut move_core, "move-first-1", &first_page, 0, "first 1");
         insert_root(&mut move_core, "move-first-2", &first_page, 1, "first 2");
         move_core
@@ -6286,7 +6241,7 @@ mod tests {
                             id: second_page.clone(),
                         },
                         parent: None,
-                        index: 1,
+                        after: Some(second),
                     },
                 ),
                 "t3",
@@ -6921,21 +6876,27 @@ mod tests {
     }
 
     #[test]
-    fn plural_move_preserves_document_order_and_undoes_once() {
+    fn plural_move_keeps_middle_run_contiguous_and_undoes_once() {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
         let first = insert_root(&mut core, "first", &page(), 0, "first");
         let second = insert_root(&mut core, "second", &page(), 1, "second");
-        insert_root(&mut core, "third", &page(), 2, "third");
+        let third = insert_root(&mut core, "third", &page(), 2, "third");
+        insert_root(&mut core, "fourth", &page(), 3, "fourth");
+        insert_root(&mut core, "fifth", &page(), 4, "fifth");
+        let sixth = insert_root(&mut core, "sixth", &page(), 5, "sixth");
+        insert_root(&mut core, "seventh", &page(), 6, "seventh");
+        insert_root(&mut core, "eighth", &page(), 7, "eighth");
+        insert_root(&mut core, "ninth", &page(), 8, "ninth");
 
         core.execute(
             envelope(
                 "move-many",
                 Command::MoveBlocks {
                     owner: OutlineOwner::Page { id: page() },
-                    block_ids: vec![first, second],
+                    block_ids: vec![first, second, third],
                     parent: None,
-                    index: 1,
+                    after: Some(sixth),
                 },
             ),
             "t3",
@@ -6948,7 +6909,10 @@ mod tests {
                 .iter()
                 .map(|block| block.markdown.as_str())
                 .collect::<Vec<_>>(),
-            vec!["third", "first", "second"]
+            vec![
+                "fourth", "fifth", "sixth", "first", "second", "third", "seventh", "eighth",
+                "ninth"
+            ]
         );
 
         core.execute(envelope("undo-move-many", Command::Undo), "t4")
@@ -6960,7 +6924,10 @@ mod tests {
                 .iter()
                 .map(|block| block.markdown.as_str())
                 .collect::<Vec<_>>(),
-            vec!["first", "second", "third"]
+            vec![
+                "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
+                "ninth"
+            ]
         );
     }
 

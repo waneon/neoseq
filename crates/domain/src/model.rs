@@ -130,7 +130,7 @@ pub enum Command {
         block_ids: Vec<BlockId>,
         owner: OutlineOwner,
         parent: Option<BlockId>,
-        index: usize,
+        after: Option<BlockId>,
     },
     IndentBlocks {
         owner: OutlineOwner,
