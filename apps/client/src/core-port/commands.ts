@@ -36,6 +36,12 @@ interface OutlineItemInput {
 
 export type SplitPlacement = "before" | "after" | "first_child";
 
+export interface PropertyChange {
+  key: string;
+  /** `null` removes the complete field. */
+  value: PropertyValue | null;
+}
+
 export type Command =
   | { type: "ensure_page"; page_id: string; title: string }
   | { type: "ensure_journal"; date: string }
@@ -83,6 +89,7 @@ export type Command =
       cardinality: "single" | "set";
     }
   | { type: "set_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }
+  | { type: "set_properties"; owner: PropertyOwnerRef; changes: PropertyChange[] }
   | { type: "clear_property_values"; owner: PropertyOwnerRef; key: string }
   | { type: "remove_property"; owner: PropertyOwnerRef; key: string }
   | { type: "add_repeated_property"; owner: PropertyOwnerRef; key: string; value: PropertyValue }

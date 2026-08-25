@@ -39,6 +39,64 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+export interface ParsedMomentQuery {
+  date: string;
+  time?: string;
+}
+
+/**
+ * Resolves the same date language as `parseDateQuery`, with an optional clock
+ * suffix. The clock is normalized to the stored 24-hour `HH:MM` shape here so
+ * natural language, segmented input, and every projection share one value.
+ */
+export function parseMomentQuery(
+  raw: string,
+  today: string,
+  locale: SupportedLocale = "en",
+): ParsedMomentQuery | null {
+  let dateQuery = raw.trim();
+  if (!dateQuery) return null;
+  let time: string | undefined;
+
+  const takeTime = (match: RegExpExecArray, hour: number, minute: number) => {
+    if (hour > 23 || minute > 59) return false;
+    time = `${pad(hour)}:${pad(minute)}`;
+    dateQuery = dateQuery.slice(0, match.index).trim();
+    return true;
+  };
+
+  if (locale === "ko") {
+    const period = /(?:^|\s)(오전|오후)\s*(\d{1,2})(?:시)?(?:\s*(\d{1,2})분?)?$/.exec(dateQuery);
+    if (period) {
+      const rawHour = Number(period[2]);
+      if (rawHour < 1 || rawHour > 12) return null;
+      const hour = (rawHour % 12) + (period[1] === "오후" ? 12 : 0);
+      if (!takeTime(period, hour, Number(period[3] ?? 0))) return null;
+    } else {
+      const koreanClock = /(?:^|\s)(\d{1,2})시(?:\s*(\d{1,2})분?)?$/.exec(dateQuery);
+      if (koreanClock && !takeTime(koreanClock, Number(koreanClock[1]), Number(koreanClock[2] ?? 0))) {
+        return null;
+      }
+    }
+  } else {
+    const period = /(?:^|\s)(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/.exec(dateQuery.toLowerCase());
+    if (period) {
+      const rawHour = Number(period[1]);
+      if (rawHour < 1 || rawHour > 12) return null;
+      const hour = (rawHour % 12) + (period[3] === "pm" ? 12 : 0);
+      if (!takeTime(period, hour, Number(period[2] ?? 0))) return null;
+    }
+  }
+
+  if (time === undefined) {
+    const clock = /(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)$/.exec(dateQuery);
+    if (clock && !takeTime(clock, Number(clock[1]), Number(clock[2]))) return null;
+  }
+
+  const date = dateQuery ? parseDateQuery(dateQuery, today, locale) : today;
+  return date ? { date, ...(time ? { time } : {}) } : null;
+}
+
 function dayOfWeek(date: string): number {
   const [year, month, day] = date.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();

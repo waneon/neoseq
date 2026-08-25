@@ -150,13 +150,12 @@ Value controls are selected from the property type and definition:
   a registry one: status keeps the registry's ascending progression and priority
   is offered strongest-first;
 - strings and numbers use text inputs with explicit commit;
-- dates use one natural-language field (the palette's `parseDateQuery`) whose
-  resolved day is a pressable preview row, quick rows for today / tomorrow /
-  next week, and the native date input as the precision fallback — every route
-  commits directly. A **task** date grows one further row: the native time input
-  for its companion `-time` key. That row is a *refinement*, not the answer the
-  picker was opened for, so it writes its own `set_property` (or
-  `remove_property`, when cleared) and leaves the panel open;
+- generic dates use one natural-language field, quick rows for today / tomorrow /
+  next week, and the native date input as the precision fallback. A **task**
+  moment instead opens one product-owned editor: natural-language date/time
+  search, the same quick choices, an accessible month calendar, and an optional
+  segmented 24-hour clock all shape one local draft. Done applies its date and
+  companion `-time` fact through one property patch; Cancel applies neither;
 - `builtin.task-repeat` uses a count field, a unit menu, and a words preview of
   the interval they make;
 - pages reuse `PageAutocomplete`; and
@@ -292,6 +291,8 @@ retry, and save-state behavior remain owned by `GraphSession` and its adapter.
 - Type and fixed-value choices expose listbox/option semantics.
 - The picker has a localized dialog name, inputs have key-specific labels, and
   destructive clear/remove actions have explicit accessible names.
+- The task calendar and segmented clock expose the React Aria keyboard model;
+  search and quick choices remain ordinary named controls.
 - Slash and shortcut matching stand down during IME composition.
 - User property keys and values are never translated. Here `user.*` means a
   user-defined graph property, not private metadata owned by one account. All
@@ -320,7 +321,8 @@ implementations.
 - Component tests cover all five atomic value types, custom keys, validation,
   direct row editing, slash-token removal, slash grouping and one-keystroke
   status writes, the inline status control and task chips, the natural-language
-  date editor, known enums, and tag separation. The query document has its own
+  date editor, the atomic task-moment draft and undo boundary, known enums, and
+  tag separation. The query document has its own
   suite: `/` creating a plan, conditions and nested groups reaching the compiled
   source, column and view layout persisting, the SPARQL escape hatch, removal,
   and the picker's refusal to offer the key.

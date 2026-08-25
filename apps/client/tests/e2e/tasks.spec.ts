@@ -111,41 +111,28 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
     picker.getByRole("option", { name: "To-do", exact: true }).click());
   await expect(picker).toHaveCount(0);
 
-  // `/` is the editor's route to a date, and the picker it opens owns the whole
-  // moment: the day, then the time of day beside it.
+  // `/` is the editor's route to a moment. Search resolves the date and 24-hour
+  // clock together; Done persists that whole draft as one operation.
   await page.getByLabel("Block text").pressSequentially(" /sched");
   await expect(page.getByTestId("slash-menu")).toBeVisible();
   await page.keyboard.press("Enter");
   picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Type a date").fill(localDate(4));
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("date-parsed").click());
+  await picker.getByLabel("Date or time").fill(`${localDate(4)} 21:30`);
+  await picker.getByTestId("moment-search-result").click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
   await expect(picker).toHaveCount(0);
 
   const scheduled = page.getByTestId("task-chip-scheduled");
-  await scheduled.click();
-  picker = page.getByTestId("property-picker");
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time").fill("21:30"));
-  // A time is a refinement of the answer, not the answer: it writes at once and
-  // leaves the editor open for the rest of the moment.
   await expect(scheduled).toContainText("21:30");
   await expect(scheduled).not.toContainText(/AM|PM/);
-  await expect(picker).toBeVisible();
-  // The first Escape leaves the value editor for the picker's key list; the
-  // second dismisses that root surface. Prove both transitions before opening
-  // the chip again so its focus restoration cannot overlap the next picker.
-  await page.keyboard.press("Escape");
-  await expect(picker.getByLabel("Property key")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(picker).toHaveCount(0);
 
-  // Clearing it returns the moment to the whole day.
+  // Switching the optional clock off and applying returns the moment to its
+  // whole day without removing the date.
   await scheduled.click();
   picker = page.getByTestId("property-picker");
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time-clear").click());
+  await picker.getByTestId("moment-time-toggle").click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
   await expect(scheduled).not.toContainText("21:30");
-  await page.keyboard.press("Escape");
-  await expect(picker.getByLabel("Property key")).toBeVisible();
-  await page.keyboard.press("Escape");
   await expect(picker).toHaveCount(0);
 
   // Completing one occurrence of a recurring task is not finishing it: the row
@@ -167,8 +154,9 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await expect(page.getByTestId("slash-menu")).toBeVisible();
   await page.keyboard.press("Enter");
   const picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Type a date").fill(localDate(4));
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("date-parsed").click());
+  await picker.getByLabel("Date or time").fill(localDate(4));
+  await picker.getByTestId("moment-search-result").click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
   await expect(picker).toHaveCount(0);
 
   // Four days out, with the default 3/7 calendar-day spans, is `upcoming` — and blue on

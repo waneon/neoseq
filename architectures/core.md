@@ -86,6 +86,9 @@ Generic property commands can mutate only registry-declared user-writable
 targets. Page kind, journal identity, lifecycle timestamps, and tombstones are
 core-managed and can change only through their owning page, journal, tag, and
 touch command paths. Presentation filtering is not an authority boundary.
+`SetProperties` applies a bounded set of distinct single-valued property changes
+to one owner as one command. It is the atomic boundary for one domain value that
+projects through multiple stored facts, such as a task date and optional clock.
 
 Each command carries a client-generated idempotency key and expected graph
 handle. The runtime rejects malformed IDs, invalid values, cycles, references to

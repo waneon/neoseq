@@ -20,7 +20,7 @@ import {
   serializeBinding,
   type ShortcutHandler,
 } from "../../src/features/commands/shortcuts";
-import { parseDateQuery } from "../../src/features/commands/dates";
+import { parseDateQuery, parseMomentQuery } from "../../src/features/commands/dates";
 import { createContextualHandlerRegistry } from "../../src/features/commands/context";
 
 function key(init: Partial<KeyboardEvent> & { key: string }): KeyboardEvent {
@@ -200,6 +200,26 @@ describe("natural-language dates", () => {
     expect(parseDateQuery("지난 금요일", today, "ko")).toBe("2026-07-31");
     expect(parseDateQuery("8월 5일", today, "ko")).toBe("2026-08-05");
     expect(parseDateQuery("2027년 8월 5일", today, "ko")).toBe("2027-08-05");
+  });
+
+  it("resolves a day and optional clock as one moment", () => {
+    expect(parseMomentQuery("tomorrow 14:30", today)).toEqual({
+      date: "2026-08-05",
+      time: "14:30",
+    });
+    expect(parseMomentQuery("next friday 3:05 pm", today)).toEqual({
+      date: "2026-08-07",
+      time: "15:05",
+    });
+    expect(parseMomentQuery("18:00", today)).toEqual({ date: today, time: "18:00" });
+    expect(parseMomentQuery("내일 오후 3시 5분", today, "ko")).toEqual({
+      date: "2026-08-05",
+      time: "15:05",
+    });
+    expect(parseMomentQuery("8월 5일 9시", today, "ko")).toEqual({
+      date: "2026-08-05",
+      time: "09:00",
+    });
   });
 
   it("rejects prose and impossible dates rather than guessing", () => {

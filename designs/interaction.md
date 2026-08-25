@@ -50,9 +50,11 @@ by a listbox. Features own the domain values and labels, while the combobox owns
 active-option focus, filtering, and selection semantics.
 
 Native controls remain where the platform provides the better precision or
-semantics, including checkboxes and date/time pickers. Color is selected by
-pressing a visible, bounded swatch rather than by opening a generic text list or
-free-form picker.
+semantics, including checkboxes and generic date fields. A composed domain value
+may use a product-owned accessible control when it must preserve one interaction
+and undo boundary across several inputs, as a task moment does across its date
+and optional clock. Color is selected by pressing a visible, bounded swatch
+rather than by opening a generic text list or free-form picker.
 
 The same domain value opens the same choice model on every surface. A value does
 not gain a different popup merely because it is projected in a table or has not

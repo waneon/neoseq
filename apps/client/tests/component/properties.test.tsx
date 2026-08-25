@@ -3,7 +3,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { stringValue } from "../../src/core-port/snapshot";
+import { dateValue, stringValue } from "../../src/core-port/snapshot";
 import { chooseFromMenu, GRAPH_ID, mountAt, openPageMenu } from "./harness";
 
 async function mountPage() {
@@ -166,7 +166,7 @@ describe("property picker", () => {
     await waitFor(() => expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"));
   });
 
-  it("writes a time of day beside a task date without leaving the editor", async () => {
+  it("applies a task date and time as one undoable moment", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
     await session.execute({
@@ -186,23 +186,28 @@ describe("property picker", () => {
 
     await user.click(await screen.findByTestId("task-chip-scheduled"));
     const picker = await screen.findByTestId("property-picker");
-    fireEvent.change(within(picker).getByTestId("task-time"), { target: { value: "09:30" } });
+    fireEvent.change(within(picker).getByLabelText("Date or time"), {
+      target: { value: "2026-08-24 09:30" },
+    });
+    await user.click(await within(picker).findByTestId("moment-search-result"));
 
+    // Search, quick choices, calendar, and clock only shape a local draft.
+    let block = session.getState().snapshot.pages[0]?.blocks[0];
+    expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
+    expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();
+
+    await user.click(within(picker).getByTestId("moment-apply"));
     await waitFor(() => {
-      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-24");
       expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBe("09:30");
     });
-    // A time refines the moment the picker was opened for; it is not the answer,
-    // so the editor stays open for the rest of it.
-    expect(screen.getByTestId("property-picker")).toBeInTheDocument();
 
-    // Escape walks back to the property list. Pressing the chip that still owns
-    // the open panel must then re-enter its date editor; dismissing on
-    // pointerdown would detach the chip before this click arrived.
-    await user.keyboard("{Escape}");
-    await user.click(screen.getByTestId("task-chip-scheduled"));
-    expect(within(screen.getByTestId("property-picker")).getByTestId("task-time-clear"))
-      .toBeInTheDocument();
+    // The two storage facts share one command boundary and therefore one undo.
+    await session.execute({ type: "undo" });
+    block = session.getState().snapshot.pages[0]?.blocks[0];
+    expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
+    expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();
   });
 
   it("writes a recurrence as a count and a unit, previewed in words", async () => {

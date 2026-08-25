@@ -77,6 +77,7 @@ export interface MessageArgumentMap {
   "common.close": undefined;
   "common.copied": undefined;
   "common.deleteForever": undefined;
+  "common.done": undefined;
   "common.moveDown": undefined;
   "common.moveUp": undefined;
   "common.no": undefined;
@@ -662,7 +663,7 @@ export interface MessageArgumentMap {
   "tags.ungroupAll": undefined;
   "tags.ungrouped": undefined;
   "tags.usesLabel": { readonly "count": number };
-  "task.clearTime": undefined;
+  "task.addTime": undefined;
   "task.completeOccurrence": undefined;
   "task.deadline": undefined;
   "task.deadlineTime": undefined;
@@ -671,6 +672,8 @@ export interface MessageArgumentMap {
   "task.due.soon": undefined;
   "task.due.today": undefined;
   "task.due.upcoming": undefined;
+  "task.momentPlaceholder": undefined;
+  "task.momentSearch": undefined;
   "task.overdue": undefined;
   "task.priority": undefined;
   "task.priority.high": undefined;
@@ -702,6 +705,7 @@ export interface MessageArgumentMap {
   "task.statusIs": { readonly "status": string | number };
   "task.statusLabel": undefined;
   "task.timeOfDay": undefined;
+  "task.useCurrentTime": undefined;
   "theme.dark": undefined;
   "theme.light": undefined;
   "theme.system": undefined;

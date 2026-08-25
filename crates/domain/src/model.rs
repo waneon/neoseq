@@ -50,6 +50,14 @@ pub struct MarkdownSplice {
     pub insert: String,
 }
 
+/// One atomic change inside a property patch. `None` removes the complete
+/// field; a value replaces it as the field's single member.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PropertyChange {
+    pub key: PropertyKey,
+    pub value: Option<PropertyValue>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
@@ -154,6 +162,10 @@ pub enum Command {
         owner: PropertyOwner,
         key: PropertyKey,
         value: PropertyValue,
+    },
+    SetProperties {
+        owner: PropertyOwner,
+        changes: Vec<PropertyChange>,
     },
     ClearPropertyValues {
         owner: PropertyOwner,

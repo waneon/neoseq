@@ -7,7 +7,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { ArrowLeftIcon, CalendarIcon, CheckIcon, ClockIcon, Trash2Icon } from "lucide-react";
+import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
 import type { Command, PropertyOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
@@ -35,7 +35,6 @@ import {
   DEFAULT_REPEAT,
   formatRepeat,
   isTaskDateKey,
-  isTimeOfDay,
   offeredChoices,
   parseRepeat,
   REPEAT_UNITS,
@@ -59,6 +58,7 @@ import { useSession, useSessionState } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, repeatLabel, repeatUnitLabel, statusLabel } from "../tasks/labels";
 import { PageAutocomplete } from "./PageAutocomplete";
+import { TaskMomentPicker } from "./TaskMomentPicker";
 import {
   propertyDisplayName,
   propertyGlyph,
@@ -294,18 +294,41 @@ export function PropertyPicker({
     if (removed) onClose();
   };
 
-  /**
-   * A refinement of the value being edited, written without closing: the time of
-   * day beside a task date, or its repeat interval. These are separate keys
-   * because they are separate facts, so each is still exactly one command — but
-   * they are not the *answer* the picker was opened for, and closing on one of
-   * them would throw the user out halfway through describing one moment.
-   */
-  const writeRefinement = (refinementKey: string, value: PropertyValue | null) => {
-    if (readonly || !canUserWrite(refinementKey, writeTarget)) return;
-    void run(value === null
-      ? { type: "remove_property", owner, key: refinementKey }
-      : { type: "set_property", owner, key: refinementKey, value });
+  const commitMoment = async (date: string, time: string | null) => {
+    if (stage.kind !== "value" || !isTaskDateKey(stage.key) || writeDisabled) return;
+    const timeKey = timeKeyFor(stage.key);
+    const dateValue = { type: "date", value: date } as const;
+    const timeValue = time === null ? null : { type: "string", value: time } as const;
+    const issue = validateWriteTarget(stage.key, writeTarget)
+      ?? validateValue(stage.key, dateValue, "single")
+      ?? (timeValue ? validateValue(timeKey, timeValue, "single") : null)
+      ?? validateWriteTarget(timeKey, writeTarget);
+    if (issue) {
+      setRequest({ status: "failed", message: validationMessage(issue, message) });
+      return;
+    }
+    const saved = await run({
+      type: "set_properties",
+      owner,
+      changes: [
+        { key: stage.key, value: dateValue },
+        { key: timeKey, value: timeValue },
+      ],
+    });
+    if (saved) onClose();
+  };
+
+  const clearMoment = async () => {
+    if (stage.kind !== "value" || !isTaskDateKey(stage.key) || writeDisabled) return;
+    const cleared = await run({
+      type: "set_properties",
+      owner,
+      changes: [
+        { key: stage.key, value: null },
+        { key: timeKeyFor(stage.key), value: null },
+      ],
+    });
+    if (cleared) onClose();
   };
 
   const onKeyList = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -331,6 +354,9 @@ export function PropertyPicker({
   const selectedCardinality = key === null
     ? "single"
     : selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single");
+  const taskMoment = stage.kind === "value" && isTaskDateKey(stage.key)
+    ? { key: stage.key, draft: stage.draft }
+    : null;
   // Report a bad key only when it is a dead end — while matches are still on
   // screen the query is a search, not a mistake.
   const queryIssue = stage.kind === "property" && query.trim() && candidates.length === 0
@@ -365,7 +391,11 @@ export function PropertyPicker({
       anchor={anchor}
       className="property-picker"
       label={message("properties.addOrChange")}
-      options={{ width: 360, minWidth: 280, maxHeight: 420 }}
+      options={{
+        width: taskMoment ? 380 : 360,
+        minWidth: 280,
+        maxHeight: taskMoment ? 620 : 420,
+      }}
       revision={stage.kind}
       testId="property-picker"
       surfaceRef={panelRef}
@@ -514,7 +544,7 @@ export function PropertyPicker({
 
       {stage.kind === "value" && (
         <div className="property-picker-value">
-          {selectedCardinality === "set" && selectedValues.length > 0 && (
+          {!taskMoment && selectedCardinality === "set" && selectedValues.length > 0 && (
             <div className="property-picker-members">
               {selectedValues.map((value, index) => (
                 <div key={`${stage.key}:${index}`}>
@@ -534,27 +564,42 @@ export function PropertyPicker({
               ))}
             </div>
           )}
-          {selectedCardinality === "single" && selectedValues[0] && (
+          {!taskMoment && selectedCardinality === "single" && selectedValues[0] && (
             <p className="property-current-value">{describeValue(selectedValues[0])}</p>
           )}
-          {selectedField && selectedValues.length === 0 && (
+          {!taskMoment && selectedField && selectedValues.length === 0 && (
             <p className="property-current-value">{message("properties.noValue")}</p>
           )}
-          <ValueInput
-            entryKey={stage.key}
-            type={stage.valueType}
-            value={stage.draft}
-            allowed={choices}
-            bag={target.bag}
-            readonly={writeDisabled || committing}
-            onChange={(draft) => {
-              setStage((current) =>
-                current.kind === "value" ? { ...current, draft } : current);
-            }}
-            onCommit={(value) => void commit(value)}
-            onRefine={writeRefinement}
-          />
-          <div className="property-picker-actions">
+          {taskMoment
+            ? (
+                <TaskMomentPicker
+                  date={taskMoment.draft.type === "date"
+                    ? taskMoment.draft.value
+                    : todayLocalDate()}
+                  time={singleString(target.bag, timeKeyFor(taskMoment.key))}
+                  hasValue={selectedValues.some((value) => value.type === "date")}
+                  readonly={writeDisabled}
+                  busy={committing}
+                  onApply={(date, time) => void commitMoment(date, time)}
+                  onClear={() => void clearMoment()}
+                  onCancel={onClose}
+                />
+              )
+            : (
+                <ValueInput
+                  entryKey={stage.key}
+                  type={stage.valueType}
+                  value={stage.draft}
+                  allowed={choices}
+                  readonly={writeDisabled || committing}
+                  onChange={(draft) => {
+                    setStage((current) =>
+                      current.kind === "value" ? { ...current, draft } : current);
+                  }}
+                  onCommit={(value) => void commit(value)}
+                />
+              )}
+          {!taskMoment && <div className="property-picker-actions">
             {!selectedField && (
               <Button
                 variant="secondary"
@@ -595,7 +640,7 @@ export function PropertyPicker({
                 {message("properties.set")}
               </Button>
             )}
-          </div>
+          </div>}
         </div>
       )}
 
@@ -627,21 +672,17 @@ function ValueInput({
   type,
   value,
   allowed,
-  bag,
   readonly,
   onChange,
   onCommit,
-  onRefine,
 }: {
   entryKey: string;
   type: PropertyValueType;
   value: PropertyValue;
   allowed: string[];
-  bag: PropertyField[];
   readonly: boolean;
   onChange: (value: PropertyValue) => void;
   onCommit: (value: PropertyValue) => void;
-  onRefine: (key: string, value: PropertyValue | null) => void;
 }) {
   const { message } = useI18n();
   const label = message("properties.value", { key: propertyDisplayName(entryKey, message) });
@@ -731,16 +772,6 @@ function ValueInput({
         readonly={readonly}
         onChange={onChange}
         onCommit={onCommit}
-        // A task moment is a day *and* a time of day, and the two are read as one
-        // fact. The generic date editor keeps its shape; the task keys grow one
-        // extra row rather than a second surface to visit.
-        refinements={isTaskDateKey(entryKey)
-          ? {
-              timeKey: timeKeyFor(entryKey),
-              time: singleString(bag, timeKeyFor(entryKey)),
-              onRefine,
-            }
-          : undefined}
       />
     );
   }
@@ -772,26 +803,18 @@ function ValueInput({
  * platform's own picker is the better precision tool
  * (designs/interaction.md § Choice).
  */
-interface DateRefinements {
-  timeKey: string;
-  time: string | undefined;
-  onRefine: (key: string, value: PropertyValue | null) => void;
-}
-
 function DateValueInput({
   label,
   value,
   readonly,
   onChange,
   onCommit,
-  refinements,
 }: {
   label: string;
   value: PropertyValue;
   readonly: boolean;
   onChange: (value: PropertyValue) => void;
   onCommit: (value: PropertyValue) => void;
-  refinements?: DateRefinements;
 }) {
   const { message, locale, formatJournalDate } = useI18n();
   const [text, setText] = useState("");
@@ -901,55 +924,6 @@ function DateValueInput({
           }}
         />
       </div>
-      {refinements && <TimeOfDayRow readonly={readonly} {...refinements} />}
-    </div>
-  );
-}
-
-/**
- * The time of day beside a task date. It is the platform's own time input for the
- * same reason the date row keeps a native picker — a clock is one of the few
- * controls a browser genuinely does better — and it writes as soon as it is
- * complete, because a time is a refinement rather than the answer the picker was
- * opened for. Clearing it returns the moment to the whole day, which is what a
- * date with no time has always meant.
- */
-function TimeOfDayRow({
-  timeKey,
-  time,
-  readonly,
-  onRefine,
-}: DateRefinements & { readonly: boolean }) {
-  const { message } = useI18n();
-  const current = time !== undefined && isTimeOfDay(time) ? time : "";
-  return (
-    <div className="property-date-time">
-      <ClockIcon data-type-glyph aria-hidden />
-      <Input
-        type="time"
-        aria-label={message("task.timeOfDay")}
-        data-testid="task-time"
-        value={current}
-        readOnly={readonly}
-        onChange={(event) => {
-          const next = event.target.value;
-          // A partially typed time is not a value yet; an emptied field is.
-          if (next === "") onRefine(timeKey, null);
-          else if (isTimeOfDay(next)) onRefine(timeKey, { type: "string", value: next });
-        }}
-      />
-      {current !== "" && (
-        <Button
-          variant="ghost"
-          size="icon"
-          disabled={readonly}
-          aria-label={message("task.clearTime")}
-          data-testid="task-time-clear"
-          onClick={() => onRefine(timeKey, null)}
-        >
-          <Trash2Icon data-icon aria-hidden />
-        </Button>
-      )}
     </div>
   );
 }

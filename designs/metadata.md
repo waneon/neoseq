@@ -89,6 +89,9 @@ A task moment is one object composed of a day and optional time. It keeps the
 same written and tonal identity across outline chips and query cells, while its
 outer affordance follows the surface: the chip edits directly, whereas an
 interactive result cell owns the edit action.
+Its editor holds date and time as one draft. Search, quick choices, the calendar,
+and the clock never persist partial state; explicit confirmation applies the
+whole moment as one undoable intent, while cancellation applies none of it.
 
 Urgency is expressed by both language and a bounded semantic tone. A time of day
 is never presented as an independent query column because it has no meaning

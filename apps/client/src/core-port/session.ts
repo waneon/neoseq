@@ -490,6 +490,7 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
       };
     case "ensure_property":
     case "set_property":
+    case "set_properties":
     case "clear_property_values":
     case "remove_property":
     case "add_repeated_property":

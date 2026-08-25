@@ -660,6 +660,26 @@ export class FakeCorePort implements SessionPort {
         setSingle(this.propertyOwnerBag(command.owner), command.key, command.value);
         break;
       }
+      case "set_properties": {
+        if (command.changes.length === 0 || command.changes.length > 64) {
+          fail("internal", "property patch must contain between 1 and 64 changes");
+        }
+        const keys = new Set<string>();
+        const target = propertyOwnerTarget(command.owner);
+        for (const change of command.changes) {
+          if (keys.has(change.key)) fail("internal", `duplicate property key: ${change.key}`);
+          keys.add(change.key);
+          const issue = validateWriteTarget(change.key, target)
+            ?? (change.value === null ? null : validateValue(change.key, change.value, "single"));
+          if (issue) fail("internal", issue.message);
+        }
+        const bag = this.propertyOwnerBag(command.owner);
+        for (const change of command.changes) {
+          if (change.value === null) removeAll(bag, change.key);
+          else setSingle(bag, change.key, change.value);
+        }
+        break;
+      }
       case "clear_property_values": {
         const issue = validateWriteTarget(command.key, propertyOwnerTarget(command.owner));
         if (issue) fail("internal", issue.message);
@@ -1026,6 +1046,7 @@ export class FakeCorePort implements SessionPort {
       }
       case "ensure_property":
       case "set_property":
+      case "set_properties":
       case "clear_property_values":
       case "remove_property":
       case "add_repeated_property":
@@ -1171,6 +1192,7 @@ export class FakeCorePort implements SessionPort {
         break;
       case "ensure_property":
       case "set_property":
+      case "set_properties":
       case "clear_property_values":
       case "remove_property":
       case "add_repeated_property":

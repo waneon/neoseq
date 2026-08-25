@@ -6,7 +6,7 @@ use domain::{
     DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot, GraphSummary,
     HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
     OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner, OutlineSnapshot, PageId,
-    PageSnapshot, PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument,
+    PageSnapshot, PageSummary, PropertyBag, PropertyChange, PropertyCopyPolicy, PropertyDocument,
     PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
     PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
     QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
@@ -59,6 +59,7 @@ pub fn empty_version_vector() -> Vec<u8> {
 }
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 const MAX_STRUCTURAL_TARGETS: usize = 10_000;
+const MAX_PROPERTY_CHANGES: usize = 64;
 
 #[derive(Debug)]
 enum CommandPlan {
@@ -1344,6 +1345,31 @@ impl GraphCore {
                     return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
                 }
             }
+            Command::SetProperties { owner, changes } => {
+                self.validate_property_owner(owner)?;
+                if changes.is_empty() || changes.len() > MAX_PROPERTY_CHANGES {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "property patch must contain between 1 and {MAX_PROPERTY_CHANGES} changes"
+                    )));
+                }
+                let mut keys = BTreeSet::new();
+                for PropertyChange { key, value } in changes {
+                    if !keys.insert(key) {
+                        return Err(CoreError::InvalidHierarchy(format!(
+                            "property patch contains a duplicate key: {key}"
+                        )));
+                    }
+                    validate_property_write(key, property_owner_target(owner))?;
+                    if let Some(value) = value {
+                        validate_property(key, value, Cardinality::Single)?;
+                        if value.property_type() == PropertyType::Document {
+                            return Err(
+                                PropertyError::DocumentCommandRequired(key.to_string()).into()
+                            );
+                        }
+                    }
+                }
+            }
             Command::AddRepeatedProperty { owner, key, value }
             | Command::RemoveRepeatedProperty { owner, key, value } => {
                 self.validate_property_owner(owner)?;
@@ -1811,6 +1837,16 @@ impl GraphCore {
             Command::SetProperty { owner, key, value } => {
                 set_single(&self.property_owner_bag(owner)?, key, value)?;
             }
+            Command::SetProperties { owner, changes } => {
+                let bag = self.property_owner_bag(owner)?;
+                for PropertyChange { key, value } in changes {
+                    if let Some(value) = value {
+                        set_single(&bag, key, value)?;
+                    } else {
+                        remove_property_field(&bag, key)?;
+                    }
+                }
+            }
             Command::ClearPropertyValues { owner, key } => {
                 clear_property_values(&self.property_owner_bag(owner)?, key)?;
             }
@@ -2119,6 +2155,7 @@ impl GraphCore {
             Command::DeleteBlocks { owner, .. } => self.touch_outline_owner(owner, now)?,
             Command::EnsureProperty { owner, .. }
             | Command::SetProperty { owner, .. }
+            | Command::SetProperties { owner, .. }
             | Command::ClearPropertyValues { owner, .. }
             | Command::RemoveProperty { owner, .. }
             | Command::AddRepeatedProperty { owner, .. }
@@ -2805,6 +2842,7 @@ impl GraphCore {
             }
             Command::EnsureProperty { owner, .. }
             | Command::SetProperty { owner, .. }
+            | Command::SetProperties { owner, .. }
             | Command::ClearPropertyValues { owner, .. }
             | Command::RemoveProperty { owner, .. }
             | Command::AddRepeatedProperty { owner, .. }
@@ -3960,6 +3998,7 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::RemoveTag { .. } => "TagRemoved",
         Command::EnsureProperty { owner, .. }
         | Command::SetProperty { owner, .. }
+        | Command::SetProperties { owner, .. }
         | Command::ClearPropertyValues { owner, .. }
         | Command::RemoveProperty { owner, .. }
         | Command::AddRepeatedProperty { owner, .. }
@@ -5186,6 +5225,18 @@ mod tests {
         })
     }
 
+    fn property_date<'a>(bag: &'a [PropertyField], raw_key: &str) -> Option<&'a str> {
+        bag.iter().find_map(|field| {
+            if field.key.as_str() != raw_key {
+                return None;
+            }
+            match field.values.first()? {
+                PropertyValue::Date(value) => Some(value.as_str()),
+                _ => None,
+            }
+        })
+    }
+
     fn legacy_v1_snapshot() -> Vec<u8> {
         let mut core = GraphCore::new(graph(), 17, "legacy").unwrap();
         ensure_regular_page(&mut core, "legacy-page", &page());
@@ -5845,6 +5896,96 @@ mod tests {
         }
 
         assert_eq!(core.snapshot().unwrap(), before);
+    }
+
+    #[test]
+    fn property_patch_is_one_atomic_undo_boundary() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let owner = PropertyOwner::Page { id: page() };
+
+        core.execute(
+            envelope(
+                "moment",
+                Command::SetProperties {
+                    owner,
+                    changes: vec![
+                        PropertyChange {
+                            key: key("builtin.task-scheduled"),
+                            value: Some(PropertyValue::Date(LocalDate::new("2026-08-25").unwrap())),
+                        },
+                        PropertyChange {
+                            key: key("builtin.task-scheduled-time"),
+                            value: Some(PropertyValue::String("21:30".into())),
+                        },
+                    ],
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+
+        let written = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            property_date(&written.properties, "builtin.task-scheduled"),
+            Some("2026-08-25")
+        );
+        assert_eq!(
+            property_string(&written.properties, "builtin.task-scheduled-time"),
+            Some("21:30")
+        );
+
+        core.execute(envelope("undo-moment", Command::Undo), "t3")
+            .unwrap();
+        let undone = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            property_date(&undone.properties, "builtin.task-scheduled"),
+            None
+        );
+        assert_eq!(
+            property_string(&undone.properties, "builtin.task-scheduled-time"),
+            None
+        );
+    }
+
+    #[test]
+    fn property_patch_validates_every_change_before_mutating() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+
+        let rejected = core.execute(
+            envelope(
+                "invalid-moment",
+                Command::SetProperties {
+                    owner: PropertyOwner::Page { id: page() },
+                    changes: vec![
+                        PropertyChange {
+                            key: key("builtin.task-scheduled"),
+                            value: Some(PropertyValue::Date(LocalDate::new("2026-08-25").unwrap())),
+                        },
+                        PropertyChange {
+                            key: key("builtin.task-scheduled-time"),
+                            value: Some(PropertyValue::Date(LocalDate::new("2026-08-25").unwrap())),
+                        },
+                    ],
+                },
+            ),
+            "t2",
+        );
+        assert!(matches!(
+            rejected,
+            Err(CoreError::Property(PropertyError::WrongType { .. }))
+        ));
+
+        let snapshot = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            property_date(&snapshot.properties, "builtin.task-scheduled"),
+            None
+        );
+        assert_eq!(
+            property_string(&snapshot.properties, "builtin.task-scheduled-time"),
+            None
+        );
     }
 
     #[test]
