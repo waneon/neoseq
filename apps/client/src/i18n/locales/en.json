@@ -458,6 +458,7 @@
   "settings.colorHue": "Hue",
   "settings.colorIntensity": "Intensity",
   "settings.colorPresets": "Presets",
+  "settings.customColor": "Custom",
   "settings.dueToneFor": "{tier} tone",
   "settings.dueTonesDescription": "Scheduled and deadline dates are tinted by how far off they are. Choose how far each step reaches and the tone it takes.",
   "settings.dueWithinDays": "Days ahead that still count as {tier}",

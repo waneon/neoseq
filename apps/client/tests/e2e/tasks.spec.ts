@@ -377,13 +377,20 @@ test("the accent is a hue the reader owns, applied before the first paint", asyn
   expect(iris).toBe("277");
 
   await openSettings(page, "appearance");
-  await page.getByTestId("settings-accent").getByRole("button", { name: "Teal" }).click();
+  await expect(page.getByTestId("settings-accent").getByRole("button")).toHaveCount(9);
+  await page.getByTestId("settings-accent-custom").click();
+  const picker = page.getByTestId("settings-accent-picker");
+  await expect(picker).toBeVisible();
+  const hue = page.getByTestId("settings-accent-hue");
+  await hue.focus();
+  await page.keyboard.press("Home");
+  await expect(hue).toHaveValue("0");
   await page.keyboard.press("Escape");
 
   // One number on the root is the whole mechanism: everything the accent touches
   // is already written in terms of `--accent`, so nothing else had to change.
-  await expect(page.locator("html")).toHaveAttribute("style", /--accent-h:\s*195/);
-  const teal = await page.evaluate(() => {
+  await expect(page.locator("html")).toHaveAttribute("style", /--accent-h:\s*0/);
+  const custom = await page.evaluate(() => {
     const probe = document.createElement("span");
     probe.style.color = "var(--accent)";
     document.body.append(probe);
@@ -395,7 +402,7 @@ test("the accent is a hue the reader owns, applied before the first paint", asyn
   // Appearance is browser-wide and has to be on screen before the first frame,
   // or a chosen accent flashes iris on every launch.
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("style", /--accent-h:\s*195/);
+  await expect(page.locator("html")).toHaveAttribute("style", /--accent-h:\s*0/);
   const afterReload = await page.evaluate(() => {
     const probe = document.createElement("span");
     probe.style.color = "var(--accent)";
@@ -404,7 +411,7 @@ test("the accent is a hue the reader owns, applied before the first paint", asyn
     probe.remove();
     return resolved;
   });
-  expect(afterReload).toBe(teal);
+  expect(afterReload).toBe(custom);
 
   // The lightness is not the reader's, which is what keeps every hue on the
   // measured row of the contrast table: only the hue moved.

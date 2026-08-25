@@ -67,28 +67,28 @@ export function ToneChoice({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="due-color-trigger"
+          className="color-studio-trigger"
           aria-label={label}
           title={label}
           data-testid={testId}
         >
-          <span className="due-color-well" {...tonePresentation(value)} />
+          <span className="color-studio-well" {...tonePresentation(value)} />
           <SlidersHorizontalIcon aria-hidden />
         </button>
       </PopoverTrigger>
       <PopoverPortal>
         <PopoverContent
-          className="due-color-picker enter-fade-fast"
+          className="color-studio-popover enter-fade-fast"
           align="end"
           sideOffset={8}
           aria-label={label}
           data-testid={testId ? `${testId}-picker` : undefined}
         >
-          <div className="due-color-picker-head">
+          <div className="color-studio-head">
             <strong>{label}</strong>
             <button
               type="button"
-              className="due-color-reset"
+              className="color-studio-reset"
               onClick={() => onChange(defaultValue)}
             >
               <RotateCcwIcon aria-hidden />
@@ -96,9 +96,9 @@ export function ToneChoice({
             </button>
           </div>
 
-          <div className="due-color-previews">
+          <div className="color-studio-previews">
             {(["light", "dark"] as const).map((mode) => (
-              <div className="due-color-preview" data-mode={mode} key={mode}>
+              <div className="color-studio-preview" data-mode={mode} key={mode}>
                 <span
                   className="task-chip"
                   data-preview
@@ -112,7 +112,7 @@ export function ToneChoice({
             ))}
           </div>
 
-          <div className="due-color-slider">
+          <div className="color-studio-slider">
             <label htmlFor={`${inputId}-hue`}>{message("settings.colorHue")}</label>
             <output>{Math.round(position.hue)}°</output>
             <input
@@ -124,13 +124,13 @@ export function ToneChoice({
               value={position.hue}
               aria-label={message("settings.colorHue")}
               data-testid={testId ? `${testId}-hue` : undefined}
-              className="due-color-hue"
+              className="color-studio-hue"
               style={previewStyle(value)}
               onChange={(event) => custom({ hue: Number(event.target.value) })}
             />
           </div>
 
-          <div className="due-color-slider">
+          <div className="color-studio-slider">
             <label htmlFor={`${inputId}-intensity`}>{message("settings.colorIntensity")}</label>
             <output>{intensity}%</output>
             <input
@@ -142,13 +142,13 @@ export function ToneChoice({
               value={position.chroma}
               aria-label={message("settings.colorIntensity")}
               data-testid={testId ? `${testId}-intensity` : undefined}
-              className="due-color-chroma"
+              className="color-studio-chroma"
               style={previewStyle(value)}
               onChange={(event) => custom({ chroma: Number(event.target.value) })}
             />
           </div>
 
-          <div className="due-color-presets">
+          <div className="color-studio-presets">
             <span>{message("settings.colorPresets")}</span>
             <div className="color-choice" data-kind="tone" role="group">
               {TONE_NAMES.map((option) => {
@@ -190,5 +190,6 @@ function previewStyle(value: ToneValue): CSSProperties {
     "--tone": `oklch(var(--custom-tone-l) ${tone.chroma} ${tone.hue})`,
     "--picker-hue": tone.hue,
     "--picker-chroma": tone.chroma,
+    "--picker-lightness": "var(--custom-tone-l)",
   } as CSSProperties;
 }

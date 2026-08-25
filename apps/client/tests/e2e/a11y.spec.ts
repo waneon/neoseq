@@ -275,4 +275,7 @@ test("settings passes the basic audit", async ({ page }) => {
     );
   })).toBe(true);
   expect(await audit(page)).toEqual([]);
+  await page.getByTestId("settings-accent-custom").click();
+  await expect(page.getByTestId("settings-accent-picker")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
 });

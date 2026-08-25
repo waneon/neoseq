@@ -458,6 +458,7 @@
   "settings.colorHue": "색상",
   "settings.colorIntensity": "선명도",
   "settings.colorPresets": "추천 색",
+  "settings.customColor": "직접 선택",
   "settings.dueToneFor": "{tier} 색",
   "settings.dueTonesDescription": "예정일과 기한은 남은 시간에 따라 색이 입혀집니다. 각 단계가 며칠까지를 뜻하는지와 그 색을 정하세요.",
   "settings.dueWithinDays": "{tier} 기준 일수",

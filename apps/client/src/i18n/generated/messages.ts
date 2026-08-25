@@ -459,6 +459,7 @@ export interface MessageArgumentMap {
   "settings.colorHue": undefined;
   "settings.colorIntensity": undefined;
   "settings.colorPresets": undefined;
+  "settings.customColor": undefined;
   "settings.danger": undefined;
   "settings.dateFormat": undefined;
   "settings.dateFormatDescription": undefined;

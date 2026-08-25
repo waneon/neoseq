@@ -8093,12 +8093,95 @@ button.tag-mark:focus-visible {
   }
 }
 
-/* ── A due colour, opened rather than repeated ──
-   One quiet well belongs to each tier row. Its studio is a compact floating
-   object: the result in both modes, then the two continuous choices, then the
-   safe named starting points. The reader owns hue and chroma; the mode owns
-   lightness through `--custom-tone-l`. */
-.due-color-trigger {
+/* The common accent answers stay in the settings surface. Fine adjustment is a
+   secondary pill beside them, carrying the current colour so a custom answer is
+   still visible when none of the named discs is selected. */
+.accent-color-controls {
+  display: flex;
+  align-self: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.accent-custom-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--target);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 16%, transparent);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.accent-custom-trigger:hover,
+.accent-custom-trigger[data-state="open"] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.accent-custom-trigger[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--tone) 12%, transparent);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 38%, transparent);
+}
+
+.accent-custom-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--e1);
+}
+
+.accent-custom-trigger > svg {
+  width: 13px;
+  height: 13px;
+}
+
+.accent-custom-well {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-full);
+  background: var(--tone);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 14%, transparent);
+}
+
+@media (max-width: 600px) {
+  .accent-color-controls > .color-choice {
+    gap: var(--sp-1);
+  }
+
+  .accent-color-controls .color-swatch {
+    width: 28px;
+    height: 28px;
+  }
+
+  .accent-custom-trigger {
+    height: var(--sp-6);
+    padding: 0 var(--sp-1);
+  }
+
+  /* The accessible name is on the button; the compact mark keeps all eight
+     direct choices and the secondary action on one mobile row. */
+  .accent-custom-trigger > span:last-child {
+    display: none;
+  }
+}
+
+/* ── A colour studio, opened rather than repeated ──
+   One quiet well opens a compact floating object: the result in both modes and
+   continuous coordinates, plus safe named starting points for due tones. Due
+   tones expose hue and chroma; the accent exposes only hue. In both cases the
+   mode owns lightness. */
+.color-studio-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8116,23 +8199,23 @@ button.tag-mark:focus-visible {
     color var(--dur-press) var(--ease-out);
 }
 
-.due-color-trigger:hover,
-.due-color-trigger[data-state="open"] {
+.color-studio-trigger:hover,
+.color-studio-trigger[data-state="open"] {
   background: var(--surface-2);
   color: var(--ink-2);
 }
 
-.due-color-trigger:focus-visible {
+.color-studio-trigger:focus-visible {
   outline: none;
   box-shadow: var(--e1);
 }
 
-.due-color-trigger > svg {
+.color-studio-trigger > svg {
   width: 14px;
   height: 14px;
 }
 
-.due-color-well {
+.color-studio-well {
   width: 22px;
   height: 22px;
   border-radius: var(--r-full);
@@ -8140,7 +8223,7 @@ button.tag-mark:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 14%, transparent);
 }
 
-.due-color-picker {
+.color-studio-popover {
   z-index: var(--z-popover);
   display: flex;
   flex-direction: column;
@@ -8153,14 +8236,14 @@ button.tag-mark:focus-visible {
   box-shadow: var(--e2);
 }
 
-.due-color-picker-head {
+.color-studio-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
 }
 
-.due-color-picker-head strong {
+.color-studio-head strong {
   min-width: 0;
   overflow: hidden;
   font-size: var(--text-sm);
@@ -8169,7 +8252,7 @@ button.tag-mark:focus-visible {
   white-space: nowrap;
 }
 
-.due-color-reset {
+.color-studio-reset {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
@@ -8184,28 +8267,28 @@ button.tag-mark:focus-visible {
   cursor: pointer;
 }
 
-.due-color-reset:hover {
+.color-studio-reset:hover {
   background: var(--surface-2);
   color: var(--ink);
 }
 
-.due-color-reset:focus-visible {
+.color-studio-reset:focus-visible {
   outline: none;
   box-shadow: var(--e1);
 }
 
-.due-color-reset svg {
+.color-studio-reset svg {
   width: 13px;
   height: 13px;
 }
 
-.due-color-previews {
+.color-studio-previews {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-2);
 }
 
-.due-color-preview {
+.color-studio-preview {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -8218,7 +8301,7 @@ button.tag-mark:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
 }
 
-.due-color-preview[data-mode="light"] {
+.color-studio-preview[data-mode="light"] {
   --custom-tone-l: 0.54;
   --canvas: oklch(0.985 0.002 264);
   --ink: oklch(0.235 0.014 264);
@@ -8228,9 +8311,12 @@ button.tag-mark:focus-visible {
   --info: oklch(0.535 0.17 255);
   --attention: oklch(0.56 0.17 45);
   --caution: oklch(0.57 0.135 100);
+  --accent-l: 0.535;
+  --accent-c: 0.208;
+  --on-accent: oklch(1 0 0);
 }
 
-.due-color-preview[data-mode="dark"] {
+.color-studio-preview[data-mode="dark"] {
   --custom-tone-l: 0.76;
   --canvas: oklch(0.207 0.007 264);
   --ink: oklch(0.955 0.004 264);
@@ -8240,36 +8326,62 @@ button.tag-mark:focus-visible {
   --info: oklch(0.72 0.14 255);
   --attention: oklch(0.78 0.15 50);
   --caution: oklch(0.82 0.14 105);
+  --accent-l: 0.705;
+  --accent-c: 0.185;
+  --on-accent: oklch(0.17 0.008 264);
 }
 
-.due-color-preview .task-chip {
+.accent-color-sample {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: 100%;
+  height: var(--sp-6);
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-2);
+  background: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  color: var(--on-accent);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.accent-color-sample > span {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: currentColor;
+}
+
+.color-studio-preview .task-chip {
   max-width: 100%;
   height: var(--sp-6);
   padding: 0 var(--sp-2);
 }
 
-.due-color-preview small,
-.due-color-presets > span,
-.due-color-slider > label {
+.color-studio-preview small,
+.color-studio-presets > span,
+.color-studio-slider > label {
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
 
-.due-color-slider {
+.color-studio-slider {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: var(--sp-2);
 }
 
-.due-color-slider output {
+.color-studio-slider output {
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
-.due-color-slider input {
+.color-studio-slider input {
   grid-column: 1 / -1;
   width: 100%;
   height: 18px;
@@ -8279,61 +8391,61 @@ button.tag-mark:focus-visible {
   cursor: pointer;
 }
 
-.due-color-slider input::-webkit-slider-runnable-track {
+.color-studio-slider input::-webkit-slider-runnable-track {
   height: 8px;
   border-radius: var(--r-full);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
 }
 
-.due-color-slider input::-moz-range-track {
+.color-studio-slider input::-moz-range-track {
   height: 8px;
   border-radius: var(--r-full);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
 }
 
-.due-color-hue::-webkit-slider-runnable-track {
+.color-studio-hue::-webkit-slider-runnable-track {
   background: linear-gradient(
     90deg,
-    oklch(var(--custom-tone-l) 0.17 0),
-    oklch(var(--custom-tone-l) 0.17 60),
-    oklch(var(--custom-tone-l) 0.17 120),
-    oklch(var(--custom-tone-l) 0.17 180),
-    oklch(var(--custom-tone-l) 0.17 240),
-    oklch(var(--custom-tone-l) 0.17 300),
-    oklch(var(--custom-tone-l) 0.17 359)
+    oklch(var(--picker-lightness) 0.17 0),
+    oklch(var(--picker-lightness) 0.17 60),
+    oklch(var(--picker-lightness) 0.17 120),
+    oklch(var(--picker-lightness) 0.17 180),
+    oklch(var(--picker-lightness) 0.17 240),
+    oklch(var(--picker-lightness) 0.17 300),
+    oklch(var(--picker-lightness) 0.17 359)
   );
 }
 
-.due-color-hue::-moz-range-track {
+.color-studio-hue::-moz-range-track {
   background: linear-gradient(
     90deg,
-    oklch(var(--custom-tone-l) 0.17 0),
-    oklch(var(--custom-tone-l) 0.17 60),
-    oklch(var(--custom-tone-l) 0.17 120),
-    oklch(var(--custom-tone-l) 0.17 180),
-    oklch(var(--custom-tone-l) 0.17 240),
-    oklch(var(--custom-tone-l) 0.17 300),
-    oklch(var(--custom-tone-l) 0.17 359)
+    oklch(var(--picker-lightness) 0.17 0),
+    oklch(var(--picker-lightness) 0.17 60),
+    oklch(var(--picker-lightness) 0.17 120),
+    oklch(var(--picker-lightness) 0.17 180),
+    oklch(var(--picker-lightness) 0.17 240),
+    oklch(var(--picker-lightness) 0.17 300),
+    oklch(var(--picker-lightness) 0.17 359)
   );
 }
 
-.due-color-chroma::-webkit-slider-runnable-track {
+.color-studio-chroma::-webkit-slider-runnable-track {
   background: linear-gradient(
     90deg,
-    oklch(var(--custom-tone-l) 0.025 var(--picker-hue)),
-    oklch(var(--custom-tone-l) 0.2 var(--picker-hue))
+    oklch(var(--picker-lightness) 0.025 var(--picker-hue)),
+    oklch(var(--picker-lightness) 0.2 var(--picker-hue))
   );
 }
 
-.due-color-chroma::-moz-range-track {
+.color-studio-chroma::-moz-range-track {
   background: linear-gradient(
     90deg,
-    oklch(var(--custom-tone-l) 0.025 var(--picker-hue)),
-    oklch(var(--custom-tone-l) 0.2 var(--picker-hue))
+    oklch(var(--picker-lightness) 0.025 var(--picker-hue)),
+    oklch(var(--picker-lightness) 0.2 var(--picker-hue))
   );
 }
 
-.due-color-slider input::-webkit-slider-thumb {
+.color-studio-slider input::-webkit-slider-thumb {
   width: 18px;
   height: 18px;
   margin-top: -5px;
@@ -8344,7 +8456,7 @@ button.tag-mark:focus-visible {
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--ink) 30%, transparent);
 }
 
-.due-color-slider input::-moz-range-thumb {
+.color-studio-slider input::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border: 3px solid var(--overlay);
@@ -8353,29 +8465,29 @@ button.tag-mark:focus-visible {
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--ink) 30%, transparent);
 }
 
-.due-color-slider input:focus-visible {
+.color-studio-slider input:focus-visible {
   outline: none;
 }
 
-.due-color-slider input:focus-visible::-webkit-slider-thumb {
+.color-studio-slider input:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.due-color-slider input:focus-visible::-moz-range-thumb {
+.color-studio-slider input:focus-visible::-moz-range-thumb {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.due-color-presets {
+.color-studio-presets {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
 }
 
-.due-color-presets .color-choice {
+.color-studio-presets .color-choice {
   gap: var(--sp-2);
 }
 
-.due-color-presets .color-swatch {
+.color-studio-presets .color-swatch {
   width: var(--sp-6);
   height: var(--sp-6);
 }
@@ -8503,7 +8615,7 @@ button.tag-mark:focus-visible {
    line up down the whole scale. Without the explicit placement auto-flow puts
    them in the third track — a row with three children fills the first three
    columns — while the two threshold rows put colour in the fourth. */
-.due-tier > .due-color-trigger {
+.due-tier > .color-studio-trigger {
   grid-column: 4;
 }
 
@@ -8519,7 +8631,7 @@ button.tag-mark:focus-visible {
     padding-bottom: var(--sp-2);
   }
 
-  .due-tier > .due-color-trigger {
+  .due-tier > .color-studio-trigger {
     grid-column: 1;
   }
 }

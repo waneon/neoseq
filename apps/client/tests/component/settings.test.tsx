@@ -185,7 +185,7 @@ describe("presentation preferences", () => {
       "aria-pressed",
       "true",
     );
-    for (const preview of picker.querySelectorAll(".due-color-preview .task-chip")) {
+    for (const preview of picker.querySelectorAll(".color-studio-preview .task-chip")) {
       expect(preview).toHaveAttribute("data-palette", "caution");
     }
     fireEvent.change(within(picker).getByLabelText("Hue"), { target: { value: "318" } });
@@ -193,7 +193,7 @@ describe("presentation preferences", () => {
     await waitFor(() => expect(dueTiers().soonTone).toEqual({ hue: 318, chroma: 0.18 }));
     expect(screen.getByTestId("due-preview-soon").style.getPropertyValue("--tone"))
       .toContain("318");
-    for (const preview of picker.querySelectorAll(".due-color-preview .task-chip")) {
+    for (const preview of picker.querySelectorAll(".color-studio-preview .task-chip")) {
       expect(preview).not.toHaveAttribute("data-palette");
       expect((preview as HTMLElement).style.getPropertyValue("--tone")).toContain("318");
     }
@@ -220,11 +220,28 @@ describe("presentation preferences", () => {
     await mountSettings("appearance");
 
     const accent = screen.getByTestId("settings-accent");
+    const custom = within(accent).getByRole("button", { name: "Custom" });
     // Iris is where the product starts, so it is the step already pressed.
     expect(within(accent).getByRole("button", { name: "Iris" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
+    expect(custom).toHaveAttribute("aria-pressed", "false");
+
+    // The rail fills the gaps between the named starting points. Only its hue
+    // reaches storage and the root; lightness and chroma remain CSS tokens.
+    await user.click(custom);
+    let picker = await screen.findByTestId("settings-accent-picker");
+    expect(within(picker).queryByRole("button", { name: "Teal" })).not.toBeInTheDocument();
+    fireEvent.change(within(picker).getByLabelText("Hue"), { target: { value: "318" } });
+    await waitFor(() => expect(storedAccentHue()).toBe(318));
+    expect(document.documentElement.style.getPropertyValue("--accent-h")).toBe("318");
+    expect(custom.getAttribute("style")).toContain("318");
+    expect(within(accent).getByRole("button", { name: "Custom" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(accent.querySelectorAll('.color-choice [aria-pressed="true"]')).toHaveLength(0);
 
     await user.click(within(accent).getByRole("button", { name: "Teal" }));
     await waitFor(() => expect(storedAccentHue()).toBe(195));
@@ -234,7 +251,9 @@ describe("presentation preferences", () => {
 
     // Back to the default, and the override is removed rather than written out,
     // so a reader who never chose one still follows the shipped iris.
-    await user.click(within(accent).getByRole("button", { name: "Iris" }));
+    await user.click(custom);
+    picker = await screen.findByTestId("settings-accent-picker");
+    await user.click(within(picker).getByRole("button", { name: "Restore defaults" }));
     await waitFor(() => expect(storedAccentHue()).toBe(DEFAULT_ACCENT_HUE));
     expect(document.documentElement.style.getPropertyValue("--accent-h")).toBe("");
   });

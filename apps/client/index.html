@@ -29,9 +29,13 @@
         if (t === "light" || t === "dark") {
           document.documentElement.dataset.theme = t;
         }
-        var h = Number(localStorage.getItem("neoseq.accent-hue"));
-        if (Number.isFinite(h) && h > 0) {
-          document.documentElement.style.setProperty("--accent-h", String(h % 360));
+        var storedHue = localStorage.getItem("neoseq.accent-hue");
+        var h = Number(storedHue);
+        if (storedHue !== null && Number.isFinite(h)) {
+          document.documentElement.style.setProperty(
+            "--accent-h",
+            String(((Math.round(h) % 360) + 360) % 360),
+          );
         }
       } catch (_) {
         /* storage unavailable (private mode) — the OS preference still applies */

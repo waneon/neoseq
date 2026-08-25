@@ -2,11 +2,8 @@
 //
 // Everything the interface does with colour goes through `--accent`: the caret,
 // the selection ribbon, the branch through the outline, the current rail row, a
-// primary button, a focus halo, a tag. So there is exactly one thing to choose
-// here, and choosing it changes all of them at once — which is why this control
-// has no preview strip of its own. The dialog is a panel over the product, and the
-// product behind it is the preview: the settings rail's current row, this pane's
-// own tint and the pressed swatch's tick all move the moment the hue does.
+// primary button, a focus halo, a tag. So there is exactly one coordinate to
+// choose here, and choosing it changes all of them at once.
 //
 // What is stored is a *hue*, and only a hue. `app.css` owns the accent's lightness
 // and chroma in each mode, so every angle lands on the measured row of the
@@ -16,18 +13,18 @@
 // of which most fail AA in one mode or the other, and then either ships an
 // inaccessible interface or spends a validation message refusing a choice.
 //
-// Eight named steps, and nothing else. A continuous hue rail sat under them for a
-// while and it was the wrong instrument: the accent is not a quantity anybody
-// tunes, it is one of a handful of answers, and a slider invites a precision that
-// means nothing here — 214° is not a better answer than "Blue", it is the same
-// answer with a decision left dangling. The steps are the whole control now, in
-// the same swatch language every colour choice in the product uses, painted from
-// `--accent-l` and `--accent-c` so they show the colours actually on offer in the
-// current mode and repaint themselves in dark mode for free. A hue stored from
-// before still renders — nothing about the token changed, only what offers it.
+// The eight named steps are the immediate answers, visible without opening
+// anything. A separate custom action opens the continuous rail for readers who
+// want to move between them without exposing unsafe RGB coordinates. The picker
+// previews the actual strong accent in both modes; CSS still supplies the two
+// measured lightness/chroma pairs, so every position remains legible.
 
-import { useState, type CSSProperties } from "react";
-import { CheckIcon } from "lucide-react";
+import { useId, useState, type CSSProperties } from "react";
+import {
+  CheckIcon,
+  RotateCcwIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 import { useI18n, type MessageKey } from "../../i18n";
 import {
   DEFAULT_ACCENT_HUE,
@@ -35,6 +32,12 @@ import {
   setAccentHue,
   storedAccentHue,
 } from "../../ui/theme";
+import {
+  Popover,
+  PopoverContent,
+  PopoverPortal,
+  PopoverTrigger,
+} from "../../ui/shadcn/popover";
 
 /** Eight steps around the circle, named, with iris where it has always been. */
 const ACCENT_STEPS = [
@@ -50,7 +53,9 @@ const ACCENT_STEPS = [
 
 export function AccentField() {
   const { message } = useI18n();
+  const inputId = useId();
   const [hue, setHue] = useState(storedAccentHue);
+  const custom = !ACCENT_STEPS.some((step) => step.hue === hue);
 
   const apply = (next: number) => {
     const angle = normalizeHue(next);
@@ -62,31 +67,114 @@ export function AccentField() {
     <div className="settings-field">
       <h3>{message("settings.accent")}</h3>
       <p>{message("settings.accentDescription")}</p>
-      <div
-        className="color-choice"
-        data-kind="hue"
-        role="group"
-        aria-label={message("settings.accent")}
-        data-testid="settings-accent"
-      >
-        {ACCENT_STEPS.map((step) => (
-          <button
-            key={step.hue}
-            type="button"
-            className="color-swatch"
-            // The swatch is the accent it sets, built from the same lightness
-            // and chroma the token is, so it cannot drift from the result.
-            style={{ "--accent-h": step.hue } as CSSProperties}
-            aria-pressed={hue === step.hue}
-            aria-label={message(step.label)}
-            title={message(step.label)}
-            data-testid={`accent-step-${step.hue}`}
-            onClick={() => apply(step.hue)}
-          >
-            <CheckIcon aria-hidden />
-          </button>
-        ))}
+      <div className="accent-color-controls" data-testid="settings-accent">
+        <div
+          className="color-choice"
+          data-kind="hue"
+          role="group"
+          aria-label={message("settings.colorPresets")}
+        >
+          {ACCENT_STEPS.map((step) => (
+            <button
+              key={step.hue}
+              type="button"
+              className="color-swatch"
+              style={{ "--accent-h": step.hue } as CSSProperties}
+              aria-pressed={hue === step.hue}
+              aria-label={message(step.label)}
+              title={message(step.label)}
+              data-testid={`accent-step-${step.hue}`}
+              onClick={() => apply(step.hue)}
+            >
+              <CheckIcon aria-hidden />
+            </button>
+          ))}
+        </div>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="accent-custom-trigger"
+              aria-pressed={custom}
+              aria-label={message("settings.customColor")}
+              title={message("settings.customColor")}
+              data-testid="settings-accent-custom"
+              style={accentStyle(hue)}
+            >
+              <span className="accent-custom-well" aria-hidden />
+              <SlidersHorizontalIcon aria-hidden />
+              <span>{message("settings.customColor")}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverPortal>
+            <PopoverContent
+              className="color-studio-popover enter-fade-fast"
+              align="start"
+              collisionPadding={12}
+              sideOffset={8}
+              aria-label={message("settings.customColor")}
+              data-testid="settings-accent-picker"
+              style={accentStyle(hue)}
+            >
+              <div className="color-studio-head">
+                <strong>{message("settings.customColor")}</strong>
+                <button
+                  type="button"
+                  className="color-studio-reset"
+                  onClick={() => apply(DEFAULT_ACCENT_HUE)}
+                >
+                  <RotateCcwIcon aria-hidden />
+                  {message("settings.restoreDefaults")}
+                </button>
+              </div>
+
+              <div className="color-studio-previews">
+                {(["light", "dark"] as const).map((mode) => (
+                  <div
+                    className="color-studio-preview accent-color-preview"
+                    data-mode={mode}
+                    key={mode}
+                  >
+                    <span className="accent-color-sample">
+                      <span aria-hidden />
+                      {message("settings.accent")}
+                    </span>
+                    <small>{message(mode === "light" ? "theme.light" : "theme.dark")}</small>
+                  </div>
+                ))}
+              </div>
+
+              <div className="color-studio-slider">
+                <label htmlFor={`${inputId}-hue`}>{message("settings.colorHue")}</label>
+                <output>{hue}°</output>
+                <input
+                  id={`${inputId}-hue`}
+                  type="range"
+                  min={0}
+                  max={359}
+                  step={1}
+                  value={hue}
+                  aria-label={message("settings.colorHue")}
+                  data-testid="settings-accent-hue"
+                  className="color-studio-hue"
+                  style={accentStyle(hue)}
+                  onChange={(event) => apply(Number(event.target.value))}
+                />
+              </div>
+            </PopoverContent>
+          </PopoverPortal>
+        </Popover>
       </div>
     </div>
   );
+}
+
+function accentStyle(hue: number): CSSProperties {
+  return {
+    "--accent-h": hue,
+    "--tone": `oklch(var(--accent-l) var(--accent-c) ${hue})`,
+    "--picker-hue": hue,
+    "--picker-lightness": "var(--accent-l)",
+  } as CSSProperties;
 }

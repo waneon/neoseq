@@ -24,9 +24,11 @@ status color; a status tone does not mark navigation or focus. Categories are
 distinguished by name, mark, or position rather than arbitrary chroma.
 
 The accent has a strong form for marks and a quieter form for references inside
-prose. A reader may choose among a bounded set of hues, while lightness and
-chroma remain system-owned so every choice satisfies the same contrast contract.
-Tags reuse this safe hue family; they do not create another structural palette.
+prose. A reader may choose any hue, while lightness and chroma remain
+system-owned so every point on the hue circle satisfies the same contrast
+contract. Common hues remain direct choices; continuous adjustment is an
+explicit secondary action. Tags reuse this safe hue family; they do not create
+another structural palette.
 
 State palettes store semantic tone names rather than raw colors. Due-date
 preferences may instead store a bounded OKLCH hue and chroma pair when the reader
