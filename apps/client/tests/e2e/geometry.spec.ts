@@ -912,6 +912,42 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   expect(Math.abs(pickerBox.x - lineBox.x)).toBeLessThan(2);
 });
 
+test("closing the scheduled editor releases the outline scroll", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 633 });
+  await createGraph(page, "Scheduled Scroll Graph");
+  await startOutline(page);
+  for (let index = 0; index < 32; index += 1) await page.keyboard.press("Enter");
+
+  await page.keyboard.type("/scheduled");
+  await expect(page.getByTestId("slash-menu")).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  const picker = page.getByTestId("property-picker");
+  await expect(picker).toBeVisible();
+  // The first Escape returns the staged editor to its property list; the
+  // second dismisses it and restores the textarea caret.
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(page.locator("textarea:focus")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+
+  const scroller = page.locator(".page-scroll");
+  const before = await scroller.evaluate((node) => node.scrollTop);
+  expect(before).toBeGreaterThan(300);
+  const box = (await scroller.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -300);
+
+  // Let the wheel, React, and the virtualizer each finish a paint. A durable
+  // focus-derived reveal used to pull the last block back here on those renders.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+  const after = await scroller.evaluate((node) => node.scrollTop);
+  expect(after).toBeLessThan(before - 200);
+});
+
 test("the property editor remains an edge-to-edge sheet on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await createGraph(page, "Compact Property Sheet Graph");

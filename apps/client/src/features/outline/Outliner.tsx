@@ -189,6 +189,11 @@ interface VisualLineRange {
   returnColumn: number;
 }
 
+interface NavigationRevealRequest {
+  id: string;
+  sequence: number;
+}
+
 // Pending rows bridge the async gap between Enter and the core's block-creation
 // acknowledgement: each is focused synchronously so fast typing
 // lands in the new block, then swaps to its real BlockId. They may chain
@@ -356,6 +361,16 @@ export function Outliner({
     0,
   );
   const [focusedId, setFocusedId, focusedRef] = useImmediateState<string | null>(null);
+  const revealSequence = useRef(0);
+  const [navigationReveal, setNavigationReveal] = useState<NavigationRevealRequest | null>(null);
+  const revealNavigationTarget = useCallback((id: string | null) => {
+    if (id === null) {
+      setNavigationReveal(null);
+      return;
+    }
+    revealSequence.current += 1;
+    setNavigationReveal({ id, sequence: revealSequence.current });
+  }, []);
   const [overlay, dispatchOverlay] = useReducer(overlayReducer, { kind: "none" });
   const propertyRequest = overlay.kind === "property" ? overlay.request : null;
   const tagRequest = overlay.kind === "tag" ? overlay.request : null;
@@ -743,7 +758,12 @@ export function Outliner({
         }
       }
     }
-  }, [clearVisualLineState, dispatchDraft, keymap, readonly, vim.reset]);
+    revealNavigationTarget(
+      id !== null && (inputMethod === "keyboard" || inputMethod === "programmatic")
+        ? id
+        : null,
+    );
+  }, [clearVisualLineState, dispatchDraft, keymap, readonly, revealNavigationTarget, vim.reset]);
 
   const clearSelection = useCallback(() => {
     anchorId.current = null;
@@ -782,8 +802,9 @@ export function Outliner({
       }
       dispatchDraft({ type: "clear-auto-closers", ids: [id] });
       setFocusedId(null);
+      revealNavigationTarget(null);
     });
-  }, [dispatchDraft]);
+  }, [dispatchDraft, revealNavigationTarget]);
 
   /**
    * Hands the keyboard to the tree. A selection and a caret are the two answers
@@ -798,7 +819,8 @@ export function Outliner({
     const active = document.activeElement;
     if (active instanceof HTMLTextAreaElement) active.blur();
     viewportRef.current?.focus({ preventScroll: true });
-  }, [dispatchDraft]);
+    revealNavigationTarget(null);
+  }, [dispatchDraft, revealNavigationTarget]);
 
   /** The ⇧-click anchor, resolved against the outline as it is now. */
   const anchorRowIndex = useCallback(
@@ -1095,6 +1117,7 @@ export function Outliner({
       const ids = selectableIds(allRows, anchor, head);
       setSelected(ids);
       takeTreeFocus();
+      revealNavigationTarget(range.headId);
       return;
     }
 
@@ -1118,6 +1141,7 @@ export function Outliner({
       setVisualLine(next);
       const ids = selectableIds(allRows, anchor, target);
       setSelected(ids);
+      revealNavigationTarget(next.headId);
       return;
     }
     if (command.action === "cancel") {
@@ -1179,6 +1203,7 @@ export function Outliner({
     message,
     owner,
     readonly,
+    revealNavigationTarget,
     restoreVisualCaret,
     run,
     activateBlock,
@@ -2372,8 +2397,10 @@ export function Outliner({
     pendingHistoryReveal.current = null;
   }, [activateBlock, historyRevealRevision, rows, virtualizer]);
 
-  // Keep keyboard-focused rows visible even when virtualization would have
-  // recycled them — and only then.
+  // A navigation arrival asks to be revealed exactly once. Focus itself is a
+  // durable editing state and must not imply durable scroll ownership: after a
+  // reader starts scrolling, virtualizer renders may continue while that same
+  // textarea remains focused.
   //
   // "Bring the focused row into view" is the right behaviour for a row that
   // arrived from the keyboard and the wrong one for a row the pointer just
@@ -2381,18 +2408,22 @@ export function Outliner({
   // so aligning it moves the page out from under the caret the user placed. A
   // row already on screen is by definition in view, whichever way focus reached
   // it, so intersection is the whole test.
-  const keyboardTargetId = focusedId ?? visualLine?.headId ?? null;
   useEffect(() => {
-    if (!keyboardTargetId) return;
-    const index = rowIndexOf(rows, keyboardTargetId);
+    if (!navigationReveal) return;
+    const consume = () => setNavigationReveal((current) =>
+      current?.sequence === navigationReveal.sequence ? null : current);
+    const index = rowIndexOf(rows, navigationReveal.id);
     if (index < 0) return;
     const element = viewportRef.current?.querySelector(
-      `[data-block-id="${cssEscape(keyboardTargetId)}"]`,
+      `[data-block-id="${cssEscape(navigationReveal.id)}"]`,
     );
     if (element && scrollElement) {
       const row = element.getBoundingClientRect();
       const view = scrollElement.getBoundingClientRect();
-      if (row.bottom > view.top && row.top < view.bottom) return;
+      if (row.bottom > view.top && row.top < view.bottom) {
+        consume();
+        return;
+      }
       // A mounted row already has exact geometry. Native nearest-edge scrolling
       // completes synchronously and owns no later reconciliation pass, so an
       // old keyboard arrival cannot pull the page back after focus leaves and
@@ -2400,11 +2431,14 @@ export function Outliner({
       // that does not exist in the DOM yet.
       if (typeof element.scrollIntoView === "function") {
         element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        consume();
         return;
       }
     }
+    // Keep the request until the virtual row mounts; the next pass consumes it
+    // after exact geometry has either confirmed or completed the reveal.
     virtualizer.scrollToIndex(index);
-  }, [keyboardTargetId, rows, scrollElement, virtualizer]);
+  }, [navigationReveal, rows, scrollElement, virtualizer]);
 
   // Mod+P means "properties of what is in front of me". While a block is focused
   // that is the block; the shell falls back to the page when this slot is empty.
@@ -2530,9 +2564,13 @@ export function Outliner({
             `[data-block-id="${cssEscape(blockId)}"] textarea`,
           )
           : null;
-      anchor?.focus({ preventScroll: true });
-      if (anchor instanceof HTMLTextAreaElement && selection) {
-        anchor.setSelectionRange(selection.start, selection.end);
+      if (anchor instanceof HTMLTextAreaElement) {
+        keepingPageStill(anchor, () => {
+          anchor.focus({ preventScroll: true });
+          if (selection) anchor.setSelectionRange(selection.start, selection.end);
+        });
+      } else {
+        anchor?.focus({ preventScroll: true });
       }
     });
   };
