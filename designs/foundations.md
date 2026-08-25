@@ -91,6 +91,10 @@ are raised. Menus and dialogs add increasing distance. A hover fill alone never
 defines a resting control, and adjacent regions are not separated by a line
 without a ground change.
 
+Focus geometry is a typed foundation role: its reach and its color are distinct
+tokens. Fields and controls inside scrollports draw focus inside their own edge;
+feature layout never reserves or recovers space with focus-specific margins.
+
 Whole-pixel geometry protects icon and rule clarity. Icon boxes use compatible
 dimensions, sibling rows that claim shared columns use shared tracks, and one
 global scrollbar language serves every scrolling surface.

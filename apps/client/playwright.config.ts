@@ -38,14 +38,14 @@ export default defineConfig({
     {
       name: "mobile-chromium",
       use: { ...devices["Pixel 7"] },
-      testMatch: /(?:a11y|mobile)\.spec\.ts/,
+      testMatch: /(?:a11y|mobile|visual)\.spec\.ts/,
     },
     {
       // Dark mode ships from the same token declaration, so it needs the same
       // gate: contrast is a property of the pair, not of the light values.
       name: "chromium-dark",
       use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
-      testMatch: /a11y\.spec\.ts/,
+      testMatch: /(?:a11y|visual)\.spec\.ts/,
     },
   ],
   webServer: {

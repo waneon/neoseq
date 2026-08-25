@@ -13,7 +13,8 @@ Every control defines rest, hover, focus, pressed, disabled, and—where
 applicable—open or selected state. Those states use the shared foundation roles:
 
 - hover changes the surface or raises an already raised control;
-- focus adds a halo outside the resting edge without changing geometry;
+- focus strengthens the resting edge without changing geometry; an outset halo
+  is allowed only where no clipping or scrolling ancestor can crop it;
 - press deepens an inset control or removes a raised control's cast;
 - disabled controls remain visible, semantic, and accompanied by a reason when
   shown in the command layer; and
@@ -90,6 +91,10 @@ A token-completion list instead follows its focused editor because caret repair
 and row reconciliation may scroll that editor without user dismissal intent.
 Dismissal does not itself commit or mutate stored content, and completion tokens
 remain untouched.
+
+One element owns scrolling on each axis within an overlay. A descendant may own
+a genuinely independent list, but layout wrappers do not compensate for focus
+paint with negative margins or create a second scrollport around the same flow.
 
 An anchor is either a measurable live element or a captured box. Zero-area
 geometry is absence, not the viewport origin. If a live anchor disappears, the

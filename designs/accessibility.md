@@ -16,6 +16,9 @@ from its pointer route.
   programmatic semantics carries the same distinction.
 - Focus is component-owned and clearly visible without changing the component's
   silhouette or layout.
+- Focus paint remains complete inside every clipping and scrolling surface. A
+  component that supplies no deliberate focus appearance retains the shared
+  inset fallback rather than suppressing the browser indicator globally.
 - Motion respects reduced-motion preferences, while time-based information
   remains understandable.
 - Truncated names expose their complete value through an accessible and
@@ -82,8 +85,9 @@ and catalog architecture.
 
 Automated accessibility checks cover representative light, dark, desktop, and
 mobile states. Component tests cover keyboard movement, selection, focus return,
-IME guards, and announcements. Geometry tests protect hit areas and non-shifting
-focus affordances.
+IME guards, and announcements. Geometry and rendered-pixel tests protect hit
+areas, non-shifting focus affordances, and complete focus edges across clipping
+boundaries and selectable accent hues.
 
 Automation is a floor. New interaction patterns also require keyboard-only,
 screen-reader-semantic, zoomed, reduced-motion, localization-expansion, and touch

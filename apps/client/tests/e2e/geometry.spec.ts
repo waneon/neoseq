@@ -353,20 +353,40 @@ const AUDIT = /* language=JavaScript */ `
     }
   }
 
-  // 9. A focus halo drawn inside a clipping ancestor is a focus halo with one
-  //    edge missing.
+  // 9. Outset focus paint is safe only when every clipping or scrolling
+  //    ancestor leaves its complete reach visible. Computed shadows are reduced
+  //    to colour-free comma-separated layers so inset edges and cast shadows do
+  //    not masquerade as focus halos.
+  const outerRingReach = (shadow) => {
+    const plain = shadow.replace(/[a-z-]+\([^)]*\)/gi, "color");
+    let reach = 0;
+    for (const layer of plain.split(",")) {
+      if (/\binset\b/.test(layer)) continue;
+      const lengths = [...layer.matchAll(/(-?\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+      if (lengths.length < 4) continue;
+      const [x, y, blur, spread] = lengths.slice(-4);
+      if (Math.abs(x) < 0.1 && Math.abs(y) < 0.1 && Math.abs(blur) < 0.1 && spread >= 2) {
+        reach = Math.max(reach, spread);
+      }
+    }
+    return reach;
+  };
   for (const el of all) {
     const s = getComputedStyle(el);
-    if (!/0 0 0 3px|0 0 0 2px/.test(s.boxShadow)) continue;
+    const reach = outerRingReach(s.boxShadow);
+    if (reach === 0) continue;
     for (let p = el.parentElement; p; p = p.parentElement) {
       const ps = getComputedStyle(p);
-      if (!/(hidden|clip)/.test(ps.overflowX + ps.overflowY)) continue;
+      if (!/(hidden|clip|auto|scroll)/.test(ps.overflowX + ps.overflowY)) continue;
       const r = el.getBoundingClientRect();
       const pr = p.getBoundingClientRect();
-      if (r.left - pr.left < 3 || pr.right - r.right < 3 || r.top - pr.top < 3 || pr.bottom - r.bottom < 3) {
+      if (
+        r.left - pr.left < reach || pr.right - r.right < reach ||
+        r.top - pr.top < reach || pr.bottom - r.bottom < reach
+      ) {
         add("clipped-halo", name(el) + " inside clipping " + name(p));
+        break;
       }
-      break;
     }
   }
 
@@ -465,6 +485,14 @@ async function still(page: Page): Promise<void> {
 async function audit(page: Page, label: string): Promise<void> {
   await still(page);
   const findings = (await page.evaluate(AUDIT)) as string[];
+  if (findings.length > 0) console.log(`\n──── ${label}\n   ${findings.join("\n   ")}`);
+  expect(findings, label).toEqual([]);
+}
+
+async function noClippedFocus(page: Page, label: string): Promise<void> {
+  await still(page);
+  const findings = ((await page.evaluate(AUDIT)) as string[])
+    .filter((finding) => finding.startsWith("clipped-halo:"));
   if (findings.length > 0) console.log(`\n──── ${label}\n   ${findings.join("\n   ")}`);
   expect(findings, label).toEqual([]);
 }
@@ -611,6 +639,13 @@ test("every surface is measured and square", async ({ page }) => {
 
   await openBlockProperties(page);
   await audit(page, "property picker");
+  await page.getByTestId("property-picker")
+    .getByRole("option", { name: "Scheduled", exact: true }).click();
+  await expect(page.getByTestId("moment-picker")).toBeVisible();
+  await noClippedFocus(page, "task moment picker focus");
+  // The first Escape returns the staged editor to the property list; the second
+  // closes the picker so the next surface starts from the outline.
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
   await openBlockTags(page);
