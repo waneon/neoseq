@@ -12,8 +12,8 @@
 }
 
 .visual-property-picker {
-  width: min(720px, calc(100vw - 2 * var(--sp-4)));
-  height: min(540px, calc(100vh - 2 * var(--sp-4)));
+  width: min(640px, calc(100vw - 2 * var(--sp-4)));
+  height: min(480px, calc(100vh - 2 * var(--sp-4)));
 }
 
 .visual-fallback {
@@ -32,6 +32,6 @@
   }
 
   .visual-property-picker {
-    height: min(540px, calc(100vh - 80px));
+    height: min(480px, calc(100vh - 80px));
   }
 }

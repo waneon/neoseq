@@ -1021,7 +1021,32 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   const rulesPane = (await picker.getByTestId("moment-pane-rules").boundingBox())!;
   expect(datePane.x + datePane.width).toBeLessThan(rulesPane.x);
   expect(Math.abs(datePane.y - rulesPane.y)).toBeLessThan(2);
-  expect(pickerBox.width).toBeCloseTo(720, 0);
+  expect(pickerBox.width).toBeCloseTo(640, 0);
+
+  const selectedCenterDelta = await picker
+    .locator(".moment-calendar-cell[data-selected]")
+    .evaluate((cell) => {
+      const text = document.createRange();
+      text.selectNodeContents(cell);
+      const textBox = text.getBoundingClientRect();
+      const cellBox = cell.getBoundingClientRect();
+      return Math.abs(
+        (textBox.top + textBox.height / 2) - (cellBox.top + cellBox.height / 2),
+      );
+    });
+  expect(selectedCenterDelta).toBeLessThan(1.5);
+
+  const timeSwitch = (await picker.getByTestId("moment-time-toggle").boundingBox())!;
+  const timeControls = (await picker.locator(".moment-time-controls").boundingBox())!;
+  expect(timeControls.y - (timeSwitch.y + timeSwitch.height)).toBeLessThan(16);
+
+  const repeatBefore = (await picker.locator(".moment-repeat").boundingBox())!;
+  const heightBefore = (await picker.boundingBox())!.height;
+  await picker.getByTestId("moment-time-toggle").click();
+  const repeatAfter = (await picker.locator(".moment-repeat").boundingBox())!;
+  const heightAfter = (await picker.boundingBox())!.height;
+  expect(Math.abs(repeatAfter.y - repeatBefore.y)).toBeLessThan(1);
+  expect(Math.abs(heightAfter - heightBefore)).toBeLessThan(1);
 });
 
 test("closing the scheduled editor releases the outline scroll", async ({ page }) => {

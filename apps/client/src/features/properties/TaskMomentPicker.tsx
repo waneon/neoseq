@@ -1,5 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { parseDate, parseTime, Time } from "@internationalized/date";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { parseDate, parseTime, Time, type CalendarDate } from "@internationalized/date";
 import {
   Button as AriaButton,
   Calendar,
@@ -16,7 +16,6 @@ import {
   TimeField,
 } from "react-aria-components";
 import {
-  CalendarIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
@@ -24,7 +23,7 @@ import {
   SearchIcon,
   Trash2Icon,
 } from "lucide-react";
-import { addDays, nowLocalTime, todayLocalDate } from "../../entities/journal";
+import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import {
   advanceDate,
   DEFAULT_REPEAT,
@@ -48,6 +47,7 @@ interface TaskMomentPickerProps {
   hasValue: boolean;
   readonly: boolean;
   busy: boolean;
+  clearLabel: string;
   onApply: (date: string, time: string | null, repeat: string | null | undefined) => void;
   onClear: () => void;
   onCancel: () => void;
@@ -57,11 +57,50 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+interface AdjacentMonthCellProps {
+  date: CalendarDate;
+  disabled: boolean;
+  label: string;
+  today: string;
+  onSelect: (date: CalendarDate) => void;
+}
+
 /**
- * A task moment is edited as the one thing a reader means: a day with an
- * optional clock. Its task-level cadence belongs beside that moment, so it joins
- * the same local draft. Persistence happens only through Apply, giving pointer,
- * keyboard, and natural-language routes one command and one undo boundary.
+ * React Aria deliberately disables dates outside a calendar's visible month.
+ * Active-month cells retain its roving keyboard model, while these explicit
+ * buttons make the adjacent dates that are already visible honest pointer
+ * targets. Arrow keys still cross the same month boundary through React Aria.
+ */
+function AdjacentMonthCell({
+  date,
+  disabled,
+  label,
+  today,
+  onSelect,
+}: AdjacentMonthCellProps) {
+  return (
+    <td role="gridcell" aria-selected={false}>
+      <button
+        type="button"
+        className="moment-calendar-cell"
+        aria-label={label}
+        data-disabled={disabled || undefined}
+        data-outside-month
+        data-today={date.toString() === today || undefined}
+        disabled={disabled}
+        tabIndex={-1}
+        onClick={() => onSelect(date)}
+      >
+        {date.day}
+      </button>
+    </td>
+  );
+}
+
+/**
+ * A task moment is one local draft: day, optional clock, and task cadence.
+ * Every route edits that draft; only Done persists it. This keeps natural
+ * language, pointer, and keyboard changes inside one undo boundary.
  */
 export function TaskMomentPicker({
   date: initialDate,
@@ -70,46 +109,45 @@ export function TaskMomentPicker({
   hasValue,
   readonly,
   busy,
+  clearLabel,
   onApply,
   onClear,
   onCancel,
 }: TaskMomentPickerProps) {
-  const { locale, message, formatJournalDate, formatTimeOfDay } = useI18n();
+  const { locale, message, formatJournalDate } = useI18n();
   const today = todayLocalDate();
   const [date, setDate] = useState(initialDate);
+  const [focusedDate, setFocusedDate] = useState(() => parseDate(initialDate));
   const [time, setTime] = useState<string | null>(initialTime ?? null);
   const [rememberedTime, setRememberedTime] = useState(initialTime ?? "09:00");
   const [repeat, setRepeat] = useState<RepeatInterval | null>(() =>
     initialRepeat ? parseRepeat(initialRepeat) : null);
+  const [rememberedRepeat, setRememberedRepeat] = useState<RepeatInterval>(() =>
+    (initialRepeat ? parseRepeat(initialRepeat) : null) ?? DEFAULT_REPEAT);
   const [repeatChanged, setRepeatChanged] = useState(false);
   const [activePane, setActivePane] = useState<"date" | "rules">("date");
   const [query, setQuery] = useState("");
-  const timeControlsRef = useRef<HTMLDivElement>(null);
   const paneId = useId();
   const parsed = useMemo(
     () => parseMomentQuery(query, today, locale),
     [locale, query, today],
   );
   const calendarDate = parseDate(date);
-  const quick = [
-    { id: "today", label: message("properties.today"), value: today },
-    { id: "tomorrow", label: message("properties.tomorrow"), value: addDays(today, 1) },
-    { id: "next-week", label: message("properties.nextWeek"), value: addDays(today, 7) },
-  ];
   const disabled = readonly || busy;
   const repeatChange = repeatChanged ? (repeat ? formatRepeat(repeat) : null) : undefined;
+  const repeatDraft = repeat ?? rememberedRepeat;
 
-  useEffect(() => {
-    if (time === null) return;
-    const frame = requestAnimationFrame(() => {
-      timeControlsRef.current?.scrollIntoView({ block: "nearest" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [time]);
+  const chooseDate = (value: CalendarDate) => {
+    setDate(value.toString());
+    setFocusedDate(value);
+    setQuery("");
+  };
 
   const selectParsed = () => {
     if (!parsed) return;
+    const nextDate = parseDate(parsed.date);
     setDate(parsed.date);
+    setFocusedDate(nextDate);
     if (parsed.time) {
       setTime(parsed.time);
       setRememberedTime(parsed.time);
@@ -120,7 +158,7 @@ export function TaskMomentPicker({
   const applyParsed = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.nativeEvent.isComposing || !parsed || disabled) return;
     event.preventDefault();
-    onApply(parsed.date, parsed.time ?? time, repeatChange);
+    selectParsed();
   };
 
   const setTimeValue = (value: Time | null) => {
@@ -131,6 +169,7 @@ export function TaskMomentPicker({
   };
 
   const setRepeatValue = (value: RepeatInterval | null) => {
+    if (value) setRememberedRepeat(value);
     setRepeat(value);
     setRepeatChanged(true);
   };
@@ -154,36 +193,6 @@ export function TaskMomentPicker({
         data-testid="moment-picker"
       >
         <div className="moment-picker-body">
-          <div className="moment-search-block">
-            <div className="moment-search">
-              <SearchIcon aria-hidden />
-              <Input
-                className="!ps-10"
-                autoFocus
-                aria-label={message("task.momentSearch")}
-                placeholder={message("task.momentPlaceholder")}
-                value={query}
-                readOnly={disabled}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={applyParsed}
-              />
-            </div>
-
-            {query.trim() && parsed && (
-              <button
-                type="button"
-                className="moment-search-result"
-                disabled={disabled}
-                data-testid="moment-search-result"
-                onClick={selectParsed}
-              >
-                <CalendarIcon aria-hidden />
-                <span>{formatJournalDate(parsed.date)}</span>
-                {parsed.time && <strong>{formatTimeOfDay(parsed.time)}</strong>}
-              </button>
-            )}
-          </div>
-
           <div className="moment-mobile-tabs" role="tablist">
             <button
               id={`${paneId}-date-tab`}
@@ -221,57 +230,70 @@ export function TaskMomentPicker({
               aria-labelledby={`${paneId}-date-tab`}
               data-testid="moment-pane-date"
             >
-              <div className="moment-quick">
-                {quick.map((item) => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className="moment-quick-chip"
-                    aria-pressed={date === item.value}
-                    disabled={disabled}
-                    onClick={() => {
-                      setDate(item.value);
-                      setQuery("");
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              <div className="moment-search">
+                <SearchIcon aria-hidden />
+                <Input
+                  className="!ps-10"
+                  autoFocus
+                  aria-label={message("task.momentSearch")}
+                  placeholder={message("task.momentPlaceholder")}
+                  value={query}
+                  readOnly={disabled}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={applyParsed}
+                />
               </div>
 
               <Calendar
                 aria-label={message("properties.pickDate")}
                 className="moment-calendar"
                 value={calendarDate}
-                defaultFocusedValue={calendarDate}
+                focusedValue={focusedDate}
                 firstDayOfWeek="mon"
                 isDisabled={disabled}
-                onChange={(value) => {
-                  setDate(value.toString());
-                  setQuery("");
-                }}
+                onChange={chooseDate}
+                onFocusChange={setFocusedDate}
               >
-                <header className="moment-calendar-head">
-                  <AriaButton slot="previous" className="moment-calendar-nav">
-                    <ChevronLeftIcon aria-hidden />
-                  </AriaButton>
-                  <Heading className="moment-calendar-title" />
-                  <AriaButton slot="next" className="moment-calendar-nav">
-                    <ChevronRightIcon aria-hidden />
-                  </AriaButton>
-                </header>
-                <CalendarGrid className="moment-calendar-grid" weekdayStyle="short">
-                  <CalendarGridHeader>
-                    {(day) => (
-                      <CalendarHeaderCell className="moment-calendar-weekday">
-                        {day}
-                      </CalendarHeaderCell>
-                    )}
-                  </CalendarGridHeader>
-                  <CalendarGridBody>
-                    {(value) => <CalendarCell date={value} className="moment-calendar-cell" />}
-                  </CalendarGridBody>
-                </CalendarGrid>
+                {({ state }) => (
+                  <>
+                    <header className="moment-calendar-head">
+                      <AriaButton slot="previous" className="moment-calendar-nav">
+                        <ChevronLeftIcon aria-hidden />
+                      </AriaButton>
+                      <Heading className="moment-calendar-title" />
+                      <AriaButton slot="next" className="moment-calendar-nav">
+                        <ChevronRightIcon aria-hidden />
+                      </AriaButton>
+                    </header>
+                    <CalendarGrid className="moment-calendar-grid" weekdayStyle="short">
+                      <CalendarGridHeader>
+                        {(day) => (
+                          <CalendarHeaderCell className="moment-calendar-weekday">
+                            {day}
+                          </CalendarHeaderCell>
+                        )}
+                      </CalendarGridHeader>
+                      <CalendarGridBody>
+                        {(value) => {
+                          const visibleMonth = state.visibleRange.start;
+                          const outsideMonth = value.year !== visibleMonth.year
+                            || value.month !== visibleMonth.month;
+                          return outsideMonth
+                            ? (
+                                <AdjacentMonthCell
+                                  date={value}
+                                  disabled={disabled}
+                                  label={formatJournalDate(value.toString())}
+                                  today={today}
+                                  onSelect={chooseDate}
+                                />
+                              )
+                            : <CalendarCell date={value} className="moment-calendar-cell" />;
+                        }}
+                      </CalendarGridBody>
+                    </CalendarGrid>
+                  </>
+                )}
               </Calendar>
             </section>
 
@@ -282,148 +304,132 @@ export function TaskMomentPicker({
               aria-labelledby={`${paneId}-rules-tab`}
               data-testid="moment-pane-rules"
             >
-              <div className="moment-rule-section">
+              <div className="moment-rule-section" data-enabled={time !== null}>
                 <Switch
                   className="moment-time-switch"
                   data-testid="moment-time-toggle"
                   isSelected={time !== null}
                   isDisabled={disabled}
-                  onChange={(selected) => setTime(selected ? rememberedTime : null)}
+                  onChange={(selected) => {
+                    if (selected) {
+                      setTime(rememberedTime);
+                    } else {
+                      if (time) setRememberedTime(time);
+                      setTime(null);
+                    }
+                  }}
                 >
-                  <span>{time === null ? message("task.addTime") : message("task.timeOfDay")}</span>
+                  <span>{message("task.timeOfDay")}</span>
                   <span className="moment-switch-track" aria-hidden>
                     <span />
                   </span>
                 </Switch>
-                {time !== null && (
-                  <div ref={timeControlsRef} className="moment-time-controls">
-                    <ClockIcon aria-hidden />
-                    <TimeField
-                      aria-label={message("task.timeOfDay")}
-                      className="moment-time-field"
-                      value={parseTime(time)}
-                      granularity="minute"
-                      hourCycle={24}
-                      isDisabled={disabled}
-                      onChange={setTimeValue}
-                    >
-                      <DateInput className="moment-time-input">
-                        {(segment) => (
-                          <DateSegment
-                            segment={segment}
-                            className={segment.type === "literal"
-                              ? "moment-time-segment moment-time-literal"
-                              : "moment-time-segment"}
-                          />
-                        )}
-                      </DateInput>
-                    </TimeField>
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() => {
-                        const nextTime = nowLocalTime();
-                        setTime(nextTime);
-                        setRememberedTime(nextTime);
-                      }}
-                    >
-                      {message("task.useCurrentTime")}
-                    </Button>
-                  </div>
-                )}
+                <div className="moment-time-controls">
+                  <ClockIcon aria-hidden />
+                  <TimeField
+                    aria-label={message("task.timeOfDay")}
+                    className="moment-time-field"
+                    value={parseTime(time ?? rememberedTime)}
+                    granularity="minute"
+                    hourCycle={24}
+                    isDisabled={disabled || time === null}
+                    onChange={setTimeValue}
+                  >
+                    <DateInput className="moment-time-input">
+                      {(segment) => (
+                        <DateSegment
+                          segment={segment}
+                          className={segment.type === "literal"
+                            ? "moment-time-segment moment-time-literal"
+                            : "moment-time-segment"}
+                        />
+                      )}
+                    </DateInput>
+                  </TimeField>
+                  <Button
+                    variant="ghost"
+                    disabled={disabled || time === null}
+                    onClick={() => {
+                      const nextTime = nowLocalTime();
+                      setTime(nextTime);
+                      setRememberedTime(nextTime);
+                    }}
+                  >
+                    {message("task.useCurrentTime")}
+                  </Button>
+                </div>
               </div>
 
-              <div className="moment-rule-section moment-repeat">
+              <div className="moment-rule-section moment-repeat" data-enabled={repeat !== null}>
                 <Switch
                   className="moment-time-switch"
                   data-testid="moment-repeat-toggle"
                   isSelected={repeat !== null}
                   isDisabled={disabled}
-                  onChange={(selected) => setRepeatValue(selected ? DEFAULT_REPEAT : null)}
+                  onChange={(selected) => setRepeatValue(selected ? rememberedRepeat : null)}
                 >
                   <span>{message("task.repeat")}</span>
                   <span className="moment-switch-track" aria-hidden>
                     <span />
                   </span>
                 </Switch>
-                {repeat !== null && (
-                  <div className="moment-repeat-controls">
-                    <RepeatIcon aria-hidden />
-                    <Input
-                      type="number"
-                      min={1}
-                      max={999}
-                      inputMode="numeric"
-                      aria-label={message("task.repeatCount")}
-                      data-testid="moment-repeat-count"
-                      value={String(repeat.count)}
-                      readOnly={disabled}
-                      onChange={(event) => {
-                        const count = Number(event.target.value);
-                        if (Number.isInteger(count) && count >= 1 && count <= 999) {
-                          setRepeatValue({ ...repeat, count });
-                        }
-                      }}
-                    />
-                    <MenuSelect
-                      className="moment-repeat-unit"
-                      label={message("task.repeatUnitLabel")}
-                      testId="moment-repeat-unit"
-                      value={repeat.unit}
-                      disabled={disabled}
-                      options={REPEAT_UNITS.map((unit) => ({
-                        value: unit,
-                        label: repeatUnitLabel(unit, message),
-                      }))}
-                      onValueChange={(unit) =>
-                        setRepeatValue({ ...repeat, unit: unit as RepeatUnit })}
-                    />
-                    <p className="moment-repeat-preview">{repeatLabel(repeat, message)}</p>
-                  </div>
-                )}
-              </div>
-
-              {repeat !== null && (
-                <div className="moment-next-occurrence" aria-live="polite">
-                  {message("task.repeatRolled", {
-                    date: formatJournalDate(advanceDate(date, repeat)),
-                  })}
+                <div className="moment-repeat-controls">
+                  <RepeatIcon aria-hidden />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={999}
+                    inputMode="numeric"
+                    aria-label={message("task.repeatCount")}
+                    data-testid="moment-repeat-count"
+                    value={String(repeatDraft.count)}
+                    disabled={disabled || repeat === null}
+                    onChange={(event) => {
+                      const count = Number(event.target.value);
+                      if (Number.isInteger(count) && count >= 1 && count <= 999) {
+                        setRepeatValue({ ...repeatDraft, count });
+                      }
+                    }}
+                  />
+                  <MenuSelect
+                    className="moment-repeat-unit"
+                    label={message("task.repeatUnitLabel")}
+                    testId="moment-repeat-unit"
+                    value={repeatDraft.unit}
+                    disabled={disabled || repeat === null}
+                    options={REPEAT_UNITS.map((unit) => ({
+                      value: unit,
+                      label: repeatUnitLabel(unit, message),
+                    }))}
+                    onValueChange={(unit) =>
+                      setRepeatValue({ ...repeatDraft, unit: unit as RepeatUnit })}
+                  />
+                  <p className="moment-repeat-preview">
+                    <span>{repeatLabel(repeatDraft, message)}</span>
+                    <span>{message("task.repeatNext", {
+                      date: formatJournalDate(advanceDate(date, repeatDraft)),
+                    })}</span>
+                  </p>
                 </div>
-              )}
+              </div>
             </section>
           </div>
         </div>
 
         <div className="moment-footer">
-          <div className="moment-preview" aria-live="polite">
-            <CalendarIcon aria-hidden />
-            <span>{formatJournalDate(date)}</span>
-            {time !== null && (
-              <>
-                <span aria-hidden>·</span>
-                <strong>{formatTimeOfDay(time)}</strong>
-              </>
-            )}
-            {repeat !== null && (
-              <>
-                <span aria-hidden>·</span>
-                <strong className="moment-preview-repeat">{repeatLabel(repeat, message)}</strong>
-              </>
-            )}
-          </div>
+          {hasValue && (
+            <Button
+              className="moment-clear"
+              variant="ghost"
+              disabled={disabled}
+              data-testid="moment-clear"
+              onClick={onClear}
+            >
+              <Trash2Icon aria-hidden />
+              {clearLabel}
+            </Button>
+          )}
           <div className="moment-actions">
-            {hasValue && (
-              <Button
-                variant="ghost"
-                disabled={disabled}
-                aria-label={message("properties.clear")}
-                data-testid="moment-clear"
-                onClick={onClear}
-              >
-                <Trash2Icon aria-hidden />
-                {message("properties.clear")}
-              </Button>
-            )}
             <Button variant="secondary" disabled={busy} onClick={onCancel}>
               {message("common.cancel")}
             </Button>

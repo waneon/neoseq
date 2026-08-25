@@ -105,7 +105,8 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   await page.keyboard.press("Enter");
   picker = page.getByTestId("property-picker");
   await picker.getByLabel("Date or time").fill(`${localDate(4)} 21:30`);
-  await picker.getByTestId("moment-search-result").click();
+  await picker.getByLabel("Date or time").press("Enter");
+  await expect(picker).toBeVisible();
   await picker.getByTestId("moment-repeat-toggle").click();
   await picker.getByTestId("moment-repeat-count").fill("2");
   await chooseFromMenu(page, picker.getByTestId("moment-repeat-unit"), "Weeks");
@@ -138,6 +139,37 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   await expect(page.getByTestId("toasts")).toContainText("Repeats");
 });
 
+test("a moment keeps language and adjacent-month choices inside its draft", async ({ page }) => {
+  await createGraph(page, "Moment Draft Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "Plan the release");
+
+  await page.getByLabel("Block text").pressSequentially(" /scheduled");
+  await expect(page.getByTestId("slash-menu")).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  const picker = page.getByTestId("property-picker");
+  const input = picker.getByLabel("Date or time");
+  await input.fill("2031-11-18");
+  await input.press("Enter");
+
+  // Enter resolves the local draft and follows it to the right month; Done is
+  // still the only persistence and dismissal boundary.
+  await expect(picker).toBeVisible();
+  await expect(picker.locator(".moment-calendar-title")).toContainText("2031");
+  await expect(picker.locator(".moment-calendar-cell[data-selected]")).toHaveText("18");
+
+  const titleBefore = await picker.locator(".moment-calendar-title").textContent();
+  const adjacent = picker.locator("button.moment-calendar-cell[data-outside-month]").first();
+  await expect(adjacent).toBeEnabled();
+  await adjacent.click();
+  await expect(picker.locator(".moment-calendar-title")).not.toHaveText(titleBefore ?? "");
+  await expect(picker).toBeVisible();
+
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
+  await expect(page.getByTestId("task-chip-scheduled")).toContainText("2031");
+});
+
 test("a date is tinted by how far off it is, on the reader's own thresholds", async ({ page }) => {
   await createGraph(page, "Due Tone Graph");
   await startOutline(page);
@@ -148,7 +180,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await page.keyboard.press("Enter");
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Date or time").fill(localDate(4));
-  await picker.getByTestId("moment-search-result").click();
+  await picker.getByLabel("Date or time").press("Enter");
   await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
   await expect(picker).toHaveCount(0);
 

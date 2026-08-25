@@ -663,7 +663,8 @@ export interface MessageArgumentMap {
   "tags.ungroupAll": undefined;
   "tags.ungrouped": undefined;
   "tags.usesLabel": { readonly "count": number };
-  "task.addTime": undefined;
+  "task.clearDeadline": undefined;
+  "task.clearScheduled": undefined;
   "task.completeOccurrence": undefined;
   "task.deadline": undefined;
   "task.deadlineTime": undefined;
@@ -688,6 +689,7 @@ export interface MessageArgumentMap {
   "task.repeatEvery.m": { readonly "count": number };
   "task.repeatEvery.w": { readonly "count": number };
   "task.repeatEvery.y": { readonly "count": number };
+  "task.repeatNext": { readonly "date": string | number };
   "task.repeatRolled": { readonly "date": string | number };
   "task.repeatUnit.d": undefined;
   "task.repeatUnit.m": undefined;

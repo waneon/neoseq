@@ -13,7 +13,6 @@ export function VisualVerificationPage() {
           <header className="property-picker-head">
             <div>
               <strong>Scheduled</strong>
-              <span>Date · Time · Repeat</span>
             </div>
           </header>
           <div className="property-picker-value">
@@ -24,6 +23,7 @@ export function VisualVerificationPage() {
               hasValue
               readonly={false}
               busy={false}
+              clearLabel="Clear scheduled date"
               onApply={() => undefined}
               onClear={() => undefined}
               onCancel={() => undefined}

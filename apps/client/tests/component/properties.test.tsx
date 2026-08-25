@@ -189,7 +189,8 @@ describe("property picker", () => {
     fireEvent.change(within(picker).getByLabelText("Date or time"), {
       target: { value: "2026-08-24 09:30" },
     });
-    await user.click(await within(picker).findByTestId("moment-search-result"));
+    fireEvent.keyDown(within(picker).getByLabelText("Date or time"), { key: "Enter" });
+    expect(within(picker).getByTestId("moment-picker")).toBeInTheDocument();
     await user.click(within(picker).getByTestId("moment-repeat-toggle"));
     fireEvent.change(within(picker).getByTestId("moment-repeat-count"), {
       target: { value: "3" },
@@ -242,7 +243,7 @@ describe("property picker", () => {
     fireEvent.change(within(picker).getByLabelText("Date or time"), {
       target: { value: "2026-08-24" },
     });
-    await user.click(await within(picker).findByTestId("moment-search-result"));
+    fireEvent.keyDown(within(picker).getByLabelText("Date or time"), { key: "Enter" });
     await user.click(within(picker).getByTestId("moment-apply"));
 
     await waitFor(() => {

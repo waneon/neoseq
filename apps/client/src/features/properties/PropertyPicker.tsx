@@ -40,6 +40,7 @@ import {
   REPEAT_UNITS,
   TASK_PRIORITY_KEY,
   TASK_REPEAT_KEY,
+  TASK_SCHEDULED_KEY,
   TASK_STATUS_KEY,
   timeKeyFor,
   type RepeatUnit,
@@ -407,9 +408,9 @@ export function PropertyPicker({
       className="property-picker"
       label={message("properties.addOrChange")}
       options={{
-        width: taskMoment ? 720 : 360,
+        width: taskMoment ? 640 : 360,
         minWidth: 280,
-        maxHeight: taskMoment ? 540 : 420,
+        maxHeight: taskMoment ? 480 : 420,
       }}
       revision={stage.kind}
       testId="property-picker"
@@ -461,11 +462,9 @@ export function PropertyPicker({
               ? message("properties.addOrChange")
               : propertyDisplayName(stage.key, message)}
           </strong>
-          {stage.kind === "value" && (
+          {stage.kind === "value" && !taskMoment && (
             <span>
-              {taskMoment
-                ? `${message("properties.type.date")} · ${message("task.timeOfDay")} · ${message("task.repeat")}`
-                : message(`properties.type.${stage.valueType}`)}
+              {message(`properties.type.${stage.valueType}`)}
             </span>
           )}
         </div>
@@ -600,6 +599,9 @@ export function PropertyPicker({
                   hasValue={selectedValues.some((value) => value.type === "date")}
                   readonly={writeDisabled}
                   busy={committing}
+                  clearLabel={message(taskMoment.key === TASK_SCHEDULED_KEY
+                    ? "task.clearScheduled"
+                    : "task.clearDeadline")}
                   onApply={(date, time, repeat) => void commitMoment(date, time, repeat)}
                   onClear={() => void clearMoment()}
                   onCancel={onClose}
