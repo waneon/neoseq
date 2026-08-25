@@ -41,6 +41,7 @@ import { useI18n } from "../../i18n";
 import { useSessionState } from "../shell/session-context";
 import { useDueTiers } from "../settings/preferences";
 import { repeatLabel } from "../tasks/labels";
+import { tonePresentation } from "../tasks/tone-presentation";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 
 export function BlockChips({
@@ -113,13 +114,14 @@ export function BlockChips({
     const rawTime = stringValue(block.properties, timeKeyFor(key));
     const time = rawTime !== undefined && isTimeOfDay(rawTime) ? rawTime : undefined;
     const tier = settled ? undefined : dueTierOf(date, time, today, nowTime, tiers);
+    const tone = tier ? dueToneOf(tier, tiers) : undefined;
     const Glyph = scheduledKey ? CalendarIcon : AlarmClockIcon;
     return (
       <button
         type="button"
         className="task-chip"
         data-due={tier}
-        data-palette={tier ? dueToneOf(tier, tiers) : undefined}
+        {...(tone ? tonePresentation(tone) : {})}
         data-testid={scheduledKey ? "task-chip-scheduled" : "task-chip-deadline"}
         onClick={(event) => onEdit(key, event.currentTarget)}
       >

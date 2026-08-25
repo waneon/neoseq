@@ -17,7 +17,7 @@ The palette has three independent responsibilities:
 
 - Neutral canvas, surface, rail, overlay, and ink roles establish hierarchy.
 - The accent identifies action, reference, focus, selection, and current place.
-- Semantic tones identify information, success, attention, and danger.
+- Semantic tones identify information, success, caution, attention, and danger.
 
 These responsibilities do not cross. The accent is not a generic decoration or
 status color; a status tone does not mark navigation or focus. Categories are
@@ -28,9 +28,13 @@ prose. A reader may choose among a bounded set of hues, while lightness and
 chroma remain system-owned so every choice satisfies the same contrast contract.
 Tags reuse this safe hue family; they do not create another structural palette.
 
-State palettes store semantic tone names, not raw colors. Tone-derived styling
-is scoped to the object carrying the state, and a tone may color its mark or
-compact value but not an entire row, panel, or body of text.
+State palettes store semantic tone names rather than raw colors. Due-date
+preferences may instead store a bounded OKLCH hue and chroma pair when the reader
+chooses a custom color. Both representations resolve through the same CSS tone
+contract: lightness remains system-owned per mode, and raw RGB/hex colors never
+enter persisted settings. Tone-derived styling is scoped to the object carrying
+the state, and a tone may color its mark or compact value but not an entire row,
+panel, or body of text.
 
 ## Modes and Contrast
 

@@ -147,7 +147,7 @@ test("a raised toast passes the basic audit", async ({ page }) => {
 });
 
 // Every new fill in the product is a new contrast pair, and the tinted date chip
-// can take all five semantic tones while sitting on the canvas in both modes.
+// can take all six semantic tones while sitting on the canvas in both modes.
 // designs/foundations.md § Modes and Contrast commits the figures; this is the
 // gate that keeps them true.
 test("a task's marks and its tinted moments pass the basic audit", async ({ page }) => {
@@ -163,8 +163,8 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
     picker.getByRole("option", { name: "Medium", exact: true }).click());
   await expect(picker).toHaveCount(0);
 
-  // One block per tone would be five blocks; one block whose tone moves is the
-  // same five pairs with less to set up.
+  // One block per tone would be six blocks; one block whose tone moves is the
+  // same six pairs with less to set up.
   await openBlockProperties(page);
   picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Deadline", exact: true }).click();
@@ -172,7 +172,7 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
 
-  for (const tone of ["neutral", "info", "ok", "attention", "danger"]) {
+  for (const tone of ["neutral", "info", "ok", "caution", "attention", "danger"]) {
     await page.evaluate((chosen) => {
       const raw = localStorage.getItem("neoseq.settings.v1");
       const settings = raw ? JSON.parse(raw) : {};
@@ -183,6 +183,21 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
     await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("data-palette", tone);
     expect(await audit(page)).toEqual([]);
   }
+
+  // The continuous edge of the picker uses the same mode-owned lightness, so a
+  // custom hue at maximum chroma belongs to the same contrast gate as presets.
+  await page.evaluate(() => {
+    const raw = localStorage.getItem("neoseq.settings.v1");
+    const settings = raw ? JSON.parse(raw) : {};
+    settings.dueTiers = {
+      ...(settings.dueTiers ?? {}),
+      todayTone: { hue: 315, chroma: 0.2 },
+    };
+    localStorage.setItem("neoseq.settings.v1", JSON.stringify(settings));
+    window.dispatchEvent(new StorageEvent("storage", { key: "neoseq.settings.v1" }));
+  });
+  await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("style", /0\.2 315/);
+  expect(await audit(page)).toEqual([]);
 
   // And the settled states, whose mark is cut out of a filled disc.
   for (const status of ["Done", "Cancelled"]) {
@@ -202,6 +217,9 @@ test("the task settings section passes the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Task Settings");
   await openSettings(page, "tasks");
   await expect(page.getByTestId("settings-due-tiers")).toBeVisible();
+  expect(await audit(page)).toEqual([]);
+  await page.getByTestId("due-tone-today").click();
+  await expect(page.getByTestId("due-tone-today-picker")).toBeVisible();
   expect(await audit(page)).toEqual([]);
 });
 

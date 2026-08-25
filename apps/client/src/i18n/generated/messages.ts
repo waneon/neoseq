@@ -456,6 +456,9 @@ export interface MessageArgumentMap {
   "settings.appearance": undefined;
   "settings.appearanceDescription": undefined;
   "settings.backend": undefined;
+  "settings.colorHue": undefined;
+  "settings.colorIntensity": undefined;
+  "settings.colorPresets": undefined;
   "settings.danger": undefined;
   "settings.dateFormat": undefined;
   "settings.dateFormatDescription": undefined;
@@ -702,6 +705,7 @@ export interface MessageArgumentMap {
   "theme.light": undefined;
   "theme.system": undefined;
   "tone.attention": undefined;
+  "tone.caution": undefined;
   "tone.danger": undefined;
   "tone.info": undefined;
   "tone.neutral": undefined;

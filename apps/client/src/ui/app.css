@@ -104,9 +104,14 @@
      happen to be this week. Blue is the step that used to borrow the accent, now
      declared on its own — 5.24 on `canvas` light, 7.18 dark. */
   --info: oklch(0.535 0.17 255);
-  /* The third tone, and the only one that is not also a verdict: "underway, and
-     it needs you". It is held to the 3:1 non-text bar and never carries text. */
+  /* Two warm steps keep "today" and "soon" distinct without borrowing success
+     green. Attention is orange and immediate; caution is the quieter gold that
+     follows it in the due scale. Both are held to the 3:1 non-text bar and never
+     carry text neat. */
   --attention: oklch(0.58 0.135 62);
+  --caution: oklch(0.55 0.125 92);
+  /* Hue and chroma may be reader-owned for due colours; lightness may not. */
+  --custom-tone-l: 0.54;
 
   /* The scrim is a wash *and* a defocus: a dialog over an outline has a hundred
      hairlines behind it, and dimming alone leaves every one of them legible
@@ -166,11 +171,9 @@
   --halo: 3px;
 
   /* ── The tone map ──
-     The five steps a *preference* is allowed to name, and the only place a
-     preference name becomes a colour. A surface carries `data-palette="accent"`
-     and reads `var(--tone)`; nothing in TypeScript ever writes a colour, so no
-     setting can leave this palette or the contrast table it was measured
-     against, and both modes come free (designs/foundations.md § Semantic Color).
+     The six safe named presets. A surface carries `data-palette="…"` and reads
+     `var(--tone)`; a custom due tone instead supplies bounded OKLCH hue/chroma
+     through the same variable while this sheet retains mode-specific lightness.
 
      `--tone` is declared here as well as in each map rule, because a token that
      is only ever set by an attribute renders nothing at all on the elements that
@@ -347,9 +350,8 @@
   --z-toast: 70;
 }
 
-/* The tone map itself. Five rules, one per name a preference may hold, and every
-   surface that offers a choice of tone — a due chip, the swatches that set them —
-   resolves through exactly these.
+/* The tone map itself. Six rules, one per safe preset, and every named surface —
+   a due chip or a preset swatch — resolves through exactly these.
 
    `accent` is deliberately not one of them. A tone names a step in a closed,
    ordered scale — how soon a date is, how urgent a task is — and the accent names
@@ -366,6 +368,10 @@
 
 [data-palette="ok"] {
   --tone: var(--ok);
+}
+
+[data-palette="caution"] {
+  --tone: var(--caution);
 }
 
 [data-palette="attention"] {
@@ -417,7 +423,9 @@
     --danger-soft: color-mix(in oklab, var(--danger) 18%, transparent);
     --ok: oklch(0.762 0.13 152);
     --attention: oklch(0.805 0.13 78);
+    --caution: oklch(0.82 0.125 98);
     --info: oklch(0.72 0.14 255);
+    --custom-tone-l: 0.76;
 
     --scrim: oklch(0.07 0.006 264 / 0.62);
 
@@ -478,7 +486,9 @@
   --danger-soft: color-mix(in oklab, var(--danger) 18%, transparent);
   --ok: oklch(0.762 0.13 152);
   --attention: oklch(0.805 0.13 78);
+  --caution: oklch(0.82 0.125 98);
   --info: oklch(0.72 0.14 255);
+  --custom-tone-l: 0.76;
 
   --scrim: oklch(0.07 0.006 264 / 0.62);
 
@@ -3523,6 +3533,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background: color-mix(in oklab, var(--tone) 20%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 60%, transparent);
   color: color-mix(in oklab, var(--tone) 70%, var(--ink));
+}
+
+/* Today is the one calendar boundary a reader acts on as a category of its own.
+   Its two-pixel ring keeps that distinction in greyscale; hue remains the quick
+   scan, never the only reading. */
+.task-chip[data-due="today"],
+.query-due[data-due="today"] {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--tone) 60%, transparent);
+}
+
+.task-chip[data-due="today"]:hover {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--tone) 72%, transparent);
 }
 
 /* The date is the fact; inside a tinted chip it also carries the weight, so the
@@ -7989,7 +8011,7 @@ button.tag-mark:focus-visible {
 
    Three states, and the chosen one is not carried by colour: a tick in
    `--on-tone` sits inside the disc, so the answer survives greyscale and a reader
-   who cannot separate two of the five. Hover is a halo of the disc's own colour,
+   who cannot separate two of the six. Hover is a halo of the disc's own colour,
    which is the one place in the product where a tone may leave its own mark —
    it is not a fill on a row or a panel, it is the shadow of the object itself. */
 .color-choice {
@@ -8000,7 +8022,7 @@ button.tag-mark:focus-visible {
   gap: var(--sp-2);
 }
 
-/* The palette's five steps resolve through the tone map; the accent's eight steps
+/* The palette's six steps resolve through the tone map; the accent's eight steps
    are composed from the same two per-mode numbers `--accent` is built from, in
    the declaration that uses them — a custom property's `var()`s are substituted
    where the property is *declared*, so `var(--accent)` would have arrived already
@@ -8080,6 +8102,293 @@ button.tag-mark:focus-visible {
   }
 }
 
+/* ── A due colour, opened rather than repeated ──
+   One quiet well belongs to each tier row. Its studio is a compact floating
+   object: the result in both modes, then the two continuous choices, then the
+   safe named starting points. The reader owns hue and chroma; the mode owns
+   lightness through `--custom-tone-l`. */
+.due-color-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  width: 48px;
+  height: var(--target);
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.due-color-trigger:hover,
+.due-color-trigger[data-state="open"] {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.due-color-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--e1);
+}
+
+.due-color-trigger > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.due-color-well {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-full);
+  background: var(--tone);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 14%, transparent);
+}
+
+.due-color-picker {
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  width: min(320px, calc(100vw - 24px));
+  padding: var(--sp-4);
+  border-radius: var(--r-4);
+  background: var(--overlay);
+  color: var(--ink);
+  box-shadow: var(--e2);
+}
+
+.due-color-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.due-color-picker-head strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.due-color-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  height: var(--sp-6);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.due-color-reset:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.due-color-reset:focus-visible {
+  outline: none;
+  box-shadow: var(--e1);
+}
+
+.due-color-reset svg {
+  width: 13px;
+  height: 13px;
+}
+
+.due-color-previews {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+.due-color-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+.due-color-preview[data-mode="light"] {
+  --custom-tone-l: 0.54;
+  --canvas: oklch(0.985 0.002 264);
+  --ink: oklch(0.235 0.014 264);
+  --ink-2: oklch(0.462 0.014 264);
+  --danger: oklch(0.516 0.187 26);
+  --ok: oklch(0.508 0.128 152);
+  --info: oklch(0.535 0.17 255);
+  --attention: oklch(0.58 0.135 62);
+  --caution: oklch(0.55 0.125 92);
+}
+
+.due-color-preview[data-mode="dark"] {
+  --custom-tone-l: 0.76;
+  --canvas: oklch(0.207 0.007 264);
+  --ink: oklch(0.955 0.004 264);
+  --ink-2: oklch(0.762 0.011 264);
+  --danger: oklch(0.712 0.155 26);
+  --ok: oklch(0.762 0.13 152);
+  --info: oklch(0.72 0.14 255);
+  --attention: oklch(0.805 0.13 78);
+  --caution: oklch(0.82 0.125 98);
+}
+
+.due-color-preview .task-chip {
+  max-width: 100%;
+  height: var(--sp-6);
+  padding: 0 var(--sp-2);
+}
+
+.due-color-preview small,
+.due-color-presets > span,
+.due-color-slider > label {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.due-color-slider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.due-color-slider output {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.due-color-slider input {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.due-color-slider input::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: var(--r-full);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+.due-color-slider input::-moz-range-track {
+  height: 8px;
+  border-radius: var(--r-full);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+.due-color-hue::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    oklch(var(--custom-tone-l) 0.17 0),
+    oklch(var(--custom-tone-l) 0.17 60),
+    oklch(var(--custom-tone-l) 0.17 120),
+    oklch(var(--custom-tone-l) 0.17 180),
+    oklch(var(--custom-tone-l) 0.17 240),
+    oklch(var(--custom-tone-l) 0.17 300),
+    oklch(var(--custom-tone-l) 0.17 359)
+  );
+}
+
+.due-color-hue::-moz-range-track {
+  background: linear-gradient(
+    90deg,
+    oklch(var(--custom-tone-l) 0.17 0),
+    oklch(var(--custom-tone-l) 0.17 60),
+    oklch(var(--custom-tone-l) 0.17 120),
+    oklch(var(--custom-tone-l) 0.17 180),
+    oklch(var(--custom-tone-l) 0.17 240),
+    oklch(var(--custom-tone-l) 0.17 300),
+    oklch(var(--custom-tone-l) 0.17 359)
+  );
+}
+
+.due-color-chroma::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    oklch(var(--custom-tone-l) 0.025 var(--picker-hue)),
+    oklch(var(--custom-tone-l) 0.2 var(--picker-hue))
+  );
+}
+
+.due-color-chroma::-moz-range-track {
+  background: linear-gradient(
+    90deg,
+    oklch(var(--custom-tone-l) 0.025 var(--picker-hue)),
+    oklch(var(--custom-tone-l) 0.2 var(--picker-hue))
+  );
+}
+
+.due-color-slider input::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -5px;
+  border: 3px solid var(--overlay);
+  border-radius: var(--r-full);
+  appearance: none;
+  background: var(--tone);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--ink) 30%, transparent);
+}
+
+.due-color-slider input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--overlay);
+  border-radius: var(--r-full);
+  background: var(--tone);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--ink) 30%, transparent);
+}
+
+.due-color-slider input:focus-visible {
+  outline: none;
+}
+
+.due-color-slider input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.due-color-slider input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.due-color-presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.due-color-presets .color-choice {
+  gap: var(--sp-2);
+}
+
+.due-color-presets .color-swatch {
+  width: var(--sp-6);
+  height: var(--sp-6);
+}
+
 /* ── The due tiers ──
    Five rows, in the order dates move through them, each previewing itself. The
    grid keeps the name, the preview, the reach and the tone in four columns so the
@@ -8093,12 +8402,13 @@ button.tag-mark:focus-visible {
    actually agree; the previous comment here claimed they did. */
 /* Four tracks, and the *chip* is the elastic one. It used to be `auto` with the
    reach cell taking `1fr`, which held while the reach cell's neighbour was a
-   128px dropdown and broke the moment it became five swatches: the chip sized
+   128px dropdown and broke when six swatches sat in every row: the chip sized
    itself to the longest date in the scale, the swatches took what they needed, and
    `within [ ] days` was left with 33 pixels to put a 64px field in — a number
    input squeezed until its own value was invisible. The chip is the one thing here
    that can afford to give, because it already ellipsises and it is a preview
-   rather than a control.
+   rather than a control. One fixed color well now owns that final track and
+   opens the full picker outside the grid.
 
    The name column is `max-content` and not the 84px it was. 84 was sized for the
    longest label in English; in Korean the labels are two syllables and the column
@@ -8110,13 +8420,6 @@ button.tag-mark:focus-visible {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
   gap: var(--sp-2) var(--sp-3);
-}
-
-/* Tighter than the eight pixels the swatch language uses elsewhere: five discs in
-   the narrowest of four columns, and every pixel spent on the gap is a pixel the
-   preview beside it cannot have. */
-.due-tier > .color-choice {
-  gap: var(--sp-1);
 }
 
 .due-tier {
@@ -8205,12 +8508,11 @@ button.tag-mark:focus-visible {
   }
 }
 
-/* The three tiers with no reach to set still occupy the column, so the swatch rows
+/* The three tiers with no reach to set still occupy the column, so the colour wells
    line up down the whole scale. Without the explicit placement auto-flow puts
    them in the third track — a row with three children fills the first three
-   columns — and `overdue`, `today`, and `later` wrapped their swatches onto two lines
-   in a column narrower than the other two rows'. */
-.due-tier > .color-choice {
+   columns — while the two threshold rows put colour in the fourth. */
+.due-tier > .due-color-trigger {
   grid-column: 4;
 }
 
@@ -8226,7 +8528,7 @@ button.tag-mark:focus-visible {
     padding-bottom: var(--sp-2);
   }
 
-  .due-tier > .color-choice {
+  .due-tier > .due-color-trigger {
     grid-column: 1;
   }
 }

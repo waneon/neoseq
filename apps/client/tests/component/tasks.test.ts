@@ -7,7 +7,7 @@ const tiers: DueTierSettings = {
   upcomingDays: 7,
   overdueTone: "danger",
   todayTone: "attention",
-  soonTone: "info",
+  soonTone: "caution",
   upcomingTone: "info",
   laterTone: "neutral",
 };

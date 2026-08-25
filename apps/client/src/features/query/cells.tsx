@@ -22,7 +22,7 @@ import {
 import { valueTypeOf } from "../../entities/properties";
 import { LIST_SEPARATOR, momentTimeVariable } from "../../entities/query-compile";
 import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
-import type { ToneName } from "../../entities/settings";
+import type { ToneValue } from "../../entities/settings";
 import {
   isTaskDateKey,
   isTimeOfDay,
@@ -33,6 +33,7 @@ import {
 import type { MessageFunction } from "../../i18n";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
+import { tonePresentation } from "../tasks/tone-presentation";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 
@@ -89,7 +90,7 @@ export interface CellContext {
     date: string,
     time: string | undefined,
     row: ResultRow,
-  ) => { tier: DueTier; tone: ToneName } | undefined;
+  ) => { tier: DueTier; tone: ToneValue } | undefined;
 }
 
 export function entityRefKey(entity: QueryEntityRef): string {
@@ -359,7 +360,7 @@ function DueValue({
     <span
       className="query-due"
       data-due={due?.tier}
-      data-palette={due?.tone}
+      {...(due ? tonePresentation(due.tone) : {})}
       // A column is 180px wide and a date spelled out with its weekday is not,
       // so the moment ellipsises here more often than it does anywhere else.
       // The whole of it stays readable: nothing in the product is cut off with

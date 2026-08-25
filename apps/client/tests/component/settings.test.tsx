@@ -172,17 +172,38 @@ describe("presentation preferences", () => {
     // may not move because somebody chose a different accent.
     expect(screen.getByTestId("due-preview-overdue")).toHaveAttribute("data-palette", "danger");
     expect(screen.getByTestId("due-preview-today")).toHaveAttribute("data-palette", "attention");
-    expect(screen.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "info");
+    expect(screen.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "caution");
     expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "info");
     expect(dueTiers().soonDays).toBe(3);
     expect(screen.queryByRole("button", { name: "Accent" })).not.toBeInTheDocument();
 
-    // A colour is chosen by pressing the colour, not by reading its name out of
-    // a dropdown: all five steps are on screen, one press each.
-    const tones = screen.getByTestId("due-tone-upcoming");
-    await user.click(within(tones).getByRole("button", { name: "Green" }));
+    // One quiet well opens a continuous picker. Its named colours are starting
+    // points, while hue and intensity persist as bounded OKLCH coordinates.
+    await user.click(screen.getByTestId("due-tone-soon"));
+    let picker = await screen.findByTestId("due-tone-soon-picker");
+    expect(within(picker).getByRole("button", { name: "Gold" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    for (const preview of picker.querySelectorAll(".due-color-preview .task-chip")) {
+      expect(preview).toHaveAttribute("data-palette", "caution");
+    }
+    fireEvent.change(within(picker).getByLabelText("Hue"), { target: { value: "318" } });
+    fireEvent.change(within(picker).getByLabelText("Intensity"), { target: { value: "0.18" } });
+    await waitFor(() => expect(dueTiers().soonTone).toEqual({ hue: 318, chroma: 0.18 }));
+    expect(screen.getByTestId("due-preview-soon").style.getPropertyValue("--tone"))
+      .toContain("318");
+    for (const preview of picker.querySelectorAll(".due-color-preview .task-chip")) {
+      expect(preview).not.toHaveAttribute("data-palette");
+      expect((preview as HTMLElement).style.getPropertyValue("--tone")).toContain("318");
+    }
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("due-tone-upcoming"));
+    picker = await screen.findByTestId("due-tone-upcoming-picker");
+    await user.click(within(picker).getByRole("button", { name: "Green" }));
     await waitFor(() => expect(dueTiers().upcomingTone).toBe("ok"));
-    expect(within(tones).getByRole("button", { name: "Green" })).toHaveAttribute(
+    expect(within(picker).getByRole("button", { name: "Green" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );

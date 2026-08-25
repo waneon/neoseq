@@ -25,7 +25,7 @@ import {
   updateDueTiers,
   type DueTierSettings,
   type JournalDateFormat,
-  type ToneName,
+  type ToneValue,
 } from "../../entities/settings";
 import { DUE_TIERS, type DueTier } from "../../entities/tasks";
 import { CalendarIcon } from "lucide-react";
@@ -33,6 +33,7 @@ import { useConfiguredTimezone, useDueTiers } from "./preferences";
 import { AccentField } from "./AccentField";
 import { DefaultQueriesSection } from "./DefaultQueries";
 import { ToneChoice } from "./ToneChoice";
+import { tonePresentation } from "../tasks/tone-presentation";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
@@ -360,7 +361,7 @@ function TasksSection() {
       <p>{message("settings.dueTonesDescription")}</p>
       <div className="due-tiers" data-testid="settings-due-tiers">
         {DUE_TIERS.map((tier) => {
-          const tone = tiers[DUE_TONE_FIELD[tier]] as ToneName;
+          const tone = tiers[DUE_TONE_FIELD[tier]] as ToneValue;
           const daysField = DUE_DAYS_FIELD[tier as keyof typeof DUE_DAYS_FIELD];
           return (
             <div className="due-tier" key={tier}>
@@ -371,7 +372,7 @@ function TasksSection() {
                 className="task-chip"
                 data-preview
                 data-due={tier}
-                data-palette={tone}
+                {...tonePresentation(tone)}
                 data-testid={`due-preview-${tier}`}
                 // The preview is the column that gives when four tracks do not fit, so
                 // it carries the whole of itself for a reader who lost the end of
@@ -421,10 +422,13 @@ function TasksSection() {
                   size, so the swatches need only be the colours themselves. */}
               <ToneChoice
                 value={tone}
+                defaultValue={DEFAULT_DUE_TIERS[DUE_TONE_FIELD[tier]] as ToneValue}
                 onChange={(next) => updateDueTiers({ [DUE_TONE_FIELD[tier]]: next })}
                 label={message("settings.dueToneFor", {
                   tier: message(DUE_TIER_MESSAGE[tier]),
                 })}
+                previewLabel={message(DUE_TIER_MESSAGE[tier])}
+                tier={tier}
                 testId={`due-tone-${tier}`}
               />
             </div>

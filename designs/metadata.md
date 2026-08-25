@@ -92,5 +92,12 @@ is never presented as an independent query column because it has no meaning
 without its day; the moment column carries both and computes urgency from both.
 Today is its own fixed urgency step: it does not disappear into a configurable
 future range, while a time already passed today remains overdue.
+The default tonal progression is danger, attention, caution, information, then
+neutral; success green never stands in for temporal urgency.
+Each step has one compact color well. Its popover previews the resulting chip in
+both light and dark mode, offers safe named presets, and lets the reader choose a
+continuous hue and bounded chroma. The reader owns those two coordinates;
+mode-specific lightness remains a system invariant so a custom choice cannot
+make the other mode illegible.
 
 Shared choice and overlay behavior follows [Interaction](interaction.md).

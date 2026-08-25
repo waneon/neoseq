@@ -187,19 +187,23 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   // The thresholds and the tones belong to the reader.
   await openSettings(page, "tasks");
   await page.getByTestId("due-days-soon").fill("10");
-  // Colours are chosen by pressing the colour: five swatches on screen, one
-  // press each, no dropdown standing between the reader and the palette.
-  await page.getByTestId("due-tone-soon").getByRole("button", { name: "Red" }).click();
-  await expect(page.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "danger");
+  // One well opens the colour itself: hue and intensity move continuously, and
+  // the resulting OKLCH coordinates repaint the real preview in place.
+  await page.getByTestId("due-tone-soon").click();
+  const colour = page.getByTestId("due-tone-soon-picker");
+  await colour.getByLabel("Hue").fill("330");
+  await colour.getByLabel("Intensity").fill("0.18");
+  await expect(page.getByTestId("due-preview-soon")).toHaveAttribute("style", /0\.18 330/);
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
   // Ten calendar days of "soon" now reach a date four days out, in the tone just chosen.
   await expect(deadline).toHaveAttribute("data-due", "soon");
-  await expect(deadline).toHaveAttribute("data-palette", "danger");
+  await expect(deadline).toHaveAttribute("style", /0\.18 330/);
 
   // A preference is browser-local and survives a reload.
   await page.reload();
-  await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("data-palette", "danger");
+  await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("style", /0\.18 330/);
 });
 
 test("the outline is one hue at two weights, and only the live path is drawn", async ({

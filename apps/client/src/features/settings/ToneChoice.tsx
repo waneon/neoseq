@@ -1,71 +1,194 @@
-// The one control in the product for choosing a colour from the palette.
+// A compact colour studio for one due tier.
 //
-// It used to be a `MenuSelect` per tier — a dropdown whose trigger hid the
-// palette behind the word for it and asked the reader to pick a colour by reading
-// its name, one at a time. Nobody chooses a colour that way. Every option is a
-// swatch of the colour it sets, all of them on screen at once, one press each.
-//
-// The swatch language is shared with the accent's hue steps (`AccentField`) so
-// that "pick a colour" looks like one thing wherever it appears: a filled disc at
-// the control floor, a tick in `--on-tone` on the chosen one, a halo of the disc's
-// own colour under the pointer. The tick is what keeps the choice from being
-// carried by colour alone.
-//
-// The stored value is a tone *name* — app.css decides what each name looks like
-// in each mode, so no choice here can leave the palette or contrast contract in
-// designs/foundations.md § Semantic Color. None of the five follows the accent;
-// an ordered semantic scale and the product accent have separate roles.
+// The row keeps one colour well rather than repeating the whole palette five
+// times. Pressing it opens the object being edited: the live chip in light and
+// dark, a continuous hue rail, a bounded chroma rail, and the named safe presets.
+// The picker stores OKLCH hue and chroma; lightness remains a mode token in CSS,
+// so a freely chosen colour cannot make one mode inherit the other's contrast.
 
-import { CheckIcon } from "lucide-react";
-import { TONE_NAMES, type ToneName } from "../../entities/settings";
+import { CheckIcon, RotateCcwIcon, SlidersHorizontalIcon } from "lucide-react";
+import { useId, type CSSProperties } from "react";
+import {
+  customTone,
+  MAX_CUSTOM_TONE_CHROMA,
+  MIN_CUSTOM_TONE_CHROMA,
+  TONE_NAMES,
+  TONE_PRESETS,
+  type ToneName,
+  type ToneValue,
+} from "../../entities/settings";
+import type { DueTier } from "../../entities/tasks";
 import { useI18n, type MessageKey } from "../../i18n";
+import {
+  Popover,
+  PopoverContent,
+  PopoverPortal,
+  PopoverTrigger,
+} from "../../ui/shadcn/popover";
+import { tonePresentation } from "../tasks/tone-presentation";
 
 const TONE_MESSAGE = {
   neutral: "tone.neutral",
   info: "tone.info",
   ok: "tone.ok",
+  caution: "tone.caution",
   attention: "tone.attention",
   danger: "tone.danger",
 } as const satisfies Record<ToneName, MessageKey>;
 
 export function ToneChoice({
   value,
+  defaultValue,
   onChange,
   label,
+  previewLabel,
+  tier,
   testId,
 }: {
-  value: ToneName;
-  onChange: (tone: ToneName) => void;
-  /** The group's accessible name. */
+  value: ToneValue;
+  defaultValue: ToneValue;
+  onChange: (tone: ToneValue) => void;
   label: string;
+  previewLabel: string;
+  tier: DueTier;
   testId?: string;
 }) {
   const { message } = useI18n();
-  return (
-    <div
-      className="color-choice"
-      data-kind="tone"
-      role="group"
-      aria-label={label}
-      data-testid={testId}
-    >
-      {TONE_NAMES.map((option) => {
-        const name = message(TONE_MESSAGE[option]);
-        return (
-          <button
-            key={option}
-            type="button"
-            className="color-swatch"
-            data-palette={option}
-            aria-pressed={value === option}
-            aria-label={name}
-            title={name}
-            onClick={() => onChange(option)}
-          >
-            <CheckIcon aria-hidden />
-          </button>
-        );
-      })}
-    </div>
+  const inputId = useId();
+  const position = customTone(value);
+  const intensity = Math.round(
+    ((position.chroma - MIN_CUSTOM_TONE_CHROMA)
+      / (MAX_CUSTOM_TONE_CHROMA - MIN_CUSTOM_TONE_CHROMA)) * 100,
   );
+  const custom = (patch: Partial<typeof position>) => onChange({ ...position, ...patch });
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="due-color-trigger"
+          aria-label={label}
+          title={label}
+          data-testid={testId}
+        >
+          <span className="due-color-well" {...tonePresentation(value)} />
+          <SlidersHorizontalIcon aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverPortal>
+        <PopoverContent
+          className="due-color-picker enter-fade-fast"
+          align="end"
+          sideOffset={8}
+          aria-label={label}
+          data-testid={testId ? `${testId}-picker` : undefined}
+        >
+          <div className="due-color-picker-head">
+            <strong>{label}</strong>
+            <button
+              type="button"
+              className="due-color-reset"
+              onClick={() => onChange(defaultValue)}
+            >
+              <RotateCcwIcon aria-hidden />
+              {message("settings.restoreDefaults")}
+            </button>
+          </div>
+
+          <div className="due-color-previews">
+            {(["light", "dark"] as const).map((mode) => (
+              <div className="due-color-preview" data-mode={mode} key={mode}>
+                <span
+                  className="task-chip"
+                  data-preview
+                  data-due={tier}
+                  {...tonePresentation(value)}
+                >
+                  <span className="task-chip-value">{previewLabel}</span>
+                </span>
+                <small>{message(mode === "light" ? "theme.light" : "theme.dark")}</small>
+              </div>
+            ))}
+          </div>
+
+          <div className="due-color-slider">
+            <label htmlFor={`${inputId}-hue`}>{message("settings.colorHue")}</label>
+            <output>{Math.round(position.hue)}°</output>
+            <input
+              id={`${inputId}-hue`}
+              type="range"
+              min={0}
+              max={359}
+              step={1}
+              value={position.hue}
+              aria-label={message("settings.colorHue")}
+              data-testid={testId ? `${testId}-hue` : undefined}
+              className="due-color-hue"
+              style={previewStyle(value)}
+              onChange={(event) => custom({ hue: Number(event.target.value) })}
+            />
+          </div>
+
+          <div className="due-color-slider">
+            <label htmlFor={`${inputId}-intensity`}>{message("settings.colorIntensity")}</label>
+            <output>{intensity}%</output>
+            <input
+              id={`${inputId}-intensity`}
+              type="range"
+              min={MIN_CUSTOM_TONE_CHROMA}
+              max={MAX_CUSTOM_TONE_CHROMA}
+              step={0.005}
+              value={position.chroma}
+              aria-label={message("settings.colorIntensity")}
+              data-testid={testId ? `${testId}-intensity` : undefined}
+              className="due-color-chroma"
+              style={previewStyle(value)}
+              onChange={(event) => custom({ chroma: Number(event.target.value) })}
+            />
+          </div>
+
+          <div className="due-color-presets">
+            <span>{message("settings.colorPresets")}</span>
+            <div className="color-choice" data-kind="tone" role="group">
+              {TONE_NAMES.map((option) => {
+                const name = message(TONE_MESSAGE[option]);
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    className="color-swatch"
+                    data-palette={option}
+                    aria-pressed={samePreset(value, option)}
+                    aria-label={name}
+                    title={name}
+                    onClick={() => onChange(option)}
+                  >
+                    <CheckIcon aria-hidden />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </PopoverContent>
+      </PopoverPortal>
+    </Popover>
+  );
+}
+
+function samePreset(value: ToneValue, preset: ToneName): boolean {
+  if (typeof value === "string") return value === preset;
+  const expected = TONE_PRESETS[preset];
+  return Math.abs(value.hue - expected.hue) < 0.5
+    && Math.abs(value.chroma - expected.chroma) < 0.001;
+}
+
+/** Preview through the mode-owned lightness even while the value is a preset. */
+function previewStyle(value: ToneValue): CSSProperties {
+  const tone = customTone(value);
+  return {
+    "--tone": `oklch(var(--custom-tone-l) ${tone.chroma} ${tone.hue})`,
+    "--picker-hue": tone.hue,
+    "--picker-chroma": tone.chroma,
+  } as CSSProperties;
 }

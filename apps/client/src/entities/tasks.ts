@@ -13,7 +13,7 @@
 
 import { addDays, addMonths, dayDifference } from "./journal";
 import { stringChoicesOf } from "./properties";
-import type { DueTierSettings, ToneName } from "./settings";
+import type { DueTierSettings, ToneValue } from "./settings";
 
 export const TASK_STATUS_KEY = "builtin.task-status";
 export const TASK_SCHEDULED_KEY = "builtin.task-scheduled";
@@ -184,7 +184,7 @@ export function dueTierOf(
 }
 
 /** The tone a tier takes, so the chip and the settings preview cannot disagree. */
-export function dueToneOf(tier: DueTier, tiers: DueTierSettings): ToneName {
+export function dueToneOf(tier: DueTier, tiers: DueTierSettings): ToneValue {
   switch (tier) {
     case "overdue":
       return tiers.overdueTone;

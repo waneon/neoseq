@@ -209,12 +209,19 @@ advance the dates and keep the status at `todo`. On pages the task keys stay in 
 generic strip.
 
 The moment chips read their companion time key and their due tier, and carry the
-tier's tone as a `data-palette` name that `ui/app.css` resolves. A day threshold
+tier's tone through the shared task presentation path that `ui/app.css` resolves.
+A day threshold
 counts calendar dates with today as day one, so an N-day tier ends N-1 dates
 after today. Today is a fixed tier between overdue and soon; a time earlier today
 remains overdue. Both the thresholds and tones are browser-local presentation
 preferences read through `features/settings/preferences.ts`; neither reaches a
 command or the graph.
+The default tones progress from danger through attention and caution to
+information and neutral; the success tone is not used as a time distance.
+Stored tones are backward-compatible named presets or bounded OKLCH hue/chroma
+pairs. The settings surface exposes one color well per tier and previews custom
+choices in both modes; CSS owns mode-specific lightness, and all task chips and
+query cells consume the same resolved presentation.
 
 Tag membership
 lives in `TagPicker` — which reuses `TagChips` and `PageAutocomplete` while

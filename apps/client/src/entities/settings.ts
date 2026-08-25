@@ -23,10 +23,10 @@ export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
 ];
 
 /**
- * The tones a preference is allowed to name. They are the palette's own five
- * steps and nothing else — a preference chooses *which* declared tone a surface
- * takes, never a colour of its own, so both modes and the contrast table keep
- * holding for every choice (designs/foundations.md § Semantic Color).
+ * The safe named starting points for a tone preference. A preference may keep
+ * one of these names or own a bounded OKLCH hue/chroma pair; CSS still owns the
+ * lightness in each mode, so either representation keeps the contrast contract
+ * in designs/foundations.md § Semantic Color.
  *
  * `accent` is not among them, and `info` is the blue that used to stand in for
  * it. A tone names a step in a closed ordered scale; the accent names where the
@@ -34,28 +34,80 @@ export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
  * default `upcoming` step moved with every accent the reader chose and two
  * unrelated meanings shared one colour.
  */
-export type ToneName = "neutral" | "info" | "ok" | "attention" | "danger";
+export type ToneName = "neutral" | "info" | "ok" | "caution" | "attention" | "danger";
 
-export const TONE_NAMES: ToneName[] = ["neutral", "info", "ok", "attention", "danger"];
+/** A reader-owned tone; lightness stays mode-owned so either mode remains legible. */
+export interface CustomTone {
+  hue: number;
+  chroma: number;
+}
+
+export type ToneValue = ToneName | CustomTone;
+
+export const MIN_CUSTOM_TONE_CHROMA = 0.025;
+export const MAX_CUSTOM_TONE_CHROMA = 0.2;
+
+export const TONE_NAMES: ToneName[] = [
+  "neutral",
+  "info",
+  "ok",
+  "caution",
+  "attention",
+  "danger",
+];
 
 export function isToneName(value: unknown): value is ToneName {
   return TONE_NAMES.includes(value as ToneName);
 }
 
+export function isCustomTone(value: unknown): value is CustomTone {
+  if (!value || typeof value !== "object") return false;
+  const tone = value as Partial<CustomTone>;
+  return typeof tone.hue === "number"
+    && Number.isFinite(tone.hue)
+    && tone.hue >= 0
+    && tone.hue < 360
+    && typeof tone.chroma === "number"
+    && Number.isFinite(tone.chroma)
+    && tone.chroma >= MIN_CUSTOM_TONE_CHROMA
+    && tone.chroma <= MAX_CUSTOM_TONE_CHROMA;
+}
+
+/** The continuous-picker position represented by each safe named preset. */
+export const TONE_PRESETS: Record<ToneName, CustomTone> = {
+  neutral: { hue: 264, chroma: MIN_CUSTOM_TONE_CHROMA },
+  info: { hue: 255, chroma: 0.17 },
+  ok: { hue: 152, chroma: 0.13 },
+  caution: { hue: 92, chroma: 0.125 },
+  attention: { hue: 62, chroma: 0.135 },
+  danger: { hue: 26, chroma: 0.187 },
+};
+
+export function customTone(value: ToneValue): CustomTone {
+  return typeof value === "string" ? TONE_PRESETS[value] : value;
+}
+
+/** CSS colour for custom tones; `--custom-tone-l` resolves in the active mode. */
+export function customToneCss(value: ToneValue): string | undefined {
+  if (typeof value === "string") return undefined;
+  return `oklch(var(--custom-tone-l) ${value.chroma} ${value.hue})`;
+}
+
 /**
  * How far off a date is, in the five steps the chips are tinted by. The two
- * numbers are day counts the user owns; the tones name palette steps.
+ * numbers are day counts the user owns; tones are named presets or bounded
+ * reader-owned hue/chroma pairs.
  */
 export interface DueTierSettings {
   /** Due in this many calendar days, counting today as day one, reads as `soon`. */
   soonDays: number;
   /** Due in this many calendar days, counting today as day one, reads as `upcoming`. */
   upcomingDays: number;
-  overdueTone: ToneName;
-  todayTone: ToneName;
-  soonTone: ToneName;
-  upcomingTone: ToneName;
-  laterTone: ToneName;
+  overdueTone: ToneValue;
+  todayTone: ToneValue;
+  soonTone: ToneValue;
+  upcomingTone: ToneValue;
+  laterTone: ToneValue;
 }
 
 export const DEFAULT_DUE_TIERS: DueTierSettings = {
@@ -63,7 +115,7 @@ export const DEFAULT_DUE_TIERS: DueTierSettings = {
   upcomingDays: 7,
   overdueTone: "danger",
   todayTone: "attention",
-  soonTone: "info",
+  soonTone: "caution",
   upcomingTone: "info",
   laterTone: "neutral",
 };
@@ -181,7 +233,8 @@ export function dueTiers(): DueTierSettings {
     typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_DUE_DAYS
       ? value
       : fallback;
-  const tone = (value: unknown, fallback: ToneName) => (isToneName(value) ? value : fallback);
+  const tone = (value: unknown, fallback: ToneValue): ToneValue =>
+    isToneName(value) || isCustomTone(value) ? value : fallback;
   const soonDays = days(stored.soonDays, DEFAULT_DUE_TIERS.soonDays);
   return {
     soonDays,
