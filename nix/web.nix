@@ -64,7 +64,7 @@ stdenv.mkDerivation {
       ;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
-    hash = "sha256-kEDagczE1+jZQTMQxxA+Samqu5Hz17Juc/OJ9ZCZ3PU=";
+    hash = "sha256-r4bM3800O+vDJJNCnzDiXpkF1IvsDG6K7mfhwBKs6+M=";
   };
 
   nativeBuildInputs = [
