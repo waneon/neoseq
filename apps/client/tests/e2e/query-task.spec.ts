@@ -31,8 +31,8 @@ async function setKnownProperty(page: Page, key: string, value: string): Promise
 
 /** Chooses from one of the builder's dropdowns, which are all `MenuSelect`. */
 async function chooseInBuilder(page: Page, label: string, option: string): Promise<void> {
-  await page.getByTestId("query-builder").getByRole("button", { name: label }).click();
-  await page.getByRole("menuitemradio", { name: option, exact: true }).click();
+  await page.getByTestId("query-builder").getByRole("combobox", { name: label }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
 }
 
 test("query-task projections share ordinary properties and the SPARQL index", async ({ page }) => {

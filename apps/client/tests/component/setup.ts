@@ -1,6 +1,22 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
 
+// Node 24's Request performs a strict brand check on AbortSignal. Vitest keeps
+// Node's Request but jsdom supplies AbortController, so React Router otherwise
+// hands Request an equally valid signal from the other DOM implementation and
+// every client-side navigation throws. Keep the signal React Router owns (and
+// therefore its cancellation semantics), while letting Node construct the
+// request without applying its incompatible brand check.
+const NodeRequest = globalThis.Request;
+class DomCompatibleRequest extends NodeRequest {
+  constructor(input: RequestInfo | URL, init: RequestInit = {}) {
+    const { signal, ...compatibleInit } = init;
+    super(input, compatibleInit);
+    if (signal) Object.defineProperty(this, "signal", { value: signal });
+  }
+}
+(globalThis as Record<string, unknown>).Request = DomCompatibleRequest;
+
 // The default second is a guess about how fast the machine is. Under the
 // contention of a full verification run a portalled menu can take longer to
 // mount than that, which reads as a missing element rather than a slow one.

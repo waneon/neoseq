@@ -19,6 +19,7 @@
 import { useMemo, useState } from "react";
 import { PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Input } from "@/ui/shadcn/input";
+import { Button } from "@/ui/shadcn/button";
 import { MenuSelect, type MenuSelectOption } from "@/ui/menu-select";
 import { cn } from "@/lib/utils";
 import type { GraphSnapshot } from "../../core-port/snapshot";
@@ -258,15 +259,15 @@ function GroupEditor({
           />
           <span className="qb-lead">{message("query.ofTheFollowing")}</span>
           {onRemove && (
-            <button
-              type="button"
-              className="icon-btn qb-remove"
+            <Button
+              size="icon"
+              className="qb-remove"
               disabled={readonly}
               aria-label={message("query.removeGroup")}
               onClick={onRemove}
             >
               <Trash2Icon aria-hidden />
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -405,9 +406,9 @@ function ConditionEditor({
           onChange={onChange}
         />
       )}
-      <button
-        type="button"
-        className="icon-btn qb-remove"
+      <Button
+        size="icon"
+        className="qb-remove"
         disabled={readonly}
         aria-label={message("query.removeCondition", {
           field: fieldLabel(condition.field, subject, message),
@@ -415,7 +416,7 @@ function ConditionEditor({
         onClick={onRemove}
       >
         <XIcon aria-hidden />
-      </button>
+      </Button>
     </div>
   );
 }

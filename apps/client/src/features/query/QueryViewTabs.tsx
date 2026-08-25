@@ -44,6 +44,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import type { QueryView, QueryViewKind } from "../../core-port/snapshot";
+import { Button } from "@/ui/shadcn/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -263,14 +264,14 @@ export function QueryViewTabs({
       {!readonly && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="icon-btn query-view-add"
+            <Button
+              size="icon"
+              className="query-view-add"
               aria-label={message("query.newView")}
               data-testid="query-view-add"
             >
               <PlusIcon aria-hidden />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuLabel>{message("query.newView")}</DropdownMenuLabel>

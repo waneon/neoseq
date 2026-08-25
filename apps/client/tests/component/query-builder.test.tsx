@@ -765,11 +765,11 @@ describe("query result views", () => {
     fireEvent.pointerDown(within(panel).getByTestId("query-sort-add"), { button: 0 });
     // The list sorter consumes the filter catalog, not the projected Text/Page
     // columns. Feature-only documents such as Query never enter either catalog.
-    expect(await screen.findByRole("menuitemradio", { name: "Tag" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "Anywhere under" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "Position" })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitemradio", { name: "Query" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "owner" }));
+    expect(await screen.findByRole("option", { name: "Tag" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Anywhere under" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Position" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Query" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "owner" }));
 
     await waitFor(() => expect(storedQuery(harness)?.views[0]?.options.list_sort).toEqual([
       { field: "property:user.owner", descending: false },
@@ -781,7 +781,7 @@ describe("query result views", () => {
 
     await chooseFromMenu(
       user,
-      within(panel).getByRole("button", { name: "owner direction" }),
+      within(panel).getByRole("combobox", { name: "owner direction" }),
       "Descending",
     );
     await waitFor(() => expect(values()).toEqual(["Zulu", "Alpha"]));

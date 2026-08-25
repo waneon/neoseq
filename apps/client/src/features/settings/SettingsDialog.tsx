@@ -3,7 +3,7 @@
 // section in the URL makes sections linkable and lets Back close the dialog
 // without losing editor context.
 
-import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router";
 import {
   graphName,
@@ -33,9 +33,10 @@ import { useConfiguredTimezone, useDueTiers } from "./preferences";
 import { AccentField } from "./AccentField";
 import { DefaultQueriesSection } from "./DefaultQueries";
 import { ToneChoice } from "./ToneChoice";
-import { Callout, Dialog } from "../../ui/components";
+import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, type Theme } from "../../ui/theme";
 import { Input } from "@/ui/shadcn/input";
+import { Button } from "@/ui/shadcn/button";
 import { MenuSelect } from "@/ui/menu-select";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
@@ -426,14 +427,14 @@ function TasksSection() {
           );
         })}
       </div>
-      <button
-        type="button"
-        className="btn self-start"
+      <Button
+        variant="secondary"
+        className="self-start"
         data-testid="due-tiers-reset"
         onClick={() => updateDueTiers(DEFAULT_DUE_TIERS)}
       >
         {message("settings.restoreDefaults")}
-      </button>
+      </Button>
     </section>
   );
 }
@@ -502,9 +503,9 @@ function StorageSection() {
       {persisted === false && (
         <Callout>
           {message("settings.storageEviction")}
-          <button type="button" className="btn" onClick={requestPersistence}>
+          <Button variant="secondary" onClick={requestPersistence}>
             {message("settings.requestPersistence")}
-          </button>
+          </Button>
         </Callout>
       )}
       <dl className="settings-grid">
@@ -601,43 +602,40 @@ function DangerSection({ graphId, onClose }: { graphId: string; onClose: () => v
   const navigate = useNavigate();
   const { message } = useI18n();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <section className="settings-section settings-danger">
       <h2>{message("settings.danger")}</h2>
       <p>{message("settings.deleteDescription")}</p>
-      <button
-        type="button"
-        className="btn btn-danger self-start"
+      <Button
+        ref={deleteButtonRef}
+        variant="destructive"
+        className="self-start"
         data-testid="settings-delete-graph"
         onClick={() => setConfirmDelete(true)}
       >
         {message("settings.deleteGraph")}
-      </button>
+      </Button>
       {confirmDelete && (
-        <Dialog title={message("graph.deleteTitle")} onClose={() => setConfirmDelete(false)}>
-          <p>{message("graph.deleteConfirm", { name: graphName(graphId) })}</p>
-          <div className="dialog-actions">
-            <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>
-              {message("common.cancel")}
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              data-testid="settings-confirm-delete"
-              onClick={() => {
-                // The shell owns the open session; the picker performs the
-                // deletion once the graph lease is released by the close.
-                setConfirmDelete(false);
-                onClose();
-                schedulePendingDelete(graphId);
-                navigate("/");
-              }}
-            >
-              {message("common.deleteForever")}
-            </button>
-          </div>
-        </Dialog>
+        <ConfirmDialog
+          title={message("graph.deleteTitle")}
+          cancelLabel={message("common.cancel")}
+          confirmLabel={message("common.deleteForever")}
+          testId="settings-confirm-delete"
+          returnFocus={() => deleteButtonRef.current}
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            // The shell owns the open session; the picker performs the
+            // deletion once the graph lease is released by the close.
+            setConfirmDelete(false);
+            onClose();
+            schedulePendingDelete(graphId);
+            navigate("/");
+          }}
+        >
+          {message("graph.deleteConfirm", { name: graphName(graphId) })}
+        </ConfirmDialog>
       )}
     </section>
   );

@@ -22,6 +22,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Columns3Icon, SearchIcon } from "lucide-react";
 import { AnchoredPanel } from "@/ui/anchored-panel";
+import { Button } from "@/ui/shadcn/button";
 import {
   columnSourceKey,
   isDisplayColumnSource,
@@ -117,17 +118,16 @@ export function QueryColumnsControl({
 
   return (
     <>
-      <button
+      <Button
+        size="icon"
         ref={triggerRef}
-        type="button"
-        className="icon-btn"
         aria-label={message("query.columns")}
         aria-expanded={open}
         data-testid="query-columns-trigger"
         onClick={() => (open ? close() : setOpen(true))}
       >
         <Columns3Icon aria-hidden />
-      </button>
+      </Button>
       {open && (
         <AnchoredPanel
           anchor={triggerRef.current}

@@ -3,6 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { buttonClass } from "@/ui/shadcn/button";
 
 function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -67,7 +68,7 @@ function DialogContent({
           {showCloseButton && (
             <DialogPrimitive.Close
               data-slot="dialog-close"
-              className="icon-btn absolute right-3 top-3"
+              className={cn(buttonClass("secondary", "icon"), "absolute right-3 top-3")}
               aria-label={closeLabel}
             >
               <XIcon className="size-3.5" />

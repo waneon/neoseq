@@ -14,10 +14,11 @@ import {
 } from "../../core-port/directory";
 import { createRemoteGraph, listRemoteGraphs } from "../sync/api";
 import { writeAuthSession } from "../sync/auth";
-import { Callout, Dialog } from "../../ui/components";
+import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
 import { useNotify } from "../notify/context";
 import { Input } from "@/ui/shadcn/input";
+import { Button } from "@/ui/shadcn/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -143,12 +144,13 @@ export function GraphPicker() {
                 <div className="graph-actions">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button
-                        className="icon-btn"
+                      <Button
+                        size="icon"
                         aria-label={message("graph.actionsFor", { name: graph.name })}
+                        data-graph-actions={graph.id}
                       >
                         <MoreHorizontalIcon aria-hidden />
-                      </button>
+                      </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuGroup>
@@ -205,26 +207,24 @@ export function GraphPicker() {
               onChange={(event) => setNewName(event.target.value)}
               data-testid="new-graph-name"
             />
-            <button
-              className="btn btn-primary"
+            <Button
               type="submit"
               disabled={importing}
               data-testid="create-graph"
             >
               {message("graph.createLocal")}
-            </button>
+            </Button>
           </div>
           <div className="picker-new-actions">
-            <button
-              className="btn btn-ghost"
-              type="button"
+            <Button
+              variant="ghost"
               disabled={importing}
               onClick={() => archiveInput.current?.click()}
               data-testid="import-graph"
             >
               <UploadIcon data-icon="inline-start" aria-hidden />
               {importing ? message("graph.importing") : message("graph.import")}
-            </button>
+            </Button>
             <input
               ref={archiveInput}
               className="sr-only"
@@ -250,16 +250,15 @@ export function GraphPicker() {
                   });
               }}
             />
-            <button
-              className="btn btn-ghost"
-              type="button"
+            <Button
+              variant="ghost"
               disabled={importing}
               onClick={() => setDialog({ kind: "remote-create" })}
               data-testid="create-remote-graph"
             >
               <CloudIcon aria-hidden />
               {message("graph.createRemote")}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -277,6 +276,10 @@ export function GraphPicker() {
       {dialog?.kind === "delete" && (
         <DeleteDialog
           graph={dialog.graph}
+          returnFocus={() =>
+            document.querySelector<HTMLButtonElement>(
+              `[data-graph-actions="${CSS.escape(dialog.graph.id)}"]`,
+            )}
           onClose={() => setDialog(null)}
           onDeleted={() => {
             setDialog(null);
@@ -385,13 +388,13 @@ function RemoteCreateDialog({
         <label className="field-label" htmlFor="remote-token">{message("graph.token")}</label>
         <Input id="remote-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>{message("common.cancel")}</button>
-          <button type="button" className="btn" onClick={connectAvailable} disabled={busy || !principal.trim() || !token.trim()}>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>{message("common.cancel")}</Button>
+          <Button variant="secondary" onClick={connectAvailable} disabled={busy || !principal.trim() || !token.trim()}>
             {message("graph.connectRemote")}
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !principal.trim() || !token.trim()}>
+          </Button>
+          <Button type="submit" disabled={busy || !name.trim() || !principal.trim() || !token.trim()}>
             {message("graph.createRemote")}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>
@@ -430,17 +433,16 @@ function RenameDialog({
           data-testid="rename-graph-name"
         />
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             {message("common.cancel")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className="btn btn-primary"
             disabled={!name.trim()}
             data-testid="rename-graph-submit"
           >
             {message("common.rename")}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>
@@ -449,10 +451,12 @@ function RenameDialog({
 
 function DeleteDialog({
   graph,
+  returnFocus,
   onClose,
   onDeleted,
 }: {
   graph: GraphSummary;
+  returnFocus: () => HTMLElement | null;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -460,33 +464,25 @@ function DeleteDialog({
   const notify = useNotify();
   const [busy, setBusy] = useState(false);
   return (
-    <Dialog title={message("graph.deleteTitle")} onClose={onClose}>
-      <p>
-        {message("graph.deleteConfirm", { name: graph.name })}
-      </p>
-      <div className="dialog-actions">
-        <button className="btn" onClick={onClose} disabled={busy}>
-          {message("common.cancel")}
-        </button>
-        <button
-          className="btn btn-danger"
-          data-testid="confirm-delete-graph"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            deleteGraph(graph.id)
-              .then(onDeleted)
-              .catch((cause: unknown) => {
-                // The dialog stays open with the graph still listed behind it,
-                // which says nothing about why.
-                setBusy(false);
-                notify.failure(message("failure.deleteGraph", { name: graph.name }), cause);
-              });
-          }}
-        >
-          {message("common.deleteForever")}
-        </button>
-      </div>
-    </Dialog>
+    <ConfirmDialog
+      title={message("graph.deleteTitle")}
+      cancelLabel={message("common.cancel")}
+      confirmLabel={message("common.deleteForever")}
+      busy={busy}
+      testId="confirm-delete-graph"
+      returnFocus={returnFocus}
+      onClose={onClose}
+      onConfirm={() => {
+        setBusy(true);
+        deleteGraph(graph.id)
+          .then(onDeleted)
+          .catch((cause: unknown) => {
+            setBusy(false);
+            notify.failure(message("failure.deleteGraph", { name: graph.name }), cause);
+          });
+      }}
+    >
+      {message("graph.deleteConfirm", { name: graph.name })}
+    </ConfirmDialog>
   );
 }

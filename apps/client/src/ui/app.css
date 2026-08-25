@@ -647,6 +647,8 @@ a:hover {
 [data-slot="dialog-content"]:focus-visible,
 [data-slot="dropdown-menu-content"]:focus,
 [data-slot="dropdown-menu-content"]:focus-visible,
+[data-slot="select-content"]:focus,
+[data-slot="select-content"]:focus-visible,
 .cmdk:focus,
 .cmdk:focus-visible,
 .toast:focus,
@@ -1229,8 +1231,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
    timezone list was clipped at 320px with no scrollbar and nothing but the
    keyboard able to reach the rest of it. A shadcn primitive's box belongs to the
    layer that owns every other box in the product. */
-[data-slot="dropdown-menu-content"] {
-  max-height: var(--radix-dropdown-menu-content-available-height);
+[data-slot="dropdown-menu-content"],
+[data-slot="select-content"] {
+  max-height: var(--radix-dropdown-menu-content-available-height, var(--radix-select-content-available-height));
   /* Vertical only: the horizontal clip is what keeps a row's wash inside the
      menu's rounded corners. */
   overflow: hidden auto;
@@ -1242,7 +1245,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    still cannot outgrow the room the menu has, which is what the fallback keeps
    true when there is no popper to ask. */
 .menu-select-menu {
-  max-height: min(320px, 60vh, var(--radix-dropdown-menu-content-available-height, 100vh));
+  max-height: min(320px, 60vh, var(--radix-dropdown-menu-content-available-height, var(--radix-select-content-available-height, 100vh)));
 }
 
 /* ── The roving highlight ──
@@ -1260,20 +1263,23 @@ button.chip:focus-visible .chip-glyph .chip-x {
    product's one action colour — on every row a pointer merely passed over. */
 [data-slot="dropdown-menu-item"],
 [data-slot="dropdown-menu-radio-item"],
-[data-slot="dropdown-menu-checkbox-item"] {
+[data-slot="dropdown-menu-checkbox-item"],
+[data-slot="select-item"] {
   position: relative;
 }
 
 [data-slot="dropdown-menu-item"][data-highlighted],
 [data-slot="dropdown-menu-radio-item"][data-highlighted],
-[data-slot="dropdown-menu-checkbox-item"][data-highlighted] {
+[data-slot="dropdown-menu-checkbox-item"][data-highlighted],
+[data-slot="select-item"][data-highlighted] {
   background: var(--surface-2);
   color: var(--ink);
 }
 
 [data-slot="dropdown-menu-item"][data-highlighted] svg,
 [data-slot="dropdown-menu-radio-item"][data-highlighted] svg,
-[data-slot="dropdown-menu-checkbox-item"][data-highlighted] svg {
+[data-slot="dropdown-menu-checkbox-item"][data-highlighted] svg,
+[data-slot="select-item"][data-highlighted] svg {
   color: var(--ink-2);
 }
 

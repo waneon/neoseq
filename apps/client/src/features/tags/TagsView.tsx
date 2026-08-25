@@ -66,7 +66,8 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Input } from "@/ui/shadcn/input";
-import { Dialog } from "../../ui/components";
+import { ConfirmDialog } from "../../ui/components";
+import { Button } from "@/ui/shadcn/button";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { propertyDisplayName } from "../properties/property-display";
@@ -247,15 +248,13 @@ export function TagsView() {
           <h1>{message("tags.title")}</h1>
           {!readonly && (
             <div className="title-actions">
-              <button
-                type="button"
-                className="btn btn-primary"
+              <Button
                 data-testid="new-tag"
                 onClick={() => setCreatingIn({ group: null })}
               >
                 <PlusIcon aria-hidden />
                 {message("tags.new")}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -431,16 +430,16 @@ function TagGroupSection({
           {!readonly && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="icon-btn tag-group-actions"
+                <Button
+                  size="icon"
+                  className="tag-group-actions"
                   aria-label={message("tags.groupActions", {
                     name: name ?? message("tags.ungrouped"),
                   })}
                   data-testid="tag-group-menu"
                 >
                   <MoreHorizontalIcon aria-hidden />
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={onCreateHere}>
@@ -597,6 +596,7 @@ function TagRow({
   const [picker, setPicker] = useState<{ key?: string; anchor: HTMLElement | null } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const markRef = useRef<HTMLElement | null>(null);
+  const actionsRef = useRef<HTMLButtonElement>(null);
 
   const starred = isFavourite(tag);
   const summary = tag.defaults
@@ -662,14 +662,15 @@ function TagRow({
       {!readonly && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="icon-btn tag-row-actions"
+            <Button
+              ref={actionsRef}
+              size="icon"
+              className="tag-row-actions"
               aria-label={message("tags.actionsNamed", { name: tag.name })}
               data-testid="tag-row-menu"
             >
               <MoreHorizontalIcon aria-hidden />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
@@ -748,28 +749,24 @@ function TagRow({
         />
       )}
       {confirmDelete && (
-        <Dialog title={message("tags.deleteTitle")} onClose={() => setConfirmDelete(false)}>
-          <p>{message("tags.deleteConfirm", { name: tag.name })}</p>
-          <div className="dialog-actions">
-            <button className="btn" onClick={() => setConfirmDelete(false)}>
-              {message("common.cancel")}
-            </button>
-            <button
-              className="btn btn-danger"
-              data-testid="confirm-delete-tag"
-              onClick={() => {
-                setConfirmDelete(false);
-                void session
-                  .execute({ type: "delete_tag", tag_id: tag.id })
-                  .catch((cause: unknown) => {
-                    notify.failure(message("failure.deleteTag", { name: tag.name }), cause);
-                  });
-              }}
-            >
-              {message("tags.deleteAction")}
-            </button>
-          </div>
-        </Dialog>
+        <ConfirmDialog
+          title={message("tags.deleteTitle")}
+          cancelLabel={message("common.cancel")}
+          confirmLabel={message("tags.deleteAction")}
+          testId="confirm-delete-tag"
+          returnFocus={() => actionsRef.current}
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            setConfirmDelete(false);
+            void session
+              .execute({ type: "delete_tag", tag_id: tag.id })
+              .catch((cause: unknown) => {
+                notify.failure(message("failure.deleteTag", { name: tag.name }), cause);
+              });
+          }}
+        >
+          {message("tags.deleteConfirm", { name: tag.name })}
+        </ConfirmDialog>
       )}
     </li>
   );

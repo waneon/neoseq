@@ -1,7 +1,7 @@
 // Component test harness: real GraphSession over the in-memory FakeCorePort,
 // mounted inside the app's route shape so router hooks resolve.
 
-import { act, fireEvent, render, screen, type RenderResult } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import type { ReactElement } from "react";
@@ -117,11 +117,9 @@ export async function openViewMenu(name: string): Promise<HTMLElement> {
 /**
  * Picks a value from one of the product's dropdowns.
  *
- * Every list of choices — a language, a journal date format, a property type, a
- * task status — is the same Radix menu the bullet's context menu is
- * (designs/interaction.md § Choice), so the route is the same as a user's: press
- * the trigger, then press the option. This replaces `userEvent.selectOptions`,
- * which only ever worked against a native `<select>`.
+ * Every field-like list of choices uses the same Radix Select, so the route is
+ * the same as a user's: press the trigger, then press the option. This replaces
+ * `userEvent.selectOptions`, which only ever worked against a native `<select>`.
  */
 export async function chooseFromMenu(
   user: ReturnType<typeof userEvent.setup>,
@@ -129,7 +127,13 @@ export async function chooseFromMenu(
   option: string | RegExp,
 ): Promise<void> {
   await user.click(trigger);
-  await user.click(await screen.findByRole("menuitemradio", { name: option }));
+  const choice = await waitFor(() => {
+    const row = screen.queryByRole("option", { name: option })
+      ?? screen.queryByRole("menuitemradio", { name: option });
+    if (!row) throw new Error(`Choice not found: ${String(option)}`);
+    return row;
+  });
+  await user.click(choice);
 }
 
 /** Waits until the session queue settles and React flushed the state. */

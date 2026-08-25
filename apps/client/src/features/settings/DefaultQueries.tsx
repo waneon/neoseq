@@ -28,6 +28,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { Input } from "@/ui/shadcn/input";
+import { Button } from "@/ui/shadcn/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -124,16 +125,15 @@ export function DefaultQueriesSection() {
       {/* The empty state *is* the action, so this is the section's own floor
           rather than a row that appears once something else exists. */}
       <div className="default-query-add">
-        <button
-          type="button"
-          className="btn"
+        <Button
+          variant="secondary"
           disabled={full || state.mode === "readonly"}
           data-testid="add-default-query"
           onClick={() => create(defaultPlan("block"))}
         >
           <PlusIcon aria-hidden />
           {message("settings.addDefaultQuery")}
-        </button>
+        </Button>
       </div>
       {/* A disabled button has to say what would re-enable it. */}
       {full && (
@@ -278,9 +278,8 @@ function DefaultQueryRow({
   return (
     <li className="default-query" data-open={open || undefined}>
       <div className="default-query-head">
-        <button
-          type="button"
-          className="icon-btn"
+        <Button
+          size="icon"
           aria-expanded={open}
           aria-controls={open ? bodyId : undefined}
           aria-label={message("settings.editDefaultQuery", { name })}
@@ -288,7 +287,7 @@ function DefaultQueryRow({
           onClick={() => onOpen(!open)}
         >
           {open ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
-        </button>
+        </Button>
         {/* The name is a field, because it is the one thing here the reader
             writes in their own words. Empty, it shows the question itself — which
             is also what the journal captions the answer with, so leaving it blank
@@ -318,15 +317,14 @@ function DefaultQueryRow({
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="icon-btn"
+            <Button
+              size="icon"
               aria-label={message("settings.defaultQueryActions", { name })}
               disabled={state.mode === "readonly"}
               data-testid="default-query-actions"
             >
               <MoreHorizontalIcon aria-hidden />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {/* Order is the order they are read in, and a list this short is

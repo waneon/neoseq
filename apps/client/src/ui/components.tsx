@@ -5,6 +5,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/shadcn/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/ui/shadcn/alert-dialog";
+import { Button } from "@/ui/shadcn/button";
 import { OverlayRoot } from "@/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../i18n";
@@ -81,5 +91,72 @@ export function Callout({
     >
       {children}
     </div>
+  );
+}
+
+/** A destructive choice with the safe action as its initial focus. */
+export function ConfirmDialog({
+  title,
+  cancelLabel,
+  confirmLabel,
+  busy = false,
+  testId,
+  returnFocus,
+  onClose,
+  onConfirm,
+  children,
+}: {
+  title: string;
+  cancelLabel: string;
+  confirmLabel: string;
+  busy?: boolean;
+  testId?: string;
+  returnFocus?: () => HTMLElement | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  children: ReactNode;
+}) {
+  const close = () => {
+    onClose();
+    queueMicrotask(() => returnFocus?.()?.focus({ preventScroll: true }));
+  };
+
+  return (
+    <AlertDialog open>
+      <AlertDialogContent
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          close();
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{children}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="dialog-actions">
+          <AlertDialogCancel asChild>
+            <Button variant="secondary" disabled={busy} onClick={close}>
+              {cancelLabel}
+            </Button>
+          </AlertDialogCancel>
+          <AlertDialogAction asChild>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              data-testid={testId}
+              onClick={(event) => {
+                // The caller owns completion. Preventing the primitive's eager
+                // close lets an async deletion keep the explanation on screen
+                // when it fails; synchronous callers close their own state.
+                event.preventDefault();
+                onConfirm();
+              }}
+            >
+              {confirmLabel}
+            </Button>
+          </AlertDialogAction>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

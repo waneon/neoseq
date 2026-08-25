@@ -14,7 +14,8 @@ import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
-import { Dialog } from "../../ui/components";
+import { ConfirmDialog, Dialog } from "../../ui/components";
+import { Button } from "@/ui/shadcn/button";
 import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
@@ -90,8 +91,7 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
       graphId={graphId}
       actions={
         state.mode !== "readonly" ? (
-          <button
-            className="btn btn-primary"
+          <Button
             data-testid="restore-page"
             onClick={() =>
               void session.execute({ type: "restore_page", page_id: pageId }).catch(
@@ -107,7 +107,7 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
             }
           >
             {message("page.restore")}
-          </button>
+          </Button>
         ) : undefined
       }
     />
@@ -344,35 +344,27 @@ function PageMenu({
       </DropdownMenu>
       {dialog === "info" && <PageInfoDialog page={page} onClose={() => setDialog(null)} />}
       {dialog === "delete" && (
-        <Dialog title={message("page.deleteTitle")} onClose={() => setDialog(null)}>
-          <p>
-            {message("page.deleteConfirm", { name: pageTitle(page) })}
-          </p>
-          <div className="dialog-actions">
-            <button className="btn" onClick={() => setDialog(null)}>
-              {message("common.cancel")}
-            </button>
-            <button
-              className="btn btn-danger"
-              data-testid="confirm-delete-page"
-              onClick={() => {
-                setDialog(null);
-                void session
-                  .execute({ type: "delete_page", page_id: page.id })
-                  .catch((error: unknown) => {
-                    // The dialog is gone by now, so there is nowhere inline
-                    // left for this to be said.
-                    notify.failure(
-                      message("failure.deletePage", { name: pageTitle(page) }),
-                      error,
-                    );
-                  });
-              }}
-            >
-              {message("page.deleteAction")}
-            </button>
-          </div>
-        </Dialog>
+        <ConfirmDialog
+          title={message("page.deleteTitle")}
+          cancelLabel={message("common.cancel")}
+          confirmLabel={message("page.deleteAction")}
+          testId="confirm-delete-page"
+          returnFocus={() => document.querySelector<HTMLElement>('[data-testid="page-title"]')}
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void session
+              .execute({ type: "delete_page", page_id: page.id })
+              .catch((error: unknown) => {
+                notify.failure(
+                  message("failure.deletePage", { name: pageTitle(page) }),
+                  error,
+                );
+              });
+          }}
+        >
+          {message("page.deleteConfirm", { name: pageTitle(page) })}
+        </ConfirmDialog>
       )}
     </>
   );
@@ -464,9 +456,11 @@ export function Tombstone({
           <h1>{title}</h1>
           <p>{detail}</p>
           <div className="actions">
-            <Link className="btn" to={`/g/${graphId}/journal`}>
-              {message("page.goToJournal")}
-            </Link>
+            <Button asChild variant="secondary">
+              <Link to={`/g/${graphId}/journal`}>
+                {message("page.goToJournal")}
+              </Link>
+            </Button>
             {actions}
           </div>
         </section>

@@ -70,6 +70,7 @@ import {
 import { TagMark } from "../tags/TagIdentity";
 import { Wordmark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
+import { Button } from "@/ui/shadcn/button";
 import { Kbd } from "@/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
@@ -565,9 +566,11 @@ SELECT ?entity ?content WHERE {
             <h1>{message("graph.loadError")}</h1>
             <p>{message("error.internal")}</p>
             <div className="actions">
-              <Link className="btn" to="/">
-                {message("graph.backToGraphs")}
-              </Link>
+              <Button asChild variant="secondary">
+                <Link to="/">
+                  {message("graph.backToGraphs")}
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
@@ -696,14 +699,14 @@ SELECT ?entity ?content WHERE {
             <h2>{message("shell.pages")}</h2>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  className="icon-btn"
+                <Button
+                  size="icon"
                   aria-label={message("shell.newPage")}
                   onClick={() => void createPage()}
                   data-testid="new-page"
                 >
                   <PlusIcon aria-hidden />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>{message("shell.newPage")}</TooltipContent>
             </Tooltip>
@@ -742,24 +745,26 @@ SELECT ?entity ?content WHERE {
         </nav>
         <main className="shell-main">
           <header className="shell-topbar" data-scrolled={scrolled}>
-            <button
-              className="icon-btn shell-toggle"
+            <Button
+              size="icon"
+              className="shell-toggle"
               aria-label={sidebarOpen ? message("shell.closeMenu") : message("shell.openMenu")}
               aria-expanded={sidebarOpen}
               onClick={onToggleSidebar}
             >
               <PanelLeftIcon />
-            </button>
+            </Button>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  className="icon-btn rail-toggle"
+                <Button
+                  size="icon"
+                  className="rail-toggle"
                   aria-label={message("shell.showSidebar")}
                   aria-keyshortcuts={formatBinding(bindings.sidebar)}
                   onClick={toggleRail}
                 >
                   <PanelLeftIcon />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>
                 {message("shell.showSidebar")} · {formatBinding(bindings.sidebar)}
@@ -1021,13 +1026,13 @@ function OverflowMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          className="icon-btn"
+        <Button
+          size="icon"
           aria-label={message("shell.moreActions")}
           data-testid="overflow-menu"
         >
           <MoreHorizontalIcon aria-hidden />
-        </button>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {/* Search leads, because it is what the rest of the menu is an overflow

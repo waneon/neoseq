@@ -45,6 +45,10 @@ Lists of product choices use one accessible menu/listbox language with the same
 roving, selection, dismissal, and keyboard behavior. A trigger retains field
 shape and states its open relationship to the popup.
 
+A closed, non-filterable set is a select. A filterable set is a combobox backed
+by a listbox. Features own the domain values and labels, while the combobox owns
+active-option focus, filtering, and selection semantics.
+
 Native controls remain where the platform provides the better precision or
 semantics, including checkboxes and date/time pickers. Color is selected by
 pressing a visible, bounded swatch rather than by opening a generic text list or
@@ -86,6 +90,10 @@ replaced provide a captured box.
 
 Opening and closing restore focus to the invoking control or caret unless the
 chosen action explicitly transfers focus elsewhere.
+
+A destructive confirmation is an alert dialog. It names the irreversible
+effect, places initial focus on the safe action, and stays open while completion
+is unresolved or has failed.
 
 ## Stable Geometry
 

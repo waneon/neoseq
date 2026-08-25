@@ -35,6 +35,10 @@ async function createCustomProperty(
   await user.click(within(picker).getByRole("option", { name: type }));
   if (type === "checkbox") {
     await user.click(within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }));
+  } else if (type === "page") {
+    const input = within(picker).getByTestId("page-autocomplete");
+    await user.type(input, value);
+    await user.click(await screen.findByRole("option", { name: `Create Page “${value}”` }));
   } else {
     const input = within(picker).getByLabelText(`${name} value`);
     await user.clear(input);
@@ -105,6 +109,15 @@ describe("property picker", () => {
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("button", { name: "Remove property" }));
     await waitFor(() => expect(screen.queryByTestId("prop-user.metric")).not.toBeInTheDocument());
+  });
+
+  it("creates a page reference from the filterable combobox", async () => {
+    await mountPage();
+    const user = userEvent.setup();
+
+    await createCustomProperty(user, "destination", "page", "Roadmap");
+
+    expect(await screen.findByTestId("prop-user.destination")).toHaveTextContent("Roadmap");
   });
 
   it("creates an empty field and clears a value without removing its field", async () => {
@@ -224,7 +237,7 @@ describe("property picker", () => {
       button: 0,
       pointerType: "mouse",
     });
-    const weeks = await screen.findByRole("menuitemradio", { name: "Weeks" });
+    const weeks = await screen.findByRole("option", { name: "Weeks" });
     fireEvent.click(weeks);
     // The interval reads back in words, which is what confirms the choice.
     expect(within(picker).getByText("Every 3 weeks")).toBeInTheDocument();

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { Button } from "@/ui/shadcn/button";
 import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
 import {
   addDays,
@@ -106,15 +107,15 @@ export function JournalView() {
             hover-gated, which meant the primary verb of the primary surface was
             invisible until you already knew it was there. */}
         <div className="date-stepper">
-          <button
-            className="icon-btn"
+          <Button
+            size="icon"
             aria-label={message("journal.previousDay")}
             onClick={() => go(addDays(date, -1))}
           >
             <ChevronLeftIcon aria-hidden />
-          </button>
-          <button
-            className="icon-btn"
+          </Button>
+          <Button
+            size="icon"
             aria-label={message("journal.calendarOpen")}
             onClick={() => {
               const input = dateInput.current;
@@ -124,14 +125,14 @@ export function JournalView() {
             }}
           >
             <CalendarIcon aria-hidden />
-          </button>
-          <button
-            className="icon-btn"
+          </Button>
+          <Button
+            size="icon"
             aria-label={message("journal.nextDay")}
             onClick={() => go(addDays(date, 1))}
           >
             <ChevronRightIcon aria-hidden />
-          </button>
+          </Button>
         </div>
         <input
           ref={dateInput}

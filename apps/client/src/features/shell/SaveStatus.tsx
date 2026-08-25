@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/ui/shadcn/button";
 import type { SessionState } from "../../core-port/session";
 import { useI18n } from "../../i18n";
 
@@ -71,9 +72,9 @@ export function SaveStatus({
         )}
       </output>
       {save.kind === "unsaved" && save.retryable && (
-        <button className="btn" onClick={onRetry} data-testid="retry-save">
+        <Button variant="secondary" onClick={onRetry} data-testid="retry-save">
           {message("common.retryShort")}
-        </button>
+        </Button>
       )}
     </>
   );

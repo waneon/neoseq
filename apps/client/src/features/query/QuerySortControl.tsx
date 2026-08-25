@@ -15,6 +15,7 @@ import { useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
 import { MenuSelect } from "@/ui/menu-select";
 import { AnchoredPanel } from "@/ui/anchored-panel";
+import { Button } from "@/ui/shadcn/button";
 import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
 
@@ -78,10 +79,9 @@ export function QuerySortControl({
 
   return (
     <>
-      <button
+      <Button
+        size="icon"
         ref={triggerRef}
-        type="button"
-        className="icon-btn"
         aria-label={message("query.sortOrder")}
         aria-expanded={open}
         // The trigger carries the state, so an ordered result says so without
@@ -91,7 +91,7 @@ export function QuerySortControl({
         onClick={() => setOpen((current) => !current)}
       >
         <ArrowUpDownIcon aria-hidden />
-      </button>
+      </Button>
       {open && (
         <AnchoredPanel
           anchor={triggerRef.current}
@@ -127,32 +127,29 @@ export function QuerySortControl({
                       onChange(sorts.map((entry, at) =>
                         at === index ? { ...entry, descending: value === "desc" } : entry))}
                   />
-                  <button
-                    type="button"
-                    className="icon-btn"
+                  <Button
+                    size="icon"
                     disabled={index === 0}
                     aria-label={message("query.moveSortUp", { column: nameOf(sort.key) })}
                     onClick={() => move(index, -1)}
                   >
                     <ArrowUpIcon aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
+                  </Button>
+                  <Button
+                    size="icon"
                     disabled={index === sorts.length - 1}
                     aria-label={message("query.moveSortDown", { column: nameOf(sort.key) })}
                     onClick={() => move(index, 1)}
                   >
                     <ArrowDownIcon aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
+                  </Button>
+                  <Button
+                    size="icon"
                     aria-label={message("query.removeSort", { column: nameOf(sort.key) })}
                     onClick={() => onChange(sorts.filter((_, at) => at !== index))}
                   >
                     <XIcon aria-hidden />
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ol>

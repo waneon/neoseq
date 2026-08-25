@@ -83,6 +83,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
+import { Button } from "@/ui/shadcn/button";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import {
   dueTierOf,
@@ -1093,9 +1094,8 @@ function QueryPanelSurface({
               surface cannot keep, and the route to its author is a row in the
               `⋯` menu, named after that place. */}
           {binding.kind === "managed" && plan && (
-            <button
-              type="button"
-              className="icon-btn"
+            <Button
+              size="icon"
               aria-expanded={editing}
               aria-controls={editing ? builderId : undefined}
               aria-label={message("query.conditions")}
@@ -1111,7 +1111,7 @@ function QueryPanelSurface({
               onClick={toggleEditing}
             >
               <ListFilterIcon aria-hidden />
-            </button>
+            </Button>
           )}
           {choosesColumns && (
             <QueryColumnsControl
@@ -1127,12 +1127,8 @@ function QueryPanelSurface({
           {canEditCurrentView && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                {/* The header controls are the bespoke 24px icon-btn, not a shadcn
-                    Button: its size utilities live in the `utilities` layer, which
-                    outranks `neoseq`, so no header CSS could ever size them. */}
-                <button
-                  type="button"
-                  className="icon-btn"
+                <Button
+                  size="icon"
                   // The menu is wider than the view it opens on, so the name is the
                   // whole question it answers, not just its first group.
                   aria-label={message("query.display")}
@@ -1143,7 +1139,7 @@ function QueryPanelSurface({
                   {activeView.kind === "table"
                     ? <Table2Icon aria-hidden />
                     : <ListIcon aria-hidden />}
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               {/* One menu, because table-or-list and how tall the rows are answer
                   one question: how this answer is laid out. Table columns remain
@@ -1162,14 +1158,13 @@ function QueryPanelSurface({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="icon-btn"
+              <Button
+                size="icon"
                 aria-label={message("query.actions")}
                 data-testid="query-actions-trigger"
               >
                 <MoreHorizontalIcon aria-hidden />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             {/* Verbs only. Running is not one — the query reruns on every edit
                 and every canonical revision, so a `Run` row was a button for a

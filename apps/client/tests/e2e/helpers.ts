@@ -82,11 +82,9 @@ export async function createPage(page: Page, title: string): Promise<void> {
 /**
  * Picks a value from one of the product's dropdowns.
  *
- * Every list of choices — a language, a journal date format, a property type, a
- * task status — is the same Radix menu the bullet's context menu is
- * (designs/interaction.md § Choice), so the route is a user's route: press the
- * trigger, then press the option. This replaces `selectOption`, which only ever
- * worked against a native `<select>`.
+ * Every field-like list of choices uses the same Radix Select, so the route is
+ * a user's route: press the trigger, then press the option. This replaces
+ * `selectOption`, which only ever worked against a native `<select>`.
  */
 export async function chooseFromMenu(
   page: Page,
@@ -94,7 +92,10 @@ export async function chooseFromMenu(
   option: string,
 ): Promise<void> {
   await trigger.click();
-  await page.getByRole("menuitemradio", { name: option, exact: true }).click();
+  await page
+    .getByRole("option", { name: option, exact: true })
+    .or(page.getByRole("menuitemradio", { name: option, exact: true }))
+    .click();
 }
 
 /** The page's verbs have no button: right-clicking its title row is the route. */

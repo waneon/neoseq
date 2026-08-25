@@ -28,7 +28,8 @@ import { tagPlan } from "../../entities/query-plan";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
-import { Dialog } from "../../ui/components";
+import { ConfirmDialog, Dialog } from "../../ui/components";
+import { Button } from "@/ui/shadcn/button";
 import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
@@ -88,8 +89,7 @@ export function TagView() {
         graphId={graphId}
         actions={
           state.mode !== "readonly" ? (
-            <button
-              className="btn btn-primary"
+            <Button
               data-testid="restore-tag"
               onClick={() =>
                 void session
@@ -100,7 +100,7 @@ export function TagView() {
               }
             >
               {message("tags.restore")}
-            </button>
+            </Button>
           ) : undefined
         }
       />
@@ -345,31 +345,25 @@ function TagMenu({
         <TagInfoDialog tag={tag} graphId={graphId} onClose={() => setDialog(null)} />
       )}
       {dialog === "delete" && (
-        <Dialog title={message("tags.deleteTitle")} onClose={() => setDialog(null)}>
-          <p>{message("tags.deleteConfirm", { name: tag.name })}</p>
-          <div className="dialog-actions">
-            <button className="btn" onClick={() => setDialog(null)}>
-              {message("common.cancel")}
-            </button>
-            <button
-              className="btn btn-danger"
-              data-testid="confirm-delete-tag"
-              onClick={() => {
-                setDialog(null);
-                void session
-                  .execute({ type: "delete_tag", tag_id: tag.id })
-                  .then(() => navigate(`/g/${graphId}/tags`))
-                  .catch((error: unknown) => {
-                    // The dialog is gone by now, so there is nowhere inline left
-                    // for this to be said.
-                    notify.failure(message("failure.deleteTag", { name: tag.name }), error);
-                  });
-              }}
-            >
-              {message("tags.deleteAction")}
-            </button>
-          </div>
-        </Dialog>
+        <ConfirmDialog
+          title={message("tags.deleteTitle")}
+          cancelLabel={message("common.cancel")}
+          confirmLabel={message("tags.deleteAction")}
+          testId="confirm-delete-tag"
+          returnFocus={() => document.querySelector<HTMLElement>('[data-testid="tag-title"]')}
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void session
+              .execute({ type: "delete_tag", tag_id: tag.id })
+              .then(() => navigate(`/g/${graphId}/tags`))
+              .catch((error: unknown) => {
+                notify.failure(message("failure.deleteTag", { name: tag.name }), error);
+              });
+          }}
+        >
+          {message("tags.deleteConfirm", { name: tag.name })}
+        </ConfirmDialog>
       )}
     </>
   );

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { CircleAlertIcon, CircleCheckIcon, InfoIcon, XIcon } from "lucide-react";
+import { Button } from "@/ui/shadcn/button";
 import type { Toast, ToastStore, ToastTone } from "./store";
 import { useI18n } from "../../i18n";
 
@@ -154,19 +155,20 @@ function ToastRow({
           </span>
         )}
       </p>
-      <button
-        className="icon-btn toast-close"
+      <Button
+        size="icon"
+        className="toast-close"
         aria-label={dismissLabel}
         data-testid="toast-dismiss"
         onClick={() => onDismiss(id)}
       >
         <XIcon aria-hidden />
-      </button>
+      </Button>
       {toast.detail && <p className="toast-detail">{toast.detail}</p>}
       {toast.action && (
         <div className="toast-actions">
-          <button
-            className="btn"
+          <Button
+            variant="secondary"
             data-testid="toast-action"
             onClick={() => {
               // The toast closes on click; whatever the action starts reports
@@ -176,7 +178,7 @@ function ToastRow({
             }}
           >
             {toast.action.label}
-          </button>
+          </Button>
         </div>
       )}
       {/* Keyed by `nonce` so a repeat lands as a fresh element and the countdown

@@ -4,6 +4,7 @@ import { useI18n } from "../../i18n";
 import { Callout, Dialog } from "../../ui/components";
 import { MenuSelect } from "../../ui/menu-select";
 import { Input } from "@/ui/shadcn/input";
+import { Button } from "@/ui/shadcn/button";
 import {
   grantMembership,
   listMemberships,
@@ -88,7 +89,7 @@ export function RemoteMembersDialog({
         <label className="field-label" htmlFor="member-account-token">{message("graph.token")}</label>
         <div className="remote-account-row">
           <Input id="member-account-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
-          <button className="btn" type="submit" disabled={!principal.trim() || !token.trim() || busy}>{message("graph.signIn")}</button>
+          <Button variant="secondary" type="submit" disabled={!principal.trim() || !token.trim() || busy}>{message("graph.signIn")}</Button>
         </div>
       </form>
       <ul className="member-list" aria-busy={busy}>
@@ -101,9 +102,8 @@ export function RemoteMembersDialog({
               <small>{message(`graph.${member.role}`)}</small>
             </span>
             {member.role !== "owner" && (
-              <button
-                className="btn btn-danger"
-                type="button"
+              <Button
+                variant="destructive"
                 disabled={busy}
                 onClick={() => {
                   const auth = readAuthSession(connection.server_url);
@@ -122,7 +122,7 @@ export function RemoteMembersDialog({
                 }}
               >
                 {message("graph.revoke")}
-              </button>
+              </Button>
             )}
           </li>
         ))}
@@ -146,7 +146,7 @@ export function RemoteMembersDialog({
             onValueChange={(value) => setRole(value as "editor" | "viewer")}
             label={message("graph.memberRole")}
           />
-          <button className="btn btn-primary" type="submit" disabled={busy || !invite.trim()}>{message("graph.invite")}</button>
+          <Button type="submit" disabled={busy || !invite.trim()}>{message("graph.invite")}</Button>
         </div>
       </form>
     </Dialog>

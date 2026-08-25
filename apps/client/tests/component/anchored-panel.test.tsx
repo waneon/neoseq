@@ -67,14 +67,14 @@ describe("a summoned panel", () => {
     render(<Panel />);
     await screen.findByTestId("panel");
     fireEvent.pointerDown(screen.getByTestId("add"), { button: 0, pointerType: "mouse" });
-    const term = await screen.findByRole("menuitemradio", { name: "Tag" });
+    const term = await screen.findByRole("option", { name: "Tag" });
 
     await act(async () => {
       for (const frame of frames.splice(0)) frame(0);
     });
 
     expect(term).toBeInTheDocument();
-    const menu = screen.getByRole("menu", { name: "Add a term" });
-    expect(menu).toContainElement(document.activeElement as HTMLElement);
+    const listbox = screen.getByRole("listbox", { name: "Add a term" });
+    expect(listbox).toContainElement(document.activeElement as HTMLElement);
   });
 });

@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { RotateCcwIcon } from "lucide-react";
+import { Button } from "@/ui/shadcn/button";
 import { setEditorKeymap } from "../../entities/settings";
 import { MOD } from "../commands/keys";
 import { Shortcut } from "../commands/Shortcut";
@@ -166,9 +167,9 @@ export function ShortcutEditor() {
                   <Shortcut binding={binding} plain />
                 )}
               </button>
-              <button
-                type="button"
-                className="icon-btn shortcut-reset"
+              <Button
+                size="icon"
+                className="shortcut-reset"
                 data-default={isDefault || undefined}
                 data-testid={`shortcut-reset-${id}`}
                 aria-label={message("settings.shortcutReset", { action })}
@@ -179,7 +180,7 @@ export function ShortcutEditor() {
                 }}
               >
                 <RotateCcwIcon aria-hidden />
-              </button>
+              </Button>
             </div>
           );
         })}
@@ -194,9 +195,9 @@ export function ShortcutEditor() {
           </p>
         )}
         {customised && (
-          <button
-            type="button"
-            className="btn self-start"
+          <Button
+            variant="secondary"
+            className="self-start"
             data-testid="shortcut-reset-all"
             onClick={() => {
               resetAllBindings();
@@ -204,7 +205,7 @@ export function ShortcutEditor() {
             }}
           >
             {message("settings.shortcutResetAll")}
-          </button>
+          </Button>
         )}
       </section>
     </>
