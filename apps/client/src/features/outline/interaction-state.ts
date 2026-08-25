@@ -3,12 +3,13 @@ import {
   type BlockCompletion,
   type BlockCompletionState,
 } from "../blocks/editor/BlockCompletions";
+import type { Anchor } from "@/ui/anchored";
 import type { DropTarget } from "./selection";
 
 export interface PropertyRequest {
   blockId: string;
   key?: string;
-  anchor: HTMLElement | null;
+  anchor: Anchor;
   selection?: { start: number; end: number };
 }
 

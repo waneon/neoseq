@@ -185,7 +185,7 @@ function hasArea(rect: DOMRect | null): rect is DOMRect {
 }
 
 /** The anchor's box, or null when there is nothing there to measure. */
-function measureAnchor(anchor: Anchor): DOMRect | null {
+export function snapshotAnchor(anchor: Anchor): DOMRect | null {
   if (anchor === null) return null;
   if (!(anchor instanceof HTMLElement)) return hasArea(anchor) ? anchor : null;
   if (!anchor.isConnected) return null;
@@ -227,7 +227,7 @@ export function useAnchoredPosition(
   // is no better guess than the position they are already looking at.
   const known = useRef<DOMRect | null>(null);
   const place = useCallback(() => {
-    const rect = measureAnchor(anchor) ?? known.current;
+    const rect = snapshotAnchor(anchor) ?? known.current;
     known.current = rect;
     return placeAnchored(rect, {
       width,

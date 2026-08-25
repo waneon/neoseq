@@ -104,6 +104,31 @@ describe("first-class tags and tag defaults", () => {
     expect(await screen.findByRole("option", { name: "Project" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Create tag/ })).not.toBeInTheDocument();
   });
+
+  it("keeps an autocomplete option alive through the complete pointer gesture", async () => {
+    const { port } = await mountTagged();
+    const user = userEvent.setup();
+    await openBlockMenu();
+    await user.click(await screen.findByTestId("menu-tags"));
+    const picker = await screen.findByTestId("tag-picker");
+    await user.type(within(picker).getByTestId("tag-autocomplete"), "Project");
+    const option = await screen.findByRole("option", { name: "Project" });
+    let commandStarted = false;
+    port.beforeExecute = async (command) => {
+      if (command.type !== "add_tag") return;
+      commandStarted = true;
+    };
+
+    await user.pointer({ target: option, keys: "[MouseLeft>]" });
+    expect(option).toBeInTheDocument();
+    expect(commandStarted).toBe(false);
+
+    await user.pointer({ target: option, keys: "[/MouseLeft]" });
+    await waitFor(() => expect(commandStarted).toBe(true));
+    await waitFor(() =>
+      expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
+    );
+  });
 });
 
 describe("the # tag menu in a block", () => {
@@ -155,7 +180,7 @@ describe("the # tag menu in a block", () => {
     expect(textarea).toHaveValue("existing status #");
   });
 
-  it("closes on document scroll without touching the tag token", async () => {
+  it("follows its editor on document scroll without touching the tag token", async () => {
     await mountTagged();
     const user = userEvent.setup();
     const textarea = await screen.findByLabelText("Block text");
@@ -166,7 +191,7 @@ describe("the # tag menu in a block", () => {
     const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
     expect(documentScroll).not.toBeNull();
     fireEvent.scroll(documentScroll!);
-    await waitFor(() => expect(screen.queryByTestId("tag-menu")).not.toBeInTheDocument());
+    expect(screen.getByTestId("tag-menu")).toBeInTheDocument();
     expect(textarea).toHaveValue("existing status #");
     expect(textarea).toHaveFocus();
   });

@@ -101,9 +101,14 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await expect(query.getByTestId("query-list")).toBeVisible();
   const listEditor = query.getByTestId("query-markdown-editor");
   await expect(listEditor).toHaveValue("Ship editable query results");
-  await mutateAndAwaitSaved(page, () => listEditor.press("Enter"));
+  // The editor auto-saves its draft. On a slower scheduler that save can finish
+  // while the presentation menu is open, making Enter a legitimate no-op. The
+  // authoritative outline is the completion boundary: it changes only after
+  // the splice command has reconciled, whether debounce or Enter committed it.
+  await listEditor.press("Enter");
   await expect(page.locator(".outline-input").first()).toHaveValue("Ship editable query results");
   await expect(query.getByTestId("query-list-row").first()).toContainText("Ship editable query results");
+  await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
 
   // The compiled source is available, and it is what ran.
   await query.getByTestId("query-actions-trigger").click();

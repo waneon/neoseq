@@ -83,6 +83,9 @@ dark-mode coverage, and a real two-profile collaboration scenario. One
 Playwright run owns the preview server on a port allocated by the browser
 profile, overridable with `NEOSEQ_PREVIEW_PORT`, and schedules every browser
 project.
+The gate previews a test-mode artifact built in the same task graph. A direct
+Playwright invocation builds that artifact itself, so neither route may reuse a
+stale checkout-local site.
 The scenario uses a test-only sync-server process with an allocated port and an
 isolated database on the managed PostgreSQL service. The profile selects this
 gate and keeps the browser runtime out of the normal shell. CI runs the portable
@@ -103,6 +106,8 @@ Every asynchronous interaction therefore proves the boundary it depends on:
   observes a newer revision, and only then accepts the saved state;
 - optimistic rows and replaceable controls reach their canonical identity,
   focus, and command-ready state before receiving subsequent input;
+- pointer selection begins mutation only after the complete click gesture, and
+  overlays capture geometry before a gesture can replace their DOM anchor;
 - derived views and geometry converge by polling their semantic result, with
   stability requiring consecutive equal observations when no single completion
   event exists;
@@ -112,7 +117,8 @@ Every asynchronous interaction therefore proves the boundary it depends on:
 An already-visible `saved` state is not evidence that a new mutation completed,
 and a visible element is not necessarily the reconciled element that will own
 the next input. Time-dependent product behavior uses controlled clocks in
-component tests. Suite timeouts remain failure budgets only; arbitrary sleeps
+component tests. Browser retries are disabled because a second schedule cannot
+validate the first. Suite timeouts remain failure budgets only; arbitrary sleeps
 must not order test actions.
 
 Workspace tests cover the synchronization protocol and native/WebSocket

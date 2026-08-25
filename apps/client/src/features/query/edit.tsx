@@ -1020,7 +1020,6 @@ function QueryMarkdownField({
           results={slashResults}
           active={slashIndex}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "slash", index })}
-          onDismiss={() => dispatchCompletion({ type: "set", completion: null })}
           onChoose={(item) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
@@ -1036,7 +1035,6 @@ function QueryMarkdownField({
           results={hashResults}
           active={hashIndex}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "hash", index })}
-          onDismiss={() => dispatchCompletion({ type: "set", completion: null })}
           onChoose={(option) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, hashRequest).caret;

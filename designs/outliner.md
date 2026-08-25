@@ -79,7 +79,9 @@ focused row only when it is no longer visible.
 
 Dynamic Markdown and property content may change row height. Measurement may
 update after render, but it must not align an already visible caret to a new
-viewport position merely because its row grew.
+viewport position merely because its row grew. A visibility scroll belongs to
+the focus arrival that requested it and cannot reassert itself after focus
+leaves or the reader scrolls elsewhere.
 
 Input and semantic requirements follow [Accessibility](accessibility.md), and
 shared drag and control behavior follows [Interaction](interaction.md).

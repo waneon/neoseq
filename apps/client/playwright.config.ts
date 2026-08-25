@@ -4,6 +4,13 @@ import { defineConfig, devices } from "@playwright/test";
 // direct Playwright runs useful outside that boundary while staying clear of
 // Vite's development port.
 const previewPort = Number(process.env.NEOSEQ_PREVIEW_PORT ?? 14173);
+const preview = `pnpm vite preview --host 127.0.0.1 --port ${previewPort}`;
+// The devenv browser gate has an explicit prerequisite that builds this exact
+// artifact. A direct Playwright invocation has no such task graph, so it must
+// assemble a fresh test-mode site rather than silently serving an old dist/.
+const webServer = process.env.NEOSEQ_E2E_PREBUILT === "1"
+  ? preview
+  : `pnpm vite build --mode test && ${preview}`;
 
 export default defineConfig({
   testDir: "./tests",
@@ -11,7 +18,9 @@ export default defineConfig({
   fullyParallel: false,
   // Match the public CI runner's four cores and keep scheduling reproducible.
   workers: 4,
-  retries: 1,
+  // A retry changes the observed schedule and can hide a race. This gate accepts
+  // one result for one run; repeated stress runs belong in verification.
+  retries: 0,
   reporter: "line",
   expect: {
     timeout: 30_000,
@@ -40,7 +49,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `pnpm vite preview --host 127.0.0.1 --port ${previewPort}`,
+    command: webServer,
     port: previewPort,
     reuseExistingServer: false,
   },

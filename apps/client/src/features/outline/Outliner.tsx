@@ -113,6 +113,7 @@ import {
   type OutlineClipboardItem,
 } from "./clipboard";
 import type { OutlineFragment } from "../../core-port/fragment";
+import { snapshotAnchor } from "@/ui/anchored";
 import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
 import { useImmediateState, useLatest } from "../../lib/react";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
@@ -139,6 +140,7 @@ import {
   detectHash,
   detectSlash,
   filterTagOptions,
+  liveCompletionAnchor,
   removeCompletionToken,
   type BlockCompletionRequest,
   type BlockTagOption,
@@ -1845,6 +1847,11 @@ export function Outliner({
       const request = slashRequest;
       const chosen = item ?? slashResults[slashIndex];
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
+      // Removing the token can reconcile and replace the textarea before the
+      // picker mounts. Its place is part of this gesture, so capture it while
+      // the gesture's anchor still exists instead of handing Radix a detached
+      // element whose bounding box is the origin.
+      const pickerAnchor = snapshotAnchor(liveCompletionAnchor(request));
       const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
       dispatchDraft({
@@ -1889,7 +1896,7 @@ export function Outliner({
       setPropertyRequest({
         blockId: row.block.id,
         key: chosen.action.key,
-        anchor: request.anchor,
+        anchor: pickerAnchor,
         selection: { start: caret, end: caret },
       });
     },
@@ -2386,6 +2393,15 @@ export function Outliner({
       const row = element.getBoundingClientRect();
       const view = scrollElement.getBoundingClientRect();
       if (row.bottom > view.top && row.top < view.bottom) return;
+      // A mounted row already has exact geometry. Native nearest-edge scrolling
+      // completes synchronously and owns no later reconciliation pass, so an
+      // old keyboard arrival cannot pull the page back after focus leaves and
+      // the reader scrolls elsewhere. The virtualizer is reserved for a row
+      // that does not exist in the DOM yet.
+      if (typeof element.scrollIntoView === "function") {
+        element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        return;
+      }
     }
     virtualizer.scrollToIndex(index);
   }, [keyboardTargetId, rows, scrollElement, virtualizer]);
@@ -2499,10 +2515,21 @@ export function Outliner({
   const tagBlock = tagRequest ? findBlock(outline, tagRequest.blockId) : undefined;
 
   const closePropertyPicker = () => {
-    const anchor = propertyRequest?.anchor;
+    const originalAnchor = propertyRequest?.anchor;
+    const blockId = propertyRequest?.blockId;
     const selection = propertyRequest?.selection;
     setPropertyRequest(null);
     requestAnimationFrame(() => {
+      // A picker opened from a slash command owns a captured box because the
+      // command may replace its textarea. Restore focus to the live canonical
+      // editor, never to that geometry value or a detached former editor.
+      const anchor = originalAnchor instanceof HTMLElement && originalAnchor.isConnected
+        ? originalAnchor
+        : blockId
+          ? document.querySelector<HTMLTextAreaElement>(
+            `[data-block-id="${cssEscape(blockId)}"] textarea`,
+          )
+          : null;
       anchor?.focus({ preventScroll: true });
       if (anchor instanceof HTMLTextAreaElement && selection) {
         anchor.setSelectionRange(selection.start, selection.end);
@@ -2678,7 +2705,6 @@ export function Outliner({
           results={slashResults}
           active={slashIndex}
           onHover={setSlashActiveState}
-          onDismiss={() => setSlashRequest(null)}
           onChoose={(item) => {
             const row = rowsRef.current.find((entry) => entry.block.id === slashRequest.blockId);
             if (row) editor.acceptSlash(row, item);
@@ -2691,7 +2717,6 @@ export function Outliner({
           results={hashResults}
           active={hashIndex}
           onHover={setHashActiveState}
-          onDismiss={() => setHashRequest(null)}
           onChoose={(option) => {
             const row = rowsRef.current.find((entry) => entry.block.id === hashRequest.blockId);
             if (row) editor.acceptHash(row, option);

@@ -19,6 +19,9 @@ in
     if [[ -z "''${NEOSEQ_PREVIEW_PORT:-}" ]]; then
       export NEOSEQ_PREVIEW_PORT="${toString previewPort}"
     fi
+    # web:build-test is an enterTest prerequisite; tell Playwright not to build
+    # the same artifact again. Direct Playwright runs do not inherit this marker.
+    export NEOSEQ_E2E_PREBUILT=1
     ${client} playwright test
   '';
 

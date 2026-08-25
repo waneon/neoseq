@@ -382,7 +382,7 @@ describe("property picker", () => {
     expect(textarea).toHaveValue("/");
   });
 
-  it("keeps a slash menu stable for its own scroll and dismisses it on document scroll", async () => {
+  it("keeps a slash menu attached while its list or editor surface scrolls", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
     await session.execute({
@@ -403,7 +403,7 @@ describe("property picker", () => {
     const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
     expect(documentScroll).not.toBeNull();
     fireEvent.scroll(documentScroll!);
-    await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
+    expect(screen.getByTestId("slash-menu")).toBeInTheDocument();
     expect(textarea).toHaveValue("/");
     expect(textarea).toHaveFocus();
   });

@@ -84,6 +84,8 @@ the room there. Point-like anchors open toward the viewport center; field-like
 anchors preserve the field edge because the popup stands in for that field.
 Contextual editing surfaces dismiss when content outside them scrolls; scrolling
 the surface's own list, or a nested choice it opened, keeps the interaction open.
+A token-completion list instead follows its focused editor because caret repair
+and row reconciliation may scroll that editor without user dismissal intent.
 Dismissal does not itself commit or mutate stored content, and completion tokens
 remain untouched.
 

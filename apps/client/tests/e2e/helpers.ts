@@ -91,35 +91,13 @@ export async function insertQueryBlock(
   await editor.click();
   await editor.press("End");
   await expect(editor).toBeFocused();
-  // The editor's debounce can reconcile the row during a Playwright round trip.
-  // Observe the exact completed token and its active option in the browser, then
-  // select in that same DOM commit. Watching only for the option is too early:
-  // Query is already offered at `/q`, which would leave `uery` to be typed into
-  // the block after it transforms.
-  await Promise.all([
-    editor.evaluate((textarea) => new Promise<void>((resolve) => {
-      const choose = () => {
-        const option = document.getElementById("slash-opt-query");
-        if (
-          textarea.value !== "/query"
-          || textarea.getAttribute("aria-activedescendant") !== "slash-opt-query"
-          || !(option instanceof HTMLButtonElement)
-        ) return;
-        observer.disconnect();
-        option.click();
-        resolve();
-      };
-      const observer = new MutationObserver(choose);
-      observer.observe(document.body, {
-        attributes: true,
-        attributeFilter: ["aria-activedescendant"],
-        childList: true,
-        subtree: true,
-      });
-      choose();
-    })),
-    page.keyboard.type("/query"),
-  ]);
+  // Select from a complete, stable prefix. The menu follows its live editor if
+  // reconciliation or caret scrolling replaces/moves the row; a user must not
+  // have to beat either transition to choose the offered command.
+  await page.keyboard.type("/quer");
+  const choice = page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ });
+  await expect(choice).toBeVisible();
+  await choice.click();
   await expect(opened).toBeVisible();
   await awaitSaved(page, before);
 }

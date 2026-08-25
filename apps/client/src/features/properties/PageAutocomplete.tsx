@@ -184,11 +184,16 @@ export function PageAutocomplete({
                       className="property-picker-option"
                       tabIndex={-1}
                       onPointerMove={() => setActive(index)}
-                      onMouseDown={(event) => {
+                      onPointerDown={(event) => {
+                        // Keep the field focused until the complete pointer
+                        // gesture selects this row. Starting `pick` here can
+                        // reconcile and close the portal before mouseup/click,
+                        // leaving the browser to finish a gesture on a node
+                        // that no longer exists.
                         event.preventDefault();
                         if (blurTimer.current) clearTimeout(blurTimer.current);
-                        void pick(option);
                       }}
+                      onClick={() => void pick(option)}
                     >
                       <span className="property-picker-candidate">
                         <span>

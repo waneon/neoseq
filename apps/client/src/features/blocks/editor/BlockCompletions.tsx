@@ -126,7 +126,8 @@ export function filterTagOptions(
   }));
 }
 
-function liveAnchor(request: BlockCompletionRequest): HTMLTextAreaElement {
+/** Resolves an optimistic editor request to the canonical textarea that replaced it. */
+export function liveCompletionAnchor(request: BlockCompletionRequest): HTMLTextAreaElement {
   const focused = document.activeElement;
   return request.anchor.isConnected
     ? request.anchor
@@ -141,22 +142,19 @@ export function BlockTagMenu({
   active,
   onHover,
   onChoose,
-  onDismiss,
 }: {
   request: BlockCompletionRequest;
   results: BlockTagOption[];
   active: number;
   onHover: (index: number) => void;
   onChoose: (option: BlockTagOption) => void;
-  onDismiss: () => void;
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(
-    liveAnchor(request),
+    liveCompletionAnchor(request),
     MENU_PLACEMENT,
     results.length,
-    { surface: listRef, onExternalScroll: onDismiss },
   );
   const overlayRoot = useOverlayRoot();
 
@@ -205,22 +203,19 @@ export function BlockSlashMenu({
   active,
   onHover,
   onChoose,
-  onDismiss,
 }: {
   request: BlockCompletionRequest;
   results: SlashItem[];
   active: number;
   onHover: (index: number) => void;
   onChoose: (item: SlashItem) => void;
-  onDismiss: () => void;
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
   const position = useAnchoredPosition(
-    liveAnchor(request),
+    liveCompletionAnchor(request),
     MENU_PLACEMENT,
     results.length,
-    { surface: listRef, onExternalScroll: onDismiss },
   );
   const overlayRoot = useOverlayRoot();
 

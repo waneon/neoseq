@@ -5,7 +5,7 @@
 // sliding back, a combobox list right-aligned under its own field.
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { placeAnchored } from "../../src/ui/anchored";
+import { placeAnchored, snapshotAnchor } from "../../src/ui/anchored";
 
 const VIEWPORT = { width: 1280, height: 720 };
 const PANEL = { width: 360, minWidth: 280, maxHeight: 420 } as const;
@@ -70,5 +70,18 @@ describe("placeAnchored", () => {
     const nothing = placeAnchored(null, PANEL);
     expect(detached).toEqual(nothing);
     expect(detached.left).toBe((VIEWPORT.width - 360) / 2);
+  });
+});
+
+describe("snapshotAnchor", () => {
+  it("captures a live element before reconciliation detaches it", () => {
+    const element = document.createElement("textarea");
+    const box = new DOMRect(120, 600, 80, 24);
+    element.getBoundingClientRect = () => box;
+    document.body.append(element);
+
+    expect(snapshotAnchor(element)).toBe(box);
+    element.remove();
+    expect(snapshotAnchor(element)).toBeNull();
   });
 });

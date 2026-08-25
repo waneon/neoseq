@@ -1112,7 +1112,7 @@ describe("query result views", () => {
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
   });
 
-  it("dismisses result completions when the surrounding document scrolls", async () => {
+  it("keeps result completions attached when the surrounding document scrolls", async () => {
     await withResult("Ship it");
     const user = userEvent.setup();
     const table = await screen.findByTestId("query-table");
@@ -1125,7 +1125,7 @@ describe("query result views", () => {
     const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
     expect(documentScroll).not.toBeNull();
     fireEvent.scroll(documentScroll!);
-    await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
+    expect(screen.getByTestId("slash-menu")).toBeInTheDocument();
     expect(editor).toHaveValue("Ship it /");
     expect(editor).toHaveFocus();
   });

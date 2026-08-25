@@ -15,9 +15,11 @@ navigation or structural ownership.
   removal, and menu presentation; and
 - text diffs translate drafts to `splice_markdown` command payloads.
 
-An external document scroll dismisses a completion menu without changing its
-token or caret. Scrolling the completion list itself keeps it open. Outline and
-query-result hosts share this interaction through the completion presentation.
+Completion menus follow their focused editor through list, caret, and document
+scrolling. Reconciliation may replace the textarea, but the completion remains
+attached to the focused canonical editor until selection, outside press, or
+Escape closes it. Outline and query-result hosts share this interaction through
+the completion presentation.
 
 An editor surface owns the draft session around that input. It reconciles a
 canonical `BlockSnapshot`, schedules or flushes writes, reports failure, and
