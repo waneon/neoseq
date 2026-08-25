@@ -743,6 +743,45 @@ test("every surface is measured and square", async ({ page }) => {
   await audit(page, "rail collapsed");
 });
 
+test("the bullet and every segment of its thread share one axis", async ({ page }) => {
+  await createGraph(page, "Thread Axis Graph");
+  await startOutline(page);
+  await page.keyboard.type("parent");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("child");
+
+  // Measure the quiet 1px thread, not the 2px path shown while the child owns
+  // the caret. This is where a guide that starts *on* the axis instead of
+  // straddling it moves half a CSS pixel to the right.
+  await page.getByLabel("Block text").last().evaluate((line) => line.blur());
+  const axes = await page.getByTestId("outline-row").evaluateAll((rows) => {
+    const [parent, child] = rows;
+    if (!(parent instanceof HTMLElement) || !(child instanceof HTMLElement)) {
+      throw new Error("the parent and child rows have no layout");
+    }
+
+    const strokeAxis = (row: HTMLElement, layer: number, widthProperty: string) => {
+      const style = getComputedStyle(row);
+      const left = Number.parseFloat(style.backgroundPositionX.split(",")[layer] ?? "");
+      const width = Number.parseFloat(style.getPropertyValue(widthProperty));
+      return row.getBoundingClientRect().left + left + width / 2;
+    };
+    const bullet = parent.querySelector<HTMLElement>(".outline-bullet");
+    if (!bullet) throw new Error("the parent row has no bullet");
+    const bulletBox = bullet.getBoundingClientRect();
+
+    return {
+      bullet: bulletBox.left + bulletBox.width / 2,
+      ownThread: strokeAxis(parent, 0, "--own-w"),
+      childGuide: strokeAxis(child, 2, "--guide-w"),
+    };
+  });
+
+  expect(axes.ownThread).toBeCloseTo(axes.bullet, 5);
+  expect(axes.childGuide).toBeCloseTo(axes.bullet, 5);
+});
+
 test("every surface is measured and square on a phone", async ({ page }) => {
   test.slow();
   await page.setViewportSize({ width: 390, height: 844 });

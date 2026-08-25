@@ -2389,6 +2389,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .outline-row {
   --depth: 0;
   --lit: 0;
+  /* The one x coordinate every mark in a thread is centred on. Keeping the
+     axis separate from each stroke's left edge prevents a 1px guide from
+     starting on the axis while the bullet and the other strokes straddle it. */
+  --thread-axis: calc(var(--gutter) + var(--slot) / 2);
   /* Where a row's own thread begins: the bottom of the 6px bullet centred on the
      26px text line, so the line leaves the mark rather than starting three
      pixels under it. A tree is read as one continuous stroke from a parent to
@@ -2399,6 +2403,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
      branch's own metrics and nothing else uses them. */
   --branch-w: 2px;
   --branch-turn: 10px;
+  --guide-w: 1px;
   /* The one column of the live stroke still in flight at this row — the deepest
      ancestor above it — and the width of the bar that draws it: `min(--lit, 1)`
      is 0 when no ancestor is on the path and 1 otherwise, which is how a
@@ -2427,18 +2432,18 @@ button.chip:focus-visible .chip-glyph .chip-x {
     linear-gradient(var(--thread-lit), var(--thread-lit)),
     repeating-linear-gradient(
       to right,
-      var(--thread-line) 0 1px,
-      transparent 1px var(--indent)
+      var(--thread-line) 0 var(--guide-w),
+      transparent var(--guide-w) var(--indent)
     );
   /* Every layer is centred on the same column x: the 1px guides sit on it, and
      the live bar and the row's own segment are pulled back half their width so
      they grow around it rather than off it. */
   background-position:
-    calc(var(--gutter) + var(--depth) * var(--indent) + var(--slot) / 2
+    calc(var(--thread-axis) + var(--depth) * var(--indent)
       - var(--own-w) / 2) var(--thread-head),
-    calc(var(--gutter) + (var(--lit) - 1) * var(--indent) + var(--slot) / 2
+    calc(var(--thread-axis) + (var(--lit) - 1) * var(--indent)
       - var(--branch-w) / 2) 0,
-    calc(var(--gutter) + var(--slot) / 2) 0;
+    calc(var(--thread-axis) - var(--guide-w) / 2) 0;
   background-size:
     var(--own-w) calc(100% - var(--thread-head)),
     var(--lit-w) 100%,
@@ -2476,7 +2481,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   position: absolute;
   top: 0;
   left: calc(
-    var(--gutter) + var(--slot) / 2 + (var(--depth) - 1) * var(--indent)
+    var(--thread-axis) + (var(--depth) - 1) * var(--indent)
       - var(--branch-w) / 2
   );
   /* Ends on the dot: the bullet's centre is one indent along and its mark is 6px,
