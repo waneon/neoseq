@@ -190,24 +190,66 @@ describe("property picker", () => {
       target: { value: "2026-08-24 09:30" },
     });
     await user.click(await within(picker).findByTestId("moment-search-result"));
+    await user.click(within(picker).getByTestId("moment-repeat-toggle"));
+    fireEvent.change(within(picker).getByTestId("moment-repeat-count"), {
+      target: { value: "3" },
+    });
 
-    // Search, quick choices, calendar, and clock only shape a local draft.
+    // Search, quick choices, calendar, clock, and cadence only shape a local draft.
     let block = session.getState().snapshot.pages[0]?.blocks[0];
     expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
     expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();
+    expect(block && stringValue(block.properties, "builtin.task-repeat")).toBeUndefined();
 
     await user.click(within(picker).getByTestId("moment-apply"));
     await waitFor(() => {
       block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-24");
       expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBe("09:30");
+      expect(block && stringValue(block.properties, "builtin.task-repeat")).toBe("3d");
     });
 
-    // The two storage facts share one command boundary and therefore one undo.
+    // All three storage facts share one command boundary and therefore one undo.
     await session.execute({ type: "undo" });
     block = session.getState().snapshot.pages[0]?.blocks[0];
     expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
     expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();
+    expect(block && stringValue(block.properties, "builtin.task-repeat")).toBeUndefined();
+  });
+
+  it("preserves an uninterpreted recurrence while only the moment changes", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "opaque cadence",
+    });
+    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
+    await session.execute({
+      type: "set_properties",
+      owner,
+      changes: [
+        { key: "builtin.task-scheduled", value: { type: "date", value: "2026-08-21" } },
+        { key: "builtin.task-repeat", value: { type: "string", value: "weekday" } },
+      ],
+    });
+
+    await user.click(await screen.findByTestId("task-chip-scheduled"));
+    const picker = await screen.findByTestId("property-picker");
+    fireEvent.change(within(picker).getByLabelText("Date or time"), {
+      target: { value: "2026-08-24" },
+    });
+    await user.click(await within(picker).findByTestId("moment-search-result"));
+    await user.click(within(picker).getByTestId("moment-apply"));
+
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-24");
+      expect(block && stringValue(block.properties, "builtin.task-repeat")).toBe("weekday");
+    });
   });
 
   it("writes a recurrence as a count and a unit, previewed in words", async () => {

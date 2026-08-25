@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
-import type { Command, PropertyOwnerRef } from "../../core-port/commands";
+import type { Command, PropertyChange, PropertyOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
   PropertyField,
@@ -294,26 +294,41 @@ export function PropertyPicker({
     if (removed) onClose();
   };
 
-  const commitMoment = async (date: string, time: string | null) => {
+  const commitMoment = async (
+    date: string,
+    time: string | null,
+    repeat: string | null | undefined,
+  ) => {
     if (stage.kind !== "value" || !isTaskDateKey(stage.key) || writeDisabled) return;
     const timeKey = timeKeyFor(stage.key);
     const dateValue = { type: "date", value: date } as const;
     const timeValue = time === null ? null : { type: "string", value: time } as const;
+    const repeatValue = repeat === null
+      ? null
+      : repeat === undefined
+        ? undefined
+        : { type: "string", value: repeat } as const;
     const issue = validateWriteTarget(stage.key, writeTarget)
       ?? validateValue(stage.key, dateValue, "single")
       ?? (timeValue ? validateValue(timeKey, timeValue, "single") : null)
-      ?? validateWriteTarget(timeKey, writeTarget);
+      ?? validateWriteTarget(timeKey, writeTarget)
+      ?? (repeatValue === undefined ? null : validateWriteTarget(TASK_REPEAT_KEY, writeTarget))
+      ?? (repeatValue ? validateValue(TASK_REPEAT_KEY, repeatValue, "single") : null);
     if (issue) {
       setRequest({ status: "failed", message: validationMessage(issue, message) });
       return;
     }
+    const changes: PropertyChange[] = [
+      { key: stage.key, value: dateValue },
+      { key: timeKey, value: timeValue },
+    ];
+    if (repeatValue !== undefined) {
+      changes.push({ key: TASK_REPEAT_KEY, value: repeatValue });
+    }
     const saved = await run({
       type: "set_properties",
       owner,
-      changes: [
-        { key: stage.key, value: dateValue },
-        { key: timeKey, value: timeValue },
-      ],
+      changes,
     });
     if (saved) onClose();
   };
@@ -392,9 +407,9 @@ export function PropertyPicker({
       className="property-picker"
       label={message("properties.addOrChange")}
       options={{
-        width: taskMoment ? 380 : 360,
+        width: taskMoment ? 720 : 360,
         minWidth: 280,
-        maxHeight: taskMoment ? 620 : 420,
+        maxHeight: taskMoment ? 540 : 420,
       }}
       revision={stage.kind}
       testId="property-picker"
@@ -447,7 +462,11 @@ export function PropertyPicker({
               : propertyDisplayName(stage.key, message)}
           </strong>
           {stage.kind === "value" && (
-            <span>{message(`properties.type.${stage.valueType}`)}</span>
+            <span>
+              {taskMoment
+                ? `${message("properties.type.date")} · ${message("task.timeOfDay")} · ${message("task.repeat")}`
+                : message(`properties.type.${stage.valueType}`)}
+            </span>
           )}
         </div>
       </div>
@@ -577,10 +596,11 @@ export function PropertyPicker({
                     ? taskMoment.draft.value
                     : todayLocalDate()}
                   time={singleString(target.bag, timeKeyFor(taskMoment.key))}
+                  repeat={singleString(target.bag, TASK_REPEAT_KEY)}
                   hasValue={selectedValues.some((value) => value.type === "date")}
                   readonly={writeDisabled}
                   busy={committing}
-                  onApply={(date, time) => void commitMoment(date, time)}
+                  onApply={(date, time, repeat) => void commitMoment(date, time, repeat)}
                   onClear={() => void clearMoment()}
                   onCancel={onClose}
                 />

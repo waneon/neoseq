@@ -91,21 +91,8 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   await startOutline(page);
   await typeInFocusedBlock(page, "Water the plants");
 
-  // Shape recurrence while the resting row is the only active surface. Later
-  // moment pickers can restore the caret without immediately being followed by
-  // a different anchored picker.
   await openBlockProperties(page);
   let picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "Repeat", exact: true }).click();
-  await picker.getByTestId("repeat-count").fill("2");
-  await chooseFromMenu(page, picker.getByTestId("repeat-unit"), "Weeks");
-  await expect(picker.getByText("Every 2 weeks")).toBeVisible();
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("repeat-set").click());
-  await expect(picker).toHaveCount(0);
-  await expect(page.getByTestId("task-chip-repeat")).toContainText("Every 2 weeks");
-
-  await openBlockProperties(page);
-  picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Status", exact: true }).click();
   await mutateAndAwaitSaved(page, () =>
     picker.getByRole("option", { name: "To-do", exact: true }).click());
@@ -119,8 +106,14 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   picker = page.getByTestId("property-picker");
   await picker.getByLabel("Date or time").fill(`${localDate(4)} 21:30`);
   await picker.getByTestId("moment-search-result").click();
+  await picker.getByTestId("moment-repeat-toggle").click();
+  await picker.getByTestId("moment-repeat-count").fill("2");
+  await chooseFromMenu(page, picker.getByTestId("moment-repeat-unit"), "Weeks");
+  await expect(picker.getByTestId("moment-pane-rules").getByText("Every 2 weeks"))
+    .toBeVisible();
   await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
   await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId("task-chip-repeat")).toContainText("Every 2 weeks");
 
   const scheduled = page.getByTestId("task-chip-scheduled");
   await expect(scheduled).toContainText("21:30");

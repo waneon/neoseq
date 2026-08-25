@@ -1016,6 +1016,12 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   expect(pickerBox.height).toBeGreaterThan(roomBelow);
   expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(lineBox.y - 3);
   expect(Math.abs(pickerBox.x - lineBox.x)).toBeLessThan(2);
+
+  const datePane = (await picker.getByTestId("moment-pane-date").boundingBox())!;
+  const rulesPane = (await picker.getByTestId("moment-pane-rules").boundingBox())!;
+  expect(datePane.x + datePane.width).toBeLessThan(rulesPane.x);
+  expect(Math.abs(datePane.y - rulesPane.y)).toBeLessThan(2);
+  expect(pickerBox.width).toBeCloseTo(720, 0);
 });
 
 test("closing the scheduled editor releases the outline scroll", async ({ page }) => {
@@ -1068,4 +1074,11 @@ test("the property editor remains an edge-to-edge sheet on a phone", async ({ pa
   expect(box.x).toBe(0);
   expect(box.width).toBe(390);
   expect(box.y + box.height).toBe(844);
+
+  await expect(picker.getByTestId("moment-tab-date")).toBeVisible();
+  await expect(picker.getByTestId("moment-pane-date")).toBeVisible();
+  await expect(picker.getByTestId("moment-pane-rules")).toBeHidden();
+  await picker.getByTestId("moment-tab-rules").click();
+  await expect(picker.getByTestId("moment-pane-date")).toBeHidden();
+  await expect(picker.getByTestId("moment-pane-rules")).toBeVisible();
 });

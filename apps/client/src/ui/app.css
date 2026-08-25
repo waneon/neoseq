@@ -6070,17 +6070,19 @@ button.query-list-status[data-active="true"] {
 }
 
 .moment-picker-body {
-  display: flex;
+  display: grid;
   min-height: 0;
   flex: 1;
-  flex-direction: column;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--sp-2);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.moment-picker-body > * {
-  flex: none;
+.moment-search-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
 }
 
 .moment-search {
@@ -6135,6 +6137,39 @@ button.query-list-status[data-active="true"] {
   font-variant-numeric: tabular-nums;
 }
 
+.moment-mobile-tabs {
+  display: none;
+}
+
+.moment-picker-columns {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.18fr) minmax(230px, 0.82fr);
+  gap: var(--sp-2);
+}
+
+.moment-date-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.moment-rules-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+}
+
 .moment-quick {
   display: flex;
   gap: var(--sp-1);
@@ -6179,6 +6214,8 @@ button.query-list-status[data-active="true"] {
 
 .moment-calendar {
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
   gap: var(--sp-1);
   padding: var(--sp-2);
@@ -6288,11 +6325,14 @@ button.query-list-status[data-active="true"] {
   cursor: default;
 }
 
-.moment-time {
+.moment-rule-section {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-1) 0;
+}
+
+.moment-rule-section + .moment-rule-section {
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--line);
 }
 
@@ -6397,6 +6437,50 @@ button.query-list-status[data-active="true"] {
   color: var(--ink-3);
 }
 
+.moment-repeat-controls {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 16px 68px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-3);
+}
+
+.moment-repeat-controls > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.moment-repeat-controls input {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.moment-repeat-unit {
+  min-width: 0;
+}
+
+.moment-repeat-preview {
+  grid-column: 2 / -1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moment-next-occurrence {
+  margin-top: auto;
+  padding: var(--sp-2);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
 .moment-footer {
   display: flex;
   align-items: center;
@@ -6424,6 +6508,13 @@ button.query-list-status[data-active="true"] {
 .moment-preview strong {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
+}
+
+.moment-preview .moment-preview-repeat {
+  max-width: 110px;
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
 }
 
 .moment-actions {
@@ -7342,6 +7433,67 @@ button.tag-mark:focus-visible {
   .property-picker-option,
   .property-picker-members > div {
     min-height: var(--sp-6);
+  }
+
+  .moment-picker-body {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .moment-mobile-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border-radius: var(--r-2);
+    background: var(--surface-2);
+  }
+
+  .moment-mobile-tabs button {
+    min-height: var(--sp-6);
+    padding: 0 var(--sp-2);
+    border: 0;
+    border-radius: calc(var(--r-2) - 2px);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+
+  .moment-mobile-tabs button[aria-selected="true"] {
+    background: var(--raised);
+    box-shadow: var(--e1);
+    color: var(--ink);
+    font-weight: var(--weight-strong);
+  }
+
+  .moment-mobile-tabs button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-inset);
+  }
+
+  .moment-picker-columns {
+    display: block;
+    min-height: 274px;
+  }
+
+  .moment-picker[data-active-pane="date"] .moment-rules-pane,
+  .moment-picker[data-active-pane="rules"] .moment-date-pane {
+    display: none;
+  }
+
+  .moment-date-pane,
+  .moment-rules-pane {
+    height: 100%;
+  }
+
+  .moment-rules-pane {
+    min-height: 274px;
+  }
+
+  .moment-actions [data-testid="moment-clear"] {
+    width: var(--sp-6);
+    padding: 0;
+    font-size: 0;
   }
 }
 

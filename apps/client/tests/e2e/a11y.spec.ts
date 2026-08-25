@@ -168,7 +168,8 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   await openBlockProperties(page);
   picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Deadline", exact: true }).click();
-  await mutateAndAwaitSaved(page, () => picker.getByRole("option", { name: /^Today/ }).click());
+  await picker.getByRole("button", { name: "Today", exact: true }).click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
 

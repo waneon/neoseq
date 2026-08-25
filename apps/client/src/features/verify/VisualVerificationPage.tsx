@@ -13,13 +13,14 @@ export function VisualVerificationPage() {
           <header className="property-picker-head">
             <div>
               <strong>Scheduled</strong>
-              <span>Date</span>
+              <span>Date · Time · Repeat</span>
             </div>
           </header>
           <div className="property-picker-value">
             <TaskMomentPicker
               date="2026-08-25"
               time="14:30"
+              repeat="1w"
               hasValue
               readonly={false}
               busy={false}

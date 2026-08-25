@@ -153,9 +153,12 @@ Value controls are selected from the property type and definition:
 - generic dates use one natural-language field, quick rows for today / tomorrow /
   next week, and the native date input as the precision fallback. A **task**
   moment instead opens one product-owned editor: natural-language date/time
-  search, the same quick choices, an accessible month calendar, and an optional
-  segmented 24-hour clock all shape one local draft. Done applies its date and
-  companion `-time` fact through one property patch; Cancel applies neither;
+  search, the same quick choices, an accessible month calendar, an optional
+  segmented 24-hour clock, and the task's shared recurrence all shape one local
+  draft. Done applies its date, companion `-time` fact, and any changed
+  `builtin.task-repeat` through one property patch; Cancel applies none. An
+  uninterpreted stored recurrence is preserved until the recurrence control is
+  deliberately changed;
 - `builtin.task-repeat` uses a count field, a unit menu, and a words preview of
   the interval they make;
 - pages reuse `PageAutocomplete`; and
