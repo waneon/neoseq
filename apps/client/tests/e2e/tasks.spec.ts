@@ -186,6 +186,21 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
 
   // The thresholds and the tones belong to the reader.
   await openSettings(page, "tasks");
+  const tierVisual = (tier: "today" | "soon") =>
+    page.getByTestId(`due-preview-${tier}`).evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { tone: style.getPropertyValue("--tone").trim(), shadow: style.boxShadow };
+    });
+  const [todayVisual, soonVisual] = await Promise.all([
+    tierVisual("today"),
+    tierVisual("soon"),
+  ]);
+  expect(todayVisual.tone).not.toBe(soonVisual.tone);
+  // Today is distinguished by its warmer colour, not a heavier outline: every
+  // due tier keeps the same quiet one-pixel boundary.
+  expect(todayVisual.shadow).toMatch(/1px inset$/);
+  expect(soonVisual.shadow).toMatch(/1px inset$/);
+
   await page.getByTestId("due-days-soon").fill("10");
   // One well opens the colour itself: hue and intensity move continuously, and
   // the resulting OKLCH coordinates repaint the real preview in place.

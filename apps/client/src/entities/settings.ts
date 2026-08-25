@@ -78,8 +78,8 @@ export const TONE_PRESETS: Record<ToneName, CustomTone> = {
   neutral: { hue: 264, chroma: MIN_CUSTOM_TONE_CHROMA },
   info: { hue: 255, chroma: 0.17 },
   ok: { hue: 152, chroma: 0.13 },
-  caution: { hue: 92, chroma: 0.125 },
-  attention: { hue: 62, chroma: 0.135 },
+  caution: { hue: 100, chroma: 0.135 },
+  attention: { hue: 45, chroma: 0.17 },
   danger: { hue: 26, chroma: 0.187 },
 };
 

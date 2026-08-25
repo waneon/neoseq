@@ -105,11 +105,11 @@
      declared on its own — 5.24 on `canvas` light, 7.18 dark. */
   --info: oklch(0.535 0.17 255);
   /* Two warm steps keep "today" and "soon" distinct without borrowing success
-     green. Attention is orange and immediate; caution is the quieter gold that
-     follows it in the due scale. Both are held to the 3:1 non-text bar and never
-     carry text neat. */
-  --attention: oklch(0.58 0.135 62);
-  --caution: oklch(0.55 0.125 92);
+     green. Attention is a saturated orange; caution moves far enough around the
+     hue circle to read as gold even in the chips' quiet tints. Both are held to
+     the 3:1 non-text bar and never carry text neat. */
+  --attention: oklch(0.56 0.17 45);
+  --caution: oklch(0.57 0.135 100);
   /* Hue and chroma may be reader-owned for due colours; lightness may not. */
   --custom-tone-l: 0.54;
 
@@ -422,8 +422,8 @@
     --danger: oklch(0.712 0.155 26);
     --danger-soft: color-mix(in oklab, var(--danger) 18%, transparent);
     --ok: oklch(0.762 0.13 152);
-    --attention: oklch(0.805 0.13 78);
-    --caution: oklch(0.82 0.125 98);
+    --attention: oklch(0.78 0.15 50);
+    --caution: oklch(0.82 0.14 105);
     --info: oklch(0.72 0.14 255);
     --custom-tone-l: 0.76;
 
@@ -485,8 +485,8 @@
   --danger: oklch(0.712 0.155 26);
   --danger-soft: color-mix(in oklab, var(--danger) 18%, transparent);
   --ok: oklch(0.762 0.13 152);
-  --attention: oklch(0.805 0.13 78);
-  --caution: oklch(0.82 0.125 98);
+  --attention: oklch(0.78 0.15 50);
+  --caution: oklch(0.82 0.14 105);
   --info: oklch(0.72 0.14 255);
   --custom-tone-l: 0.76;
 
@@ -3533,18 +3533,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   background: color-mix(in oklab, var(--tone) 20%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 60%, transparent);
   color: color-mix(in oklab, var(--tone) 70%, var(--ink));
-}
-
-/* Today is the one calendar boundary a reader acts on as a category of its own.
-   Its two-pixel ring keeps that distinction in greyscale; hue remains the quick
-   scan, never the only reading. */
-.task-chip[data-due="today"],
-.query-due[data-due="today"] {
-  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--tone) 60%, transparent);
-}
-
-.task-chip[data-due="today"]:hover {
-  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--tone) 72%, transparent);
 }
 
 /* The date is the fact; inside a tinted chip it also carries the weight, so the
@@ -8235,8 +8223,8 @@ button.tag-mark:focus-visible {
   --danger: oklch(0.516 0.187 26);
   --ok: oklch(0.508 0.128 152);
   --info: oklch(0.535 0.17 255);
-  --attention: oklch(0.58 0.135 62);
-  --caution: oklch(0.55 0.125 92);
+  --attention: oklch(0.56 0.17 45);
+  --caution: oklch(0.57 0.135 100);
 }
 
 .due-color-preview[data-mode="dark"] {
@@ -8247,8 +8235,8 @@ button.tag-mark:focus-visible {
   --danger: oklch(0.712 0.155 26);
   --ok: oklch(0.762 0.13 152);
   --info: oklch(0.72 0.14 255);
-  --attention: oklch(0.805 0.13 78);
-  --caution: oklch(0.82 0.125 98);
+  --attention: oklch(0.78 0.15 50);
+  --caution: oklch(0.82 0.14 105);
 }
 
 .due-color-preview .task-chip {
