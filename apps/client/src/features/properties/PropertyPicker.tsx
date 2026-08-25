@@ -7,7 +7,6 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import { ArrowLeftIcon, CalendarIcon, CheckIcon, ClockIcon, Trash2Icon } from "lucide-react";
 import type { Command, PropertyOwnerRef } from "../../core-port/commands";
 import type {
@@ -46,8 +45,8 @@ import {
   timeKeyFor,
   type RepeatUnit,
 } from "../../entities/tasks";
-import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
-import { useOverlayRoot } from "@/ui/overlay-root";
+import type { Anchor } from "@/ui/anchored";
+import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { moveOptionFocus } from "@/ui/listbox";
@@ -128,50 +127,22 @@ export function PropertyPicker({
     || selectedUnsupported
     || (key !== null && !canUserWrite(key, writeTarget));
 
-  // A stage change resizes the panel, so it re-places on the way through.
-  const position = useAnchoredPosition(
-    anchor,
-    { width: 360, minWidth: 280, maxHeight: 420 },
-    stage.kind,
-    {
-      surface: panelRef,
-      onExternalScroll: onClose,
-      exemptSelector: '.ac-popover, [data-slot="dropdown-menu-content"]',
-    },
-  );
-  const overlayRoot = useOverlayRoot();
   const resetStage = useCallback(() => {
     setStage({ kind: "property" });
     setRequest({ status: "idle" });
   }, []);
 
   useEffect(() => {
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (
-        node instanceof Node &&
-        !panelRef.current?.contains(node) &&
-        // A surface this panel opened is not "outside" it. Both the entity
-        // autocomplete and the one dropdown (designs/interaction.md § Choice) portal to the body, so a
-        // press on one of their rows lands outside `panelRef` in the DOM while
-        // being, to the user, a press inside the editor they are filling in.
-        // Without this, choosing from a nested menu dismissed the picker before
-        // the choice could reach it.
-        !(node instanceof Element
-          && node.closest('.ac-popover, [data-slot="dropdown-menu-content"]'))
-      ) onClose();
+    if (!(anchor instanceof HTMLElement)) return;
+    const reopenAtAnchor = () => {
+      setStage(initialStage(initial, target.bag));
+      setQuery("");
+      setActive(0);
+      setRequest({ status: "idle" });
     };
-    // Radix selects context-menu rows during the same pointer gesture that
-    // mounts this portal. Arm outside dismissal on the next task so that
-    // invocation gesture cannot also dismiss what it just opened.
-    const timer = window.setTimeout(() => {
-      window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-    };
-  }, [onClose]);
+    anchor.addEventListener("click", reopenAtAnchor);
+    return () => anchor.removeEventListener("click", reopenAtAnchor);
+  }, [anchor, initial, target.bag]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -191,22 +162,6 @@ export function PropertyPicker({
     });
     return () => cancelAnimationFrame(frame);
   }, [stage.kind]);
-
-  useEffect(() => {
-    const handleDetachedEscape = (event: globalThis.KeyboardEvent) => {
-      if (
-        event.key !== "Escape" ||
-        event.isComposing ||
-        event.keyCode === 229 ||
-        (event.target instanceof Node && panelRef.current?.contains(event.target))
-      ) return;
-      event.preventDefault();
-      if (stage.kind === "property") onClose();
-      else resetStage();
-    };
-    window.addEventListener("keydown", handleDetachedEscape);
-    return () => window.removeEventListener("keydown", handleDetachedEscape);
-  }, [onClose, resetStage, stage.kind]);
 
   const visibleEntries = useMemo(
     () => target.bag.filter((entry) => isGenericProperty(entry.key)),
@@ -405,22 +360,26 @@ export function PropertyPicker({
     ? message("properties.noValue")
     : field.values.map(describeValue).join(", ");
 
-  return createPortal(
-    <div
-      ref={panelRef}
+  return (
+    <AnchoredPanel
+      anchor={anchor}
       className="property-picker"
-      style={position}
-      role="dialog"
-      aria-label={message("properties.addOrChange")}
-      data-testid="property-picker"
+      label={message("properties.addOrChange")}
+      options={{ width: 360, minWidth: 280, maxHeight: 420 }}
+      revision={stage.kind}
+      testId="property-picker"
+      surfaceRef={panelRef}
+      dismissOnExternalScroll
+      onClose={onClose}
+      onEscapeKeyDown={(event) => {
+        if (stage.kind === "property") return;
+        event.preventDefault();
+        resetStage();
+      }}
+      // Pointer dismissal remains Radix's. Focus alone may leave briefly when
+      // the command or chip that opened this staged editor restores itself.
+      onFocusOutside={(event) => event.preventDefault()}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (stage.kind === "property") onClose();
-          else resetStage();
-          return;
-        }
         if (event.key === "Tab") {
           const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
             'input:not([disabled]),button:not([disabled]):not([tabindex="-1"])',
@@ -645,8 +604,7 @@ export function PropertyPicker({
           {request.message}
         </p>
       )}
-    </div>,
-    overlayRoot,
+    </AnchoredPanel>
   );
 }
 

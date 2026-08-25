@@ -5823,10 +5823,14 @@ button.query-list-status[data-active="true"] {
   min-height: 0;
 }
 
-.property-picker,
 .tag-picker,
 .slash-menu {
   position: fixed;
+}
+
+.property-picker,
+.tag-picker,
+.slash-menu {
   z-index: var(--z-popover);
   padding: var(--sp-2);
   border-radius: var(--r-3);
@@ -5836,9 +5840,9 @@ button.query-list-status[data-active="true"] {
   animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
-/* Height and placement are the anchored positioner's (`ui/anchored`): it hands
-   every summoned panel a `max-height` equal to the room actually left on the
-   side it chose, so the panel scrolls inside itself instead of off-screen. */
+/* Height and placement belong to the anchored primitives: they hand every
+   summoned panel a `max-height` equal to the room actually left on the side they
+   chose, so the panel scrolls inside itself instead of off-screen. */
 .property-picker {
   display: flex;
   flex-direction: column;
@@ -6923,10 +6927,28 @@ button.tag-mark:focus-visible {
 }
 
 @media (max-width: 600px) {
-  .property-picker,
+  /* Radix owns the desktop coordinates. On a compact viewport the property
+     editor becomes a sheet, so its positioning wrapper becomes the viewport
+     edge and the editor fills that wrapper. */
+  [data-radix-popper-content-wrapper]:has(> .property-picker) {
+    inset: auto 0 0 !important;
+    min-width: 0 !important;
+    transform: none !important;
+  }
+
+  .property-picker {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
   .tag-picker {
     inset: auto 0 0 !important;
     width: 100% !important;
+  }
+
+  .property-picker,
+  .tag-picker {
     max-height: 70dvh;
     padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
     border-radius: var(--r-4) var(--r-4) 0 0;

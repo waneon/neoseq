@@ -859,3 +859,53 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   const [lineBox, menuBox] = [(await line.boundingBox())!, (await menu.boundingBox())!];
   expect(Math.abs(menuBox.x - lineBox.x)).toBeLessThan(2);
 });
+
+// The date editor is taller than the middling strip of room below this line.
+// Shrinking it until it technically fits makes its rows look crushed and hides
+// the fact that the whole editor fits above. Placement answers the rendered box,
+// so the available side wins before any height constraint is applied.
+test("the scheduled editor flips above before it has to shrink", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 633 });
+  await createGraph(page, "Scheduled Placement Graph");
+  await startOutline(page);
+  for (let index = 0; index < 32; index += 1) await page.keyboard.press("Enter");
+
+  const scroller = page.locator(".page-scroll");
+  await scroller.evaluate((node) => {
+    const anchor = document.activeElement;
+    if (!(anchor instanceof HTMLElement)) throw new Error("the last block lost focus");
+    node.scrollTop += anchor.getBoundingClientRect().top - 430;
+  });
+  const line = page.locator('textarea:focus');
+  await expect.poll(async () => (await line.boundingBox())?.y).toBeCloseTo(430, 0);
+  const lineBox = (await line.boundingBox())!;
+  const roomBelow = 633 - lineBox.y - lineBox.height - 4 - 12;
+
+  await page.keyboard.type("/scheduled");
+  await expect(page.getByTestId("slash-menu")).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  const picker = page.getByTestId("property-picker");
+  await expect(picker).toBeVisible();
+  await expect(picker).toHaveAttribute("data-side", "top");
+  const pickerBox = (await picker.boundingBox())!;
+  expect(pickerBox.height).toBeGreaterThan(roomBelow);
+  expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(lineBox.y - 3);
+  expect(Math.abs(pickerBox.x - lineBox.x)).toBeLessThan(2);
+});
+
+test("the property editor remains an edge-to-edge sheet on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await createGraph(page, "Compact Property Sheet Graph");
+  await startOutline(page);
+  await page.keyboard.type("/scheduled");
+  await expect(page.getByTestId("slash-menu")).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  const picker = page.getByTestId("property-picker");
+  await expect(picker).toBeVisible();
+  const box = (await picker.boundingBox())!;
+  expect(box.x).toBe(0);
+  expect(box.width).toBe(390);
+  expect(box.y + box.height).toBe(844);
+});

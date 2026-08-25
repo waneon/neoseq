@@ -94,7 +94,7 @@ describe("property picker", () => {
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: /link/ }));
-    expect(within(picker).getByText("Home")).toBeInTheDocument();
+    expect(picker.querySelector(".property-current-value")).toHaveTextContent("Home");
   });
 
   it("creates and removes a custom property through the picker", async () => {
@@ -195,6 +195,14 @@ describe("property picker", () => {
     // A time refines the moment the picker was opened for; it is not the answer,
     // so the editor stays open for the rest of it.
     expect(screen.getByTestId("property-picker")).toBeInTheDocument();
+
+    // Escape walks back to the property list. Pressing the chip that still owns
+    // the open panel must then re-enter its date editor; dismissing on
+    // pointerdown would detach the chip before this click arrived.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("task-chip-scheduled"));
+    expect(within(screen.getByTestId("property-picker")).getByTestId("task-time-clear"))
+      .toBeInTheDocument();
   });
 
   it("writes a recurrence as a count and a unit, previewed in words", async () => {
