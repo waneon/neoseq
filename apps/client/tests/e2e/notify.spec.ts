@@ -28,7 +28,7 @@ test("a rejected command is reported instead of doing nothing", async ({ page })
   // Hovering holds the countdown, so reading one can never cost you it.
   await toast.hover();
   await expect(toast).toHaveAttribute("data-paused", "true");
-  await page.waitForTimeout(1500);
+  await expect(page.getByTestId("toast-timer")).toHaveCSS("animation-play-state", "paused");
   await expect(toast).toBeVisible();
 
   // The dismiss button is not summoned: it is there from the moment the toast is.

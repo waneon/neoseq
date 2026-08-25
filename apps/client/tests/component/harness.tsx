@@ -79,7 +79,6 @@ export async function mountAt(
       </NotifyProvider>
     </LocaleProvider>,
   );
-  await settle();
   return { session, port, view, router };
 }
 
@@ -134,12 +133,4 @@ export async function chooseFromMenu(
     return row;
   });
   await user.click(choice);
-}
-
-/** Waits until the session queue settles and React flushed the state. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
 }

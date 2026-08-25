@@ -2,7 +2,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import {
   createGraph,
+  insertQueryBlock,
+  mutateAndAwaitSaved,
   openBlockMenu,
+  openBlockProperties,
   openSettings,
   openSidebar,
   startOutline,
@@ -52,11 +55,13 @@ test("the query builder and its result table pass the basic audit", async ({ pag
   await page.getByLabel("Block text").first().click();
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
-  await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
 
   const query = page.getByTestId("query-block");
-  await expect(query.getByTestId("query-builder")).toBeVisible();
+  await insertQueryBlock(
+    page,
+    page.getByLabel("Block text").last(),
+    query.getByTestId("query-builder"),
+  );
   await query.getByTestId("qb-add-condition").click();
   await expect(query.getByTestId("qb-condition")).toBeVisible();
   await expect(query.getByTestId("query-table")).toBeVisible();
@@ -153,17 +158,16 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   await page.getByTestId("menu-properties").click();
   let picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Priority", exact: true }).click();
-  await picker.getByRole("option", { name: "Medium", exact: true }).click();
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByRole("option", { name: "Medium", exact: true }).click());
   await expect(picker).toHaveCount(0);
 
   // One block per tier would be four blocks; one block whose thresholds move is
   // the same four pairs with less to set up.
-  await page.getByLabel("Block text").first().click();
-  await page.keyboard.press("End");
-  await page.keyboard.type(" /dead");
-  await page.getByTestId("slash-menu").getByRole("option", { name: "Deadline" }).click();
+  await openBlockProperties(page);
   picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: /^Today/ }).click();
+  await picker.getByRole("option", { name: "Deadline", exact: true }).click();
+  await mutateAndAwaitSaved(page, () => picker.getByRole("option", { name: /^Today/ }).click());
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
 

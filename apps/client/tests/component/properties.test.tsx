@@ -231,7 +231,6 @@ describe("property picker", () => {
           key: "Enter",
         }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     const picker = await screen.findByTestId("property-picker");

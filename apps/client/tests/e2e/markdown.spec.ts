@@ -1,14 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { awaitSaved, createGraph, startOutline } from "./helpers";
+import { createGraph, mutateAndAwaitSaved, startOutline } from "./helpers";
 
 /** Fills the first block, then parks focus on a new sibling so the block rests
     in its reading projection. */
 async function writeBlock(page: Page, source: string): Promise<void> {
-  await page.getByLabel("Block text").fill(source);
-  await page.keyboard.press("End");
-  await page.keyboard.press("Enter");
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, async () => {
+    await page.getByLabel("Block text").fill(source);
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+  });
 }
 
 test("renders safe Markdown at rest and restores its source editor", async ({ page }) => {

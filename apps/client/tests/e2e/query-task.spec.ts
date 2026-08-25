@@ -3,6 +3,8 @@ import {
   awaitSaved,
   chooseFromMenu,
   createGraph,
+  insertQueryBlock,
+  mutateAndAwaitSaved,
   openBlockProperties,
   savedSequence,
   startOutline,
@@ -40,13 +42,27 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await startOutline(page);
   await typeInFocusedBlock(page, "Ship the query engine");
 
+  // Make the query while the outline is the only active surface. Property and
+  // dropdown focus restoration below must not overlap the slash command that is
+  // the query's sole creation route.
+  const taskText = page.locator(".outline-input").first();
+  await taskText.click();
+  await taskText.press("End");
+  await taskText.press("Enter");
+  const query = page.getByTestId("query-block");
+  await insertQueryBlock(
+    page,
+    page.getByLabel("Block text").last(),
+    query.getByTestId("query-builder"),
+  );
+
   await openBlockProperties(page);
-  await setKnownProperty(page, "builtin.task-status", "To-do");
+  await mutateAndAwaitSaved(page, () =>
+    setKnownProperty(page, "builtin.task-status", "To-do"));
 
   const status = page.getByTestId("task-status-toggle");
   await expect(status).toHaveAccessibleName("Task status: To-do");
-  await chooseFromMenu(page, status, "Done");
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () => chooseFromMenu(page, status, "Done"));
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done");
 
   // The query property has no picker route: `/` is the only way to make one.
@@ -58,23 +74,12 @@ test("query-task projections share ordinary properties and the SPARQL index", as
     page.getByTestId("property-picker").getByRole("option", { name: "Query", exact: true }),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
-
-  const taskText = page.locator(".outline-input").first();
-  await taskText.click();
-  await taskText.press("End");
-  await taskText.press("Enter");
-  await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
-
-  const query = page.getByTestId("query-block");
-  await expect(query.getByTestId("query-builder")).toBeVisible();
-  await awaitSaved(page);
+  await expect(page.getByTestId("property-picker")).toHaveCount(0);
 
   // Narrowing the plan narrows the SPARQL the core actually runs.
-  await query.getByTestId("qb-add-condition").click();
-  await chooseInBuilder(page, "Field", "Status");
-  await chooseInBuilder(page, "Value", "Done");
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () => query.getByTestId("qb-add-condition").click());
+  await mutateAndAwaitSaved(page, () => chooseInBuilder(page, "Field", "Status"));
+  await mutateAndAwaitSaved(page, () => chooseInBuilder(page, "Value", "Done"));
 
   const table = query.getByTestId("query-table");
   await expect(table).toContainText("Ship the query engine");
@@ -96,8 +101,7 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await expect(query.getByTestId("query-list")).toBeVisible();
   const listEditor = query.getByTestId("query-markdown-editor");
   await expect(listEditor).toHaveValue("Ship editable query results");
-  await listEditor.press("Enter");
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () => listEditor.press("Enter"));
   await expect(page.locator(".outline-input").first()).toHaveValue("Ship editable query results");
   await expect(query.getByTestId("query-list-row").first()).toContainText("Ship editable query results");
 
@@ -112,8 +116,8 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await expect(query.getByTestId("query-view-trigger")).toHaveAttribute("data-view", "list");
   await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "Table");
   await query.getByTestId("query-col-menu-page").click();
-  await page.getByRole("menuitem", { name: "Hide column" }).click();
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () =>
+    page.getByRole("menuitem", { name: "Hide column" }).click());
   await page.reload();
   const reloaded = page.getByTestId("query-block");
   await expect(reloaded.getByTestId("query-table")).toBeVisible();
@@ -149,17 +153,20 @@ test("a result's order accumulates across headings and survives a reload", async
   await line.click();
   await line.press("End");
   await line.press("Enter");
-  await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
-
   const query = page.getByTestId("query-block");
   const table = query.getByTestId("query-table");
-  await expect(table).toBeVisible();
+  await insertQueryBlock(
+    page,
+    page.getByLabel("Block text").last(),
+    table,
+  );
 
   // One press orders by that column; the next adds a tie-breaker rather than
   // replacing the first choice.
-  await table.getByRole("button", { name: "Text", exact: true }).click();
-  await table.getByRole("button", { name: "Page", exact: true }).click();
+  await mutateAndAwaitSaved(page, () =>
+    table.getByRole("button", { name: "Text", exact: true }).click());
+  await mutateAndAwaitSaved(page, () =>
+    table.getByRole("button", { name: "Page", exact: true }).click());
   await expect(table.getByRole("columnheader", { name: /Text/ })).toHaveAttribute(
     "aria-sort", "ascending",
   );
@@ -170,14 +177,13 @@ test("a result's order accumulates across headings and survives a reload", async
   await expect(table.getByRole("columnheader", { name: /Text/ })).toContainText("1");
   await expect(table.getByRole("columnheader", { name: /Page/ })).toContainText("2");
   await expect(query.getByTestId("query-sort-trigger")).toHaveAttribute("data-sorted", "true");
-  await awaitSaved(page);
 
   // The panel is where precedence can be moved, and where it can be dropped.
   await query.getByTestId("query-sort-trigger").click();
   const panel = page.getByTestId("query-sort-panel");
-  await panel.getByRole("button", { name: "Move Page earlier" }).click();
+  await mutateAndAwaitSaved(page, () =>
+    panel.getByRole("button", { name: "Move Page earlier" }).click());
   await expect(table.getByRole("columnheader", { name: /Page/ })).toContainText("1");
-  await awaitSaved(page);
   await page.keyboard.press("Escape");
 
   await page.reload();
@@ -194,12 +200,13 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
   await first.click();
   await first.press("End");
   await first.press("Enter");
-  await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
-
   const query = page.getByTestId("query-block");
   const table = query.getByTestId("query-table");
-  await expect(table).toBeVisible();
+  await insertQueryBlock(
+    page,
+    page.getByLabel("Block text").last(),
+    table,
+  );
 
   const cell = table.locator("tbody td").first();
   const heading = table.locator("thead th").first();

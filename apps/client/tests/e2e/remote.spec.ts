@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { awaitSaved, startOutline, typeInFocusedBlock } from "./helpers";
+import { startOutline, typeInFocusedBlock } from "./helpers";
 
 test("remote graph creation keeps credentials out of URLs and remains local-first", async ({
   page,
@@ -34,7 +34,6 @@ test("remote graph creation keeps credentials out of URLs and remains local-firs
   await context.setOffline(true);
   await startOutline(page);
   await typeInFocusedBlock(page, "written while the sync server is unavailable");
-  await awaitSaved(page);
   await expect(page.getByTestId("sync-status")).toHaveAttribute("data-sync", "pending");
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "offline");
 

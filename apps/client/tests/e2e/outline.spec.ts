@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 import {
-  awaitSaved,
   blockLevels,
   blockTexts,
   createGraph,
+  mutateAndAwaitSaved,
   openBlockMenu,
   openSidebar,
   startOutline,
@@ -107,28 +107,26 @@ test("leading Enter keeps block properties with the original identity and undoes
 }) => {
   await createGraph(page, "Leading Split Graph");
   await startOutline(page);
-  await page.keyboard.type("alpha");
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () => page.keyboard.type("alpha"));
 
   await page.keyboard.press("ControlOrMeta+P");
   const picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Status", exact: true }).click();
-  await picker.getByRole("option", { name: "Doing", exact: true }).click();
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByRole("option", { name: "Doing", exact: true }).click());
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
-  await awaitSaved(page);
 
   const textarea = page.getByLabel("Block text");
   await textarea.evaluate((element) => {
     (element as HTMLTextAreaElement).setSelectionRange(0, 0);
   });
-  await page.keyboard.press("Enter");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
   await expect.poll(() => blockTexts(page)).toEqual(["", "alpha"]);
   const rows = page.getByTestId("outline-row");
   await expect(rows.nth(0).getByTestId("task-status-toggle")).toHaveCount(0);
   await expect(rows.nth(1).getByTestId("task-status-toggle")).toHaveAccessibleName(
     "Task status: Doing",
   );
-  await awaitSaved(page);
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => blockTexts(page)).toEqual(["alpha"]);
@@ -142,8 +140,7 @@ test("undo and redo reconcile text in the focused block", async ({ page }) => {
   await startOutline(page);
 
   const textarea = page.locator('[data-testid="outline-row"] textarea').first();
-  await page.keyboard.type("alpha");
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () => page.keyboard.type("alpha"));
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect(textarea).toHaveValue("");
@@ -181,13 +178,12 @@ test("the bullet carries the block's menu, and every structural verb in it", asy
 test("drags a range of blocks out and moves them as one", async ({ page }) => {
   await createGraph(page, "Selection Graph");
   await startOutline(page);
-  await page.keyboard.type("one");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("two");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("three");
+  await mutateAndAwaitSaved(page, () => page.keyboard.type("one"));
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
+  await mutateAndAwaitSaved(page, () => page.keyboard.type("two"));
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
+  await mutateAndAwaitSaved(page, () => page.keyboard.type("three"));
   await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three"]);
-  await awaitSaved(page);
 
   // Dragging across a quiet row surface selects whole blocks. The already-active
   // third textarea still keeps native text selection; a different row starts a
@@ -338,7 +334,19 @@ test("pressing a block taller than the viewport does not move the page", async (
   await page.evaluate(() => {
     document.querySelector(".page-scroll")!.scrollTop = 400;
   });
-  const before = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
+  const settledScrollTop = async (): Promise<number> => {
+    let previous = Number.NaN;
+    let current = Number.NaN;
+    let consecutive = 0;
+    await expect.poll(async () => {
+      current = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
+      consecutive = Math.abs(current - previous) < 1 ? consecutive + 1 : 0;
+      previous = current;
+      return consecutive;
+    }).toBeGreaterThanOrEqual(2);
+    return current;
+  };
+  const before = await settledScrollTop();
 
   // "Keep the focused row visible" is right for a row that arrived from the
   // keyboard and wrong for one the pointer just pressed: a row taller than the
@@ -346,7 +354,7 @@ test("pressing a block taller than the viewport does not move the page", async (
   // the reader just placed.
   await page.mouse.click(box.x + box.width / 2, 300);
   await expect(page.getByLabel("Block text").first()).toBeFocused();
-  const after = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
+  const after = await settledScrollTop();
   expect(Math.abs(after - before)).toBeLessThan(4);
 });
 
@@ -396,9 +404,8 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
   await page.getByTestId("nav-tags").click();
   await page.getByTestId("new-tag").click();
   await page.keyboard.type("design");
-  await page.keyboard.press("Enter");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
   await page.keyboard.press("Escape");
-  await awaitSaved(page);
 
   // A tag's page carries the tallest header in the product, and most of that
   // height is the answer to its own query — so the tag needs something to answer
@@ -406,29 +413,29 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
   await openSidebar(page);
   await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
   await startOutline(page);
-  await page.getByLabel("Block text").evaluate((target) => {
-    const clipboard = new DataTransfer();
-    clipboard.setData("application/vnd.neoseq.outline+json", JSON.stringify({
-      kind: "neoseq.outline",
-      version: 1,
-      source_graph_id: "external-graph",
-      items: Array.from({ length: 15 }, (_, index) => ({
-        depth: 0,
-        markdown: `tagged thing ${index}`,
-        properties: [],
-        tags: ["design"],
-      })),
-      tags: [{ id: "design", name: "design" }],
-      pages: [],
+  await mutateAndAwaitSaved(page, () =>
+    page.getByLabel("Block text").evaluate((target) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData("application/vnd.neoseq.outline+json", JSON.stringify({
+        kind: "neoseq.outline",
+        version: 1,
+        source_graph_id: "external-graph",
+        items: Array.from({ length: 15 }, (_, index) => ({
+          depth: 0,
+          markdown: `tagged thing ${index}`,
+          properties: [],
+          tags: ["design"],
+        })),
+        tags: [{ id: "design", name: "design" }],
+        pages: [],
+      }));
+      clipboard.setData("text/plain", "- tagged thing");
+      target.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }));
     }));
-    clipboard.setData("text/plain", "- tagged thing");
-    target.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: clipboard,
-    }));
-  });
-  await awaitSaved(page);
   await expect(page.locator(".outline-tags").getByTestId("tag-chip")).toHaveCount(15);
 
   await openSidebar(page);
@@ -445,19 +452,19 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
 
   // Enough rows to outgrow several windows — pasted as one command rather than
   // typed as eighty.
-  await first.evaluate((target) => {
-    const clipboard = new DataTransfer();
-    clipboard.setData(
-      "text/plain",
-      Array.from({ length: 80 }, (_, index) => `- row number ${index}`).join("\n"),
-    );
-    target.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: clipboard,
+  await mutateAndAwaitSaved(page, () =>
+    first.evaluate((target) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData(
+        "text/plain",
+        Array.from({ length: 80 }, (_, index) => `- row number ${index}`).join("\n"),
+      );
+      target.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }));
     }));
-  });
-  await awaitSaved(page);
 
   // The header has to be tall enough for the defect to be a defect: shorter than
   // the rows virtualization renders beyond its window anyway, and this test would

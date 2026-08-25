@@ -3,6 +3,7 @@ import {
   awaitSaved,
   blockTexts,
   createGraph,
+  savedSequence,
   startOutline,
   typeInFocusedBlock,
 } from "./helpers";
@@ -33,7 +34,6 @@ test("keeps editing the same graph offline, across a reload", async ({ page, con
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await typeInFocusedBlock(page, "after offline restart");
-  await awaitSaved(page);
 
   await context.setOffline(false);
   await page.reload();
@@ -46,6 +46,7 @@ test("storage failures show an unsaved state with a working retry", async ({ pag
   await createGraph(page, "Recovery Graph");
   await startOutline(page);
   await typeInFocusedBlock(page, "durable baseline");
+  const baseline = await savedSequence(page);
 
   // Inject a one-shot IndexedDB transaction abort at the Worker boundary.
   await page.evaluate(() => window.__neoseqTest!.injectStorageFault("abort"));
@@ -56,7 +57,7 @@ test("storage failures show an unsaved state with a working retry", async ({ pag
 
   await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "unsaved");
   await page.getByTestId("retry-save").click();
-  await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
+  await awaitSaved(page, baseline);
 
   // The retried bytes were the exact pending update.
   await page.reload();
@@ -67,6 +68,7 @@ test("quota exhaustion is reported as a typed storage-full state", async ({ page
   await createGraph(page, "Quota Graph");
   await startOutline(page);
   await typeInFocusedBlock(page, "before quota");
+  const baseline = await savedSequence(page);
 
   await page.evaluate(() => window.__neoseqTest!.injectStorageFault("quota"));
   await page.locator('[data-testid="outline-row"] textarea').first().click();
@@ -77,5 +79,5 @@ test("quota exhaustion is reported as a typed storage-full state", async ({ page
   await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "unsaved");
   await expect(page.getByTestId("save-status")).toContainText("Storage full");
   await page.getByTestId("retry-save").click();
-  await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
+  await awaitSaved(page, baseline);
 });

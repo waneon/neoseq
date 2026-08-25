@@ -2392,7 +2392,7 @@ export function Outliner({
 
   // Mod+P means "properties of what is in front of me". While a block is focused
   // that is the block; the shell falls back to the page when this slot is empty.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (focusedId && isPendingId(focusedId)) {
       return commands.registerBlockProperties((key?: string) => {
         const active = document.activeElement;

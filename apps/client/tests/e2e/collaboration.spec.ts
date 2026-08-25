@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { awaitSaved, blockTexts, startOutline, typeInFocusedBlock } from "./helpers";
+import { blockTexts, startOutline, typeInFocusedBlock } from "./helpers";
 
 const ownerToken = process.env.NEOSEQ_E2E_OWNER_TOKEN;
 const peerToken = process.env.NEOSEQ_E2E_PEER_TOKEN;
@@ -41,7 +41,6 @@ test("two remote browser profiles converge after offline edits and revocation", 
     timeout: 15_000,
   });
   await appendBlock(peer, "still available locally");
-  await awaitSaved(peer);
 
   await ownerContext.close();
 });

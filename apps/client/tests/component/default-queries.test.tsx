@@ -7,7 +7,7 @@
 
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CorePortFailure } from "../../src/core-worker";
 import {
   newDefaultQueryDocument,
@@ -116,6 +116,7 @@ beforeEach(() => {
   resetAppSettingsCache();
 });
 afterEach(() => {
+  vi.useRealTimers();
   localStorage.clear();
   resetAppSettingsCache();
 });
@@ -348,11 +349,13 @@ describe("reading a standing question", () => {
     // The journal's answer and the editor's count are the same question under one
     // key, so a canonical change costs one execution rather than one per surface.
     const before = harness.port.queryRequests.length;
-    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-    await waitFor(() =>
-      expect(harness.port.queryRequests.length).toBeGreaterThan(before));
+    vi.useFakeTimers();
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    });
+    expect(harness.port.queryRequests).toHaveLength(before);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
     expect(harness.port.queryRequests).toHaveLength(before + 1);
   });

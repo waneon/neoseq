@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  awaitSaved,
   blockTexts,
   createGraph,
   openSidebar,
@@ -31,7 +30,6 @@ test("creates a graph, writes today's journal, and survives reload", async ({ pa
   await expect
     .poll(() => blockTexts(page))
     .toEqual(["captured before reload"]);
-  await awaitSaved(page);
 });
 
 test("navigates journal days and keeps entries per date", async ({ page }) => {

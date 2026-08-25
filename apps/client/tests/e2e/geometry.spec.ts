@@ -15,6 +15,8 @@ import {
   chooseFromMenu,
   createGraph,
   createPage,
+  insertQueryBlock,
+  mutateAndAwaitSaved,
   openBlockMenu,
   openBlockProperties,
   openBlockTags,
@@ -490,12 +492,24 @@ async function noShift(page: Page, label: string, act: () => Promise<void>): Pro
     }
     return out;
   })()`;
-  await still(page);
-  await page.waitForTimeout(400);
-  const before = (await page.evaluate(SNAP)) as Record<string, string>;
+  const stableSnapshot = async (): Promise<Record<string, string>> => {
+    let previous: Record<string, string> | undefined;
+    let settled: Record<string, string> | undefined;
+    await expect.poll(async () => {
+      await still(page);
+      const current = (await page.evaluate(SNAP)) as Record<string, string>;
+      const unchanged =
+        previous !== undefined && JSON.stringify(current) === JSON.stringify(previous);
+      previous = current;
+      if (unchanged) settled = current;
+      return unchanged;
+    }).toBe(true);
+    return settled!;
+  };
+
+  const before = await stableSnapshot();
   await act();
-  await page.waitForTimeout(320);
-  const after = (await page.evaluate(SNAP)) as Record<string, string>;
+  const after = await stableSnapshot();
   const moved = Object.entries(before)
     .filter(([k, v]) => after[k] !== undefined && after[k] !== v)
     .map(([k, v]) => `${k}: ${v} -> ${after[k]}`);
@@ -575,8 +589,7 @@ test("every surface is measured and square", async ({ page }) => {
   await page.keyboard.type("p95 latency on a 100k-block graph");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Shift+Tab");
-  await page.keyboard.type("Compare Notion, Logseq and Obsidian");
-  await awaitSaved(page);
+  await typeInFocusedBlock(page, "Compare Notion, Logseq and Obsidian");
   await audit(page, "journal (outline)");
   await noSilentTruncation(page, "journal truncation");
   await focusSweep(page, "journal");
@@ -607,12 +620,14 @@ test("every surface is measured and square", async ({ page }) => {
   // A task's marks hang before the writing and must not push it.
   await openBlockProperties(page);
   await page.getByTestId("property-picker").getByRole("option", { name: "Status", exact: true }).click();
-  await page.getByTestId("property-picker").getByRole("option", { name: "Doing", exact: true }).click();
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () =>
+    page.getByTestId("property-picker")
+      .getByRole("option", { name: "Doing", exact: true }).click());
   await openBlockProperties(page);
   await page.getByTestId("property-picker").getByRole("option", { name: "Priority", exact: true }).click();
-  await page.getByTestId("property-picker").getByRole("option", { name: "High", exact: true }).click();
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () =>
+    page.getByTestId("property-picker")
+      .getByRole("option", { name: "High", exact: true }).click());
   await audit(page, "task row (status + priority)");
 
   // The slash menu, then a query block: the densest control surface there is.
@@ -620,11 +635,23 @@ test("every surface is measured and square", async ({ page }) => {
   await line.click();
   await line.press("End");
   await line.press("Enter");
-  await page.keyboard.type("/query");
+  const queryEditor = page.getByLabel("Block text").last();
+  await queryEditor.click();
+  await expect(queryEditor).toBeFocused();
+  await queryEditor.pressSequentially("/query");
+  await expect(
+    page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }),
+  ).toBeVisible();
   await audit(page, "slash menu");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
-  await expect(page.getByTestId("query-builder")).toBeVisible();
-  await awaitSaved(page);
+  // The audit intentionally lasts longer than the editor debounce, whose
+  // reconciliation replaces completion state. Re-enter the command and choose
+  // it as one uninterrupted keyboard gesture.
+  await mutateAndAwaitSaved(page, async () => {
+    await queryEditor.fill("");
+    await page.keyboard.type("/query");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("query-builder")).toBeVisible();
+  });
   await audit(page, "query block (builder + table)");
 
   await page.getByTestId("qb-add-condition").click();
@@ -660,11 +687,10 @@ test("every surface is measured and square", async ({ page }) => {
   await audit(page, "tags (empty)");
   await page.getByTestId("new-tag").click();
   await page.keyboard.type("design-system");
-  await page.keyboard.press("Enter");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
   await page.keyboard.type("a second tag with a name long enough to need its column");
-  await page.keyboard.press("Enter");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
   await page.keyboard.press("Escape");
-  await awaitSaved(page);
   await audit(page, "tags (a flat list)");
 
   // The manager at its densest: a heading, rows of three controls each, and the
@@ -674,10 +700,10 @@ test("every surface is measured and square", async ({ page }) => {
   await expect(identity).toBeVisible();
   await audit(page, "tag identity panel");
   await identity.getByTestId("tag-group-field").fill("Areas");
-  await identity.getByTestId("tag-group-field").press("Enter");
+  await mutateAndAwaitSaved(page, () =>
+    identity.getByTestId("tag-group-field").press("Enter"));
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
-  await awaitSaved(page);
   await audit(page, "tags (grouped)");
   await noSilentTruncation(page, "tags directory truncation");
 
@@ -688,8 +714,9 @@ test("every surface is measured and square", async ({ page }) => {
   await audit(page, "tag page");
   await page.getByTestId("tag-add-default").click();
   await page.getByTestId("property-picker").getByRole("option", { name: "Status", exact: true }).click();
-  await page.getByTestId("property-picker").getByRole("option", { name: "Doing", exact: true }).click();
-  await awaitSaved(page);
+  await mutateAndAwaitSaved(page, () =>
+    page.getByTestId("property-picker")
+      .getByRole("option", { name: "Doing", exact: true }).click());
   await audit(page, "tag page (a default)");
   await page.getByTestId("query-view-add").click();
   await audit(page, "tag page (new view)");
@@ -705,8 +732,7 @@ test("every surface is measured and square", async ({ page }) => {
   // A toast is the one surface the reader did not ask for. It needs a block to
   // be rejected on, and the page just created has none.
   await startOutline(page);
-  await page.keyboard.type("a block to be refused an indent");
-  await awaitSaved(page);
+  await typeInFocusedBlock(page, "a block to be refused an indent");
   await page.getByLabel("Block text").first().click();
   await page.keyboard.press("Tab"); // rejected by the core: first sibling
   await expect(page.getByTestId("toast")).toBeVisible();
@@ -725,8 +751,7 @@ test("every surface is measured and square on a phone", async ({ page }) => {
   await createGraph(page, "Narrow");
   await audit(page, "390px journal");
   await startOutline(page);
-  await page.keyboard.type("A block on a narrow screen");
-  await awaitSaved(page);
+  await typeInFocusedBlock(page, "A block on a narrow screen");
   await audit(page, "390px outline");
   await openSidebar(page);
   await audit(page, "390px drawer");
@@ -815,27 +840,31 @@ test("the command palette holds its size as the list narrows", async ({ page }) 
 // then slid, landing aligned with neither edge of the thing it belonged to.
 test("a summoned panel opens toward the middle of the window", async ({ page }) => {
   await createGraph(page, "Placement Graph");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("new-tag").click();
-  await page.getByTestId("new-tag-name").fill("Placement");
-  await page.getByTestId("new-tag-name").press("Enter");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
   await startOutline(page);
   await typeInFocusedBlock(page, "a line with a tag at its end");
+
+  const line = page.getByLabel("Block text").first();
+  // A field is the exception: the panel stands in for it, so it keeps its left
+  // edge however far right the field sits. The block tag picker is a durable
+  // field panel, so this geometry check does not also race completion debounce.
+  await openBlockTags(page);
+  const tagPicker = page.getByTestId("tag-picker");
+  const [lineBox, tagPickerBox] = [(await line.boundingBox())!, (await tagPicker.boundingBox())!];
+  expect(Math.abs(tagPickerBox.x - lineBox.x)).toBeLessThan(2);
+  await page.keyboard.press("Escape");
+  await expect(tagPicker).toHaveCount(0);
 
   // A query header's sort button sits at the far right of the measure, and it is
   // point-like: narrower than the panel it opens. So the panel grows left and
   // their right edges meet.
-  const line = page.getByLabel("Block text").first();
-  await line.click();
   await line.press("End");
   await line.press("Enter");
-  await page.keyboard.type("/query");
-  await page.getByTestId("slash-menu").getByRole("option", { name: /^Query/ }).click();
   const query = page.getByTestId("query-block");
-  await expect(query.getByTestId("query-table")).toBeVisible();
+  await insertQueryBlock(
+    page,
+    page.getByLabel("Block text").last(),
+    query.getByTestId("query-table"),
+  );
   const trigger = query.getByTestId("query-sort-trigger");
   const triggerBox = (await trigger.boundingBox())!;
   const width = page.viewportSize()!.width;
@@ -847,17 +876,6 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   expect(Math.abs((panelBox.x + panelBox.width) - (triggerBox.x + triggerBox.width)))
     .toBeLessThan(2);
   expect(panelBox.x).toBeLessThan(triggerBox.x);
-  await page.keyboard.press("Escape");
-
-  // A field is the exception: the panel stands in for it, so it keeps its left
-  // edge however far right the field sits.
-  await line.click();
-  await line.press("End");
-  await page.keyboard.type(" #Pl");
-  const menu = page.getByTestId("tag-menu");
-  await expect(menu).toBeVisible();
-  const [lineBox, menuBox] = [(await line.boundingBox())!, (await menu.boundingBox())!];
-  expect(Math.abs(menuBox.x - lineBox.x)).toBeLessThan(2);
 });
 
 // The date editor is taller than the middling strip of room below this line.

@@ -8,9 +8,9 @@
 
 import { expect, test, type Locator } from "@playwright/test";
 import {
-  awaitSaved,
   chooseFromMenu,
   createGraph,
+  mutateAndAwaitSaved,
   openBlockProperties,
   openSettings,
   startOutline,
@@ -33,16 +33,17 @@ test("status and priority are the two marks before the writing", async ({ page }
   await openBlockProperties(page);
   let picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Status", exact: true }).click();
-  await picker.getByRole("option", { name: "To-do", exact: true }).click();
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByRole("option", { name: "To-do", exact: true }).click());
   await expect(picker).toHaveCount(0);
 
   await openBlockProperties(page);
   picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Priority", exact: true }).click();
   // Strongest first: a priority list is opened to raise something.
-  await picker.getByRole("option", { name: "High", exact: true }).click();
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByRole("option", { name: "High", exact: true }).click());
   await expect(picker).toHaveCount(0);
-  await awaitSaved(page);
 
   const text = page.getByLabel("Block text");
   const status = page.getByTestId("task-status-toggle");
@@ -77,10 +78,10 @@ test("status and priority are the two marks before the writing", async ({ page }
   expect(fills[1]).toBe(fills[0]);
 
   // The head of the line is also where priority is changed and removed.
-  await chooseFromMenu(page, priority, "Low");
+  await mutateAndAwaitSaved(page, () => chooseFromMenu(page, priority, "Low"));
   await expect(page.getByTestId("task-priority-toggle")).toHaveAccessibleName("Priority: Low");
   await priority.click();
-  await page.getByTestId("remove-priority").click();
+  await mutateAndAwaitSaved(page, () => page.getByTestId("remove-priority").click());
   await expect(page.getByTestId("task-priority-toggle")).toHaveCount(0);
   await expect(page.getByTestId("task-status-toggle")).toBeVisible();
 });
@@ -90,64 +91,70 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   await startOutline(page);
   await typeInFocusedBlock(page, "Water the plants");
 
+  // Shape recurrence while the resting row is the only active surface. Later
+  // moment pickers can restore the caret without immediately being followed by
+  // a different anchored picker.
+  await openBlockProperties(page);
+  let picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: "Repeat", exact: true }).click();
+  await picker.getByTestId("repeat-count").fill("2");
+  await chooseFromMenu(page, picker.getByTestId("repeat-unit"), "Weeks");
+  await expect(picker.getByText("Every 2 weeks")).toBeVisible();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("repeat-set").click());
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId("task-chip-repeat")).toContainText("Every 2 weeks");
+
+  await openBlockProperties(page);
+  picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: "Status", exact: true }).click();
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByRole("option", { name: "To-do", exact: true }).click());
+  await expect(picker).toHaveCount(0);
+
   // `/` is the editor's route to a date, and the picker it opens owns the whole
   // moment: the day, then the time of day beside it.
   await page.getByLabel("Block text").pressSequentially(" /sched");
   await expect(page.getByTestId("slash-menu")).toBeVisible();
   await page.keyboard.press("Enter");
-  let picker = page.getByTestId("property-picker");
+  picker = page.getByTestId("property-picker");
   await picker.getByLabel("Type a date").fill(localDate(4));
-  await picker.getByTestId("date-parsed").click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("date-parsed").click());
   await expect(picker).toHaveCount(0);
-  await awaitSaved(page);
 
   const scheduled = page.getByTestId("task-chip-scheduled");
   await scheduled.click();
   picker = page.getByTestId("property-picker");
-  await picker.getByTestId("task-time").fill("09:30");
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time").fill("09:30"));
   // A time is a refinement of the answer, not the answer: it writes at once and
   // leaves the editor open for the rest of the moment.
   await expect(scheduled).toContainText("09:30");
   await expect(picker).toBeVisible();
+  // The first Escape leaves the value editor for the picker's key list; the
+  // second dismisses that root surface. Prove both transitions before opening
+  // the chip again so its focus restoration cannot overlap the next picker.
   await page.keyboard.press("Escape");
-  await awaitSaved(page);
+  await expect(picker.getByLabel("Property key")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
 
   // Clearing it returns the moment to the whole day.
   await scheduled.click();
   picker = page.getByTestId("property-picker");
-  await picker.getByTestId("task-time-clear").click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time-clear").click());
   await expect(scheduled).not.toContainText("09:30");
   await page.keyboard.press("Escape");
-
-  await page.getByLabel("Block text").click();
-  await page.getByLabel("Block text").press("End");
-  await page.getByLabel("Block text").pressSequentially(" /repeat");
-  await page.getByTestId("slash-menu").getByRole("option", { name: "Repeat" }).click();
-  picker = page.getByTestId("property-picker");
-  await picker.getByTestId("repeat-count").fill("2");
-  await chooseFromMenu(page, picker.getByTestId("repeat-unit"), "Weeks");
-  await expect(picker.getByText("Every 2 weeks")).toBeVisible();
-  await picker.getByTestId("repeat-set").click();
+  await expect(picker.getByLabel("Property key")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(picker).toHaveCount(0);
-  await expect(page.getByTestId("task-chip-repeat")).toContainText("Every 2 weeks");
-  await awaitSaved(page);
-
-  await openBlockProperties(page);
-  picker = page.getByTestId("property-picker");
-  await picker.getByRole("option", { name: "Status", exact: true }).click();
-  await picker.getByRole("option", { name: "To-do", exact: true }).click();
-  await expect(picker).toHaveCount(0);
-  await awaitSaved(page);
 
   // Completing one occurrence of a recurring task is not finishing it: the row
   // is offered a different verb, keeps its `todo` glyph, and its date moves on
   // by the stored interval — counted from the date that was set.
   const status = page.getByTestId("task-status-toggle");
-  await chooseFromMenu(page, status, "Complete this one");
+  await mutateAndAwaitSaved(page, () => chooseFromMenu(page, status, "Complete this one"));
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do");
   await expect(page.getByTestId("task-chip-scheduled")).toContainText(localDate(18).slice(0, 4));
   await expect(page.getByTestId("toasts")).toContainText("Repeats");
-  await awaitSaved(page);
 });
 
 test("a date is tinted by how far off it is, on the reader's own thresholds", async ({ page }) => {
@@ -160,9 +167,8 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await page.keyboard.press("Enter");
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Type a date").fill(localDate(4));
-  await picker.getByTestId("date-parsed").click();
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("date-parsed").click());
   await expect(picker).toHaveCount(0);
-  await awaitSaved(page);
 
   // Four days out, with the default 1/7 thresholds, is `upcoming` — and blue on
   // its own account, not the accent's: a step in an ordered scale may not change

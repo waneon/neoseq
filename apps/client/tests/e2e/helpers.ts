@@ -32,29 +32,94 @@ export function blockLevels(page: Page): Promise<string[]> {
     .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-level") ?? ""));
 }
 
-export async function awaitSaved(page: Page, afterSequence?: string): Promise<void> {
+export async function awaitSaved(page: Page, afterSequence: string): Promise<void> {
   const status = page.getByTestId("save-status");
-  if (afterSequence !== undefined) {
-    // Leaving the old sequence proves that the mutation reached the session;
-    // this may observe either its `saving` state or an already-finished save.
-    await expect(status).not.toHaveAttribute("data-save-sequence", afterSequence);
-  }
+  // Leaving the old sequence proves that the mutation reached the session;
+  // this may observe either its `saving` state or an already-finished save.
+  await expect(status).not.toHaveAttribute("data-save-sequence", afterSequence);
   await expect(status).toHaveAttribute("data-save", "saved");
 }
 
 /** The durable revision to compare across one user gesture. */
 export async function savedSequence(page: Page): Promise<string> {
-  await awaitSaved(page);
-  const sequence = await page.getByTestId("save-status").getAttribute("data-save-sequence");
+  const status = page.getByTestId("save-status");
+  await expect(status).toHaveAttribute("data-save", "saved");
+  const sequence = await status.getAttribute("data-save-sequence");
   expect(sequence).not.toBeNull();
   return sequence!;
 }
 
+/** Runs one user mutation and proves that it reached a newer durable revision. */
+export async function mutateAndAwaitSaved(
+  page: Page,
+  mutate: () => Promise<unknown>,
+): Promise<void> {
+  const before = await savedSequence(page);
+  await mutate();
+  await awaitSaved(page, before);
+}
+
 /** Types into the focused outline block and waits until the edit is durable. */
 export async function typeInFocusedBlock(page: Page, text: string): Promise<void> {
+  await mutateAndAwaitSaved(page, async () => {
+    await page.keyboard.type(text);
+    await page.locator('[data-testid="outline-row"] textarea:focus').blur();
+  });
+}
+
+/** Inserts a query without racing its reconciled slash-menu row. */
+export async function insertQueryBlock(
+  page: Page,
+  editor: Locator,
+  opened: Locator,
+): Promise<void> {
+  await editor.click();
+  await editor.press("End");
+  await expect(editor).toBeFocused();
+  const row = editor.locator("xpath=ancestor::*[@data-testid='outline-row']");
+  await expect(row).toHaveAttribute("data-focused", "true");
+  // Enter paints a temporary row synchronously and adopts the core's real id
+  // when insertion reconciles. Slash commands on that transition have their
+  // own product path, but query tests need a stable target whose subsequent
+  // revision can be attributed to the query itself.
+  await expect(row).not.toHaveAttribute("data-block-id", /^pending-/);
   const before = await savedSequence(page);
-  await page.keyboard.type(text);
-  await page.locator('[data-testid="outline-row"] textarea:focus').blur();
+  // Adopting the real id can replace the optimistic textarea. Re-establish the
+  // user's actual editing precondition after both identity and persistence are
+  // quiet, not on the node they superseded.
+  await editor.click();
+  await editor.press("End");
+  await expect(editor).toBeFocused();
+  // The editor's debounce can reconcile the row during a Playwright round trip.
+  // Observe the exact completed token and its active option in the browser, then
+  // select in that same DOM commit. Watching only for the option is too early:
+  // Query is already offered at `/q`, which would leave `uery` to be typed into
+  // the block after it transforms.
+  await Promise.all([
+    editor.evaluate((textarea) => new Promise<void>((resolve) => {
+      const choose = () => {
+        const option = document.getElementById("slash-opt-query");
+        if (
+          textarea.value !== "/query"
+          || textarea.getAttribute("aria-activedescendant") !== "slash-opt-query"
+          || !(option instanceof HTMLButtonElement)
+        ) return;
+        observer.disconnect();
+        option.click();
+        resolve();
+      };
+      const observer = new MutationObserver(choose);
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["aria-activedescendant"],
+        childList: true,
+        subtree: true,
+      });
+      choose();
+    })),
+    page.keyboard.type("/query"),
+  ]);
+  await expect(opened).toBeVisible();
   await awaitSaved(page, before);
 }
 
@@ -73,10 +138,11 @@ export async function createPage(page: Page, title: string): Promise<void> {
   await page.getByTestId("new-page").click();
   const titleInput = page.getByTestId("page-title");
   await expect(titleInput).toHaveValue("Untitled");
-  await titleInput.fill(title);
-  await titleInput.press("Enter");
+  await mutateAndAwaitSaved(page, async () => {
+    await titleInput.fill(title);
+    await titleInput.press("Enter");
+  });
   await expect(page.getByTestId("page-title")).toHaveValue(title);
-  await awaitSaved(page);
 }
 
 /**
@@ -92,16 +158,29 @@ export async function chooseFromMenu(
   option: string,
 ): Promise<void> {
   await trigger.click();
-  await page
+  const choice = page
     .getByRole("option", { name: option, exact: true })
-    .or(page.getByRole("menuitemradio", { name: option, exact: true }))
-    .click();
+    .or(page.getByRole("menuitemradio", { name: option, exact: true }));
+  await expect(choice).toBeVisible();
+  await choice.evaluate(async (element) => {
+    const surface = element.closest('[role="menu"], [role="listbox"]') ?? element;
+    await Promise.all(
+      surface
+        .getAnimations({ subtree: true })
+        .filter((animation) => {
+          const timing = animation.effect?.getComputedTiming();
+          return timing !== undefined && Number.isFinite(timing.endTime ?? Infinity);
+        })
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
+  await choice.click();
 }
 
 /** The page's verbs have no button: right-clicking its title row is the route. */
 export async function openPageMenu(page: Page): Promise<void> {
   await page.getByTestId("page-title").click({ button: "right" });
-  await expect(page.getByRole("menu")).toBeVisible();
+  await awaitOpenedMenu(page);
 }
 
 /**
@@ -118,7 +197,24 @@ export async function openPageProperties(page: Page): Promise<void> {
 /** A block's verbs live on its bullet, which is also its drag handle. */
 export async function openBlockMenu(page: Page, index = 0): Promise<void> {
   await page.getByTestId("block-bullet").nth(index).click({ button: "right" });
-  await expect(page.getByRole("menu")).toBeVisible();
+  await awaitOpenedMenu(page);
+}
+
+/** A visible Radix menu is still moving during its entrance transition. */
+async function awaitOpenedMenu(page: Page): Promise<void> {
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await menu.evaluate(async (element) => {
+    await Promise.all(
+      element
+        .getAnimations({ subtree: true })
+        .filter((animation) => {
+          const timing = animation.effect?.getComputedTiming();
+          return timing !== undefined && Number.isFinite(timing.endTime ?? Infinity);
+        })
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
 }
 
 /** The tagged-block defaults live one level deeper, behind Advanced. */
