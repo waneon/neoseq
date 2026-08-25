@@ -6,6 +6,8 @@
 // container and virtualized stacking context (which otherwise clipped it).
 
 import {
+  useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -54,6 +56,14 @@ export function PageAutocomplete({
   const listId = useId();
   const notify = useNotify();
   const { message, compare } = useI18n();
+
+  const cancelBlur = useCallback(() => {
+    if (blurTimer.current === null) return;
+    clearTimeout(blurTimer.current);
+    blurTimer.current = null;
+  }, []);
+
+  useEffect(() => () => cancelBlur(), [cancelBlur]);
 
   const options = useMemo<Option[]>(() => {
     const canonical = canonicalEntityName(query);
@@ -159,9 +169,19 @@ export function PageAutocomplete({
           setOpen(true);
           setActive(0);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          // An overlay launcher can restore focus after this field has already
+          // claimed it. The last focus event is authoritative: an older blur
+          // must not close the list underneath an in-progress interaction.
+          cancelBlur();
+          setOpen(true);
+        }}
         onBlur={() => {
-          blurTimer.current = setTimeout(() => setOpen(false), 150);
+          cancelBlur();
+          blurTimer.current = setTimeout(() => {
+            blurTimer.current = null;
+            setOpen(false);
+          }, 150);
         }}
         onKeyDown={onKeyDown}
       />
@@ -191,7 +211,7 @@ export function PageAutocomplete({
                         // leaving the browser to finish a gesture on a node
                         // that no longer exists.
                         event.preventDefault();
-                        if (blurTimer.current) clearTimeout(blurTimer.current);
+                        cancelBlur();
                       }}
                       onClick={() => void pick(option)}
                     >

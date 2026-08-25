@@ -129,6 +129,26 @@ describe("first-class tags and tag defaults", () => {
       expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
     );
   });
+
+  it("cancels a stale blur dismissal when the autocomplete regains focus", async () => {
+    await mountTagged();
+    const user = userEvent.setup();
+    await openBlockMenu();
+    await user.click(await screen.findByTestId("menu-tags"));
+    const picker = await screen.findByTestId("tag-picker");
+    const autocomplete = within(picker).getByTestId("tag-autocomplete");
+    await user.type(autocomplete, "Project");
+    const option = await screen.findByRole("option", { name: "Project" });
+
+    // An overlay launcher may restore focus while the newly opened field is
+    // already taking it. Once the field wins, an earlier blur must no longer
+    // be allowed to dismiss the choices underneath the reader's pointer.
+    fireEvent.blur(autocomplete);
+    fireEvent.focus(autocomplete);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(option).toBeInTheDocument();
+  });
 });
 
 describe("the # tag menu in a block", () => {

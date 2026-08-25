@@ -20,7 +20,7 @@
 // (designs/foundations.md § Semantic Color). An emoji is one grapheme of text,
 // rendered as text.
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckIcon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
@@ -315,6 +315,14 @@ function GroupField({
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listId = useId();
 
+  const cancelBlur = useCallback(() => {
+    if (blurTimer.current === null) return;
+    clearTimeout(blurTimer.current);
+    blurTimer.current = null;
+  }, []);
+
+  useEffect(() => () => cancelBlur(), [cancelBlur]);
+
   // The authoritative group is the truth after a write or a remote edit; the
   // draft is the truth only while the reader is typing into it.
   useEffect(() => setDraft(current ?? ""), [current]);
@@ -366,9 +374,14 @@ function GroupField({
           setOpen(true);
           setActive(0);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          cancelBlur();
+          setOpen(true);
+        }}
         onBlur={() => {
+          cancelBlur();
           blurTimer.current = setTimeout(() => {
+            blurTimer.current = null;
             setOpen(false);
             commit(draft);
           }, 150);
@@ -406,7 +419,7 @@ function GroupField({
                   onPointerMove={() => setActive(index)}
                   onMouseDown={(event) => {
                     event.preventDefault();
-                    if (blurTimer.current) clearTimeout(blurTimer.current);
+                    cancelBlur();
                     commit(row.label);
                   }}
                 >

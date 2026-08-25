@@ -96,6 +96,8 @@ replaced provide a captured box.
 
 Opening and closing restore focus to the invoking control or caret unless the
 chosen action explicitly transfers focus elsewhere.
+When dismissal is deferred to let a pointer cross a focus boundary, renewed
+focus cancels that dismissal. The latest focus owner is authoritative.
 
 A destructive confirmation is an alert dialog. It names the irreversible
 effect, places initial focus on the safe action, and stays open while completion
