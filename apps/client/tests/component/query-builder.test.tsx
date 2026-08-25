@@ -1253,7 +1253,7 @@ describe("query result views", () => {
         },
         [momentTimeVariable("scheduled")]: {
           kind: "literal",
-          value: "09:30",
+          value: "21:30",
           datatype: "http://www.w3.org/2001/XMLSchema#string",
         },
       }],
@@ -1273,7 +1273,8 @@ describe("query result views", () => {
     // under a block draws — and a day in the past on an unsettled row says
     // `Overdue` in words rather than in colour alone.
     const moment = await waitFor(() => within(table).getByTestId("query-edit-scheduled"));
-    expect(moment).toHaveTextContent("09:30");
+    expect(moment).toHaveTextContent("21:30");
+    expect(moment).not.toHaveTextContent(/AM|PM/);
     const pill = moment.querySelector(".query-due")!;
     expect(pill).toHaveAttribute("data-due", "overdue");
     expect(pill).toHaveAttribute("data-palette", "danger");

@@ -186,7 +186,7 @@ describe("query and task projections", () => {
     for (const command of [
       { key: "builtin.task-status", value: { type: "string", value: "todo" } },
       { key: "builtin.task-scheduled", value: { type: "date", value: "2026-08-21" } },
-      { key: "builtin.task-scheduled-time", value: { type: "string", value: "09:30" } },
+      { key: "builtin.task-scheduled-time", value: { type: "string", value: "21:30" } },
       { key: "builtin.task-repeat", value: { type: "string", value: "2w" } },
     ] as const) {
       await session.execute({ type: "set_property", owner, ...command });
@@ -194,7 +194,8 @@ describe("query and task projections", () => {
 
     // The moment reads as one fact: the day, then the time of day.
     const scheduled = await screen.findByTestId("task-chip-scheduled");
-    expect(scheduled).toHaveTextContent("09:30");
+    expect(scheduled).toHaveTextContent("21:30");
+    expect(scheduled).not.toHaveTextContent(/AM|PM/);
     expect(await screen.findByTestId("task-chip-repeat")).toHaveTextContent("Every 2 weeks");
 
     const toggle = await screen.findByTestId("task-status-toggle");

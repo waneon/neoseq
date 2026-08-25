@@ -45,7 +45,7 @@ export interface LocaleRuntime {
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
   formatBytes(value: number): string;
   formatLocalDate(value: string, options?: Intl.DateTimeFormatOptions): string;
-  /** A stored `HH:MM` time of day, written the way this locale writes clocks. */
+  /** A stored `HH:MM` time of day, always written on a 00:00–23:59 clock. */
   formatTimeOfDay(value: string): string;
   formatInstant(
     value: string | number | Date,
@@ -196,6 +196,7 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
       return formatDate(new Date(Date.UTC(2000, 0, 1, hours, minutes)), "UTC", {
         hour: "2-digit",
         minute: "2-digit",
+        hourCycle: "h23",
       });
     },
     formatInstant: (value, timeZone, options) => {
@@ -204,12 +205,18 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
       return formatDate(
         instant,
         timeZone,
-        options ?? {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
+        {
+          ...(options ?? {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          // A caller may shape which fields appear, but not switch the
+          // application's clock back to a locale-default 12-hour cycle.
+          hour12: undefined,
+          hourCycle: "h23",
         },
       );
     },

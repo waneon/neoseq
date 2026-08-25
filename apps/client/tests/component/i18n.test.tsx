@@ -24,6 +24,15 @@ describe("locale runtime", () => {
     expect(ko.message("outline.newBlocksFailed", { count: 2 })).toContain("새 블록 2개");
     expect(en.formatLocalDate("2026-08-05")).toContain("2026");
     expect(ko.formatLocalDate("2026-08-05")).toContain("2026년");
+
+    // Clock notation is an application invariant rather than a locale default:
+    // moments never switch to AM/PM or 오전/오후 when the language changes.
+    expect(en.formatTimeOfDay("00:05")).toBe("00:05");
+    expect(en.formatTimeOfDay("21:30")).toBe("21:30");
+    expect(ko.formatTimeOfDay("00:05")).toBe("00:05");
+    expect(ko.formatTimeOfDay("21:30")).toBe("21:30");
+    expect(en.formatInstant("2026-08-05T21:30:00Z", "UTC")).toContain("21:30");
+    expect(ko.formatInstant("2026-08-05T21:30:00Z", "UTC")).toContain("21:30");
   });
 });
 

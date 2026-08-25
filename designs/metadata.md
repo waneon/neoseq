@@ -93,6 +93,8 @@ interactive result cell owns the edit action.
 Urgency is expressed by both language and a bounded semantic tone. A time of day
 is never presented as an independent query column because it has no meaning
 without its day; the moment column carries both and computes urgency from both.
+Every task time is written as `HH:MM` on a 24-hour clock, independent of the
+interface language.
 Today is its own fixed urgency step: it does not disappear into a configurable
 future range, while a time already passed today remains overdue.
 The default tonal progression is danger, attention, caution, information, then

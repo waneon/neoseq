@@ -124,10 +124,11 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   const scheduled = page.getByTestId("task-chip-scheduled");
   await scheduled.click();
   picker = page.getByTestId("property-picker");
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time").fill("09:30"));
+  await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time").fill("21:30"));
   // A time is a refinement of the answer, not the answer: it writes at once and
   // leaves the editor open for the rest of the moment.
-  await expect(scheduled).toContainText("09:30");
+  await expect(scheduled).toContainText("21:30");
+  await expect(scheduled).not.toContainText(/AM|PM/);
   await expect(picker).toBeVisible();
   // The first Escape leaves the value editor for the picker's key list; the
   // second dismisses that root surface. Prove both transitions before opening
@@ -141,7 +142,7 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   await scheduled.click();
   picker = page.getByTestId("property-picker");
   await mutateAndAwaitSaved(page, () => picker.getByTestId("task-time-clear").click());
-  await expect(scheduled).not.toContainText("09:30");
+  await expect(scheduled).not.toContainText("21:30");
   await page.keyboard.press("Escape");
   await expect(picker.getByLabel("Property key")).toBeVisible();
   await page.keyboard.press("Escape");
