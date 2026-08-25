@@ -917,6 +917,38 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   expect(panelBox.x).toBeLessThan(triggerBox.x);
 });
 
+test("a query column seam stands on the body column boundary", async ({ page }) => {
+  await createGraph(page, "Query Column Axis Graph");
+  await startOutline(page);
+  await typeInFocusedBlock(page, "a result row");
+  await page.getByLabel("Block text").first().press("End");
+  await page.keyboard.press("Enter");
+
+  const query = page.getByTestId("query-block");
+  const table = query.getByTestId("query-table");
+  await insertQueryBlock(page, page.getByLabel("Block text").last(), table);
+
+  const axes = await table.evaluate((wrap) => {
+    const header = wrap.querySelector<HTMLElement>("thead th");
+    const body = wrap.querySelector<HTMLElement>("tbody td");
+    const handle = header?.querySelector<HTMLElement>(".query-resize");
+    if (!header || !body || !handle) throw new Error("the query table has no first column");
+    const headerBox = header.getBoundingClientRect();
+    const bodyBox = body.getBoundingClientRect();
+    const handleBox = handle.getBoundingClientRect();
+    return {
+      header: headerBox.right,
+      body: bodyBox.right,
+      // The gradient's 1px stroke runs from 4px to 5px in its 9px target.
+      seam: handleBox.left + 4.5,
+    };
+  });
+
+  expect(axes.header).toBeCloseTo(axes.body, 5);
+  // A crisp 1px stroke lives immediately inside the shared boundary.
+  expect(axes.seam).toBeCloseTo(axes.body - 0.5, 5);
+});
+
 // The date editor is taller than the middling strip of room below this line.
 // Shrinking it until it technically fits makes its rows look crushed and hides
 // the fact that the whole editor fits above. Placement answers the rendered box,

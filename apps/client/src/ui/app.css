@@ -4947,11 +4947,13 @@ button.query-disclosure:focus-visible {
 
 /* The width handle. It is the only vertical line in a table, and it is the
    thread colour, so it reads as the seam between two columns rather than as a
-   drawn cell border. */
+   drawn cell border. The nine-pixel target straddles the column boundary: its
+   one-pixel centre line occupies the last pixel of this column, while four
+   transparent pixels on either side make the seam easy to take hold of. */
 .query-resize {
   position: absolute;
   top: 0;
-  right: 0;
+  right: -4px;
   bottom: 0;
   width: 9px;
   background:
