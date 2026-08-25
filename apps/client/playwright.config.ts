@@ -9,8 +9,8 @@ export default defineConfig({
   testDir: "./tests",
   testMatch: /.*\.spec\.ts/,
   fullyParallel: false,
-  // Keep the gate reproducible everywhere; focused runs can opt into more.
-  workers: 2,
+  // Match the public CI runner's four cores and keep scheduling reproducible.
+  workers: 4,
   retries: 1,
   reporter: "line",
   expect: {
