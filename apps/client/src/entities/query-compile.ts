@@ -403,7 +403,7 @@ export function isCompilerVariable(variable: string): boolean {
  *
  * A time of day is not a column. On its own it means nothing at all, which is
  * why it is a feature-only property and the columns panel never offers it
- * (§ Properties). But a moment *is* a day plus an optional time, so a column
+ * (designs/metadata.md § Moments). But a moment *is* a day plus an optional time, so a column
  * that shows one has to carry both — and it carries the second here, in the
  * compiler's own namespace, where no column id can reach and no table will draw
  * it as a column of its own.
@@ -478,7 +478,7 @@ function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
   // *something*: the subject is that something, and it is the whole of the
   // query's own order. Which rows a reader sees first is presentation, and the
   // view decides it after the answer arrives (architectures/query.md
-  // § SPARQL Profile).
+  // § SPARQL Profile and API).
   const order = carriesSubject ? [`?${self}`] : [];
 
   const distinct = plan.distinct && !aggregated ? "DISTINCT " : "";

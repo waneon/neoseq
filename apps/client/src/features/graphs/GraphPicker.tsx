@@ -47,7 +47,7 @@ const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
  * The first screen. It carries no entrance animation on purpose: this container
  * is audited by axe the instant it mounts, and a surface fading in at partial
  * alpha composites its text against the background and fails contrast for every
- * child (DESIGN.md § Motion, rule 3).
+ * child (designs/foundations.md § Motion).
  *
  * The empty state *is* the action — one sentence above the create form, not a
  * dashed box holding an instruction that points at a form below it.

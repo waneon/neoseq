@@ -143,7 +143,7 @@ test("a raised toast passes the basic audit", async ({ page }) => {
 
 // Every new fill in the product is a new contrast pair, and the tinted date chip
 // is four of them at once — one per due tier — sitting on the canvas in both
-// modes. § Contrast commits the figures; this is the gate that keeps them true.
+// modes. designs/foundations.md § Modes and Contrast commits the figures; this is the gate that keeps them true.
 test("a task's marks and its tinted moments pass the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Task Graph");
   await startOutline(page);
@@ -233,10 +233,10 @@ test("settings passes the basic audit", async ({ page }) => {
   await appearanceTab.focus();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Tab");
-  // Keyboard focus is component-owned (DESIGN.md § Interaction States): the
+  // Keyboard focus is component-owned (designs/interaction.md § Control States): the
   // tab takes the product's one roving highlight — the wash plus the 2px
   // accent rule at the left edge — never a drawn outline, which would be
-  // outside § Depth's three legal lines.
+  // outside designs/foundations.md § Geometry, Depth, and Shape.
   await expect.poll(() => appearanceTab.evaluate((element) => {
     const styles = getComputedStyle(element);
     const rule = getComputedStyle(element, "::before");

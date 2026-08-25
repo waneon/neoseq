@@ -370,7 +370,7 @@ function TasksSection() {
                 data-testid={`due-preview-${tier}`}
                 // The preview is the column that gives when four do not fit, so
                 // it carries the whole of itself for a reader who lost the end of
-                // it (§ Accessibility 7).
+                // it (designs/accessibility.md § Perception).
                 title={formatJournalDate(addDays(today, exampleDay[tier]))}
               >
                 <CalendarIcon aria-hidden />

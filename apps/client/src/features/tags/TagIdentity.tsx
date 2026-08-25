@@ -16,8 +16,9 @@
 //
 // Nothing here can produce an illegible tag. A colour is a *hue*: lightness and
 // chroma stay the mode's, so a tag painted red is the same measured distance from
-// the page as the accent is, in both modes and at every step (DESIGN.md § The
-// accent is a hue). An emoji is one grapheme of text, rendered as text.
+// the page as the accent is, in both modes and at every step
+// (designs/foundations.md § Semantic Color). An emoji is one grapheme of text,
+// rendered as text.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -114,8 +115,8 @@ export function TagMark({
 /**
  * The one panel that writes a tag's mark, colour, and group. Three sections, all
  * of them visible at once: every value here is a *choice among a handful*, and a
- * choice among a handful is made by looking at the handful (§ Settings — a colour
- * is chosen by pressing the colour).
+ * choice among a handful is made by looking at the handful
+ * (designs/foundations.md § Semantic Color).
  */
 export function TagIdentityPicker({
   tag,

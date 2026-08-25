@@ -147,7 +147,7 @@ export function PropertyPicker({
         node instanceof Node &&
         !panelRef.current?.contains(node) &&
         // A surface this panel opened is not "outside" it. Both the entity
-        // autocomplete and the one dropdown (§ Choice) portal to the body, so a
+        // autocomplete and the one dropdown (designs/interaction.md § Choice) portal to the body, so a
         // press on one of their rows lands outside `panelRef` in the DOM while
         // being, to the user, a press inside the editor they are filling in.
         // Without this, choosing from a nested menu dismissed the picker before
@@ -806,8 +806,8 @@ function ValueInput({
  * field accepts natural language ("tomorrow", "aug 15", "다음 월요일") and
  * shows the day it resolved to as a pressable row; quick rows cover the three
  * most common answers, and a native date input stays at the bottom because the
- * platform's own picker is the better precision tool (DESIGN.md
- * § Implementation, "native where native is better").
+ * platform's own picker is the better precision tool
+ * (designs/interaction.md § Choice).
  */
 interface DateRefinements {
   timeKey: string;

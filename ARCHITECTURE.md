@@ -16,8 +16,9 @@ storage contracts with SQLite; native shells and release infrastructure remain
 in [`steps/`](steps/).
 
 This document is the repository-wide architectural source of truth.
-Component-level detail lives under [`architectures/`](architectures/), and
-[`DESIGN.md`](DESIGN.md) is the frontend design source of truth.
+Component-level detail lives under [`architectures/`](architectures/).
+[`DESIGN.md`](DESIGN.md) defines the repository-wide design architecture, with
+focused design boundaries under [`designs/`](designs/).
 
 ## Drivers
 
@@ -211,6 +212,7 @@ apps/client/               React UI, Worker, IndexedDB, and browser tests
 contracts/                 current source contracts
 fixtures/                  current cross-adapter corpus
 architectures/             component architecture documents
+designs/                   focused design architecture documents
 steps/                     future delivery plan
 ```
 

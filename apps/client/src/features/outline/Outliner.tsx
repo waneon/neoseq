@@ -2435,7 +2435,7 @@ export function Outliner({
 
   // Which thread segments to light: the indices of the focused block's ancestors,
   // outermost first. Each rendered row derives its own count from this, so nothing
-  // walks the whole list. See DESIGN.md § The outline / Thread.
+  // walks the whole list. See designs/outliner.md § Structural Thread.
   const ancestors = ancestorPath(rows, focusedId);
 
   /** The bare keys a selection answers to. They only reach here while the tree
@@ -3367,9 +3367,9 @@ function BlockRow({
     // setSelectionRange that reveals the caret as well — will happily scroll a
     // row that is already on screen until one of its edges is aligned. That is
     // the page moving out from under the caret the reader just placed, which is
-    // exactly what § Component Rules / Outline forbids; whether it fired at all
-    // depended on the row's height against the viewport's, so it was a bug that
-    // came and went with the type metrics.
+    // exactly what designs/outliner.md § Virtualization and Stability forbids;
+    // whether it fired at all depended on the row's height against the
+    // viewport's, so it was a bug that came and went with the type metrics.
     textarea.focus({ preventScroll: true });
     const caret = editor.pendingCaret.current;
     if (caret !== null) {
@@ -3673,9 +3673,9 @@ function BlockRow({
           // The browser's spell checker has no idea what a graph is. It underlines
           // page names, tags, property keys and code as mistakes, which in a
           // document made of short lines means a page of red — and it cannot be
-          // right about text this product has no language for. DESIGN.md
-          // § Implementation, "native where native is better", cuts the other way
-          // here: this is native where native is wrong.
+          // right about text this product has no language for. The implementation
+          // boundary in DESIGN.md cuts the other way here: this is native where
+          // native is wrong.
           spellCheck={false}
           tabIndex={previewMarkdown ? -1 : undefined}
           readOnly={editor.readonly}

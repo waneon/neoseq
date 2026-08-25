@@ -675,7 +675,8 @@ SELECT ?entity ?content WHERE {
             </NavLink>
           </div>
           {/* Nothing when nothing is starred: an empty heading is a promise the
-              rail has not been asked to keep (§ System states). */}
+              rail has not been asked to keep
+              (designs/interaction.md § Feedback and System State). */}
           {starred.length > 0 && (
             <>
               <div className="rail-group">
@@ -979,7 +980,7 @@ function FavouriteRail({
 /**
  * The top bar's `⋯`, and what it lists.
  *
- * DESIGN.md § Disclosure says the top bar holds no verbs, and it still does not:
+ * designs/shell-and-navigation.md § Disclosure and Commands says the top bar holds no verbs, and it still does not:
  * a menu is summoned, and everything inside this one is also a palette row and,
  * where it has one, a key. What it adds is the affordance the bare interface was
  * missing — a single, conventional, always-there place a user who has learned no
@@ -1344,8 +1345,9 @@ function buildCommands(input: CommandInputs): Command[] {
   });
 
   // The task verbs the slash menu offers in the editor, as palette rows: every
-  // capability keeps one canonical command (DESIGN.md, Principle 5). Each opens
-  // the same picker already on its key, for the focused block or the page.
+  // capability keeps one canonical command (DESIGN.md § Interaction
+  // Architecture). Each opens the same picker already on its key, for the
+  // focused block or the page.
   commands.push(
     {
       id: "set-status",

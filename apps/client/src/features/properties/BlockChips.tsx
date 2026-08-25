@@ -7,10 +7,10 @@
 // pointer route into the property picker on its own key. An empty set renders
 // nothing at all.
 //
-// A moment carries a tone for how far off it is (§ Tasks / Due tones). The tone
+// A moment carries a tone for how far off it is (designs/metadata.md § Moments). The tone
 // is the second reading of a fact the chip already writes out — the date, and the
 // word `Overdue` when one has passed — so nothing here is colour-only, and both
-// the thresholds and the tones belong to the user (§ Settings / Tasks).
+// the thresholds and the tones belong to the user (designs/metadata.md § Moments).
 
 import { AlarmClockIcon, CalendarIcon, RepeatIcon } from "lucide-react";
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";

@@ -4,7 +4,7 @@
 // The chip has two jobs, and it may not do both with the same control. Under a
 // block a tag is a *reference* — a name the reader wrote and reads the graph by,
 // which is why it is the one thing in the writing that carries the accent
-// (DESIGN.md § Where the accent appears at rest). Inside the tag picker it is an
+// (designs/foundations.md § Semantic Color). Inside the tag picker it is an
 // *entry* in the set being edited, and there removal is the whole point.
 //
 // Making one button serve both meant a single click on a name in the outline

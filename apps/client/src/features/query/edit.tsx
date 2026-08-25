@@ -1065,7 +1065,7 @@ function QueryMarkdownField({
  * Status and priority used to route through the generic property picker like
  * every other bound cell, which meant one value had two popups: four radio rows
  * when the reader pressed the mark on a line, and a two-stage key/value panel
- * when they pressed the same value in a table. § Choice forbids two look-alike
+ * when they pressed the same value in a table. designs/interaction.md § Choice forbids two look-alike
  * controls that open different popups; a single value with two of them is the
  * same defect from the other end.
  *
@@ -1107,7 +1107,7 @@ function isTaskChoiceKey(key: string): boolean {
  * one out of the snapshot answers `undefined` for most rows in a real graph. The
  * first version treated that as "not a task choice" and quietly fell through to
  * the generic property picker — which meant the same value opened four radio rows
- * on a one-page graph and a two-stage key/value panel on a real one. § Choice
+ * on a one-page graph and a two-stage key/value panel on a real one. designs/interaction.md § Choice
  * forbids two look-alike controls that open different popups; one value with two
  * of them, chosen by whether a page happens to be resident, is worse.
  *

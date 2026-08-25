@@ -3,7 +3,7 @@
 //
 // A toast reports something the user cannot see from where they are standing.
 // Anything with a home on screen — the save slot, a query diagnostic — keeps that
-// home. See DESIGN.md § Toasts.
+// home. See designs/interaction.md § Feedback and System State.
 
 export type ToastTone = "info" | "success" | "danger";
 

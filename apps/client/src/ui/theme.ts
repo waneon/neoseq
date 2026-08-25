@@ -10,7 +10,7 @@
 // The accent is the same deal one step further in. What is stored is a *hue* and
 // nothing else — never a colour. `app.css` owns the lightness and the chroma of
 // the accent in each mode, so every hue a reader can reach lands on the measured
-// row of the contrast table (DESIGN.md § The accent is a hue): the widest miss
+// row of the contrast table (designs/foundations.md § Semantic Color): the widest miss
 // across the whole circle is 4.81:1 against the canvas in light mode, where the
 // committed iris measures 5.56:1 and the bar is 4.5:1. A preference that cannot
 // leave a contrast guarantee is a preference that needs no warning next to it.

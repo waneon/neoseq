@@ -84,7 +84,7 @@ export async function createPage(page: Page, title: string): Promise<void> {
  *
  * Every list of choices — a language, a journal date format, a property type, a
  * task status — is the same Radix menu the bullet's context menu is
- * (DESIGN.md § Components / Choice), so the route is a user's route: press the
+ * (designs/interaction.md § Choice), so the route is a user's route: press the
  * trigger, then press the option. This replaces `selectOption`, which only ever
  * worked against a native `<select>`.
  */

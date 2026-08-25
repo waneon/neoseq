@@ -20,7 +20,7 @@
 // when there is none. One rule, and every summoned surface keeps whatever
 // guarantees the surface around it already has. What it asks of a host in
 // return is that it be a place a `position: fixed` child can still be placed
-// against the window — see § Motion / An arrival lets go once it has landed.
+// against the window — see designs/foundations.md § Motion.
 
 import { createContext, useContext, type ReactNode } from "react";
 

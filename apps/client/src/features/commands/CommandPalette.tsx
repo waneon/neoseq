@@ -1,5 +1,5 @@
 // The command palette. This is the surface that pays for how bare the rest of
-// the interface is (DESIGN.md § The Command Layer), so it is navigation-first,
+// the interface is (designs/shell-and-navigation.md § Disclosure and Commands), so it is navigation-first,
 // never blank, and always offers a way forward.
 //
 // Hand-rolled rather than pulled from a package: it needs direct control of

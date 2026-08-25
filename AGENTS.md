@@ -24,7 +24,8 @@ Prefer solutions in this order:
 - Write these files in English.
 
 ### Design Documentation
-- Use DESIGN.md as the source of truth for the repository's design architecture.
-- Focus on the repository's design guidelines while avoiding design implementation details.
-- Keep this document concise.
-- Write this file in English.
+- Use DESIGN.md to describe repository-wide design architecture, and files under designs/ to describe the design architecture of a single focused topic.
+- Serve as the source of truth for the repository's design architecture.
+- Focus on design intent, boundaries, and invariants while avoiding implementation details.
+- Keep each document concise.
+- Write these files in English.

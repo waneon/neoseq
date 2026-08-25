@@ -5,11 +5,11 @@
 // value**, and a chip puts them side by side in one run of small text where
 // neither has a column. Six of them wrapped into a paragraph of grey.
 //
-// So it is a named section of rows now — the quiet-rows half of § Properties,
-// which is what the page property strip already is one line of. A glyph column, a
-// key column, a value column: three tags' defaults read *down* as three lists
-// rather than across as one blur. The heading says what the rows are and the note
-// says what they do, because "default" on its own says neither.
+// So it is a named section of rows now — the design in designs/metadata.md § Tag
+// Directory and Tag Page. A glyph column, a key column, a value column: three
+// tags' defaults read *down* as three lists rather than across as one blur. The
+// heading says what the rows are and the note says what they do, because
+// "default" on its own says neither.
 //
 // Editing still goes through the one contextual `PropertyPicker` every other
 // owner uses, opened on the row it belongs to. Removal lives inside it, where the

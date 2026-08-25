@@ -6,7 +6,7 @@
 // second interface inside a sentence. Given a page, the views become the page's
 // own instrument: they are permanent, they are named by the reader, and moving
 // between them is the most repeated gesture on the surface — which is exactly
-// what may not be hidden behind a menu (DESIGN.md § Disclosure, 6).
+// what may not be hidden behind a menu (designs/shell-and-navigation.md § Disclosure and Commands).
 //
 // **The track holds states; the verb stands outside it.** The strip is the
 // product's one segmented control: a recessed track with the chosen key raised

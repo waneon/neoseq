@@ -11,10 +11,10 @@
 // own colour under the pointer. The tick is what keeps the choice from being
 // carried by colour alone.
 //
-// The stored value is a tone *name* — `app.css` § The tone map decides what each
-// name looks like in each mode, so no choice here can leave the committed palette
-// or its contrast table. None of the five follows the accent; see § The state
-// palette for why a step in an ordered scale must not.
+// The stored value is a tone *name* — app.css decides what each name looks like
+// in each mode, so no choice here can leave the palette or contrast contract in
+// designs/foundations.md § Semantic Color. None of the five follows the accent;
+// an ordered semantic scale and the product accent have separate roles.
 
 import { CheckIcon } from "lucide-react";
 import { TONE_NAMES, type ToneName } from "../../entities/settings";

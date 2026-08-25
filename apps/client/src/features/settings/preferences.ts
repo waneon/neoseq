@@ -6,11 +6,10 @@
 // through the shell.
 //
 // A tone preference names a *step*, never a colour: a surface receives the
-// chosen tone's name as `data-palette` and `app.css` § The tone map decides what
-// that name looks like in each mode, which is what keeps the preference inside
-// the committed palette and its contrast table. The one preference that does name
-// a colour is the accent's hue, and `ui/theme.ts` owns it — see § The accent is a
-// hue for why that one is safe (DESIGN.md § Colour).
+// chosen tone's name as `data-palette`, and app.css decides what that name looks
+// like in each mode. This keeps the preference inside the semantic palette and
+// contrast contract in designs/foundations.md § Semantic Color. The one
+// preference that names a colour is the accent's hue, owned by `ui/theme.ts`.
 
 import { useSyncExternalStore } from "react";
 import {

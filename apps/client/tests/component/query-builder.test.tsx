@@ -1301,7 +1301,7 @@ describe("query result views", () => {
 
     // A closed enumeration has one popup wherever it is reached from: the four
     // radio rows the outline's own mark opens, not the generic two-stage key and
-    // value picker (§ Choice).
+    // value picker (designs/interaction.md § Choice).
     const menu = await screen.findByRole("menu");
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
     // The four radio rows and the explicit removal row — the outline's menu,

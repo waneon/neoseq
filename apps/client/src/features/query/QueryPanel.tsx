@@ -384,7 +384,7 @@ function QueryPanelSurface({
 
   /**
    * How far off a moment is, for every renderer that draws one. The thresholds
-   * and the tones are the reader's (§ Settings / Tasks), and a settled row has
+   * and the tones are the reader's (designs/metadata.md § Moments), and a settled row has
    * no urgency left to report — the same two rules the strip under a block
    * follows, so one task cannot be red in a table and grey in a list. The time
    * of day is the cell's to supply, and it decides only *today*: a job due at
@@ -1041,7 +1041,7 @@ function QueryPanelSurface({
             onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
             onClick={() => void toggleResults()}
           >
-            {/* A swap, not a rotation: § Motion allows no transform animation on
+            {/* A swap, not a rotation: designs/foundations.md § Motion allows no transform animation on
                 anything a pointer must hit or an audit must read. */}
             {resultsOpen
               ? <ChevronDownIcon aria-hidden />

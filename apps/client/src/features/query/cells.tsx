@@ -297,7 +297,7 @@ export function CellValue({
   }
   // A moment is a bubble tinted by how far off it is — the same object the strip
   // under a block draws, so `Scheduled` reads the same whether the reader met it
-  // in the outline or in a column of a table (§ Tasks / Due tones). The tint is
+  // in the outline or in a column of a table (designs/metadata.md § Moments). The tint is
   // the second reading of a date the cell writes out in full, and `Overdue` is
   // written in words, so nothing here is colour-only. No glyph: in a column the
   // heading already says which moment this is.
@@ -363,7 +363,7 @@ function DueValue({
       // A column is 180px wide and a date spelled out with its weekday is not,
       // so the moment ellipsises here more often than it does anywhere else.
       // The whole of it stays readable: nothing in the product is cut off with
-      // no way to read the rest (§ Accessibility).
+      // no way to read the rest (designs/accessibility.md § Perception).
       title={[day, clock, overdue ? context.message("task.overdue") : null]
         .filter(Boolean)
         .join(" · ")}

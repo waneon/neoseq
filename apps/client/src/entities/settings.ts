@@ -26,7 +26,7 @@ export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
  * The tones a preference is allowed to name. They are the palette's own five
  * steps and nothing else — a preference chooses *which* declared tone a surface
  * takes, never a colour of its own, so both modes and the contrast table keep
- * holding for every choice (DESIGN.md § The state palette).
+ * holding for every choice (designs/foundations.md § Semantic Color).
  *
  * `accent` is not among them, and `info` is the blue that used to stand in for
  * it. A tone names a step in a closed ordered scale; the accent names where the

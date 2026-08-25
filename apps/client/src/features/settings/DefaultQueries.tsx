@@ -2,8 +2,8 @@
 //
 // The journal reads them and this writes them, which is the whole shape of the
 // feature: a standing question is set up once and then read every day, so its
-// editor belongs with this graph's other settings and not parked under
-// the writing it sits below (§ Do / Don't — nothing below the outline is chrome).
+// editor belongs with this graph's other settings and not parked under the
+// writing it sits below (designs/query.md § One Document, Different Contexts).
 //
 // **A row states the question, not the machinery.** Its caption is the same
 // phrase the journal will print above the answer, and beside it the same count

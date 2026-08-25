@@ -57,9 +57,9 @@ const AUDIT = /* language=JavaScript */ `
   // The journal's native date input is deliberately 1px and clip-path'd: it is a
   // real tab stop that states nothing on screen. It is not a layout defect.
   //
-  // The bullet is deliberately a 24px target in a 20px slot (DESIGN.md
-  // § Component Rules / Outline: "the hit box exceeds the mark without moving
-  // layout"), so its slot reports 2px of overflow by design.
+  // The bullet is deliberately a 24px target in a 20px slot
+  // (designs/outliner.md § Blocks and Editing), so its slot reports 2px of
+  // overflow by design.
   const excluded = (el) => el.closest(".clipped-control, .sr-only, .outline-gutter") !== null;
   const all = [...document.querySelectorAll("body *")].filter((el) => visible(el) && !excluded(el));
   for (const el of all) {

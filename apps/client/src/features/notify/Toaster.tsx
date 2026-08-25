@@ -125,9 +125,10 @@ function ToastRow({
       // surface whose arrival is the message, so it should move — but it is also
       // read the instant it appears, by the user, by a live region, and by the
       // contrast audit, which caught an earlier fade compositing its text
-      // against the page behind it. `enter-drop` is the answer DESIGN.md
-      // § Motion names for exactly this case: full opacity on the first frame,
-      // and the movement carries the arrival on its own.
+      // against the page behind it. `enter-drop` is the answer
+      // designs/foundations.md § Motion names for exactly this case: full
+      // opacity on the first frame, and the movement carries the arrival on its
+      // own.
       className="toast enter-drop"
       data-tone={toast.tone}
       data-paused={paused}

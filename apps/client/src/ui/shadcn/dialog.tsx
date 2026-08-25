@@ -36,9 +36,9 @@ function DialogOverlay({
 // automation reports as unstable.
 //
 // The arrival is `--rise` and a hair of scale, finishing opaque in the first 40%
-// (§ Motion / Arrival), so nothing reads the panel — user, screenshot or contrast
-// audit — while it is still translucent. There is no exit animation: Radix
-// unmounts immediately rather than leaving a ghost.
+// (designs/foundations.md § Motion), so nothing reads the panel — user,
+// screenshot or contrast audit — while it is still translucent. There is no exit
+// animation: Radix unmounts immediately rather than leaving a ghost.
 function DialogContent({
   className,
   children,

@@ -12,7 +12,7 @@ import type { ToastInput } from "./store";
 
 /**
  * Durability belongs to the save slot, permanently and by design
- * (DESIGN.md § Save slot). These two codes mean "applied, not yet on disk",
+ * (designs/interaction.md § Feedback and System State). These two codes mean "applied, not yet on disk",
  * which the top bar is already stating with a dot, a reason, and Retry —
  * so the toast layer stays quiet rather than reporting one failure twice.
  */

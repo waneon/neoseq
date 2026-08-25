@@ -1,8 +1,9 @@
 // The command registry: one place that knows every verb in the application.
 //
-// This exists because the interface is deliberately bare (see DESIGN.md
-// § Disclosure). Removing a button is only safe when the verb it named is still
-// reachable, so every entry carries BOTH a keyboard route and a `pointerRoute`
+// This exists because the interface is deliberately bare (see
+// designs/shell-and-navigation.md § Disclosure and Commands). Removing a button
+// is only safe when the verb it named is still reachable, so every entry carries
+// BOTH a keyboard route and a `pointerRoute`
 // describing how a user who never learns a shortcut gets there. `pointerRoute`
 // is required by the type and asserted by a test, which is what keeps the
 // palette from quietly becoming the only way to do something.

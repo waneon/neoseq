@@ -5,10 +5,10 @@
 // read after the sentence it was supposed to qualify and competing with a
 // property strip for attention; at the head of the line it is the second mark
 // in a two-mark cluster, which is where a person scanning a page for what to do
-// next is already looking (DESIGN.md § Tasks).
+// next is already looking (designs/metadata.md § Tasks).
 //
 // It is the status control's twin in every other respect: the same dropdown
-// (§ Choice), `menuitemradio` rows led by their own shape, the registry's values
+// (designs/interaction.md § Choice), `menuitemradio` rows led by their own shape, the registry's values
 // offered strongest first, a stored value outside that set kept listed, and an
 // explicit removal row — and, like it, the menu is exported apart from the trigger
 // so a query result's priority cell opens the same rows rather than the generic

@@ -127,7 +127,7 @@ function DropdownMenuRadioItem({
 
 /**
  * The heading over a section of a menu. It takes `.group-label`, which is the
- * product's one group-divider rule (DESIGN.md § The group label): four signals in
+ * product's one group-divider rule (designs/foundations.md § Typography): four signals in
  * agreement — smaller, heavier, tracked out, a step quieter — because one step of
  * anything reads as the first item of its own list rather than as its heading.
  * No menu is allowed to invent its own.

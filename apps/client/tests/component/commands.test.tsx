@@ -1,6 +1,6 @@
 // The guard that makes the bare interface safe.
 //
-// DESIGN.md § Disclosure removes buttons on the promise that every verb stays
+// designs/shell-and-navigation.md § Disclosure and Commands removes buttons on the promise that every verb stays
 // reachable without a keyboard. These tests are that promise, mechanised: if a
 // command ever ships without a pointer route, or if the global key layer ever
 // starts matching a bare keystroke, the build fails instead of the interface

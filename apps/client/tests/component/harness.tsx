@@ -119,7 +119,7 @@ export async function openViewMenu(name: string): Promise<HTMLElement> {
  *
  * Every list of choices — a language, a journal date format, a property type, a
  * task status — is the same Radix menu the bullet's context menu is
- * (DESIGN.md § Components / Choice), so the route is the same as a user's: press
+ * (designs/interaction.md § Choice), so the route is the same as a user's: press
  * the trigger, then press the option. This replaces `userEvent.selectOptions`,
  * which only ever worked against a native `<select>`.
  */

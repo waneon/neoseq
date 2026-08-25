@@ -15,7 +15,7 @@
 // unrelated objects is the single most disorienting thing a form can do, and it
 // was doing it in the place where a user is most likely to be a beginner.
 //
-// The trade is named in DESIGN.md § Components / Choice: a native `<select>`
+// The trade is named in designs/interaction.md § Choice: a native `<select>`
 // brings the platform picker, the mobile wheel and type-ahead for free. Radix
 // gives back type-ahead, roving focus, portalling, dismissal and `menuitemradio`
 // semantics; the mobile wheel it does not. One consistent surface for every choice

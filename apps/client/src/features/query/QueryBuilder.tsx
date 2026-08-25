@@ -162,7 +162,8 @@ export function QueryBuilder({
         <Input
           // `px-2`, not the field's own 10px: it is the first control on its
           // line, so its text shares the left edge of every other clause's
-          // first control exactly rather than nearly (§ Geometry).
+          // first control exactly rather than nearly
+          // (designs/foundations.md § Geometry, Depth, and Shape).
           className={cn(GHOST_FIELD, "w-16 px-2")}
           type="number"
           min={1}

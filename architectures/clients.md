@@ -10,8 +10,9 @@ layers, composition buffers, and optimistic rows—while the Rust runtime owns
 canonical graph state.
 
 Future Tauri shells reuse this interaction model through the same CorePort.
-[`../DESIGN.md`](../DESIGN.md) defines the production UI/UX contract, and
-[`i18n.md`](i18n.md) defines presentation-only localization.
+[`../DESIGN.md`](../DESIGN.md) defines the repository-wide design architecture,
+focused UI contracts live under [`../designs/`](../designs/), and [`i18n.md`](i18n.md)
+defines presentation-only localization.
 
 ## CorePort and Session
 
@@ -321,7 +322,8 @@ graph the reader cannot write to.
 The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script
 applying an explicit stored choice before React mounts. Portals share one z-index
-scale, and motion follows the closed vocabulary in DESIGN.md.
+scale, and motion follows the closed vocabulary in
+[`../designs/foundations.md`](../designs/foundations.md).
 
 Headless libraries supply models, never appearance: `@tanstack/react-virtual`
 for the outline's row windowing and `@tanstack/react-table` for the result

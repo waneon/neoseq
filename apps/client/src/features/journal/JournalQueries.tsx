@@ -14,8 +14,9 @@
 // question belongs to the day it is standing in.
 //
 // **Below the append zone, never inside it.** The region under the last block is
-// the add-a-block affordance (§ Do / Don't), and it keeps its whole reach: these
-// are a second body under the writing, not chrome parked at the end of it.
+// the add-a-block affordance (designs/query.md § Standing Answers), and it keeps
+// its whole reach: these are a second body under the writing, not chrome parked
+// at the end of it.
 
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";

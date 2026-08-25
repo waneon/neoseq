@@ -13,8 +13,9 @@
 // A **colour** is one of the eight named hue steps the accent itself offers —
 // never a colour. Lightness and chroma stay the mode's, so a tag the reader
 // paints red is the same measured distance from the page as the accent is, in
-// both modes, and no choice on offer can produce an illegible tag (DESIGN.md
-// § The accent is a hue). An unknown value simply reads as no colour.
+// both modes, and no choice on offer can produce an illegible tag
+// (designs/foundations.md § Semantic Color). An unknown value simply reads as no
+// colour.
 //
 // An **icon** is one grapheme of the reader's own text. It is stored as text and
 // rendered as text: no image, no sprite sheet, no picker vocabulary to maintain.

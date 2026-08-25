@@ -156,7 +156,7 @@ export type DueTier = (typeof DUE_TIERS)[number];
 
 /**
  * Which of the four steps a moment falls in. The two thresholds are the user's
- * (§ Settings / Tasks); the boundaries themselves are not, because "already
+ * (designs/metadata.md § Moments); the boundaries themselves are not, because "already
  * past" and "further out than you asked about" are facts rather than choices.
  *
  * A time of day only ever decides *today*: a date without one is due for the

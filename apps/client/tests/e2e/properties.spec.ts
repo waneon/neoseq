@@ -175,7 +175,7 @@ test("a tag under a block is an accent reference that leads to the tag, never a 
   // A tag is the one thing in the writing that leads somewhere, so it carries the
   // accent's hue — but not the accent's own strength. `--accent` is tuned for a
   // mark; on a run of words inside a sentence it shouted, so the tag takes the
-  // same hue with the chroma pulled back (§ The accent, spoken quietly).
+  // same hue with the chroma pulled back (designs/foundations.md § Semantic Color).
   const tones = await chip.evaluate((node) => {
     const resolve = (value: string) => {
       const probe = document.createElement("span");
@@ -362,7 +362,7 @@ test("a tag's page carries its query, and the query's views are its tabs", async
 
   // One view, named for what it shows rather than for how it is drawn — and the
   // chosen tab is raised out of the track rather than told apart by a second
-  // signal (DESIGN.md § Interaction States).
+  // signal (designs/interaction.md § Control States).
   const tabs = query.getByRole("tab");
   await expect(tabs).toHaveText(["All"]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");

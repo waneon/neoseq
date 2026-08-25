@@ -136,7 +136,7 @@ export function RemoteMembersDialog({
         <div className="member-invite-row">
           <Input id="member-invite-account" value={invite} onChange={(event) => setInvite(event.target.value)} />
           {/* The one dropdown — never a native <select>, whose popup the OS
-              draws in its own language. See DESIGN.md § Choice. */}
+              draws in its own language. See designs/interaction.md § Choice. */}
           <MenuSelect
             value={role}
             options={[

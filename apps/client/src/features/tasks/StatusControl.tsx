@@ -3,12 +3,12 @@
 // A block that carries `builtin.task-status` shows its state as a glyph at the
 // head of its line — the position a checkbox has held in every list tool, which
 // is what makes it legible without a label. Clicking it opens the one dropdown
-// the product uses for every choice (DESIGN.md § Choice): `menuitemradio` rows,
+// the product uses for every choice (designs/interaction.md § Choice): `menuitemradio` rows,
 // one per registry status, each led by its shape. A stored value outside the
 // suggested set stays listed, so opening the menu can never silently rewrite
 // it, and removing the status is an explicit row — never a side effect.
 //
-// A recurring task answers `Done` differently, and § Tasks / Recurrence says
+// A recurring task answers `Done` differently, and designs/metadata.md § Tasks says
 // why: completing one occurrence is not finishing the task, so the status stays
 // `todo` and its dates roll forward by the stored interval instead.
 //
@@ -16,7 +16,7 @@
 // status cell has to open the same one. It used to route through the generic
 // property picker instead — so the same value, reached from a table rather than
 // from a line, offered a two-stage key/value panel where the outline offered four
-// radio rows. § Choice says two controls that look alike may not open different
+// radio rows. designs/interaction.md § Choice says two controls that look alike may not open different
 // popups; the corollary is that one value may not have two popups either.
 
 import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";

@@ -10,7 +10,7 @@
 //
 // What is stored is a *hue*, and only a hue. `app.css` owns the accent's lightness
 // and chroma in each mode, so every angle lands on the measured row of the
-// contrast table in both modes (§ The accent is a hue) — the reader cannot pick an
+// contrast table in both modes (designs/foundations.md § Semantic Color) — the reader cannot pick an
 // illegible accent, so nothing here has to warn them about one. That is also why
 // this is not an `input type="color"`: a free RGB picker offers millions of colours
 // of which most fail AA in one mode or the other, and then either ships an
