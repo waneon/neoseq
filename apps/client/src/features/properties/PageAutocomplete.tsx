@@ -50,6 +50,7 @@ export function PageAutocomplete({
   const [active, setActive] = useState(0);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const notify = useNotify();
   const { message, compare } = useI18n();
@@ -83,6 +84,9 @@ export function PageAutocomplete({
     open ? inputRef.current : null,
     { matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 },
     options.length,
+    open
+      ? { surface: listRef, onExternalScroll: () => setOpen(false) }
+      : undefined,
   );
   const overlayRoot = useOverlayRoot();
 
@@ -163,7 +167,7 @@ export function PageAutocomplete({
       />
       {open &&
         createPortal(
-          <div className="ac-popover" style={position}>
+          <div ref={listRef} className="ac-popover" style={position}>
             {options.length === 0 ? (
               <div role="status" className="ac-hint">
                 {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}

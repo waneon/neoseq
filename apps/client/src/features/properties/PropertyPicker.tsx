@@ -133,6 +133,11 @@ export function PropertyPicker({
     anchor,
     { width: 360, minWidth: 280, maxHeight: 420 },
     stage.kind,
+    {
+      surface: panelRef,
+      onExternalScroll: onClose,
+      exemptSelector: '.ac-popover, [data-slot="dropdown-menu-content"]',
+    },
   );
   const overlayRoot = useOverlayRoot();
   const resetStage = useCallback(() => {

@@ -1112,6 +1112,24 @@ describe("query result views", () => {
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
   });
 
+  it("dismisses result completions when the surrounding document scrolls", async () => {
+    await withResult("Ship it");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    await user.type(editor, " /");
+    expect(await screen.findByTestId("slash-menu")).toBeVisible();
+
+    const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
+    expect(documentScroll).not.toBeNull();
+    fireEvent.scroll(documentScroll!);
+    await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
+    expect(editor).toHaveValue("Ship it /");
+    expect(editor).toHaveFocus();
+  });
+
   it("uses hash completion to tag the canonical result block", async () => {
     const harness = await withResult("Ship it");
     await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });

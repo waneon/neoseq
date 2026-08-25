@@ -82,6 +82,10 @@ appropriate layer; Escape always belongs to the topmost open surface.
 Anchored surfaces prefer the available vertical side and constrain themselves to
 the room there. Point-like anchors open toward the viewport center; field-like
 anchors preserve the field edge because the popup stands in for that field.
+Contextual editing surfaces dismiss when content outside them scrolls; scrolling
+the surface's own list, or a nested choice it opened, keeps the interaction open.
+Dismissal does not itself commit or mutate stored content, and completion tokens
+remain untouched.
 
 An anchor is either a measurable live element or a captured box. Zero-area
 geometry is absence, not the viewport origin. If a live anchor disappears, the

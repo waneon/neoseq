@@ -131,7 +131,16 @@ export function TagIdentityPicker({
   const notify = useNotify();
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(anchor, { width: 296, minWidth: 264, maxHeight: 440 });
+  const position = useAnchoredPosition(
+    anchor,
+    { width: 296, minWidth: 264, maxHeight: 440 },
+    undefined,
+    {
+      surface: panelRef,
+      onExternalScroll: onClose,
+      exemptSelector: ".ac-popover",
+    },
+  );
   const overlayRoot = useOverlayRoot();
   const icon = tagIcon(tag);
   const color = tagColor(tag);
@@ -302,6 +311,7 @@ function GroupField({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listId = useId();
 
@@ -325,6 +335,9 @@ function GroupField({
     open ? inputRef.current : null,
     { matchAnchorWidth: true, maxWidth: 320, maxHeight: 220 },
     rows.length,
+    open
+      ? { surface: listRef, onExternalScroll: () => setOpen(false) }
+      : undefined,
   );
   const overlayRoot = useOverlayRoot();
 
@@ -380,7 +393,7 @@ function GroupField({
         }}
       />
       {open && rows.length > 0 && createPortal(
-        <div className="ac-popover" style={position}>
+        <div ref={listRef} className="ac-popover" style={position}>
           <ul id={listId} role="listbox" className="m-0 list-none p-0">
             {rows.map((row, index) => (
               <li key={row.create ? "__create" : row.label}>

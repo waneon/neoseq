@@ -375,6 +375,48 @@ describe("property picker", () => {
     expect(textarea).toHaveValue("/");
   });
 
+  it("keeps a slash menu stable for its own scroll and dismisses it on document scroll", async () => {
+    const { session } = await mountPage();
+    const user = userEvent.setup();
+    await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "",
+    });
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/");
+    const menu = await screen.findByTestId("slash-menu");
+
+    fireEvent.scroll(menu);
+    expect(screen.getByTestId("slash-menu")).toBeInTheDocument();
+
+    const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
+    expect(documentScroll).not.toBeNull();
+    fireEvent.scroll(documentScroll!);
+    await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
+    expect(textarea).toHaveValue("/");
+    expect(textarea).toHaveFocus();
+  });
+
+  it("dismisses a property picker when the document behind it scrolls", async () => {
+    await mountPage();
+    const user = userEvent.setup();
+    const picker = await openPagePicker(user);
+
+    fireEvent.scroll(picker);
+    expect(screen.getByTestId("property-picker")).toBeInTheDocument();
+
+    const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
+    expect(documentScroll).not.toBeNull();
+    fireEvent.scroll(documentScroll!);
+    await waitFor(() =>
+      expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument()
+    );
+  });
+
   it("changes and removes a status from the inline control's own menu", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();

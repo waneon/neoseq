@@ -141,16 +141,23 @@ export function BlockTagMenu({
   active,
   onHover,
   onChoose,
+  onDismiss,
 }: {
   request: BlockCompletionRequest;
   results: BlockTagOption[];
   active: number;
   onHover: (index: number) => void;
   onChoose: (option: BlockTagOption) => void;
+  onDismiss: () => void;
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(liveAnchor(request), MENU_PLACEMENT, results.length);
+  const position = useAnchoredPosition(
+    liveAnchor(request),
+    MENU_PLACEMENT,
+    results.length,
+    { surface: listRef, onExternalScroll: onDismiss },
+  );
   const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
@@ -198,16 +205,23 @@ export function BlockSlashMenu({
   active,
   onHover,
   onChoose,
+  onDismiss,
 }: {
   request: BlockCompletionRequest;
   results: SlashItem[];
   active: number;
   onHover: (index: number) => void;
   onChoose: (item: SlashItem) => void;
+  onDismiss: () => void;
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(liveAnchor(request), MENU_PLACEMENT, results.length);
+  const position = useAnchoredPosition(
+    liveAnchor(request),
+    MENU_PLACEMENT,
+    results.length,
+    { surface: listRef, onExternalScroll: onDismiss },
+  );
   const overlayRoot = useOverlayRoot();
 
   useEffect(() => {

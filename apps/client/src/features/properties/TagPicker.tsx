@@ -25,7 +25,16 @@ export function TagPicker({
   const notify = useNotify();
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(anchor, { width: 340, minWidth: 280, maxHeight: 320 });
+  const position = useAnchoredPosition(
+    anchor,
+    { width: 340, minWidth: 280, maxHeight: 320 },
+    undefined,
+    {
+      surface: panelRef,
+      onExternalScroll: onClose,
+      exemptSelector: ".ac-popover",
+    },
+  );
   const overlayRoot = useOverlayRoot();
 
   useEffect(() => {

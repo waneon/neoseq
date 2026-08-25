@@ -155,6 +155,22 @@ describe("the # tag menu in a block", () => {
     expect(textarea).toHaveValue("existing status #");
   });
 
+  it("closes on document scroll without touching the tag token", async () => {
+    await mountTagged();
+    const user = userEvent.setup();
+    const textarea = await screen.findByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, " #");
+    expect(await screen.findByTestId("tag-menu")).toBeVisible();
+
+    const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
+    expect(documentScroll).not.toBeNull();
+    fireEvent.scroll(documentScroll!);
+    await waitFor(() => expect(screen.queryByTestId("tag-menu")).not.toBeInTheDocument());
+    expect(textarea).toHaveValue("existing status #");
+    expect(textarea).toHaveFocus();
+  });
+
   it("marks a tag the block already has and accepting it only removes the token", async () => {
     const { session } = await mountTagged();
     const user = userEvent.setup();

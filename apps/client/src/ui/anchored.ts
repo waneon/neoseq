@@ -42,7 +42,14 @@
 // body precisely so they escape the outline's scroll container, its clipping,
 // and the virtualizer's transformed stacking context.
 
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 
 /**
  * What a panel can hang off: a thing with a box, or a box.
@@ -77,6 +84,19 @@ export interface AnchoredOptions {
   maxHeight?: number;
   /** Space between the panel and its anchor. */
   gap?: number;
+}
+
+/**
+ * A contextual panel disappears when the surface behind it moves.
+ *
+ * The anchor and surface remain scrollable. `exemptSelector` names a nested,
+ * portaled surface that is still inside the interaction even though it is not a
+ * DOM descendant — an autocomplete or select opened by a property picker.
+ */
+export interface AnchoredScrollDismissal {
+  surface: RefObject<HTMLElement | null>;
+  onExternalScroll: () => void;
+  exemptSelector?: string;
 }
 
 /**
@@ -176,7 +196,10 @@ function measureAnchor(anchor: Anchor): DOMRect | null {
 /**
  * Keeps a panel glued to its anchor for as long as it is open. Placement is
  * computed before the first paint — the panel never appears somewhere else
- * first — and again on any scroll or resize that could have moved the anchor.
+ * first — and again on any resize that could have moved the anchor. By default
+ * it also follows scrolling; a contextual caller may instead provide
+ * `scrollDismissal`, making external scroll close the panel while its own list
+ * remains scrollable.
  *
  * When the anchor stops being measurable while the panel is up, the panel *stays
  * where it is*. The alternative is to re-place it from nothing, and there is no
@@ -191,8 +214,13 @@ export function useAnchoredPosition(
   anchor: Anchor,
   options: AnchoredOptions = {},
   revision?: unknown,
+  scrollDismissal?: AnchoredScrollDismissal,
 ): CSSProperties {
   const { width, minWidth, maxWidth, matchAnchorWidth, maxHeight, gap } = options;
+  const dismissRef = useRef(scrollDismissal?.onExternalScroll);
+  dismissRef.current = scrollDismissal?.onExternalScroll;
+  const dismissSurface = scrollDismissal?.surface;
+  const dismissExemptSelector = scrollDismissal?.exemptSelector;
   // The last box this anchor actually had. An anchor that stops being measurable
   // while its panel is open — a cell replaced by its own query's next result — is
   // best answered with where it was: that is where the reader pressed, and there
@@ -214,15 +242,31 @@ export function useAnchoredPosition(
 
   useLayoutEffect(() => {
     const reposition = () => setStyle(place());
+    const handleScroll = (event: Event) => {
+      if (!dismissRef.current) {
+        reposition();
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof Node && dismissSurface?.current?.contains(target)) return;
+      if (target instanceof Node && anchor instanceof HTMLElement && anchor.contains(target)) return;
+      if (
+        target instanceof Element
+        && dismissExemptSelector
+        && target.closest(dismissExemptSelector)
+      ) return;
+      dismissRef.current();
+    };
     reposition();
     // Capture, because the anchor moves with whichever ancestor scrolls.
-    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("scroll", handleScroll, true);
     window.addEventListener("resize", reposition);
     return () => {
-      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", reposition);
     };
-  }, [place, revision]);
+  }, [dismissExemptSelector, dismissSurface, place, revision]);
 
   return style;
 }

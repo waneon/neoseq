@@ -15,6 +15,10 @@ navigation or structural ownership.
   removal, and menu presentation; and
 - text diffs translate drafts to `splice_markdown` command payloads.
 
+An external document scroll dismisses a completion menu without changing its
+token or caret. Scrolling the completion list itself keeps it open. Outline and
+query-result hosts share this interaction through the completion presentation.
+
 An editor surface owns the draft session around that input. It reconciles a
 canonical `BlockSnapshot`, schedules or flushes writes, reports failure, and
 chooses the meaning of structural keys. All writes still use ordinary

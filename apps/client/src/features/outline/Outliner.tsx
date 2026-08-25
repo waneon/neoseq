@@ -2678,6 +2678,7 @@ export function Outliner({
           results={slashResults}
           active={slashIndex}
           onHover={setSlashActiveState}
+          onDismiss={() => setSlashRequest(null)}
           onChoose={(item) => {
             const row = rowsRef.current.find((entry) => entry.block.id === slashRequest.blockId);
             if (row) editor.acceptSlash(row, item);
@@ -2690,6 +2691,7 @@ export function Outliner({
           results={hashResults}
           active={hashIndex}
           onHover={setHashActiveState}
+          onDismiss={() => setHashRequest(null)}
           onChoose={(option) => {
             const row = rowsRef.current.find((entry) => entry.block.id === hashRequest.blockId);
             if (row) editor.acceptHash(row, option);
