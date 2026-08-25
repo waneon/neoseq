@@ -170,7 +170,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await mutateAndAwaitSaved(page, () => picker.getByTestId("date-parsed").click());
   await expect(picker).toHaveCount(0);
 
-  // Four days out, with the default 1/7 thresholds, is `upcoming` — and blue on
+  // Four days out, with the default 1/7 calendar-day spans, is `upcoming` — and blue on
   // its own account, not the accent's: a step in an ordered scale may not change
   // colour because somebody chose a different accent.
   const deadline = page.getByTestId("task-chip-deadline");
@@ -193,7 +193,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await expect(page.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "danger");
   await page.keyboard.press("Escape");
 
-  // Ten days of "soon" now reaches a date four days out, in the tone just chosen.
+  // Ten calendar days of "soon" now reach a date four days out, in the tone just chosen.
   await expect(deadline).toHaveAttribute("data-due", "soon");
   await expect(deadline).toHaveAttribute("data-palette", "danger");
 

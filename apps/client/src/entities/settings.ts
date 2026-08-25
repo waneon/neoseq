@@ -47,9 +47,9 @@ export function isToneName(value: unknown): value is ToneName {
  * numbers are day counts the user owns; the tones name palette steps.
  */
 export interface DueTierSettings {
-  /** Due within this many days reads as `soon`. */
+  /** Due in this many calendar days, counting today as day one, reads as `soon`. */
   soonDays: number;
-  /** Due within this many days reads as `upcoming`. */
+  /** Due in this many calendar days, counting today as day one, reads as `upcoming`. */
   upcomingDays: number;
   overdueTone: ToneName;
   soonTone: ToneName;

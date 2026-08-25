@@ -341,12 +341,13 @@ function TasksSection() {
   const { message, formatJournalDate } = useI18n();
   const tiers = useDueTiers();
   const today = todayLocalDate();
-  // A day offset that lands each preview inside its own tier, so the four rows
-  // read as the scale they configure rather than as four copies of one date.
+  // Thresholds count today as their first day, so their inclusive calendar end
+  // is one less than the stored count. A zero-width tier has no date of its own
+  // and keeps today's legible example.
   const exampleDay: Record<DueTier, number> = {
     overdue: -1,
-    soon: Math.max(tiers.soonDays, 0),
-    upcoming: tiers.upcomingDays,
+    soon: Math.max(tiers.soonDays - 1, 0),
+    upcoming: Math.max(tiers.upcomingDays - 1, 0),
     later: tiers.upcomingDays + 7,
   };
 
