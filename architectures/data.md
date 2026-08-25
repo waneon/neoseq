@@ -3,13 +3,13 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current document schema is v4 and has four roots:
+synchronization unit. The current document schema is v5 and has four roots:
 
 ```text
 meta: Map
   graph_id: string
-  schema_version: 4
-  minimum_writer_schema: 4
+  schema_version: 5
+  minimum_writer_schema: 5
   applied_migrations: Map<MigrationId, TargetSchema>
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
@@ -99,13 +99,14 @@ clearing values preserves an empty field. Atomic values are:
 - local date.
 
 Schema-owned document fields instead own a mergeable map below a document slot.
-`builtin.query` stores source as `Text` and each stable-ID result view as its own
-map, so source edits, view selection, and edits to different views merge without
-replacing one serialized object. Removing any property deletes its marker and
-all atomic slots or document containers owned by the key.
+`builtin.query` stores each stable-ID result view as its own map, with a nested
+definition whose source is `Text`. Definition and presentation edits therefore
+merge within one view without replacing the document or touching sibling views.
+Removing any property deletes its marker and all atomic slots or document
+containers owned by the key.
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
-the v7 authority for built-in shapes, semantic ordering, placements, and `user` versus `core`
+the v9 authority for built-in shapes, semantic ordering, placements, and `user` versus `core`
 access. Every key is `builtin.<lowercase-kebab-name>` or
 `user.<lowercase-kebab-name>`. Unknown built-ins are retained read-only so newer
 data does not disappear in an older client; unknown user keys remain generic

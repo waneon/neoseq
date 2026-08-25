@@ -1,8 +1,8 @@
 {
-  "schema": 8,
+  "schema": 9,
   "properties": {
     "builtin.query": {
-      "shape": {"single": {"document": {"schema": "neoseq.query", "version": 1}}},
+      "shape": {"single": {"document": {"schema": "neoseq.query", "version": 2}}},
       "placements": {"page": "user", "block": "user", "tag_metadata": "user"},
       "copy": "portable"
     },

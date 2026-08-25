@@ -43,6 +43,7 @@ export interface QueryViewOptions {
 export interface QueryView {
   id: string;
   name: string;
+  definition: QueryDefinition;
   kind: QueryViewKind;
   position: number;
   columns: QueryViewColumn[];
@@ -60,14 +61,17 @@ export interface QueryPlanDocument {
   payload: string;
 }
 
-export interface PropertyDocument {
-  schema: "neoseq.query";
-  version: 1;
+export interface QueryDefinition {
   source: string;
   language: "sparql-1.1/neoseq-v1";
+  plan?: QueryPlanDocument | null;
+}
+
+export interface PropertyDocument {
+  schema: "neoseq.query";
+  version: 2;
   views: QueryView[];
   default_view_id: string;
-  plan?: QueryPlanDocument | null;
 }
 
 export interface DefaultQuerySnapshot {
@@ -158,7 +162,7 @@ export interface GraphSnapshot {
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 4,
+  schema_version: 5,
   graph_id: "",
   pages: [],
   tags: [],

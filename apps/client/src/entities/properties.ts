@@ -343,16 +343,21 @@ export function sameValue(left: PropertyValue, right: PropertyValue): boolean {
 export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type: "document" }>["value"] {
   return {
     schema: "neoseq.query",
-    version: 1,
-    source,
-    language: "sparql-1.1/neoseq-v1",
+    version: 2,
     // One view, named for what it shows rather than for how it is drawn — the
     // same shape `domain::PropertyDocument::default_query` writes.
     views: [
-      { id: "all", name: "All", kind: "table", position: 0, columns: [], options: VIEW_OPTIONS },
+      {
+        id: "all",
+        name: "All",
+        definition: { source, language: "sparql-1.1/neoseq-v1", plan: null },
+        kind: "table",
+        position: 0,
+        columns: [],
+        options: VIEW_OPTIONS,
+      },
     ],
     default_view_id: "all",
-    plan: null,
   };
 }
 

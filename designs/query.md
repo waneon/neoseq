@@ -59,8 +59,9 @@ state.
 ## Saved Views
 
 A query begins with one view named for its contents rather than duplicate views
-named after renderer shapes. Layout is a property of a view. A second view means
-the reader wants a second saved way to read the same question.
+named after renderer shapes. Layout is a property of a view. A second view is an
+independent saved question: it may begin as a copy, but later authoring,
+execution, columns, and presentation never alter its siblings.
 
 When multiple views exist, they use the shared segmented-control language: a
 recessed track with the current key raised. The track contains states only; the
@@ -85,8 +86,8 @@ language.
 
 Tables initially share available width. Once the reader resizes a column, all
 visible columns adopt the geometry already on screen before the drag continues,
-so the first movement causes no jump. Saved view data owns layout, sort, column
-order, visibility, and explicit widths; the query owns which fields exist.
+so the first movement causes no jump. Saved view data owns its query fields,
+layout, sort, column order, visibility, and explicit widths.
 
 Result cells quote writing and therefore use content ink, while headers remain
 quiet. Cells align within the full row rather than hanging from its top. List

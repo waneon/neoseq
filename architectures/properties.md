@@ -109,32 +109,36 @@ value in any of the four degrades to "unset" rather than invalidating the tag.
 
 ## Query Document
 
-`builtin.query` is `neoseq.query` version 1. Its snapshot contains source,
-language, an optional builder plan, stable-ID views with their column layout and
-presentation options, and a default view ID. Its canonical Loro layout is:
+`builtin.query` is `neoseq.query` version 2. It contains stable-ID views and a
+default view ID. Each view owns both its executable definition and its
+presentation. Its canonical Loro layout is:
 
 ```text
 d:builtin.query: Map
-  schema, version, language, default_view_id
-  source: Text
-  plan_version, plan          (optional; the builder's authoring payload)
+  schema, version, default_view_id
   views: Map<QueryViewId, Map>
     name, kind, position, columns, options, deleted
+    definition: Map
+      language
+      source: Text
+      plan_version, plan      (optional; the builder's authoring payload)
 ```
 
-Source edits use Unicode splice commands and merge as collaborative text. View
-records merge independently by stable ID. Position ties sort by ID, making
-concurrent inserts deterministic. Removing a view writes its `deleted` marker,
-so edits to its other fields do not implicitly resurrect it; removing the
-default selects the first remaining ordered view in the same transaction.
+Source edits name a view, use Unicode splice commands, and merge as collaborative
+text within only that view. View records merge independently by stable ID; no
+definition write reads or rewrites a sibling view. Position ties sort by ID,
+making concurrent inserts deterministic. Removing a view writes its `deleted`
+marker, so edits to its other fields do not implicitly resurrect it; removing
+the default selects the first remaining ordered view in the same transaction.
 
-`plan` is the query builder's structured description of the same query, stored
-beside the SPARQL it compiled to. The domain validates only that it is a bounded
+`plan` is the query builder's structured description of one view's query, stored
+beside that view's compiled SPARQL. The domain validates only that it is a bounded
 JSON object carrying its own version; the authoring grammar belongs to the
 client, and a version a reader does not understand simply leaves that block on
 its source. Setting a plan writes it and its compiled source in one transaction,
 and writing source by hand clears the plan, so a stored plan always describes
-what runs.
+what runs in that view. Version 1 documents migrate by copying their single
+definition into every existing view; subsequent writes are independent.
 
 `columns` is a table-only per-view ordered list of `{variable, hidden, width}`
 records. `options` carries common density, table wrapping, a table `sort` of
@@ -180,7 +184,7 @@ Document values are not recursively converted to RDF; each schema must opt into
 a bounded semantic projection so presentation settings do not pollute graph
 semantics.
 
-Saved query source, shared views, and the shared default view are graph data and
+Saved query definitions, views, and the shared default view are graph data and
 synchronize with the graph. Query results, revisions, loading state, selection,
 scroll, and editor drafts are derived or session state and never synchronize.
 User-private overrides such as a person's last-opened view belong to a separate

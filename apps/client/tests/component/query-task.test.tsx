@@ -30,6 +30,7 @@ describe("query and task projections", () => {
     await session.execute({
       type: "set_query_source",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view_id: "all",
       source: "ASK { ?block ?predicate ?value }",
     });
     // Activation is a demand read. Microtasks are enough to cross the session
@@ -81,6 +82,7 @@ describe("query and task projections", () => {
     await session.execute({
       type: "set_query_source",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view_id: "all",
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
 

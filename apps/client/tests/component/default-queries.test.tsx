@@ -131,10 +131,10 @@ describe("writing a standing question", () => {
     // A built query stores its plan beside the SPARQL it compiled to, exactly as
     // a query owned by a block does — one canonical shape in the graph.
     expect(decodePlan(
-      built.document.plan!.payload,
-      built.document.plan!.version,
+      built.document.views[0].definition.plan!.payload,
+      built.document.views[0].definition.plan!.version,
     )?.subject).toBe("block");
-    expect(built.document.source).toContain("?q_subject a neo:Block .");
+    expect(built.document.views[0].definition.source).toContain("?q_subject a neo:Block .");
     expect(await screen.findByTestId("query-builder")).toBeInTheDocument();
 
     // There is no second authoring grammar, here or anywhere: every standing
@@ -161,12 +161,15 @@ describe("writing a standing question", () => {
 
     await waitFor(() => {
       const [query] = queries(harness);
-      const plan = decodePlan(query.document.plan!.payload, query.document.plan!.version);
+      const plan = decodePlan(
+        query.document.views[0].definition.plan!.payload,
+        query.document.views[0].definition.plan!.version,
+      );
       expect(plan?.columns.some((column) =>
         column.source.kind === "property" && column.source.key === "builtin.task-status"))
         .toBe(true);
       // The plan and the SPARQL it compiles to are written together, never apart.
-      expect(query.document.source).toContain("prop:builtin.task-status");
+      expect(query.document.views[0].definition.source).toContain("prop:builtin.task-status");
     });
   });
 

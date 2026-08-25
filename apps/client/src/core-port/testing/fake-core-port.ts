@@ -223,7 +223,7 @@ export class FakeCorePort implements SessionPort {
         .map((tag) => tag.id),
     );
     return clone({
-      schema_version: 4,
+      schema_version: 5,
       graph_id: this.graphId,
       pages: this.pages
         .filter((page) => !hasKey(page.properties, "builtin.deleted-at"))
@@ -730,14 +730,15 @@ export class FakeCorePort implements SessionPort {
       }
       case "set_query_source": {
         if (command.owner.kind === "graph_default") {
-          const document = this.requireQuery(command.owner);
-          document.source = command.source;
-          document.plan = null;
+          const view = this.requireQueryView(command.owner, command.view_id);
+          view.definition.source = command.source;
+          view.definition.plan = null;
           break;
         }
         const bag = this.propertyOwnerBag(command.owner);
         let field = bag.find((item) => item.key === "builtin.query");
         if (!field) {
+          if (command.view_id !== "all") fail("internal", "a new query must begin with view all");
           field = {
             key: "builtin.query",
             value_type: "document",
@@ -748,21 +749,23 @@ export class FakeCorePort implements SessionPort {
         } else {
           const value = field.values[0];
           if (value?.type !== "document") fail("internal", "query document is invalid");
-          value.value.source = command.source;
-          value.value.plan = null;
+          const view = value.value.views.find((item) => item.id === command.view_id);
+          if (!view) fail("internal", "query view does not exist");
+          view.definition.source = command.source;
+          view.definition.plan = null;
         }
         break;
       }
       case "splice_query_source": {
-        const document = this.requireQuery(command.owner);
-        const points = Array.from(document.source);
+        const view = this.requireQueryView(command.owner, command.view_id);
+        const points = Array.from(view.definition.source);
         if (command.index + command.delete > points.length) {
           fail("internal", "query source splice is out of bounds");
         }
         points.splice(command.index, command.delete, ...Array.from(command.insert));
-        document.source = points.join("");
+        view.definition.source = points.join("");
         // Writing SPARQL by hand detaches the builder, exactly as the core does.
-        document.plan = null;
+        view.definition.plan = null;
         break;
       }
       case "set_query_plan": {
@@ -776,14 +779,15 @@ export class FakeCorePort implements SessionPort {
           fail("internal", "query plan is not JSON");
         }
         if (command.owner.kind === "graph_default") {
-          const document = this.requireQuery(command.owner);
-          document.source = command.source;
-          document.plan = clone(command.plan);
+          const view = this.requireQueryView(command.owner, command.view_id);
+          view.definition.source = command.source;
+          view.definition.plan = clone(command.plan);
           break;
         }
         const bag = this.propertyOwnerBag(command.owner);
         let field = bag.find((item) => item.key === "builtin.query");
         if (!field) {
+          if (command.view_id !== "all") fail("internal", "a new query must begin with view all");
           field = {
             key: "builtin.query",
             value_type: "document",
@@ -794,18 +798,23 @@ export class FakeCorePort implements SessionPort {
         }
         const value = field.values[0];
         if (value?.type !== "document") fail("internal", "query document is invalid");
-        value.value.source = command.source;
-        value.value.plan = clone(command.plan);
+        const view = value.value.views.find((item) => item.id === command.view_id);
+        if (!view) fail("internal", "query view does not exist");
+        view.definition.source = command.source;
+        view.definition.plan = clone(command.plan);
         break;
       }
       case "clear_query_plan": {
-        this.requireQuery(command.owner).plan = null;
+        this.requireQueryView(command.owner, command.view_id).definition.plan = null;
         break;
       }
       case "put_query_view": {
         const document = this.requireQuery(command.owner);
         const index = document.views.findIndex((view) => view.id === command.view.id);
-        if (index >= 0) document.views[index] = clone(command.view);
+        if (index >= 0) {
+          const definition = document.views[index].definition;
+          document.views[index] = { ...clone(command.view), definition };
+        }
         else document.views.push(clone(command.view));
         document.views.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
         break;
@@ -1239,6 +1248,12 @@ export class FakeCorePort implements SessionPort {
     const value = field?.values[0];
     if (value?.type !== "document") fail("internal", "query document does not exist");
     return value.value;
+  }
+
+  private requireQueryView(owner: QueryOwnerRef, viewId: string) {
+    const view = this.requireQuery(owner).views.find((item) => item.id === viewId);
+    if (!view) fail("internal", "query view does not exist");
+    return view;
   }
 
   private touchPage(pageId: string, timestamp: string): void {

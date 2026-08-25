@@ -42,7 +42,7 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
         .collect();
 
     GraphSnapshot {
-        schema_version: 4,
+        schema_version: domain::SCHEMA_VERSION,
         graph_id: GraphId::new(GRAPH_ID).expect("static benchmark graph id"),
         pages,
         tags,

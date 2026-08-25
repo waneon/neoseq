@@ -36,6 +36,16 @@ function storedQuery(harness: Harness): PropertyDocument | undefined {
   return block && queryDocument(block.properties);
 }
 
+function activeDefinition(document: PropertyDocument) {
+  return document.views.find((view) => view.id === document.default_view_id)?.definition
+    ?? document.views[0].definition;
+}
+
+function storedDefinition(harness: Harness) {
+  const document = storedQuery(harness);
+  return document ? activeDefinition(document) : undefined;
+}
+
 function commandBridge(): CommandBridge {
   const blocks = createContextualHandlerRegistry<(key?: string) => void>();
   let pageProperties: ((key?: string) => void) | null = null;
@@ -87,7 +97,7 @@ async function createQuery(harness: Harness): Promise<void> {
   const menu = await screen.findByTestId("slash-menu");
   await user.click(within(menu).getByRole("option", { name: /^Query/ }));
   await screen.findByTestId("query-builder");
-  await waitFor(() => expect(storedQuery(harness)?.plan).toBeTruthy());
+  await waitFor(() => expect(storedDefinition(harness)?.plan).toBeTruthy());
 }
 
 describe("the query builder", () => {
@@ -115,12 +125,15 @@ describe("the query builder", () => {
     await createQuery(harness);
 
     const document = storedQuery(harness)!;
-    const plan = decodePlan(document.plan!.payload, document.plan!.version);
+    const plan = decodePlan(
+      document.views[0].definition.plan!.payload,
+      document.views[0].definition.plan!.version,
+    );
     expect(plan?.subject).toBe("block");
     expect(plan?.columns.map((column) => column.id)).toEqual(["text", "page"]);
     // The source is the executable artifact and it is always the plan's output.
-    expect(document.source).toContain("?q_subject a neo:Block .");
-    expect(document.source).toContain("LIMIT 100");
+    expect(document.views[0].definition.source).toContain("?q_subject a neo:Block .");
+    expect(document.views[0].definition.source).toContain("LIMIT 100");
     // The block text keeps no trace of the command that built it.
     expect(await screen.findByLabelText("Block text")).toHaveValue("");
   });
@@ -136,9 +149,9 @@ describe("the query builder", () => {
     await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
 
     await waitFor(() => {
-      expect(storedQuery(harness)?.source).toContain("?q_subject prop:builtin.task-status ?q_p0 .");
+      expect(storedDefinition(harness)?.source).toContain("?q_subject prop:builtin.task-status ?q_p0 .");
     });
-    const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+    const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
     expect(plan?.where.children).toHaveLength(1);
   });
 
@@ -156,14 +169,14 @@ describe("the query builder", () => {
     await user.click(adders()[0]);
 
     await waitFor(() => {
-      const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
       const group = plan?.where.children[0];
       expect(group?.kind).toBe("group");
       expect(group?.kind === "group" && group.match).toBe("any");
       expect(group?.kind === "group" && group.children).toHaveLength(2);
     });
     // Alternatives reach the row through EXISTS, never through UNION.
-    expect(storedQuery(harness)?.source).toMatch(/EXISTS \{[\s\S]*\|\|[\s\S]*EXISTS \{/);
+    expect(storedDefinition(harness)?.source).toMatch(/EXISTS \{[\s\S]*\|\|[\s\S]*EXISTS \{/);
   });
 
   // The sentence asks; it does not lay out. What an answer shows and which way it
@@ -192,18 +205,18 @@ describe("the query builder", () => {
     await user.click(within(panel).getByTestId("query-column-toggle-tags"));
 
     await waitFor(() => {
-      const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
       const tags = plan?.columns.find((column) => column.source.kind === "tags");
       // A relation with many values folds into one cell by default.
       expect(tags?.aggregate).toBe("list");
     });
-    expect(storedQuery(harness)?.source).toContain("GROUP_CONCAT");
+    expect(storedDefinition(harness)?.source).toContain("GROUP_CONCAT");
 
     // Nothing else asks for it, so switching it off takes it out of the query
     // rather than merely out of this table.
     await user.click(within(panel).getByTestId("query-column-toggle-tags"));
     await waitFor(() => {
-      const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
       expect(plan?.columns.some((column) => column.source.kind === "tags")).toBe(false);
     });
   });
@@ -231,7 +244,7 @@ describe("the query builder", () => {
 
     await user.click(within(panel).getByTestId("query-column-toggle-tags"));
     await waitFor(() => {
-      const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
       expect(plan?.columns.find((column) => column.source.kind === "tags")?.aggregate)
         .toBe("list");
       expect(plan?.columns.find((column) => column.source.kind === "content")?.aggregate)
@@ -256,7 +269,7 @@ describe("the query builder", () => {
     expect(await screen.findByTestId("query-compiled")).toHaveTextContent(
       "?q_subject a neo:Block .",
     );
-    expect(storedQuery(harness)?.plan).toBeTruthy();
+    expect(storedDefinition(harness)?.plan).toBeTruthy();
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
   });
 
@@ -547,15 +560,17 @@ describe("query result views", () => {
       .find((column) => column.variable === "page")?.hidden).toBe(true);
   });
 
-  it("keeps a column a second view still shows, and only hides it here", async () => {
+  it("changes one view's query without changing a sibling view", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
+    const firstDefinition = structuredClone(storedQuery(harness)!.views[0].definition);
     await harness.session.execute({
       type: "put_query_view",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       view: {
         id: "second",
         name: "Second",
+        definition: firstDefinition,
         kind: "table",
         position: 1,
         columns: [],
@@ -569,12 +584,13 @@ describe("query result views", () => {
     await user.click(within(panel).getByTestId("query-column-toggle-page"));
 
     await waitFor(() => {
-      const view = storedQuery(harness)?.views.find((item) => item.id === "all");
-      expect(view?.columns.find((column) => column.variable === "page")?.hidden).toBe(true);
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
+      expect(plan?.columns.some((column) => column.source.kind === "page")).toBe(false);
     });
-    // The other view is still asking, so the query keeps returning it.
-    const plan = decodePlan(storedQuery(harness)!.plan!.payload, 1);
-    expect(plan?.columns.some((column) => column.source.kind === "page")).toBe(true);
+    const sibling = storedQuery(harness)?.views.find((item) => item.id === "second");
+    const siblingPlan = decodePlan(sibling!.definition.plan!.payload, 1);
+    expect(siblingPlan?.columns.some((column) => column.source.kind === "page")).toBe(true);
+    expect(sibling?.definition.source).toBe(firstDefinition.source);
   });
 
   it("reorders columns by dragging a heading, and says where the column will land", async () => {
@@ -632,7 +648,10 @@ describe("query result views", () => {
   it("sorts missing priority below Low and stored values by registry rank", async () => {
     const harness = await withResult();
     const query = storedQuery(harness)!;
-    const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
+    const plan = decodePlan(
+      activeDefinition(query).plan!.payload,
+      activeDefinition(query).plan!.version,
+    )!;
     const nextPlan = {
       ...plan,
       columns: [{
@@ -663,6 +682,7 @@ describe("query result views", () => {
     await harness.session.execute({
       type: "set_query_plan",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view_id: "all",
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
@@ -942,7 +962,10 @@ describe("query result views", () => {
     // block list must still execute its own identity projection and render the
     // canonical block instead of falling back to these table cells.
     const tableDocument = storedQuery(harness)!;
-    const tablePlan = decodePlan(tableDocument.plan!.payload, tableDocument.plan!.version)!;
+    const tablePlan = decodePlan(
+      activeDefinition(tableDocument).plan!.payload,
+      activeDefinition(tableDocument).plan!.version,
+    )!;
     const aggregatePlan = {
       ...tablePlan,
       columns: [
@@ -953,15 +976,17 @@ describe("query result views", () => {
     await harness.session.execute({
       type: "set_query_plan",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view_id: "all",
       plan: { version: 1, payload: JSON.stringify(aggregatePlan) },
       source: compilePlan(aggregatePlan).source,
     });
-    const nestedPlan = storedQuery(harness)!.plan!;
+    const nestedPlan = storedDefinition(harness)!.plan!;
     await harness.session.execute({
       type: "set_query_plan",
       owner,
+      view_id: "all",
       plan: nestedPlan,
-      source: storedQuery(harness)!.source,
+      source: storedDefinition(harness)!.source,
     });
 
     const user = userEvent.setup();
@@ -1193,7 +1218,10 @@ describe("query result views", () => {
   it("draws a moment in a table cell as one object: the day, its time, its tone", async () => {
     const harness = await withResult();
     const query = storedQuery(harness)!;
-    const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
+    const plan = decodePlan(
+      activeDefinition(query).plan!.payload,
+      activeDefinition(query).plan!.version,
+    )!;
     const nextPlan = {
       ...plan,
       columns: [
@@ -1235,6 +1263,7 @@ describe("query result views", () => {
     await harness.session.execute({
       type: "set_query_plan",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view_id: "all",
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });
@@ -1257,7 +1286,10 @@ describe("query result views", () => {
   it("uses only the canonical task field in a block list", async () => {
     const harness = await withResult();
     const query = storedQuery(harness)!;
-    const plan = decodePlan(query.plan!.payload, query.plan!.version)!;
+    const plan = decodePlan(
+      activeDefinition(query).plan!.payload,
+      activeDefinition(query).plan!.version,
+    )!;
     const nextPlan = {
       ...plan,
       columns: [
@@ -1291,6 +1323,7 @@ describe("query result views", () => {
     await harness.session.execute({
       type: "set_query_plan",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      view_id: "all",
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
       source: compilePlan(nextPlan).source,
     });

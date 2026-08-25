@@ -1,8 +1,8 @@
 use crate::GraphCore;
 use domain::{
     BlockId, Command, CommandEnvelope, CommandId, DefaultQueryId, EntityId, GraphId, LocalDate,
-    OutlineOwner, PageId, PropertyDocument, PropertyKey, PropertyOwner, PropertyValue, QueryOwner,
-    QueryView, QueryViewId, QueryViewKind, QueryViewOptions, TagId,
+    OutlineOwner, PageId, PropertyDocument, PropertyKey, PropertyOwner, PropertyValue,
+    QueryDefinition, QueryOwner, QueryView, QueryViewId, QueryViewKind, QueryViewOptions, TagId,
 };
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
@@ -28,6 +28,14 @@ struct Fixture {
 
 fn key(value: &str) -> PropertyKey {
     PropertyKey::new(value).unwrap()
+}
+
+fn query_definition(source: &str) -> QueryDefinition {
+    QueryDefinition {
+        source: source.to_owned(),
+        language: domain::QUERY_LANGUAGE.to_owned(),
+        plan: None,
+    }
 }
 
 fn execute(core: &mut GraphCore, graph: &GraphId, peer: u64, sequence: usize, command: Command) {
@@ -537,6 +545,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         2,
         Command::SetQuerySource {
             owner: owner.clone(),
+            view_id: QueryViewId::new("all").unwrap(),
             source: "SELECT * WHERE {}".into(),
         },
     );
@@ -551,6 +560,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         0,
         Command::SpliceQuerySource {
             owner: owner.clone(),
+            view_id: QueryViewId::new("all").unwrap(),
             index: 17,
             delete: 0,
             insert: " LIMIT 5".into(),
@@ -566,6 +576,7 @@ fn convergence_query_text_and_view_choice_merge_independently() {
             view: QueryView {
                 id: QueryViewId::new("v-list").unwrap(),
                 name: "As a list".into(),
+                definition: query_definition("SELECT * WHERE {}"),
                 kind: QueryViewKind::List,
                 position: 1,
                 columns: Vec::new(),
@@ -599,7 +610,10 @@ fn convergence_query_text_and_view_choice_merge_independently() {
         let PropertyValue::Document(document) = &field.values[0] else {
             panic!("query document was not preserved")
         };
-        assert_eq!(document.source, "SELECT * WHERE {} LIMIT 5");
+        assert_eq!(
+            document.views[0].definition.source,
+            "SELECT * WHERE {} LIMIT 5"
+        );
         assert_eq!(document.default_view_id.as_str(), "v-list");
     }
     assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
@@ -635,6 +649,7 @@ fn convergence_graph_default_query_fields_merge_independently() {
         0,
         Command::SpliceQuerySource {
             owner: owner.clone(),
+            view_id: QueryViewId::new("all").unwrap(),
             index: 17,
             delete: 0,
             insert: " LIMIT 5".into(),
@@ -650,6 +665,7 @@ fn convergence_graph_default_query_fields_merge_independently() {
             view: QueryView {
                 id: QueryViewId::new("v-list").unwrap(),
                 name: "As a list".into(),
+                definition: query_definition("SELECT * WHERE {}"),
                 kind: QueryViewKind::List,
                 position: 1,
                 columns: Vec::new(),
@@ -675,7 +691,10 @@ fn convergence_graph_default_query_fields_merge_independently() {
 
     for core in [&left, &right] {
         let document = &core.summary().unwrap().settings.default_queries[0].document;
-        assert_eq!(document.source, "SELECT * WHERE {} LIMIT 5");
+        assert_eq!(
+            document.views[0].definition.source,
+            "SELECT * WHERE {} LIMIT 5"
+        );
         assert_eq!(document.default_view_id.as_str(), "v-list");
     }
     assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());

@@ -191,21 +191,25 @@ pub enum Command {
     },
     SetQuerySource {
         owner: QueryOwner,
+        view_id: QueryViewId,
         source: String,
     },
     SpliceQuerySource {
         owner: QueryOwner,
+        view_id: QueryViewId,
         index: usize,
         delete: usize,
         insert: String,
     },
     SetQueryPlan {
         owner: QueryOwner,
+        view_id: QueryViewId,
         plan: QueryPlan,
         source: String,
     },
     ClearQueryPlan {
         owner: QueryOwner,
+        view_id: QueryViewId,
     },
     PutQueryView {
         owner: QueryOwner,
@@ -326,9 +330,18 @@ pub struct QueryViewOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryDefinition {
+    pub source: String,
+    pub language: String,
+    #[serde(default)]
+    pub plan: Option<QueryPlan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryView {
     pub id: QueryViewId,
     pub name: String,
+    pub definition: QueryDefinition,
     pub kind: QueryViewKind,
     pub position: u32,
     #[serde(default)]

@@ -168,10 +168,6 @@ const defaultOptions = (): QueryViewOptions => ({
  * their own shapes — two tabs that were not two answers. Layout is a property of
  * a view; a second view is what a reader makes when they mean a second question.
  */
-const SEED_VIEWS: QueryView[] = [
-  { id: "all", name: "All", kind: "table", position: 0, columns: [], options: defaultOptions() },
-];
-
 export type QueryBinding =
   | {
       /** This surface authors the query and manages its saved views. */
@@ -238,16 +234,51 @@ function QueryPanelSurface({
   const canEditCurrentView = !readonly;
   const tabbed = variant === "page";
 
-  const source = document?.source ?? "";
+  // A presented surface does not choose the document-wide default view. Its
+  // selection is local even while it may shape the selected view itself.
+  const [localViewId, setLocalViewId] = useState<string | null>(null);
+  const seedViews = useMemo<QueryView[]>(() => {
+    const compiled = seedPlan ? compilePlan(seedPlan) : null;
+    return [{
+      id: "all",
+      name: "All",
+      definition: {
+        source: compiled?.source ?? "",
+        language: QUERY_LANGUAGE,
+        plan: seedPlan
+          ? { version: QUERY_PLAN_VERSION, payload: encodePlan(seedPlan) }
+          : null,
+      },
+      kind: "table",
+      position: 0,
+      columns: [],
+      options: defaultOptions(),
+    }];
+  }, [seedPlan]);
+  const views = document?.views ?? seedViews;
+  const preferredViewId = (canManageViews ? null : localViewId)
+    ?? document?.default_view_id
+    ?? views[0].id;
+  const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
+  const source = activeView.definition.source;
   const storedPlan = useMemo(
-    () => (document?.plan ? decodePlan(document.plan.payload, document.plan.version) : null),
-    [document?.plan],
+    () => (activeView.definition.plan
+      ? decodePlan(activeView.definition.plan.payload, activeView.definition.plan.version)
+      : null),
+    [activeView.definition.plan],
   );
   const storedPayload = storedPlan ? encodePlan(storedPlan) : null;
-
-  const incomingPlan = storedPlan ?? seedPlan ?? null;
+  const incomingPlan = storedPlan ?? (document ? null : seedPlan ?? null);
   const incomingPlanRef = useLatest(incomingPlan);
-  const [plan, setPlan] = useState<QueryPlan | null>(incomingPlan);
+  const [draft, setDraft] = useState<{ viewId: string; plan: QueryPlan | null }>(() => ({
+    viewId: activeView.id,
+    plan: incomingPlan,
+  }));
+  // A tab change is synchronous identity change. Until the effect adopts its
+  // saved draft, render the incoming definition directly so one view can never
+  // execute or save the previous view's plan for even a frame.
+  const plan = draft.viewId === activeView.id ? draft.plan : incomingPlan;
+  const viewExecutionKey = JSON.stringify([executionKey, activeView.id]);
   // The editor opens for a query that has not been written yet and stays shut for
   // one that has: a query with no conditions has nothing to say about itself, so
   // showing it the builder is the only honest first screen. Once a reader has
@@ -257,7 +288,7 @@ function QueryPanelSurface({
   // fold under it is (§ presentation).
   const [editing, setEditing] = useState(() => binding.kind === "managed" && queryEditorIsOpen(
     session.graphId,
-    executionKey,
+    viewExecutionKey,
     unwritten(storedPlan ?? seedPlan ?? null),
   ));
   const [showSource, setShowSource] = useState(false);
@@ -265,9 +296,6 @@ function QueryPanelSurface({
   // long as the surface is mounted, because there is nowhere to save it.
   const [localTableSorts, setLocalTableSorts] = useState<QueryViewSort[]>([]);
   const [localListSorts, setLocalListSorts] = useState<QueryViewFieldSort[]>([]);
-  // A presented surface does not choose the document-wide default view. Its
-  // selection is local even while it may shape the selected view itself.
-  const [localViewId, setLocalViewId] = useState<string | null>(null);
   // Nobody has shaped this query yet, so nothing is written for it yet. The flag
   // is what keeps merely *visiting* a seeded surface out of the graph's history.
   const shaped = useRef(document !== undefined);
@@ -278,13 +306,20 @@ function QueryPanelSurface({
   // plan, while a stored payload change always adopts the latest decoded value.
   // A different execution key remounts this surface at the public boundary, so
   // every piece of surface-local state changes identity together.
-  useEffect(() => setPlan(incomingPlanRef.current), [incomingPlanRef, storedPayload]);
-
-  const views = document?.views ?? SEED_VIEWS;
-  const preferredViewId = (canManageViews ? null : localViewId)
-    ?? document?.default_view_id
-    ?? views[0].id;
-  const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
+  useEffect(() => setDraft({
+    viewId: activeView.id,
+    plan: incomingPlanRef.current,
+  }), [activeView.id, incomingPlanRef, storedPayload]);
+  useEffect(() => {
+    setEditing(queryEditorIsOpen(
+      session.graphId,
+      viewExecutionKey,
+      unwritten(incomingPlanRef.current),
+    ));
+    setShowSource(false);
+    setLocalTableSorts([]);
+    setLocalListSorts([]);
+  }, [incomingPlanRef, session.graphId, viewExecutionKey]);
   // Renderer identity decides this path, not the shape of the last response.
   // In particular, a table aggregate may omit q_subject; that must never turn a
   // block list back into a query-cell list while its own request is in flight.
@@ -310,14 +345,17 @@ function QueryPanelSurface({
   const outputId = useId();
   const builderId = useId();
   const [resultsOpen, setResultsOpen] = useState(
-    () => queryResultsAreOpen(session.graphId, executionKey),
+    () => queryResultsAreOpen(session.graphId, viewExecutionKey),
   );
+  useEffect(() => {
+    setResultsOpen(queryResultsAreOpen(session.graphId, viewExecutionKey));
+  }, [session.graphId, viewExecutionKey]);
   const request = useMemo(() => ({
-    language: document?.language ?? QUERY_LANGUAGE,
+    language: activeView.definition.language,
     source: runSource,
     bindings: runBindings,
-  }), [document?.language, runBindings, runSource]);
-  const { result, error, loading, run } = useQueryAnswer(executionKey, request);
+  }), [activeView.definition.language, runBindings, runSource]);
+  const { result, error, loading, run } = useQueryAnswer(viewExecutionKey, request);
 
   const execute = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
     session.execute(command(owner)).then(() => undefined);
@@ -348,6 +386,7 @@ function QueryPanelSurface({
       writeDefinition((target) => ({
         type: "set_query_plan",
         owner: target,
+        view_id: activeView.id,
         plan: { version: QUERY_PLAN_VERSION, payload },
         source: compiledSource,
       })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause)),
@@ -367,7 +406,8 @@ function QueryPanelSurface({
   }, [
     canEditDefinition,
     compiled,
-    executionKey,
+    activeView.id,
+    viewExecutionKey,
     plan,
     saveDefinition,
     session,
@@ -539,20 +579,37 @@ function QueryPanelSurface({
 
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
 
+  const definitionInHand = plan && compiled
+    ? {
+        source: compiled.source,
+        language: activeView.definition.language,
+        plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+      } as const
+    : activeView.definition;
+
+  /** A view switch is a save boundary: a pending debounce must not lose a draft. */
+  const flushDefinition = async () => {
+    if (!canEditDefinition || !plan || !compiled) return;
+    const payload = encodePlan(plan);
+    if (document && payload === storedPayload) return;
+    shaped.current = true;
+    await writeDefinition((target) => ({
+      type: "set_query_plan",
+      owner: target,
+      view_id: activeView.id,
+      plan: { version: QUERY_PLAN_VERSION, payload },
+      source: compiled.source,
+    }));
+  };
+
   /**
    * A managed seed becomes a written query the moment somebody shapes it. Its
    * view commands go through here first so they always find a document; a
    * presented binding is already stored by construction.
    */
   const materialize = async () => {
-    if (document || !plan || !compiled) return;
-    shaped.current = true;
-    await writeDefinition((target) => ({
-      type: "set_query_plan",
-      owner: target,
-      plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-      source: compiled.source,
-    }));
+    if (document) return;
+    await flushDefinition();
   };
 
   const selectView = (viewId: string) => {
@@ -562,7 +619,7 @@ function QueryPanelSurface({
       return;
     }
     void (async () => {
-      await materialize();
+      await flushDefinition();
       await writeViewCollection((target) => ({
         type: "set_query_default_view",
         owner: target,
@@ -609,12 +666,24 @@ function QueryPanelSurface({
       views.map((view) => view.name),
     );
     const position = views.reduce((highest, view) => Math.max(highest, view.position), -1) + 1;
+    const definition = definitionInHand;
     void (async () => {
-      await materialize();
+      await flushDefinition();
       await writeViewCollection((target) => ({
         type: "put_query_view",
         owner: target,
-        view: { id, name, kind, position, columns: [], options: defaultOptions() },
+        view: {
+          id,
+          name,
+          definition: {
+            ...definition,
+            plan: definition.plan ? { ...definition.plan } : null,
+          },
+          kind,
+          position,
+          columns: [],
+          options: defaultOptions(),
+        },
       }));
       await writeViewCollection((target) => ({
         type: "set_query_default_view",
@@ -631,12 +700,23 @@ function QueryPanelSurface({
       views.map((item) => item.name),
     );
     const position = views.reduce((highest, item) => Math.max(highest, item.position), -1) + 1;
+    const definition = view.id === activeView.id ? definitionInHand : view.definition;
     void (async () => {
-      await materialize();
+      if (view.id === activeView.id) await flushDefinition();
+      else await materialize();
       await writeViewCollection((target) => ({
         type: "put_query_view",
         owner: target,
-        view: { ...view, id, name, position },
+        view: {
+          ...view,
+          id,
+          name,
+          position,
+          definition: {
+            ...definition,
+            plan: definition.plan ? { ...definition.plan } : null,
+          },
+        },
       }));
       await writeViewCollection((target) => ({
         type: "set_query_default_view",
@@ -773,15 +853,13 @@ function QueryPanelSurface({
    */
   const changePlan = (next: QueryPlan) => {
     shaped.current = true;
-    setPlan(next);
+    setDraft({ viewId: activeView.id, plan: next });
   };
 
   /**
    * A column switch, thrown. On is one meaning — the query selects it and this
-   * table draws it. Off is two, and which one it is depends on whether anybody
-   * else is still asking: a second view that shows this column keeps it in the
-   * query and merely loses it here, and where nothing else wants it the column
-   * leaves the query outright, so the SPARQL asks for exactly what is read.
+   * table draws it. Because every view owns its own query definition, turning a
+   * column off can remove it from this plan without consulting any sibling view.
    */
   const toggleColumn = (choice: ColumnChoice, shown: boolean) => {
     if (!plan) return;
@@ -797,12 +875,6 @@ function QueryPanelSurface({
     }
     if (!existing) return;
     const variable = columnVariable(existing);
-    const wantedElsewhere = views.some((view) => view.kind === "table" && view.id !== activeView.id
-      && !view.columns.some((column) => column.variable === variable && column.hidden));
-    if (wantedElsewhere) {
-      void setColumn(variable, { hidden: true });
-      return;
-    }
     // The last column standing is not a switch a reader can throw, and the panel
     // says so; the plan refuses it too rather than trusting that it does.
     const next = withoutColumn(plan, existing.id);
@@ -897,7 +969,7 @@ function QueryPanelSurface({
      where the fold is: in this browser, against this graph and this key. */
   const toggleEditing = () => {
     const nextOpen = !editing;
-    rememberQueryEditorOpen(session.graphId, executionKey, nextOpen);
+    rememberQueryEditorOpen(session.graphId, viewExecutionKey, nextOpen);
     setEditing(nextOpen);
   };
 
@@ -910,7 +982,7 @@ function QueryPanelSurface({
         resultEditor.cancel();
       }
     }
-    rememberQueryResultsOpen(session.graphId, executionKey, nextOpen);
+    rememberQueryResultsOpen(session.graphId, viewExecutionKey, nextOpen);
     setResultsOpen(nextOpen);
   };
 

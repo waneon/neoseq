@@ -308,9 +308,9 @@ contrast in both modes; no presentation preference reaches CorePort or the graph
 `features/settings/preferences.ts` is the React side of the same store, so a
 preference edited in the dialog reaches the outline in the same commit.
 
-Shared saved-view definitions — their column layout and row order — and a
-document's default view belong to the query document, as does the builder plan
-behind a built query. Graph default queries belong to the versioned graph settings
+Saved views own their query definition, column layout, and row order. A
+document's default view and view ordering belong to the containing query document.
+Graph default queries belong to the versioned graph settings
 root. A person's last-opened view remains browser-local until a separate
 user-private preference sync unit exists. Whether an answer is folded is
 browser-local as well, but durable rather than session-only: it is stored per

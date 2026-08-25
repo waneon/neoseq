@@ -24,13 +24,12 @@ export function newDefaultQueryDocument(
 ): PropertyDocument {
   return {
     schema: "neoseq.query",
-    version: 1,
-    source,
-    language: QUERY_LANGUAGE,
+    version: 2,
     views: [
       {
         id: VIEW_ID,
         name: "All",
+        definition: { source, language: QUERY_LANGUAGE, plan: plan ?? null },
         kind: layout,
         position: 0,
         columns: [],
@@ -38,7 +37,6 @@ export function newDefaultQueryDocument(
       },
     ],
     default_view_id: VIEW_ID,
-    plan: plan ?? null,
   };
 }
 

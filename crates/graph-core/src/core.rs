@@ -9,7 +9,7 @@ use domain::{
     PageSnapshot, PageSummary, PropertyBag, PropertyCopyPolicy, PropertyDocument,
     PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
     PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
-    QUERY_LANGUAGE, QUERY_PROPERTY_KEY, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
+    QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
     QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
     property_copy_policy, validate_property, validate_property_field, validate_property_shape,
     validate_property_target, validate_property_write,
@@ -32,9 +32,12 @@ pub use domain::{MIN_MIGRATABLE_SCHEMA_VERSION, MINIMUM_WRITER_SCHEMA, SCHEMA_VE
 pub const LIFECYCLE_MIGRATION_ID: &str = "0001-lifecycle-metadata";
 pub const TAG_OUTLINES_MIGRATION_ID: &str = "0002-tag-outlines";
 pub const GRAPH_SETTINGS_MIGRATION_ID: &str = "0003-graph-settings";
+pub const QUERY_VIEWS_MIGRATION_ID: &str = "0004-independent-query-views";
 const LIFECYCLE_SCHEMA_VERSION: u32 = 2;
 const TAG_OUTLINES_SCHEMA_VERSION: u32 = 3;
+const GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION: u32 = 4;
 const GRAPH_SETTINGS_SCHEMA_VERSION: u32 = 1;
+const QUERY_VIEWS_SCHEMA_VERSION: u32 = 5;
 const MAX_DEFAULT_QUERIES: usize = 8;
 const MAX_DEFAULT_QUERY_TITLE: usize = 80;
 const MAX_ENTITY_NAME_BYTES: usize = 1024;
@@ -1398,61 +1401,113 @@ impl GraphCore {
             Command::DeleteDefaultQuery { default_query_id } => {
                 self.require_default_query(default_query_id)?;
             }
-            Command::SetQuerySource { owner, source } => {
+            Command::SetQuerySource {
+                owner,
+                view_id,
+                source,
+            } => {
                 self.validate_query_owner(owner)?;
+                match self.query_document_if_present(owner)? {
+                    Some(document) if !document.views.iter().any(|view| &view.id == view_id) => {
+                        return Err(PropertyError::InvalidDocument(
+                            "query view does not exist".to_owned(),
+                        )
+                        .into());
+                    }
+                    None if view_id.as_str() != "all" => {
+                        return Err(PropertyError::InvalidDocument(
+                            "a new query must begin with view all".to_owned(),
+                        )
+                        .into());
+                    }
+                    _ => {}
+                }
                 if source.len() > MAX_QUERY_SOURCE_BYTES {
                     return Err(CoreError::TextTooLong);
                 }
             }
             Command::SpliceQuerySource {
                 owner,
+                view_id,
                 index,
                 delete,
                 insert,
             } => {
                 self.validate_query_owner(owner)?;
                 let document = self.query_document(owner)?;
-                let points = document.source.chars().count();
+                let definition = &document
+                    .views
+                    .iter()
+                    .find(|view| &view.id == view_id)
+                    .ok_or_else(|| {
+                        PropertyError::InvalidDocument("query view does not exist".to_owned())
+                    })?
+                    .definition;
+                let points = definition.source.chars().count();
                 if index.saturating_add(*delete) > points {
                     return Err(CoreError::InvalidHierarchy(
                         "query source splice is out of bounds".to_owned(),
                     ));
                 }
-                let start_byte = document
+                let start_byte = definition
                     .source
                     .char_indices()
                     .nth(*index)
-                    .map_or(document.source.len(), |(offset, _)| offset);
-                let end_byte = document
+                    .map_or(definition.source.len(), |(offset, _)| offset);
+                let end_byte = definition
                     .source
                     .char_indices()
                     .nth(index.saturating_add(*delete))
-                    .map_or(document.source.len(), |(offset, _)| offset);
-                let next_len = document.source.len() - (end_byte - start_byte) + insert.len();
+                    .map_or(definition.source.len(), |(offset, _)| offset);
+                let next_len = definition.source.len() - (end_byte - start_byte) + insert.len();
                 if next_len > MAX_QUERY_SOURCE_BYTES {
                     return Err(CoreError::TextTooLong);
                 }
             }
             Command::SetQueryPlan {
                 owner,
+                view_id,
                 plan,
                 source,
             } => {
                 self.validate_query_owner(owner)?;
+                match self.query_document_if_present(owner)? {
+                    Some(document) if !document.views.iter().any(|view| &view.id == view_id) => {
+                        return Err(PropertyError::InvalidDocument(
+                            "query view does not exist".to_owned(),
+                        )
+                        .into());
+                    }
+                    None if view_id.as_str() != "all" => {
+                        return Err(PropertyError::InvalidDocument(
+                            "a new query must begin with view all".to_owned(),
+                        )
+                        .into());
+                    }
+                    _ => {}
+                }
                 plan.validate()?;
                 if source.len() > MAX_QUERY_SOURCE_BYTES {
                     return Err(CoreError::TextTooLong);
                 }
             }
-            Command::ClearQueryPlan { owner } => {
+            Command::ClearQueryPlan { owner, view_id } => {
                 self.validate_query_owner(owner)?;
-                self.query_document(owner)?;
+                let document = self.query_document(owner)?;
+                if !document.views.iter().any(|view| &view.id == view_id) {
+                    return Err(PropertyError::InvalidDocument(
+                        "query view does not exist".to_owned(),
+                    )
+                    .into());
+                }
             }
             Command::PutQueryView { owner, view } => {
                 self.validate_query_owner(owner)?;
                 let mut document = self.query_document(owner)?;
                 if let Some(existing) = document.views.iter_mut().find(|item| item.id == view.id) {
+                    let definition = existing.definition.clone();
                     *existing = view.clone();
+                    existing.definition = definition;
                 } else {
                     document.views.push(view.clone());
                 }
@@ -1820,43 +1875,53 @@ impl GraphCore {
             }
             // Writing SPARQL by hand detaches the builder: the plan no longer
             // describes what runs, so it stops claiming to.
-            Command::SetQuerySource { owner, source } => {
+            Command::SetQuerySource {
+                owner,
+                view_id,
+                source,
+            } => {
                 let document = self.ensure_query_document_for_owner(owner)?;
-                replace_text(&document.ensure_mergeable_text("source")?, source)?;
-                clear_query_plan(&document)?;
+                let definition = require_query_definition(&document, view_id)?;
+                replace_text(&definition.ensure_mergeable_text("source")?, source)?;
+                clear_query_plan(&definition)?;
             }
             Command::SpliceQuerySource {
                 owner,
+                view_id,
                 index,
                 delete,
                 insert,
             } => {
                 let document = self.require_query_document_for_owner(owner)?;
-                document
+                let definition = require_query_definition(&document, view_id)?;
+                definition
                     .ensure_mergeable_text("source")?
                     .delete(*index, *delete)?;
                 if !insert.is_empty() {
-                    document
+                    definition
                         .ensure_mergeable_text("source")?
                         .insert(*index, insert)?;
                 }
-                clear_query_plan(&document)?;
+                clear_query_plan(&definition)?;
             }
             Command::SetQueryPlan {
                 owner,
+                view_id,
                 plan,
                 source,
             } => {
                 let document = self.ensure_query_document_for_owner(owner)?;
+                let definition = require_query_definition(&document, view_id)?;
                 // The plan and the source it compiled to land in one
                 // transaction, so no revision ever runs a source the stored
                 // plan did not produce.
-                replace_text(&document.ensure_mergeable_text("source")?, source)?;
-                document.insert("plan_version", i64::from(plan.version))?;
-                document.insert("plan", plan.payload.as_str())?;
+                replace_text(&definition.ensure_mergeable_text("source")?, source)?;
+                definition.insert("plan_version", i64::from(plan.version))?;
+                definition.insert("plan", plan.payload.as_str())?;
             }
-            Command::ClearQueryPlan { owner } => {
-                clear_query_plan(&self.require_query_document_for_owner(owner)?)?;
+            Command::ClearQueryPlan { owner, view_id } => {
+                let document = self.require_query_document_for_owner(owner)?;
+                clear_query_plan(&require_query_definition(&document, view_id)?)?;
             }
             Command::PutQueryView { owner, view } => {
                 put_query_view(&self.require_query_document_for_owner(owner)?, view)?;
@@ -2063,7 +2128,7 @@ impl GraphCore {
             Command::SetQuerySource { owner, .. }
             | Command::SpliceQuerySource { owner, .. }
             | Command::SetQueryPlan { owner, .. }
-            | Command::ClearQueryPlan { owner }
+            | Command::ClearQueryPlan { owner, .. }
             | Command::PutQueryView { owner, .. }
             | Command::RemoveQueryView { owner, .. }
             | Command::SetQueryDefaultView { owner, .. } => self.touch_query_owner(owner, now)?,
@@ -2747,7 +2812,7 @@ impl GraphCore {
             Command::SetQuerySource { owner, .. }
             | Command::SpliceQuerySource { owner, .. }
             | Command::SetQueryPlan { owner, .. }
-            | Command::ClearQueryPlan { owner }
+            | Command::ClearQueryPlan { owner, .. }
             | Command::PutQueryView { owner, .. }
             | Command::RemoveQueryView { owner, .. }
             | Command::SetQueryDefaultView { owner, .. } => query_owner_plan(owner),
@@ -3138,6 +3203,25 @@ impl GraphCore {
         decode_query_document(&document).map_err(CoreError::InvalidHierarchy)
     }
 
+    fn query_document_if_present(
+        &self,
+        owner: &QueryOwner,
+    ) -> Result<Option<PropertyDocument>, CoreError> {
+        if matches!(owner, QueryOwner::GraphDefault { .. }) {
+            return self.query_document(owner).map(Some);
+        }
+        let property = property_owner_from_query_owner(owner)
+            .expect("non-graph query owner has a property owner");
+        let bag = self.property_owner_bag(&property)?;
+        if !bag_contains_key(&bag, &key(QUERY_PROPERTY_KEY)) {
+            return Ok(None);
+        }
+        let document = require_query_document(&bag)?;
+        decode_query_document(&document)
+            .map(Some)
+            .map_err(CoreError::InvalidHierarchy)
+    }
+
     fn entity_tags(&self, entity: &EntityId) -> Result<LoroMap, CoreError> {
         match entity {
             EntityId::Page { id } => Ok(self.page_root(id)?.ensure_mergeable_map("tag_refs")?),
@@ -3267,13 +3351,146 @@ fn rewrite_query_document_iris(
     {
         return Ok(());
     }
-    if let Some(source) = document.get("source").and_then(value_into_text) {
+    let Some(views) = document.get("views").and_then(value_into_map) else {
+        return Ok(());
+    };
+    let mut sources = Vec::new();
+    views.for_each(|_, value| {
+        let Some(view) = value_into_map(value) else {
+            return;
+        };
+        let Some(definition) = view.get("definition").and_then(value_into_map) else {
+            return;
+        };
+        let Some(source) = definition.get("source").and_then(value_into_text) else {
+            return;
+        };
+        sources.push(source);
+    });
+    for source in sources {
         let current = source.to_string();
         let rewritten = replacements
             .iter()
             .fold(current.clone(), |value, (from, to)| value.replace(from, to));
         if rewritten != current {
             replace_text(&source, &rewritten)?;
+        }
+    }
+    Ok(())
+}
+
+fn query_document_maps(doc: &LoroDoc) -> Vec<LoroMap> {
+    let mut property_bags = Vec::new();
+    doc.get_map("pages").for_each(|_, value| {
+        let Some(page) = value_into_map(value) else {
+            return;
+        };
+        if let Some(root) = page.get("root").and_then(value_into_map)
+            && let Some(properties) = root.get("properties").and_then(value_into_map)
+        {
+            property_bags.push(properties);
+        }
+        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
+            for node in outline.nodes() {
+                if let Ok(meta) = outline.get_meta(node)
+                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                {
+                    property_bags.push(properties);
+                }
+            }
+        }
+    });
+    doc.get_map("tags").for_each(|_, value| {
+        let Some(tag) = value_into_map(value) else {
+            return;
+        };
+        for name in ["properties", "defaults"] {
+            if let Some(properties) = tag.get(name).and_then(value_into_map) {
+                property_bags.push(properties);
+            }
+        }
+        if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
+            for node in outline.nodes() {
+                if let Ok(meta) = outline.get_meta(node)
+                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                {
+                    property_bags.push(properties);
+                }
+            }
+        }
+    });
+
+    let query_key = key(QUERY_PROPERTY_KEY);
+    let query_slot = document_slot(&query_key);
+    let mut documents = property_bags
+        .into_iter()
+        .filter_map(|bag| {
+            bag_contains_key(&bag, &query_key)
+                .then(|| bag.get(&query_slot).and_then(value_into_map))
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    if let Some(queries) = doc
+        .get_map("graph_settings")
+        .get("default_queries")
+        .and_then(value_into_map)
+    {
+        queries.for_each(|_, value| {
+            if let Some(entry) = value_into_map(value)
+                && map_bool(&entry, "deleted") != Some(true)
+                && let Some(document) = entry.get("document").and_then(value_into_map)
+            {
+                documents.push(document);
+            }
+        });
+    }
+    documents
+}
+
+fn validate_query_documents(doc: &LoroDoc, migratable: bool) -> Result<(), CoreError> {
+    for document in query_document_maps(doc) {
+        let version = map_i64(&document, "version")
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| {
+                CoreError::InvalidHierarchy("query document version is invalid".to_owned())
+            })?;
+        let decoded = if migratable && version == 1 {
+            decode_legacy_query_document(&document)
+        } else {
+            decode_query_document(&document)
+        };
+        decoded.map_err(CoreError::InvalidHierarchy)?;
+    }
+    Ok(())
+}
+
+fn materialize_independent_query_views(doc: &LoroDoc) -> Result<(), CoreError> {
+    for document in query_document_maps(doc) {
+        if map_i64(&document, "version") == Some(i64::from(QUERY_DOCUMENT_VERSION)) {
+            continue;
+        }
+        let definition = read_query_definition(&document, "query document")
+            .map_err(CoreError::InvalidHierarchy)?;
+        let views = document
+            .get("views")
+            .and_then(value_into_map)
+            .ok_or_else(|| {
+                CoreError::InvalidHierarchy("query document views are missing".to_owned())
+            })?;
+        let mut stored_views = Vec::new();
+        views.for_each(|_, value| {
+            if let Some(view) = value_into_map(value) {
+                stored_views.push(view);
+            }
+        });
+        for view in stored_views {
+            write_query_definition(&view.ensure_mergeable_map("definition")?, &definition)?;
+        }
+        document.insert("version", i64::from(QUERY_DOCUMENT_VERSION))?;
+        for field in ["language", "source", "plan_version", "plan"] {
+            if document.get(field).is_some() {
+                document.delete(field)?;
+            }
         }
     }
     Ok(())
@@ -3287,6 +3504,7 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
         verify_schema_metadata(&meta, SCHEMA_VERSION)?;
         validate_tag_outlines(doc)?;
         verify_graph_settings(doc)?;
+        validate_query_documents(doc, false)?;
         return Ok(MigrationReport {
             source_schema,
             target_schema: SCHEMA_VERSION,
@@ -3350,18 +3568,54 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
         settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
         let _ = settings.ensure_mergeable_map("default_queries")?;
         let applied = migration_map(&meta, false)?;
-        if map_i64(&applied, GRAPH_SETTINGS_MIGRATION_ID) != Some(i64::from(SCHEMA_VERSION)) {
-            applied.insert(GRAPH_SETTINGS_MIGRATION_ID, i64::from(SCHEMA_VERSION))?;
+        if map_i64(&applied, GRAPH_SETTINGS_MIGRATION_ID)
+            != Some(i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION))
+        {
+            applied.insert(
+                GRAPH_SETTINGS_MIGRATION_ID,
+                i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
+            )?;
+        }
+        meta.insert(
+            "minimum_writer_schema",
+            i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
+        )?;
+        meta.insert(
+            "schema_version",
+            i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
+        )?;
+        doc.commit();
+        applied_migrations.push(GRAPH_SETTINGS_MIGRATION_ID.to_owned());
+        schema = GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION;
+    }
+
+    if schema == GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION {
+        verify_schema_metadata(&meta, GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION)?;
+        validate_tag_outlines(doc)?;
+        verify_graph_settings(doc)?;
+        validate_query_documents(doc, true)?;
+        doc.set_next_commit_origin("system:migration");
+        doc.set_next_commit_message(QUERY_VIEWS_MIGRATION_ID);
+        materialize_independent_query_views(doc)?;
+        let applied = migration_map(&meta, false)?;
+        if map_i64(&applied, QUERY_VIEWS_MIGRATION_ID)
+            != Some(i64::from(QUERY_VIEWS_SCHEMA_VERSION))
+        {
+            applied.insert(
+                QUERY_VIEWS_MIGRATION_ID,
+                i64::from(QUERY_VIEWS_SCHEMA_VERSION),
+            )?;
         }
         meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
         meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
         doc.commit();
-        applied_migrations.push(GRAPH_SETTINGS_MIGRATION_ID.to_owned());
+        applied_migrations.push(QUERY_VIEWS_MIGRATION_ID.to_owned());
     }
 
     verify_schema_metadata(&meta, SCHEMA_VERSION)?;
     validate_tag_outlines(doc)?;
     verify_graph_settings(doc)?;
+    validate_query_documents(doc, false)?;
     let update = doc.export(ExportMode::updates(&before))?;
     Ok(MigrationReport {
         source_schema,
@@ -3717,7 +3971,7 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::SetQuerySource { owner, .. }
         | Command::SpliceQuerySource { owner, .. }
         | Command::SetQueryPlan { owner, .. }
-        | Command::ClearQueryPlan { owner }
+        | Command::ClearQueryPlan { owner, .. }
         | Command::PutQueryView { owner, .. }
         | Command::RemoveQueryView { owner, .. }
         | Command::SetQueryDefaultView { owner, .. } => match owner {
@@ -3928,20 +4182,13 @@ fn write_query_document_map(
     snapshot.validate()?;
     document.insert("schema", snapshot.schema.as_str())?;
     document.insert("version", i64::from(snapshot.version))?;
-    document.insert("language", snapshot.language.as_str())?;
     document.insert("default_view_id", snapshot.default_view_id.as_str())?;
-    replace_text(&document.ensure_mergeable_text("source")?, &snapshot.source)?;
     let views = document.ensure_mergeable_map("views")?;
     for view_id in views.keys() {
         views.delete(&view_id)?;
     }
     for view in &snapshot.views {
         put_query_view(document, view)?;
-    }
-    clear_query_plan(document)?;
-    if let Some(plan) = &snapshot.plan {
-        document.insert("plan_version", i64::from(plan.version))?;
-        document.insert("plan", plan.payload.as_str())?;
     }
     Ok(())
 }
@@ -4031,10 +4278,8 @@ fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     if created {
         document.insert("schema", QUERY_DOCUMENT_SCHEMA)?;
         document.insert("version", i64::from(QUERY_DOCUMENT_VERSION))?;
-        document.insert("language", QUERY_LANGUAGE)?;
         let defaults = PropertyDocument::default_query(String::new());
         document.insert("default_view_id", defaults.default_view_id.as_str())?;
-        let _ = document.ensure_mergeable_text("source")?;
         for view in &defaults.views {
             put_query_view(&document, view)?;
         }
@@ -4045,12 +4290,12 @@ fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     Ok(document)
 }
 
-fn clear_query_plan(document: &LoroMap) -> Result<(), CoreError> {
-    if document.get("plan").is_some() {
-        document.delete("plan")?;
+fn clear_query_plan(definition: &LoroMap) -> Result<(), CoreError> {
+    if definition.get("plan").is_some() {
+        definition.delete("plan")?;
     }
-    if document.get("plan_version").is_some() {
-        document.delete("plan_version")?;
+    if definition.get("plan_version").is_some() {
+        definition.delete("plan_version")?;
     }
     Ok(())
 }
@@ -4083,8 +4328,54 @@ fn put_query_view(document: &LoroMap, view: &QueryView) -> Result<(), CoreError>
     // uses a new stable ID.
     if created {
         stored.insert("deleted", false)?;
+        write_query_definition(
+            &stored.ensure_mergeable_map("definition")?,
+            &view.definition,
+        )?;
     }
     Ok(())
+}
+
+fn write_query_definition(
+    definition: &LoroMap,
+    snapshot: &QueryDefinition,
+) -> Result<(), CoreError> {
+    definition.insert("language", snapshot.language.as_str())?;
+    replace_text(
+        &definition.ensure_mergeable_text("source")?,
+        &snapshot.source,
+    )?;
+    clear_query_plan(definition)?;
+    if let Some(plan) = &snapshot.plan {
+        definition.insert("plan_version", i64::from(plan.version))?;
+        definition.insert("plan", plan.payload.as_str())?;
+    }
+    Ok(())
+}
+
+fn require_query_view(document: &LoroMap, view_id: &QueryViewId) -> Result<LoroMap, CoreError> {
+    let view = document
+        .get("views")
+        .and_then(value_into_map)
+        .and_then(|views| views.get(view_id.as_str()))
+        .and_then(value_into_map)
+        .ok_or_else(|| PropertyError::InvalidDocument("query view does not exist".to_owned()))?;
+    if map_bool(&view, "deleted") == Some(true) {
+        return Err(PropertyError::InvalidDocument("query view does not exist".to_owned()).into());
+    }
+    Ok(view)
+}
+
+fn require_query_definition(
+    document: &LoroMap,
+    view_id: &QueryViewId,
+) -> Result<LoroMap, CoreError> {
+    require_query_view(document, view_id)?
+        .get("definition")
+        .and_then(value_into_map)
+        .ok_or_else(|| {
+            PropertyError::InvalidDocument("query view definition is missing".to_owned()).into()
+        })
 }
 
 fn remove_query_view(document: &LoroMap, view_id: &QueryViewId) -> Result<(), CoreError> {
@@ -4124,12 +4415,28 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
     let version = map_i64(document, "version")
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| "query document version is invalid".to_owned())?;
-    let language = map_string(document, "language")
-        .ok_or_else(|| "query document language is missing".to_owned())?;
-    let source = match document.get("source") {
-        Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
-        _ => return Err("query document source is missing".to_owned()),
-    };
+    decode_query_document_parts(document, schema, version, None)
+}
+
+fn decode_legacy_query_document(document: &LoroMap) -> Result<PropertyDocument, String> {
+    let schema = map_string(document, "schema")
+        .ok_or_else(|| "query document schema is missing".to_owned())?;
+    let version = map_i64(document, "version")
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| "query document version is invalid".to_owned())?;
+    if schema != QUERY_DOCUMENT_SCHEMA || version != 1 {
+        return Err(format!("unsupported query document {schema} v{version}"));
+    }
+    let definition = read_query_definition(document, "query document")?;
+    decode_query_document_parts(document, schema, QUERY_DOCUMENT_VERSION, Some(&definition))
+}
+
+fn decode_query_document_parts(
+    document: &LoroMap,
+    schema: String,
+    version: u32,
+    legacy_definition: Option<&QueryDefinition>,
+) -> Result<PropertyDocument, String> {
     let requested_default_view_id = QueryViewId::new(
         map_string(document, "default_view_id")
             .ok_or_else(|| "query document default view is missing".to_owned())?,
@@ -4153,6 +4460,16 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
             let id = QueryViewId::new(raw_id).map_err(|error| error.to_string())?;
             let name = map_string(&view, "name")
                 .ok_or_else(|| format!("query view {raw_id} name is missing"))?;
+            let definition = match legacy_definition {
+                Some(definition) => definition.clone(),
+                None => read_query_definition(
+                    &view
+                        .get("definition")
+                        .and_then(value_into_map)
+                        .ok_or_else(|| format!("query view {raw_id} definition is missing"))?,
+                    &format!("query view {raw_id}"),
+                )?,
+            };
             let kind = match map_string(&view, "kind").as_deref() {
                 Some("table") => QueryViewKind::Table,
                 Some("list") => QueryViewKind::List,
@@ -4173,6 +4490,7 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
             Ok(QueryView {
                 id,
                 name,
+                definition,
                 kind,
                 position,
                 columns,
@@ -4207,30 +4525,37 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
     } else {
         decoded[0].id.clone()
     };
-    // A plan this build cannot read is not a broken document: the source is
-    // still the executable query, so the plan is simply absent and the block
-    // opens on its SPARQL instead of the builder.
-    let plan = match (
-        map_i64(document, "plan_version"),
-        map_string(document, "plan"),
-    ) {
+    let snapshot = PropertyDocument {
+        schema,
+        version,
+        views: decoded,
+        default_view_id,
+    };
+    snapshot.validate().map_err(|error| error.to_string())?;
+    Ok(snapshot)
+}
+
+fn read_query_definition(map: &LoroMap, label: &str) -> Result<QueryDefinition, String> {
+    let language =
+        map_string(map, "language").ok_or_else(|| format!("{label} language is missing"))?;
+    let source = map
+        .get("source")
+        .and_then(value_into_text)
+        .map(|text| text.to_string())
+        .ok_or_else(|| format!("{label} source is missing"))?;
+    // An unreadable plan never invalidates an otherwise executable source.
+    let plan = match (map_i64(map, "plan_version"), map_string(map, "plan")) {
         (Some(version), Some(payload)) => u32::try_from(version)
             .ok()
             .map(|version| QueryPlan { version, payload })
             .filter(|plan| plan.validate().is_ok()),
         _ => None,
     };
-    let snapshot = PropertyDocument {
-        schema,
-        version,
+    Ok(QueryDefinition {
         source,
         language,
-        views: decoded,
-        default_view_id,
         plan,
-    };
-    snapshot.validate().map_err(|error| error.to_string())?;
-    Ok(snapshot)
+    })
 }
 
 fn default_queries_map(doc: &LoroDoc) -> Result<LoroMap, CoreError> {
@@ -4801,6 +5126,13 @@ mod tests {
     fn page() -> PageId {
         PageId::new("home").unwrap()
     }
+    fn query_definition(source: &str) -> QueryDefinition {
+        QueryDefinition {
+            source: source.to_owned(),
+            language: domain::QUERY_LANGUAGE.to_owned(),
+            plan: None,
+        }
+    }
     fn insert_root(
         core: &mut GraphCore,
         command_id: &str,
@@ -4881,6 +5213,7 @@ mod tests {
                 LIFECYCLE_MIGRATION_ID.to_owned(),
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
+                QUERY_VIEWS_MIGRATION_ID.to_owned(),
             ]
         );
         assert!(!first.update.is_empty());
@@ -4920,7 +5253,10 @@ mod tests {
         assert_eq!(report.source_schema, 3);
         assert_eq!(
             report.applied_migrations,
-            vec![GRAPH_SETTINGS_MIGRATION_ID.to_owned()]
+            vec![
+                GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
+                QUERY_VIEWS_MIGRATION_ID.to_owned(),
+            ]
         );
         assert!(
             migrated
@@ -4933,6 +5269,145 @@ mod tests {
 
         let snapshot = migrated.export_snapshot().unwrap();
         let (_, second) = GraphCore::from_snapshot_with_migrations(graph(), 19, &snapshot).unwrap();
+        assert!(second.applied_migrations.is_empty());
+        assert!(second.update.is_empty());
+    }
+
+    #[test]
+    fn schema_v4_query_definition_is_copied_into_independent_views_once() {
+        let mut legacy = GraphCore::new(graph(), 17, "legacy").unwrap();
+        ensure_regular_page(&mut legacy, "page", &page());
+        let block = insert_root(&mut legacy, "block", &page(), 0, "query");
+        let owner = QueryOwner::Block {
+            owner: OutlineOwner::Page { id: page() },
+            id: block.clone(),
+        };
+        legacy
+            .execute(
+                envelope(
+                    "source",
+                    Command::SetQuerySource {
+                        owner: owner.clone(),
+                        view_id: QueryViewId::new("all").unwrap(),
+                        source: "SELECT ?item WHERE {}".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        legacy
+            .execute(
+                envelope(
+                    "second-view",
+                    Command::PutQueryView {
+                        owner: owner.clone(),
+                        view: QueryView {
+                            id: QueryViewId::new("second").unwrap(),
+                            name: "Second".into(),
+                            definition: query_definition("unused v2 definition"),
+                            kind: QueryViewKind::List,
+                            position: 1,
+                            columns: Vec::new(),
+                            options: QueryViewOptions::default(),
+                        },
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+
+        let bag = legacy
+            .block_bag(&OutlineOwner::Page { id: page() }, &block)
+            .unwrap();
+        let document = require_query_document(&bag).unwrap();
+        document.insert("version", 1_i64).unwrap();
+        document.insert("language", domain::QUERY_LANGUAGE).unwrap();
+        replace_text(
+            &document.ensure_mergeable_text("source").unwrap(),
+            "SELECT ?legacy WHERE {}",
+        )
+        .unwrap();
+        document.insert("plan_version", 1_i64).unwrap();
+        document.insert("plan", "{\"subject\":\"block\"}").unwrap();
+        let views = document.get("views").and_then(value_into_map).unwrap();
+        let mut stored = Vec::new();
+        views.for_each(|_, value| {
+            if let Some(view) = value_into_map(value) {
+                stored.push(view);
+            }
+        });
+        for view in stored {
+            view.delete("definition").unwrap();
+        }
+        let meta = legacy.doc.get_map("meta");
+        meta.insert(
+            "schema_version",
+            i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
+        )
+        .unwrap();
+        meta.insert(
+            "minimum_writer_schema",
+            i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
+        )
+        .unwrap();
+        legacy.doc.commit();
+
+        let snapshot = legacy.export_snapshot().unwrap();
+        let (mut migrated, report) =
+            GraphCore::from_snapshot_with_migrations(graph(), 18, &snapshot).unwrap();
+        assert_eq!(
+            report.applied_migrations,
+            [QUERY_VIEWS_MIGRATION_ID.to_owned()]
+        );
+        let read = |core: &GraphCore| {
+            let snapshot = core.page_snapshot(&page()).unwrap();
+            let field = snapshot.blocks[0]
+                .properties
+                .iter()
+                .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+                .unwrap();
+            let PropertyValue::Document(document) = &field.values[0] else {
+                panic!("query did not migrate")
+            };
+            document.clone()
+        };
+        let migrated_document = read(&migrated);
+        assert_eq!(migrated_document.version, QUERY_DOCUMENT_VERSION);
+        assert_eq!(migrated_document.views.len(), 2);
+        for view in &migrated_document.views {
+            assert_eq!(view.definition.source, "SELECT ?legacy WHERE {}");
+            assert_eq!(
+                view.definition.plan.as_ref().map(|plan| plan.version),
+                Some(1)
+            );
+        }
+
+        migrated
+            .execute(
+                envelope(
+                    "edit-one-view",
+                    Command::SetQuerySource {
+                        owner,
+                        view_id: QueryViewId::new("second").unwrap(),
+                        source: "SELECT ?second WHERE {}".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        let independently_edited = read(&migrated);
+        assert_eq!(
+            independently_edited.views[0].definition.source,
+            "SELECT ?legacy WHERE {}"
+        );
+        assert_eq!(
+            independently_edited.views[1].definition.source,
+            "SELECT ?second WHERE {}"
+        );
+
+        let migrated_snapshot = migrated.export_snapshot().unwrap();
+        let (_, second) =
+            GraphCore::from_snapshot_with_migrations(graph(), 19, &migrated_snapshot).unwrap();
         assert!(second.applied_migrations.is_empty());
         assert!(second.update.is_empty());
     }
@@ -4952,8 +5427,9 @@ mod tests {
             fixture["document_schema"].as_u64().unwrap() as u32
         );
         assert_eq!(migrated.snapshot().unwrap().pages.len(), 1);
+        let fingerprint = migrated.fingerprint().unwrap();
         assert_eq!(
-            migrated.fingerprint().unwrap(),
+            fingerprint,
             fixture["expected_current_fingerprint"].as_str().unwrap()
         );
     }
@@ -5037,6 +5513,7 @@ mod tests {
             [
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
+                QUERY_VIEWS_MIGRATION_ID.to_owned(),
             ]
         );
         assert!(!migration.update.is_empty());
@@ -5167,6 +5644,7 @@ mod tests {
             [
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
+                QUERY_VIEWS_MIGRATION_ID.to_owned(),
             ]
         );
         for tag_id in [base_tag, tail_tag] {
@@ -5398,6 +5876,7 @@ mod tests {
                     owner: QueryOwner::GraphDefault {
                         default_query_id: first.clone(),
                     },
+                    view_id: QueryViewId::new("all").unwrap(),
                     source: "SELECT ?block WHERE {}".into(),
                 },
             ),
@@ -5426,7 +5905,9 @@ mod tests {
             vec![second, first.clone()]
         );
         assert_eq!(
-            settings.default_queries[1].document.source,
+            settings.default_queries[1].document.views[0]
+                .definition
+                .source,
             "SELECT ?block WHERE {}"
         );
 
@@ -5470,6 +5951,7 @@ mod tests {
                 "plan",
                 Command::SetQueryPlan {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     plan: QueryPlan {
                         version: 1,
                         payload: "{\"subject\":\"block\"}".into(),
@@ -5488,6 +5970,7 @@ mod tests {
                     view: QueryView {
                         id: QueryViewId::new("v-open").unwrap(),
                         name: "Open".into(),
+                        definition: query_definition("SELECT ?item WHERE {}"),
                         kind: QueryViewKind::List,
                         position: 2,
                         columns: Vec::new(),
@@ -5520,7 +6003,7 @@ mod tests {
         let PropertyValue::Document(document) = &field.values[0] else {
             panic!("a tag's query did not decode as a document")
         };
-        assert_eq!(document.source, "SELECT ?item WHERE {}");
+        assert_eq!(document.views[0].definition.source, "SELECT ?item WHERE {}");
         assert_eq!(document.default_view_id.as_str(), "v-open");
         assert_eq!(document.views.len(), 2);
         // A tag's query lives in its metadata, never in the defaults it copies.
@@ -5548,6 +6031,7 @@ mod tests {
                 "query",
                 Command::SetQuerySource {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     source: source.into(),
                 },
             ),
@@ -5559,6 +6043,7 @@ mod tests {
                 "query-splice",
                 Command::SpliceQuerySource {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     index: source.chars().count(),
                     delete: 0,
                     insert: " LIMIT 10".into(),
@@ -5575,6 +6060,7 @@ mod tests {
                     view: QueryView {
                         id: QueryViewId::new("v-list").unwrap(),
                         name: "As a list".into(),
+                        definition: query_definition(source),
                         kind: QueryViewKind::List,
                         position: 1,
                         columns: Vec::new(),
@@ -5606,7 +6092,10 @@ mod tests {
         let PropertyValue::Document(document) = &field.values[0] else {
             panic!("query property did not decode as a document")
         };
-        assert_eq!(document.source, "SELECT ?item WHERE {} LIMIT 10");
+        assert_eq!(
+            document.views[0].definition.source,
+            "SELECT ?item WHERE {} LIMIT 10"
+        );
         assert_eq!(document.default_view_id.as_str(), "v-list");
         assert_eq!(document.views.len(), 2);
 
@@ -5616,7 +6105,8 @@ mod tests {
                     "oversized-query-splice",
                     Command::SpliceQuerySource {
                         owner: owner.clone(),
-                        index: document.source.chars().count(),
+                        view_id: QueryViewId::new("all").unwrap(),
+                        index: document.views[0].definition.source.chars().count(),
                         delete: 0,
                         insert: "😀".repeat(20_000),
                     },
@@ -5676,6 +6166,7 @@ mod tests {
                 "plan",
                 Command::SetQueryPlan {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     plan: QueryPlan {
                         version: 1,
                         payload: "{\"subject\":\"block\"}".into(),
@@ -5687,8 +6178,15 @@ mod tests {
         )
         .unwrap();
         let document = read(&core);
-        assert_eq!(document.source, "SELECT ?item WHERE {}");
-        assert_eq!(document.plan.as_ref().map(|plan| plan.version), Some(1));
+        assert_eq!(document.views[0].definition.source, "SELECT ?item WHERE {}");
+        assert_eq!(
+            document.views[0]
+                .definition
+                .plan
+                .as_ref()
+                .map(|plan| plan.version),
+            Some(1)
+        );
 
         // Editing the SPARQL by hand makes the source authoritative again.
         core.execute(
@@ -5696,6 +6194,7 @@ mod tests {
                 "hand-edit",
                 Command::SpliceQuerySource {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     index: 0,
                     delete: 0,
                     insert: "# note\n".into(),
@@ -5704,13 +6203,14 @@ mod tests {
             "t4",
         )
         .unwrap();
-        assert!(read(&core).plan.is_none());
+        assert!(read(&core).views[0].definition.plan.is_none());
 
         core.execute(
             envelope(
                 "replan",
                 Command::SetQueryPlan {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     plan: QueryPlan {
                         version: 1,
                         payload: "{\"subject\":\"page\"}".into(),
@@ -5721,20 +6221,21 @@ mod tests {
             "t5",
         )
         .unwrap();
-        assert!(read(&core).plan.is_some());
+        assert!(read(&core).views[0].definition.plan.is_some());
         core.execute(
             envelope(
                 "clear-plan",
                 Command::ClearQueryPlan {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                 },
             ),
             "t6",
         )
         .unwrap();
         let detached = read(&core);
-        assert!(detached.plan.is_none());
-        assert_eq!(detached.source, "SELECT ?page WHERE {}");
+        assert!(detached.views[0].definition.plan.is_none());
+        assert_eq!(detached.views[0].definition.source, "SELECT ?page WHERE {}");
 
         let error = core
             .execute(
@@ -5742,6 +6243,7 @@ mod tests {
                     "invalid-plan",
                     Command::SetQueryPlan {
                         owner,
+                        view_id: QueryViewId::new("all").unwrap(),
                         plan: QueryPlan {
                             version: 1,
                             payload: "not json".into(),
@@ -5772,6 +6274,7 @@ mod tests {
                 "source",
                 Command::SetQuerySource {
                     owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
                     source: "SELECT ?item WHERE {}".into(),
                 },
             ),
@@ -5786,6 +6289,7 @@ mod tests {
                     view: QueryView {
                         id: QueryViewId::new("table").unwrap(),
                         name: "Table".into(),
+                        definition: query_definition("SELECT ?item WHERE {}"),
                         kind: QueryViewKind::Table,
                         position: 0,
                         columns: vec![
@@ -6655,7 +7159,7 @@ mod tests {
                 && matches!(
                     field.values.first(),
                     Some(PropertyValue::Document(document))
-                        if document.source == "SELECT ?item WHERE {}"
+                        if document.views[0].definition.source == "SELECT ?item WHERE {}"
                 )
         }));
         assert!(pasted.blocks[0].properties.iter().any(|field| {
@@ -7912,6 +8416,7 @@ mod tests {
                             owner: OutlineOwner::Page { id: page() },
                             id: block,
                         },
+                        view_id: QueryViewId::new("all").unwrap(),
                         source: format!("SELECT ?page WHERE {{ BIND(<{old_iri}> AS ?page) }}"),
                     },
                 ),
@@ -7980,7 +8485,10 @@ mod tests {
             .and_then(value_into_map)
             .unwrap();
         let document = require_query_document(&bag).unwrap();
-        let source = decode_query_document(&document).unwrap().source;
+        let source = decode_query_document(&document).unwrap().views[0]
+            .definition
+            .source
+            .clone();
         let new_iri = query::entity_iri(&target_id, "page", page().as_str())
             .unwrap()
             .as_str()
@@ -7989,6 +8497,8 @@ mod tests {
         assert!(!source.contains(&old_iri));
         let default_source = &cloned.summary().unwrap().settings.default_queries[0]
             .document
+            .views[0]
+            .definition
             .source;
         assert!(default_source.contains(&new_iri));
         assert!(!default_source.contains(&old_iri));

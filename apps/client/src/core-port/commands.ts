@@ -91,10 +91,10 @@ export type Command =
   | { type: "rename_default_query"; default_query_id: string; title: string }
   | { type: "move_default_query"; default_query_id: string; index: number }
   | { type: "delete_default_query"; default_query_id: string }
-  | { type: "set_query_source"; owner: QueryOwnerRef; source: string }
-  | { type: "splice_query_source"; owner: QueryOwnerRef; index: number; delete: number; insert: string }
-  | { type: "set_query_plan"; owner: QueryOwnerRef; plan: QueryPlanDocument; source: string }
-  | { type: "clear_query_plan"; owner: QueryOwnerRef }
+  | { type: "set_query_source"; owner: QueryOwnerRef; view_id: string; source: string }
+  | { type: "splice_query_source"; owner: QueryOwnerRef; view_id: string; index: number; delete: number; insert: string }
+  | { type: "set_query_plan"; owner: QueryOwnerRef; view_id: string; plan: QueryPlanDocument; source: string }
+  | { type: "clear_query_plan"; owner: QueryOwnerRef; view_id: string }
   | { type: "put_query_view"; owner: QueryOwnerRef; view: QueryView }
   | { type: "remove_query_view"; owner: QueryOwnerRef; view_id: string }
   | { type: "set_query_default_view"; owner: QueryOwnerRef; view_id: string }

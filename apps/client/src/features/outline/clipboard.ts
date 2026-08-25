@@ -265,6 +265,10 @@ function cloneField(field: PropertyField): PropertyField {
           ...value.value,
           views: value.value.views.map((view) => ({
             ...view,
+            definition: {
+              ...view.definition,
+              plan: view.definition.plan ? { ...view.definition.plan } : view.definition.plan,
+            },
             columns: view.columns.map((column) => ({ ...column })),
             options: {
               ...view.options,
@@ -272,7 +276,6 @@ function cloneField(field: PropertyField): PropertyField {
               list_sort: view.options.list_sort?.map((sort) => ({ ...sort })),
             },
           })),
-          plan: value.value.plan ? { ...value.value.plan } : value.value.plan,
         },
       };
     }),
@@ -319,7 +322,11 @@ function formatPropertyValue(value: PropertyValue, pages: ReadonlyMap<string, st
   switch (value.type) {
     case "page": return `[[${pages.get(value.value) ?? value.value}]]`;
     case "checkbox": return value.value ? "true" : "false";
-    case "document": return value.value.source;
+    case "document": {
+      const view = value.value.views.find((item) => item.id === value.value.default_view_id)
+        ?? value.value.views[0];
+      return view?.definition.source ?? "";
+    }
     case "unsupported_document": return `[${value.value.schema} v${value.value.version}]`;
     default: return String(value.value);
   }

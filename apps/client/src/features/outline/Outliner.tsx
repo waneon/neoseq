@@ -860,6 +860,7 @@ export function Outliner({
         await session.execute({
           type: "set_query_plan",
           owner,
+          view_id: "all",
           plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
           source: compilePlan(plan).source,
         });

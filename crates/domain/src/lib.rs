@@ -19,9 +19,9 @@ pub use model::{
     GraphSettings, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, MarkdownSplice,
     OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem,
     OutlineFragmentPage, OutlineFragmentTag, OutlineItem, OutlineOwner, OutlineSnapshot,
-    PageSnapshot, PageSummary, PropertyOwner, QueryOwner, QueryView, QueryViewColumn,
-    QueryViewFieldSort, QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement,
-    TagSnapshot, TagSummary,
+    PageSnapshot, PageSummary, PropertyOwner, QueryDefinition, QueryOwner, QueryView,
+    QueryViewColumn, QueryViewFieldSort, QueryViewKind, QueryViewOptions, QueryViewSort,
+    SplitPlacement, TagSnapshot, TagSummary,
 };
 pub use property::{
     Cardinality, DocumentSpec, PropertyAccess, PropertyBag, PropertyCopyPolicy, PropertyDocument,

@@ -4,10 +4,10 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const REGISTRY_VERSION: u32 = 8;
+pub const REGISTRY_VERSION: u32 = 9;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
-pub const QUERY_DOCUMENT_VERSION: u32 = 1;
+pub const QUERY_DOCUMENT_VERSION: u32 = 2;
 pub const QUERY_LANGUAGE: &str = "sparql-1.1/neoseq-v1";
 pub const QUERY_PLAN_LIMIT: usize = 32_768;
 /// How many columns one saved view may order by. A reader who needs a ninth
@@ -205,12 +205,8 @@ impl QueryPlan {
 pub struct PropertyDocument {
     pub schema: String,
     pub version: u32,
-    pub source: String,
-    pub language: String,
     pub views: Vec<QueryView>,
     pub default_view_id: QueryViewId,
-    #[serde(default)]
-    pub plan: Option<QueryPlan>,
 }
 
 impl PropertyDocument {
@@ -218,8 +214,6 @@ impl PropertyDocument {
         Self {
             schema: QUERY_DOCUMENT_SCHEMA.to_owned(),
             version: QUERY_DOCUMENT_VERSION,
-            source,
-            language: QUERY_LANGUAGE.to_owned(),
             // One view, named for what it shows rather than for how it is drawn.
             // A document used to be born with a `Table` and a `List` holding the
             // same rows under two names for their own shapes, which is chrome
@@ -229,13 +223,17 @@ impl PropertyDocument {
             views: vec![QueryView {
                 id: QueryViewId::new("all").expect("static query view id"),
                 name: "All".to_owned(),
+                definition: crate::QueryDefinition {
+                    source,
+                    language: QUERY_LANGUAGE.to_owned(),
+                    plan: None,
+                },
                 kind: QueryViewKind::Table,
                 position: 0,
                 columns: Vec::new(),
                 options: QueryViewOptions::default(),
             }],
             default_view_id: QueryViewId::new("all").expect("static query view id"),
-            plan: None,
         }
     }
 
@@ -246,14 +244,6 @@ impl PropertyDocument {
                 version: self.version,
             });
         }
-        if self.language != QUERY_LANGUAGE {
-            return Err(PropertyError::InvalidDocument(
-                "unsupported query language".to_owned(),
-            ));
-        }
-        if self.source.len() > 65_536 {
-            return Err(PropertyError::StringTooLong);
-        }
         if self.views.is_empty() || self.views.len() > 32 {
             return Err(PropertyError::InvalidDocument(
                 "query document must contain between 1 and 32 views".to_owned(),
@@ -261,6 +251,17 @@ impl PropertyDocument {
         }
         let mut ids = std::collections::BTreeSet::new();
         for view in &self.views {
+            if view.definition.language != QUERY_LANGUAGE {
+                return Err(PropertyError::InvalidDocument(
+                    "unsupported query language".to_owned(),
+                ));
+            }
+            if view.definition.source.len() > 65_536 {
+                return Err(PropertyError::StringTooLong);
+            }
+            if let Some(plan) = &view.definition.plan {
+                plan.validate()?;
+            }
             if !ids.insert(view.id.clone()) {
                 return Err(PropertyError::InvalidDocument(
                     "duplicate query view id".to_owned(),
@@ -347,9 +348,6 @@ impl PropertyDocument {
             return Err(PropertyError::InvalidDocument(
                 "default query view does not exist".to_owned(),
             ));
-        }
-        if let Some(plan) = &self.plan {
-            plan.validate()?;
         }
         Ok(())
     }
@@ -1075,22 +1073,22 @@ mod tests {
     #[test]
     fn query_plan_accepts_a_bounded_json_object_only() {
         let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
-        document.plan = Some(QueryPlan {
+        document.views[0].definition.plan = Some(QueryPlan {
             version: 1,
             payload: "{\"subject\":\"block\"}".to_owned(),
         });
         assert!(document.validate().is_ok());
-        document.plan = Some(QueryPlan {
+        document.views[0].definition.plan = Some(QueryPlan {
             version: 1,
             payload: "[1,2]".to_owned(),
         });
         assert!(document.validate().is_err());
-        document.plan = Some(QueryPlan {
+        document.views[0].definition.plan = Some(QueryPlan {
             version: 0,
             payload: "{}".to_owned(),
         });
         assert!(document.validate().is_err());
-        document.plan = Some(QueryPlan {
+        document.views[0].definition.plan = Some(QueryPlan {
             version: 1,
             payload: format!("{{\"a\":\"{}\"}}", "x".repeat(QUERY_PLAN_LIMIT)),
         });

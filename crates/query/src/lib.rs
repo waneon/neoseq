@@ -2685,7 +2685,7 @@ mod tests {
 
     fn snapshot() -> GraphSnapshot {
         GraphSnapshot {
-            schema_version: 4,
+            schema_version: domain::SCHEMA_VERSION,
             graph_id: GraphId::new("query graph").unwrap(),
             pages: vec![PageSnapshot {
                 id: PageId::new("today").unwrap(),
@@ -2745,7 +2745,7 @@ mod tests {
 
     fn ordered_snapshot(block_count: usize) -> GraphSnapshot {
         GraphSnapshot {
-            schema_version: 4,
+            schema_version: domain::SCHEMA_VERSION,
             graph_id: GraphId::new("ordered-query").unwrap(),
             pages: vec![PageSnapshot {
                 id: PageId::new("ordered-page").unwrap(),

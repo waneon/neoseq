@@ -175,10 +175,10 @@ LIMIT 100
 ```
 
 A query is executable when its owner has a valid `builtin.query` document with
-schema `neoseq.query` version 1. Its source is collaborative text; language, the
-builder plan behind it, stable-ID saved views with their column layout, and the
-shared default view synchronize inside the graph. Table and list are the current
-renderers.
+schema `neoseq.query` version 2. Each stable-ID view owns collaborative source,
+language, the builder plan behind it, and its column and presentation layout.
+Only ordering and the default view are document-wide. Table and list are the
+current renderers.
 
 Blocks, pages, and tags may own one. A tag's is the tag's own view of the graph
 it names, and the client seeds it rather than writing it: opening a tag runs a
@@ -206,9 +206,9 @@ chips nor recursively mounted queries. Plan-less and non-block SELECT results
 retain a separate query-shaped list fallback when no block plan can provide an
 entity contract.
 
-The plan's columns remain the table's executable result projection. A table
-column switch may add to that projection, or remove from it when no other table
-still asks for the column. List views do not participate in that accounting.
+The active view's plan columns are that view's executable result projection. A
+table column switch adds to or removes from only that projection; sibling views
+never participate in the decision.
 When a block list runs, the client derives an ephemeral identity projection from
 the same plan: subject type, conditions, parameters, distinctness, limit, and
 subject order remain, while every table column pattern and aggregate is absent.
@@ -216,9 +216,8 @@ The stored source remains the full plan compilation. This boundary is necessary
 because a table aggregate may remove or group subject identity; a block list must
 still receive one `q_subject` binding to hydrate each canonical block.
 
-Every plan-carrying document is a built one. A document with no plan predates the
-builder being the only author: it still runs and still reads, and the client
-offers no editor for it. Nothing converts a built query into one.
+Every plan-carrying view is built. A view with no plan still runs and reads from
+its source, but the client offers no builder for it.
 
 A graph may also own query documents directly. Its *standing questions* — the
 answers today's journal opens with — live under `graph_settings.default_queries`,

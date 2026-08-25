@@ -168,7 +168,10 @@ function DefaultQueryRow({
   // The payload, not the record: every write rebuilds the stored object, so a
   // memo keyed on its identity would recompile the plan on each keystroke of the
   // name beside it.
-  const payload = query.document.plan?.payload;
+  const activeView = query.document.views.find(
+    (view) => view.id === query.document.default_view_id,
+  ) ?? query.document.views[0]!;
+  const payload = activeView.definition.plan?.payload;
   const plan = useMemo(
     () => (payload ? decodePlan(payload, QUERY_PLAN_VERSION) : null),
     [payload],
@@ -182,10 +185,13 @@ function DefaultQueryRow({
   // count here is the count there rather than a second opinion about it.
   const request = useMemo(() => ({
     language: QUERY_LANGUAGE,
-    source: compiled ? compiled.source : query.document.source,
+    source: compiled ? compiled.source : activeView.definition.source,
     bindings: compiled ? planBindings(compiled.parameters, runtime) : {},
-  }), [compiled, query.document.source, runtime]);
-  const answer = useQueryAnswer(defaultQueryKey(query), request);
+  }), [activeView.definition.source, compiled, runtime]);
+  const answer = useQueryAnswer(
+    JSON.stringify([defaultQueryKey(query), activeView.id]),
+    request,
+  );
   const count = answerLabel(answer, null, message);
 
   const summary = plan
@@ -198,9 +204,6 @@ function DefaultQueryRow({
   const name = query.title || summaryLabel(summary);
 
   const owner = { kind: "graph_default", default_query_id: query.id } as const;
-  const activeView = query.document.views.find(
-    (view) => view.id === query.document.default_view_id,
-  ) ?? query.document.views[0]!;
   const executeCommand = (command: Parameters<typeof session.execute>[0]): Promise<void> =>
     session.execute(command).then(() => undefined).catch((cause: unknown) => {
       notify.failure(message("failure.saveQuery"), cause);
@@ -213,6 +216,7 @@ function DefaultQueryRow({
     executeCommand({
       type: "set_query_plan",
       owner,
+      view_id: activeView.id,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(next) },
       source: compilePlan(next).source,
     });
@@ -384,7 +388,7 @@ function DefaultQueryRow({
             // runs and still says what it asks; what it no longer has is an
             // editor, so the reader's choices here are to read it or delete it.
             <pre className="query-compiled" data-testid="default-query-compiled">
-              <code>{query.document.source}</code>
+              <code>{activeView.definition.source}</code>
             </pre>
           )}
           {answer.error && (
