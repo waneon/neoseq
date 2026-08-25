@@ -169,7 +169,8 @@
      whose ancestors leave its complete reach visible. */
   --focus-ring-size: 3px;
   --focus-ring: 0 0 0 var(--focus-ring-size) var(--accent-soft);
-  --focus-inset: inset 0 0 0 2px var(--accent);
+  --focus-tone: color-mix(in oklab, var(--accent) 42%, var(--surface-1));
+  --focus-inset: inset 0 0 0 2px var(--focus-tone);
   --focus-inset-on-accent: inset 0 0 0 2px var(--on-accent);
 
   /* ── The tone map ──
@@ -642,7 +643,7 @@ a:hover {
    be cropped by an ancestor scrollport. Component selectors below have greater
    specificity and suppress this only when they provide an equivalent mark. */
 :where(:focus-visible) {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-tone);
   outline-offset: -2px;
 }
 

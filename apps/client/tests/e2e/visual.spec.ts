@@ -45,7 +45,7 @@ async function renderedInsetEdges(
     };
 
     const probe = document.createElement("span");
-    probe.style.color = "var(--accent)";
+    probe.style.color = "var(--focus-tone)";
     document.body.append(probe);
     const accent = getComputedStyle(probe).color;
     probe.remove();
