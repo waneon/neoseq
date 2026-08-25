@@ -184,6 +184,26 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   });
   expect(tinted.background).not.toBe("rgba(0, 0, 0, 0)");
 
+  const firstLine = page.getByLabel("Block text");
+  await firstLine.click();
+  await firstLine.press("End");
+  await firstLine.press("Enter");
+  await typeInFocusedBlock(page, "Archive the receipt");
+  const rhythm = await deadline.evaluate((chip) => {
+    const row = chip.closest<HTMLElement>("[data-testid='outline-row']")!;
+    const line = row.querySelector<HTMLElement>(".block-line")!;
+    const strip = row.querySelector<HTMLElement>(".block-chips")!;
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-testid='outline-row']")];
+    const nextLine = rows[rows.indexOf(row) + 1].querySelector<HTMLElement>(".block-line")!;
+    return {
+      textToProperty: strip.getBoundingClientRect().top - line.getBoundingClientRect().bottom,
+      propertyToNext: nextLine.getBoundingClientRect().top - strip.getBoundingClientRect().bottom,
+    };
+  });
+  // Metadata belongs to its text, and one chip must not turn the next sibling
+  // into a new paragraph. The four pixels after it are the ordinary row seam.
+  expect(rhythm).toEqual({ textToProperty: 0, propertyToNext: 4 });
+
   // The thresholds and the tones belong to the reader.
   await openSettings(page, "tasks");
   const tierVisual = (tier: "today" | "soon") =>

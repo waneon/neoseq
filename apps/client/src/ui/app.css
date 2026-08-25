@@ -3424,13 +3424,16 @@ button.chip:focus-visible .chip-glyph .chip-x {
    steps back one level so the text stays comfortably legible. */
 /* One wrapping strip for every fact under the line — task chips and user
    properties speak the same language, so metadata never has two dialects.
-   Inside the block's flex row it always claims its own full-width line. */
+   Inside the block's flex row it always claims its own full-width line. The
+   line box already leaves breathing room below its glyphs, so another top gap
+   made the chips look detached; two pixels after the strip is enough to keep
+   the next block distinct without turning one property into a paragraph break. */
 .block-chips {
   display: flex;
   flex: 1 1 100%;
   flex-wrap: wrap;
   gap: var(--sp-2);
-  margin: var(--sp-1) var(--sp-1) var(--sp-2);
+  margin: 0 var(--sp-1) var(--sp-0);
 }
 
 .outline-text > .query-block {

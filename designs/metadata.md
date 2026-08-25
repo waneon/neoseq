@@ -15,6 +15,9 @@ how those meanings remain recognizable and editable wherever they are projected.
 Properties are quiet metadata attached to writing. Empty metadata does not leave
 an empty form behind; existing values appear as compact rows, marks, or chips
 whose shape communicates whether they navigate, choose, or edit.
+An inline metadata strip stays visually attached to the writing it describes
+and leaves only the ordinary list rhythm before the next block; one property
+does not turn a block boundary into a paragraph break.
 
 One contextual property picker is the authoring surface reached from writing,
 commands, and context menus. The route may differ, but the value semantics and
