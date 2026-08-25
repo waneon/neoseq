@@ -89,6 +89,32 @@ gate and keeps the browser runtime out of the normal shell. CI runs the portable
 and browser gates explicitly and uploads checkout-local Playwright failure
 artifacts.
 
+## Asynchronous verification
+
+Tests synchronize on observable state transitions, not elapsed wall-clock time.
+Local machines and CI runners differ in scheduling, CPU contention, and browser
+rendering latency; a fixed delay can conceal a missing causal edge locally and
+still expire before that edge in CI. Increasing delays, retries, or serializing
+the suite does not establish correctness.
+
+Every asynchronous interaction therefore proves the boundary it depends on:
+
+- a durable mutation captures the saved revision before the user gesture,
+  observes a newer revision, and only then accepts the saved state;
+- optimistic rows and replaceable controls reach their canonical identity,
+  focus, and command-ready state before receiving subsequent input;
+- derived views and geometry converge by polling their semantic result, with
+  stability requiring consecutive equal observations when no single completion
+  event exists;
+- finite UI transitions finish before an action that depends on their final
+  hit-testing or layout state.
+
+An already-visible `saved` state is not evidence that a new mutation completed,
+and a visible element is not necessarily the reconciled element that will own
+the next input. Time-dependent product behavior uses controlled clocks in
+component tests. Suite timeouts remain failure budgets only; arbitrary sleeps
+must not order test actions.
+
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored migration, authorization, idempotency, fault, and
