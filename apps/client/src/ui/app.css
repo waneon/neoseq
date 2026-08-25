@@ -8081,15 +8081,15 @@ button.tag-mark:focus-visible {
 }
 
 /* ── The due tiers ──
-   Four rows, in the order dates move through them, each previewing itself. The
+   Five rows, in the order dates move through them, each previewing itself. The
    grid keeps the name, the preview, the reach and the tone in four columns so the
-   four rows read down as one scale rather than across as four settings. */
+   five rows read down as one scale rather than across as five settings. */
 /* One grid for the whole scale, and each tier inherits its tracks. The rows were
-   four independent grids sharing a `grid-template-columns` string, which is not
+   independent grids sharing a `grid-template-columns` string, which is not
    the same thing at all: the second track is `auto`, so each row sized it to its
    own preview chip and `within … days` landed at a different x in every row —
    237.75px, 184.06px, 167.89px, 182.22px, and sixteen pixels of raggedness down
-   a column whose whole job is to be read down. `subgrid` is what makes four rows
+   a column whose whole job is to be read down. `subgrid` is what makes five rows
    actually agree; the previous comment here claimed they did. */
 /* Four tracks, and the *chip* is the elastic one. It used to be `auto` with the
    reach cell taking `1fr`, which held while the reach cell's neighbour was a
@@ -8104,7 +8104,7 @@ button.tag-mark:focus-visible {
    longest label in English; in Korean the labels are two syllables and the column
    held fifty pixels of nothing between the name and the date it names, which read
    as two separate columns of information rather than one row about one tier. It is
-   as wide as the widest label and no wider — `subgrid` means all four rows still
+   as wide as the widest label and no wider — `subgrid` means all five rows still
    agree on it — and the fifty pixels go to the preview, which wanted them. */
 .due-tiers {
   display: grid;
@@ -8147,7 +8147,7 @@ button.tag-mark:focus-visible {
 /* ── A number that reads as a word ──
    `within [7] days` is a sentence with a control in it. The control was a 64×32
    ringed field: the only drawn box in the scale, eight pixels taller than the
-   chips and swatches in the rows either side of it, so the four rows of one
+   chips and swatches in the rows either side of it, so the five rows of one
    ordered scale had two different heights and the eye went to the one number
    nobody came here to look at.
 
@@ -8155,7 +8155,7 @@ button.tag-mark:focus-visible {
    control that reads as a word at rest, takes the one hover colour under the
    pointer, and shows the field's resting ring only once the caret is actually in
    it. At `--target` tall it is exactly the height of everything beside it, so the
-   scale reads down as four rows of one thing. The native spinner goes with the
+   scale reads down as five rows of one thing. The native spinner goes with the
    box; the arrow keys it stood for still work, and 24×36 is over the hit floor.
 
    Not shadcn's `Input`, deliberately: that component *is* the inset field this
@@ -8205,10 +8205,10 @@ button.tag-mark:focus-visible {
   }
 }
 
-/* The two tiers with no reach to set still occupy the column, so the swatch rows
+/* The three tiers with no reach to set still occupy the column, so the swatch rows
    line up down the whole scale. Without the explicit placement auto-flow puts
    them in the third track — a row with three children fills the first three
-   columns — and `overdue` and `later` wrapped their five swatches onto two lines
+   columns — and `overdue`, `today`, and `later` wrapped their swatches onto two lines
    in a column narrower than the other two rows'. */
 .due-tier > .color-choice {
   grid-column: 4;

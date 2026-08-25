@@ -651,6 +651,7 @@
   "task.due.later": "여유",
   "task.due.overdue": "지남",
   "task.due.soon": "임박",
+  "task.due.today": "오늘",
   "task.due.upcoming": "예정",
   "task.overdue": "기한 지남",
   "task.priority": "우선순위",

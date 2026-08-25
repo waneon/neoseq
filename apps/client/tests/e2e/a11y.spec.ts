@@ -147,8 +147,9 @@ test("a raised toast passes the basic audit", async ({ page }) => {
 });
 
 // Every new fill in the product is a new contrast pair, and the tinted date chip
-// is four of them at once — one per due tier — sitting on the canvas in both
-// modes. designs/foundations.md § Modes and Contrast commits the figures; this is the gate that keeps them true.
+// can take all five semantic tones while sitting on the canvas in both modes.
+// designs/foundations.md § Modes and Contrast commits the figures; this is the
+// gate that keeps them true.
 test("a task's marks and its tinted moments pass the basic audit", async ({ page }) => {
   await createGraph(page, "A11y Task Graph");
   await startOutline(page);
@@ -162,8 +163,8 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
     picker.getByRole("option", { name: "Medium", exact: true }).click());
   await expect(picker).toHaveCount(0);
 
-  // One block per tier would be four blocks; one block whose thresholds move is
-  // the same four pairs with less to set up.
+  // One block per tone would be five blocks; one block whose tone moves is the
+  // same five pairs with less to set up.
   await openBlockProperties(page);
   picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Deadline", exact: true }).click();
@@ -175,7 +176,7 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
     await page.evaluate((chosen) => {
       const raw = localStorage.getItem("neoseq.settings.v1");
       const settings = raw ? JSON.parse(raw) : {};
-      settings.dueTiers = { ...(settings.dueTiers ?? {}), soonTone: chosen };
+      settings.dueTiers = { ...(settings.dueTiers ?? {}), todayTone: chosen };
       localStorage.setItem("neoseq.settings.v1", JSON.stringify(settings));
       window.dispatchEvent(new StorageEvent("storage", { key: "neoseq.settings.v1" }));
     }, tone);

@@ -170,7 +170,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await mutateAndAwaitSaved(page, () => picker.getByTestId("date-parsed").click());
   await expect(picker).toHaveCount(0);
 
-  // Four days out, with the default 1/7 calendar-day spans, is `upcoming` — and blue on
+  // Four days out, with the default 3/7 calendar-day spans, is `upcoming` — and blue on
   // its own account, not the accent's: a step in an ordered scale may not change
   // colour because somebody chose a different accent.
   const deadline = page.getByTestId("task-chip-deadline");

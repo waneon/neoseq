@@ -66,6 +66,7 @@ const DATE_FORMAT_MESSAGE = {
 
 const DUE_TIER_MESSAGE = {
   overdue: "task.due.overdue",
+  today: "task.due.today",
   soon: "task.due.soon",
   upcoming: "task.due.upcoming",
   later: "task.due.later",
@@ -74,6 +75,7 @@ const DUE_TIER_MESSAGE = {
 /** Which stored tone field each tier reads, so the row and the chip agree. */
 const DUE_TONE_FIELD = {
   overdue: "overdueTone",
+  today: "todayTone",
   soon: "soonTone",
   upcoming: "upcomingTone",
   later: "laterTone",
@@ -330,7 +332,7 @@ function JournalSection() {
  * Both halves are the user's because neither is knowable from here: "soon" is a
  * week for someone planning a quarter and an hour for someone shipping today,
  * and which tone means "act now" is a habit people bring with them from whatever
- * they used before. What is *not* theirs is the shape — four ordered steps,
+ * they used before. What is *not* theirs is the shape — five ordered steps,
  * `overdue` first — because the ordering is what makes the tint readable at all.
  *
  * Each row previews itself with the real chip, in the real tone, at the real
@@ -346,8 +348,9 @@ function TasksSection() {
   // and keeps today's legible example.
   const exampleDay: Record<DueTier, number> = {
     overdue: -1,
-    soon: Math.max(tiers.soonDays - 1, 0),
-    upcoming: Math.max(tiers.upcomingDays - 1, 0),
+    today: 0,
+    soon: Math.max(tiers.soonDays - 1, 1),
+    upcoming: Math.max(tiers.upcomingDays - 1, 1),
     later: tiers.upcomingDays + 7,
   };
 
@@ -370,7 +373,7 @@ function TasksSection() {
                 data-due={tier}
                 data-palette={tone}
                 data-testid={`due-preview-${tier}`}
-                // The preview is the column that gives when four do not fit, so
+                // The preview is the column that gives when four tracks do not fit, so
                 // it carries the whole of itself for a reader who lost the end of
                 // it (designs/accessibility.md § Perception).
                 title={formatJournalDate(addDays(today, exampleDay[tier]))}

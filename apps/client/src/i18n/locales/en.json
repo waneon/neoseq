@@ -651,6 +651,7 @@
   "task.due.later": "Later",
   "task.due.overdue": "Overdue",
   "task.due.soon": "Due soon",
+  "task.due.today": "Today",
   "task.due.upcoming": "Upcoming",
   "task.overdue": "Overdue",
   "task.priority": "Priority",

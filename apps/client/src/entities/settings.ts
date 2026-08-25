@@ -43,7 +43,7 @@ export function isToneName(value: unknown): value is ToneName {
 }
 
 /**
- * How far off a date is, in the four steps the chips are tinted by. The two
+ * How far off a date is, in the five steps the chips are tinted by. The two
  * numbers are day counts the user owns; the tones name palette steps.
  */
 export interface DueTierSettings {
@@ -52,16 +52,18 @@ export interface DueTierSettings {
   /** Due in this many calendar days, counting today as day one, reads as `upcoming`. */
   upcomingDays: number;
   overdueTone: ToneName;
+  todayTone: ToneName;
   soonTone: ToneName;
   upcomingTone: ToneName;
   laterTone: ToneName;
 }
 
 export const DEFAULT_DUE_TIERS: DueTierSettings = {
-  soonDays: 1,
+  soonDays: 3,
   upcomingDays: 7,
   overdueTone: "danger",
-  soonTone: "attention",
+  todayTone: "attention",
+  soonTone: "info",
   upcomingTone: "info",
   laterTone: "neutral",
 };
@@ -169,7 +171,7 @@ export function journalDateFormat(): JournalDateFormat {
 
 /**
  * The stored due tiers, repaired into a usable shape. A partial or nonsense
- * record still has to produce four ordered steps, because the chips read them
+ * record still has to produce five ordered steps, because the chips read them
  * on every render: an unusable preference must cost the preference, not the
  * outline.
  */
@@ -187,6 +189,7 @@ export function dueTiers(): DueTierSettings {
     // be a step no date can reach.
     upcomingDays: Math.max(soonDays, days(stored.upcomingDays, DEFAULT_DUE_TIERS.upcomingDays)),
     overdueTone: tone(stored.overdueTone, DEFAULT_DUE_TIERS.overdueTone),
+    todayTone: tone(stored.todayTone, DEFAULT_DUE_TIERS.todayTone),
     soonTone: tone(stored.soonTone, DEFAULT_DUE_TIERS.soonTone),
     upcomingTone: tone(stored.upcomingTone, DEFAULT_DUE_TIERS.upcomingTone),
     laterTone: tone(stored.laterTone, DEFAULT_DUE_TIERS.laterTone),

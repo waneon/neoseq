@@ -171,7 +171,10 @@ describe("presentation preferences", () => {
     // is blue on its own account and not the accent's: a step in an ordered scale
     // may not move because somebody chose a different accent.
     expect(screen.getByTestId("due-preview-overdue")).toHaveAttribute("data-palette", "danger");
+    expect(screen.getByTestId("due-preview-today")).toHaveAttribute("data-palette", "attention");
+    expect(screen.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "info");
     expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "info");
+    expect(dueTiers().soonDays).toBe(3);
     expect(screen.queryByRole("button", { name: "Accent" })).not.toBeInTheDocument();
 
     // A colour is chosen by pressing the colour, not by reading its name out of

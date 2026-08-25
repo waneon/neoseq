@@ -665,6 +665,7 @@ export interface MessageArgumentMap {
   "task.due.later": undefined;
   "task.due.overdue": undefined;
   "task.due.soon": undefined;
+  "task.due.today": undefined;
   "task.due.upcoming": undefined;
   "task.overdue": undefined;
   "task.priority": undefined;

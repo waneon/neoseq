@@ -150,12 +150,12 @@ export function advanceDate(date: string, interval: RepeatInterval): string {
 
 // ── How far off a date is ──
 
-export const DUE_TIERS = ["overdue", "soon", "upcoming", "later"] as const;
+export const DUE_TIERS = ["overdue", "today", "soon", "upcoming", "later"] as const;
 
 export type DueTier = (typeof DUE_TIERS)[number];
 
 /**
- * Which of the four steps a moment falls in. The two thresholds are the user's
+ * Which of the five steps a moment falls in. The two thresholds are the user's
  * (designs/metadata.md § Moments); the boundaries themselves are not, because "already
  * past" and "further out than you asked about" are facts rather than choices. A
  * threshold counts calendar days with today as day one: one day reaches today,
@@ -177,6 +177,7 @@ export function dueTierOf(
   if (days === 0 && time && isTimeOfDay(time) && minutesOfDay(time) < minutesOfDay(nowTime)) {
     return "overdue";
   }
+  if (days === 0) return "today";
   if (days < tiers.soonDays) return "soon";
   if (days < tiers.upcomingDays) return "upcoming";
   return "later";
@@ -187,6 +188,8 @@ export function dueToneOf(tier: DueTier, tiers: DueTierSettings): ToneName {
   switch (tier) {
     case "overdue":
       return tiers.overdueTone;
+    case "today":
+      return tiers.todayTone;
     case "soon":
       return tiers.soonTone;
     case "upcoming":
