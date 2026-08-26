@@ -90,7 +90,7 @@ export function VisualVerificationPage() {
               </tr>
             </thead>
             <tbody>
-              {[0, 1].map((row) => (
+              {[0, 1, 2].map((row) => (
                 <tr key={row}>
                   <td data-interactive="true">
                     <QueryTableCellFrame>

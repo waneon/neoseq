@@ -5035,10 +5035,11 @@ button.query-disclosure:focus-visible {
 
 /* Rows are separated by the panel hairline, which is what a table of data is: a
    set of rows a reader's eye has to be able to travel along without losing the
-   line. The seam stops before the first row, because the header's own rule is
-   already there. */
-.query-table tbody tr + tr td {
-  box-shadow: inset 0 1px 0 var(--thread);
+   line. Every seam belongs to the bottom of the row before it. Painting a seam
+   inside the next row's top made the first row and every later row have
+   different visual interiors even when their boxes measured exactly alike. */
+.query-table tbody tr:not(:last-child) td {
+  box-shadow: inset 0 -1px 0 var(--thread);
 }
 
 .query-table[data-compact="true"] tbody td {
@@ -5171,14 +5172,27 @@ button.query-disclosure:focus-visible {
   padding-inline-end: var(--sp-6);
 }
 
-/* Selection belongs to the cell, not to the semantic object inside it. A task
-   glyph, a due tint and a textarea therefore advertise the same hit area. */
+/* Pointer and edit state are a wash contained by the cell. They do not draw a
+   second grid or borrow a pixel from a neighbour; row seams remain the table's
+   separate paint layer. */
 .query-table tbody td[data-interactive]:hover,
 .query-table tbody td[data-interactive]:focus-within,
 .query-table tbody td[data-active="true"] {
-  background: var(--surface-3);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background-color: var(--surface-3);
   color: var(--ink);
+}
+
+/* Keyboard focus is the only cell state that needs a ring. It belongs to the
+   canonical frame and is inset, so its paint can never cross a row or column
+   boundary. The focused child gives up the global outline to avoid stating the
+   same focus twice. */
+.query-table tbody td:has(:focus-visible) > .query-cell-frame {
+  box-shadow: var(--focus-inset);
+}
+
+.query-table .query-cell-control:focus-visible,
+.query-table .query-cell-control :focus-visible {
+  outline: none;
 }
 
 .query-table .query-cell-frame > .query-cell-open {

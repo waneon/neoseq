@@ -216,7 +216,7 @@ test("query table values share one row, type and content axis", async ({ page })
 
   const roomy = await measure();
   expect(roomy.frames).toBe(roomy.cells);
-  expect(roomy.rowHeights).toEqual([32, 32]);
+  expect(roomy.rowHeights).toEqual([32, 32, 32]);
   expect(new Set(roomy.fonts.map(String))).toEqual(new Set(["14px,20px"]));
   expect(roomy.axes.status).toBeCloseTo(roomy.axes.plain, 5);
   expect(roomy.axes.due).toBeCloseTo(roomy.axes.plain, 5);
@@ -224,15 +224,60 @@ test("query table values share one row, type and content axis", async ({ page })
 
   await table.evaluate((node) => node.setAttribute("data-compact", "true"));
   const compact = await measure();
-  expect(compact.rowHeights).toEqual([24, 24]);
+  expect(compact.rowHeights).toEqual([24, 24, 24]);
   expect(compact.axes).toEqual(roomy.axes);
 
-  const cells = table.locator("tbody tr").first().locator("td");
-  const fills: string[] = [];
+  const tableBefore = await table.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return [rect.width, rect.height, node.scrollWidth, node.scrollHeight];
+  });
+  const cells = table.locator("tbody td");
+  const paints: Array<{
+    fill: string;
+    cellRing: string;
+    frameRing: string;
+    layer: string;
+  }> = [];
   for (const cell of await cells.all()) {
     await cell.hover();
-    fills.push(await cell.evaluate((node) => getComputedStyle(node).backgroundColor));
+    paints.push(await cell.evaluate((node) => {
+      const style = getComputedStyle(node);
+      const frame = node.querySelector<HTMLElement>(":scope > .query-cell-frame");
+      if (!frame) throw new Error("interactive cell has no geometry frame");
+      return {
+        fill: style.backgroundColor,
+        cellRing: style.boxShadow,
+        frameRing: getComputedStyle(frame).boxShadow,
+        layer: style.zIndex,
+      };
+    }));
   }
-  expect(new Set(fills).size).toBe(1);
-  expect(fills[0]).not.toBe("rgba(0, 0, 0, 0)");
+  expect(new Set(paints.map(({ fill }) => fill)).size).toBe(1);
+  expect(paints[0]?.fill).not.toBe("rgba(0, 0, 0, 0)");
+  expect(paints.every(({ cellRing }) =>
+    cellRing === "none" || cellRing.includes("inset"))).toBe(true);
+  expect(new Set(paints.map(({ frameRing }) => frameRing))).toEqual(new Set(["none"]));
+  expect(new Set(paints.map(({ layer }) => layer))).toEqual(new Set(["auto"]));
+
+  const tableAfter = await table.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return [rect.width, rect.height, node.scrollWidth, node.scrollHeight];
+  });
+  expect(tableAfter).toEqual(tableBefore);
+
+  const lastRowButtons = table.locator("tbody tr").last().locator("button.query-cell-control");
+  await lastRowButtons.first().focus();
+  await page.keyboard.press("Tab");
+  await expect(lastRowButtons.nth(1)).toBeFocused();
+  const keyboardPaint = await lastRowButtons.nth(1).evaluate((control) => {
+    const frame = control.closest<HTMLElement>(".query-cell-frame");
+    if (!frame) throw new Error("focused cell has no geometry frame");
+    return {
+      frameRing: getComputedStyle(frame).boxShadow,
+      controlOutline: getComputedStyle(control).outlineStyle,
+    };
+  });
+  expect(keyboardPaint.frameRing).not.toBe("none");
+  expect(keyboardPaint.frameRing).toContain("inset");
+  expect(keyboardPaint.controlOutline).toBe("none");
 });

@@ -98,7 +98,10 @@ Every table value inhabits the same cell frame. The table owns that frame's row
 height, padding, typography, clipping, and interaction state; semantic
 renderers own only their ink and inline decoration. Compact density changes one
 row-height token rather than selecting alternate renderer rules. Secondary
-actions overlay the frame without changing the value's geometry.
+actions overlay the frame without changing the value's geometry. Interaction
+paint never leaves that frame: pointer and edit states use a contained fill,
+while keyboard focus alone adds an inset ring. Grid separators are independent
+and consistently belong to the preceding row's bottom edge.
 
 ## Standing Answers
 
