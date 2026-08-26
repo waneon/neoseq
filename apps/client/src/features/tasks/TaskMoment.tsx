@@ -17,7 +17,7 @@ export function TaskMoment({
   if (appearance === "cell") {
     return (
       <span
-        className="query-due"
+        className="query-due task-moment-value"
         data-task-moment={value.kind}
         data-due={value.due?.tier}
         {...tone}
@@ -42,7 +42,7 @@ export function TaskMoment({
     >
       <Glyph aria-hidden />
       <span className="task-chip-name">{value.label}</span>
-      <span className="task-chip-value">
+      <span className="task-chip-value task-moment-value">
         {value.dateLabel}
         {value.timeLabel && <span className="task-chip-time">{value.timeLabel}</span>}
       </span>

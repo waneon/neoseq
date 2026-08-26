@@ -70,6 +70,7 @@ describe("block surface contracts", () => {
       expect(projection).toHaveTextContent("August 26");
       expect(projection).toHaveTextContent("14:30");
     }
+    expect(container.querySelectorAll(".task-moment-value")).toHaveLength(2);
     expect(screen.getByRole("button", { name: /Scheduled August 26 14:30/ }))
       .toBeInTheDocument();
     expect(container.querySelector(".query-due")).toHaveAttribute(

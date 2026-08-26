@@ -329,7 +329,7 @@ export function CellValue({
   }
   if (isNumericTerm(term)) return <span className="query-num">{formatNumber(term.value)}</span>;
   if (term.kind === "literal" && term.datatype === XSD_DATE) {
-    return <span>{context.formatDate(term.value)}</span>;
+    return <span className="query-date">{context.formatDate(term.value)}</span>;
   }
   return <span>{term.value}</span>;
 }

@@ -1,4 +1,5 @@
 // Test-build-only visual fixture. Production routing never imports it.
+import { CheckIcon } from "lucide-react";
 import { TaskMomentPicker } from "../properties/TaskMomentPicker";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { TaskMoment } from "../tasks/TaskMoment";
@@ -82,11 +83,13 @@ export function VisualVerificationPage() {
           >
             <thead>
               <tr>
-                {["Status", "Scheduled", "Text", "Markdown"].map((label) => (
-                  <th key={label} scope="col">
-                    <div className="query-th"><span>{label}</span></div>
-                  </th>
-                ))}
+                {["Status", "Scheduled", "Text", "Markdown", "Tags", "Check"].map(
+                  (label) => (
+                    <th key={label} scope="col">
+                      <div className="query-th"><span>{label}</span></div>
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
@@ -128,6 +131,25 @@ export function VisualVerificationPage() {
                           className="query-markdown-preview"
                         />
                       </span>
+                    </QueryTableCellFrame>
+                  </td>
+                  <td data-interactive="true">
+                    <QueryTableCellFrame>
+                      <span className="query-cell-control">
+                        <span className="query-tags">
+                          <span className="query-tag-chip">project</span>
+                        </span>
+                      </span>
+                    </QueryTableCellFrame>
+                  </td>
+                  <td data-interactive="true">
+                    <QueryTableCellFrame>
+                      <button type="button" className="query-edit-trigger query-cell-control">
+                        <span className="query-check" data-checked="true">
+                          <CheckIcon aria-hidden />
+                          Yes
+                        </span>
+                      </button>
                     </QueryTableCellFrame>
                   </td>
                 </tr>

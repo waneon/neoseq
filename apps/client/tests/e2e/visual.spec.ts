@@ -195,6 +195,10 @@ test("query table values share one row, type and content axis", async ({ page })
     const due = first.querySelector<HTMLElement>(".query-due")!;
     const plain = first.querySelector<HTMLElement>(".query-contract-plain")!;
     const markdown = first.querySelector<HTMLElement>(".query-markdown-preview")!;
+    const tag = first.querySelector<HTMLElement>(".query-tag-chip")!;
+    const check = first.querySelector<HTMLElement>(".query-check")!;
+    const statusGlyph = status.querySelector<SVGElement>("svg")!;
+    const checkGlyph = check.querySelector<SVGElement>("svg")!;
     const inset = (element: Element, left: number): number =>
       left - element.closest("td")!.getBoundingClientRect().left;
     return {
@@ -205,11 +209,28 @@ test("query table values share one row, type and content axis", async ({ page })
         const style = getComputedStyle(control);
         return [style.fontSize, style.lineHeight];
       }),
+      semantics: {
+        plainNumbers: getComputedStyle(plain).fontVariantNumeric,
+        dueNumbers: getComputedStyle(due).fontVariantNumeric,
+        dueWeight: getComputedStyle(due).fontWeight,
+        tagSize: getComputedStyle(tag).fontSize,
+        tagWeight: getComputedStyle(tag).fontWeight,
+        statusGlyph: [
+          statusGlyph.getBoundingClientRect().width,
+          statusGlyph.getBoundingClientRect().height,
+        ],
+        checkGlyph: [
+          checkGlyph.getBoundingClientRect().width,
+          checkGlyph.getBoundingClientRect().height,
+        ],
+      },
       axes: {
         status: inset(status, status.getBoundingClientRect().left),
         due: inset(due, textLeft(due)),
         plain: inset(plain, textLeft(plain)),
         markdown: inset(markdown, textLeft(markdown)),
+        tag: inset(tag, textLeft(tag)),
+        check: inset(check, check.getBoundingClientRect().left),
       },
     };
   });
@@ -221,6 +242,17 @@ test("query table values share one row, type and content axis", async ({ page })
   expect(roomy.axes.status).toBeCloseTo(roomy.axes.plain, 5);
   expect(roomy.axes.due).toBeCloseTo(roomy.axes.plain, 5);
   expect(roomy.axes.markdown).toBeCloseTo(roomy.axes.plain, 5);
+  expect(roomy.axes.tag).toBeCloseTo(roomy.axes.plain, 5);
+  expect(roomy.axes.check).toBeCloseTo(roomy.axes.status, 5);
+  expect(roomy.semantics).toEqual({
+    plainNumbers: "normal",
+    dueNumbers: "tabular-nums",
+    dueWeight: "600",
+    tagSize: "14px",
+    tagWeight: "500",
+    statusGlyph: [16, 16],
+    checkGlyph: [16, 16],
+  });
 
   await table.evaluate((node) => node.setAttribute("data-compact", "true"));
   const compact = await measure();
@@ -280,4 +312,31 @@ test("query table values share one row, type and content axis", async ({ page })
   expect(keyboardPaint.frameRing).not.toBe("none");
   expect(keyboardPaint.frameRing).toContain("inset");
   expect(keyboardPaint.controlOutline).toBe("none");
+});
+
+test("task moments keep one semantic type voice across surfaces", async ({ page }) => {
+  await page.goto("/#/verify/visual");
+  const moments = page.locator(".visual-contracts article");
+  const outline = moments.nth(0).locator(".task-moment-value");
+  const table = moments.nth(1).locator(".task-moment-value");
+  await expect(outline).toBeVisible();
+  await expect(table).toBeVisible();
+
+  const typography = async (locator: typeof outline) =>
+    locator.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        numeric: style.fontVariantNumeric,
+        trackingEm: parseFloat(style.letterSpacing) / parseFloat(style.fontSize),
+      };
+    });
+  const outlineType = await typography(outline);
+  const tableType = await typography(table);
+
+  expect(tableType.family).toBe(outlineType.family);
+  expect(tableType.weight).toBe(outlineType.weight);
+  expect(tableType.numeric).toBe(outlineType.numeric);
+  expect(tableType.trackingEm).toBeCloseTo(outlineType.trackingEm, 5);
 });
