@@ -15,7 +15,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowUpRightIcon } from "lucide-react";
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSession, SessionState } from "../../core-port/session";
 import type { BlockSnapshot } from "../../core-port/snapshot";
@@ -770,7 +769,8 @@ function QueryMarkdownField({
     }
     const measure = () => {
       element.style.height = "0";
-      element.style.height = `${Math.max(element.scrollHeight, 24)}px`;
+      const minimum = surface === "queryTable" ? 20 : 24;
+      element.style.height = `${Math.max(element.scrollHeight, minimum)}px`;
       // Whether a value that outgrew its box is scrolled or cut is the
       // stylesheet's decision, so this reads it back rather than making it a
       // second time. Where the box was told to hide the remainder, the mark that
@@ -1024,7 +1024,10 @@ function QueryMarkdownField({
         <BlockMarkdown
           markdown={projected}
           variant={policy.markdown}
-          className="outline-markdown query-markdown-preview"
+          className={cn(
+            "query-markdown-preview",
+            policy.markdown === "block" && "outline-markdown",
+          )}
           onActivate={(caret, anchor, inputMethod) => {
             pendingCaret.current = caret ?? projected.length;
             activateVim(inputMethod);
@@ -1309,7 +1312,6 @@ export function EditableCellValue({
   row,
   editor,
   className,
-  showOpen = false,
 }: {
   term: RdfTerm | undefined;
   column: ResultColumn;
@@ -1317,12 +1319,11 @@ export function EditableCellValue({
   row: ResultViewRow;
   editor: QueryResultEditor;
   className?: string;
-  showOpen?: boolean;
 }): ReactNode {
   const binding = editor.bindingFor(row.subject, column);
   const current = binding && editor.isActive(binding, row) ? editor.active : null;
   if (binding?.kind === "markdown") {
-    const field = (
+    return (
       <QueryMarkdownField
         editor={editor}
         binding={binding}
@@ -1333,22 +1334,6 @@ export function EditableCellValue({
         column={column}
         surface="queryTable"
       />
-    );
-    if (!showOpen || !row.subject || !context.onOpen) return field;
-    return (
-      <span className="query-editable-route">
-        {field}
-        <button
-          type="button"
-          className="query-cell-open"
-          aria-label={context.message("query.openResult", {
-            name: term?.kind === "literal" && term.value ? term.value : column.label,
-          })}
-          onClick={() => context.onOpen?.(row.subject!)}
-        >
-          <ArrowUpRightIcon aria-hidden />
-        </button>
-      </span>
     );
   }
   const displayContext = binding ? { ...context, onOpen: undefined } : context;

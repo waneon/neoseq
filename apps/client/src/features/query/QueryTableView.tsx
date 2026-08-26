@@ -52,6 +52,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownIcon,
+  ArrowUpRightIcon,
   ArrowUpDownIcon,
   ArrowUpIcon,
   ChevronsLeftRightIcon,
@@ -80,6 +81,7 @@ import {
   type ResultViewRow,
 } from "./cells";
 import { EditableCellValue, type QueryResultEditor } from "./edit";
+import { QueryTableCellFrame } from "./QueryTableCell";
 
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
@@ -547,11 +549,23 @@ export function QueryTableView({
             >
               {row.getAllCells().map((cell, cellIndex) => {
                 const column = byVariable.get(cell.column.id);
+                const term = row.original.values[cell.column.id];
+                const binding = column
+                  ? editor.bindingFor(row.original.subject, column)
+                  : null;
+                const active = binding
+                  ? editor.isActive(binding, row.original)
+                  : false;
+                const canOpen = binding?.kind === "markdown"
+                  && row.original.subject !== undefined
+                  && context.onOpen !== undefined;
                 return (
                   <td
                     key={cell.id}
                     aria-colindex={cellIndex + 1}
                     data-numeric={column?.numeric || undefined}
+                    data-interactive={binding ? true : undefined}
+                    data-active={active || undefined}
                     // The seam runs the height of the column, because a column is
                     // what is being placed. Every cell draws its own two pixels
                     // and they stack into one line, which costs nothing and needs
@@ -564,14 +578,31 @@ export function QueryTableView({
                       </span>
                     )}
                     {column && (
-                      <EditableCellValue
-                        term={row.original.values[cell.column.id]}
-                        column={column}
-                        context={context}
-                        row={row.original}
-                        editor={editor}
-                        showOpen
-                      />
+                      <QueryTableCellFrame
+                        action={canOpen ? (
+                          <button
+                            type="button"
+                            className="query-cell-open"
+                            aria-label={message("query.openResult", {
+                              name: term?.kind === "literal" && term.value
+                                ? term.value
+                                : column.label,
+                            })}
+                            onClick={() => context.onOpen?.(row.original.subject!)}
+                          >
+                            <ArrowUpRightIcon aria-hidden />
+                          </button>
+                        ) : undefined}
+                      >
+                        <EditableCellValue
+                          term={term}
+                          column={column}
+                          context={context}
+                          row={row.original}
+                          editor={editor}
+                          className="query-cell-control"
+                        />
+                      </QueryTableCellFrame>
                     )}
                   </td>
                 );

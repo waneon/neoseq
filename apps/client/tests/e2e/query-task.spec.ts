@@ -200,7 +200,8 @@ test("a result's order accumulates across headings and survives a reload", async
 test("a result cell reads as the writing it quotes, centred on its row", async ({ page }) => {
   await createGraph(page, "Query Cell Graph");
   await startOutline(page);
-  await typeInFocusedBlock(page, "a task worth quoting");
+  await typeInFocusedBlock(page, "a **task** worth quoting");
+  await page.getByTestId("block-markdown").first().click();
   const first = page.getByLabel("Block text").first();
   await first.click();
   await first.press("End");
@@ -215,12 +216,12 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
 
   const cell = table.locator("tbody td").first();
   const heading = table.locator("thead th").first();
-  const block = page.getByLabel("Block text").first();
+  const block = page.getByTestId("block-markdown").first();
 
   const inks = await cell.evaluate((node) => {
     const table_ = node.closest("table");
     const th = table_.querySelector("thead th");
-    const line = document.querySelector(".outline-text textarea");
+    const line = document.querySelector(".outline-text .block-markdown");
     return {
       cell: getComputedStyle(node).color,
       align: getComputedStyle(node).verticalAlign,
@@ -237,6 +238,24 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
   expect(inks.align).toBe("middle");
   await expect(heading).toBeVisible();
   await expect(block).toBeVisible();
+
+  const shellContract = await table.locator("tbody tr").first().evaluate((row) => {
+    const cells = [...row.querySelectorAll<HTMLElement>("td:not(.query-cell-filler)")];
+    return cells.map((cell) => {
+      const frame = cell.querySelector<HTMLElement>(":scope > .query-cell-frame");
+      const control = frame?.querySelector<HTMLElement>(":scope > .query-cell-control");
+      const style = control ? getComputedStyle(control) : null;
+      return {
+        frame: frame !== null,
+        control: control !== null,
+        fontSize: style?.fontSize,
+        lineHeight: style?.lineHeight,
+      };
+    });
+  });
+  expect(shellContract.every((cell) => cell.frame && cell.control)).toBe(true);
+  expect(new Set(shellContract.map((cell) => `${cell.fontSize}/${cell.lineHeight}`)))
+    .toEqual(new Set(["14px/20px"]));
 
   // Whatever the cell's own content is, it is vertically centred in the cell:
   // a filled editable trigger claims the whole height, so the centring has to be

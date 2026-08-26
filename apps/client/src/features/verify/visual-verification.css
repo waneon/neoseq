@@ -50,6 +50,15 @@
   font-weight: 600;
 }
 
+.visual-query-contract {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.visual-query-contract .query-table {
+  background: var(--canvas);
+}
+
 @media (max-width: 600px) {
   .visual-verification-section {
     flex-direction: column;

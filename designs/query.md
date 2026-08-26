@@ -94,6 +94,12 @@ quiet. Cells align within the full row rather than hanging from its top. List
 rows hang from a content indent; table rules span the object because grid
 structure, unlike outline hierarchy, depends on full-width tracks.
 
+Every table value inhabits the same cell frame. The table owns that frame's row
+height, padding, typography, clipping, and interaction state; semantic
+renderers own only their ink and inline decoration. Compact density changes one
+row-height token rather than selecting alternate renderer rules. Secondary
+actions overlay the frame without changing the value's geometry.
+
 ## Standing Answers
 
 Journal standing answers begin after the outline's append region. They need no

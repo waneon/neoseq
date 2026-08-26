@@ -3517,9 +3517,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
    The tone comes from `--tone`, which the chip receives as the *name* of a step
    the reader chose. See designs/foundations.md § Semantic Color and
    designs/metadata.md § Moments. Everything the chip states is still written:
-   the day, the time, and the word `Overdue` when one has passed. The tint is the
-   second reading — what makes a page of dates scannable without reading any of
-   them — and never the only one.
+   the day and optional time. The tint is the second reading — what makes a page
+   of dates scannable without reading any of them — and never the only one.
 
    The label mixes 30% ink into the tone rather than taking it neat. At 12px, the
    lighter tones sit under 4.5:1 on the canvas on their own; pulling each one
@@ -3557,21 +3556,45 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
    Untinted it is text. A settled row has no urgency left to report (designs/metadata.md § Tasks), and
    a pill with no tone would be an empty ring round a date for no reason. */
-.query-due[data-due] {
+.query-due {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
   max-width: 100%;
+}
+
+.query-due[data-due] {
   height: var(--target);
   padding: 0 var(--sp-2);
   border-radius: var(--r-full);
   font-weight: var(--weight-medium);
 }
 
-/* A compact row is exactly the chip's own height, so the pill gives back the
-   four pixels its ring would otherwise draw on the row separator. */
-.query-table[data-compact="true"] .query-due[data-due] {
+/* The table aligns written values, not the padding of the objects around them.
+   Its tone is therefore a paint layer extending into the cell gutter: the date
+   keeps the same x-axis as plain text while the moment remains a scannable pill. */
+.query-table .query-due {
   height: 20px;
+  padding: 0;
+}
+
+.query-table .query-due[data-due] {
+  position: relative;
+  isolation: isolate;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.query-table .query-due[data-due]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 -6px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 44%, transparent);
+  pointer-events: none;
 }
 
 .query-due-date {
@@ -4768,6 +4791,8 @@ button.query-disclosure:focus-visible {
    browser redistribute the difference across its neighbours — the column being
    dragged was never the only one that moved. */
 .query-table {
+  --query-row-h: var(--sp-6);
+  --query-cell-px: var(--sp-2);
   width: 100%;
   /* No `min-width: max-content`. Under a *fixed* layout a cell is already cut to
      its declared width, so the only thing an intrinsic minimum could do was
@@ -4802,7 +4827,7 @@ button.query-disclosure:focus-visible {
 .query-table thead .query-cell-filler {
   padding: 0;
   background: transparent;
-  box-shadow: inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 -1px 0 var(--thread);
   color: var(--ink-3);
   font-size: 11px;
   line-height: var(--lh-xs);
@@ -4868,6 +4893,10 @@ button.query-disclosure:focus-visible {
 
 .query-table[data-compact="true"] .query-th {
   height: var(--sp-5);
+}
+
+.query-table[data-compact="true"] {
+  --query-row-h: var(--sp-5);
 }
 
 /* The heading is the sort control. It carries no button chrome at rest, because
@@ -4995,7 +5024,8 @@ button.query-disclosure:focus-visible {
    in a table of task facts is most of them. Cells centre. */
 .query-table tbody td {
   position: relative;
-  padding: 6px var(--sp-2);
+  height: var(--query-row-h);
+  padding: 0;
   color: var(--ink);
   vertical-align: middle;
   overflow: hidden;
@@ -5012,8 +5042,7 @@ button.query-disclosure:focus-visible {
 }
 
 .query-table[data-compact="true"] tbody td {
-  padding-block: 0;
-  height: var(--sp-5);
+  height: var(--query-row-h);
 }
 
 .query-table[data-wrap="true"] tbody td {
@@ -5080,25 +5109,6 @@ button.query-disclosure:focus-visible {
   text-underline-offset: 2px;
 }
 
-/* A cell that names something is a route to it. The cross-surface editing rule
-   in designs/query.md § Table and List Views applies here for the same reason: a
-   16px-tall run of text in a 28px cell left most of the row dead and asked the
-   reader to aim at the words. The link fills the cell and takes the cell's
-   padding, so the whole cell is the target and the hover wash reads as "this
-   cell". */
-.query-table tbody td:has(> .query-link) {
-  padding: 0;
-}
-
-.query-table tbody td > .query-link {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  max-width: none;
-  min-height: 100%;
-  padding: 6px var(--sp-2);
-}
-
 /* Query cells remain result cells at rest. Editability appears only on hover or
    keyboard focus, using the same filled focus state as every Neoseq input. */
 .query-edit-trigger {
@@ -5114,139 +5124,81 @@ button.query-disclosure:focus-visible {
   cursor: text;
 }
 
-/* ── An editable cell is editable everywhere ──
-   In a table the words are not the target, the cell is. A trigger sized to its
-   own text left most of a column dead: a two-character value in a 180px column
-   answered a press across 20px of it and ignored the other 160, and the reader
-   had to aim at the text to open something the whole cell claimed to be. So an
-   editable cell hands its padding to its control and the control fills the cell,
-   which is also what makes the hover wash read as "this cell", not "these
-   words". */
-.query-table tbody td:has(
-  > .query-edit-trigger,
-  > .query-editable-route,
-  > .query-result-editor
-) {
-  padding: 0;
-}
-
-.query-table tbody td > .query-editable-route {
+/* ── One cell, one geometry ──
+   Every semantic renderer enters the same frame. The table owns its row height,
+   typography, padding, clipping and interaction wash here; status, moments,
+   Markdown and editors may change only what is drawn inside that box. No
+   percentage height is resolved against a content-sized table row, and no
+   `:has()` branch moves padding between a cell and whichever child happens to
+   be mounted today. */
+.query-cell-frame {
   position: relative;
   display: flex;
+  align-items: center;
   width: 100%;
-  height: 100%;
-  align-items: stretch;
+  min-width: 0;
+  min-height: var(--query-row-h);
 }
 
-.query-table tbody td > .query-edit-trigger,
-.query-table tbody td > .query-editable-route > .query-edit-trigger,
-.query-table tbody td > .query-editable-route > .query-result-editor,
-.query-table tbody td > .query-result-editor {
-  width: 100%;
-  max-width: none;
-  height: 100%;
-  padding: var(--sp-1) var(--sp-2);
-  border-radius: 0;
-}
-
-/* A control that claims the cell's full height owns the centring the cell can
-   no longer do for it: `vertical-align` reaches a cell's inline content, not
-   the inside of a block child that was told to be 100% tall. The value keeps
-   the cell's clipping, which is why it is the child and not the button that
-   carries the ellipsis. */
-.query-table tbody td > .query-edit-trigger,
-.query-table tbody td > .query-editable-route > .query-edit-trigger {
+.query-table .query-cell-control {
   display: flex;
   align-items: center;
-}
-
-/* The writing surface owes the same debt, on the other axis: it is a column, so
-   the centring is `justify-content`. It comes due on a compact row, where the
-   cell states a height, the editor's `100%` therefore resolves against it, and
-   the value inside a control taller than one line hung from the ceiling — four
-   pixels above the links and chips on the same row. */
-.query-table tbody td > .query-result-editor,
-.query-table tbody td > .query-editable-route > .query-result-editor {
-  justify-content: center;
-}
-
-.query-table tbody td > .query-edit-trigger > *,
-.query-table tbody td > .query-editable-route > .query-edit-trigger > * {
+  width: 100%;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-height: var(--query-row-h);
+  max-width: none;
+  margin: 0;
+  padding:
+    calc((var(--query-row-h) - var(--lh-sm)) / 2)
+    var(--query-cell-px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
   white-space: inherit;
-}
-
-/* The route out of the cell floats over its end rather than taking a column of
-   its own, so the press target does not shrink when the pointer arrives; the
-   reserved padding is there at rest, so nothing shifts either. */
-.query-table tbody td > .query-editable-route > .query-edit-trigger {
-  padding-right: var(--sp-6);
-}
-
-.query-table tbody td > .query-editable-route > .query-result-editor {
-  padding-right: var(--sp-6);
-}
-
-/* Centred on the cell rather than pinned to its top corner: with both block
-   edges given and no height of its own to fill them, `margin-block: auto`
-   resolves to the leftover space split in two — no transform, so nothing here
-   is a composited layer. */
-.query-table tbody td > .query-editable-route > .query-cell-open {
-  position: absolute;
-  inset-block: var(--sp-1);
-  margin-block: auto;
-  right: var(--sp-1);
-}
-
-.query-table[data-compact="true"] tbody td > .query-edit-trigger,
-.query-table[data-compact="true"] tbody td > .query-editable-route > .query-edit-trigger,
-.query-table[data-compact="true"] tbody td > .query-editable-route > .query-result-editor,
-.query-table[data-compact="true"] tbody td > .query-result-editor {
-  padding-block: 0;
-}
-
-/* A trigger standing on its own now owns the cell's clipping too — the cell's
-   own `text-overflow` cannot reach text inside a block child. */
-.query-table tbody td > .query-edit-trigger {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* The cell gave its padding away; the sentence that shares the cell needs it. */
+.query-table .query-cell-control > * {
+  min-width: 0;
+}
+
+.query-table .query-cell-frame[data-has-action] > .query-cell-control {
+  padding-inline-end: var(--sp-6);
+}
+
+/* Selection belongs to the cell, not to the semantic object inside it. A task
+   glyph, a due tint and a textarea therefore advertise the same hit area. */
+.query-table tbody td[data-interactive]:hover,
+.query-table tbody td[data-interactive]:focus-within,
+.query-table tbody td[data-active="true"] {
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+}
+
+.query-table .query-cell-frame > .query-cell-open {
+  position: absolute;
+  inset-block: 0;
+  right: var(--sp-1);
+  margin-block: auto;
+}
+
 .query-table tbody td > .query-result-stale {
-  padding: var(--sp-1) var(--sp-2) 0;
+  padding: var(--sp-1) var(--query-cell-px) 0;
 }
 
-/* And where that sentence is present the control is no longer alone in the cell,
-   so it stops claiming the cell's full height and simply sits under it. */
-.query-table tbody td:has(> .query-result-stale) > .query-editable-route,
-.query-table tbody td:has(> .query-result-stale) > .query-edit-trigger {
-  height: auto;
-}
-
-.query-edit-trigger:hover,
-.query-edit-trigger:focus-visible,
-.query-edit-trigger[data-active="true"] {
+.query-edit-trigger:not(.query-cell-control):hover,
+.query-edit-trigger:not(.query-cell-control):focus-visible,
+.query-edit-trigger:not(.query-cell-control)[data-active="true"] {
   outline: none;
   background: var(--surface-3);
   box-shadow: var(--e1);
   color: var(--ink);
-}
-
-.query-editable-route {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  max-width: 100%;
-}
-
-.query-editable-route > .query-edit-trigger {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: inherit;
 }
 
 .query-cell-open {
@@ -5265,7 +5217,8 @@ button.query-disclosure:focus-visible {
   cursor: pointer;
 }
 
-.query-editable-route:hover .query-cell-open,
+.query-cell-frame:hover .query-cell-open,
+.query-cell-frame:focus-within .query-cell-open,
 .query-cell-open:focus-visible {
   opacity: 1;
 }
@@ -5319,26 +5272,16 @@ button.query-disclosure:focus-visible {
   outline: none;
 }
 
-/* The textarea is the settled cell too, so focus no longer swaps one box for
-   another. A table still advertises that its whole cell is editable; a list
-   keeps the outline's quiet writing surface. */
-.query-table .query-result-editor:hover,
-.query-table .query-result-editor:focus-within,
-.query-table .query-result-editor[data-active="true"] {
-  background: var(--surface-3);
-  box-shadow: var(--e1);
+/* A table editor is merely another value inside the frame. Its line is exactly
+   the table line; the frame supplies both the control target and its centring. */
+.query-table .query-result-editor.query-cell-control {
+  align-items: stretch;
+  justify-content: center;
 }
 
-/* ── A value sits on the row's centre line ──
-   The editable cell's control floor is taller than the line it holds: 24px of
-   target around a 20px line leaves four pixels, and with all four below the text
-   every value in an editable column drew two pixels above the links and chips
-   beside it — a table whose columns do not share a baseline. Half the difference
-   on each side is the whole fix, and it costs nothing: the floor is still 24px,
-   so the hover fill, the focus ring and the caret keep their size, and the
-   auto-height measure reads the padding as part of the line it grows by. */
-.query-table .query-result-input {
-  padding-block: calc((var(--target) - var(--lh-sm)) / 2);
+.query-table .query-cell-control > .query-result-input {
+  min-height: var(--lh-sm);
+  padding: 0;
 }
 
 /* ── A cut value ends in a mark, not a scrollbar ──
@@ -5550,18 +5493,18 @@ button.query-block-content:focus-visible {
 
 /* Task marks in a block result are the outline controls, even though the
    query-level coordinator owns their draft/pinning lifecycle. */
-.task-status-toggle.query-edit-trigger,
-.task-priority-toggle.query-edit-trigger {
+.query-list .task-status-toggle.query-edit-trigger,
+.query-list .task-priority-toggle.query-edit-trigger {
   max-width: none;
   border-radius: var(--r-2);
 }
 
-.task-status-toggle.query-edit-trigger:hover,
-.task-status-toggle.query-edit-trigger:focus-visible,
-.task-status-toggle.query-edit-trigger[data-active="true"],
-.task-priority-toggle.query-edit-trigger:hover,
-.task-priority-toggle.query-edit-trigger:focus-visible,
-.task-priority-toggle.query-edit-trigger[data-active="true"] {
+.query-list .task-status-toggle.query-edit-trigger:hover,
+.query-list .task-status-toggle.query-edit-trigger:focus-visible,
+.query-list .task-status-toggle.query-edit-trigger[data-active="true"],
+.query-list .task-priority-toggle.query-edit-trigger:hover,
+.query-list .task-priority-toggle.query-edit-trigger:focus-visible,
+.query-list .task-priority-toggle.query-edit-trigger[data-active="true"] {
   box-shadow: none;
 }
 

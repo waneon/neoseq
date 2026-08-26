@@ -170,3 +170,69 @@ test("a bare Option key does not turn pointer focus into a keyboard ring", async
   await expect.poll(() => timeToggle.evaluate((node) => getComputedStyle(node).boxShadow))
     .toBe("none");
 });
+
+test("query table values share one row, type and content axis", async ({ page }) => {
+  await page.goto("/#/verify/visual");
+  const table = page.getByTestId("visual-query-table");
+  await expect(table).toBeVisible();
+
+  const measure = () => table.evaluate((node) => {
+    const rows = [...node.querySelectorAll<HTMLElement>("tbody tr")];
+    const controls = [...node.querySelectorAll<HTMLElement>(".query-cell-control")];
+    const textLeft = (element: Element): number => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let text = walker.nextNode();
+      while (text && !text.textContent?.trim()) text = walker.nextNode();
+      if (!text) throw new Error("cell value has no text");
+      const start = text.textContent!.search(/\S/);
+      const range = document.createRange();
+      range.setStart(text, start);
+      range.setEnd(text, start + 1);
+      return range.getBoundingClientRect().left;
+    };
+    const first = rows[0]!;
+    const status = first.querySelector<HTMLElement>(".query-status")!;
+    const due = first.querySelector<HTMLElement>(".query-due")!;
+    const plain = first.querySelector<HTMLElement>(".query-contract-plain")!;
+    const markdown = first.querySelector<HTMLElement>(".query-markdown-preview")!;
+    const inset = (element: Element, left: number): number =>
+      left - element.closest("td")!.getBoundingClientRect().left;
+    return {
+      rowHeights: rows.map((row) => row.getBoundingClientRect().height),
+      frames: node.querySelectorAll("tbody td > .query-cell-frame").length,
+      cells: node.querySelectorAll("tbody td").length,
+      fonts: controls.map((control) => {
+        const style = getComputedStyle(control);
+        return [style.fontSize, style.lineHeight];
+      }),
+      axes: {
+        status: inset(status, status.getBoundingClientRect().left),
+        due: inset(due, textLeft(due)),
+        plain: inset(plain, textLeft(plain)),
+        markdown: inset(markdown, textLeft(markdown)),
+      },
+    };
+  });
+
+  const roomy = await measure();
+  expect(roomy.frames).toBe(roomy.cells);
+  expect(roomy.rowHeights).toEqual([32, 32]);
+  expect(new Set(roomy.fonts.map(String))).toEqual(new Set(["14px,20px"]));
+  expect(roomy.axes.status).toBeCloseTo(roomy.axes.plain, 5);
+  expect(roomy.axes.due).toBeCloseTo(roomy.axes.plain, 5);
+  expect(roomy.axes.markdown).toBeCloseTo(roomy.axes.plain, 5);
+
+  await table.evaluate((node) => node.setAttribute("data-compact", "true"));
+  const compact = await measure();
+  expect(compact.rowHeights).toEqual([24, 24]);
+  expect(compact.axes).toEqual(roomy.axes);
+
+  const cells = table.locator("tbody tr").first().locator("td");
+  const fills: string[] = [];
+  for (const cell of await cells.all()) {
+    await cell.hover();
+    fills.push(await cell.evaluate((node) => getComputedStyle(node).backgroundColor));
+  }
+  expect(new Set(fills).size).toBe(1);
+  expect(fills[0]).not.toBe("rgba(0, 0, 0, 0)");
+});

@@ -3,6 +3,8 @@ import { TaskMomentPicker } from "../properties/TaskMomentPicker";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { TaskMoment } from "../tasks/TaskMoment";
 import type { TaskMomentPresentation } from "../tasks/moment-presentation";
+import { TaskStatusGlyph } from "../tasks/glyphs";
+import { QueryTableCellFrame } from "../query/QueryTableCell";
 import "./visual-verification.css";
 
 const moment: TaskMomentPresentation = {
@@ -69,6 +71,69 @@ export function VisualVerificationPage() {
         <article>
           <h2>Markdown · table</h2>
           <BlockMarkdown markdown={"## Shared meaning — **compact** projection"} variant="compact" />
+        </article>
+        <article className="visual-query-contract">
+          <h2>Query table · geometry contract</h2>
+          <table
+            className="query-table"
+            data-compact="false"
+            data-wrap="false"
+            data-testid="visual-query-table"
+          >
+            <thead>
+              <tr>
+                {["Status", "Scheduled", "Text", "Markdown"].map((label) => (
+                  <th key={label} scope="col">
+                    <div className="query-th"><span>{label}</span></div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[0, 1].map((row) => (
+                <tr key={row}>
+                  <td data-interactive="true">
+                    <QueryTableCellFrame>
+                      <button type="button" className="query-edit-trigger query-cell-control">
+                        <span className="query-status">
+                          <TaskStatusGlyph status="todo" />
+                          To-do
+                        </span>
+                      </button>
+                    </QueryTableCellFrame>
+                  </td>
+                  <td data-interactive="true">
+                    <QueryTableCellFrame>
+                      <button type="button" className="query-edit-trigger query-cell-control">
+                        <TaskMoment value={moment} appearance="cell" />
+                      </button>
+                    </QueryTableCellFrame>
+                  </td>
+                  <td data-interactive="true">
+                    <QueryTableCellFrame>
+                      <button
+                        type="button"
+                        className="query-edit-trigger query-cell-control query-contract-plain"
+                      >
+                        anybridge meeting
+                      </button>
+                    </QueryTableCellFrame>
+                  </td>
+                  <td data-interactive="true">
+                    <QueryTableCellFrame>
+                      <span className="query-cell-control">
+                        <BlockMarkdown
+                          markdown="**anybridge** meeting"
+                          variant="compact"
+                          className="query-markdown-preview"
+                        />
+                      </span>
+                    </QueryTableCellFrame>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </article>
       </section>
     </main>
