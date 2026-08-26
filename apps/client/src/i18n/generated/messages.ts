@@ -677,7 +677,6 @@ export interface MessageArgumentMap {
   "task.due.upcoming": undefined;
   "task.momentPlaceholder": undefined;
   "task.momentSearch": undefined;
-  "task.overdue": undefined;
   "task.priority": undefined;
   "task.priority.high": undefined;
   "task.priority.low": undefined;

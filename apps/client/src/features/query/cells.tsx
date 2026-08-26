@@ -332,8 +332,7 @@ export function CellValue({
  * day's column in the compiler's own namespace (§ momentTimeVariable), because
  * a moment is a day plus an optional time and half of one is not a moment. That
  * also makes the tier here the *moment's*: a job due at nine this morning is
- * overdue by ten, and reads that way in a table exactly as it does in the
- * outline.
+ * overdue by ten, and receives the same overdue tone as it does in the outline.
  */
 function DueValue({
   date,
@@ -355,7 +354,6 @@ function DueValue({
   const due = row ? context.dueTone?.(date, time, row) : undefined;
   const day = context.formatDate(date);
   const clock = time ? context.formatTime(time) : null;
-  const overdue = due?.tier === "overdue";
   return (
     <span
       className="query-due"
@@ -365,15 +363,10 @@ function DueValue({
       // so the moment ellipsises here more often than it does anywhere else.
       // The whole of it stays readable: nothing in the product is cut off with
       // no way to read the rest (designs/accessibility.md § Perception).
-      title={[day, clock, overdue ? context.message("task.overdue") : null]
-        .filter(Boolean)
-        .join(" · ")}
+      title={[day, clock].filter(Boolean).join(" · ")}
     >
       <span className="query-due-date">{day}</span>
       {clock && <span className="query-due-time">{clock}</span>}
-      {overdue && (
-        <span className="query-due-overdue">{context.message("task.overdue")}</span>
-      )}
     </span>
   );
 }

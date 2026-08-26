@@ -383,9 +383,6 @@ function TasksSection() {
                 <span className="task-chip-value">
                   {formatJournalDate(addDays(today, exampleDay[tier]))}
                 </span>
-                {tier === "overdue" && (
-                  <span className="task-chip-overdue">{message("task.overdue")}</span>
-                )}
               </span>
               {daysField && (
                 <label className="due-tier-days">

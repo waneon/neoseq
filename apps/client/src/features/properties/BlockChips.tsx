@@ -134,7 +134,6 @@ export function BlockChips({
           {time && <span className="task-chip-time">{formatTimeOfDay(time)}</span>}
         </span>
         {repeat && <RepeatIcon className="task-chip-repeat" aria-hidden />}
-        {tier === "overdue" && <span className="task-chip-overdue">{message("task.overdue")}</span>}
       </button>
     );
   };

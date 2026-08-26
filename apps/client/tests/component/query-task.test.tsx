@@ -163,10 +163,10 @@ describe("query and task projections", () => {
     const priority = await screen.findByTestId("task-priority-toggle");
     expect(priority).toHaveAccessibleName("Priority: High");
     expect(screen.queryByTestId("task-chip-priority")).not.toBeInTheDocument();
-    // A deadline in the past on an unsettled task says so in words, and takes the
-    // overdue tier's tone.
+    // A deadline in the past keeps the overdue tier's tone without appending a
+    // redundant status label to the date.
     const deadline = await screen.findByTestId("task-chip-deadline");
-    expect(deadline).toHaveTextContent("Overdue");
+    expect(deadline).not.toHaveTextContent("Overdue");
     expect(deadline).toHaveAttribute("data-due", "overdue");
     expect(deadline).toHaveAttribute("data-palette", "danger");
     // Task facts are positioned renderers, not generic rows: the same fact is

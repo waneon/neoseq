@@ -3544,11 +3544,6 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-weight: var(--weight-strong);
 }
 
-.task-chip-overdue,
-.query-due-overdue {
-  font-weight: 600;
-}
-
 /* ── The same moment, in a cell ──
    A query column of `Scheduled` or `Deadline` draws the object the strip under a
    block draws: the day in full, in a pill the tone of how far off it is. Before

@@ -171,6 +171,7 @@ describe("presentation preferences", () => {
     // is blue on its own account and not the accent's: a step in an ordered scale
     // may not move because somebody chose a different accent.
     expect(screen.getByTestId("due-preview-overdue")).toHaveAttribute("data-palette", "danger");
+    expect(screen.getByTestId("due-preview-overdue")).not.toHaveTextContent("Overdue");
     expect(screen.getByTestId("due-preview-today")).toHaveAttribute("data-palette", "attention");
     expect(screen.getByTestId("due-preview-soon")).toHaveAttribute("data-palette", "caution");
     expect(screen.getByTestId("due-preview-upcoming")).toHaveAttribute("data-palette", "info");
