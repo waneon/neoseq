@@ -98,21 +98,16 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
     picker.getByRole("option", { name: "To-do", exact: true }).click());
   await expect(picker).toHaveCount(0);
 
-  // `/` is the editor's route to a moment. Search resolves the date and 24-hour
-  // clock together; Done persists that whole draft as one operation.
+  // `/` is the editor's route to a moment. Natural input resolves and persists
+  // the date, 24-hour clock, and recurrence as one operation.
   await page.getByLabel("Block text").pressSequentially(" /sched");
   await expect(page.getByTestId("slash-menu")).toBeVisible();
   await page.keyboard.press("Enter");
   picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Date or time").fill(`${localDate(4)} 21:30`);
-  await picker.getByLabel("Date or time").press("Enter");
-  await expect(picker).toBeVisible();
-  await picker.getByTestId("moment-repeat-toggle").click();
-  await picker.getByTestId("moment-repeat-count").fill("2");
-  await chooseFromMenu(page, picker.getByTestId("moment-repeat-unit"), "Weeks");
-  await expect(picker.getByTestId("moment-pane-rules").getByText("Every 2 weeks"))
-    .toBeVisible();
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
+  const naturalInput = picker.getByLabel("Date, time, or repeat");
+  await naturalInput.fill(`${localDate(4)} 21:30 every 2 weeks`);
+  await expect(picker.getByTestId("moment-search-result")).toContainText("Every 2 weeks");
+  await mutateAndAwaitSaved(page, () => naturalInput.press("Enter"));
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-repeat")).toContainText("Every 2 weeks");
 
@@ -149,12 +144,12 @@ test("a moment keeps language and adjacent-month choices inside its draft", asyn
   await page.keyboard.press("Enter");
 
   const picker = page.getByTestId("property-picker");
-  const input = picker.getByLabel("Date or time");
+  const input = picker.getByLabel("Date, time, or repeat");
   await input.fill("2031-11-18");
-  await input.press("Enter");
+  await picker.getByTestId("moment-search-result").click();
 
-  // Enter resolves the local draft and follows it to the right month; Done is
-  // still the only persistence and dismissal boundary.
+  // Choosing the proposal resolves a local draft and follows it to the right
+  // month without persisting; Enter on the input is the immediate route.
   await expect(picker).toBeVisible();
   await expect(picker.locator(".moment-calendar-title")).toContainText("2031");
   await expect(picker.locator(".moment-calendar-cell[data-selected]")).toHaveText("18");
@@ -179,9 +174,9 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await expect(page.getByTestId("slash-menu")).toBeVisible();
   await page.keyboard.press("Enter");
   const picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Date or time").fill(localDate(4));
-  await picker.getByLabel("Date or time").press("Enter");
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
+  await picker.getByLabel("Date, time, or repeat").fill(localDate(4));
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByLabel("Date, time, or repeat").press("Enter"));
   await expect(picker).toHaveCount(0);
 
   // Four days out, with the default 3/7 calendar-day spans, is `upcoming` — and blue on

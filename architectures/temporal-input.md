@@ -22,15 +22,18 @@ flowchart LR
     Result --> Feature[Picker or command]
 ```
 
-Language packs own words, word order, morphology, and locale-specific clock
-forms. They recognize text into a small semantic intent vocabulary: absolute or
-calendar dates, relative calendar units, weekdays, and optional clock time. They
-do not perform date arithmetic or read global time.
+Language packs own words, word order, morphology, and locale-specific clock and
+recurrence forms. They recognize text into a small semantic intent vocabulary:
+absolute or calendar dates, relative calendar units, weekdays, optional clock
+time, and recurrence count/unit pairs. They do not perform date arithmetic,
+encode task storage strings, or read global time.
 
 The resolver owns validation and calendar arithmetic. Its explicit context
 anchors relative expressions to the same local day used by journals. A month is
-a calendar month, not a fixed number of days. Only resolved ISO dates and
-`HH:MM` times cross into feature or persistence code.
+a calendar month, not a fixed number of days. Resolved recurrence remains
+locale-neutral until the consuming task feature maps it to its stable storage
+model. Only resolved ISO dates, `HH:MM` times, and validated recurrence meaning
+cross into feature code.
 
 ## Registry and Fallback
 
@@ -55,6 +58,7 @@ languages or code for morphology, but it must consume the whole normalized
 input and emit only shared intents.
 
 Verification covers every declared pack's examples, invariant input in every
-locale, impossible dates, calendar boundary arithmetic, localized clock forms,
-and locale fallback. Parser implementation can later be code-split or replaced
+locale, impossible dates, calendar boundary arithmetic, localized clock and
+recurrence forms, suffix ordering, and locale fallback. Parser implementation
+can later be code-split or replaced
 behind the same runtime contract without changing features or stored values.

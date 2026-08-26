@@ -71,6 +71,34 @@ describe("localized temporal input", () => {
     });
   });
 
+  it("recognizes recurrence in either suffix order without exposing storage codes", () => {
+    expect(matched(en.parseMoment("2026-08-24 09:30 every 3 days", context))).toEqual({
+      date: "2026-08-24",
+      time: "09:30",
+      recurrence: { count: 3, unit: "day" },
+    });
+    expect(matched(en.parseMoment("tomorrow 3:05 pm every 2 weeks", context))).toEqual({
+      date: "2026-08-05",
+      time: "15:05",
+      recurrence: { count: 2, unit: "week" },
+    });
+    expect(matched(en.parseMoment("tomorrow monthly 09:00", context))).toEqual({
+      date: "2026-08-05",
+      time: "09:00",
+      recurrence: { count: 1, unit: "month" },
+    });
+    expect(matched(ko.parseMoment("내일 오후 3시 2주마다", context))).toEqual({
+      date: "2026-08-05",
+      time: "15:00",
+      recurrence: { count: 2, unit: "week" },
+    });
+    expect(matched(ko.parseMoment("내일 매 2주 오후 3시", context))).toEqual({
+      date: "2026-08-05",
+      time: "15:00",
+      recurrence: { count: 2, unit: "week" },
+    });
+  });
+
   it("keeps invariant ISO input available in every language", () => {
     expect(matched(en.parseDate("2026-08-05", context))).toBe("2026-08-05");
     expect(matched(ko.parseMoment("2026-08-05 21:30", context))).toEqual({
@@ -86,6 +114,8 @@ describe("localized temporal input", () => {
     expectNoMatch(en.parseDate("", context));
     expectNoMatch(ko.parseDate("2월 30일", context));
     expectNoMatch(ko.parseMoment("내일 오후 13시", context));
+    expectNoMatch(ko.parseMoment("내일 2주", context));
+    expectNoMatch(en.parseMoment("tomorrow every 0 weeks", context));
   });
 
   it("holds every declared language pack to executable examples", () => {

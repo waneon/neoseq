@@ -166,7 +166,7 @@ describe("property picker", () => {
     await waitFor(() => expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"));
   });
 
-  it("applies a task date and time as one undoable moment", async () => {
+  it("proposes and immediately applies a natural task moment with recurrence", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
     await session.execute({
@@ -186,23 +186,22 @@ describe("property picker", () => {
 
     await user.click(await screen.findByTestId("task-chip-scheduled"));
     const picker = await screen.findByTestId("property-picker");
-    fireEvent.change(within(picker).getByLabelText("Date or time"), {
-      target: { value: "2026-08-24 09:30" },
+    const naturalInput = within(picker).getByLabelText("Date, time, or repeat");
+    fireEvent.change(naturalInput, {
+      target: { value: "2026-08-24 09:30 every 3 days" },
     });
-    fireEvent.keyDown(within(picker).getByLabelText("Date or time"), { key: "Enter" });
-    expect(within(picker).getByTestId("moment-picker")).toBeInTheDocument();
-    await user.click(within(picker).getByTestId("moment-repeat-toggle"));
-    fireEvent.change(within(picker).getByTestId("moment-repeat-count"), {
-      target: { value: "3" },
-    });
+    const proposal = await within(picker).findByTestId("moment-search-result");
+    expect(proposal).toHaveTextContent("09:30");
+    expect(proposal).toHaveTextContent("Every 3 days");
 
-    // Search, quick choices, calendar, clock, and cadence only shape a local draft.
+    // A proposal is only a preview until Enter applies all three facts together.
     let block = session.getState().snapshot.pages[0]?.blocks[0];
     expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
     expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();
     expect(block && stringValue(block.properties, "builtin.task-repeat")).toBeUndefined();
 
-    await user.click(within(picker).getByTestId("moment-apply"));
+    fireEvent.keyDown(naturalInput, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument());
     await waitFor(() => {
       block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-24");
@@ -240,11 +239,11 @@ describe("property picker", () => {
 
     await user.click(await screen.findByTestId("task-chip-scheduled"));
     const picker = await screen.findByTestId("property-picker");
-    fireEvent.change(within(picker).getByLabelText("Date or time"), {
+    const naturalInput = within(picker).getByLabelText("Date, time, or repeat");
+    fireEvent.change(naturalInput, {
       target: { value: "2026-08-24" },
     });
-    fireEvent.keyDown(within(picker).getByLabelText("Date or time"), { key: "Enter" });
-    await user.click(within(picker).getByTestId("moment-apply"));
+    fireEvent.keyDown(naturalInput, { key: "Enter" });
 
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];

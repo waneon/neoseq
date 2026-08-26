@@ -87,7 +87,7 @@ test("focus edges survive clipping in every visual project", async ({ page }, te
   await page.locator("html").evaluate((root) => root.style.setProperty("--accent-h", "18"));
 
   const picker = page.getByTestId("visual-focus-picker");
-  const field = picker.getByLabel("Date or time");
+  const field = picker.getByLabel("Date, time, or repeat");
   await expect(field).toBeFocused();
 
   const tokens = await page.locator("html").evaluate((root) => {

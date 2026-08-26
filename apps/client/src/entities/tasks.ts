@@ -14,6 +14,7 @@
 import { addDays, addMonths, dayDifference } from "./journal";
 import { stringChoicesOf } from "./properties";
 import type { DueTierSettings, ToneValue } from "./settings";
+import type { TemporalRecurrenceIntent } from "./temporal";
 
 export const TASK_STATUS_KEY = "builtin.task-status";
 export const TASK_SCHEDULED_KEY = "builtin.task-scheduled";
@@ -128,6 +129,20 @@ export function parseRepeat(value: string): RepeatInterval | null {
 
 export function formatRepeat(interval: RepeatInterval): string {
   return `${interval.count}${interval.unit}`;
+}
+
+/** Adapt locale-neutral temporal meaning to the task recurrence storage model. */
+export function repeatFromTemporalRecurrence(
+  recurrence: TemporalRecurrenceIntent,
+): RepeatInterval {
+  const unit: RepeatUnit = recurrence.unit === "day"
+    ? "d"
+    : recurrence.unit === "week"
+      ? "w"
+      : recurrence.unit === "month"
+        ? "m"
+        : "y";
+  return { count: recurrence.count, unit };
 }
 
 /**

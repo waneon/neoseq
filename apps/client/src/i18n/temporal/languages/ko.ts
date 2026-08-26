@@ -1,11 +1,12 @@
 import type { TemporalDateIntent } from "../../../entities/temporal";
 import {
   extractTrailing24HourTime,
+  recognizeMomentParts,
+  type ExtractedRecurrence,
   type ExtractedTime,
 } from "../shared";
 import {
   NO_TEMPORAL_MATCH,
-  mapTemporalRecognition,
   temporalMatch,
   type TemporalLanguagePack,
   type TemporalRecognition,
@@ -76,21 +77,51 @@ function extractKoreanTime(input: string): ExtractedTime | null {
     : null;
 }
 
+function extractKoreanRecurrence(input: string): ExtractedRecurrence | null {
+  const shorthand = /(?:^|\s)(매일|매주|매월|매년)$/.exec(input);
+  if (shorthand) {
+    const unit = shorthand[1] === "매일"
+      ? "day"
+      : shorthand[1] === "매주"
+        ? "week"
+        : shorthand[1] === "매월"
+          ? "month"
+          : "year";
+    return {
+      rest: input.slice(0, shorthand.index).trim(),
+      recurrence: { count: 1, unit },
+    };
+  }
+  const interval = /(?:^|\s)(\d{1,3})\s*(일|주|주일|개월|달|년)마다$/.exec(input)
+    ?? /(?:^|\s)매\s*(\d{1,3})\s*(일|주|주일|개월|달|년)(?:마다)?$/.exec(input);
+  if (!interval) return null;
+  const unit = interval[2] === "주" || interval[2] === "주일"
+    ? "week"
+    : interval[2] === "개월" || interval[2] === "달"
+      ? "month"
+      : interval[2] === "년"
+        ? "year"
+        : "day";
+  return {
+    rest: input.slice(0, interval.index).trim(),
+    recurrence: { count: Number(interval[1]), unit },
+  };
+}
+
 function recognizeMoment(input: string) {
-  const extracted = extractKoreanTime(input) ?? extractTrailing24HourTime(input);
-  if (!extracted) return NO_TEMPORAL_MATCH;
-  if (!extracted.rest) return temporalMatch({ time: extracted.time });
-  return mapTemporalRecognition(recognizeDate(extracted.rest), (date) => ({
-    date,
-    time: extracted.time,
-  }));
+  return recognizeMomentParts(
+    input,
+    recognizeDate,
+    (value) => extractKoreanTime(value) ?? extractTrailing24HourTime(value),
+    extractKoreanRecurrence,
+  );
 }
 
 const koreanTemporalPack: TemporalLanguagePack = {
   support: "full",
   examples: {
     dates: ["오늘", "내일", "3일 전", "다음 금요일", "8월 5일"],
-    moments: ["내일 오후 3시 5분", "8월 5일 9시"],
+    moments: ["내일 오후 3시 5분", "8월 5일 9시", "내일 2주마다"],
   },
   recognizeDate,
   recognizeMoment,

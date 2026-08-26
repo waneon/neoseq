@@ -12,10 +12,10 @@ import {
   typeInFocusedBlock,
 } from "./helpers";
 
-async function audit(page: Page): Promise<string[]> {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa"])
-    .analyze();
+async function audit(page: Page, include?: string): Promise<string[]> {
+  let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]);
+  if (include) builder = builder.include(include);
+  const results = await builder.analyze();
   return results.violations
     .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
     .flatMap((violation) =>
@@ -168,9 +168,11 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   await openBlockProperties(page);
   picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Deadline", exact: true }).click();
-  await picker.getByLabel("Date or time").fill("today");
-  await picker.getByLabel("Date or time").press("Enter");
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());
+  await picker.getByLabel("Date, time, or repeat").fill("today");
+  await expect(picker.getByTestId("moment-search-result")).toBeVisible();
+  expect(await audit(page, '[data-testid="moment-search-result"]')).toEqual([]);
+  await mutateAndAwaitSaved(page, () =>
+    picker.getByLabel("Date, time, or repeat").press("Enter"));
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
 

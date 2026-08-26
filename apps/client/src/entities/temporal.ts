@@ -28,9 +28,17 @@ export interface TemporalTimeIntent {
   readonly minute: number;
 }
 
+export type TemporalRecurrenceUnit = "day" | "week" | "month" | "year";
+
+export interface TemporalRecurrenceIntent {
+  readonly count: number;
+  readonly unit: TemporalRecurrenceUnit;
+}
+
 export interface TemporalMomentIntent {
   readonly date?: TemporalDateIntent;
   readonly time?: TemporalTimeIntent;
+  readonly recurrence?: TemporalRecurrenceIntent;
 }
 
 export interface TemporalContext {
@@ -40,6 +48,7 @@ export interface TemporalContext {
 export interface ResolvedMoment {
   readonly date: string;
   readonly time?: string;
+  readonly recurrence?: TemporalRecurrenceIntent;
 }
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -105,20 +114,43 @@ export function resolveMomentIntent(
   intent: TemporalMomentIntent,
   context: TemporalContext,
 ): ResolvedMoment | null {
-  if (!isCalendarDate(context.today) || (!intent.date && !intent.time)) return null;
-  const date = intent.date ? resolveDateIntent(intent.date, context) : context.today;
-  if (!date) return null;
-  if (!intent.time) return { date };
-  const { hour, minute } = intent.time;
   if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
+    !isCalendarDate(context.today) ||
+    (!intent.date && !intent.time && !intent.recurrence)
   ) {
     return null;
   }
-  return { date, time: `${pad(hour)}:${pad(minute)}` };
+  const date = intent.date ? resolveDateIntent(intent.date, context) : context.today;
+  if (!date) return null;
+  let time: string | undefined;
+  if (intent.time) {
+    const { hour, minute } = intent.time;
+    if (
+      !Number.isInteger(hour) ||
+      !Number.isInteger(minute) ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59
+    ) {
+      return null;
+    }
+    time = `${pad(hour)}:${pad(minute)}`;
+  }
+  if (intent.recurrence) {
+    const { count, unit } = intent.recurrence;
+    if (
+      !Number.isInteger(count) ||
+      count < 1 ||
+      count > 999 ||
+      !(["day", "week", "month", "year"] as const).includes(unit)
+    ) {
+      return null;
+    }
+  }
+  return {
+    date,
+    ...(time ? { time } : {}),
+    ...(intent.recurrence ? { recurrence: intent.recurrence } : {}),
+  };
 }

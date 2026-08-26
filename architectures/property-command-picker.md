@@ -153,12 +153,14 @@ Value controls are selected from the property type and definition:
 - generic dates use one natural-language field, quick rows for today / tomorrow /
   next week, and the native date input as the precision fallback. A **task**
   moment instead opens one compact product-owned editor: natural-language
-  date/time input, an accessible month calendar, an optional segmented 24-hour
-  clock, and the task's shared recurrence all shape one local draft. Enter
-  resolves language and moves the calendar without committing or dismissing;
-  adjacent-month dates rendered in the grid are selectable. Time and recurrence
-  retain fixed slots when disabled, so toggling changes no surrounding geometry.
-  Done applies the date, companion `-time` fact, and any changed
+  date/time/recurrence input, an accessible month calendar, an optional segmented
+  24-hour clock, and the task's shared recurrence. Valid natural input exposes a
+  proposal containing the full resolved intent. Enter applies it immediately and
+  dismisses after a successful save; choosing the proposal moves it into the
+  adjustable local draft. Adjacent-month dates rendered in the grid are
+  selectable. Time and recurrence retain fixed slots when disabled, so toggling
+  changes no surrounding geometry. Done applies the manual draft's date,
+  companion `-time` fact, and any changed
   `builtin.task-repeat` through one property patch; Cancel applies none. An
   uninterpreted stored recurrence is preserved until the recurrence control is
   deliberately changed;

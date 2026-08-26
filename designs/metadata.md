@@ -89,15 +89,16 @@ A task moment is one object composed of a day and optional time. It keeps the
 same written and tonal identity across outline chips and query cells, while its
 outer affordance follows the surface: the chip edits directly, whereas an
 interactive result cell owns the edit action.
-Its editor holds date, time, and the task-level recurrence as one draft. Search,
-the calendar, the clock, and the cadence never persist partial state; Enter
-resolves language into that draft without dismissing it, explicit confirmation
-applies the whole intent as one undoable change, and cancellation applies none
-of it. The calendar follows every resolved date and treats the adjacent dates it
-shows as real choices. On a wide surface a compact date column sits beside fixed
-time and recurrence slots; disabled slots remain visible and quiet so toggles do
-not move the editor. A compact surface preserves the two work areas as tabs
-instead of stacking them into a long sheet.
+Its editor treats date, time, and task-level recurrence as one intent. Natural
+input exposes its full interpretation as a proposal; Enter applies that proposal
+and dismisses after a successful save, while choosing the proposal moves it into
+the local draft for further adjustment. The calendar, clock, and cadence controls
+shape that draft without persisting partial state; Done applies it as one undoable
+change and cancellation applies none of it. The calendar follows every chosen
+date and treats the adjacent dates it shows as real choices. On a wide surface a
+compact date column sits beside fixed time and recurrence slots; disabled slots
+remain visible and quiet so toggles do not move the editor. A compact surface
+preserves the two work areas as tabs instead of stacking them into a long sheet.
 
 Urgency is expressed by both language and a bounded semantic tone. A time of day
 is never presented as an independent query column because it has no meaning

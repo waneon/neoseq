@@ -6078,10 +6078,76 @@ button.query-list-status[data-active="true"] {
   overscroll-behavior: contain;
 }
 
+.moment-search-block {
+  position: relative;
+  z-index: 2;
+}
+
 .moment-search {
   position: relative;
   display: flex;
   align-items: center;
+}
+
+.moment-search-proposals {
+  position: absolute;
+  inset: calc(100% + var(--sp-1)) 0 auto;
+  z-index: 3;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--raised);
+  box-shadow: var(--e2);
+}
+
+.moment-search-proposals > button {
+  display: flex;
+  width: 100%;
+  min-height: var(--sp-6);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: calc(var(--r-2) - 2px);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.moment-search-proposals > button:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 18%, var(--raised));
+}
+
+.moment-search-proposals > button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.moment-search-proposals svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--accent);
+}
+
+.moment-search-result-details {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-inline-start: auto;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.moment-search-result-details strong {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
 }
 
 .moment-search > svg {

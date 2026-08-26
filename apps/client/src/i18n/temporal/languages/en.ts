@@ -1,11 +1,12 @@
 import type { TemporalDateIntent } from "../../../entities/temporal";
 import {
   extractTrailing24HourTime,
+  recognizeMomentParts,
+  type ExtractedRecurrence,
   type ExtractedTime,
 } from "../shared";
 import {
   NO_TEMPORAL_MATCH,
-  mapTemporalRecognition,
   temporalMatch,
   type TemporalLanguagePack,
   type TemporalRecognition,
@@ -111,21 +112,52 @@ function extractEnglishTime(input: string): ExtractedTime | null {
   };
 }
 
+function extractEnglishRecurrence(input: string): ExtractedRecurrence | null {
+  const shorthand = /(?:^|\s)(daily|weekly|monthly|yearly|annually)$/.exec(input);
+  if (shorthand) {
+    const unit = shorthand[1] === "daily"
+      ? "day"
+      : shorthand[1] === "weekly"
+        ? "week"
+        : shorthand[1] === "monthly"
+          ? "month"
+          : "year";
+    return {
+      rest: input.slice(0, shorthand.index).trim(),
+      recurrence: { count: 1, unit },
+    };
+  }
+  const every = /(?:^|\s)every\s+(?:(\d{1,3})\s+)?(day|days|week|weeks|month|months|year|years)$/.exec(
+    input,
+  );
+  if (!every) return null;
+  const unit = every[2].startsWith("week")
+    ? "week"
+    : every[2].startsWith("month")
+      ? "month"
+      : every[2].startsWith("year")
+        ? "year"
+        : "day";
+  return {
+    rest: input.slice(0, every.index).trim(),
+    recurrence: { count: Number(every[1] ?? 1), unit },
+  };
+}
+
 function recognizeMoment(input: string) {
-  const extracted = extractEnglishTime(input) ?? extractTrailing24HourTime(input);
-  if (!extracted) return NO_TEMPORAL_MATCH;
-  if (!extracted.rest) return temporalMatch({ time: extracted.time });
-  return mapTemporalRecognition(recognizeDate(extracted.rest), (date) => ({
-    date,
-    time: extracted.time,
-  }));
+  return recognizeMomentParts(
+    input,
+    recognizeDate,
+    (value) => extractEnglishTime(value) ?? extractTrailing24HourTime(value),
+    extractEnglishRecurrence,
+  );
 }
 
 const englishTemporalPack: TemporalLanguagePack = {
   support: "full",
   examples: {
     dates: ["today", "tomorrow", "3 days ago", "next friday", "aug 5"],
-    moments: ["tomorrow 14:30", "next friday 3:05 pm"],
+    moments: ["tomorrow 14:30", "next friday 3:05 pm", "tomorrow every 2 weeks"],
   },
   recognizeDate,
   recognizeMoment,

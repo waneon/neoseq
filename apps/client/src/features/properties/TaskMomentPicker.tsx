@@ -16,6 +16,7 @@ import {
   TimeField,
 } from "react-aria-components";
 import {
+  CalendarIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
@@ -29,6 +30,7 @@ import {
   DEFAULT_REPEAT,
   formatRepeat,
   parseRepeat,
+  repeatFromTemporalRecurrence,
   REPEAT_UNITS,
   type RepeatInterval,
   type RepeatUnit,
@@ -97,9 +99,9 @@ function AdjacentMonthCell({
 }
 
 /**
- * A task moment is one local draft: day, optional clock, and task cadence.
- * Every route edits that draft; only Done persists it. This keeps natural
- * language, pointer, and keyboard changes inside one undo boundary.
+ * A task moment is one intent: day, optional clock, and task cadence. Calendar
+ * controls shape a local draft; natural input previews the resolved intent and
+ * Enter applies it directly. Both routes persist through one undo boundary.
  */
 export function TaskMomentPicker({
   date: initialDate,
@@ -113,7 +115,7 @@ export function TaskMomentPicker({
   onClear,
   onCancel,
 }: TaskMomentPickerProps) {
-  const { locale, message, formatJournalDate, temporal } = useI18n();
+  const { locale, message, formatJournalDate, formatTimeOfDay, temporal } = useI18n();
   const today = todayLocalDate();
   const [date, setDate] = useState(initialDate);
   const [focusedDate, setFocusedDate] = useState(() => parseDate(initialDate));
@@ -132,6 +134,9 @@ export function TaskMomentPicker({
     [query, temporal, today],
   );
   const parsed = parsedResult.kind === "match" ? parsedResult.value : null;
+  const parsedRepeat = parsed?.recurrence
+    ? repeatFromTemporalRecurrence(parsed.recurrence)
+    : null;
   const calendarDate = parseDate(date);
   const disabled = readonly || busy;
   const repeatChange = repeatChanged ? (repeat ? formatRepeat(repeat) : null) : undefined;
@@ -152,13 +157,27 @@ export function TaskMomentPicker({
       setTime(parsed.time);
       setRememberedTime(parsed.time);
     }
+    if (parsedRepeat) setRepeatValue(parsedRepeat);
     setQuery("");
   };
 
   const applyParsed = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.nativeEvent.isComposing || !parsed || disabled) return;
     event.preventDefault();
-    selectParsed();
+    onApply(
+      parsed.date,
+      parsed.time ?? time,
+      parsedRepeat ? formatRepeat(parsedRepeat) : repeatChange,
+    );
+  };
+
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" && parsed) {
+      event.preventDefault();
+      document.getElementById(`${paneId}-moment-proposal`)?.focus({ preventScroll: true });
+      return;
+    }
+    applyParsed(event);
   };
 
   const setTimeValue = (value: Time | null) => {
@@ -230,18 +249,50 @@ export function TaskMomentPicker({
               aria-labelledby={`${paneId}-date-tab`}
               data-testid="moment-pane-date"
             >
-              <div className="moment-search">
-                <SearchIcon aria-hidden />
-                <Input
-                  className="!ps-10"
-                  autoFocus
-                  aria-label={message("task.momentSearch")}
-                  placeholder={message("task.momentPlaceholder")}
-                  value={query}
-                  readOnly={disabled}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={applyParsed}
-                />
+              <div className="moment-search-block">
+                <div className="moment-search">
+                  <SearchIcon aria-hidden />
+                  <Input
+                    className="!ps-10"
+                    autoFocus
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={Boolean(parsed)}
+                    aria-controls={parsed ? `${paneId}-moment-proposals` : undefined}
+                    aria-activedescendant={parsed ? `${paneId}-moment-proposal` : undefined}
+                    aria-label={message("task.momentSearch")}
+                    placeholder={message("task.momentPlaceholder")}
+                    value={query}
+                    readOnly={disabled}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={onSearchKeyDown}
+                  />
+                </div>
+
+                {query.trim() && parsed && (
+                  <div
+                    id={`${paneId}-moment-proposals`}
+                    className="moment-search-proposals"
+                    role="listbox"
+                  >
+                    <button
+                      id={`${paneId}-moment-proposal`}
+                      type="button"
+                      role="option"
+                      aria-selected="true"
+                      disabled={disabled}
+                      data-testid="moment-search-result"
+                      onClick={selectParsed}
+                    >
+                      <CalendarIcon aria-hidden />
+                      <span>{formatJournalDate(parsed.date)}</span>
+                      <span className="moment-search-result-details">
+                        {parsed.time && <strong>{formatTimeOfDay(parsed.time)}</strong>}
+                        {parsedRepeat && <strong>{repeatLabel(parsedRepeat, message)}</strong>}
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <Calendar

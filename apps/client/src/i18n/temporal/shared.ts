@@ -1,6 +1,12 @@
-import type { TemporalDateIntent, TemporalTimeIntent } from "../../entities/temporal";
+import type {
+  TemporalDateIntent,
+  TemporalMomentIntent,
+  TemporalRecurrenceIntent,
+  TemporalTimeIntent,
+} from "../../entities/temporal";
 import {
   NO_TEMPORAL_MATCH,
+  mapTemporalRecognition,
   temporalMatch,
   type TemporalRecognition,
 } from "./types";
@@ -13,6 +19,56 @@ const TRAILING_CLOCK = /(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)$/;
 export interface ExtractedTime {
   readonly rest: string;
   readonly time: TemporalTimeIntent;
+}
+
+export interface ExtractedRecurrence {
+  readonly rest: string;
+  readonly recurrence: TemporalRecurrenceIntent;
+}
+
+/**
+ * Compose independent trailing clock and recurrence phrases around one localized
+ * date. Repeating the extraction permits either suffix order without teaching
+ * the shared parser any language-specific words.
+ */
+export function recognizeMomentParts(
+  input: string,
+  recognizeDate: (input: string) => TemporalRecognition<TemporalDateIntent>,
+  extractTime: (input: string) => ExtractedTime | null,
+  extractRecurrence: (input: string) => ExtractedRecurrence | null,
+): TemporalRecognition<TemporalMomentIntent> {
+  let rest = input;
+  let time: TemporalTimeIntent | undefined;
+  let recurrence: TemporalRecurrenceIntent | undefined;
+
+  for (let index = 0; index < 2; index += 1) {
+    const nextRecurrence = recurrence ? null : extractRecurrence(rest);
+    if (nextRecurrence) {
+      recurrence = nextRecurrence.recurrence;
+      rest = nextRecurrence.rest;
+      continue;
+    }
+    const nextTime = time ? null : extractTime(rest);
+    if (nextTime) {
+      time = nextTime.time;
+      rest = nextTime.rest;
+      continue;
+    }
+    break;
+  }
+
+  if (!time && !recurrence) return NO_TEMPORAL_MATCH;
+  const parts = {
+    ...(time ? { time } : {}),
+    ...(recurrence ? { recurrence } : {}),
+  };
+  if (!rest) return temporalMatch(parts);
+  const invariantDate = recognizeInvariantDate(rest);
+  const date = invariantDate.kind === "none" ? recognizeDate(rest) : invariantDate;
+  return mapTemporalRecognition(date, (recognizedDate) => ({
+    date: recognizedDate,
+    ...parts,
+  }));
 }
 
 export function normalizeTemporalInput(input: string, locale: string): string {
