@@ -8,20 +8,22 @@ import { chooseFromMenu, GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openView
 async function mountTagged() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
   const { session } = harness;
-  await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-  await session.execute({
-    type: "set_property",
-    owner: { kind: "tag_default", tag_id: "project" },
-    key: "builtin.task-status",
-    value: { type: "string", value: "todo" },
-  });
-  await session.execute({
-    type: "insert_block",
-    owner: { kind: "page", id: "home" },
-    parent: null,
-    index: 0,
-    markdown: "existing status",
+  await harness.settle(async () => {
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    await session.execute({
+      type: "set_property",
+      owner: { kind: "tag_default", tag_id: "project" },
+      key: "builtin.task-status",
+      value: { type: "string", value: "todo" },
+    });
+    await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "existing status",
+    });
   });
   await waitFor(() => expect(screen.getByTestId("page-title")).toHaveValue("Home"));
   return harness;
@@ -273,14 +275,16 @@ describe("the tags screen", () => {
   });
 
   it("says what each tag does and leads to it", async () => {
-    const { session, router } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session, router, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
-    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-    await session.execute({
-      type: "set_property",
-      owner: { kind: "tag_default", tag_id: "project" },
-      key: "builtin.task-priority",
-      value: { type: "string", value: "high" },
+    await settle(async () => {
+      await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+      await session.execute({
+        type: "set_property",
+        owner: { kind: "tag_default", tag_id: "project" },
+        key: "builtin.task-priority",
+        value: { type: "string", value: "high" },
+      });
     });
 
     const row = await screen.findByTestId("tag-row");
@@ -297,21 +301,25 @@ describe("the tags screen", () => {
   });
 
   it("files a tag into a group, and renaming the group rewrites its members", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
-    await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-    await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
+    await settle(async () => {
+      await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+      await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
+    });
     // One tag with no group at all: the only heading there could be says nothing.
     expect(screen.queryByTestId("tag-group-name")).not.toBeInTheDocument();
 
-    for (const id of ["project", "reading"]) {
-      await session.execute({
-        type: "set_property",
-        owner: { kind: "tag", tag_id: id },
-        key: "builtin.tag-group",
-        value: { type: "string", value: "Areas" },
-      });
-    }
+    await settle(async () => {
+      for (const id of ["project", "reading"]) {
+        await session.execute({
+          type: "set_property",
+          owner: { kind: "tag", tag_id: id },
+          key: "builtin.tag-group",
+          value: { type: "string", value: "Areas" },
+        });
+      }
+    });
     await waitFor(() =>
       expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
     );
@@ -336,17 +344,19 @@ describe("the tags screen", () => {
   });
 
   it("reorders tags inside a group, and says where the drop will land", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
-    for (const [id, name] of [["a", "Alpha"], ["b", "Bravo"], ["c", "Charlie"]]) {
-      await session.execute({ type: "ensure_tag", tag_id: id, name });
-      await session.execute({
-        type: "set_property",
-        owner: { kind: "tag", tag_id: id },
-        key: "builtin.tag-group",
-        value: { type: "string", value: "Areas" },
-      });
-    }
+    await settle(async () => {
+      for (const [id, name] of [["a", "Alpha"], ["b", "Bravo"], ["c", "Charlie"]]) {
+        await session.execute({ type: "ensure_tag", tag_id: id, name });
+        await session.execute({
+          type: "set_property",
+          owner: { kind: "tag", tag_id: id },
+          key: "builtin.tag-group",
+          value: { type: "string", value: "Areas" },
+        });
+      }
+    });
     await waitFor(() => expect(screen.getAllByTestId("tag-row")).toHaveLength(3));
     expect(rowNames()).toEqual(["Alpha", "Bravo", "Charlie"]);
 
@@ -368,17 +378,19 @@ describe("the tags screen", () => {
   });
 
   it("reorders groups among themselves", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
-    for (const [id, name, group] of [["a", "Alpha", "Areas"], ["b", "Bravo", "Home"]]) {
-      await session.execute({ type: "ensure_tag", tag_id: id, name });
-      await session.execute({
-        type: "set_property",
-        owner: { kind: "tag", tag_id: id },
-        key: "builtin.tag-group",
-        value: { type: "string", value: group },
-      });
-    }
+    await settle(async () => {
+      for (const [id, name, group] of [["a", "Alpha", "Areas"], ["b", "Bravo", "Home"]]) {
+        await session.execute({ type: "ensure_tag", tag_id: id, name });
+        await session.execute({
+          type: "set_property",
+          owner: { kind: "tag", tag_id: id },
+          key: "builtin.tag-group",
+          value: { type: "string", value: group },
+        });
+      }
+    });
     await waitFor(() => expect(screen.getAllByTestId("tag-group-name")).toHaveLength(2));
     expect(groupNames()).toEqual(["Areas", "Home"]);
 
@@ -416,19 +428,21 @@ describe("the tags screen", () => {
 
 async function mountTagPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/t/project`);
-  await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
-  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  await harness.session.execute({
-    type: "insert_block",
-    owner: { kind: "page", id: "home" },
-    parent: null,
-    index: 0,
-    markdown: "ship the thing",
-  });
-  await harness.session.execute({
-    type: "add_tag",
-    entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
-    tag_id: "project",
+  await harness.settle(async () => {
+    await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "ship the thing",
+    });
+    await harness.session.execute({
+      type: "add_tag",
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      tag_id: "project",
+    });
   });
   await screen.findByTestId("tag-title");
   return harness;

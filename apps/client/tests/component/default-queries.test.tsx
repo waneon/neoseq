@@ -52,18 +52,20 @@ async function seed(
 ): Promise<DefaultQuery> {
   const id = `dq-${crypto.randomUUID()}`;
   const source = query.source ?? (query.plan ? compilePlan(query.plan).source : SOURCE);
-  await harness.session.execute({
-    type: "create_default_query",
-    default_query_id: id,
-    title: query.title ?? "Scheduled",
-    document: newDefaultQueryDocument(
-      source,
-      query.plan
-        ? { version: QUERY_PLAN_VERSION, payload: encodePlan(query.plan) }
-        : undefined,
-      query.layout ?? "list",
-    ),
-  });
+  await harness.settle(() =>
+    harness.session.execute({
+      type: "create_default_query",
+      default_query_id: id,
+      title: query.title ?? "Scheduled",
+      document: newDefaultQueryDocument(
+        source,
+        query.plan
+          ? { version: QUERY_PLAN_VERSION, payload: encodePlan(query.plan) }
+          : undefined,
+        query.layout ?? "list",
+      ),
+    }),
+  );
   return queries(harness).find((entry) => entry.id === id)!;
 }
 

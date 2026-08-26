@@ -278,21 +278,12 @@ describe("property picker", () => {
           key: "Enter",
         }),
       );
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
     });
 
     const picker = await screen.findByTestId("property-picker");
     fireEvent.change(within(picker).getByTestId("repeat-count"), { target: { value: "3" } });
-    // `fireEvent` rather than the `chooseFromMenu` helper: userEvent keeps its
-    // pointer state per document, and by this point in the file an earlier test
-    // has left a gesture open on an element that no longer exists, which makes
-    // the next synthesized press miss Radix's trigger entirely. The events below
-    // are the ones the trigger actually listens for.
-    fireEvent.pointerDown(within(picker).getByTestId("repeat-unit"), {
-      button: 0,
-      pointerType: "mouse",
-    });
-    const weeks = await screen.findByRole("option", { name: "Weeks" });
-    fireEvent.click(weeks);
+    await chooseFromMenu(user, within(picker).getByTestId("repeat-unit"), "Weeks");
     // The interval reads back in words, which is what confirms the choice.
     expect(within(picker).getByText("Every 3 weeks")).toBeInTheDocument();
     await user.click(within(picker).getByTestId("repeat-set"));

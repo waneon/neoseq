@@ -1,5 +1,49 @@
 import "@testing-library/jest-dom/vitest";
-import { configure } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+import { afterEach, beforeEach } from "vitest";
+
+const consoleError = console.error.bind(console);
+let actWarnings: string[] = [];
+const actDiagnostics = [
+  "was not wrapped in act",
+  "The current testing environment is not configured to support act",
+  "overlapping act() calls",
+  "act(async () => ...) without await",
+  "`act` call was not awaited",
+] as const;
+
+function formatConsoleArguments(args: unknown[]): string {
+  if (args.length === 0) return "";
+  let message = String(args[0]);
+  for (const value of args.slice(1)) message = message.replace("%s", String(value));
+  return message;
+}
+
+// An act diagnostic means the test's interaction boundary does not own every
+// update it caused. Keep it a hard failure: otherwise a green assertion may
+// describe the frame before the application actually settled.
+console.error = (...args: unknown[]) => {
+  const message = formatConsoleArguments(args);
+  if (actDiagnostics.some((diagnostic) => message.includes(diagnostic))) {
+    actWarnings.push(message);
+    return;
+  }
+  consoleError(...args);
+};
+
+beforeEach(() => {
+  actWarnings = [];
+});
+
+afterEach(() => {
+  // Own cleanup so diagnostics raised by unmount effects belong to the test
+  // that mounted them, rather than leaking into the next test or environment.
+  cleanup();
+  if (actWarnings.length === 0) return;
+  const warnings = actWarnings;
+  actWarnings = [];
+  throw new Error(`React act() contract violated:\n\n${warnings.join("\n\n")}`);
+});
 
 // Node 24's Request performs a strict brand check on AbortSignal. Vitest keeps
 // Node's Request but jsdom supplies AbortController, so React Router otherwise

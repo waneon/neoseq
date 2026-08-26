@@ -12,6 +12,7 @@ import {
 } from "../../src/core-port/testing/fake-core-port";
 import { resetAppSettingsCache } from "../../src/entities/settings";
 import { resetQueryDisclosure } from "../../src/features/query/presentation";
+import { queryExecutionStore } from "../../src/features/query/execution";
 import { NotifyProvider } from "../../src/features/notify/context";
 import { HistoryProvider } from "../../src/features/history/context";
 import { LocaleProvider } from "../../src/i18n";
@@ -28,6 +29,11 @@ export interface Harness {
   port: FakeCorePort;
   view: RenderResult;
   router: ReturnType<typeof createMemoryRouter>;
+  /** Runs optional work and flushes its query answers in one React interaction. */
+  settle: {
+    (): Promise<void>;
+    <T>(work: () => T | Promise<T>): Promise<T>;
+  };
 }
 
 export async function mountAt(
@@ -46,6 +52,7 @@ export async function mountAt(
   session.subscribe = (listener) => subscribe(() => {
     act(listener);
   });
+  const queryStore = queryExecutionStore(session);
   const router = createMemoryRouter(
     [
       {
@@ -79,7 +86,20 @@ export async function mountAt(
       </NotifyProvider>
     </LocaleProvider>,
   );
-  return { session, port, view, router };
+  async function settle(): Promise<void>;
+  async function settle<T>(work: () => T | Promise<T>): Promise<T>;
+  async function settle<T>(work?: () => T | Promise<T>): Promise<T | void> {
+    let value: T | undefined;
+    await act(async () => {
+      value = await work?.();
+      // Let effects claim their query before taking the store's idle snapshot.
+      await Promise.resolve();
+      await queryStore.whenIdle();
+    });
+    return value;
+  }
+  await settle();
+  return { session, port, view, router, settle };
 }
 
 /**

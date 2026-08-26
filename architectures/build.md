@@ -114,6 +114,13 @@ Every asynchronous interaction therefore proves the boundary it depends on:
 - finite UI transitions finish before an action that depends on their final
   hit-testing or layout state.
 
+A component-test interaction owns every React update it starts. External stores
+therefore expose a finite completion boundary for application-owned work, and a
+fixture settles that work inside the same interaction that changed its input.
+Frame-scheduled overlay and focus transitions are likewise awaited at their
+frame boundary. React diagnostics for escaped, overlapping, or unawaited
+`act()` scopes fail the suite; suppressing them is not a verification strategy.
+
 An already-visible `saved` state is not evidence that a new mutation completed,
 and a visible element is not necessarily the reconciled element that will own
 the next input. Time-dependent product behavior uses controlled clocks in

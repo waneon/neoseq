@@ -81,6 +81,31 @@ describe("query execution store", () => {
     await obsolete;
     expect(store.snapshot("home:block", signatureA, 1).result).toEqual(RESULT_TRUE);
   });
+
+  it("owns every in-flight answer until the store is idle", async () => {
+    const first = deferred<SparqlQueryResult>();
+    const second = deferred<SparqlQueryResult>();
+    const query = vi.fn((request: SparqlQueryRequest) =>
+      request.source === REQUEST_A.source ? first.promise : second.promise);
+    const store = new QueryExecutionStore({ query } as unknown as GraphSession);
+    const signatureA = queryExecutionSignature(REQUEST_A);
+    const signatureB = queryExecutionSignature(REQUEST_B);
+    store.run("home:first", signatureA, 1, REQUEST_A);
+    store.run("home:second", signatureB, 1, REQUEST_B);
+
+    let idle = false;
+    const settled = store.whenIdle().then(() => {
+      idle = true;
+    });
+    first.resolve(RESULT_TRUE);
+    await first.promise;
+    await Promise.resolve();
+    expect(idle).toBe(false);
+
+    second.resolve(RESULT_FALSE);
+    await settled;
+    expect(idle).toBe(true);
+  });
 });
 
 describe("query disclosure", () => {

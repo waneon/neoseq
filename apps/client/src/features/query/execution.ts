@@ -160,6 +160,16 @@ export class QueryExecutionStore {
     return promise;
   }
 
+  /** Resolves after every query that is currently owned by this store settles. */
+  async whenIdle(): Promise<void> {
+    while (true) {
+      const pending = [...this.entries.values()]
+        .flatMap((entry) => entry.pending ? [entry.pending.promise] : []);
+      if (pending.length === 0) return;
+      await Promise.allSettled(pending);
+    }
+  }
+
   private entry(owner: string): QueryExecutionEntry {
     const present = this.entries.get(owner);
     if (present) return present;
