@@ -1,3 +1,5 @@
 packages:
   - apps/*
 
+patchedDependencies:
+  react-aria@3.51.0: patches/react-aria-3.51.0.patch

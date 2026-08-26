@@ -23,6 +23,7 @@ let
     ../crates
     ../fixtures
     ../package.json
+    ../patches
     ../pnpm-lock.yaml
     ../pnpm-workspace.yaml
     ../apps/client/index.html
@@ -64,7 +65,7 @@ stdenv.mkDerivation {
       ;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
-    hash = "sha256-r4bM3800O+vDJJNCnzDiXpkF1IvsDG6K7mfhwBKs6+M=";
+    hash = "sha256-iqZgL4GgSeTVOzSRD5HzZQ7BhHvxBUttZ4hq07q3z+o=";
   };
 
   nativeBuildInputs = [

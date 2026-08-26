@@ -1,0 +1,36 @@
+diff --git a/dist/private/interactions/useFocusVisible.cjs b/dist/private/interactions/useFocusVisible.cjs
+--- a/dist/private/interactions/useFocusVisible.cjs
++++ b/dist/private/interactions/useFocusVisible.cjs
+@@ -61,4 +61,7 @@ function $d0df89f3abe2c2ca$var$isValidKey(e) {
+     // Control and Shift keys trigger when navigating back to the tab with keyboard.
+-    return !(e.metaKey || !(0, $d0b4a781cf26e80b$exports.isMac)() && e.altKey || e.ctrlKey || e.key === 'Control' || e.key === 'Shift' || e.key === 'Meta');
++    // A bare Option key is a modifier, not keyboard navigation. On macOS `altKey`
++    // must remain usable with real keys such as ArrowUp, so filter the modifier's
++    // own event rather than every event carrying the flag.
++    return !(e.metaKey || !(0, $d0b4a781cf26e80b$exports.isMac)() && e.altKey || e.ctrlKey || e.key === 'Alt' || e.key === 'AltGraph' || e.key === 'Control' || e.key === 'Shift' || e.key === 'Meta');
+ }
+ function $d0df89f3abe2c2ca$var$handleKeyboardEvent(e) {
+diff --git a/dist/private/interactions/useFocusVisible.js b/dist/private/interactions/useFocusVisible.js
+--- a/dist/private/interactions/useFocusVisible.js
++++ b/dist/private/interactions/useFocusVisible.js
+@@ -48,4 +48,7 @@ function $b50b1cc8a843ace7$var$isValidKey(e) {
+     // Control and Shift keys trigger when navigating back to the tab with keyboard.
+-    return !(e.metaKey || !(0, $d5a2be505488529f$export$9ac100e40613ea10)() && e.altKey || e.ctrlKey || e.key === 'Control' || e.key === 'Shift' || e.key === 'Meta');
++    // A bare Option key is a modifier, not keyboard navigation. On macOS `altKey`
++    // must remain usable with real keys such as ArrowUp, so filter the modifier's
++    // own event rather than every event carrying the flag.
++    return !(e.metaKey || !(0, $d5a2be505488529f$export$9ac100e40613ea10)() && e.altKey || e.ctrlKey || e.key === 'Alt' || e.key === 'AltGraph' || e.key === 'Control' || e.key === 'Shift' || e.key === 'Meta');
+ }
+ function $b50b1cc8a843ace7$var$handleKeyboardEvent(e) {
+diff --git a/dist/private/interactions/useFocusVisible.mjs b/dist/private/interactions/useFocusVisible.mjs
+--- a/dist/private/interactions/useFocusVisible.mjs
++++ b/dist/private/interactions/useFocusVisible.mjs
+@@ -48,4 +48,7 @@ function $8f5a2122b0992be3$var$isValidKey(e) {
+     // Control and Shift keys trigger when navigating back to the tab with keyboard.
+-    return !(e.metaKey || !(0, $2add3ce32c6007eb$export$9ac100e40613ea10)() && e.altKey || e.ctrlKey || e.key === 'Control' || e.key === 'Shift' || e.key === 'Meta');
++    // A bare Option key is a modifier, not keyboard navigation. On macOS `altKey`
++    // must remain usable with real keys such as ArrowUp, so filter the modifier's
++    // own event rather than every event carrying the flag.
++    return !(e.metaKey || !(0, $2add3ce32c6007eb$export$9ac100e40613ea10)() && e.altKey || e.ctrlKey || e.key === 'Alt' || e.key === 'AltGraph' || e.key === 'Control' || e.key === 'Shift' || e.key === 'Meta');
+ }
+ function $8f5a2122b0992be3$var$handleKeyboardEvent(e) {

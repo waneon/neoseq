@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  react-aria@3.51.0:
+    hash: cfe2115aacd0ad8853aae68b37c6712a821927b36135f62dcaa5940bdf2153dd
+    path: patches/react-aria-3.51.0.patch
+
 importers:
 
   .:
@@ -4016,11 +4021,11 @@ snapshots:
       '@swc/helpers': 0.5.23
       client-only: 0.0.1
       react: 19.2.8
-      react-aria: 3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react-aria: 3.51.0(patch_hash=cfe2115aacd0ad8853aae68b37c6712a821927b36135f62dcaa5940bdf2153dd)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react-dom: 19.2.8(react@19.2.8)
       react-stately: 3.49.0(react@19.2.8)
 
-  react-aria@3.51.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-aria@3.51.0(patch_hash=cfe2115aacd0ad8853aae68b37c6712a821927b36135f62dcaa5940bdf2153dd)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/number': 3.6.7

@@ -128,3 +128,45 @@ test("focus edges survive clipping in every visual project", async ({ page }, te
   });
   expect(fallbackOutline).toEqual({ style: "solid", width: "2px", offset: "-2px" });
 });
+
+test("a bare Option key does not turn pointer focus into a keyboard ring", async (
+  { page, isMobile },
+) => {
+  test.skip(
+    Boolean(isMobile),
+    "Option focus modality is a macOS desktop interaction",
+  );
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgentData", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+  });
+  await page.goto("/#/verify/visual");
+  const platform = await page.evaluate(() => {
+    const current = navigator as Navigator & { userAgentData?: { platform?: string } };
+    return current.userAgentData?.platform || current.platform;
+  });
+  expect(platform).toBe("MacIntel");
+
+  const timeToggle = page.getByTestId("moment-time-toggle");
+  const track = timeToggle.locator(".moment-switch-track");
+  await timeToggle.click();
+  const restingTrackShadow = await track.evaluate((node) => getComputedStyle(node).boxShadow);
+  await expect(timeToggle).not.toHaveAttribute("data-focus-visible", "true");
+
+  await page.keyboard.press("Alt");
+  await expect(timeToggle).not.toHaveAttribute("data-focus-visible", "true");
+  await expect.poll(() => timeToggle.evaluate((node) => getComputedStyle(node).boxShadow))
+    .toBe("none");
+
+  // The modifier may still accompany a meaningful key. Filtering the Alt flag
+  // wholesale would break macOS Option+Arrow navigation throughout the app.
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(timeToggle).toHaveAttribute("data-focus-visible", "true");
+  await expect.poll(() => track.evaluate((node) => getComputedStyle(node).boxShadow))
+    .not.toBe(restingTrackShadow);
+  await expect.poll(() => timeToggle.evaluate((node) => getComputedStyle(node).boxShadow))
+    .toBe("none");
+});

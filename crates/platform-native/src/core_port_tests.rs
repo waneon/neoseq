@@ -80,7 +80,7 @@ fn core_port_native_contract_suite_matches_current_golden() {
     );
 
     let opened = port.open_graph(open_request("port-native", 91)).unwrap();
-    assert_eq!(opened.summary["schema_version"], 4);
+    assert_eq!(opened.summary["schema_version"], SCHEMA_VERSION);
     assert!(opened.capabilities.durable);
     assert_eq!(golden["transcript"]["open"], "summary_available");
     assert_eq!(
@@ -113,9 +113,9 @@ fn core_port_native_contract_suite_matches_current_golden() {
             graph_handle: opened.graph_handle.clone(),
         })
         .unwrap();
-    assert_eq!(read.summary["schema_version"], 4);
+    assert_eq!(read.summary["schema_version"], SCHEMA_VERSION);
     assert_eq!(read.summary["pages"].as_array().unwrap().len(), 1);
-    assert_eq!(golden["transcript"]["read"], "schema_v4_summary");
+    assert_eq!(golden["transcript"]["read"], "schema_v5_summary");
     let outline = port
         .read_outline(ReadOutlineRequest {
             graph_handle: opened.graph_handle.clone(),
@@ -279,7 +279,7 @@ fn core_port_native_unsupported_schema_has_stable_code() {
         112,
     )
     .unwrap();
-    repository.set_schema_version(5).unwrap();
+    repository.set_schema_version(SCHEMA_VERSION + 1).unwrap();
     drop(repository);
     assert_eq!(
         port.open_graph(open_request("unsupported-native-schema", 112))

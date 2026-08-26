@@ -6310,8 +6310,12 @@ button.query-list-status[data-active="true"] {
 
 .moment-time-switch[data-focus-visible] {
   outline: none;
-  border-radius: var(--r-2);
-  box-shadow: var(--focus-inset);
+}
+
+.moment-time-switch[data-focus-visible] .moment-switch-track {
+  box-shadow:
+    var(--e1),
+    var(--focus-ring);
 }
 
 .moment-time-controls {
