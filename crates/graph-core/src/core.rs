@@ -1,3 +1,4 @@
+mod migrations;
 mod outline;
 
 use self::outline::{MovePlan, OutlinePlan};
@@ -554,11 +555,14 @@ impl GraphCore {
     /// Applies all document migrations after recovery has replayed Base+Tail,
     /// validates the current schema invariants, and starts a fresh undo epoch.
     pub fn finish_recovery(&mut self) -> Result<MigrationReport, CoreError> {
-        let migration = migrate_document(&self.doc)?;
-        verify_schema(&self.doc, &self.graph_id)?;
-        validate_unique_entity_names(&self.doc)?;
-        validate_tag_outlines(&self.doc)?;
-        enable_outlines(&self.doc)?;
+        let peer_id = self.doc.peer_id();
+        let staged = self.doc.fork();
+        staged.set_peer_id(peer_id)?;
+        let migration = migrations::migrate_document(&staged)?;
+        verify_schema(&staged, &self.graph_id)?;
+        validate_unique_entity_names(&staged)?;
+        enable_outlines(&staged)?;
+        self.doc = staged;
         self.reset_local_history();
         Ok(migration)
     }
@@ -3485,196 +3489,11 @@ fn query_document_maps(doc: &LoroDoc) -> Vec<LoroMap> {
     documents
 }
 
-type QueryDocumentDecoder = fn(&LoroMap) -> Result<PropertyDocument, String>;
-
-fn validate_query_documents(doc: &LoroDoc, decode: QueryDocumentDecoder) -> Result<(), CoreError> {
+fn validate_current_query_documents(doc: &LoroDoc) -> Result<(), CoreError> {
     for document in query_document_maps(doc) {
-        decode(&document).map_err(CoreError::InvalidHierarchy)?;
+        decode_query_document(&document).map_err(CoreError::InvalidHierarchy)?;
     }
     Ok(())
-}
-
-fn decode_schema_v4_query_document(document: &LoroMap) -> Result<PropertyDocument, String> {
-    if map_i64(document, "version") == Some(1) {
-        decode_legacy_query_document(document)
-    } else {
-        decode_query_document(document)
-    }
-}
-
-fn materialize_independent_query_views(doc: &LoroDoc) -> Result<(), CoreError> {
-    for document in query_document_maps(doc) {
-        if map_i64(&document, "version") == Some(i64::from(QUERY_DOCUMENT_VERSION)) {
-            continue;
-        }
-        let definition = read_query_definition(&document, "query document")
-            .map_err(CoreError::InvalidHierarchy)?;
-        let views = document
-            .get("views")
-            .and_then(value_into_map)
-            .ok_or_else(|| {
-                CoreError::InvalidHierarchy("query document views are missing".to_owned())
-            })?;
-        let mut stored_views = Vec::new();
-        views.for_each(|_, value| {
-            if let Some(view) = value_into_map(value) {
-                stored_views.push(view);
-            }
-        });
-        for view in stored_views {
-            write_query_definition(&view.ensure_mergeable_map("definition")?, &definition)?;
-        }
-        document.insert("version", i64::from(QUERY_DOCUMENT_VERSION))?;
-        for field in ["language", "source", "plan_version", "plan"] {
-            if document.get(field).is_some() {
-                document.delete(field)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
-    let meta = doc.get_map("meta");
-    let stored = map_i64(&meta, "schema_version").unwrap_or(0);
-    let source_schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
-    if source_schema == SCHEMA_VERSION {
-        verify_schema_metadata(&meta, SCHEMA_VERSION)?;
-        validate_tag_outlines(doc)?;
-        validate_current_graph_settings(doc)?;
-        validate_query_documents(doc, decode_query_document)?;
-        return Ok(MigrationReport {
-            source_schema,
-            target_schema: SCHEMA_VERSION,
-            applied_migrations: Vec::new(),
-            update: Vec::new(),
-        });
-    }
-    if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&source_schema) {
-        return Err(CoreError::UnsupportedSchema(stored));
-    }
-
-    let before = doc.oplog_vv();
-    let mut schema = source_schema;
-    let mut applied_migrations = Vec::new();
-
-    if schema == MIN_MIGRATABLE_SCHEMA_VERSION {
-        doc.set_next_commit_origin("system:migration");
-        doc.set_next_commit_message(LIFECYCLE_MIGRATION_ID);
-        let applied = migration_map(&meta, true)?;
-        if map_i64(&applied, LIFECYCLE_MIGRATION_ID) != Some(i64::from(LIFECYCLE_SCHEMA_VERSION)) {
-            applied.insert(LIFECYCLE_MIGRATION_ID, i64::from(LIFECYCLE_SCHEMA_VERSION))?;
-        }
-        meta.insert("minimum_writer_schema", i64::from(LIFECYCLE_SCHEMA_VERSION))?;
-        meta.insert("schema_version", i64::from(LIFECYCLE_SCHEMA_VERSION))?;
-        doc.commit();
-        applied_migrations.push(LIFECYCLE_MIGRATION_ID.to_owned());
-        schema = LIFECYCLE_SCHEMA_VERSION;
-    }
-
-    if schema == LIFECYCLE_SCHEMA_VERSION {
-        verify_schema_metadata(&meta, LIFECYCLE_SCHEMA_VERSION)?;
-        validate_migratable_tag_outlines(doc)?;
-        doc.set_next_commit_origin("system:migration");
-        doc.set_next_commit_message(TAG_OUTLINES_MIGRATION_ID);
-        materialize_tag_outlines(doc)?;
-        let applied = migration_map(&meta, false)?;
-        if map_i64(&applied, TAG_OUTLINES_MIGRATION_ID)
-            != Some(i64::from(TAG_OUTLINES_SCHEMA_VERSION))
-        {
-            applied.insert(
-                TAG_OUTLINES_MIGRATION_ID,
-                i64::from(TAG_OUTLINES_SCHEMA_VERSION),
-            )?;
-        }
-        meta.insert(
-            "minimum_writer_schema",
-            i64::from(TAG_OUTLINES_SCHEMA_VERSION),
-        )?;
-        meta.insert("schema_version", i64::from(TAG_OUTLINES_SCHEMA_VERSION))?;
-        doc.commit();
-        applied_migrations.push(TAG_OUTLINES_MIGRATION_ID.to_owned());
-        schema = TAG_OUTLINES_SCHEMA_VERSION;
-    }
-
-    if schema == TAG_OUTLINES_SCHEMA_VERSION {
-        verify_schema_metadata(&meta, TAG_OUTLINES_SCHEMA_VERSION)?;
-        validate_tag_outlines(doc)?;
-        doc.set_next_commit_origin("system:migration");
-        doc.set_next_commit_message(GRAPH_SETTINGS_MIGRATION_ID);
-        let settings = doc.get_map("graph_settings");
-        settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
-        let _ = settings.ensure_mergeable_map("default_queries")?;
-        let applied = migration_map(&meta, false)?;
-        if map_i64(&applied, GRAPH_SETTINGS_MIGRATION_ID)
-            != Some(i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION))
-        {
-            applied.insert(
-                GRAPH_SETTINGS_MIGRATION_ID,
-                i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
-            )?;
-        }
-        meta.insert(
-            "minimum_writer_schema",
-            i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
-        )?;
-        meta.insert(
-            "schema_version",
-            i64::from(GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION),
-        )?;
-        doc.commit();
-        applied_migrations.push(GRAPH_SETTINGS_MIGRATION_ID.to_owned());
-        schema = GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION;
-    }
-
-    if schema == GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION {
-        verify_schema_metadata(&meta, GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION)?;
-        validate_tag_outlines(doc)?;
-        // A migration preflight may inspect only its source schema. Current
-        // readers become authoritative after the transformation below.
-        validate_graph_settings_structure(doc)?;
-        validate_query_documents(doc, decode_schema_v4_query_document)?;
-        doc.set_next_commit_origin("system:migration");
-        doc.set_next_commit_message(QUERY_VIEWS_MIGRATION_ID);
-        materialize_independent_query_views(doc)?;
-        let applied = migration_map(&meta, false)?;
-        if map_i64(&applied, QUERY_VIEWS_MIGRATION_ID)
-            != Some(i64::from(QUERY_VIEWS_SCHEMA_VERSION))
-        {
-            applied.insert(
-                QUERY_VIEWS_MIGRATION_ID,
-                i64::from(QUERY_VIEWS_SCHEMA_VERSION),
-            )?;
-        }
-        meta.insert("minimum_writer_schema", i64::from(MINIMUM_WRITER_SCHEMA))?;
-        meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
-        doc.commit();
-        applied_migrations.push(QUERY_VIEWS_MIGRATION_ID.to_owned());
-    }
-
-    verify_schema_metadata(&meta, SCHEMA_VERSION)?;
-    validate_tag_outlines(doc)?;
-    validate_current_graph_settings(doc)?;
-    validate_query_documents(doc, decode_query_document)?;
-    let update = doc.export(ExportMode::updates(&before))?;
-    Ok(MigrationReport {
-        source_schema,
-        target_schema: SCHEMA_VERSION,
-        applied_migrations,
-        update,
-    })
-}
-
-fn migration_map(meta: &LoroMap, create: bool) -> Result<LoroMap, CoreError> {
-    match meta.get("applied_migrations") {
-        Some(value) => value_into_map(value).ok_or(CoreError::InvalidSchemaMetadata(
-            "applied_migrations must be a map",
-        )),
-        None if create => Ok(meta.ensure_mergeable_map("applied_migrations")?),
-        None => Err(CoreError::InvalidSchemaMetadata(
-            "applied_migrations is missing",
-        )),
-    }
 }
 
 fn verify_schema_metadata(meta: &LoroMap, schema: u32) -> Result<(), CoreError> {
@@ -3691,43 +3510,6 @@ fn verify_schema_metadata(meta: &LoroMap, schema: u32) -> Result<(), CoreError> 
         return Err(CoreError::InvalidSchemaMetadata(
             "applied_migrations is missing or invalid",
         ));
-    }
-    Ok(())
-}
-
-fn validate_migratable_tag_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
-    let mut invalid = None;
-    doc.get_map("tags").for_each(|raw_id, value| {
-        let Some(tag) = value_into_map(value) else {
-            return;
-        };
-        if tag
-            .get("outline")
-            .is_some_and(|value| value_into_tree(value).is_none())
-        {
-            invalid = Some(raw_id.to_owned());
-        }
-    });
-    match invalid {
-        Some(tag_id) => Err(CoreError::InvalidHierarchy(format!(
-            "tag outline is invalid: {tag_id}"
-        ))),
-        None => Ok(()),
-    }
-}
-
-fn materialize_tag_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
-    let mut tags = Vec::new();
-    doc.get_map("tags").for_each(|_, value| {
-        if let Some(tag) = value_into_map(value)
-            && tag.get("outline").is_none()
-        {
-            tags.push(tag);
-        }
-    });
-    for tag in tags {
-        let outline = tag.ensure_mergeable_tree("outline")?;
-        outline.enable_fractional_index(0);
     }
     Ok(())
 }
@@ -3773,7 +3555,8 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
         return Err(CoreError::UnsupportedSchema(i64::from(schema)));
     }
     validate_tag_outlines(doc)?;
-    validate_current_graph_settings(doc)
+    validate_current_graph_settings(doc)?;
+    validate_current_query_documents(doc)
 }
 
 fn validate_outline_items<T: InsertableOutlineItem>(
@@ -4456,27 +4239,22 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
     let version = map_i64(document, "version")
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| "query document version is invalid".to_owned())?;
-    decode_query_document_parts(document, schema, version, None)
+    decode_query_document_with(document, schema, version, |view, raw_id| {
+        read_query_definition(
+            &view
+                .get("definition")
+                .and_then(value_into_map)
+                .ok_or_else(|| format!("query view {raw_id} definition is missing"))?,
+            &format!("query view {raw_id}"),
+        )
+    })
 }
 
-fn decode_legacy_query_document(document: &LoroMap) -> Result<PropertyDocument, String> {
-    let schema = map_string(document, "schema")
-        .ok_or_else(|| "query document schema is missing".to_owned())?;
-    let version = map_i64(document, "version")
-        .and_then(|value| u32::try_from(value).ok())
-        .ok_or_else(|| "query document version is invalid".to_owned())?;
-    if schema != QUERY_DOCUMENT_SCHEMA || version != 1 {
-        return Err(format!("unsupported query document {schema} v{version}"));
-    }
-    let definition = read_query_definition(document, "query document")?;
-    decode_query_document_parts(document, schema, QUERY_DOCUMENT_VERSION, Some(&definition))
-}
-
-fn decode_query_document_parts(
+fn decode_query_document_with(
     document: &LoroMap,
     schema: String,
     version: u32,
-    legacy_definition: Option<&QueryDefinition>,
+    mut decode_definition: impl FnMut(&LoroMap, &str) -> Result<QueryDefinition, String>,
 ) -> Result<PropertyDocument, String> {
     let requested_default_view_id = QueryViewId::new(
         map_string(document, "default_view_id")
@@ -4501,16 +4279,7 @@ fn decode_query_document_parts(
             let id = QueryViewId::new(raw_id).map_err(|error| error.to_string())?;
             let name = map_string(&view, "name")
                 .ok_or_else(|| format!("query view {raw_id} name is missing"))?;
-            let definition = match legacy_definition {
-                Some(definition) => definition.clone(),
-                None => read_query_definition(
-                    &view
-                        .get("definition")
-                        .and_then(value_into_map)
-                        .ok_or_else(|| format!("query view {raw_id} definition is missing"))?,
-                    &format!("query view {raw_id}"),
-                )?,
-            };
+            let definition = decode_definition(&view, raw_id)?;
             let kind = match map_string(&view, "kind").as_deref() {
                 Some("table") => QueryViewKind::Table,
                 Some("list") => QueryViewKind::List,
@@ -4696,10 +4465,6 @@ fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
     Ok(GraphSettings {
         default_queries: decoded,
     })
-}
-
-fn validate_graph_settings_structure(doc: &LoroDoc) -> Result<(), CoreError> {
-    stored_default_queries(doc).map(|_| ())
 }
 
 fn validate_current_graph_settings(doc: &LoroDoc) -> Result<(), CoreError> {
@@ -5820,6 +5585,39 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, CoreError::InvalidHierarchy(_)));
+    }
+
+    #[test]
+    fn failed_migration_chain_does_not_publish_completed_steps() {
+        let tag_id = TagId::new("invalid-tag").unwrap();
+        let legacy = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag = legacy
+            .doc
+            .get_map("tags")
+            .ensure_mergeable_map(tag_id.as_str())
+            .unwrap();
+        tag.insert("name", "Invalid tag").unwrap();
+        tag.insert("outline", "not-a-tree").unwrap();
+        initialize_lifecycle(&tag.ensure_mergeable_map("properties").unwrap(), "t1").unwrap();
+        tag.ensure_mergeable_map("defaults").unwrap();
+        let meta = legacy.doc.get_map("meta");
+        meta.delete("minimum_writer_schema").unwrap();
+        meta.delete("applied_migrations").unwrap();
+        meta.insert("schema_version", 1_i64).unwrap();
+        legacy.doc.commit();
+
+        let snapshot = legacy.export_snapshot().unwrap();
+        let mut recovered = GraphCore::from_recovery_snapshot(graph(), 2, &snapshot).unwrap();
+        let before = recovered.doc.oplog_vv();
+
+        let error = recovered.finish_recovery().unwrap_err();
+
+        assert!(matches!(error, CoreError::InvalidHierarchy(_)));
+        assert_eq!(recovered.doc.oplog_vv(), before);
+        let meta = recovered.doc.get_map("meta");
+        assert_eq!(map_i64(&meta, "schema_version"), Some(1));
+        assert!(meta.get("minimum_writer_schema").is_none());
+        assert!(meta.get("applied_migrations").is_none());
     }
 
     #[test]

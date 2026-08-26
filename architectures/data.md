@@ -29,9 +29,12 @@ persisting a current checkpoint or accepting writes. `0001-lifecycle-metadata`
 advances v1 to v2; `0002-tag-outlines` materializes every tag-owned tree and
 advances v2 to v3; `0003-graph-settings` adds shared graph configuration and
 advances v3 to v4; `0004-independent-query-views` moves each shared query
-definition into its stable view and advances v4 to v5. Each step validates only
-the source structure it needs through a version-scoped reader. Strict current
-invariants run after the complete migration chain. Reopening v5 is a no-op, and
+definition into its stable view and advances v4 to v5. A contiguous migration
+registry selects the next step from the stored version; orchestration has no
+version-specific branches. Each step prepares a complete plan by reading only
+the source structure it consumes, then applies that plan to a staging document.
+The staging document replaces the recovered graph only after the complete chain
+and strict current-schema validation succeed. Reopening v5 is a no-op, and
 schemas outside `[1, 5]` are rejected without downgrade or coercion.
 
 ## Graph Settings
@@ -263,8 +266,9 @@ not repair legacy or missing structure lazily.
 
 Every future document-schema change must define its supported input range,
 identity-preserving CRDT migration, deployed-data fixture, minimum-writer policy,
-and checkpoint rollback boundary here. Compatibility is explicit rather than
-inferred from a decoder accepting the bytes.
+and checkpoint rollback boundary here. Its source reader remains private to the
+migration step rather than becoming an alternate runtime reader. Compatibility
+is explicit rather than inferred from a current decoder accepting legacy bytes.
 
 ## Verification
 

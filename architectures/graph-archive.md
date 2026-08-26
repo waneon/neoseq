@@ -38,8 +38,9 @@ does not mutate or compact the source graph.
 Import is staged entirely in the Worker:
 
 1. Decode and bound the container, then verify the manifest and checksum.
-2. Open the source snapshot through `GraphCore`, applying every supported
-   document migration before validating current-schema invariants.
+2. Open the source snapshot through `GraphCore`; prepare and apply the registered
+   document migrations on a staging graph, then validate current-schema
+   invariants before publishing the migrated graph.
 3. Generate the target graph and replica IDs locally and create a shallow clone
    baseline with the rewritten graph identity.
 4. Reopen the clone under its target identity and validate it again.
