@@ -3485,21 +3485,21 @@ fn query_document_maps(doc: &LoroDoc) -> Vec<LoroMap> {
     documents
 }
 
-fn validate_query_documents(doc: &LoroDoc, migratable: bool) -> Result<(), CoreError> {
+type QueryDocumentDecoder = fn(&LoroMap) -> Result<PropertyDocument, String>;
+
+fn validate_query_documents(doc: &LoroDoc, decode: QueryDocumentDecoder) -> Result<(), CoreError> {
     for document in query_document_maps(doc) {
-        let version = map_i64(&document, "version")
-            .and_then(|value| u32::try_from(value).ok())
-            .ok_or_else(|| {
-                CoreError::InvalidHierarchy("query document version is invalid".to_owned())
-            })?;
-        let decoded = if migratable && version == 1 {
-            decode_legacy_query_document(&document)
-        } else {
-            decode_query_document(&document)
-        };
-        decoded.map_err(CoreError::InvalidHierarchy)?;
+        decode(&document).map_err(CoreError::InvalidHierarchy)?;
     }
     Ok(())
+}
+
+fn decode_schema_v4_query_document(document: &LoroMap) -> Result<PropertyDocument, String> {
+    if map_i64(document, "version") == Some(1) {
+        decode_legacy_query_document(document)
+    } else {
+        decode_query_document(document)
+    }
 }
 
 fn materialize_independent_query_views(doc: &LoroDoc) -> Result<(), CoreError> {
@@ -3541,8 +3541,8 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
     if source_schema == SCHEMA_VERSION {
         verify_schema_metadata(&meta, SCHEMA_VERSION)?;
         validate_tag_outlines(doc)?;
-        verify_graph_settings(doc)?;
-        validate_query_documents(doc, false)?;
+        validate_current_graph_settings(doc)?;
+        validate_query_documents(doc, decode_query_document)?;
         return Ok(MigrationReport {
             source_schema,
             target_schema: SCHEMA_VERSION,
@@ -3630,8 +3630,10 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
     if schema == GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION {
         verify_schema_metadata(&meta, GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION)?;
         validate_tag_outlines(doc)?;
-        verify_graph_settings(doc)?;
-        validate_query_documents(doc, true)?;
+        // A migration preflight may inspect only its source schema. Current
+        // readers become authoritative after the transformation below.
+        validate_graph_settings_structure(doc)?;
+        validate_query_documents(doc, decode_schema_v4_query_document)?;
         doc.set_next_commit_origin("system:migration");
         doc.set_next_commit_message(QUERY_VIEWS_MIGRATION_ID);
         materialize_independent_query_views(doc)?;
@@ -3652,8 +3654,8 @@ fn migrate_document(doc: &LoroDoc) -> Result<MigrationReport, CoreError> {
 
     verify_schema_metadata(&meta, SCHEMA_VERSION)?;
     validate_tag_outlines(doc)?;
-    verify_graph_settings(doc)?;
-    validate_query_documents(doc, false)?;
+    validate_current_graph_settings(doc)?;
+    validate_query_documents(doc, decode_query_document)?;
     let update = doc.export(ExportMode::updates(&before))?;
     Ok(MigrationReport {
         source_schema,
@@ -3771,7 +3773,7 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
         return Err(CoreError::UnsupportedSchema(i64::from(schema)));
     }
     validate_tag_outlines(doc)?;
-    verify_graph_settings(doc)
+    validate_current_graph_settings(doc)
 }
 
 fn validate_outline_items<T: InsertableOutlineItem>(
@@ -4612,9 +4614,16 @@ fn default_queries_map(doc: &LoroDoc) -> Result<LoroMap, CoreError> {
         })
 }
 
-fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
+struct StoredDefaultQuery {
+    id: DefaultQueryId,
+    title: String,
+    position: u32,
+    document: LoroMap,
+}
+
+fn stored_default_queries(doc: &LoroDoc) -> Result<Vec<StoredDefaultQuery>, CoreError> {
     let queries = default_queries_map(doc)?;
-    let mut decoded = Vec::new();
+    let mut stored = Vec::new();
     let mut issue = None;
     queries.for_each(|raw_id, value| {
         if issue.is_some() {
@@ -4641,8 +4650,7 @@ fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
                 .get("document")
                 .and_then(value_into_map)
                 .ok_or_else(|| format!("default query {raw_id} document is missing"))?;
-            let document = decode_query_document(&document)?;
-            Ok(Some(DefaultQuerySnapshot {
+            Ok(Some(StoredDefaultQuery {
                 id,
                 title,
                 position,
@@ -4650,7 +4658,7 @@ fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
             }))
         })();
         match parsed {
-            Ok(Some(query)) => decoded.push(query),
+            Ok(Some(query)) => stored.push(query),
             Ok(None) => {}
             Err(error) => issue = Some(error),
         }
@@ -4658,22 +4666,43 @@ fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
     if let Some(issue) = issue {
         return Err(CoreError::InvalidHierarchy(issue));
     }
-    if decoded.len() > MAX_DEFAULT_QUERIES {
+    if stored.len() > MAX_DEFAULT_QUERIES {
         return Err(CoreError::InvalidHierarchy(
             "graph contains too many default queries".to_owned(),
         ));
     }
-    decoded.sort_by(|left, right| {
+    stored.sort_by(|left, right| {
         left.position
             .cmp(&right.position)
             .then_with(|| left.id.cmp(&right.id))
     });
+    Ok(stored)
+}
+
+fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
+    let decoded = stored_default_queries(doc)?
+        .into_iter()
+        .map(|stored| {
+            let document =
+                decode_query_document(&stored.document).map_err(CoreError::InvalidHierarchy)?;
+            Ok(DefaultQuerySnapshot {
+                id: stored.id,
+                title: stored.title,
+                position: stored.position,
+                document,
+            })
+        })
+        .collect::<Result<Vec<_>, CoreError>>()?;
     Ok(GraphSettings {
         default_queries: decoded,
     })
 }
 
-fn verify_graph_settings(doc: &LoroDoc) -> Result<(), CoreError> {
+fn validate_graph_settings_structure(doc: &LoroDoc) -> Result<(), CoreError> {
+    stored_default_queries(doc).map(|_| ())
+}
+
+fn validate_current_graph_settings(doc: &LoroDoc) -> Result<(), CoreError> {
     graph_settings_snapshot(doc).map(|_| ())
 }
 
@@ -5325,7 +5354,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_v4_query_definition_is_copied_into_independent_views_once() {
+    fn schema_v4_archive_with_default_query_migrates_and_clones() {
         let mut legacy = GraphCore::new(graph(), 17, "legacy").unwrap();
         ensure_regular_page(&mut legacy, "page", &page());
         let block = insert_root(&mut legacy, "block", &page(), 0, "query");
@@ -5366,30 +5395,51 @@ mod tests {
                 "t1",
             )
             .unwrap();
+        let default_query_id = DefaultQueryId::new("dq-legacy").unwrap();
+        legacy
+            .execute(
+                envelope(
+                    "default-query",
+                    Command::CreateDefaultQuery {
+                        default_query_id: default_query_id.clone(),
+                        title: "Legacy default".into(),
+                        document: PropertyDocument::default_query("SELECT ?unused WHERE {}".into()),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
 
         let bag = legacy
             .block_bag(&OutlineOwner::Page { id: page() }, &block)
             .unwrap();
         let document = require_query_document(&bag).unwrap();
-        document.insert("version", 1_i64).unwrap();
-        document.insert("language", domain::QUERY_LANGUAGE).unwrap();
-        replace_text(
-            &document.ensure_mergeable_text("source").unwrap(),
-            "SELECT ?legacy WHERE {}",
-        )
-        .unwrap();
-        document.insert("plan_version", 1_i64).unwrap();
-        document.insert("plan", "{\"subject\":\"block\"}").unwrap();
-        let views = document.get("views").and_then(value_into_map).unwrap();
-        let mut stored = Vec::new();
-        views.for_each(|_, value| {
-            if let Some(view) = value_into_map(value) {
-                stored.push(view);
+        let default_document = default_queries_map(&legacy.doc)
+            .unwrap()
+            .get(default_query_id.as_str())
+            .and_then(value_into_map)
+            .and_then(|entry| entry.get("document"))
+            .and_then(value_into_map)
+            .unwrap();
+        let downgrade = |document: &LoroMap, source: &str| {
+            document.insert("version", 1_i64).unwrap();
+            document.insert("language", domain::QUERY_LANGUAGE).unwrap();
+            replace_text(&document.ensure_mergeable_text("source").unwrap(), source).unwrap();
+            document.insert("plan_version", 1_i64).unwrap();
+            document.insert("plan", "{\"subject\":\"block\"}").unwrap();
+            let views = document.get("views").and_then(value_into_map).unwrap();
+            let mut stored = Vec::new();
+            views.for_each(|_, value| {
+                if let Some(view) = value_into_map(value) {
+                    stored.push(view);
+                }
+            });
+            for view in stored {
+                view.delete("definition").unwrap();
             }
-        });
-        for view in stored {
-            view.delete("definition").unwrap();
-        }
+        };
+        downgrade(&document, "SELECT ?legacy WHERE {}");
+        downgrade(&default_document, "SELECT ?default WHERE {}");
         let meta = legacy.doc.get_map("meta");
         meta.insert(
             "schema_version",
@@ -5404,8 +5454,24 @@ mod tests {
         legacy.doc.commit();
 
         let snapshot = legacy.export_snapshot().unwrap();
-        let (mut migrated, report) =
-            GraphCore::from_snapshot_with_migrations(graph(), 18, &snapshot).unwrap();
+        let archive = graph_archive::encode(
+            &snapshot,
+            graph_archive::ArchiveMetadata {
+                archive_id: "archive-schema-v4-default-query".into(),
+                source_graph_id: graph(),
+                document_schema: GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION,
+                exported_at: "2026-08-26T09:22:08Z".into(),
+                suggested_name: Some("Legacy graph".into()),
+            },
+        )
+        .unwrap();
+        let decoded = graph_archive::decode(&archive).unwrap();
+        let (mut migrated, report) = GraphCore::from_snapshot_with_migrations(
+            decoded.manifest.source.graph_id,
+            18,
+            &decoded.snapshot,
+        )
+        .unwrap();
         assert_eq!(
             report.applied_migrations,
             [QUERY_VIEWS_MIGRATION_ID.to_owned()]
@@ -5432,6 +5498,26 @@ mod tests {
                 Some(1)
             );
         }
+        let migrated_default = &migrated.summary().unwrap().settings.default_queries[0].document;
+        assert_eq!(migrated_default.version, QUERY_DOCUMENT_VERSION);
+        assert_eq!(
+            migrated_default.views[0].definition.source,
+            "SELECT ?default WHERE {}"
+        );
+
+        let imported_graph = GraphId::new("imported-v4-graph").unwrap();
+        let imported_snapshot = migrated
+            .export_clone_snapshot(imported_graph.clone(), 19)
+            .unwrap();
+        let imported = GraphCore::from_snapshot(imported_graph, 19, &imported_snapshot).unwrap();
+        assert_eq!(
+            imported.summary().unwrap().settings.default_queries[0]
+                .document
+                .views[0]
+                .definition
+                .source,
+            "SELECT ?default WHERE {}"
+        );
 
         migrated
             .execute(

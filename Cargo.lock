@@ -851,6 +851,7 @@ name = "graph-core"
 version = "0.1.0"
 dependencies = [
  "domain",
+ "graph-archive",
  "hex",
  "loro",
  "query",

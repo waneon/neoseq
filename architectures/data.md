@@ -23,13 +23,16 @@ canonical representation. RDF triples, text caches, query plans, and session UI
 state are disposable projections. Shared query documents are canonical graph
 data whether an entity property or graph setting owns them.
 
-Schemas v1 through v3 are migratable predecessors. Recovery replays Base and
+Schemas v1 through v4 are migratable predecessors. Recovery replays Base and
 Tail, then applies each missing migration as a normal CRDT commit before
 persisting a current checkpoint or accepting writes. `0001-lifecycle-metadata`
 advances v1 to v2; `0002-tag-outlines` materializes every tag-owned tree and
 advances v2 to v3; `0003-graph-settings` adds shared graph configuration and
-advances v3 to v4. Reopening v4 is a no-op. Schemas outside `[1, 4]` are rejected
-without downgrade or coercion.
+advances v3 to v4; `0004-independent-query-views` moves each shared query
+definition into its stable view and advances v4 to v5. Each step validates only
+the source structure it needs through a version-scoped reader. Strict current
+invariants run after the complete migration chain. Reopening v5 is a no-op, and
+schemas outside `[1, 5]` are rejected without downgrade or coercion.
 
 ## Graph Settings
 
@@ -275,4 +278,6 @@ inferred from a decoder accepting the bytes.
   current/prior checkpoints and remaining Tail;
 - the checked-in v1 lifecycle and v2 tag-outline fixtures migrate in core,
   browser, native, and server paths and are stable under a second open;
+- a v4 graph archive with graph-owned default queries migrates, clones, and
+  reopens under a fresh graph identity;
 - generated contracts are synchronized before tests and checked by production builds.
