@@ -4,12 +4,14 @@ export const LOCALE_DEFINITIONS = [
   {
     "tag": "en",
     "direction": "ltr",
-    "labelKey": "language.english"
+    "labelKey": "language.english",
+    "temporal": "en"
   },
   {
     "tag": "ko",
     "direction": "ltr",
-    "labelKey": "language.korean"
+    "labelKey": "language.korean",
+    "temporal": "ko"
   }
 ] as const;
 export type SupportedLocale = (typeof LOCALE_DEFINITIONS)[number]["tag"];

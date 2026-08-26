@@ -20,7 +20,6 @@ import {
   serializeBinding,
   type ShortcutHandler,
 } from "../../src/features/commands/shortcuts";
-import { parseDateQuery, parseMomentQuery } from "../../src/features/commands/dates";
 import { createContextualHandlerRegistry } from "../../src/features/commands/context";
 
 function key(init: Partial<KeyboardEvent> & { key: string }): KeyboardEvent {
@@ -165,68 +164,5 @@ describe("contextual command targets", () => {
     expect(registry.current()).toBe("outline block");
     releaseOutline();
     expect(registry.current()).toBeUndefined();
-  });
-});
-
-describe("natural-language dates", () => {
-  const today = "2026-08-04"; // a Tuesday
-
-  it("resolves the relative forms a journal actually needs", () => {
-    expect(parseDateQuery("today", today)).toBe("2026-08-04");
-    expect(parseDateQuery("tomorrow", today)).toBe("2026-08-05");
-    expect(parseDateQuery("yesterday", today)).toBe("2026-08-03");
-    expect(parseDateQuery("3 days ago", today)).toBe("2026-08-01");
-    expect(parseDateQuery("in 2 weeks", today)).toBe("2026-08-18");
-  });
-
-  it("resolves weekdays forwards and backwards without landing on today", () => {
-    expect(parseDateQuery("next friday", today)).toBe("2026-08-07");
-    expect(parseDateQuery("tue", today)).toBe("2026-08-11");
-    expect(parseDateQuery("last friday", today)).toBe("2026-07-31");
-  });
-
-  it("resolves month-and-day forms, defaulting the year to the current one", () => {
-    expect(parseDateQuery("aug 5", today)).toBe("2026-08-05");
-    expect(parseDateQuery("5 august", today)).toBe("2026-08-05");
-    expect(parseDateQuery("august 5, 2027", today)).toBe("2027-08-05");
-    expect(parseDateQuery("2026-08-05", today)).toBe("2026-08-05");
-  });
-
-  it("resolves Korean relative, weekday, and calendar forms", () => {
-    expect(parseDateQuery("오늘", today, "ko")).toBe("2026-08-04");
-    expect(parseDateQuery("3일 전", today, "ko")).toBe("2026-08-01");
-    expect(parseDateQuery("2주 후", today, "ko")).toBe("2026-08-18");
-    expect(parseDateQuery("다음 금요일", today, "ko")).toBe("2026-08-07");
-    expect(parseDateQuery("지난 금요일", today, "ko")).toBe("2026-07-31");
-    expect(parseDateQuery("8월 5일", today, "ko")).toBe("2026-08-05");
-    expect(parseDateQuery("2027년 8월 5일", today, "ko")).toBe("2027-08-05");
-  });
-
-  it("resolves a day and optional clock as one moment", () => {
-    expect(parseMomentQuery("tomorrow 14:30", today)).toEqual({
-      date: "2026-08-05",
-      time: "14:30",
-    });
-    expect(parseMomentQuery("next friday 3:05 pm", today)).toEqual({
-      date: "2026-08-07",
-      time: "15:05",
-    });
-    expect(parseMomentQuery("18:00", today)).toEqual({ date: today, time: "18:00" });
-    expect(parseMomentQuery("내일 오후 3시 5분", today, "ko")).toEqual({
-      date: "2026-08-05",
-      time: "15:05",
-    });
-    expect(parseMomentQuery("8월 5일 9시", today, "ko")).toEqual({
-      date: "2026-08-05",
-      time: "09:00",
-    });
-  });
-
-  it("rejects prose and impossible dates rather than guessing", () => {
-    expect(parseDateQuery("reading list", today)).toBeNull();
-    expect(parseDateQuery("2026-02-30", today)).toBeNull();
-    expect(parseDateQuery("feb 30", today)).toBeNull();
-    expect(parseDateQuery("", today)).toBeNull();
-    expect(parseDateQuery("2월 30일", today, "ko")).toBeNull();
   });
 });

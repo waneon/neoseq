@@ -34,7 +34,6 @@ import {
   type RepeatUnit,
 } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
-import { parseMomentQuery } from "../commands/dates";
 import { repeatLabel, repeatUnitLabel } from "../tasks/labels";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
@@ -114,7 +113,7 @@ export function TaskMomentPicker({
   onClear,
   onCancel,
 }: TaskMomentPickerProps) {
-  const { locale, message, formatJournalDate } = useI18n();
+  const { locale, message, formatJournalDate, temporal } = useI18n();
   const today = todayLocalDate();
   const [date, setDate] = useState(initialDate);
   const [focusedDate, setFocusedDate] = useState(() => parseDate(initialDate));
@@ -128,10 +127,11 @@ export function TaskMomentPicker({
   const [activePane, setActivePane] = useState<"date" | "rules">("date");
   const [query, setQuery] = useState("");
   const paneId = useId();
-  const parsed = useMemo(
-    () => parseMomentQuery(query, today, locale),
-    [locale, query, today],
+  const parsedResult = useMemo(
+    () => temporal.parseMoment(query, { today }),
+    [query, temporal, today],
   );
+  const parsed = parsedResult.kind === "match" ? parsedResult.value : null;
   const calendarDate = parseDate(date);
   const disabled = readonly || busy;
   const repeatChange = repeatChanged ? (repeat ? formatRepeat(repeat) : null) : undefined;

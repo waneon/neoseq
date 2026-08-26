@@ -94,7 +94,6 @@ import {
 import { CommandPalette } from "../commands/CommandPalette";
 import { Shortcut } from "../commands/Shortcut";
 import { ShortcutSheet } from "../commands/ShortcutSheet";
-import { parseDateQuery } from "../commands/dates";
 import { isTextEntry } from "../commands/keys";
 import {
   formatBinding,
@@ -214,7 +213,7 @@ function ShellBody({
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const notify = useNotify();
-  const { message, locale, formatJournalDate, compare } = useI18n();
+  const { message, temporal, formatJournalDate, compare } = useI18n();
   const bindings = useShortcutBindings();
   const history = useHistoryActions();
   // Renaming happens in the settings dialog, which sits over this rail; both have
@@ -485,7 +484,8 @@ function ShellBody({
     (query: string): Command[] => {
       if (query.length === 0) return [];
       const rows: Command[] = [];
-      const date = parseDateQuery(query, today, locale);
+      const dateResult = temporal.parseDate(query, { today });
+      const date = dateResult.kind === "match" ? dateResult.value : null;
       if (date) {
         rows.push({
           id: `journal-${date}`,
@@ -512,7 +512,7 @@ function ShellBody({
       }
       return rows;
     },
-    [createPage, formatJournalDate, graphId, locale, message, navigate, pages, readonly, today],
+    [createPage, formatJournalDate, graphId, message, navigate, pages, readonly, temporal, today],
   );
 
   const searchGraph = useCallback(

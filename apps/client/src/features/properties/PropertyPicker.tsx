@@ -53,7 +53,6 @@ import { moveOptionFocus } from "@/ui/listbox";
 import { MenuSelect } from "@/ui/menu-select";
 import { useI18n } from "../../i18n";
 import type { AsyncRequestState } from "../../lib/async";
-import { parseDateQuery } from "../commands/dates";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionState } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
@@ -838,12 +837,15 @@ function DateValueInput({
   onChange: (value: PropertyValue) => void;
   onCommit: (value: PropertyValue) => void;
 }) {
-  const { message, locale, formatJournalDate } = useI18n();
+  const { message, temporal, formatJournalDate } = useI18n();
   const [text, setText] = useState("");
   const [active, setActive] = useState(0);
   const listId = useId();
   const today = todayLocalDate();
-  const parsed = text.trim() ? parseDateQuery(text, today, locale) : null;
+  const parsedResult = text.trim()
+    ? temporal.parseDate(text, { today })
+    : { kind: "none" as const };
+  const parsed = parsedResult.kind === "match" ? parsedResult.value : null;
   const commitDate = (date: string) => onCommit({ type: "date", value: date });
   const quick: { id: string; label: string; date: string }[] = [
     { id: "today", label: message("properties.today"), date: today },

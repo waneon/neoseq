@@ -23,14 +23,28 @@ if (localeFiles[0] !== "en" || new Set(localeFiles).size !== localeFiles.length)
   throw new Error("locale manifest must start with en and contain unique tags");
 }
 for (const definition of localeDefinitions) {
+  let canonicalTag = null;
+  try {
+    canonicalTag = Intl.getCanonicalLocales(definition.tag)[0] ?? null;
+  } catch {
+    // The common validation error below includes the complete manifest entry.
+  }
   if (
     typeof definition.tag !== "string" ||
-    !/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(definition.tag) ||
+    canonicalTag !== definition.tag ||
     !["ltr", "rtl"].includes(definition.direction) ||
-    typeof definition.labelKey !== "string"
+    typeof definition.labelKey !== "string" ||
+    typeof definition.temporal !== "string" ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(definition.temporal)
   ) {
     throw new Error(`invalid locale definition: ${JSON.stringify(definition)}`);
   }
+  await readFile(
+    resolve(root, `apps/client/src/i18n/temporal/languages/${definition.temporal}.ts`),
+    "utf8",
+  ).catch(() => {
+    throw new Error(`${definition.tag} temporal pack is missing: ${definition.temporal}`);
+  });
 }
 
 const catalogs = Object.fromEntries(

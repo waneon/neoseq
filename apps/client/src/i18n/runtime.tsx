@@ -25,6 +25,7 @@ import {
   type SupportedLocale,
   type TextDirection,
 } from "./generated/messages";
+import { createTemporalParser, type TemporalParser } from "./temporal";
 
 export { LOCALE_DEFINITIONS };
 export type { SupportedLocale };
@@ -42,6 +43,8 @@ export interface LocaleRuntime {
   readonly locale: SupportedLocale;
   readonly direction: TextDirection;
   readonly message: MessageFunction;
+  /** Locale-specific recognition backed by locale-neutral calendar semantics. */
+  readonly temporal: TemporalParser;
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
   formatBytes(value: number): string;
   formatLocalDate(value: string, options?: Intl.DateTimeFormatOptions): string;
@@ -73,11 +76,15 @@ export function storedLocalePreference(): LocalePreference {
   return isLocalePreference(value) ? value : "system";
 }
 
-function canonicalLanguage(tag: string): string | null {
+function localeFallbacks(tag: string): readonly string[] {
   try {
-    return Intl.getCanonicalLocales(tag)[0]?.split("-")[0]?.toLowerCase() ?? null;
+    const locale = new Intl.Locale(tag);
+    const candidates = [locale.baseName];
+    if (locale.script) candidates.push(`${locale.language}-${locale.script}`);
+    candidates.push(locale.language);
+    return [...new Set(candidates)];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -89,9 +96,10 @@ export function resolveLocale(
 ): SupportedLocale {
   if (preference !== "system") return preference;
   for (const candidate of platformLocales) {
-    const language = canonicalLanguage(candidate);
-    if (language && SUPPORTED_LOCALES.includes(language as SupportedLocale)) {
-      return language as SupportedLocale;
+    for (const fallback of localeFallbacks(candidate)) {
+      if (SUPPORTED_LOCALES.includes(fallback as SupportedLocale)) {
+        return fallback as SupportedLocale;
+      }
     }
   }
   return "en";
@@ -133,6 +141,7 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
     sensitivity: "base",
     numeric: true,
   });
+  const temporal = createTemporalParser(locale);
 
   const message = ((key: MessageKey, ...args: [Record<string, unknown>?]) => {
     let formatter = messageCache.get(key);
@@ -172,6 +181,7 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
     locale,
     direction: definition.direction,
     message,
+    temporal,
     formatNumber,
     formatBytes: (value) =>
       `${formatNumber(value / (1024 * 1024), {
