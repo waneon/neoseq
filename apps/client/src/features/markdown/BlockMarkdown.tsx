@@ -13,9 +13,10 @@ import remarkGfm from "remark-gfm";
 import { cn } from "../../lib/utils";
 import { sourceOffsetFromPoint } from "./caret";
 import { markdownSanitizeSchema, markdownUrlTransform } from "./profile";
+import type { MarkdownActivationMethod } from "../blocks/editor/activation";
 
 export type MarkdownVariant = "block" | "compact";
-export type MarkdownActivationMethod = "pointer" | "keyboard";
+export type { MarkdownActivationMethod } from "../blocks/editor/activation";
 
 export interface BlockMarkdownProps {
   markdown: string;

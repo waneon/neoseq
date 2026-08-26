@@ -1039,14 +1039,28 @@ describe("query result views", () => {
       const user = userEvent.setup();
       const table = await screen.findByTestId("query-table");
       const settled = within(table).getByTestId("query-edit-text");
+      const previousModes: Array<string | null> = [];
+      const modeChanges = new MutationObserver((records) => {
+        previousModes.push(...records.map((record) => record.oldValue));
+      });
+      modeChanges.observe(settled, {
+        attributes: true,
+        attributeFilter: ["data-vim-mode"],
+        attributeOldValue: true,
+      });
       await user.click(settled);
       const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+      await Promise.resolve();
+      modeChanges.disconnect();
 
       expect(editor).not.toHaveAttribute("readonly");
       // The caret carries the mode here and nothing else does: a badge under a
       // cell would grow its row and announce a mode beside a value the reader
       // had only meant to correct.
       expect(editor).toHaveAttribute("data-vim-mode", "insert");
+      // Focus precedes click. The shared pointer entrance must still make the
+      // first active render Insert; a Normal commit here is a visible flash.
+      expect(previousModes).not.toContain("normal");
       expect(screen.queryByTestId("query-vim-mode-indicator")).not.toBeInTheDocument();
       await user.keyboard("{Escape}");
       expect(editor).toHaveAttribute("data-vim-mode", "normal");

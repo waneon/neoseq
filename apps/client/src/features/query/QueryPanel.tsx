@@ -86,11 +86,10 @@ import {
 import { Button } from "@/ui/shadcn/button";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import {
-  dueTierOf,
-  dueToneOf,
   isSettledStatus,
   TASK_STATUS_KEY,
 } from "../../entities/tasks";
+import { taskMomentDue } from "../tasks/moment-presentation";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
   compileEntityProjection,
@@ -434,12 +433,17 @@ function QueryPanelSurface({
    * `today` is read at call time rather than captured: a journal left open past
    * midnight must not keep yesterday's opinion of what is overdue.
    */
-  const dueTone = useCallback(
+  const momentDue = useCallback(
     (date: string, time: string | undefined, row: ResultRow) => {
       const status = statusVariable ? row[statusVariable] : undefined;
-      if (status?.kind === "literal" && isSettledStatus(status.value)) return undefined;
-      const tier = dueTierOf(date, time, todayLocalDate(), nowLocalTime(), dueTiers);
-      return { tier, tone: dueToneOf(tier, dueTiers) };
+      return taskMomentDue({
+        date,
+        time,
+        settled: status?.kind === "literal" && isSettledStatus(status.value),
+        today: todayLocalDate(),
+        now: nowLocalTime(),
+        tiers: dueTiers,
+      });
     },
     [statusVariable, dueTiers],
   );
@@ -454,7 +458,7 @@ function QueryPanelSurface({
     formatDate: formatJournalDate,
     formatTime: formatTimeOfDay,
     compare,
-    dueTone,
+    momentDue,
     onOpen: (entity: QueryEntityRef) => {
       history.open(entity);
     },
@@ -465,7 +469,7 @@ function QueryPanelSurface({
     formatJournalDate,
     formatTimeOfDay,
     compare,
-    dueTone,
+    momentDue,
     history,
   ]);
 

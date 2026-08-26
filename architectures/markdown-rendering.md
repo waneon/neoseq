@@ -79,11 +79,12 @@ identifier with underscores, or a bare newline stays prose.
 
 ## Presentation Consumers
 
-The outline uses the full block projection and the typography and depth language
-from [`../designs/foundations.md`](../designs/foundations.md). Query content
-columns use the same parsing and security policy with a compact phrasing-only
-projection. The compact shape prevents Markdown links or block elements from
-being nested inside the query cell's edit/open control.
+The outline and query list use the full block projection and the typography and
+depth language from [`../designs/foundations.md`](../designs/foundations.md).
+Query table content uses the same parsing and security policy with a compact
+phrasing-only projection. The compact shape prevents Markdown links or block
+elements from being nested inside the table cell's edit/open control. These
+choices are entries in the shared block-surface policy, not renderer forks.
 
 Virtualized rows measure the rendered result like any other dynamic block.
 Parsing occurs only for mounted reading projections and is memoized by the source

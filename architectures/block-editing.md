@@ -11,6 +11,10 @@ navigation or structural ownership.
 
 - `BlockTextArea` owns native `beforeinput`, auto-pairing, generated-closer
   provenance, and IME-safe input repair;
+- `activation` turns an explicit pointer, keyboard, programmatic, or contextual
+  entrance into modal intent before a host opens its draft;
+- `surface-policy` names the few deliberate behavioral differences between
+  outline, query list, and query table hosts;
 - block completion modules own `/` and `#` token detection, ranking, token
   removal, and menu presentation; and
 - text diffs translate drafts to `splice_markdown` command payloads.
@@ -39,14 +43,20 @@ Text-local and entity-local behavior is invariant: pairing, IME handling,
 Markdown completions, properties, tags, task commands, and document history use
 the shared paths. Surface-local behavior is explicit:
 
-| Behavior | Outline | Query result |
-| --- | --- | --- |
-| Markdown and entity commands | shared | shared |
-| `Enter` | split canonical tree | commit reference edit |
-| `Tab`, empty backspace, drag | mutate tree | unavailable |
-| Multi-block selection and presence | owned | unavailable |
-| Draft lifetime | focused outline row | query coordinator, retained across Table/List |
-| Result invalidation | not applicable | active stale row remains pinned |
+| Behavior | Outline | Query list | Query table |
+| --- | --- | --- | --- |
+| Markdown and entity commands | shared | shared | shared |
+| Reading projection | full block | full block | compact phrasing |
+| `Enter` | split canonical tree | commit edit | commit edit |
+| Structural mutation and selection | owned | unavailable | unavailable |
+| Cross-block Vim motion | owned | unavailable | unavailable |
+| Draft lifetime | focused row | query coordinator | same query coordinator |
+| Result invalidation | not applicable | active stale row pinned | active stale row pinned |
+
+The policy matrix is executable configuration rather than scattered conditionals.
+Hosts consume it, but domain and interaction primitives never inspect the current
+surface. Adding a projection therefore requires one explicit policy entry and a
+host adapter, not a fork of the block editor.
 
 The visual `BlockPresentation` primitives remain presentation-only. A universal
 row component with structural mode flags would mix query navigation with tree
@@ -76,11 +86,10 @@ marking the canonical field read-only. Insert mode therefore keeps the same
 composition, auto-pair, and completion behavior as the standard keymap.
 Pointer activation enters Insert mode at the chosen caret; keyboard motion
 between blocks retains the current modal state. Editor activation therefore
-carries its input method explicitly: focus, selection release, and the modal
-transition are one host-owned state change, never separate focus and click
-heuristics. A press records itself before the browser delivers the focus it
-caused, so the entrance that reaches a settled line is the press's own and not
-the `click` that follows it a frame later.
+carries its input method explicitly. A shared entrance records a press before
+the browser delivers its focus, so modal transition and draft activation occur
+in that focus event's single commit rather than in separate focus and click
+frames.
 
 The active mode is named where the surface has room to name it: above the
 outline's first row, and in a query cell by the caret alone, since a cell has no
@@ -108,6 +117,6 @@ history.
 ## Verification
 
 Behavior contracts run against outline and query hosts for shared input
-semantics. Separate tests assert each surface's structural policy, contextual
-target precedence, canonical persistence, view-switch draft retention, and
-failed-write recovery.
+semantics. A matrix test freezes each surface policy; host tests assert the same
+activation transition, contextual target precedence, canonical persistence,
+view-switch draft retention, and failed-write recovery.

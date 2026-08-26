@@ -132,6 +132,13 @@ import {
 } from "../blocks/editor/vim/engine";
 import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
 import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
+import {
+  useBlockActivationEntrance,
+  vimModeForActivation,
+  type BlockActivationEntrance,
+  type BlockActivationMethod,
+} from "../blocks/editor/activation";
+import { BLOCK_SURFACE_POLICY } from "../blocks/editor/surface-policy";
 import { useEditorKeymap } from "../settings/preferences";
 import type { EditorKeymap } from "../../entities/settings";
 import {
@@ -203,7 +210,6 @@ interface NavigationRevealRequest {
 const PENDING_PREFIX = "pending-";
 
 type InputMethod = "keyboard" | "pointer" | "context_menu";
-type ActivationMethod = InputMethod | "programmatic";
 
 function isPendingId(id: string): boolean {
   return id.startsWith(PENDING_PREFIX);
@@ -225,9 +231,9 @@ interface EditorContext {
   /**
    * Whether the focus about to arrive belongs to a press. `focus` is delivered
    * by the browser as a press's own default action and says nothing about what
-   * caused it, so the press records itself here first — see `pointerEntrance`.
+   * caused it, so the shared entrance records the press before focus arrives.
    */
-  pointerEntrance: RefObject<boolean>;
+  activationEntrance: BlockActivationEntrance;
   propertyRequest: PropertyRequest | null;
   tagRequest: TagRequest | null;
   slashRequest: SlashRequest | null;
@@ -248,7 +254,11 @@ interface EditorContext {
   selectionCount: number;
   revision: number;
   presence: readonly PeerPresence[];
-  activateBlock(id: string | null, caret: number | undefined, inputMethod: ActivationMethod): void;
+  activateBlock(
+    id: string | null,
+    caret: number | undefined,
+    inputMethod: BlockActivationMethod,
+  ): void;
   /** Drops the caret when focus genuinely left this row. See `releaseFocus`. */
   releaseFocus(id: string): void;
   publishSelection(blockId: string, textarea: HTMLTextAreaElement): void;
@@ -449,7 +459,7 @@ export function Outliner({
    * a line the reader is about to type into. The press marks itself here on the
    * way down, and the entrance is read rather than guessed.
    */
-  const pointerEntrance = useRef(false);
+  const activationEntrance = useBlockActivationEntrance();
   const pendingSeq = useRef(0);
   const draftInputRevision = useRef(0);
   const pendingDispatching = useRef(false);
@@ -733,7 +743,7 @@ export function Outliner({
   const activateBlock = useCallback((
     id: string | null,
     caret: number | undefined,
-    inputMethod: ActivationMethod,
+    inputMethod: BlockActivationMethod,
   ) => {
     const previous = focusedRef.current;
     if (previous !== null && previous !== id) {
@@ -750,12 +760,11 @@ export function Outliner({
         setSelected(empty);
       }
       clearVisualLineState();
-      if (keymap === "vim") {
-        if (!readonly && (inputMethod === "pointer" || inputMethod === "context_menu")) {
-          vim.reset("insert");
-        } else if (leavingVisualLine) {
-          vim.reset();
-        }
+      const activationMode = vimModeForActivation(keymap, readonly, inputMethod);
+      if (activationMode) {
+        vim.reset(activationMode);
+      } else if (keymap === "vim" && leavingVisualLine) {
+        vim.reset();
       }
     }
     revealNavigationTarget(
@@ -1818,7 +1827,7 @@ export function Outliner({
     vim,
     focusedId,
     pendingCaret,
-    pointerEntrance,
+    activationEntrance,
     propertyRequest,
     tagRequest,
     slashRequest,
@@ -2506,7 +2515,7 @@ export function Outliner({
           selectionStart: 0,
           selectionEnd: 0,
           editable: !readonly,
-          supportsVisualLine: true,
+          supportsVisualLine: BLOCK_SURFACE_POLICY.outline.visualLine,
         },
         vimKeyFromEvent(event),
       );
@@ -3244,8 +3253,13 @@ function handleOutlineVim(
       selectionStart: textarea.selectionStart,
       selectionEnd: textarea.selectionEnd,
       editable: !editor.readonly,
-      supportsVisualLine: !editor.readonly && !isPendingId(row.block.id),
-      supportsCrossBlockWords: !isPendingId(row.block.id),
+      supportsVisualLine:
+        BLOCK_SURFACE_POLICY.outline.visualLine
+        && !editor.readonly
+        && !isPendingId(row.block.id),
+      supportsCrossBlockWords:
+        BLOCK_SURFACE_POLICY.outline.crossBlockWords
+        && !isPendingId(row.block.id),
     },
     vimKeyFromEvent(event),
   );
@@ -3778,19 +3792,18 @@ function BlockRow({
           // the mark clear it: the gesture it belongs to is over by then, and a
           // mark left standing would tell the next keyboard arrival it was a
           // press.
-          onPointerDown={() => {
-            editor.pointerEntrance.current = true;
-          }}
+          onPointerDown={editor.activationEntrance.beginPointer}
+          onPointerUp={editor.activationEntrance.completePointer}
+          onPointerCancel={editor.activationEntrance.completePointer}
           onFocus={() => {
-            const pressed = editor.pointerEntrance.current;
-            editor.pointerEntrance.current = false;
+            const method = editor.activationEntrance.focusMethod();
             if (!isFocused) {
-              editor.activateBlock(row.block.id, -1, pressed ? "pointer" : "programmatic");
+              editor.activateBlock(row.block.id, -1, method);
             }
             if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
           }}
           onClick={() => {
-            editor.pointerEntrance.current = false;
+            editor.activationEntrance.completePointer();
             editor.activateBlock(row.block.id, undefined, "pointer");
           }}
           onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}

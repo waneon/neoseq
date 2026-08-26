@@ -53,6 +53,12 @@ import { useEditorKeymap } from "../settings/preferences";
 import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
 import { useVimSession, type VimSession } from "../blocks/editor/vim/session";
 import {
+  useBlockActivationEntrance,
+  vimModeForActivation,
+  type BlockActivationMethod,
+} from "../blocks/editor/activation";
+import { BLOCK_SURFACE_POLICY } from "../blocks/editor/surface-policy";
+import {
   BlockSlashMenu,
   BlockTagMenu,
   NO_BLOCK_COMPLETION,
@@ -71,7 +77,6 @@ import {
 } from "../blocks/editor/slash-commands";
 import {
   BlockMarkdown,
-  type MarkdownActivationMethod,
 } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
@@ -656,7 +661,7 @@ function QueryMarkdownField({
   label,
   editLabel,
   column,
-  preview = false,
+  surface,
 }: {
   editor: QueryResultEditor;
   binding: Extract<QueryEditBinding, { kind: "markdown" }>;
@@ -666,7 +671,7 @@ function QueryMarkdownField({
   label: string;
   editLabel?: string;
   column?: ResultColumn;
-  preview?: false | "block" | "compact";
+  surface: "queryList" | "queryTable";
 }) {
   const state = useSessionState();
   const { compare } = useI18n();
@@ -678,18 +683,19 @@ function QueryMarkdownField({
   const markdown = current?.phase === "markdown" ? current : null;
   const block = editor.activeBlock;
   const blockId = binding.block.id;
+  const policy = BLOCK_SURFACE_POLICY[surface];
   const projected = markdown?.draft ?? value;
-  const previewMarkdown = Boolean(preview && !current && hasMarkdownSyntax(projected));
+  const previewMarkdown = Boolean(!current && hasMarkdownSyntax(projected));
   const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
   const [completion, dispatchCompletion] = useReducer(
     blockCompletionReducer,
     NO_BLOCK_COMPLETION,
   );
-  const activateVim = (inputMethod: MarkdownActivationMethod) => {
-    if (inputMethod === "pointer" && editor.keymap === "vim") {
-      editor.vim.reset("insert");
-    }
+  const activationEntrance = useBlockActivationEntrance();
+  const activateVim = (inputMethod: BlockActivationMethod) => {
+    const mode = vimModeForActivation(editor.keymap, false, inputMethod);
+    if (mode) editor.vim.reset(mode);
   };
   const slashRequest = completion.kind === "slash" ? completion.request : null;
   const hashRequest = completion.kind === "hash" ? completion.request : null;
@@ -796,7 +802,7 @@ function QueryMarkdownField({
     pendingCaret.current = null;
   }, [markdown]);
 
-  const Root = preview === "block" ? "div" : "span";
+  const Root = policy.markdown === "block" ? "div" : "span";
   // An open cell scrolls again: a caret that has travelled past the edge has to
   // be followed, and the mark would be standing where the writing is.
   const cut = clipped && !current;
@@ -840,10 +846,17 @@ function QueryMarkdownField({
         }
         data-testid={markdown ? "query-markdown-editor" : `query-edit-${column?.variable ?? "text"}`}
         title={editor.message("query.editResult", { column: editLabel ?? column?.label ?? label })}
+        onPointerDown={activationEntrance.beginPointer}
+        onPointerUp={activationEntrance.completePointer}
+        onPointerCancel={activationEntrance.completePointer}
         onFocus={(event) => {
-          if (!current) editor.begin(binding, row, event.currentTarget);
+          if (!current) {
+            activateVim(activationEntrance.focusMethod());
+            editor.begin(binding, row, event.currentTarget);
+          }
         }}
         onClick={() => {
+          activationEntrance.completePointer();
           activateVim("pointer");
         }}
         onValueChange={(value, element, edit) => {
@@ -940,8 +953,8 @@ function QueryMarkdownField({
                 selectionStart: event.currentTarget.selectionStart,
                 selectionEnd: event.currentTarget.selectionEnd,
                 editable: true,
-                supportsVisualLine: false,
-                supportsCrossBlockWords: false,
+                supportsVisualLine: policy.visualLine,
+                supportsCrossBlockWords: policy.crossBlockWords,
               },
               vimKeyFromEvent(event),
             );
@@ -978,7 +991,11 @@ function QueryMarkdownField({
             event.preventDefault();
             editor.cancel();
             event.currentTarget.blur();
-          } else if (event.key === "Enter" && !event.shiftKey) {
+          } else if (
+            event.key === "Enter"
+            && !event.shiftKey
+            && policy.enter === "commit"
+          ) {
             event.preventDefault();
             void editor.commit(true).then((saved) => {
               if (saved) textarea.current?.blur();
@@ -1006,7 +1023,7 @@ function QueryMarkdownField({
       {previewMarkdown && (
         <BlockMarkdown
           markdown={projected}
-          variant={preview || "block"}
+          variant={policy.markdown}
           className="outline-markdown query-markdown-preview"
           onActivate={(caret, anchor, inputMethod) => {
             pendingCaret.current = caret ?? projected.length;
@@ -1200,7 +1217,7 @@ export function EditableBlockContent({
         className="block-line query-block-content"
         label={context.message("outline.blockText")}
         editLabel={context.message("query.field.text")}
-        preview="block"
+        surface="queryList"
       />
     );
   }
@@ -1314,7 +1331,7 @@ export function EditableCellValue({
         className={className}
         label={context.message("outline.blockText")}
         column={column}
-        preview="compact"
+        surface="queryTable"
       />
     );
     if (!showOpen || !row.subject || !context.onOpen) return field;

@@ -89,6 +89,10 @@ A task moment is one object composed of a day and optional time. It keeps the
 same written and tonal identity across outline chips and query cells, while its
 outer affordance follows the surface: the chip edits directly, whereas an
 interactive result cell owns the edit action.
+One presentation model resolves the localized label, formatted day and time,
+recurrence mark, urgency step, and reader-owned tone. Chip and cell appearances
+project that model; they do not recalculate its meaning. A new surface may choose
+another affordance, but it must consume the same model.
 Its editor treats date, time, and task-level recurrence as one intent. Natural
 input exposes its full interpretation as a proposal; Enter applies that proposal
 and dismisses after a successful save, while choosing the proposal moves it into

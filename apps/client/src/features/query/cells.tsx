@@ -22,18 +22,21 @@ import {
 import { valueTypeOf } from "../../entities/properties";
 import { LIST_SEPARATOR, momentTimeVariable } from "../../entities/query-compile";
 import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
-import type { ToneValue } from "../../entities/settings";
 import {
   isTaskDateKey,
   isTimeOfDay,
   TASK_PRIORITY_KEY,
   TASK_STATUS_KEY,
-  type DueTier,
+  type TaskDateKey,
 } from "../../entities/tasks";
 import type { MessageFunction } from "../../i18n";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
-import { tonePresentation } from "../tasks/tone-presentation";
+import { TaskMoment } from "../tasks/TaskMoment";
+import {
+  presentTaskMoment,
+  type TaskMomentDuePresentation,
+} from "../tasks/moment-presentation";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 
@@ -86,11 +89,11 @@ export interface CellContext {
    * settled is a fact about the row and the thresholds are a preference; the
    * cell hands over the moment it is drawing, day and time both.
    */
-  dueTone?: (
+  momentDue?: (
     date: string,
     time: string | undefined,
     row: ResultRow,
-  ) => { tier: DueTier; tone: ToneValue } | undefined;
+  ) => TaskMomentDuePresentation | null;
 }
 
 export function entityRefKey(entity: QueryEntityRef): string {
@@ -298,12 +301,19 @@ export function CellValue({
   }
   // A moment is a bubble tinted by how far off it is — the same object the strip
   // under a block draws, so `Scheduled` reads the same whether the reader met it
-  // in the outline or in a column of a table (designs/metadata.md § Moments). The tint is
-  // the second reading of a date the cell writes out in full, and `Overdue` is
-  // written in words, so nothing here is colour-only. No glyph: in a column the
-  // heading already says which moment this is.
+  // in the outline or in a column of a table (designs/metadata.md § Moments).
+  // The exact date and optional time remain written in full, so the tone is not
+  // the only record of the fact. No glyph: the heading already names the moment.
   if (key && isTaskDateKey(key) && term.kind === "literal" && term.datatype === XSD_DATE) {
-    return <DueValue date={term.value} column={column} context={context} row={row} />;
+    return (
+      <DueValue
+        taskKey={key}
+        date={term.value}
+        column={column}
+        context={context}
+        row={row}
+      />
+    );
   }
   if (key && valueTypeOf(key) === "checkbox" && term.kind === "literal") {
     const checked = term.value === "true";
@@ -335,11 +345,13 @@ export function CellValue({
  * overdue by ten, and receives the same overdue tone as it does in the outline.
  */
 function DueValue({
+  taskKey,
   date,
   column,
   context,
   row,
 }: {
+  taskKey: TaskDateKey;
   date: string;
   column: ResultColumn;
   context: CellContext;
@@ -351,22 +363,17 @@ function DueValue({
   const time = companion?.kind === "literal" && isTimeOfDay(companion.value)
     ? companion.value
     : undefined;
-  const due = row ? context.dueTone?.(date, time, row) : undefined;
-  const day = context.formatDate(date);
-  const clock = time ? context.formatTime(time) : null;
-  return (
-    <span
-      className="query-due"
-      data-due={due?.tier}
-      {...(due ? tonePresentation(due.tone) : {})}
-      // A column is 180px wide and a date spelled out with its weekday is not,
-      // so the moment ellipsises here more often than it does anywhere else.
-      // The whole of it stays readable: nothing in the product is cut off with
-      // no way to read the rest (designs/accessibility.md § Perception).
-      title={[day, clock].filter(Boolean).join(" · ")}
-    >
-      <span className="query-due-date">{day}</span>
-      {clock && <span className="query-due-time">{clock}</span>}
-    </span>
-  );
+  const value = presentTaskMoment({
+    key: taskKey,
+    date,
+    time,
+    due: row ? context.momentDue?.(date, time, row) ?? null : null,
+    repeating: false,
+    message: context.message,
+    formatDate: context.formatDate,
+    formatTime: context.formatTime,
+  });
+  // A column is narrow, so the shared cell appearance keeps the whole value in
+  // its title while allowing the written day to ellipsise.
+  return <TaskMoment value={value} appearance="cell" />;
 }

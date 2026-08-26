@@ -7,12 +7,11 @@
 // pointer route into the property picker on its own key. An empty set renders
 // nothing at all.
 //
-// A moment carries a tone for how far off it is (designs/metadata.md § Moments). The tone
-// is the second reading of a fact the chip already writes out — the date, and the
-// word `Overdue` when one has passed — so nothing here is colour-only, and both
-// the thresholds and the tones belong to the user (designs/metadata.md § Moments).
+// A moment carries a tone for how far off it is (designs/metadata.md § Moments).
+// The exact date and optional time remain written beside it, so the tone enriches
+// rather than replaces the fact, and both thresholds and tones belong to the user.
 
-import { AlarmClockIcon, CalendarIcon, RepeatIcon } from "lucide-react";
+import { RepeatIcon } from "lucide-react";
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
 import {
   dateValue,
@@ -24,8 +23,6 @@ import {
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import { isGenericProperty } from "../../entities/properties";
 import {
-  dueTierOf,
-  dueToneOf,
   isSettledStatus,
   isTaskKey,
   isTimeOfDay,
@@ -41,7 +38,8 @@ import { useI18n } from "../../i18n";
 import { useSessionState } from "../shell/session-context";
 import { useDueTiers } from "../settings/preferences";
 import { repeatLabel } from "../tasks/labels";
-import { tonePresentation } from "../tasks/tone-presentation";
+import { TaskMoment } from "../tasks/TaskMoment";
+import { presentTaskMoment, taskMomentDue } from "../tasks/moment-presentation";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 
 export function BlockChips({
@@ -113,28 +111,23 @@ export function BlockChips({
     const scheduledKey = key === TASK_SCHEDULED_KEY;
     const rawTime = stringValue(block.properties, timeKeyFor(key));
     const time = rawTime !== undefined && isTimeOfDay(rawTime) ? rawTime : undefined;
-    const tier = settled ? undefined : dueTierOf(date, time, today, nowTime, tiers);
-    const tone = tier ? dueToneOf(tier, tiers) : undefined;
-    const Glyph = scheduledKey ? CalendarIcon : AlarmClockIcon;
+    const value = presentTaskMoment({
+      key,
+      date,
+      time,
+      due: taskMomentDue({ date, time, settled, today, now: nowTime, tiers }),
+      repeating: repeat !== null,
+      message,
+      formatDate: formatJournalDate,
+      formatTime: formatTimeOfDay,
+    });
     return (
-      <button
-        type="button"
-        className="task-chip"
-        data-due={tier}
-        {...(tone ? tonePresentation(tone) : {})}
-        data-testid={scheduledKey ? "task-chip-scheduled" : "task-chip-deadline"}
-        onClick={(event) => onEdit(key, event.currentTarget)}
-      >
-        <Glyph aria-hidden />
-        <span className="task-chip-name">
-          {message(scheduledKey ? "task.scheduled" : "task.deadline")}
-        </span>
-        <span className="task-chip-value">
-          {formatJournalDate(date)}
-          {time && <span className="task-chip-time">{formatTimeOfDay(time)}</span>}
-        </span>
-        {repeat && <RepeatIcon className="task-chip-repeat" aria-hidden />}
-      </button>
+      <TaskMoment
+        value={value}
+        appearance="chip"
+        testId={scheduledKey ? "task-chip-scheduled" : "task-chip-deadline"}
+        onEdit={(anchor) => onEdit(key, anchor)}
+      />
     );
   };
 
