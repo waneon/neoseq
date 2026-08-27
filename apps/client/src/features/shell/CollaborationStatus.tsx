@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SessionState } from "../../core-port/session";
+import type { LiveState, RemoteSyncState } from "../sync/SyncAgent";
 import { useI18n } from "../../i18n";
 
 const PENDING_DELAY_MS = 600;
@@ -14,9 +14,8 @@ const PENDING_DELAY_MS = 600;
  * slots keep their data attributes in every state, because sync is also the
  * thing tests wait on.
  */
-export function CollaborationStatus({ state }: { state: SessionState }) {
+export function CollaborationStatus({ sync, live }: { sync: RemoteSyncState; live: LiveState }) {
   const { message } = useI18n();
-  const sync = state.sync;
   const pending = sync.kind === "pending" && sync.count > 0;
   const [showPending, setShowPending] = useState(false);
 
@@ -46,9 +45,9 @@ export function CollaborationStatus({ state }: { state: SessionState }) {
           ? message("sync.notSynced")
           : null;
   const liveText =
-    state.live === "connecting"
+    live === "connecting"
       ? message("sync.connecting")
-      : state.live === "offline"
+      : live === "offline"
         ? message("sync.offline")
         : null;
 
@@ -70,11 +69,11 @@ export function CollaborationStatus({ state }: { state: SessionState }) {
       </output>
       <output
         className="live-slot"
-        data-live={state.live}
+        data-live={live}
         data-testid="live-status"
-        aria-live={state.live === "offline" ? "polite" : "off"}
+        aria-live={live === "offline" ? "polite" : "off"}
       >
-        {state.live === "live" && <span className="sr-only">{message("sync.live")}</span>}
+        {live === "live" && <span className="sr-only">{message("sync.live")}</span>}
         {liveText && (
           <>
             <span className="save-dot" aria-hidden />

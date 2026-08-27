@@ -32,7 +32,7 @@ import {
 } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { PriorityGlyph } from "./glyphs";
 import { priorityLabel } from "./labels";
 
@@ -46,7 +46,7 @@ export function TaskPriorityControl({
   priority: string;
 }) {
   const { message } = useI18n();
-  const readonly = useSessionState().mode === "readonly";
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>

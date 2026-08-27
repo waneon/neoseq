@@ -54,7 +54,7 @@ import { MenuSelect } from "@/ui/menu-select";
 import { useI18n } from "../../i18n";
 import type { AsyncRequestState } from "../../lib/async";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, repeatLabel, repeatUnitLabel, statusLabel } from "../tasks/labels";
 import { PageAutocomplete } from "./PageAutocomplete";
@@ -100,7 +100,10 @@ export function PropertyPicker({
   onClose: () => void;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const notify = useNotify();
   const { message, compare } = useI18n();
   const readonly = state.mode === "readonly";

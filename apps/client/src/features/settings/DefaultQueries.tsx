@@ -69,7 +69,7 @@ import {
 } from "../query/QueryColumnsControl";
 import { planSummary, summaryLabel } from "../query/summary";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 
 /** The two layouts a journal may read an answer through. */
@@ -78,7 +78,10 @@ const LAYOUTS: QueryViewKind[] = ["list", "table"];
 export function DefaultQueriesSection() {
   const { message } = useI18n();
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const notify = useNotify();
   const queries = state.snapshot.settings.default_queries;
   // One editor at a time. A builder is five rows tall, and eight of them open at
@@ -161,7 +164,10 @@ function DefaultQueryRow({
   onOpen: (open: boolean) => void;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
   const bodyId = useId();

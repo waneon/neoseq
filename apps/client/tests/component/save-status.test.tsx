@@ -12,7 +12,7 @@ describe("save status", () => {
     const { session, port } = await openFakeSession();
     const user = userEvent.setup();
     const View = () => (
-      <SaveStatus state={session.getState()} onRetry={() => void session.retry()} />
+      <SaveStatus save={session.getState().save} onRetry={() => void session.retry()} />
     );
     const { rerender } = render(<View />);
     session.subscribe(() => rerender(<View />));
@@ -34,7 +34,7 @@ describe("save status", () => {
 
   it("labels storage-full failures distinctly", async () => {
     const { session, port } = await openFakeSession();
-    const View = () => <SaveStatus state={session.getState()} onRetry={() => {}} />;
+    const View = () => <SaveStatus save={session.getState().save} onRetry={() => {}} />;
     const { rerender } = render(<View />);
     session.subscribe(() => rerender(<View />));
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });

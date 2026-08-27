@@ -11,6 +11,7 @@
 // taking one drops the other, so Delete can only ever mean one thing.
 
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -64,7 +65,7 @@ import {
   stringValue,
 } from "../../core-port/snapshot";
 import { flattenOutline, rowIndexOf, type OutlineRow } from "../../entities/outline";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { useHistoryActions, type HistoryRevealRequest } from "../history/context";
 import { BlockChips } from "../properties/BlockChips";
 import { PropertyPicker } from "../properties/PropertyPicker";
@@ -113,6 +114,7 @@ import type { OutlineFragment } from "../../core-port/fragment";
 import {
   caretAnchor,
   elementAnchor,
+  measureAnchor,
   pointAnchor,
   snapshotAnchor,
   type Anchor,
@@ -184,6 +186,9 @@ const DRAG_THRESHOLD_PX = 4;
  */
 const REVEAL_MS = 220;
 const NOTHING_REVEALED: ReadonlySet<string> = new Set();
+const EMPTY_PENDING_CONTENT: ReadonlyMap<string, InlineContentProjection> = new Map();
+const NO_AUTO_CLOSERS: readonly AutoCloserMarker[] = [];
+const NO_PAGE_REFERENCES: readonly PageReferenceSpan[] = [];
 /**
  * Anything that floats over the outline and can be dismissed by clicking past
  * it. Read from the document rather than from React state because these come
@@ -315,7 +320,7 @@ interface EditorContext {
   ): void;
   onCompositionStart(row: OutlineRow): void;
   onCompositionEnd(row: OutlineRow, textarea: HTMLTextAreaElement): void;
-  onKeyDown(row: OutlineRow, rows: OutlineRow[], event: KeyboardEvent<HTMLTextAreaElement>): void;
+  onKeyDown(row: OutlineRow, event: KeyboardEvent<HTMLTextAreaElement>): void;
   flushNow(id: string): void;
   runHistory(id: string, redo: boolean): void;
   insertRootBlock(index: number, inputMethod: InputMethod): void;
@@ -391,7 +396,13 @@ export function Outliner({
   scrollElement: HTMLElement | null;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot
+      && left.mode === right.mode
+      && left.revision === right.revision
+      && left.presence === right.presence,
+  );
   const commands = useCommands();
   const history = useHistoryActions();
   const notify = useNotify();
@@ -549,19 +560,37 @@ export function Outliner({
   const ownerRef = useLatest(owner);
   const outlineRef = useLatest(outline);
 
-  const projectedCollapsed = new Set(collapsed);
-  for (const operation of draftState.pendingOperations) {
-    if (operation.kind === "merge" && !collapsed.has(operation.targetId)) {
-      projectedCollapsed.delete(operation.sourceId);
+  const projectedCollapsed = useMemo(() => {
+    const projected = new Set(collapsed);
+    for (const operation of draftState.pendingOperations) {
+      if (operation.kind === "merge" && !collapsed.has(operation.targetId)) {
+        projected.delete(operation.sourceId);
+      }
     }
-  }
-  const pendingProjection = projectPendingOperations(
-    flattenOutline(outline, projectedCollapsed),
-    draftState.pendingOperations,
-    draftState.drafts,
-    draftState.pageReferences,
+    return projected;
+  }, [collapsed, draftState.pendingOperations]);
+  const structuralRows = useMemo(
+    () => flattenOutline(outline, projectedCollapsed),
+    [outline, projectedCollapsed],
+  );
+  const pendingProjection = useMemo(
+    () => projectPendingOperations(
+      structuralRows,
+      draftState.pendingOperations,
+      draftState.drafts,
+      draftState.pageReferences,
+    ),
+    [
+      draftState.drafts,
+      draftState.pageReferences,
+      draftState.pendingOperations,
+      structuralRows,
+    ],
   );
   const rows = pendingProjection.rows;
+  const menuRow = menuFor === null
+    ? null
+    : rows.find((row) => row.block.id === menuFor) ?? null;
   const rowsRef = useLatest(rows);
   const readonly = state.mode === "readonly";
   // `selected` is the concrete identity set the user saw selected when the
@@ -2375,11 +2404,11 @@ export function Outliner({
     draftOf: (row) => pendingProjection.content.get(row.block.id)?.markdown
       ?? draftState.drafts.get(row.block.id)
       ?? row.block.markdown,
-    autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? [],
+    autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? NO_AUTO_CLOSERS,
     pageReferencesOf: (block) => pendingProjection.content.get(block.id)?.pageReferences
       ?? draftState.pageReferences.get(block.id)
       ?? block.page_references
-      ?? [],
+      ?? NO_PAGE_REFERENCES,
     onInput: (row, value, textarea, edit) => {
       const previous = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       let nextClosers = transformAutoClosers(
@@ -2436,7 +2465,7 @@ export function Outliner({
       const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       if (!updateCompletions(row.block.id, value, textarea)) scheduleFlush(row.block.id);
     },
-    onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event, bindings),
+    onKeyDown: (row, event) => onKeyDown(editor, row, rowsRef.current, event, bindings),
     flushNow,
     runHistory,
     onGripPointerDown,
@@ -2721,6 +2750,16 @@ export function Outliner({
       copySelection,
     },
   };
+  // Rows keep one stable command surface. Render-time values travel separately
+  // in BlockRowView; event handlers resolve through this proxy to the newest
+  // editor after a memoized row has skipped unrelated parent renders.
+  const editorRef = useLatest(editor);
+  const liveEditor = useMemo(
+    () => new Proxy(editor, {
+      get: (_target, property: keyof EditorContext) => editorRef.current[property],
+    }),
+    [editorRef],
+  );
 
   // ── One outline, two origins ──
   //
@@ -3120,17 +3159,24 @@ export function Outliner({
                   transform: `translateY(${item.start - scrollMargin}px)`,
                 }}
               >
-                <BlockRow
+                <MemoBlockRow
                   row={row}
-                  rows={rows}
-                  editor={editor}
+                  editor={liveEditor}
+                  view={projectBlockRowView(editor, row)}
                   lit={litFor(ancestors, item.index, row.depth)}
                   ancestor={ancestors.indices.includes(item.index)}
-                  bindings={bindings}
                 />
               </div>
             );
           })}
+          {menuRow && (
+            <BlockMenu
+              row={menuRow}
+              rows={rows}
+              editor={editor}
+              bindings={bindings}
+            />
+          )}
           {drop && (
             <div
               className="outline-drop"
@@ -3606,7 +3652,14 @@ function onKeyDown(
   // block's verbs would be pointer-only now that the row has no ⋯ button.
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
     event.preventDefault();
-    editor.openMenu(id);
+    const bullet = textarea
+      .closest<HTMLElement>('[data-testid="outline-row"]')
+      ?.querySelector<HTMLElement>('[data-testid="block-bullet"]') ?? null;
+    const bulletAnchor = elementAnchor(bullet);
+    editor.openMenu(
+      id,
+      bulletAnchor ? { ...bulletAnchor, owner: textarea } : elementAnchor(textarea),
+    );
     return;
   }
 
@@ -3905,6 +3958,7 @@ function projectPendingOperations(
   drafts: ReadonlyMap<string, string>,
   pageReferences: ReadonlyMap<string, readonly PageReferenceSpan[]>,
 ): PendingOutlineProjection {
+  if (pending.length === 0) return { rows, content: EMPTY_PENDING_CONTENT };
   let result = rows;
   const content = new Map<string, InlineContentProjection>();
   for (const entry of pending) {
@@ -3987,37 +4041,121 @@ function projectPendingOperations(
   return { rows: result, content };
 }
 
-function BlockRow({
-  row,
-  rows,
-  editor,
-  lit,
-  ancestor,
-  bindings,
-}: {
+interface BlockRowView {
+  value: string;
+  pageReferences: readonly PageReferenceSpan[];
+  autoClosers: readonly AutoCloserMarker[];
+  focused: boolean;
+  selected: boolean;
+  revealed: boolean;
+  readonly: boolean;
+  revision: number;
+  keymap: EditorKeymap;
+  vimMode: VimMode;
+  owner: OutlineOwner;
+  graphId: string;
+  peerNames: string;
+  controls?: string;
+  activeDescendant?: string;
+}
+
+interface BlockRowProps {
   row: OutlineRow;
-  rows: OutlineRow[];
   editor: EditorContext;
+  view: BlockRowView;
   lit: number;
   /** On the path from the root to the caret: its own branch is drawn and lit. */
   ancestor: boolean;
-  bindings: ReturnType<typeof useShortcutBindings>;
-}) {
+}
+
+function projectBlockRowView(editor: EditorContext, row: OutlineRow): BlockRowView {
+  const focused = editor.focusedId === row.block.id;
+  const slash = editor.slashRequest?.blockId === row.block.id;
+  const hash = editor.hashRequest?.blockId === row.block.id;
+  const page = editor.pageRequest?.blockId === row.block.id;
+  return {
+    value: editor.draftOf(row),
+    pageReferences: editor.pageReferencesOf(row.block),
+    autoClosers: editor.autoClosersOf(row.block.id),
+    focused,
+    selected: editor.covered.has(row.block.id),
+    revealed: editor.revealed.has(row.block.id),
+    readonly: editor.readonly,
+    revision: focused ? editor.revision : 0,
+    keymap: editor.keymap,
+    vimMode: editor.vim.state.mode,
+    owner: editor.owner,
+    graphId: editor.graphId,
+    peerNames: editor.presence
+      .filter((peer) => peer.block_id === row.block.id)
+      .map((peer) => peer.principal)
+      .join(", "),
+    controls: slash
+      ? "slash-command-menu"
+      : hash
+        ? "tag-suggest-menu"
+        : page
+          ? "page-reference-menu"
+          : undefined,
+    activeDescendant: slash && editor.slashResults[editor.slashActive]
+      ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
+      : hash && editor.hashResults[editor.hashActive]
+        ? `tag-opt-${editor.hashActive}`
+        : page && editor.pageResults[editor.pageActive]
+          ? `page-reference-opt-${editor.pageActive}`
+          : undefined,
+  };
+}
+
+function sameBlockRowProps(left: BlockRowProps, right: BlockRowProps): boolean {
+  const a = left.view;
+  const b = right.view;
+  return left.row.block === right.row.block
+    && left.row.depth === right.row.depth
+    && left.row.parentId === right.row.parentId
+    && left.row.index === right.row.index
+    && left.row.siblingCount === right.row.siblingCount
+    && left.row.hasChildren === right.row.hasChildren
+    && left.row.collapsed === right.row.collapsed
+    && left.editor === right.editor
+    && left.lit === right.lit
+    && left.ancestor === right.ancestor
+    && a.value === b.value
+    && a.pageReferences === b.pageReferences
+    && a.autoClosers === b.autoClosers
+    && a.focused === b.focused
+    && a.selected === b.selected
+    && a.revealed === b.revealed
+    && a.readonly === b.readonly
+    && a.revision === b.revision
+    && a.keymap === b.keymap
+    && a.vimMode === b.vimMode
+    && sameOutlineOwner(a.owner, b.owner)
+    && a.graphId === b.graphId
+    && a.peerNames === b.peerNames
+    && a.controls === b.controls
+    && a.activeDescendant === b.activeDescendant;
+}
+
+function BlockRow({
+  row,
+  editor,
+  view,
+  lit,
+  ancestor,
+}: BlockRowProps) {
   const { message } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isFocused = editor.focusedId === row.block.id;
+  const isFocused = view.focused;
   const pending = isPendingId(row.block.id);
-  const value = editor.draftOf(row);
-  const pageReferences = editor.pageReferencesOf(row.block);
+  const value = view.value;
+  const pageReferences = view.pageReferences;
   const taskStatus = stringValue(row.block.properties, TASK_STATUS_KEY);
   const taskPriority = stringValue(row.block.properties, TASK_PRIORITY_KEY);
   const tags = row.block.tags;
-  const selected = editor.covered.has(row.block.id);
-  const selectionCount = editor.selectionCount;
-  const menuOpen = editor.menuFor === row.block.id;
-  const peers = editor.presence.filter((peer) => peer.block_id === row.block.id);
+  const selected = view.selected;
   const projected = useRef(value);
-  const revision = useRef(editor.revision);
+  const revision = useRef(view.revision);
   const previewMarkdown = !isFocused
     && !pending
     && hasMarkdownSyntax(value, pageReferences.length > 0);
@@ -4066,8 +4204,8 @@ function BlockRow({
     const textarea = textareaRef.current;
     const previous = projected.current;
     projected.current = value;
-    if (!textarea || !isFocused || revision.current === editor.revision) return;
-    revision.current = editor.revision;
+    if (!textarea || !isFocused || revision.current === view.revision) return;
+    revision.current = view.revision;
     const transformed = transformSelection(previous, value, {
       anchor: textarea.selectionStart,
       head: textarea.selectionEnd,
@@ -4084,7 +4222,7 @@ function BlockRow({
     keepingPageStill(textarea, () => {
       textarea.setSelectionRange(transformed.anchor, transformed.head);
     });
-  }, [editor.revision, isFocused, value]);
+  }, [isFocused, value, view.revision]);
 
   return (
     <BlockRowFrame
@@ -4098,7 +4236,7 @@ function BlockRow({
       data-selected={selected}
       data-empty={value.length === 0}
       data-collapsed={row.collapsed}
-      data-revealed={editor.revealed.has(row.block.id) || undefined}
+      data-revealed={view.revealed || undefined}
       data-has-children={row.hasChildren}
       data-ancestor={ancestor || undefined}
       data-block-id={row.block.id}
@@ -4135,189 +4273,16 @@ function BlockRow({
               content of this control. app.css § .outline-toggle svg. */}
           <ChevronDownIcon />
         </button>
-        {/* The bullet carries the block's whole pointer vocabulary: click to put
-            the caret in the line, drag to move the subtree, right-click for the
-            menu. It is the Radix trigger, so the menu is also reachable from the
-            keyboard through the row's own ContextMenu / ⇧F10 handling. */}
-        <DropdownMenu
-          modal={false}
-          open={menuOpen}
-          onOpenChange={(open) => editor.openMenu(open ? row.block.id : null)}
-        >
-          <DropdownMenuTrigger asChild>
-            <button
-              className="outline-bullet"
-              data-testid="block-bullet"
-              tabIndex={-1}
-              aria-label={message("outline.blockActions")}
-              onPointerDown={(event) => editor.onBulletPointerDown(row, event)}
-              onContextMenu={(event) => editor.onRowContextMenu(row, event)}
-            />
-          </DropdownMenuTrigger>
-          {!pending && (
-            <DropdownMenuContent
-              align="start"
-              onCloseAutoFocus={(event) => {
-                // Radix would park focus on the bullet, which is not a tab stop
-                // and cannot be typed into. Put the caret back in the line — but
-                // not while a selection is up, because focusing a textarea is what
-                // drops one, and the user did not ask to lose it by pressing Escape.
-                event.preventDefault();
-                if (selected && selectionCount > 1) {
-                  editor.takeTreeFocus();
-                  return;
-                }
-                // …and not if the verb that closed the menu has already moved the
-                // caret somewhere else. `Add child block` mounts a focused pending
-                // row synchronously and `Delete` hands the caret to a neighbour;
-                // restoring it here afterwards races them and wins, which sent the
-                // next thing typed into the row the menu was opened on rather than
-                // into the block the user just asked for.
-                if (editor.focusedId === null || editor.focusedId === row.block.id) {
-                  textareaRef.current?.focus({ preventScroll: true });
-                }
-              }}
-            >
-              {selected && selectionCount > 1 ? (
-                <>
-                  <DropdownMenuItem
-                    data-testid="menu-copy-selection"
-                    onSelect={() => editor.menu.copySelection("context_menu")}
-                  >
-                    <CopyIcon aria-hidden />
-                    {message("outline.copySelection", { count: selectionCount })}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⌘", "C"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={editor.readonly}
-                    onSelect={() => editor.menu.indentSelection("context_menu")}
-                  >
-                    <IndentIncreaseIcon aria-hidden />
-                    {message("outline.indent")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⇥"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={editor.readonly}
-                    onSelect={() => editor.menu.outdentSelection("context_menu")}
-                  >
-                    <IndentDecreaseIcon aria-hidden />
-                    {message("outline.outdent")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⇧", "⇥"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    data-testid="menu-delete-selection"
-                    variant="destructive"
-                    disabled={editor.readonly}
-                    onSelect={() => editor.menu.removeSelection("context_menu")}
-                  >
-                    <Trash2Icon aria-hidden />
-                    {message("outline.deleteSelection", { count: selectionCount })}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⌫"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <>
-                  <DropdownMenuItem
-                    data-testid="menu-properties"
-                    onSelect={() => {
-                      const anchor = editor.menuAnchor ?? textareaRef.current;
-                      requestAnimationFrame(() => editor.openProperties(row.block.id, undefined, anchor));
-                    }}
-                  >
-                    <Settings2Icon aria-hidden />
-                    {message("properties.addOrChange")}
-                    <DropdownMenuShortcut>
-                      <Shortcut binding={bindings.properties} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-testid="menu-tags"
-                    onSelect={() => {
-                      const anchor = editor.menuAnchor ?? textareaRef.current;
-                      requestAnimationFrame(() => editor.openTags(row.block.id, anchor));
-                    }}
-                  >
-                    <HashIcon aria-hidden />
-                    {message("outline.tags")}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={editor.readonly}
-                    onSelect={() => editor.menu.addChild(row)}
-                  >
-                    <CornerDownRightIcon aria-hidden />
-                    {message("outline.addChild")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={editor.readonly || row.index === 0}
-                    onSelect={() => editor.menu.indent(row)}
-                  >
-                    <IndentIncreaseIcon aria-hidden />
-                    {message("outline.indent")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⇥"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={editor.readonly || row.depth === 0}
-                    onSelect={() => editor.menu.outdent(row)}
-                  >
-                    <IndentDecreaseIcon aria-hidden />
-                    {message("outline.outdent")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⇧", "⇥"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-testid="menu-move-up"
-                    disabled={editor.readonly || row.index === 0}
-                    onSelect={() => editor.menu.move(row, -1)}
-                  >
-                    <ArrowUpIcon aria-hidden />
-                    {message("outline.moveUp")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⌥", "↑"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-testid="menu-move-down"
-                    disabled={editor.readonly || row.index >= row.siblingCount - 1}
-                    onSelect={() => editor.menu.move(row, 1)}
-                  >
-                    <ArrowDownIcon aria-hidden />
-                    {message("outline.moveDown")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⌥", "↓"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    data-testid="menu-delete"
-                    variant="destructive"
-                    disabled={editor.readonly}
-                    onSelect={() => editor.menu.remove(row, rows)}
-                  >
-                    <Trash2Icon aria-hidden />
-                    {message("outline.deleteBlock")}
-                    <DropdownMenuShortcut>
-                      <Kbd parts={["⌫"]} plain />
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          )}
-        </DropdownMenu>
+        {/* The bullet is a row handle. One outline-level menu is anchored to the
+            active bullet or pointer, so closed rows carry no menu subtree. */}
+        <button
+          className="outline-bullet"
+          data-testid="block-bullet"
+          tabIndex={-1}
+          aria-label={message("outline.blockActions")}
+          onPointerDown={(event) => editor.onBulletPointerDown(row, event)}
+          onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+        />
         </>
       )}
     >
@@ -4332,11 +4297,11 @@ function BlockRow({
         {marks > 0 && (
           <span className="task-marks">
             {taskStatus !== undefined && (
-              <TaskStatusControl owner={editor.owner} block={row.block} status={taskStatus} />
+              <TaskStatusControl owner={view.owner} block={row.block} status={taskStatus} />
             )}
             {taskPriority !== undefined && (
               <TaskPriorityControl
-                owner={editor.owner}
+                owner={view.owner}
                 block={row.block}
                 priority={taskPriority}
               />
@@ -4348,7 +4313,7 @@ function BlockRow({
           className="block-line outline-input"
           rows={1}
           value={value}
-          autoClosers={editor.autoClosersOf(row.block.id)}
+          autoClosers={view.autoClosers}
           data-block-editor
           hidden={previewMarkdown}
           // The browser's spell checker has no idea what a graph is. It underlines
@@ -4359,31 +4324,15 @@ function BlockRow({
           // native is wrong.
           spellCheck={false}
           tabIndex={previewMarkdown ? -1 : undefined}
-          readOnly={editor.readonly}
+          readOnly={view.readonly}
           acceptsTextInput={
-            editor.keymap !== "vim" || editor.vim.state.mode === "insert"
+            view.keymap !== "vim" || view.vimMode === "insert"
           }
-          aria-readonly={editor.readonly ? true : undefined}
-          data-vim-mode={editor.keymap === "vim" ? editor.vim.state.mode : undefined}
+          aria-readonly={view.readonly ? true : undefined}
+          data-vim-mode={view.keymap === "vim" ? view.vimMode : undefined}
           aria-label={message("outline.blockText")}
-          aria-controls={
-            editor.slashRequest?.blockId === row.block.id
-              ? "slash-command-menu"
-              : editor.hashRequest?.blockId === row.block.id
-                ? "tag-suggest-menu"
-                : editor.pageRequest?.blockId === row.block.id
-                  ? "page-reference-menu"
-                  : undefined
-          }
-          aria-activedescendant={
-            editor.slashRequest?.blockId === row.block.id && editor.slashResults[editor.slashActive]
-              ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
-              : editor.hashRequest?.blockId === row.block.id && editor.hashResults[editor.hashActive]
-                ? `tag-opt-${editor.hashActive}`
-                : editor.pageRequest?.blockId === row.block.id && editor.pageResults[editor.pageActive]
-                  ? `page-reference-opt-${editor.pageActive}`
-                  : undefined
-          }
+          aria-controls={view.controls}
+          aria-activedescendant={view.activeDescendant}
           dir="auto"
           // A press marks itself before the browser focuses what it landed on,
           // so the entrance below is read rather than guessed. Both readers of
@@ -4413,10 +4362,10 @@ function BlockRow({
           onPairSelection={(textarea) => editor.publishSelection(row.block.id, textarea)}
           onCompositionStart={() => editor.onCompositionStart(row)}
           onCompositionEnd={(event) => editor.onCompositionEnd(row, event.currentTarget)}
-          onKeyDown={(event) => editor.onKeyDown(row, rows, event)}
+          onKeyDown={(event) => editor.onKeyDown(row, event)}
           onPaste={(event) => {
             const decoded = decodeOutlineClipboard(event.clipboardData);
-            if (decoded.kind === "text" || editor.readonly || pending) return;
+            if (decoded.kind === "text" || view.readonly || pending) return;
             event.preventDefault();
             if (decoded.kind === "fragment") {
               editor.pasteFragment(row, decoded.fragment);
@@ -4429,7 +4378,7 @@ function BlockRow({
           <BlockMarkdown
             markdown={value}
             pageReferences={pageReferences}
-            graphId={editor.graphId}
+            graphId={view.graphId}
             className="block-line outline-markdown"
             // Read-only blocks hand over too: the textarea is the row's tab stop
             // and its arrow-key navigation, and `readOnly` is what refuses the
@@ -4439,9 +4388,9 @@ function BlockRow({
             }}
           />
         )}
-        {peers.length > 0 && (
+        {view.peerNames.length > 0 && (
           <span className="remote-presence">
-            {peers.map((peer) => peer.principal).join(", ")}
+            {view.peerNames}
           </span>
         )}
         {tags.length > 0 && (
@@ -4449,7 +4398,7 @@ function BlockRow({
             {/* A reference, not a delete button: the chip goes to the tag, which
                 now has a place of its own. Writing tags stays on the bullet's
                 menu, where a destructive verb belongs. */}
-            <TagChips owner={editor.owner} block={row.block} variant="reference" />
+            <TagChips owner={view.owner} block={row.block} variant="reference" />
           </div>
         )}
         {!pending && (
@@ -4459,9 +4408,202 @@ function BlockRow({
           />
         )}
         {!pending && queryDocument(row.block.properties) !== undefined && (
-          <QueryBlock owner={editor.owner} block={row.block} />
+          <QueryBlock owner={view.owner} block={row.block} />
         )}
       </BlockBody>
     </BlockRowFrame>
+  );
+}
+
+const MemoBlockRow = memo(BlockRow, sameBlockRowProps);
+
+/** The one contextual menu owned by an outline, positioned at its active row. */
+function BlockMenu({
+  row,
+  rows,
+  editor,
+  bindings,
+}: {
+  row: OutlineRow;
+  rows: OutlineRow[];
+  editor: EditorContext;
+  bindings: ReturnType<typeof useShortcutBindings>;
+}) {
+  const { message } = useI18n();
+  const selected = editor.covered.has(row.block.id);
+  const selectionCount = editor.selectionCount;
+  const rect = measureAnchor(editor.menuAnchor);
+  const focusOwner = editor.menuAnchor?.owner;
+
+  return (
+    <DropdownMenu
+      modal={false}
+      open
+      onOpenChange={(open) => {
+        if (!open) editor.openMenu(null);
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <span
+          className="menu-anchor"
+          aria-label={message("outline.blockActions")}
+          aria-hidden
+          style={{ left: rect?.left ?? 0, top: rect?.top ?? 0 }}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (selected && selectionCount > 1) {
+            editor.takeTreeFocus();
+            return;
+          }
+          if (editor.focusedId !== null && editor.focusedId !== row.block.id) return;
+          const textarea = focusOwner instanceof HTMLTextAreaElement
+            ? focusOwner
+            : document.querySelector<HTMLTextAreaElement>(`#row-${CSS.escape(row.block.id)} textarea`);
+          textarea?.focus({ preventScroll: true });
+        }}
+      >
+        {selected && selectionCount > 1 ? (
+          <>
+            <DropdownMenuItem
+              data-testid="menu-copy-selection"
+              onSelect={() => editor.menu.copySelection("context_menu")}
+            >
+              <CopyIcon aria-hidden />
+              {message("outline.copySelection", { count: selectionCount })}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⌘", "C"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={editor.readonly}
+              onSelect={() => editor.menu.indentSelection("context_menu")}
+            >
+              <IndentIncreaseIcon aria-hidden />
+              {message("outline.indent")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⇥"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={editor.readonly}
+              onSelect={() => editor.menu.outdentSelection("context_menu")}
+            >
+              <IndentDecreaseIcon aria-hidden />
+              {message("outline.outdent")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⇧", "⇥"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="menu-delete-selection"
+              variant="destructive"
+              disabled={editor.readonly}
+              onSelect={() => editor.menu.removeSelection("context_menu")}
+            >
+              <Trash2Icon aria-hidden />
+              {message("outline.deleteSelection", { count: selectionCount })}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⌫"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </>
+        ) : (
+          <>
+            <DropdownMenuItem
+              data-testid="menu-properties"
+              onSelect={() => {
+                const anchor = editor.menuAnchor;
+                requestAnimationFrame(() => editor.openProperties(row.block.id, undefined, anchor));
+              }}
+            >
+              <Settings2Icon aria-hidden />
+              {message("properties.addOrChange")}
+              <DropdownMenuShortcut>
+                <Shortcut binding={bindings.properties} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="menu-tags"
+              onSelect={() => {
+                const anchor = editor.menuAnchor;
+                requestAnimationFrame(() => editor.openTags(row.block.id, anchor));
+              }}
+            >
+              <HashIcon aria-hidden />
+              {message("outline.tags")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={editor.readonly}
+              onSelect={() => editor.menu.addChild(row)}
+            >
+              <CornerDownRightIcon aria-hidden />
+              {message("outline.addChild")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={editor.readonly || row.index === 0}
+              onSelect={() => editor.menu.indent(row)}
+            >
+              <IndentIncreaseIcon aria-hidden />
+              {message("outline.indent")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⇥"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={editor.readonly || row.depth === 0}
+              onSelect={() => editor.menu.outdent(row)}
+            >
+              <IndentDecreaseIcon aria-hidden />
+              {message("outline.outdent")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⇧", "⇥"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="menu-move-up"
+              disabled={editor.readonly || row.index === 0}
+              onSelect={() => editor.menu.move(row, -1)}
+            >
+              <ArrowUpIcon aria-hidden />
+              {message("outline.moveUp")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⌥", "↑"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="menu-move-down"
+              disabled={editor.readonly || row.index >= row.siblingCount - 1}
+              onSelect={() => editor.menu.move(row, 1)}
+            >
+              <ArrowDownIcon aria-hidden />
+              {message("outline.moveDown")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⌥", "↓"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="menu-delete"
+              variant="destructive"
+              disabled={editor.readonly}
+              onSelect={() => editor.menu.remove(row, rows)}
+            >
+              <Trash2Icon aria-hidden />
+              {message("outline.deleteBlock")}
+              <DropdownMenuShortcut>
+                <Kbd parts={["⌫"]} plain />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

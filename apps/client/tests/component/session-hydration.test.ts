@@ -5,6 +5,12 @@ import { FakeCorePort } from "../../src/core-port/testing/fake-core-port";
 
 class TrackingCorePort extends FakeCorePort {
   readonly readOwners: string[] = [];
+  summaryReads = 0;
+
+  override async read(request: Parameters<FakeCorePort["read"]>[0]) {
+    this.summaryReads += 1;
+    return super.read(request);
+  }
 
   override async readOutline(request: Parameters<FakeCorePort["readOutline"]>[0]) {
     this.readOwners.push(outlineOwnerKey(request.owner));
@@ -72,6 +78,37 @@ describe("outline hydration", () => {
     expect(topic && findBlock(topic, "b-3")?.markdown).toBe("Tag canonical block");
 
     unsubscribe();
+    await session.close();
+  });
+
+  it("reconciles an acknowledged content splice without rereading the owner", async () => {
+    const port = new TrackingCorePort();
+    const session = new GraphSession("content-patch-test", port);
+    await session.open();
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    const inserted = await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "Before",
+    });
+    port.readOwners.length = 0;
+    port.summaryReads = 0;
+
+    await session.execute({
+      type: "splice_block_content",
+      owner: { kind: "page", id: "home" },
+      block_id: inserted.created_block!,
+      index: 0,
+      delete: 6,
+      insert: [{ type: "markdown", value: "After" }],
+    });
+
+    expect(port.summaryReads).toBe(0);
+    expect(port.readOwners).toEqual([]);
+    const page = findPage(session.getState().snapshot, "home");
+    expect(page && findBlock(page, inserted.created_block!)?.markdown).toBe("After");
     await session.close();
   });
 });

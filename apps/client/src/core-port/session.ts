@@ -29,10 +29,11 @@ import {
   type RemoteSyncState,
   type SyncAgentPort,
 } from "../features/sync/SyncAgent";
-import type { Command, CommandResult } from "./commands";
+import type { BlockContentSplice, Command, CommandResult } from "./commands";
 import { envelope } from "./commands";
 import type { GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot } from "./snapshot";
 import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
+import { applyAcknowledgedContentSplices } from "./content-patch";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 
 const COMMAND_TIMEOUT_MS = 10_000;
@@ -302,13 +303,29 @@ export class GraphSession {
         response.save_status.status === "saved_locally"
           ? { kind: "saved", sequence: response.save_status.local_sequence }
           : { kind: "unsaved", code: "dirty_unsaved", message: "the last change is not durable yet", retryable: true };
-      await this.reconcile(
-        save,
-        commandReconcileScope(command, response.result as CommandResult),
-        (response.result as CommandResult).changed,
-      );
+      const result = response.result as CommandResult;
+      const content = contentSplices(command);
+      const patched = content && result.changed
+        ? applyAcknowledgedContentSplices(this.state.snapshot, content.owner, content.splices)
+        : content
+          ? this.state.snapshot
+          : null;
+      if (patched && await this.consumeLocalEvents()) {
+        this.patch({
+          snapshot: patched,
+          save,
+          revision: this.state.revision + Number(result.changed),
+          canonicalRevision: this.state.canonicalRevision + Number(result.changed),
+        });
+      } else {
+        await this.reconcile(
+          save,
+          commandReconcileScope(command, result),
+          result.changed,
+        );
+      }
       await this.syncAgent?.wake();
-      return response.result as CommandResult;
+      return result;
     } catch (error) {
       const detail = toPortError(error);
       if (detail.code === "dirty_unsaved" || detail.code === "storage_full") {
@@ -457,6 +474,27 @@ export class GraphSession {
     });
   }
 
+  /** Advances only over local acknowledgements; remote impact needs a re-read. */
+  private async consumeLocalEvents(): Promise<boolean> {
+    try {
+      const batch = await this.port.subscribe({
+        graph_handle: this.handle,
+        after_cursor: this.cursor,
+      });
+      if (batch.resync_required || batch.events.some((event) =>
+        typeof event === "object"
+        && event !== null
+        && "source" in event
+        && event.source === "remote")) {
+        return false;
+      }
+      this.cursor = batch.next_cursor;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private previousStableSave(): SaveState {
     return this.state.save.kind === "saving" ? { kind: "saved", sequence: 0 } : this.state.save;
   }
@@ -464,6 +502,20 @@ export class GraphSession {
   private patch(partial: Partial<SessionState>): void {
     this.state = { ...this.state, ...partial };
     for (const listener of this.listeners) listener();
+  }
+}
+
+function contentSplices(command: Command): {
+  owner: OutlineOwner;
+  splices: BlockContentSplice[];
+} | null {
+  switch (command.type) {
+    case "splice_block_content":
+      return { owner: command.owner, splices: [command] };
+    case "splice_block_contents":
+      return { owner: command.owner, splices: command.splices };
+    default:
+      return null;
   }
 }
 

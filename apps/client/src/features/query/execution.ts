@@ -6,7 +6,7 @@ import type {
 } from "../../generated/core-port";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 
 /** How long a change to a mounted query waits before it runs again. */
 const RUN_DEBOUNCE_MS = 300;
@@ -261,10 +261,9 @@ export interface QueryAnswer {
 
 export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryAnswer {
   const session = useSession();
-  const state = useSessionState();
+  const revision = useSessionSelector((state) => state.canonicalRevision);
   const { message } = useI18n();
   const store = queryExecutionStore(session);
-  const revision = state.canonicalRevision;
   const signature = useMemo(() => queryExecutionSignature(request), [request]);
   // A blank source is a query nobody has written yet, not a parse failure — it
   // stays quietly at "not run" instead of opening on an error.

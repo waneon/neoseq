@@ -43,7 +43,7 @@ import {
 } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { TaskStatusGlyph } from "./glyphs";
 import { statusLabel } from "./labels";
 
@@ -57,7 +57,7 @@ export function TaskStatusControl({
   status: string;
 }) {
   const { message } = useI18n();
-  const readonly = useSessionState().mode === "readonly";
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>

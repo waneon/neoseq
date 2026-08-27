@@ -82,6 +82,7 @@ import {
 } from "./cells";
 import { EditableCellValue, type QueryResultEditor } from "./edit";
 import { QueryTableCellFrame } from "./QueryTableCell";
+import { useProgressiveRows } from "./progressive-rows";
 
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
@@ -173,10 +174,11 @@ export function QueryTableView({
       })),
     [columns],
   );
+  const rowWindow = useProgressiveRows(rows, (row) => row.key, pinnedRowKey);
 
   const table = useTable({
     features: FEATURES,
-    data: rows,
+    data: rowWindow.rows,
     columns: definitions,
     getRowId: (row) => row.key,
     // Rows already carry this table view's order. Widths are managed by the
@@ -612,6 +614,13 @@ export function QueryTableView({
           ))}
         </tbody>
       </table>
+      {rowWindow.remaining > 0 && (
+        <button type="button" className="query-more" onClick={rowWindow.showMore}>
+          {message("query.showMoreResults", {
+            count: Math.min(rowWindow.remaining, 100),
+          })}
+        </button>
+      )}
     </div>
   );
 }

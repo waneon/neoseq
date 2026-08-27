@@ -119,7 +119,7 @@ import {
   type QueryPlan,
 } from "../../entities/query-plan";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
 import { useDueTiers } from "../settings/preferences";
@@ -220,7 +220,13 @@ function QueryPanelSurface({
 }: QueryPanelProps) {
   const { owner, document, seedPlan } = binding;
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot
+      && left.mode === right.mode
+      && left.status === right.status
+      && left.hydratedOutlines === right.hydratedOutlines,
+  );
   const notify = useNotify();
   const history = useHistoryActions();
   const { message, formatJournalDate, formatTimeOfDay, compare } = useI18n();

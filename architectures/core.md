@@ -269,6 +269,12 @@ Events identify semantic impact (`BlockTextChanged`, `SubtreeMoved`,
 has a monotonic runtime cursor. If a slow consumer falls behind the bounded
 event buffer, it receives `ResyncRequired` and requests a fresh snapshot.
 
+An acknowledged local inline-content splice updates its already-hydrated owner
+by structural sharing while consuming the matching local event. Structural,
+remote, stale, and resync-required changes re-read the authoritative owner. Full
+snapshots remain a hydration and recovery boundary, not the steady-state text
+editing path.
+
 Public core values are domain DTOs, typed errors, semantic events, and opaque
 update/snapshot bytes. Raw maps, trees, text handlers, tree IDs, and other Loro
 types remain private to `graph-core`.

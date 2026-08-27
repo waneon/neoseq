@@ -28,13 +28,13 @@ import {
 } from "../../entities/default-queries";
 import { QueryPanel } from "../query/QueryPanel";
 import { SETTINGS_PARAM } from "../settings/SettingsDialog";
-import { useSessionState } from "../shell/session-context";
+import { useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 
 export function JournalQueries() {
   const { message } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
-  const queries = useSessionState().snapshot.settings.default_queries;
+  const queries = useSessionSelector((state) => state.snapshot.settings.default_queries);
   // The authoritative summary is identity-stable until GraphSession reconciles
   // a graph change, so one memo keeps panels stable while the journal renders.
   const entries = useMemo(

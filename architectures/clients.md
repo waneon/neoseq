@@ -28,9 +28,11 @@ call Wasm, IndexedDB, or native APIs directly. Browser-only graph listing,
 deletion, copy import/export, pending-write retry, storage capabilities, and test
 fault controls are adapter operations outside the portable product contract.
 
-`GraphSession` serializes local commands and remote imports. After either it
-drains semantic events, refreshes the graph summary, and rehydrates affected
-page or tag outlines. It owns subscription cursors, turns an ambiguous storage failure into a
+`GraphSession` serializes local commands and remote imports. It drains semantic
+events and rehydrates affected summaries or owner outlines for structural,
+remote, stale, and resync-required changes. An acknowledged local inline-content
+splice updates its hydrated owner by structural sharing without an owner read.
+It owns subscription cursors, turns an ambiguous storage failure into a
 retry of the exact pending update, and delegates remote transport state to one
 `SyncAgent` per remote graph. Callers see immutable DTOs and cannot hold a Loro
 container.
@@ -344,6 +346,18 @@ for the outline's row windowing and `@tanstack/react-table` for the result
 table's ordering, sizing, and sorting models. Every element they drive is
 rendered by this codebase against `ui/app.css`, so no library stylesheet is
 loaded and no component arrives with its own look.
+
+Session publications have independent render clocks. Components subscribe to
+the smallest snapshot, outline, save, sync, presence, or canonical-revision
+selection they consume. Outline structure is flattened only when its tree,
+collapse state, or pending structural operations change; row-local drafts do not
+rebuild that projection. One contextual block menu belongs to the outline rather
+than to every mounted row.
+
+Unbounded graph collections keep complete search and command inputs but expose a
+bounded initial DOM. Page and tag directories and query answers expand in fixed
+windows; the command palette ranks the complete catalog before rendering a
+bounded frontier. An active query row remains pinned across answer changes.
 
 ## Accessibility and Verification
 

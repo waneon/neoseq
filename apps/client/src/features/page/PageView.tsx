@@ -29,7 +29,7 @@ import { useCommands } from "../commands/context";
 import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings } from "../commands/shortcuts";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
 
@@ -42,7 +42,12 @@ interface MenuPoint {
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot
+      && left.status === right.status
+      && left.hydratedOutlines === right.hydratedOutlines,
+  );
   const notify = useNotify();
   const { message } = useI18n();
   const page = findPage(state.snapshot, pageId);
@@ -81,7 +86,7 @@ export function PageView() {
 
 function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string }) {
   const session = useSession();
-  const state = useSessionState();
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   const notify = useNotify();
   const { message } = useI18n();
   return (
@@ -90,7 +95,7 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
       detail={message("page.missingDetail")}
       graphId={graphId}
       actions={
-        state.mode !== "readonly" ? (
+        !readonly ? (
           <Button
             data-testid="restore-page"
             onClick={() =>
@@ -190,7 +195,7 @@ export function PageBody({
 
 function PageTitle({ page }: { page: PageSnapshot }) {
   const session = useSession();
-  const state = useSessionState();
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   const notify = useNotify();
   const authoritative = pageTitle(page);
   const isJournal = pageKind(page) === "journal";
@@ -211,7 +216,7 @@ function PageTitle({ page }: { page: PageSnapshot }) {
       value={authoritative}
       label={message("page.title")}
       testId="page-title"
-      readonly={state.mode === "readonly"}
+      readonly={readonly}
       onCommit={(title) =>
         session.execute({ type: "rename_page", page_id: page.id, title }).then(() => undefined)}
       onError={(error) => notify.failure(message("failure.renamePage"), error)}
@@ -241,12 +246,11 @@ function PageMenu({
   onOpenProperties: () => void;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   const bridge = useCommands();
   const bindings = useShortcutBindings();
   const notify = useNotify();
   const { message } = useI18n();
-  const readonly = state.mode === "readonly";
   const isJournal = pageKind(page) === "journal";
   const [dialog, setDialog] = useState<"info" | "delete" | null>(null);
   const starred = isFavourite(page);

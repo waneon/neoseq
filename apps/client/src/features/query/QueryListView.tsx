@@ -7,7 +7,8 @@
 // result fallback, but table-only column choices never supplement a block.
 
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
-import { findBlock, findOutline, stringValue } from "../../core-port/snapshot";
+import { outlineOwnerKey, stringValue, type BlockSnapshot } from "../../core-port/snapshot";
+import { useMemo } from "react";
 import { useI18n } from "../../i18n";
 import { elementAnchor, snapshotAnchor } from "@/ui/anchored";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
@@ -28,6 +29,7 @@ import {
   EditableStatusValue,
   type QueryResultEditor,
 } from "./edit";
+import { useProgressiveRows } from "./progressive-rows";
 
 export function QueryListView({
   rows,
@@ -43,8 +45,28 @@ export function QueryListView({
   compact: boolean;
 }) {
   const { message } = useI18n();
+  const rowWindow = useProgressiveRows(rows, (row) => row.key, pinnedRowKey);
+  const blocks = useMemo(() => {
+    const indexed = new Map<string, BlockSnapshot>();
+    const add = (owner: string, children: readonly BlockSnapshot[]) => {
+      const stack = [...children];
+      while (stack.length > 0) {
+        const block = stack.pop()!;
+        indexed.set(`${owner}:${block.id}`, block);
+        stack.push(...block.children);
+      }
+    };
+    for (const page of context.snapshot.pages) {
+      add(outlineOwnerKey({ kind: "page", id: page.id }), page.blocks);
+    }
+    for (const tag of context.snapshot.tags) {
+      add(outlineOwnerKey({ kind: "tag", id: tag.id }), tag.blocks);
+    }
+    return indexed;
+  }, [context.snapshot]);
 
   return (
+    <>
     <div
       className="query-list"
       role="tree"
@@ -52,13 +74,10 @@ export function QueryListView({
       data-compact={compact}
       data-testid="query-list"
     >
-      {rows.map((row) => {
+      {rowWindow.rows.map((row) => {
         const entity = row.subject;
-        const outline = entity?.kind === "block"
-          ? findOutline(context.snapshot, entity.owner)
-          : undefined;
-        const block = entity?.kind === "block" && outline
-          ? findBlock(outline, entity.id)
+        const block = entity?.kind === "block"
+          ? blocks.get(`${outlineOwnerKey(entity.owner)}:${entity.id}`)
           : undefined;
         if (!entity || entity.kind !== "block") return null;
         if (!block) {
@@ -179,6 +198,14 @@ export function QueryListView({
         );
       })}
     </div>
+    {rowWindow.remaining > 0 && (
+      <button type="button" className="query-more" onClick={rowWindow.showMore}>
+        {message("query.showMoreResults", {
+          count: Math.min(rowWindow.remaining, 100),
+        })}
+      </button>
+    )}
+    </>
   );
 }
 

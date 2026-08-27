@@ -193,8 +193,11 @@ export const EMPTY_SNAPSHOT: GraphSnapshot = {
 };
 
 export function mergeSummary(summary: GraphSummary, current: GraphSnapshot = EMPTY_SNAPSHOT): GraphSnapshot {
+  const directory = new Map(
+    (summary.page_directory ?? []).map((page) => [page.id, page]),
+  );
   const hydrate = (blocks: readonly BlockSnapshot[]) =>
-    blocks.map((block) => rematerializeBlock(block, summary.page_directory ?? []));
+    blocks.map((block) => rematerializeBlock(block, directory));
   const hydratedPages = new Map(current.pages.map((page) => [page.id, hydrate(page.blocks)]));
   const hydratedTags = new Map(current.tags.map((tag) => [tag.id, hydrate(tag.blocks)]));
   return {
@@ -207,11 +210,13 @@ export function mergeSummary(summary: GraphSummary, current: GraphSnapshot = EMP
 export function materializePageReferences(
   markdown: string,
   referencesInput: readonly PageReferenceSpan[],
-  pages: readonly PageDirectoryEntry[],
+  pages: readonly PageDirectoryEntry[] | ReadonlyMap<string, PageDirectoryEntry>,
 ): { markdown: string; pageReferences: PageReferenceSpan[] } {
-  const directory = new Map(pages.map((page) => [page.id, page]));
+  if (referencesInput.length === 0) return { markdown, pageReferences: [] };
+  const directory = Array.isArray(pages)
+    ? new Map(pages.map((page) => [page.id, page]))
+    : pages;
   const references = [...referencesInput].sort((left, right) => left.start - right.start);
-  if (references.length === 0) return { markdown, pageReferences: [] };
   const source = Array.from(markdown);
   let cursor = 0;
   let displayIndex = 0;
@@ -236,18 +241,36 @@ export function materializePageReferences(
 
 function rematerializeBlock(
   block: BlockSnapshot,
-  directory: readonly PageDirectoryEntry[],
+  directory: ReadonlyMap<string, PageDirectoryEntry>,
 ): BlockSnapshot {
+  const children = block.children.map((child) => rematerializeBlock(child, directory));
+  const childrenChanged = children.some((child, index) => child !== block.children[index]);
+  const references = block.page_references ?? [];
+  if (references.length === 0) {
+    return childrenChanged ? { ...block, children } : block;
+  }
   const projection = materializePageReferences(
     block.markdown,
-    block.page_references ?? [],
+    references,
     directory,
   );
+  const referencesChanged = projection.pageReferences.length !== references.length
+    || projection.pageReferences.some((reference, index) => {
+      const current = references[index];
+      return current === undefined
+        || reference.start !== current.start
+        || reference.end !== current.end
+        || reference.index !== current.index
+        || reference.page_id !== current.page_id;
+    });
+  if (!childrenChanged && projection.markdown === block.markdown && !referencesChanged) {
+    return block;
+  }
   return {
     ...block,
     markdown: projection.markdown,
     page_references: projection.pageReferences,
-    children: block.children.map((child) => rematerializeBlock(child, directory)),
+    children,
   };
 }
 

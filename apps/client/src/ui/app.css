@@ -1710,6 +1710,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-xs);
 }
 
+.rail-more {
+  justify-content: center;
+  color: var(--ink-3);
+}
+
 .rail-spacer {
   flex: 1;
   min-height: var(--sp-4);
@@ -4812,6 +4817,42 @@ button.query-disclosure:focus-visible {
   overscroll-behavior-x: contain;
 }
 
+.query-more {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  margin-top: var(--sp-1);
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+.query-more:hover,
+.query-more:focus-visible {
+  background: var(--wash);
+  color: var(--ink);
+}
+
+.tag-more {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tag-more:hover,
+.tag-more:focus-visible {
+  background: var(--wash);
+  color: var(--ink);
+}
+
 /* `fixed`, and the widths live in the <colgroup>. Under the auto algorithm a
    cell's `width` is only a suggestion, so dragging one column's handle made the
    browser redistribute the difference across its neighbours — the column being
@@ -5843,8 +5884,7 @@ button.query-list-status[data-active="true"] {
   }
 }
 
-/* The block menu has no button of its own: the bullet is its trigger. This is
-   the zero-size anchor the page menu positions against instead. */
+/* Contextual menus keep one zero-size Radix trigger at their captured point. */
 .menu-anchor {
   position: fixed;
   width: 0;

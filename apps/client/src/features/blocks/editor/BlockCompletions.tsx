@@ -69,6 +69,23 @@ export interface BlockPageOption {
   create: boolean;
 }
 
+const COMPLETION_LIMIT = 8;
+
+/** Keeps a tiny ordered frontier without allocating and sorting the directory. */
+function insertBest<T>(
+  best: T[],
+  candidate: T,
+  compare: (left: T, right: T) => number,
+) {
+  const at = best.findIndex((current) => compare(candidate, current) < 0);
+  if (at < 0) {
+    if (best.length < COMPLETION_LIMIT) best.push(candidate);
+    return;
+  }
+  best.splice(at, 0, candidate);
+  if (best.length > COMPLETION_LIMIT) best.pop();
+}
+
 function detectToken(
   marker: "/" | "#",
   value: string,
@@ -138,17 +155,15 @@ export function filterTagOptions(
   compare: (left: string, right: string) => number,
 ): BlockTagOption[] {
   const needle = query.trim();
-  let matched: TagSnapshot[];
-  if (!needle) {
-    matched = [...tags].sort((left, right) => compare(left.name, right.name));
-  } else {
-    matched = tags
-      .map((tag) => ({ tag, score: fuzzyScore(tag.name, needle) }))
-      .filter((entry): entry is { tag: TagSnapshot; score: number } => entry.score !== null)
-      .sort((left, right) => right.score - left.score)
-      .map((entry) => entry.tag);
+  const best: { tag: TagSnapshot; score: number }[] = [];
+  for (const tag of tags) {
+    const score = needle ? fuzzyScore(tag.name, needle) : 0;
+    if (score === null) continue;
+    insertBest(best, { tag, score }, (left, right) => needle
+      ? right.score - left.score || compare(left.tag.name, right.tag.name)
+      : compare(left.tag.name, right.tag.name));
   }
-  return matched.slice(0, 8).map((tag) => ({
+  return best.map(({ tag }) => ({
     id: tag.id,
     name: tag.name,
     present: present.has(tag.id),
@@ -162,17 +177,23 @@ export function filterPageOptions(
 ): BlockPageOption[] {
   const needle = query.trim();
   const canonicalNeedle = canonicalEntityName(needle);
-  const live = pages.filter((page) => !page.deleted);
-  const matches = (canonicalNeedle.length === 0
-    ? [...live].sort((left, right) => compare(left.title, right.title))
-    : live
-        .map((page) => ({ page, score: fuzzyScore(page.title, canonicalNeedle) }))
-        .filter((entry): entry is { page: PageDirectoryEntry; score: number } => entry.score !== null)
-        .sort((left, right) => right.score - left.score)
-        .map((entry) => entry.page))
-    .slice(0, 8)
-    .map((page) => ({ id: page.id, title: page.title, create: false }));
-  const exact = live.some((page) => canonicalEntityName(page.title) === canonicalNeedle);
+  const best: { page: PageDirectoryEntry; score: number }[] = [];
+  let exact = false;
+  for (const page of pages) {
+    if (page.deleted) continue;
+    const canonicalTitle = canonicalEntityName(page.title);
+    if (canonicalTitle === canonicalNeedle) exact = true;
+    const score = canonicalNeedle ? fuzzyScore(page.title, canonicalNeedle) : 0;
+    if (score === null) continue;
+    insertBest(best, { page, score }, (left, right) => canonicalNeedle
+      ? right.score - left.score || compare(left.page.title, right.page.title)
+      : compare(left.page.title, right.page.title));
+  }
+  const matches = best.map(({ page }) => ({
+    id: page.id,
+    title: page.title,
+    create: false,
+  }));
   if (canonicalNeedle && !exact) matches.push({ id: "", title: needle, create: true });
   return matches;
 }

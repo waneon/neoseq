@@ -44,7 +44,7 @@ import { Outliner } from "../outline/Outliner";
 import { Tombstone } from "../page/PageView";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { QueryPanel } from "../query/QueryPanel";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { TagDefaults } from "./TagDefaults";
 import { TagIdentityPicker, TagMark } from "./TagIdentity";
 
@@ -56,7 +56,13 @@ interface MenuPoint {
 
 export function TagView() {
   const { graphId = "", tagId = "" } = useParams();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot
+      && left.mode === right.mode
+      && left.status === right.status
+      && left.hydratedOutlines === right.hydratedOutlines,
+  );
   const session = useSession();
   const notify = useNotify();
   const { message } = useI18n();
@@ -112,7 +118,10 @@ export function TagView() {
 
 function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
   const { message } = useI18n();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const [picker, setPicker] = useState<{ key?: string; anchor: HTMLElement | null } | null>(null);
   const [identityAt, setIdentityAt] = useState<HTMLElement | null>(null);
   const [menuAt, setMenuAt] = useState<MenuPoint | null>(null);
@@ -208,7 +217,10 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
  */
 function TagTitle({ tag }: { tag: TagSnapshot }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const notify = useNotify();
   const { message } = useI18n();
   return (
@@ -260,7 +272,10 @@ function TagMenu({
   onCustomize: () => void;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const navigate = useNavigate();
   const notify = useNotify();
   const { message } = useI18n();

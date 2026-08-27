@@ -43,6 +43,10 @@ interface Row {
   score: number;
 }
 
+const EMPTY_GROUP_LIMIT = 12;
+const MATCH_LIMIT = 80;
+const SEARCH_LIMIT = 20;
+
 export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const { message } = useI18n();
   const notify = useNotify();
@@ -140,6 +144,10 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
       if (score === null) continue;
       scored.push({ command, score });
     }
+    if (trimmed.length > 0) {
+      scored.sort((left, right) => right.score - left.score);
+      scored.splice(MATCH_LIMIT);
+    }
     const byGroup = new Map<CommandGroup, Row[]>();
     for (const row of scored) {
       const bucket = byGroup.get(row.command.group);
@@ -150,7 +158,9 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     if (searchRows.length > 0) {
       ordered.push({
         group: "Search",
-        rows: searchRows.map((command) => ({ command, score: Number.MAX_SAFE_INTEGER })),
+        rows: searchRows
+          .slice(0, SEARCH_LIMIT)
+          .map((command) => ({ command, score: Number.MAX_SAFE_INTEGER })),
       });
     }
     // Query-dependent rows always lead: a typed date or a page to create is the
@@ -164,10 +174,13 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     for (const group of GROUP_ORDER) {
       const rows = byGroup.get(group);
       if (!rows || rows.length === 0) continue;
-      // Registry order is meaningful with an empty query, so only re-rank once
-      // the user has actually typed something.
-      if (trimmed.length > 0) rows.sort((left, right) => right.score - left.score);
-      ordered.push({ group, rows });
+      // An empty palette previews every kind of command without mounting an
+      // entire graph directory. Typing searches the full catalog first and only
+      // then bounds the rendered frontier.
+      ordered.push({
+        group,
+        rows: trimmed.length === 0 ? rows.slice(0, EMPTY_GROUP_LIMIT) : rows,
+      });
     }
     return ordered;
   }, [commands, dynamic, query, searchRows]);

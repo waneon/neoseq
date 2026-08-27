@@ -35,7 +35,7 @@ import {
   type TaskDateKey,
 } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
-import { useSessionState } from "../shell/session-context";
+import { useSessionSelector } from "../shell/session-context";
 import { useDueTiers } from "../settings/preferences";
 import { repeatLabel } from "../tasks/labels";
 import { TaskMoment } from "../tasks/TaskMoment";
@@ -52,7 +52,7 @@ export function BlockChips({
   /** Fields already rendered by the owning surface as dedicated controls. */
   representedKeys?: readonly string[];
 }) {
-  const state = useSessionState();
+  const snapshot = useSessionSelector((state) => state.snapshot);
   const { message, formatJournalDate, formatTimeOfDay } = useI18n();
   const tiers = useDueTiers();
   const status = stringValue(block.properties, TASK_STATUS_KEY);
@@ -94,7 +94,7 @@ export function BlockChips({
     }
     if (value.type === "date") return formatJournalDate(value.value);
     if (value.type === "page") {
-      const page = findPage(state.snapshot, value.value);
+      const page = findPage(snapshot, value.value);
       if (!page) return value.value;
       return isDeleted(page)
         ? message("properties.deleted", { name: pageTitle(page) })

@@ -17,13 +17,20 @@ import { isValidLocalDate } from "../../entities/properties";
 import { useNotify } from "../notify/context";
 import { PageBody, Tombstone } from "../page/PageView";
 import { JournalQueries } from "./JournalQueries";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 
 export function JournalView() {
   const { graphId = "", date: routeDate } = useParams();
   const navigate = useNavigate();
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot
+      && left.status === right.status
+      && left.hydratedOutlines === right.hydratedOutlines
+      && left.mode === right.mode
+      && left.live === right.live,
+  );
   const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
   const [today] = useState(todayLocalDate);

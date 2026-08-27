@@ -50,3 +50,29 @@ describe("the command palette closes", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the command palette render frontier", () => {
+  it("previews a bounded catalog and still searches every command", () => {
+    const commands = Array.from({ length: 500 }, (_, index) => ({
+      id: `page-${index}`,
+      group: "Pages" as const,
+      label: `Project ${index}`,
+      keywords: [],
+      run: vi.fn(),
+    }));
+    render(
+      <LocaleProvider initialPreference="en">
+        <NotifyProvider>
+          <CommandPalette commands={commands} onClose={() => {}} />
+        </NotifyProvider>
+      </LocaleProvider>,
+    );
+
+    expect(screen.getAllByRole("option")).toHaveLength(12);
+    fireEvent.change(screen.getByTestId("command-input"), {
+      target: { value: "Project 499" },
+    });
+    expect(screen.getByText("Project 499")).toBeInTheDocument();
+    expect(screen.getAllByRole("option").length).toBeLessThanOrEqual(80);
+  });
+});

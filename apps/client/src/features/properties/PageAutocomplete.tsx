@@ -20,7 +20,7 @@ import { canonicalEntityName } from "../../entities/names";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { elementAnchor } from "@/ui/anchored";
 import { Input } from "@/ui/shadcn/input";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 
@@ -51,7 +51,10 @@ export function PageAutocomplete({
   onCreated?: (entityId: string) => void | Promise<void>;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot,
+  );
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);

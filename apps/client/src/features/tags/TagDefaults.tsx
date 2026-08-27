@@ -21,7 +21,7 @@ import type { PropertyField, PropertyValue, TagSnapshot } from "../../core-port/
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
-import { useSessionState } from "../shell/session-context";
+import { useSessionSelector } from "../shell/session-context";
 import { propertyDisplayName, propertyGlyph } from "../properties/property-display";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 
@@ -94,7 +94,10 @@ export function TagDefaults({
  * journal format. Never a raw stored value.
  */
 function useDefaultDescription(): (field: PropertyField) => string {
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot,
+  );
   const { message, formatJournalDate } = useI18n();
 
   const describe = (key: string, value: PropertyValue): string => {

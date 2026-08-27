@@ -101,11 +101,12 @@ import {
   type SettingsSection,
   SETTINGS_PARAM,
 } from "../settings/SettingsDialog";
-import { SessionContext } from "./session-context";
+import { SessionContext, useSession, useSessionSelector } from "./session-context";
 import { SaveStatus } from "./SaveStatus";
 import { CollaborationStatus } from "./CollaborationStatus";
 import { RemoteMembersDialog } from "../sync/RemoteMembersDialog";
 import { useI18n, type MessageFunction } from "../../i18n";
+import { useProgressiveItems } from "../../lib/progressive";
 import {
   HistoryProvider,
   useHistoryActions,
@@ -193,7 +194,13 @@ function ShellBody({
   onToggleSidebar: () => void;
   onExit: () => void;
 }) {
-  const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.status === right.status
+      && left.mode === right.mode
+      && left.snapshot === right.snapshot
+      && left.recovery === right.recovery,
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -256,12 +263,19 @@ function ShellBody({
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
   const pages = useMemo(
     () =>
       state.snapshot.pages
         .filter((page) => pageKind(page) === "regular" && !isDeleted(page))
         .sort((left, right) => compare(pageTitle(left), pageTitle(right))),
     [compare, state.snapshot],
+  );
+  const pageWindow = useProgressiveItems(
+    pages,
+    (page) => page.id,
+    100,
+    currentPage,
   );
 
   const tags = useMemo(
@@ -489,7 +503,6 @@ function ShellBody({
   const today = todayLocalDate();
   const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
-  const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
   const currentTag = /\/t\/([^/]+)$/.exec(location.pathname)?.[1];
   // Query-dependent rows: a date the user typed, and — when nothing matches — a
   // page to create, so the list is never a dead end.
@@ -727,7 +740,7 @@ SELECT ?entity ?content WHERE {
           </div>
           <div className="shell-nav" data-testid="page-list">
             {pages.length === 0 && <p className="rail-note">{message("shell.noPages")}</p>}
-            {pages.map((page) => (
+            {pageWindow.items.map((page) => (
               // The rail is 248px wide and a page name is as long as somebody
               // made it, so the label ellipsises — and an ellipsis with no way to
               // read the rest is a name the reader cannot check.
@@ -741,6 +754,17 @@ SELECT ?entity ?content WHERE {
                 <span className="nav-label">{pageTitle(page)}</span>
               </NavLink>
             ))}
+            {pageWindow.remaining > 0 && (
+              <button
+                type="button"
+                className="shell-nav-item rail-more"
+                onClick={pageWindow.showMore}
+              >
+                {message("shell.showMorePages", {
+                  count: Math.min(pageWindow.remaining, 100),
+                })}
+              </button>
+            )}
           </div>
           <div className="rail-spacer" />
           <div className="rail-footer">
@@ -792,8 +816,8 @@ SELECT ?entity ?content WHERE {
                 bar, which is where every application this one resembles puts
                 "everything else". */}
             <div className="topbar-right">
-              <SaveStatus state={state} onRetry={() => void session.retry()} />
-              <CollaborationStatus state={state} />
+              <SessionSaveStatus />
+              <SessionCollaborationStatus />
               {readonly && (
                 <span className="readonly-label" data-testid="readonly-pill">
                   {message("shell.readonly")}
@@ -837,6 +861,18 @@ SELECT ?entity ?content WHERE {
       )}
     </CommandContext.Provider>
   );
+}
+
+function SessionSaveStatus() {
+  const session = useSession();
+  const save = useSessionSelector((state) => state.save);
+  return <SaveStatus save={save} onRetry={() => void session.retry()} />;
+}
+
+function SessionCollaborationStatus() {
+  const sync = useSessionSelector((state) => state.sync);
+  const live = useSessionSelector((state) => state.live);
+  return <CollaborationStatus sync={sync} live={live} />;
 }
 
 function literalText(term: RdfTerm | undefined): string {

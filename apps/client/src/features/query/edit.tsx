@@ -93,7 +93,7 @@ import {
 } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
-import { useSessionState } from "../shell/session-context";
+import { useSessionSelector } from "../shell/session-context";
 import {
   CellValue,
   type CellContext,
@@ -861,7 +861,10 @@ function QueryMarkdownField({
   column?: ResultColumn;
   surface: "queryList" | "queryTable";
 }) {
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const { compare } = useI18n();
   const bindings = useShortcutBindings();
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -1507,7 +1510,10 @@ export function EditableBlockContent({
   context: CellContext;
   editor: QueryResultEditor;
 }) {
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const binding = editor.bindingForDirect(row.subject, { kind: "content" });
   const block = binding?.kind === "markdown" ? blockFrom(state, binding.block) : undefined;
   const pageReferences = block?.page_references ?? [];

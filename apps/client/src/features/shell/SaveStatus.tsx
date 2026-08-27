@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/ui/shadcn/button";
-import type { SessionState } from "../../core-port/session";
+import type { SaveState } from "../../core-port/session";
 import { useI18n } from "../../i18n";
 
 const SAVING_DELAY_MS = 600;
@@ -19,14 +19,13 @@ const SAVING_DELAY_MS = 600;
  * because durability is also the thing the rest of the app waits on.
  */
 export function SaveStatus({
-  state,
+  save,
   onRetry,
 }: {
-  state: SessionState;
+  save: SaveState;
   onRetry: () => void;
 }) {
   const { message } = useI18n();
-  const save = state.save;
   const [showSaving, setShowSaving] = useState(false);
 
   useEffect(() => {

@@ -33,7 +33,7 @@ import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { findTag } from "../../core-port/snapshot";
 import { tagColor, tagIcon } from "../../entities/tag-identity";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 
 export function TagChips({
@@ -51,7 +51,10 @@ export function TagChips({
 }) {
   const { graphId = "" } = useParams();
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const notify = useNotify();
   const { message } = useI18n();
   return (

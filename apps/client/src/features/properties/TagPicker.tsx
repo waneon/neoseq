@@ -4,7 +4,7 @@ import type { Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import { PageAutocomplete } from "./PageAutocomplete";
 import { TagChips } from "./TagChips";
 
@@ -20,7 +20,10 @@ export function TagPicker({
   onClose: () => void;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.mode === right.mode,
+  );
   const notify = useNotify();
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);

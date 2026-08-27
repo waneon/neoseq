@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PageSnapshot, PropertyField, PropertyValue } from "../../core-port/snapshot";
+import type { SessionState } from "../../core-port/session";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import { isGenericProperty } from "../../entities/properties";
 import { useI18n } from "../../i18n";
 import { useCommands } from "../commands/context";
-import { useSessionState } from "../shell/session-context";
+import { useSessionSelector } from "../shell/session-context";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 import { PropertyPicker } from "./PropertyPicker";
 import { elementAnchor, snapshotAnchor, type Anchor } from "@/ui/anchored";
@@ -22,7 +23,10 @@ export function PageProperties({
   onOpenChange: (open: boolean) => void;
 }) {
   const commands = useCommands();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot,
+  );
   const { message } = useI18n();
   const anchorRef = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -119,7 +123,7 @@ export function PageProperties({
 
 function describe(
   value: PropertyValue,
-  state: ReturnType<typeof useSessionState>,
+  state: SessionState,
   message: ReturnType<typeof useI18n>["message"],
 ): string {
   if (value.type === "checkbox") return value.value ? message("common.yes") : message("common.no");
@@ -135,7 +139,7 @@ function describe(
 
 function describeField(
   field: PropertyField,
-  state: ReturnType<typeof useSessionState>,
+  state: SessionState,
   message: ReturnType<typeof useI18n>["message"],
 ): string {
   return field.values.length === 0

@@ -71,9 +71,10 @@ import { ConfirmDialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
+import { useProgressiveItems } from "../../lib/progressive";
 import { propertyDisplayName } from "../properties/property-display";
 import { PropertyPicker } from "../properties/PropertyPicker";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 import {
   queryExecutionSignature,
   queryExecutionStore,
@@ -119,7 +120,10 @@ type Drop =
 
 export function TagsView() {
   const session = useSession();
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
+  );
   const notify = useNotify();
   const { message, compare } = useI18n();
   const readonly = state.mode === "readonly";
@@ -337,10 +341,11 @@ function TagGroupSection({
   onPlaceGroup: (name: string, index: number) => void;
 }) {
   const session = useSession();
-  const state = useSessionState();
+  const allTags = useSessionSelector((state) => state.snapshot.tags);
   const notify = useNotify();
   const { message } = useI18n();
   const [renaming, setRenaming] = useState(false);
+  const tagWindow = useProgressiveItems(tags, (tag) => tag.id, 100);
 
   const fileCommand = (tag: TagSnapshot, group: string | null): Command => {
     const owner = { kind: "tag", tag_id: tag.id } as const;
@@ -506,7 +511,7 @@ function TagGroupSection({
           onDropAt({ kind: "tag", group: name, beforeId: null });
         }}
       >
-        {tags.map((tag, position) => (
+        {tagWindow.items.map((tag, position) => (
           <TagRow
             key={tag.id}
             tag={tag}
@@ -542,10 +547,19 @@ function TagGroupSection({
             }}
           />
         ))}
+        {tagWindow.remaining > 0 && (
+          <li>
+            <button type="button" className="tag-more" onClick={tagWindow.showMore}>
+              {message("tags.showMore", {
+                count: Math.min(tagWindow.remaining, 100),
+              })}
+            </button>
+          </li>
+        )}
         {creating && (
           <NewTagRow
             group={name}
-            existing={state.snapshot.tags}
+            existing={allTags}
             onDone={onCreated}
             onCancel={onCreated}
           />
@@ -930,18 +944,18 @@ function GroupNameField({
  */
 function useTagUsage(): Map<string, number> {
   const session = useSession();
-  const state = useSessionState();
+  const canonicalRevision = useSessionSelector((state) => state.canonicalRevision);
   const store = queryExecutionStore(session);
   const request = useMemo(
     () => ({ language: LANGUAGE, source: USAGE_SOURCE, bindings: {} }),
     [],
   );
   const signature = useMemo(() => queryExecutionSignature(request), [request]);
-  const execution = useQueryExecution(store, USAGE_OWNER, signature, state.canonicalRevision);
+  const execution = useQueryExecution(store, USAGE_OWNER, signature, canonicalRevision);
 
   useEffect(() => {
-    void store.run(USAGE_OWNER, signature, state.canonicalRevision, request);
-  }, [request, signature, state.canonicalRevision, store]);
+    void store.run(USAGE_OWNER, signature, canonicalRevision, request);
+  }, [canonicalRevision, request, signature, store]);
 
   return useMemo(() => {
     const counts = new Map<string, number>();

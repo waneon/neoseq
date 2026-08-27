@@ -41,7 +41,7 @@ import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Input } from "@/ui/shadcn/input";
 import { useI18n, type MessageKey } from "../../i18n";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector } from "../shell/session-context";
 
 /**
  * Quick marks, because most tags want one of these and nobody wants to hunt for
@@ -266,7 +266,10 @@ function GroupField({
   tag: TagSnapshot;
   onChange: (group: string | null) => void;
 }) {
-  const state = useSessionState();
+  const state = useSessionSelector(
+    (current) => current,
+    (left, right) => left.snapshot === right.snapshot,
+  );
   const { message, compare } = useI18n();
   const current = tagGroup(tag);
   const [draft, setDraft] = useState(current ?? "");

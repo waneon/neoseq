@@ -54,4 +54,40 @@ describe("graph summary projection", () => {
       page_id: "target",
     }]);
   });
+
+  it("preserves unrelated hydrated block identities", () => {
+    const untouched = {
+      id: "plain",
+      markdown: "No references here",
+      page_references: [],
+      properties: [],
+      tags: [],
+      children: [],
+    };
+    const current: GraphSnapshot = {
+      schema_version: 6,
+      graph_id: "graph",
+      pages: [{
+        id: "home",
+        title: "Home",
+        properties: [],
+        tags: [],
+        blocks: [untouched],
+      }],
+      page_directory: [{ id: "home", title: "Home", journal_date: null, deleted: false }],
+      tags: [],
+      settings: { default_queries: [] },
+      quarantined: [],
+    };
+    const summary: GraphSummary = {
+      ...current,
+      pages: current.pages.map(({ blocks: _blocks, ...page }) => page),
+      page_directory: [{ id: "home", title: "Renamed", journal_date: null, deleted: false }],
+      tags: [],
+    };
+
+    const merged = mergeSummary(summary, current);
+
+    expect(merged.pages[0].blocks[0]).toBe(untouched);
+  });
 });
