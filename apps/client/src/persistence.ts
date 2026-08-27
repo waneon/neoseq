@@ -75,10 +75,22 @@ export interface GraphStorageStats {
   compacted_through: number;
 }
 
+export interface RecoveryReadStats {
+  checkpoint_records: number;
+  checkpoint_bytes: number;
+  tail_records: number;
+  tail_bytes: number;
+}
+
 export interface PersistenceHooks {
   before?(operation: "append" | "checkpoint"): void;
   beforeCommit?(transaction: IDBTransaction): void;
   after?(operation: "append" | "checkpoint"): void;
+  afterRecoveryRead?(
+    kind: "checkpoint" | "tail",
+    records: number,
+    bytes: number,
+  ): void;
 }
 
 export class StorageError extends Error {
@@ -100,35 +112,30 @@ export class IndexedDbGraphRepository {
     suggestedReplicaId: number,
   ): Promise<MetadataRecord> {
     const database = await openDatabase();
-    const transaction = database.transaction(
-      [STORES.metadata, STORES.updates, STORES.checkpoints],
-      "readwrite",
-    );
+    const transaction = database.transaction(STORES.metadata, "readwrite");
     const store = transaction.objectStore(STORES.metadata);
     const existing = await request<MetadataRecord | undefined>(store.get(locator.graph_id));
-    const updates = await request<UpdateRecord[]>(
-      transaction.objectStore(STORES.updates).index("by_graph").getAll(locator.graph_id),
-    );
-    const checkpoints = await request<CheckpointRecord[]>(
-      transaction.objectStore(STORES.checkpoints).index("by_graph").getAll(locator.graph_id),
-    );
+    if (existing) {
+      await complete(transaction);
+      database.close();
+      return hasStorageAccounting(existing)
+        ? existing
+        : backfillStorageAccounting(existing);
+    }
     const metadata: MetadataRecord = {
-      ...existing,
       graph_id: locator.graph_id,
       locator,
-      replica_id: existing?.replica_id ?? suggestedReplicaId,
-      history_epoch: existing?.history_epoch ?? 0,
-      schema_version: existing?.schema_version ?? 3,
-      next_sequence: existing?.next_sequence ?? 1,
-      compacted_through: existing?.compacted_through ?? 0,
-      checkpoint_bytes: checkpoints.reduce((total, value) => total + value.payload.byteLength, 0),
-      tail_bytes: updates.reduce((total, value) => total + value.payload.byteLength, 0),
-      tail_count: updates.length,
-      created_at: existing?.created_at ?? now,
-      updated_at: existing?.updated_at ?? now,
+      replica_id: suggestedReplicaId,
+      history_epoch: 0,
+      schema_version: 3,
+      next_sequence: 1,
+      compacted_through: 0,
+      checkpoint_bytes: 0,
+      tail_bytes: 0,
+      tail_count: 0,
+      created_at: now,
+      updated_at: now,
     };
-    // Older document metadata is migrated lazily so Wasm can recover its
-    // checkpoint/update representation before any history is discarded.
     store.put(metadata);
     await complete(transaction);
     database.close();
@@ -332,12 +339,32 @@ export class IndexedDbGraphRepository {
   }
 
   async updatesAfter(graphId: string, sequence: number): Promise<UpdateRecord[]> {
-    const values = await allByGraph<UpdateRecord>(STORES.updates, graphId);
-    return values.filter((value) => value.local_sequence > sequence).sort(bySequence);
+    const database = await openDatabase();
+    const transaction = database.transaction(STORES.updates, "readonly");
+    const range = IDBKeyRange.bound(
+      [graphId, sequence + 1],
+      [graphId, Number.MAX_SAFE_INTEGER],
+    );
+    const values = await request<UpdateRecord[]>(
+      transaction.objectStore(STORES.updates).getAll(range),
+    );
+    await complete(transaction);
+    database.close();
+    this.hooks?.afterRecoveryRead(
+      "tail",
+      values.length,
+      values.reduce((total, value) => total + value.payload.byteLength, 0),
+    );
+    return values.sort(bySequence);
   }
 
   async checkpointsDescending(graphId: string): Promise<CheckpointRecord[]> {
     const values = await allByGraph<CheckpointRecord>(STORES.checkpoints, graphId);
+    this.hooks?.afterRecoveryRead(
+      "checkpoint",
+      values.length,
+      values.reduce((total, value) => total + value.payload.byteLength, 0),
+    );
     return values.sort((left, right) => right.local_sequence - left.local_sequence);
   }
 
@@ -711,6 +738,37 @@ export class IndexedDbGraphRepository {
       compacted_through: metadata.compacted_through,
     };
   }
+}
+
+function hasStorageAccounting(metadata: MetadataRecord): boolean {
+  return Number.isFinite(metadata.compacted_through)
+    && Number.isFinite(metadata.checkpoint_bytes)
+    && Number.isFinite(metadata.tail_bytes)
+    && Number.isFinite(metadata.tail_count);
+}
+
+/** One cold compatibility path for metadata written before storage accounting. */
+async function backfillStorageAccounting(metadata: MetadataRecord): Promise<MetadataRecord> {
+  const [updates, checkpoints] = await Promise.all([
+    allByGraph<UpdateRecord>(STORES.updates, metadata.graph_id),
+    allByGraph<CheckpointRecord>(STORES.checkpoints, metadata.graph_id),
+  ]);
+  const repaired: MetadataRecord = {
+    ...metadata,
+    compacted_through: metadata.compacted_through ?? 0,
+    checkpoint_bytes: checkpoints.reduce(
+      (total, value) => total + value.payload.byteLength,
+      0,
+    ),
+    tail_bytes: updates.reduce((total, value) => total + value.payload.byteLength, 0),
+    tail_count: updates.length,
+  };
+  const database = await openDatabase();
+  const transaction = database.transaction(STORES.metadata, "readwrite");
+  transaction.objectStore(STORES.metadata).put(repaired);
+  await complete(transaction);
+  database.close();
+  return repaired;
 }
 
 async function openDatabase(): Promise<IDBDatabase> {

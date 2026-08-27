@@ -1,5 +1,6 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { OpenGraphRequest } from "./generated/core-port";
+import { SCHEMA_VERSION } from "./generated/graph-schema";
 import golden from "../../../fixtures/core-port/current.json";
 import legacyFixture from "../../../fixtures/compatibility/schema-v1-basic.json";
 import legacyTagFixture from "../../../fixtures/compatibility/schema-v2-tag-without-outline.json";
@@ -69,7 +70,11 @@ export async function runIndexedDbPersistenceCorpus() {
   const creator = new TestCoreWorker();
   const opened = await creator.openGraph(openRequest(graph, 201));
   const replicaId = await creator.replicaId(graph);
-  assert(opened.summary && opened.capabilities.durable, "open must expose durable storage capability");
+  assert(opened.summary, "open must expose a canonical summary");
+  assert(
+    (await creator.storageCapabilities(opened.graph_handle)).durable,
+    "capability discovery must expose durable storage",
+  );
   const saved = await creator.execute({
     graph_handle: opened.graph_handle,
     command: ensurePage(graph, "create-home", "home"),
@@ -97,9 +102,18 @@ export async function runIndexedDbPersistenceCorpus() {
 
   const restorer = new TestCoreWorker();
   const reopened = await restorer.openGraph(openRequest(graph, 202));
+  const recoveryReads = await restorer.recoveryReadStats(reopened.graph_handle);
   assert(await restorer.replicaId(graph) === replicaId, "browser replica id changed across restart");
   assert(JSON.stringify(reopened.summary) === JSON.stringify(before.summary), "worker restart changed the canonical summary");
   assert(reopened.recovery.checkpoint_sequence >= 128, "compacted checkpoint was not selected on reopen");
+  assert(
+    recoveryReads.tail_records === 0 && recoveryReads.tail_bytes === 0,
+    "recovery read updates already covered by the latest checkpoint",
+  );
+  assert(
+    recoveryReads.checkpoint_records <= 2,
+    "recovery read an unbounded checkpoint history",
+  );
   await restorer.closeGraph({ graph_handle: reopened.graph_handle });
   await restorer.deleteGraph(graph);
   restorer.terminate();
@@ -198,6 +212,10 @@ export async function runWorkerCorePortCorpus() {
   unsupported.contract_version += 1;
   await expectCode(worker.openGraph(unsupported), "unsupported_contract");
   const opened = await worker.openGraph(openRequest(graph, 211));
+  assert(
+    !(await worker.queryIndexReady(opened.graph_handle)),
+    "opening a graph eagerly built the derived query index",
+  );
   await expectCode(worker.openGraph(openRequest(graph, 212)), "graph_already_open");
   const executed = await worker.execute({
     graph_handle: opened.graph_handle,
@@ -205,6 +223,10 @@ export async function runWorkerCorePortCorpus() {
     timeout_ms: 1_000,
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
+  assert(
+    !(await worker.queryIndexReady(opened.graph_handle)),
+    "a canonical command built an unused query index",
+  );
   const read = await worker.read({ graph_handle: opened.graph_handle });
   assert((read.summary as Snapshot).schema_version === 6, "worker read did not return schema v6");
   const outline = await worker.readOutline({
@@ -223,6 +245,10 @@ export async function runWorkerCorePortCorpus() {
     },
   });
   assert(queried.result.kind === "select" && queried.result.rows.length === 1, "worker query result differs from golden");
+  assert(
+    await worker.queryIndexReady(opened.graph_handle),
+    "the first query did not publish its derived index",
+  );
   const subscription = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
   assert(subscription.events.length === 2 && !subscription.resync_required, "worker subscription transcript differs");
   const eventTypes = subscription.events.map((event) => (event as { kind: { type: string } }).kind.type);
@@ -347,7 +373,7 @@ export async function runIndexedDbFaultCorpus() {
   const schemaWriter = new TestCoreWorker();
   const schemaOpen = await schemaWriter.openGraph(openRequest(schemaGraph, 261));
   await schemaWriter.closeGraph({ graph_handle: schemaOpen.graph_handle });
-  await schemaWriter.setSchemaVersion(schemaGraph, 6);
+  await schemaWriter.setSchemaVersion(schemaGraph, SCHEMA_VERSION + 1);
   await expectCode(schemaWriter.openGraph(openRequest(schemaGraph, 262)), "unsupported_schema");
   await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();
@@ -362,7 +388,10 @@ export async function runIndexedDbFaultCorpus() {
   const migrated = await migration.openGraph(openRequest(legacyFixture.graph_id, 263));
   assert((migrated.summary as Snapshot).schema_version === 6, "schema v1 fixture was not migrated");
   assert((migrated.summary as Snapshot).pages.length === 1, "schema migration changed fixture entities");
-  assert(await migration.schemaVersion(legacyFixture.graph_id) === 5, "migrated Base was not persisted");
+  assert(
+    await migration.schemaVersion(legacyFixture.graph_id) === SCHEMA_VERSION,
+    "migrated Base was not persisted",
+  );
   await migration.closeGraph({ graph_handle: migrated.graph_handle });
   const migratedAgain = await migration.openGraph(openRequest(legacyFixture.graph_id, 264));
   assert(migratedAgain.recovery.quarantined_records.length === 0, "persisted migration failed on reopen");
@@ -381,7 +410,10 @@ export async function runIndexedDbFaultCorpus() {
     migratedTagSnapshot.tags.some((tag) => tag.id === legacyTagFixture.tag_id),
     "tag-outline migration changed fixture entities",
   );
-  assert(await migration.schemaVersion(legacyTagFixture.graph_id) === 5, "schema v2 migration was not persisted");
+  assert(
+    await migration.schemaVersion(legacyTagFixture.graph_id) === SCHEMA_VERSION,
+    "schema v2 migration was not persisted",
+  );
   await migration.closeGraph({ graph_handle: migratedTag.graph_handle });
   const migratedTagAgain = await migration.openGraph(openRequest(legacyTagFixture.graph_id, 266));
   assert(migratedTagAgain.recovery.quarantined_records.length === 0, "persisted tag migration failed on reopen");

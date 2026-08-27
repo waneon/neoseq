@@ -37,6 +37,12 @@ retry of the exact pending update, and delegates remote transport state to one
 `SyncAgent` per remote graph. Callers see immutable DTOs and cannot hold a Loro
 container.
 
+Graph readiness means the canonical document is recovered and its summary is
+validated. Storage capability discovery, remote connection, owner hydration, and
+the disposable query index have independent readiness and cannot hold the shell
+on its opening screen. Capability publication follows open as a separate session
+update; query surfaces own the pending state of their first lazy index build.
+
 ## Browser Adapter
 
 `core-worker.ts` implements CorePort messaging on the main thread;

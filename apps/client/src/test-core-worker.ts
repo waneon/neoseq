@@ -1,6 +1,6 @@
 import { CoreWorker } from "./core-worker";
 import type { FaultPoint } from "./testing/test-persistence";
-import type { GraphStorageStats } from "./persistence";
+import type { GraphStorageStats, RecoveryReadStats } from "./persistence";
 
 export class TestCoreWorker extends CoreWorker {
   injectFault(graphHandle: string, fault: FaultPoint): Promise<void> {
@@ -48,6 +48,13 @@ export class TestCoreWorker extends CoreWorker {
     return this.request("test_control", { action: "storage_stats", graph_id: graphId });
   }
 
+  recoveryReadStats(graphHandle: string): Promise<RecoveryReadStats> {
+    return this.request("test_control", {
+      action: "recovery_read_stats",
+      graph_handle: graphHandle,
+    });
+  }
+
   replicaId(graphId: string): Promise<number> {
     return this.request("test_control", { action: "replica_id", graph_id: graphId });
   }
@@ -58,6 +65,13 @@ export class TestCoreWorker extends CoreWorker {
   }> {
     return this.request("test_control", {
       action: "gc_checkpoint",
+      graph_handle: graphHandle,
+    });
+  }
+
+  queryIndexReady(graphHandle: string): Promise<boolean> {
+    return this.request("test_control", {
+      action: "query_index_ready",
       graph_handle: graphHandle,
     });
   }

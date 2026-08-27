@@ -5,7 +5,7 @@ export interface GraphLocatorDto { graph_id: string; }
 export interface StorageCapabilitiesDto { durable: boolean; persisted?: boolean | null; quota_bytes?: number | null; usage_bytes?: number | null; }
 export interface RecoveryDto { checkpoint_sequence: number; replayed_updates: number; quarantined_records: string[]; }
 export interface OpenGraphRequest { contract_version: number; locator: GraphLocatorDto; peer_id: number; }
-export interface OpenGraphResponse { graph_handle: string; summary: unknown; capabilities: StorageCapabilitiesDto; recovery: RecoveryDto; }
+export interface OpenGraphResponse { graph_handle: string; summary: unknown; capabilities?: StorageCapabilitiesDto | null; recovery: RecoveryDto; }
 export interface ExecuteRequest { graph_handle: string; command: unknown; timeout_ms: number; }
 export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; checksum: string } | { status: "dirty_unsaved" };
 export interface ExecuteResponse { result: unknown; save_status: SaveStatusDto; }

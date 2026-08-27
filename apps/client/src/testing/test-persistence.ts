@@ -4,6 +4,7 @@ import {
   type MetadataRecord,
   type PersistenceHooks,
   type QuarantineRecord,
+  type RecoveryReadStats,
   type UpdateRecord,
 } from "../persistence";
 
@@ -20,6 +21,12 @@ export type FaultPoint =
 
 class FaultController implements PersistenceHooks {
   private fault?: FaultPoint;
+  private readonly recoveryReads: RecoveryReadStats = {
+    checkpoint_records: 0,
+    checkpoint_bytes: 0,
+    tail_records: 0,
+    tail_bytes: 0,
+  };
 
   injectOnce(fault: FaultPoint): void {
     this.fault = fault;
@@ -46,6 +53,24 @@ class FaultController implements PersistenceHooks {
     }
   }
 
+  afterRecoveryRead(
+    kind: "checkpoint" | "tail",
+    records: number,
+    bytes: number,
+  ): void {
+    if (kind === "checkpoint") {
+      this.recoveryReads.checkpoint_records += records;
+      this.recoveryReads.checkpoint_bytes += bytes;
+    } else {
+      this.recoveryReads.tail_records += records;
+      this.recoveryReads.tail_bytes += bytes;
+    }
+  }
+
+  readStats(): RecoveryReadStats {
+    return { ...this.recoveryReads };
+  }
+
   private storageFault(): void {
     if (this.take("quota")) {
       throw new StorageError("storage_full", "IndexedDB quota exceeded", true);
@@ -70,6 +95,10 @@ export class TestIndexedDbGraphRepository extends IndexedDbGraphRepository {
 
   injectOnce(fault: FaultPoint): void {
     this.faults.injectOnce(fault);
+  }
+
+  recoveryReadStats(): RecoveryReadStats {
+    return this.faults.readStats();
   }
 
   async setSchemaVersion(graphId: string, schemaVersion: number): Promise<void> {

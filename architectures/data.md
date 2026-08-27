@@ -180,15 +180,19 @@ Only after commit does it publish semantic and saved events.
 
 ## Base+Tail Recovery and Compaction
 
-Open chooses the newest supported checkpoint with a valid checksum, migrates it
-when necessary, then replays the verified update tail in sequence order. Invalid
-checkpoints are quarantined and the next older checkpoint is considered. Once
-an update is invalid or has unresolved causal dependencies, that record and the
-remaining Tail form one corrupt suffix. Recovery atomically installs a
-checkpoint at the last valid frontier, moves the suffix to quarantine, and
-removes it from active history without reusing sequence numbers. If checkpoints
-exist but none are valid, open fails explicitly. After recovery, the runtime
-establishes a fresh local undo boundary at the accepted frontier.
+Open chooses the newest supported checkpoint with a valid checksum and reads
+only Tail records whose compound key follows that Base. The normal path stages
+the checksummed Tail in sequence order, then migrates and validates the completed
+document once. A failed stage or final validation discards that document and
+replays from the same Base through the record-validating path, preserving the
+exact last valid frontier. Invalid checkpoints are quarantined and the next
+older checkpoint is considered. Once an update is invalid or has unresolved
+causal dependencies, that record and the remaining Tail form one corrupt suffix.
+Recovery atomically installs a checkpoint at the last valid frontier, moves the
+suffix to quarantine, and removes it from active history without reusing sequence
+numbers. If checkpoints exist but none are valid, open fails explicitly. After
+recovery, the runtime establishes a fresh local undo boundary at the accepted
+frontier.
 
 Recovery state is a Base checkpoint plus its verified Tail updates. A normal
 snapshot retains operation history for interchange. A GC checkpoint is a Loro
@@ -229,11 +233,15 @@ sync-state    key graph_id
 
 The Worker owns database access. The first open persists a random 53-bit
 `replica_id`; later opens reuse it so version vectors do not accumulate a peer
-for every browser runtime. Each graph append updates metadata and inserts the
-update in one transaction. For a remote graph, that transaction also inserts an
-outbox message ID, causal base, and local sequence. Incremental outbox records
-reference the update row instead of duplicating its payload. Only the initial
-sequence-zero bootstrap stores inline bytes because it has no update row.
+for every browser runtime. Current metadata accounting is trusted on open;
+payloads are scanned only once to backfill a metadata record that predates those
+fields. Recovery selects Tail rows with the `[graph_id, local_sequence]` primary
+key range after the chosen Base rather than loading graph history and filtering
+it in memory. Each graph append updates metadata and inserts the update in one
+transaction. For a remote graph, that transaction also inserts an outbox message
+ID, causal base, and local sequence. Incremental outbox records reference the
+update row instead of duplicating its payload. Only the initial sequence-zero
+bootstrap stores inline bytes because it has no update row.
 
 Portable import generates a new graph and replica ID outside the archive, then
 installs the validated shallow clone as a sequence-zero checkpoint. Metadata and

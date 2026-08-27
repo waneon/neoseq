@@ -35,7 +35,7 @@ pub struct OpenGraphRequest {
 pub struct OpenGraphResponse {
     pub graph_handle: String,
     pub summary: Value,
-    pub capabilities: StorageCapabilitiesDto,
+    pub capabilities: Option<StorageCapabilitiesDto>,
     pub recovery: RecoveryDto,
 }
 

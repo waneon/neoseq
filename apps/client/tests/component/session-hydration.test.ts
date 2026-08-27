@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GraphSession } from "../../src/core-port/session";
+import type { StorageCapabilitiesDto } from "../../src/generated/core-port";
 import { findBlock, findPage, findTag, outlineOwnerKey } from "../../src/core-port/snapshot";
 import { FakeCorePort } from "../../src/core-port/testing/fake-core-port";
 
@@ -18,7 +19,54 @@ class TrackingCorePort extends FakeCorePort {
   }
 }
 
+class DeferredCapabilitiesPort extends FakeCorePort {
+  private resolveCapabilities!: (value: StorageCapabilitiesDto) => void;
+  private readonly pendingCapabilities = new Promise<StorageCapabilitiesDto>((resolve) => {
+    this.resolveCapabilities = resolve;
+  });
+
+  override async openGraph(request: Parameters<FakeCorePort["openGraph"]>[0]) {
+    const opened = await super.openGraph(request);
+    return { ...opened, capabilities: undefined };
+  }
+
+  storageCapabilities(): Promise<StorageCapabilitiesDto> {
+    return this.pendingCapabilities;
+  }
+
+  completeCapabilities(value: StorageCapabilitiesDto): void {
+    this.resolveCapabilities(value);
+  }
+}
+
 describe("outline hydration", () => {
+  it("publishes the canonical document before capability discovery finishes", async () => {
+    const port = new DeferredCapabilitiesPort();
+    const session = new GraphSession("staged-open-test", port);
+
+    await session.open();
+
+    expect(session.getState().status).toBe("ready");
+    expect(session.getState().capabilities).toBeNull();
+    const capabilitiesPublished = new Promise<void>((resolve) => {
+      const unsubscribe = session.subscribe(() => {
+        if (!session.getState().capabilities) return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    port.completeCapabilities({
+      durable: true,
+      persisted: true,
+      quota_bytes: 10_000,
+      usage_bytes: 1_000,
+    });
+    await capabilitiesPublished;
+
+    expect(session.getState().capabilities?.durable).toBe(true);
+    await session.close();
+  });
+
   it("deduplicates page and tag owners and publishes one canonical snapshot", async () => {
     const port = new TrackingCorePort();
     const seed = new GraphSession("hydration-test", port);

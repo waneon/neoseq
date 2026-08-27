@@ -100,12 +100,12 @@ impl NativeCorePort {
         Ok(OpenGraphResponse {
             graph_handle: handle,
             summary,
-            capabilities: StorageCapabilitiesDto {
+            capabilities: Some(StorageCapabilitiesDto {
                 durable: capabilities.durable,
                 persisted: capabilities.persisted,
                 quota_bytes: capabilities.quota_bytes,
                 usage_bytes: capabilities.usage_bytes,
-            },
+            }),
             recovery: RecoveryDto {
                 checkpoint_sequence: recovery.checkpoint_sequence,
                 replayed_updates: recovery.replayed_updates as u32,

@@ -148,9 +148,10 @@ export class GraphSession {
         status: "ready",
         mode: this.lease.mode,
         snapshot: mergeSummary(opened.summary as GraphSummary),
-        capabilities: opened.capabilities,
+        capabilities: opened.capabilities ?? null,
         recovery: opened.recovery,
       });
+      void this.refreshCapabilities().catch(() => undefined);
       if (this.remote) {
         const syncPort = requireSyncPort(this.port);
         await syncPort.configureSync(this.handle);
@@ -191,8 +192,11 @@ export class GraphSession {
 
   async refreshCapabilities(): Promise<void> {
     if (this.state.status !== "ready" || !this.port.storageCapabilities) return;
-    const capabilities = await this.port.storageCapabilities(this.handle);
-    this.patch({ capabilities });
+    const handle = this.handle;
+    const capabilities = await this.port.storageCapabilities(handle);
+    if (this.state.status === "ready" && this.handle === handle) {
+      this.patch({ capabilities });
+    }
   }
 
   hydrateOutline(owner: OutlineOwner): Promise<void> {

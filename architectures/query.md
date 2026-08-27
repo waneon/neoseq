@@ -92,12 +92,16 @@ accelerator, not a second query contract.
 Every runtime revision records the graph ID and sorted Loro state frontier and
 exposes projection/profile/analyzer version constants. Standalone projection
 tests use the validated snapshot fingerprint as a deterministic frontier.
-The current client does not persist the index: every open deterministically
-rebuilds it. Cold construction streams one complete page or tag publication
-unit at a time from Loro into a bounded Oxigraph bulk loader. It does not materialize a
-complete domain snapshot, graph-wide projection, or duplicate triple ledger.
-A future persisted cache must key all profile versions and the Loro frontier
-and fall back to this same streaming rebuild path on any mismatch.
+The current client does not persist the index. A recovered graph begins with a
+cold derived-index state; its first query deterministically builds at the current
+canonical frontier. Commands and remote imports may proceed while the index is
+cold because the eventual build reads the then-current document. Once ready,
+the index consumes the same incremental deltas as before. Cold construction
+streams one complete page or tag publication unit at a time from Loro into a
+bounded Oxigraph bulk loader. It does not materialize a complete domain snapshot,
+graph-wide projection, or duplicate triple ledger. A future persisted cache must
+key all profile versions and the Loro frontier and fall back to this same
+streaming rebuild path on any mismatch.
 
 ## Index Maintenance and Consistency
 

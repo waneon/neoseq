@@ -299,6 +299,11 @@ types remain private to `graph-core`.
   composition boundaries.
 - Outline hydration is owner- or viewport-based; the complete graph is not
   copied through the JS boundary after each edit.
+- Canonical recovery validates a checksummed Tail once on the normal path and
+  uses record-by-record replay only to locate a corrupt suffix.
+- The Web query index is disposable cold state after open and is built at the
+  current canonical frontier by the first query; canonical commands do not
+  require it.
 - RDF index updates consume changed entity IDs/fields from Loro events, replace
   their emitted triples atomically, and use full snapshots only for rebuild.
 - Expensive load, checkpoint, and query work runs away from the UI thread; the

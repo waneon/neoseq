@@ -81,7 +81,12 @@ fn core_port_native_contract_suite_matches_current_golden() {
 
     let opened = port.open_graph(open_request("port-native", 91)).unwrap();
     assert_eq!(opened.summary["schema_version"], SCHEMA_VERSION);
-    assert!(opened.capabilities.durable);
+    assert!(
+        opened
+            .capabilities
+            .as_ref()
+            .is_some_and(|value| value.durable)
+    );
     assert_eq!(golden["transcript"]["open"], "summary_available");
     assert_eq!(
         port.open_graph(open_request("port-native", 92))

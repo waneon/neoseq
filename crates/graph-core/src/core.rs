@@ -625,6 +625,21 @@ impl GraphCore {
         Ok(())
     }
 
+    /// Stages one checksummed Tail update for the recovery fast path.
+    ///
+    /// The persistence adapter owns the surrounding transaction: it builds a
+    /// disposable core from the selected Base, stages the complete Tail, then
+    /// calls `finish_recovery` once. If either import or final validation fails,
+    /// the adapter discards this core and replays through
+    /// `import_recovery_update` to identify the first invalid record.
+    pub fn stage_recovery_update(&mut self, update: &[u8]) -> Result<(), CoreError> {
+        let status = self.doc.import(update)?;
+        if status.pending.is_some() {
+            return Err(CoreError::MissingDependencies);
+        }
+        Ok(())
+    }
+
     /// Applies all document migrations after recovery has replayed Base+Tail,
     /// validates the current schema invariants, and starts a fresh undo epoch.
     pub fn finish_recovery(&mut self) -> Result<MigrationReport, CoreError> {

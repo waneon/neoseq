@@ -152,7 +152,6 @@ async function openGraph(request: OpenGraphRequest) {
   return {
     graph_handle: handle,
     summary: JSON.parse(state.core.summaryJson()),
-    capabilities: await repository.capabilities(state.graphId),
     recovery: recovery.report,
   };
 }
@@ -162,10 +161,12 @@ async function recover(
   graphId: string,
   metadata: { replica_id: number; schema_version: number; next_sequence: number },
 ) {
-  let core: WasmGraphCore | undefined;
-  let checkpointSequence = 0;
   const quarantinedRecords: string[] = [];
-  const corruptTail: QuarantineRecord[] = [];
+  let selected: {
+    core: WasmGraphCore;
+    payload: ArrayBuffer;
+    sequence: number;
+  } | undefined;
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
@@ -176,12 +177,15 @@ async function recover(
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
     else {
       try {
-        core = WasmGraphCore.fromRecoverySnapshot(
-          graphId,
-          BigInt(metadata.replica_id),
-          new Uint8Array(checkpoint.payload),
-        );
-        checkpointSequence = checkpoint.local_sequence;
+        selected = {
+          core: WasmGraphCore.fromRecoverySnapshot(
+            graphId,
+            BigInt(metadata.replica_id),
+            new Uint8Array(checkpoint.payload),
+          ),
+          payload: checkpoint.payload,
+          sequence: checkpoint.local_sequence,
+        };
         break;
       } catch (error) {
         reason = `invalid-checkpoint:${String(error)}`;
@@ -191,11 +195,11 @@ async function recover(
     await repository.quarantine({ ...checkpoint, export_handle: exportHandle, record_kind: "checkpoint", reason: reason ?? "invalid-checkpoint" });
     quarantinedRecords.push(exportHandle);
   }
-  if (!core && checkpoints.length > 0) {
+  if (!selected && checkpoints.length > 0) {
     throw failure("storage_corrupt", "stored graph has checkpoints but none are valid", false);
   }
-  if (!core) {
-    core = new WasmGraphCore(graphId, BigInt(metadata.replica_id), now());
+  if (!selected) {
+    const core = new WasmGraphCore(graphId, BigInt(metadata.replica_id), now());
     const snapshot = ownedBuffer(core.exportGcCheckpoint());
     await repository.installCheckpoint(
       graphId,
@@ -204,38 +208,74 @@ async function recover(
       SCHEMA_VERSION,
       now(),
     );
+    selected = { core, payload: snapshot, sequence: 0 };
   }
+  const base = selected;
+  const checkpointSequence = base.sequence;
+  const updates = await repository.updatesAfter(graphId, checkpointSequence);
+  const checksums = await Promise.all(
+    updates.map((update) => validChecksum(update.checksum, update.payload)),
+  );
+  const createBase = () => WasmGraphCore.fromRecoverySnapshot(
+    graphId,
+    BigInt(metadata.replica_id),
+    new Uint8Array(base.payload),
+  );
+
+  let core = base.core;
   let replayedUpdates = 0;
-  let tailCorrupt = false;
   let validThrough = checkpointSequence;
-  for (const update of await repository.updatesAfter(graphId, checkpointSequence)) {
-    let reason: string | undefined;
-    if (tailCorrupt) reason = "after-corrupt-tail";
-    else if (!(await validChecksum(update.checksum, update.payload))) {
-      reason = "update-checksum-mismatch";
-      tailCorrupt = true;
-    } else {
-      try {
-        core.importRecoveryUpdate(new Uint8Array(update.payload));
-        replayedUpdates += 1;
-        validThrough = update.local_sequence;
-      } catch (error) {
-        reason = `invalid-update:${String(error)}`;
+  let corruptTail: QuarantineRecord[] = [];
+  let fastPathComplete = false;
+  if (checksums.every(Boolean)) {
+    try {
+      for (const update of updates) {
+        core.stageRecoveryUpdate(new Uint8Array(update.payload));
+      }
+      core.finishRecovery();
+      replayedUpdates = updates.length;
+      validThrough = updates.at(-1)?.local_sequence ?? checkpointSequence;
+      fastPathComplete = true;
+    } catch {
+      // The disposable fast-path document may now contain a partial Tail.
+      // Recreate the selected Base and use the validating replay below to find
+      // the exact durable frontier and quarantine the same suffix as before.
+      core = createBase();
+    }
+  }
+
+  if (!fastPathComplete) {
+    let tailCorrupt = false;
+    corruptTail = [];
+    for (const [index, update] of updates.entries()) {
+      let reason: string | undefined;
+      if (tailCorrupt) reason = "after-corrupt-tail";
+      else if (!checksums[index]) {
+        reason = "update-checksum-mismatch";
         tailCorrupt = true;
+      } else {
+        try {
+          core.importRecoveryUpdate(new Uint8Array(update.payload));
+          replayedUpdates += 1;
+          validThrough = update.local_sequence;
+        } catch (error) {
+          reason = `invalid-update:${String(error)}`;
+          tailCorrupt = true;
+        }
+      }
+      if (reason) {
+        const exportHandle = `update-${update.local_sequence}`;
+        corruptTail.push({
+          ...update,
+          export_handle: exportHandle,
+          record_kind: "update",
+          reason,
+        } satisfies QuarantineRecord);
+        quarantinedRecords.push(exportHandle);
       }
     }
-    if (reason) {
-      const exportHandle = `update-${update.local_sequence}`;
-      corruptTail.push({
-        ...update,
-        export_handle: exportHandle,
-        record_kind: "update",
-        reason,
-      } satisfies QuarantineRecord);
-      quarantinedRecords.push(exportHandle);
-    }
+    core.finishRecovery();
   }
-  core.finishRecovery();
   if (corruptTail.length > 0) {
     await repository.repairCorruptTail(
       graphId,
@@ -656,6 +696,12 @@ async function testControl(payload: Record<string, unknown>) {
     case "quarantine_count": return repository.quarantineCount(String(payload.graph_id));
     case "export_quarantine": return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
     case "storage_stats": return repository.storageStats(String(payload.graph_id));
+    case "recovery_read_stats": {
+      const state = requireState(String(payload.graph_handle));
+      return state.repository instanceof TestIndexedDbGraphRepository
+        ? state.repository.recoveryReadStats()
+        : null;
+    }
     case "replica_id": return repository.metadata(String(payload.graph_id)).then((value) => value.replica_id);
     case "schema_version": return repository.metadata(String(payload.graph_id)).then((value) => value.schema_version);
     case "install_legacy_fixture": return repository.installLegacyFixture(
@@ -670,6 +716,9 @@ async function testControl(payload: Record<string, unknown>) {
         version_vector: [...state.core.versionVector()],
       };
     }
+    case "query_index_ready": return requireState(
+      String(payload.graph_handle),
+    ).core.queryIndexReady();
     case "fixture_update": {
       const core = WasmGraphCore.fromSnapshot(
         String(payload.graph_id),
