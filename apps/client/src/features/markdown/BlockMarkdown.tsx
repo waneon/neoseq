@@ -1,5 +1,6 @@
 import {
   memo,
+  useId,
   useRef,
   type FocusEvent,
   type MouseEvent,
@@ -7,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import Markdown, { type Components } from "react-markdown";
+import { Link } from "react-router";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -14,6 +16,7 @@ import { cn } from "../../lib/utils";
 import { sourceOffsetFromPoint } from "./caret";
 import { markdownSanitizeSchema, markdownUrlTransform } from "./profile";
 import type { MarkdownActivationMethod } from "../blocks/editor/activation";
+import type { PageReferenceSpan } from "../../core-port/snapshot";
 
 export type MarkdownVariant = "block" | "compact";
 export type { MarkdownActivationMethod } from "../blocks/editor/activation";
@@ -22,6 +25,8 @@ export interface BlockMarkdownProps {
   markdown: string;
   variant?: MarkdownVariant;
   className?: string;
+  pageReferences?: readonly PageReferenceSpan[];
+  graphId?: string;
   /**
    * Activates the source editor when non-interactive rendered text is pressed,
    * with the source offset under the pointer, or `undefined` for the end of the
@@ -47,8 +52,37 @@ function InertImage({ alt }: { alt?: string }) {
   return <span className="markdown-image-alt">{alt}</span>;
 }
 
-function SafeLink({ href, children }: { href?: string; children?: ReactNode }) {
+const PAGE_REFERENCE_HREF = "#neoseq-page:";
+
+function SafeLink({
+  href,
+  children,
+  graphId,
+  pageReferencePrefix,
+}: {
+  href?: string;
+  children?: ReactNode;
+  graphId?: string;
+  pageReferencePrefix?: string;
+}) {
   if (!href) return <span className="markdown-link-blocked">{children}</span>;
+  if (pageReferencePrefix && href.startsWith(pageReferencePrefix) && graphId) {
+    let pageId: string;
+    try {
+      pageId = decodeURIComponent(href.slice(pageReferencePrefix.length));
+    } catch {
+      return <span className="markdown-link-blocked">{children}</span>;
+    }
+    return (
+      <Link
+        className="page-reference"
+        to={`/g/${encodeURIComponent(graphId)}/p/${encodeURIComponent(pageId)}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </Link>
+    );
+  }
   const external = /^https?:\/\//iu.test(href);
   return (
     <a
@@ -135,9 +169,12 @@ function BlockMarkdownView({
   markdown,
   variant = "block",
   className,
+  pageReferences = [],
+  graphId,
   onActivate,
 }: BlockMarkdownProps) {
   const compact = variant === "compact";
+  const pageReferencePrefix = `${PAGE_REFERENCE_HREF}${encodeURIComponent(useId())}:`;
   const pressOrigin = useRef<{ x: number; y: number } | null>(null);
   const pointerFocus = useRef(false);
 
@@ -199,6 +236,21 @@ function BlockMarkdownView({
   };
 
   const Root = compact ? "span" : "div";
+  const renderedMarkdown = projectPageReferences(markdown, pageReferences, pageReferencePrefix);
+  const components: Components = compact
+    ? compactComponents
+    : {
+        ...blockComponents,
+        a: ({ href, children }) => (
+          <SafeLink
+            href={href}
+            graphId={graphId}
+            pageReferencePrefix={pageReferencePrefix}
+          >
+            {children}
+          </SafeLink>
+        ),
+      };
 
   return (
     <Root
@@ -215,16 +267,33 @@ function BlockMarkdownView({
       onFocus={!onActivate ? undefined : handOver}
     >
       <Markdown
-        components={compact ? compactComponents : blockComponents}
+        components={components}
         remarkPlugins={remarkPlugins}
         rehypePlugins={[[rehypeSanitize, markdownSanitizeSchema]]}
         skipHtml
         urlTransform={markdownUrlTransform}
       >
-        {markdown}
+        {renderedMarkdown}
       </Markdown>
     </Root>
   );
 }
 
 export const BlockMarkdown = memo(BlockMarkdownView);
+
+function projectPageReferences(
+  markdown: string,
+  references: readonly PageReferenceSpan[],
+  pageReferencePrefix: string,
+): string {
+  if (references.length === 0) return markdown;
+  const points = Array.from(markdown);
+  const ordered = [...references].sort((left, right) => right.start - left.start);
+  for (const reference of ordered) {
+    const source = points.slice(reference.start, reference.end).join("");
+    const label = source.replace(/[\\[\]]/gu, "\\$&");
+    const link = `[${label}](${pageReferencePrefix}${encodeURIComponent(reference.page_id)})`;
+    points.splice(reference.start, reference.end - reference.start, ...Array.from(link));
+  }
+  return points.join("");
+}

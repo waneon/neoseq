@@ -81,9 +81,11 @@ export function createOutlineFragment(
       }
     }
     for (const tagId of block.tags) tagIds.add(tagId);
+    for (const reference of block.page_references ?? []) pageIds.add(reference.page_id);
     items.push({
       depth,
       markdown: block.markdown,
+      page_references: (block.page_references ?? []).map((reference) => ({ ...reference })),
       properties,
       tags: [...block.tags],
     });
@@ -106,14 +108,18 @@ export function createOutlineFragment(
   const knownTagIds = new Set(tags.map((tag) => tag.id));
   for (const item of items) item.tags = item.tags.filter((id) => knownTagIds.has(id));
 
-  const pages = [...pageIds]
-    .map((id) => snapshot.pages.find((candidate) => candidate.id === id))
-    .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== undefined)
-    .map((candidate) => ({
-      id: candidate.id,
-      title: candidate.title,
-      journal_date: journalDate(candidate) ?? null,
-    }));
+  const directory = new Map((snapshot.page_directory ?? []).map((page) => [page.id, page]));
+  const pages = [...pageIds].flatMap((id) => {
+    const candidate = snapshot.pages.find((page) => page.id === id);
+    const entry = directory.get(id);
+    const title = candidate?.title ?? entry?.title;
+    if (title === undefined) return [];
+    return [{
+      id,
+      title,
+      journal_date: candidate ? journalDate(candidate) ?? null : entry?.journal_date ?? null,
+    }];
+  });
 
   return {
     kind: OUTLINE_FRAGMENT_KIND,
@@ -288,7 +294,7 @@ function parseOutlineFragment(source: string): OutlineFragment | null {
     const value: unknown = JSON.parse(source);
     if (!isRecord(value)
       || value.kind !== OUTLINE_FRAGMENT_KIND
-      || value.version !== OUTLINE_FRAGMENT_VERSION
+      || (value.version !== 1 && value.version !== OUTLINE_FRAGMENT_VERSION)
       || typeof value.source_graph_id !== "string"
       || !Array.isArray(value.items)
       || !Array.isArray(value.tags)
@@ -300,9 +306,20 @@ function parseOutlineFragment(source: string): OutlineFragment | null {
         || !Number.isSafeInteger(item.depth)
         || (item.depth as number) < 0
         || typeof item.markdown !== "string"
+        || (value.version === OUTLINE_FRAGMENT_VERSION && !Array.isArray(item.page_references))
         || !Array.isArray(item.properties)
         || !Array.isArray(item.tags)
       ) return null;
+    }
+    if (value.version === 1) {
+      return {
+        ...value,
+        version: OUTLINE_FRAGMENT_VERSION,
+        items: value.items.map((item) => ({
+          ...(item as Record<string, unknown>),
+          page_references: [],
+        })),
+      } as unknown as OutlineFragment;
     }
     return value as unknown as OutlineFragment;
   } catch {

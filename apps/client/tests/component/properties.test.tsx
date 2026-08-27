@@ -395,7 +395,7 @@ describe("property picker", () => {
     expect(commands).toContainEqual(expect.objectContaining({
       type: "batch",
       commands: expect.arrayContaining([
-        expect.objectContaining({ type: "splice_markdown" }),
+        expect.objectContaining({ type: "splice_block_content" }),
         expect.objectContaining({ type: "set_property" }),
       ]),
     }));

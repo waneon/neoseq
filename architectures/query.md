@@ -33,6 +33,7 @@ The projection emits no blank nodes. Its principal triples are:
 | live block | `rdf:type neo:Block`, `neo:content`, `neo:owner`, `neo:parent`, `neo:siblingIndex`; page-owned blocks also have `neo:page` |
 | live tag | `rdf:type neo:Tag`, `neo:name` |
 | node tag reference | `neo:tag <tag-entity-IRI>` |
+| block page reference | `neo:references <page-entity-IRI>` |
 | entity property field `k` | `<subject> neo:hasProperty <property-key-IRI>` |
 | page/block property `k = v` | `<subject> prop:<encoded-k> <typed-v>` |
 | tag metadata property `k = v` | `<tag> prop:<encoded-k> <typed-v>` |
@@ -53,6 +54,11 @@ values naturally collapse under RDF set semantics, matching the source model's
 idempotent member identity. A dangling page or tag reference remains an object
 IRI even when no live subject describes it.
 An empty field emits only its presence relation and no value predicate.
+
+Block `neo:content` materializes page-reference atoms with the current page
+title. A rename invalidates the disposable projection so dependent literals and
+text postings refresh together without rewriting Loro. `neo:references` is the
+stable boundary for an incremental reverse ledger when measurements justify it.
 
 Soft-deleted entities and blocks hidden by a deleted page or tag are absent from the
 default projection. Tombstone resolution remains a core read concern rather

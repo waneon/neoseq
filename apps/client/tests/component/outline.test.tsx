@@ -898,6 +898,42 @@ describe("outliner keyboard commands", () => {
     });
   });
 
+  it("keeps a completed page reference semantic and reprojects a focused draft on rename", async () => {
+    const { session } = await mountOutline(["See "]);
+    await act(async () => {
+      await session.execute({ type: "ensure_page", page_id: "roadmap", title: "Roadmap" });
+    });
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text");
+    await user.click(textarea);
+    // user-event escapes one literal `[` as `[[`; this sends two real openers.
+    await user.keyboard("[[[[Road");
+
+    const menu = await screen.findByTestId("page-reference-menu");
+    expect(menu).toHaveTextContent("Roadmap");
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      const block = findPage(session.getState().snapshot, "home")?.blocks[0];
+      expect(block?.markdown).toBe("See [[Roadmap]]");
+      expect(block?.page_references).toEqual([expect.objectContaining({ page_id: "roadmap" })]);
+    });
+
+    await user.type(textarea, " soon");
+    await act(async () => {
+      await session.execute({ type: "rename_page", page_id: "roadmap", title: "Plan" });
+    });
+    await waitFor(() => expect(textarea).toHaveValue("See [[Plan]] soon"));
+    await waitFor(() => {
+      const block = findPage(session.getState().snapshot, "home")?.blocks[0];
+      expect(block?.markdown).toBe("See [[Plan]] soon");
+      expect(block?.page_references).toEqual([expect.objectContaining({
+        page_id: "roadmap",
+        start: 4,
+        end: 12,
+      })]);
+    });
+  });
+
   it("dismisses an open menu when the empty region below the writing is clicked", async () => {
     await mountOutline(["alpha"]);
     const menu = await openBlockMenu();

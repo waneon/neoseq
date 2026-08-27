@@ -41,8 +41,15 @@ static MIGRATIONS: &[Migration] = &[
         id: QUERY_VIEWS_MIGRATION_ID,
         from: GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION,
         to: QUERY_VIEWS_SCHEMA_VERSION,
-        minimum_writer_schema: MINIMUM_WRITER_SCHEMA,
+        minimum_writer_schema: QUERY_VIEWS_SCHEMA_VERSION,
         prepare: independent_query_views::prepare,
+    },
+    Migration {
+        id: INLINE_PAGE_REFERENCES_MIGRATION_ID,
+        from: QUERY_VIEWS_SCHEMA_VERSION,
+        to: INLINE_PAGE_REFERENCES_SCHEMA_VERSION,
+        minimum_writer_schema: MINIMUM_WRITER_SCHEMA,
+        prepare: inline_page_references::prepare,
     },
 ];
 
@@ -273,6 +280,26 @@ mod independent_query_views {
                     }
                 }
             }
+            Ok(())
+        }
+    }
+}
+
+mod inline_page_references {
+    use super::*;
+
+    pub(super) fn prepare(doc: &LoroDoc) -> Result<Prepared, CoreError> {
+        validate_tag_outlines(doc)?;
+        validate_current_query_documents(doc)?;
+        Ok(Box::new(Plan))
+    }
+
+    struct Plan;
+
+    impl PreparedMigration for Plan {
+        fn apply(self: Box<Self>, _doc: &LoroDoc) -> Result<(), CoreError> {
+            // Existing `[[text]]` remains authored Markdown. Only an explicit
+            // page completion creates a semantic reference atom.
             Ok(())
         }
     }

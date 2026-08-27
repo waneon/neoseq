@@ -206,7 +206,7 @@ export async function runWorkerCorePortCorpus() {
   });
   assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 5, "worker read did not return schema v5");
+  assert((read.summary as Snapshot).schema_version === 6, "worker read did not return schema v6");
   const outline = await worker.readOutline({
     graph_handle: opened.graph_handle,
     owner: { kind: "page", id: "home" },
@@ -360,7 +360,7 @@ export async function runIndexedDbFaultCorpus() {
     hexBuffer(legacyFixture.snapshot_hex),
   );
   const migrated = await migration.openGraph(openRequest(legacyFixture.graph_id, 263));
-  assert((migrated.summary as Snapshot).schema_version === 5, "schema v1 fixture was not migrated");
+  assert((migrated.summary as Snapshot).schema_version === 6, "schema v1 fixture was not migrated");
   assert((migrated.summary as Snapshot).pages.length === 1, "schema migration changed fixture entities");
   assert(await migration.schemaVersion(legacyFixture.graph_id) === 5, "migrated Base was not persisted");
   await migration.closeGraph({ graph_handle: migrated.graph_handle });
@@ -376,7 +376,7 @@ export async function runIndexedDbFaultCorpus() {
   );
   const migratedTag = await migration.openGraph(openRequest(legacyTagFixture.graph_id, 265));
   const migratedTagSnapshot = migratedTag.summary as Snapshot;
-  assert(migratedTagSnapshot.schema_version === 5, "schema v2 tag fixture was not migrated");
+  assert(migratedTagSnapshot.schema_version === 6, "schema v2 tag fixture was not migrated");
   assert(
     migratedTagSnapshot.tags.some((tag) => tag.id === legacyTagFixture.tag_id),
     "tag-outline migration changed fixture entities",

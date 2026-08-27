@@ -272,6 +272,8 @@ export interface MessageArgumentMap {
   "page.title": undefined;
   "page.untitled": undefined;
   "page.updated": undefined;
+  "pageReferences.create": undefined;
+  "pageReferences.menuLabel": undefined;
   "properties.addEmpty": undefined;
   "properties.addOrChange": undefined;
   "properties.addTag": undefined;

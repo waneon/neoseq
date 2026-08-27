@@ -1265,6 +1265,13 @@ fn project_block(
         named_ref("content")?,
         Literal::new_simple_literal(&block.markdown),
     ));
+    for reference in &block.page_references {
+        triples.insert(Triple::new(
+            block_iri.clone(),
+            named_ref("references")?,
+            entity_iri(graph_id, "page", reference.page_id.as_str())?,
+        ));
+    }
     triples.insert(Triple::new(
         block_iri.clone(),
         named_ref("owner")?,
@@ -2670,8 +2677,8 @@ fn term_error(error: impl std::fmt::Display) -> QueryError {
 mod tests {
     use super::*;
     use domain::{
-        BlockId, Cardinality, GraphSettings, LocalDate, PageSnapshot, PropertyField, PropertyKey,
-        PropertyType, TagSnapshot,
+        BlockId, Cardinality, GraphSettings, LocalDate, PageReferenceSpan, PageSnapshot,
+        PropertyField, PropertyKey, PropertyType, TagSnapshot,
     };
 
     fn single(key: &str, value: PropertyValue) -> PropertyField {
@@ -2687,6 +2694,7 @@ mod tests {
         GraphSnapshot {
             schema_version: domain::SCHEMA_VERSION,
             graph_id: GraphId::new("query graph").unwrap(),
+            page_directory: vec![],
             pages: vec![PageSnapshot {
                 id: PageId::new("today").unwrap(),
                 title: "Today".into(),
@@ -2717,6 +2725,7 @@ mod tests {
                 blocks: vec![BlockSnapshot {
                     id: BlockId::new("todo-1").unwrap(),
                     markdown: "Ship the Query Engine".into(),
+                    page_references: vec![],
                     properties: vec![
                         single("builtin.task-status", PropertyValue::String("todo".into())),
                         single(
@@ -2747,6 +2756,7 @@ mod tests {
         GraphSnapshot {
             schema_version: domain::SCHEMA_VERSION,
             graph_id: GraphId::new("ordered-query").unwrap(),
+            page_directory: vec![],
             pages: vec![PageSnapshot {
                 id: PageId::new("ordered-page").unwrap(),
                 title: "Ordered".into(),
@@ -2756,6 +2766,7 @@ mod tests {
                     .map(|index| BlockSnapshot {
                         id: BlockId::new(format!("block-{index:05}")).unwrap(),
                         markdown: format!("Block {index}"),
+                        page_references: vec![],
                         properties: vec![
                             single("builtin.task-status", PropertyValue::String("todo".into())),
                             single(
@@ -3010,11 +3021,29 @@ mod tests {
     }
 
     #[test]
+    fn projects_semantic_page_reference_edges() {
+        let mut source = snapshot();
+        source.pages[0].blocks[0].page_references = vec![PageReferenceSpan {
+            start: 0,
+            end: 9,
+            index: 0,
+            page_id: PageId::new("today").unwrap(),
+        }];
+        let triples = GraphIndex::new(&source)
+            .unwrap()
+            .semantic_triples()
+            .join("\n");
+        assert!(triples.contains("urn:neoseq:vocab:v1:references"));
+        assert!(triples.contains("urn:neoseq:entity:query%20graph:page:today"));
+    }
+
+    #[test]
     fn projects_tag_owned_blocks_with_their_outline_owner() {
         let mut source = snapshot();
         source.tags[0].blocks.push(BlockSnapshot {
             id: BlockId::new("tag-note").unwrap(),
             markdown: "Notes about this tag".into(),
+            page_references: vec![],
             properties: vec![],
             tags: vec![],
             children: vec![],

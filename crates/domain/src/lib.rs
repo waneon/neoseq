@@ -15,12 +15,13 @@ pub use ids::{
     QueryViewId, TagId,
 };
 pub use model::{
-    BlockSnapshot, Command, CommandEnvelope, CommandResult, DefaultQuerySnapshot, EntityId,
-    GraphSettings, GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, MarkdownSplice,
-    OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem,
-    OutlineFragmentPage, OutlineFragmentTag, OutlineItem, OutlineOwner, OutlineSnapshot,
-    PageSnapshot, PageSummary, PropertyChange, PropertyOwner, QueryDefinition, QueryOwner,
-    QueryView, QueryViewColumn, QueryViewFieldSort, QueryViewKind, QueryViewOptions, QueryViewSort,
+    BlockContentSplice, BlockSnapshot, Command, CommandEnvelope, CommandResult,
+    DefaultQuerySnapshot, EntityId, GraphSettings, GraphSnapshot, GraphSummary, HistoryEffect,
+    HistoryScope, InlineContent, MarkdownSplice, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION,
+    OutlineFragment, OutlineFragmentItem, OutlineFragmentPage, OutlineFragmentTag, OutlineItem,
+    OutlineOwner, OutlineSnapshot, PageDirectoryEntry, PageReferenceSpan, PageSnapshot,
+    PageSummary, PropertyChange, PropertyOwner, QueryDefinition, QueryOwner, QueryView,
+    QueryViewColumn, QueryViewFieldSort, QueryViewKind, QueryViewOptions, QueryViewSort,
     SplitPlacement, TagSnapshot, TagSummary,
 };
 pub use property::{

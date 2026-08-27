@@ -2,11 +2,14 @@
 
 ## Contract
 
-An outline copy has one versioned semantic source, `neoseq.outline` v1. The
-fragment is a bounded, pre-order list of Markdown blocks with portable property
-fields and tag references, plus tag and page-reference descriptors. It is a
+An outline copy has one versioned semantic source, `neoseq.outline` v2. The
+fragment is a bounded, pre-order list of projected Markdown blocks with semantic
+page-reference spans, portable property fields, and tag references, plus tag
+and page-reference descriptors. It is a
 domain DTO, never a Loro snapshot or update. Copying creates new block identity;
 core-managed lifecycle fields are regenerated.
+Readers upgrade v1 fragments by treating their blocks as having no semantic
+inline references, preserving the previous rich property and tag payload.
 
 The browser derives the fragment synchronously from an authoritative hydrated
 outline snapshot so the native `copy` event can be completed without waiting for a

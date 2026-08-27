@@ -3,13 +3,13 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current document schema is v5 and has four roots:
+synchronization unit. The current document schema is v6 and has four roots:
 
 ```text
 meta: Map
   graph_id: string
-  schema_version: 5
-  minimum_writer_schema: 5
+  schema_version: 6
+  minimum_writer_schema: 6
   applied_migrations: Map<MigrationId, TargetSchema>
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
@@ -23,19 +23,21 @@ canonical representation. RDF triples, text caches, query plans, and session UI
 state are disposable projections. Shared query documents are canonical graph
 data whether an entity property or graph setting owns them.
 
-Schemas v1 through v4 are migratable predecessors. Recovery replays Base and
+Schemas v1 through v5 are migratable predecessors. Recovery replays Base and
 Tail, then applies each missing migration as a normal CRDT commit before
 persisting a current checkpoint or accepting writes. `0001-lifecycle-metadata`
 advances v1 to v2; `0002-tag-outlines` materializes every tag-owned tree and
 advances v2 to v3; `0003-graph-settings` adds shared graph configuration and
 advances v3 to v4; `0004-independent-query-views` moves each shared query
-definition into its stable view and advances v4 to v5. A contiguous migration
+definition into its stable view and advances v4 to v5; and
+`0005-inline-page-references` reserves the semantic inline atom and advances v5
+to v6 without interpreting existing Markdown. A contiguous migration
 registry selects the next step from the stored version; orchestration has no
 version-specific branches. Each step prepares a complete plan by reading only
 the source structure it consumes, then applies that plan to a staging document.
 The staging document replaces the recovered graph only after the complete chain
-and strict current-schema validation succeed. Reopening v5 is a no-op, and
-schemas outside `[1, 5]` are rejected without downgrade or coercion.
+and strict current-schema validation succeed. Reopening v6 is a no-op, and
+schemas outside `[1, 6]` are rejected without downgrade or coercion.
 
 ## Graph Settings
 
@@ -60,6 +62,11 @@ NodeData
   properties: PropertyBag
   tag_refs: Map<TagId, true>
 ```
+
+Block `content` encodes semantic page-reference atoms as one reserved character
+with a non-expanding Loro text mark. Page roots remain plain text. Domain and
+CorePort projections expose the semantic atom rather than this adapter encoding;
+see [inline page references](page-references.md).
 
 The page root's content is a regular page title. Journal display titles derive
 from `builtin.journal-date`. New journal IDs derive deterministically from graph

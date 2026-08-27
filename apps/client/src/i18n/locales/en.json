@@ -252,6 +252,8 @@
   "page.title": "Page title",
   "page.untitled": "Untitled",
   "page.updated": "Updated",
+  "pageReferences.create": "Create page",
+  "pageReferences.menuLabel": "Page references",
   "properties.addEmpty": "Add without a value",
   "properties.addOrChange": "Add or change property",
   "properties.addTag": "Add tag…",

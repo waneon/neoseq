@@ -92,6 +92,7 @@ Detailed contracts:
 - [Query and derived index](architectures/query.md)
 - [Client application](architectures/clients.md)
 - [Block Markdown rendering](architectures/markdown-rendering.md)
+- [Inline page references](architectures/page-references.md)
 - [Outline clipboard](architectures/clipboard.md)
 - [Undo/redo navigation](architectures/history-navigation.md)
 - [Property command picker](architectures/property-command-picker.md)
@@ -128,7 +129,9 @@ CorePort.
 - Pages and tags use stable IDs. Each owns one owner-local movable block tree;
   structure never moves across owners, while clipboard transfer is a copy.
 - Page roots and blocks share collaborative content, a typed property bag, and
-  explicit tag references. A tag outline does not implicitly tag its blocks.
+  explicit tag references. Block content may contain stable page-reference
+  atoms whose current-title source is a projection. A tag outline does not
+  implicitly tag its blocks.
 - Page and tag names are unique in separate normalized graph-wide namespaces.
 - New journal IDs derive deterministically from graph ID and local date. A
   portable copy retains existing journal IDs and resolves them by semantic date.

@@ -1,4 +1,5 @@
 import type { AutoCloserMarker } from "../blocks/editor/auto-pair";
+import type { PageReferenceSpan } from "../../core-port/snapshot";
 
 export interface PendingRow {
   tempId: string;
@@ -18,6 +19,8 @@ export interface OutlineDraftState {
   drafts: ReadonlyMap<string, string>;
   baselines: ReadonlyMap<string, string>;
   autoClosers: ReadonlyMap<string, readonly AutoCloserMarker[]>;
+  /** Semantic spans aligned with the current local baseline. */
+  pageReferences: ReadonlyMap<string, readonly PageReferenceSpan[]>;
   pendingRows: readonly PendingRow[];
 }
 
@@ -25,6 +28,7 @@ export const initialOutlineDraftState: OutlineDraftState = {
   drafts: new Map(),
   baselines: new Map(),
   autoClosers: new Map(),
+  pageReferences: new Map(),
   pendingRows: [],
 };
 
@@ -35,10 +39,25 @@ export type OutlineDraftAction =
       value: string;
       baselineIfAbsent?: string;
       autoClosers?: readonly AutoCloserMarker[];
+      pageReferencesIfAbsent?: readonly PageReferenceSpan[];
     }
-  | { type: "set-baseline"; id: string; value: string }
+  | {
+      type: "set-baseline";
+      id: string;
+      value: string;
+      pageReferences?: readonly PageReferenceSpan[];
+    }
   | { type: "clear"; ids: readonly string[] }
   | { type: "clear-auto-closers"; ids: readonly string[] }
+  | {
+      type: "reproject";
+      entries: readonly {
+        id: string;
+        baseline: string;
+        draft: string;
+        pageReferences: readonly PageReferenceSpan[];
+      }[];
+    }
   | { type: "reconcile"; draftIds: readonly string[]; autoCloserIds: readonly string[] }
   | { type: "enqueue"; row: PendingRow; draft: string }
   | { type: "mark-dispatched"; tempId: string }
@@ -75,26 +94,51 @@ export function outlineDraftReducer(
       if (action.baselineIfAbsent !== undefined && !baselines.has(action.id)) {
         baselines.set(action.id, action.baselineIfAbsent);
       }
+      const pageReferences = new Map(state.pageReferences);
+      if (action.pageReferencesIfAbsent !== undefined && !pageReferences.has(action.id)) {
+        pageReferences.set(action.id, action.pageReferencesIfAbsent);
+      }
       return {
         ...state,
         drafts,
         baselines,
+        pageReferences,
         autoClosers: action.autoClosers === undefined
           ? state.autoClosers
           : withAutoClosers(state.autoClosers, action.id, action.autoClosers),
       };
     }
     case "set-baseline":
-      return { ...state, baselines: new Map(state.baselines).set(action.id, action.value) };
+      return {
+        ...state,
+        baselines: new Map(state.baselines).set(action.id, action.value),
+        pageReferences: action.pageReferences === undefined
+          ? state.pageReferences
+          : new Map(state.pageReferences).set(action.id, action.pageReferences),
+      };
     case "clear":
       return {
         ...state,
         drafts: without(state.drafts, action.ids),
         baselines: without(state.baselines, action.ids),
         autoClosers: without(state.autoClosers, action.ids),
+        pageReferences: without(state.pageReferences, action.ids),
       };
     case "clear-auto-closers":
       return { ...state, autoClosers: without(state.autoClosers, action.ids) };
+    case "reproject": {
+      const drafts = new Map(state.drafts);
+      const baselines = new Map(state.baselines);
+      const pageReferences = new Map(state.pageReferences);
+      const autoClosers = new Map(state.autoClosers);
+      for (const entry of action.entries) {
+        drafts.set(entry.id, entry.draft);
+        baselines.set(entry.id, entry.baseline);
+        pageReferences.set(entry.id, entry.pageReferences);
+        autoClosers.delete(entry.id);
+      }
+      return { ...state, drafts, baselines, pageReferences, autoClosers };
+    }
     case "reconcile":
       return {
         ...state,
@@ -104,6 +148,7 @@ export function outlineDraftReducer(
           state.autoClosers,
           [...action.draftIds, ...action.autoCloserIds],
         ),
+        pageReferences: without(state.pageReferences, action.draftIds),
       };
     case "enqueue":
       return {
@@ -122,6 +167,7 @@ export function outlineDraftReducer(
       const drafts = without(state.drafts, [action.tempId]);
       const baselines = without(state.baselines, [action.tempId]);
       const autoClosers = without(state.autoClosers, [action.tempId]);
+      const pageReferences = without(state.pageReferences, [action.tempId]);
       if (action.typed !== action.baseline) {
         drafts.set(action.blockId, action.typed);
         baselines.set(action.blockId, action.baseline);
@@ -132,6 +178,7 @@ export function outlineDraftReducer(
         drafts,
         baselines,
         autoClosers,
+        pageReferences,
         pendingRows: state.pendingRows
           .slice(1)
           .map((row) => row.anchorId === action.tempId
@@ -145,6 +192,7 @@ export function outlineDraftReducer(
         drafts: without(state.drafts, [action.tempId]),
         baselines: without(state.baselines, [action.tempId]),
         autoClosers: without(state.autoClosers, [action.tempId]),
+        pageReferences: without(state.pageReferences, [action.tempId]),
         pendingRows: state.pendingRows.slice(1),
       };
     case "queue-structural":
@@ -160,6 +208,7 @@ export function outlineDraftReducer(
         drafts: without(state.drafts, ids),
         baselines: without(state.baselines, ids),
         autoClosers: without(state.autoClosers, ids),
+        pageReferences: without(state.pageReferences, ids),
         pendingRows: [],
       };
     }

@@ -50,6 +50,24 @@ describe("outline clipboard Markdown", () => {
     expect(parseMarkdownOutline("- one\ntwo")).toBeNull();
   });
 
+  it("upgrades v1 rich fragments without discarding their metadata", () => {
+    const legacy = JSON.stringify({
+      kind: "neoseq.outline",
+      version: 1,
+      source_graph_id: "graph",
+      items: [{ depth: 0, markdown: "legacy", properties: [], tags: ["project"] }],
+      tags: [{ id: "project", name: "Project" }],
+      pages: [],
+    });
+    const fragment = readOutlineFragment({
+      getData: (type: string) => type === "application/vnd.neoseq.outline+json" ? legacy : "",
+    });
+
+    expect(fragment?.version).toBe(2);
+    expect(fragment?.items[0].page_references).toEqual([]);
+    expect(fragment?.items[0].tags).toEqual(["project"]);
+  });
+
   it("builds a lossless fragment and readable standard representations", () => {
     const page: PageSnapshot = {
       id: "home",
@@ -121,5 +139,50 @@ describe("outline clipboard Markdown", () => {
     };
     setClipboardData(clipboard, bundle);
     expect(readOutlineFragment(clipboard)).toEqual(fragment);
+  });
+
+  it("keeps inline page identity in the v2 semantic fragment", () => {
+    const target: PageSnapshot = {
+      id: "roadmap",
+      title: "Roadmap",
+      properties: [],
+      tags: [],
+      blocks: [],
+    };
+    const page: PageSnapshot = {
+      id: "home",
+      title: "Home",
+      properties: [],
+      tags: [],
+      blocks: [{
+        id: "reference",
+        markdown: "See [[Roadmap]]",
+        page_references: [{ start: 4, end: 15, index: 4, page_id: "roadmap" }],
+        properties: [],
+        tags: [],
+        children: [],
+      }],
+    };
+    const snapshot = {
+      schema_version: 6,
+      graph_id: "graph",
+      pages: [page, target],
+      page_directory: [
+        { id: "home", title: "Home", journal_date: null, deleted: false },
+        { id: "roadmap", title: "Roadmap", journal_date: null, deleted: false },
+      ],
+      tags: [],
+      settings: { default_queries: [] },
+      quarantined: [],
+    } satisfies GraphSnapshot;
+
+    const fragment = createOutlineFragment(snapshot, page, new Set(["reference"]));
+    expect(fragment?.version).toBe(2);
+    expect(fragment?.items[0].page_references).toEqual(page.blocks[0].page_references);
+    expect(fragment?.pages).toEqual([{
+      id: "roadmap",
+      title: "Roadmap",
+      journal_date: null,
+    }]);
   });
 });

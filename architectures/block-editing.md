@@ -15,9 +15,14 @@ navigation or structural ownership.
   entrance into modal intent before a host opens its draft;
 - `surface-policy` names the few deliberate behavioral differences between
   outline, query list, and query table hosts;
-- block completion modules own `/` and `#` token detection, ranking, token
+- block completion modules own `/`, `#`, and `[[` token detection, ranking, token
   removal, and menu presentation; and
-- text diffs translate drafts to `splice_markdown` command payloads.
+- text diffs translate drafts to canonical inline-content splice payloads.
+
+For blocks containing semantic references, the same draft path uses an inline
+content projection: untouched reference spans map to one logical atom, while an
+edit through a span demotes it to readable source. Completion inserts a page
+atom through `splice_block_content`; surface hosts never manipulate Loro marks.
 
 Completion menus follow their focused editor through list, caret, and document
 scrolling. Reconciliation may replace the textarea, but the completion remains

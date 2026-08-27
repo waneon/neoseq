@@ -5,20 +5,22 @@ use self::outline::{MovePlan, OutlinePlan};
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandId, CommandResult,
     DefaultQueryId, DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot,
-    GraphSummary, HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION,
-    OutlineFragment, OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner,
-    OutlineSnapshot, PageId, PageSnapshot, PageSummary, PropertyBag, PropertyChange,
-    PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader, PropertyError, PropertyField,
-    PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA,
-    QUERY_DOCUMENT_VERSION, QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView,
-    QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId,
-    TagSnapshot, TagSummary, property_copy_policy, validate_property, validate_property_field,
-    validate_property_shape, validate_property_target, validate_property_write,
+    GraphSummary, HistoryEffect, HistoryScope, InlineContent, OUTLINE_FRAGMENT_KIND,
+    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem, OutlineFragmentPage,
+    OutlineItem, OutlineOwner, OutlineSnapshot, PageDirectoryEntry, PageId, PageReferenceSpan,
+    PageSnapshot, PageSummary, PropertyBag, PropertyChange, PropertyCopyPolicy, PropertyDocument,
+    PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
+    PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
+    QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
+    QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
+    property_copy_policy, validate_property, validate_property_field, validate_property_shape,
+    validate_property_target, validate_property_write,
 };
 use loro::{
-    Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
-    LoroMap, LoroText, LoroTree, LoroValue, Subscription, TreeID, TreeParentId, UndoManager,
-    ValueOrContainer, VersionVector, event::Diff,
+    Container, ContainerID, ContainerTrait, ExpandType, ExportMode, Index, LoroDoc,
+    LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree, LoroValue, StyleConfig,
+    StyleConfigMap, Subscription, TextDelta, TreeID, TreeParentId, UndoManager, ValueOrContainer,
+    VersionVector, cursor::PosType, event::Diff,
 };
 use query::{IndexDelta, IndexUnit};
 use sha2::{Digest, Sha256};
@@ -34,17 +36,21 @@ pub const LIFECYCLE_MIGRATION_ID: &str = "0001-lifecycle-metadata";
 pub const TAG_OUTLINES_MIGRATION_ID: &str = "0002-tag-outlines";
 pub const GRAPH_SETTINGS_MIGRATION_ID: &str = "0003-graph-settings";
 pub const QUERY_VIEWS_MIGRATION_ID: &str = "0004-independent-query-views";
+pub const INLINE_PAGE_REFERENCES_MIGRATION_ID: &str = "0005-inline-page-references";
 const LIFECYCLE_SCHEMA_VERSION: u32 = 2;
 const TAG_OUTLINES_SCHEMA_VERSION: u32 = 3;
 const GRAPH_SETTINGS_DOCUMENT_SCHEMA_VERSION: u32 = 4;
 const GRAPH_SETTINGS_SCHEMA_VERSION: u32 = 1;
 const QUERY_VIEWS_SCHEMA_VERSION: u32 = 5;
+const INLINE_PAGE_REFERENCES_SCHEMA_VERSION: u32 = 6;
 const MAX_DEFAULT_QUERIES: usize = 8;
 const MAX_DEFAULT_QUERY_TITLE: usize = 80;
 const MAX_ENTITY_NAME_BYTES: usize = 1024;
 const MAX_BLOCK_TEXT_BYTES: usize = 1_048_576;
 const MAX_QUERY_SOURCE_BYTES: usize = 65_536;
 const MAX_OUTLINE_FRAGMENT_BYTES: usize = 4 * MAX_BLOCK_TEXT_BYTES;
+const PAGE_REFERENCE_MARK: &str = "neoseq.page-reference";
+const PAGE_REFERENCE_CHAR: char = '\u{fffc}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
@@ -385,6 +391,12 @@ impl ProjectionChangeTracker {
         let pages_id = pages.id();
         let tags_id = tags.id();
         let mut result = GraphChangeSet::default();
+        let created_pages = captured
+            .iter()
+            .filter(|change| change.target == pages_id)
+            .flat_map(|change| &change.map_keys)
+            .filter_map(|key| PageId::new(key).ok())
+            .collect::<BTreeSet<_>>();
 
         for change in captured {
             let page_scope =
@@ -397,6 +409,15 @@ impl ProjectionChangeTracker {
             if change.unknown {
                 result.rebuild = true;
                 continue;
+            }
+            if page_scope
+                && page_for_title_target(&pages, &change.target)
+                    .is_some_and(|page_id| !created_pages.contains(&page_id))
+            {
+                // Every referring block materializes this title. The canonical
+                // references do not change, but the disposable RDF/text index
+                // must refresh those derived strings as one coherent view.
+                result.rebuild = true;
             }
 
             let mut resolved = false;
@@ -454,6 +475,32 @@ impl ProjectionChangeTracker {
     }
 }
 
+fn page_for_title_target(pages: &LoroMap, target: &ContainerID) -> Option<PageId> {
+    let mut found = None;
+    pages.for_each(|raw_id, value| {
+        if found.is_some() {
+            return;
+        }
+        let Some(page) = value_into_map(value) else {
+            return;
+        };
+        let Some(root) = page.get("root").and_then(value_into_map) else {
+            return;
+        };
+        if root
+            .get("content")
+            .and_then(|value| match value {
+                ValueOrContainer::Container(Container::Text(text)) => Some(text.id() == *target),
+                _ => None,
+            })
+            .unwrap_or(false)
+        {
+            found = PageId::new(raw_id).ok();
+        }
+    });
+    found
+}
+
 fn path_is_below_root(
     path: &[(ContainerID, Index)],
     root_id: &ContainerID,
@@ -464,9 +511,19 @@ fn path_is_below_root(
     })
 }
 
+fn configure_inline_content(doc: &LoroDoc) {
+    let mut styles = StyleConfigMap::default_rich_text_config();
+    styles.insert(
+        PAGE_REFERENCE_MARK.into(),
+        StyleConfig::new().expand(ExpandType::None),
+    );
+    doc.config_text_style(styles);
+}
+
 impl GraphCore {
     pub fn new(graph_id: GraphId, peer_id: u64, now: &str) -> Result<Self, CoreError> {
         let doc = LoroDoc::new();
+        configure_inline_content(&doc);
         doc.set_peer_id(peer_id)?;
         let meta = doc.get_map("meta");
         meta.insert("graph_id", graph_id.as_str())?;
@@ -521,6 +578,7 @@ impl GraphCore {
         snapshot: &[u8],
     ) -> Result<Self, CoreError> {
         let doc = LoroDoc::from_snapshot(snapshot)?;
+        configure_inline_content(&doc);
         doc.set_peer_id(peer_id)?;
         verify_compatible_schema(&doc, &graph_id)?;
         validate_unique_entity_names(&doc)?;
@@ -560,6 +618,7 @@ impl GraphCore {
     pub fn finish_recovery(&mut self) -> Result<MigrationReport, CoreError> {
         let peer_id = self.doc.peer_id();
         let staged = self.doc.fork();
+        configure_inline_content(&staged);
         staged.set_peer_id(peer_id)?;
         let migration = migrations::migrate_document(&staged)?;
         verify_schema(&staged, &self.graph_id)?;
@@ -592,6 +651,7 @@ impl GraphCore {
     fn restore_history_backup(&mut self, backup: LoroDoc) -> Result<(), CoreError> {
         let peer_id = self.doc.peer_id();
         self.doc = backup;
+        configure_inline_content(&self.doc);
         self.doc.set_peer_id(peer_id)?;
         enable_outlines(&self.doc)?;
         self.reset_local_history();
@@ -837,6 +897,7 @@ impl GraphCore {
         }
         let baseline = self.export_gc_checkpoint()?;
         let doc = LoroDoc::from_snapshot(&baseline)?;
+        configure_inline_content(&doc);
         doc.set_peer_id(target_peer_id)?;
         rewrite_graph_scoped_query_iris(&doc, &source_graph_id, &target_graph_id)?;
         doc.get_map("meta")
@@ -869,7 +930,12 @@ impl GraphCore {
     pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
         let mut quarantined = Vec::new();
         let live_tags = live_tag_ids(&self.doc);
-        let tags = tag_snapshots(&self.doc, &live_tags, &mut quarantined)?;
+        let page_directory = page_directory(&self.doc, &mut quarantined);
+        let directory = page_directory
+            .iter()
+            .map(|entry| (entry.id.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let tags = tag_snapshots(&self.doc, &live_tags, &directory, &mut quarantined)?;
         let pages = self.doc.get_map("pages");
         let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
 
@@ -898,6 +964,7 @@ impl GraphCore {
                     &outline,
                     root,
                     &live_tags,
+                    &directory,
                     &mut quarantined,
                 )?);
             }
@@ -908,6 +975,7 @@ impl GraphCore {
             schema_version: SCHEMA_VERSION,
             graph_id: self.graph_id.clone(),
             pages: snapshots.into_values().collect(),
+            page_directory,
             tags,
             settings: graph_settings_snapshot(&self.doc)?,
             quarantined,
@@ -917,6 +985,7 @@ impl GraphCore {
     pub fn summary(&self) -> Result<GraphSummary, CoreError> {
         let mut quarantined = Vec::new();
         let live_tags = live_tag_ids(&self.doc);
+        let page_directory = page_directory(&self.doc, &mut quarantined);
         let pages = self.doc.get_map("pages");
         let mut page_summaries = BTreeMap::<PageId, PageSummary>::new();
         pages.for_each(|raw_id, value| {
@@ -946,6 +1015,7 @@ impl GraphCore {
             schema_version: SCHEMA_VERSION,
             graph_id: self.graph_id.clone(),
             pages: page_summaries.into_values().collect(),
+            page_directory,
             tags,
             settings: graph_settings_snapshot(&self.doc)?,
             quarantined,
@@ -971,12 +1041,17 @@ impl GraphCore {
         let outline = self.outline(owner)?;
         let live_tags = live_tag_ids(&self.doc);
         let mut quarantined = Vec::new();
+        let directory = page_directory(&self.doc, &mut quarantined)
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect::<BTreeMap<_, _>>();
         let mut blocks = Vec::new();
         for root in outline.roots() {
             blocks.push(block_snapshot(
                 &outline,
                 root,
                 &live_tags,
+                &directory,
                 &mut quarantined,
             )?);
         }
@@ -1007,12 +1082,18 @@ impl GraphCore {
 
         let mut tags = Vec::with_capacity(changes.tags.len());
         let mut removed_tags = Vec::new();
+        let mut directory_issues = Vec::new();
+        let directory = page_directory(&self.doc, &mut directory_issues)
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect::<BTreeMap<_, _>>();
         for tag_id in &changes.tags {
             let mut quarantined = Vec::new();
             if let Some(tag) = tag_snapshot_by_id(
                 &self.doc,
                 tag_id,
                 &live_tag_ids(&self.doc),
+                &directory,
                 &mut quarantined,
             )? {
                 tags.push(tag);
@@ -1037,7 +1118,11 @@ impl GraphCore {
     ) -> Result<impl Iterator<Item = Result<IndexUnit, CoreError>> + '_, CoreError> {
         let mut quarantined = Vec::new();
         let live_tags = live_tag_ids(&self.doc);
-        let tags = tag_snapshots(&self.doc, &live_tags, &mut quarantined)?;
+        let directory = page_directory(&self.doc, &mut quarantined)
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect::<BTreeMap<_, _>>();
+        let tags = tag_snapshots(&self.doc, &live_tags, &directory, &mut quarantined)?;
         let pages = self.doc.get_map("pages");
         let mut page_ids = BTreeSet::new();
         pages.for_each(|raw_id, value| {
@@ -1072,10 +1157,18 @@ impl GraphCore {
         let Some(outline) = page.get("outline").and_then(value_into_tree) else {
             return Ok(Some(snapshot));
         };
+        let directory = page_directory(&self.doc, &mut quarantined)
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect::<BTreeMap<_, _>>();
         for root in outline.roots() {
-            snapshot
-                .blocks
-                .push(block_snapshot(&outline, root, live_tags, &mut quarantined)?);
+            snapshot.blocks.push(block_snapshot(
+                &outline,
+                root,
+                live_tags,
+                &directory,
+                &mut quarantined,
+            )?);
         }
         Ok(Some(snapshot))
     }
@@ -1311,6 +1404,45 @@ impl GraphCore {
                     if splice.index.saturating_add(splice.delete) > text.len_unicode() {
                         return Err(CoreError::InvalidHierarchy(
                             "markdown splice is out of bounds".into(),
+                        ));
+                    }
+                }
+            }
+            Command::SpliceBlockContent {
+                owner,
+                block_id,
+                index,
+                delete,
+                insert,
+            } => {
+                self.require_block(owner, block_id)?;
+                validate_inline_content(self, insert)?;
+                let text = self.block_text(owner, block_id)?;
+                if index.saturating_add(*delete) > text.len_unicode() {
+                    return Err(CoreError::InvalidHierarchy(
+                        "block content splice is out of bounds".into(),
+                    ));
+                }
+            }
+            Command::SpliceBlockContents { owner, splices } => {
+                if splices.is_empty() || splices.len() > MAX_STRUCTURAL_TARGETS {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "block content splice batch must contain between 1 and {MAX_STRUCTURAL_TARGETS} blocks"
+                    )));
+                }
+                let mut seen = BTreeSet::new();
+                for splice in splices {
+                    if !seen.insert(splice.block_id.clone()) {
+                        return Err(CoreError::InvalidHierarchy(
+                            "block content splice batch contains a duplicate block".into(),
+                        ));
+                    }
+                    self.require_block(owner, &splice.block_id)?;
+                    validate_inline_content(self, &splice.insert)?;
+                    let text = self.block_text(owner, &splice.block_id)?;
+                    if splice.index.saturating_add(splice.delete) > text.len_unicode() {
+                        return Err(CoreError::InvalidHierarchy(
+                            "block content splice is out of bounds".into(),
                         ));
                     }
                 }
@@ -1757,12 +1889,16 @@ impl GraphCore {
                 };
                 let text = self.block_text(owner, target_id)?;
                 let tail = if *index == 0 {
-                    String::new()
+                    Vec::new()
                 } else {
-                    text.to_string().chars().skip(*index).collect()
+                    text.slice_delta(*index, text.len_unicode(), PosType::Unicode)?
                 };
                 let node = outline.create_at(parent, position)?;
-                initialize_created_node(&outline.get_meta(node)?, &tail, now)?;
+                let meta = outline.get_meta(node)?;
+                initialize_created_node(&meta, "", now)?;
+                if !tail.is_empty() {
+                    meta.ensure_mergeable_text("content")?.apply_delta(&tail)?;
+                }
                 if *index > 0 && *index < text.len_unicode() {
                     text.delete(*index, text.len_unicode() - *index)?;
                 }
@@ -1815,6 +1951,11 @@ impl GraphCore {
                     },
                     now,
                     |meta, item| {
+                        write_fragment_content(
+                            &meta.ensure_mergeable_text("content")?,
+                            item,
+                            &resolution.pages,
+                        )?;
                         let bag = meta.ensure_mergeable_map("properties")?;
                         for field in &item.properties {
                             write_fragment_property(&bag, field, &resolution.pages)?;
@@ -1872,6 +2013,28 @@ impl GraphCore {
                     if !splice.insert.is_empty() {
                         text.insert(splice.index, &splice.insert)?;
                     }
+                }
+            }
+            Command::SpliceBlockContent {
+                owner,
+                block_id,
+                index,
+                delete,
+                insert,
+            } => {
+                let text = self.block_text(owner, block_id)?;
+                if *delete > 0 {
+                    text.delete(*index, *delete)?;
+                }
+                apply_inline_content(&text, *index, insert)?;
+            }
+            Command::SpliceBlockContents { owner, splices } => {
+                for splice in splices {
+                    let text = self.block_text(owner, &splice.block_id)?;
+                    if splice.delete > 0 {
+                        text.delete(splice.index, splice.delete)?;
+                    }
+                    apply_inline_content(&text, splice.index, &splice.insert)?;
                 }
             }
             Command::MoveBlocks { owner, .. } => {
@@ -2233,11 +2396,20 @@ impl GraphCore {
             }
             | Command::SpliceMarkdown {
                 owner, block_id, ..
+            }
+            | Command::SpliceBlockContent {
+                owner, block_id, ..
             } => {
                 self.touch_block(owner, block_id, now)?;
                 self.touch_outline_owner(owner, now)?;
             }
             Command::SpliceMarkdowns { owner, splices } => {
+                for splice in splices {
+                    self.touch_block(owner, &splice.block_id, now)?;
+                }
+                self.touch_outline_owner(owner, now)?;
+            }
+            Command::SpliceBlockContents { owner, splices } => {
                 for splice in splices {
                     self.touch_block(owner, &splice.block_id, now)?;
                 }
@@ -2508,6 +2680,16 @@ impl GraphCore {
         let mut referenced_tags = BTreeSet::new();
         let mut referenced_pages = BTreeSet::new();
         for item in &fragment.items {
+            validate_fragment_page_references(item)?;
+            for reference in &item.page_references {
+                if !page_ids.contains(&reference.page_id) {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "outline fragment page reference is missing: {}",
+                        reference.page_id
+                    )));
+                }
+                referenced_pages.insert(reference.page_id.clone());
+            }
             total_fields = total_fields.saturating_add(item.properties.len());
             if total_fields > MAX_STRUCTURAL_TARGETS {
                 return Err(CoreError::InvalidHierarchy(
@@ -2699,6 +2881,8 @@ impl GraphCore {
                 | Command::EditMarkdown { owner, .. }
                 | Command::SpliceMarkdown { owner, .. }
                 | Command::SpliceMarkdowns { owner, .. }
+                | Command::SpliceBlockContent { owner, .. }
+                | Command::SpliceBlockContents { owner, .. }
                 | Command::MoveBlocks { owner, .. }
                 | Command::IndentBlocks { owner, .. }
                 | Command::OutdentBlocks { owner, .. }
@@ -2941,6 +3125,9 @@ impl GraphCore {
             }
             | Command::SpliceMarkdown {
                 owner, block_id, ..
+            }
+            | Command::SpliceBlockContent {
+                owner, block_id, ..
             } => plan(
                 HistoryScope::Entity,
                 vec![owner.clone()],
@@ -2950,6 +3137,20 @@ impl GraphCore {
                 false,
             ),
             Command::SpliceMarkdowns { owner, splices } => {
+                let candidates = splices
+                    .iter()
+                    .map(|splice| block(owner, &splice.block_id))
+                    .collect::<Vec<_>>();
+                plan(
+                    HistoryScope::Entity,
+                    vec![owner.clone()],
+                    candidates.clone(),
+                    candidates,
+                    false,
+                    false,
+                )
+            }
+            Command::SpliceBlockContents { owner, splices } => {
                 let candidates = splices
                     .iter()
                     .map(|splice| block(owner, &splice.block_id))
@@ -3749,8 +3950,99 @@ fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
         return Err(CoreError::UnsupportedSchema(i64::from(schema)));
     }
     validate_tag_outlines(doc)?;
+    validate_inline_page_references(doc)?;
     validate_current_graph_settings(doc)?;
     validate_current_query_documents(doc)
+}
+
+fn validate_inline_page_references(doc: &LoroDoc) -> Result<(), CoreError> {
+    let page_ids = doc
+        .get_map("pages")
+        .keys()
+        .filter_map(|raw| PageId::new(raw.to_string()).ok())
+        .collect::<BTreeSet<_>>();
+    let mut outlines = Vec::new();
+    doc.get_map("pages").for_each(|raw_id, value| {
+        let Some(page) = value_into_map(value) else {
+            return;
+        };
+        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
+            outlines.push((format!("page:{raw_id}"), outline));
+        }
+    });
+    doc.get_map("tags").for_each(|raw_id, value| {
+        let Some(tag) = value_into_map(value) else {
+            return;
+        };
+        if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
+            outlines.push((format!("tag:{raw_id}"), outline));
+        }
+    });
+    for (owner, outline) in outlines {
+        for root in outline.roots() {
+            validate_inline_page_reference_node(&outline, root, &page_ids, &owner)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_inline_page_reference_node(
+    outline: &LoroTree,
+    node: TreeID,
+    page_ids: &BTreeSet<PageId>,
+    owner: &str,
+) -> Result<(), CoreError> {
+    let meta = outline.get_meta(node)?;
+    let text = meta
+        .get("content")
+        .and_then(|value| match value {
+            ValueOrContainer::Container(Container::Text(text)) => Some(text),
+            _ => None,
+        })
+        .ok_or_else(|| CoreError::InvalidHierarchy(format!("{owner}: block content is missing")))?;
+    for segment in text.to_delta() {
+        let TextDelta::Insert { insert, attributes } = segment else {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "{owner}: block content contains a non-insert delta"
+            )));
+        };
+        let reference = attributes
+            .as_ref()
+            .and_then(|attributes| attributes.get(PAGE_REFERENCE_MARK));
+        match reference {
+            Some(LoroValue::String(raw)) => {
+                let page_id = PageId::new(raw.as_ref()).map_err(|_| {
+                    CoreError::InvalidHierarchy(format!(
+                        "{owner}: page reference has an invalid identity"
+                    ))
+                })?;
+                if !page_ids.contains(&page_id)
+                    || insert
+                        .chars()
+                        .any(|character| character != PAGE_REFERENCE_CHAR)
+                {
+                    return Err(CoreError::InvalidHierarchy(format!(
+                        "{owner}: page reference atom is invalid"
+                    )));
+                }
+            }
+            Some(_) => {
+                return Err(CoreError::InvalidHierarchy(format!(
+                    "{owner}: page reference identity is not a string"
+                )));
+            }
+            None if insert.contains(PAGE_REFERENCE_CHAR) => {
+                return Err(CoreError::InvalidHierarchy(format!(
+                    "{owner}: unmarked page reference atom"
+                )));
+            }
+            None => {}
+        }
+    }
+    for child in outline.children(node).unwrap_or_default() {
+        validate_inline_page_reference_node(outline, child, page_ids, owner)?;
+    }
+    Ok(())
 }
 
 fn validate_outline_items<T: InsertableOutlineItem>(
@@ -3796,9 +4088,66 @@ fn validate_outline_items<T: InsertableOutlineItem>(
 fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
     if value.len() > max {
         Err(CoreError::TextTooLong)
+    } else if value.contains(PAGE_REFERENCE_CHAR) {
+        Err(CoreError::InvalidHierarchy(
+            "text contains the reserved page-reference atom".to_owned(),
+        ))
     } else {
         Ok(())
     }
+}
+
+fn validate_inline_content(core: &GraphCore, content: &[InlineContent]) -> Result<(), CoreError> {
+    let mut bytes = 0usize;
+    for item in content {
+        match item {
+            InlineContent::Markdown { value } => {
+                if value.contains(PAGE_REFERENCE_CHAR) {
+                    return Err(CoreError::InvalidHierarchy(
+                        "plain block content contains the reserved reference atom".into(),
+                    ));
+                }
+                bytes = bytes.saturating_add(value.len());
+            }
+            InlineContent::PageReference { page_id } => {
+                core.require_live_page(page_id)?;
+                bytes = bytes.saturating_add(PAGE_REFERENCE_CHAR.len_utf8());
+            }
+        }
+    }
+    if bytes > MAX_BLOCK_TEXT_BYTES {
+        Err(CoreError::TextTooLong)
+    } else {
+        Ok(())
+    }
+}
+
+fn apply_inline_content(
+    text: &LoroText,
+    index: usize,
+    content: &[InlineContent],
+) -> Result<(), CoreError> {
+    let mut position = index;
+    for item in content {
+        match item {
+            InlineContent::Markdown { value } => {
+                if !value.is_empty() {
+                    text.insert(position, value)?;
+                    position += value.chars().count();
+                }
+            }
+            InlineContent::PageReference { page_id } => {
+                text.insert(position, &PAGE_REFERENCE_CHAR.to_string())?;
+                text.mark(
+                    position..position + 1,
+                    PAGE_REFERENCE_MARK,
+                    page_id.as_str(),
+                )?;
+                position += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_default_query_title(value: &str) -> Result<(), CoreError> {
@@ -3968,7 +4317,9 @@ fn semantic_name(command: &Command) -> &'static str {
         Command::SplitBlock { .. } => "BlockSplit",
         Command::EditMarkdown { .. }
         | Command::SpliceMarkdown { .. }
-        | Command::SpliceMarkdowns { .. } => "BlockTextChanged",
+        | Command::SpliceMarkdowns { .. }
+        | Command::SpliceBlockContent { .. }
+        | Command::SpliceBlockContents { .. } => "BlockTextChanged",
         Command::MoveBlocks { .. }
         | Command::IndentBlocks { .. }
         | Command::OutdentBlocks { .. } => "SubtreeMoved",
@@ -4138,6 +4489,64 @@ fn fragment_entity_id(
     digest.update(b"\0");
     digest.update(source_id.as_bytes());
     format!("{prefix}-{}", hex::encode(&digest.finalize()[..12]))
+}
+
+fn validate_fragment_page_references(item: &OutlineFragmentItem) -> Result<(), CoreError> {
+    let length = item.markdown.chars().count();
+    let mut previous_end = 0usize;
+    let mut collapsed = 0usize;
+    for reference in &item.page_references {
+        if reference.start < previous_end
+            || reference.start >= reference.end
+            || reference.end > length
+            || reference.index != reference.start.saturating_sub(collapsed)
+        {
+            return Err(CoreError::InvalidHierarchy(
+                "outline fragment contains an invalid inline page reference".to_owned(),
+            ));
+        }
+        collapsed += reference.end - reference.start - 1;
+        previous_end = reference.end;
+    }
+    Ok(())
+}
+
+fn write_fragment_content(
+    text: &LoroText,
+    item: &OutlineFragmentItem,
+    page_resolution: &BTreeMap<PageId, PageId>,
+) -> Result<(), CoreError> {
+    if item.page_references.is_empty() {
+        return Ok(());
+    }
+    let points = item.markdown.chars().collect::<Vec<_>>();
+    let mut content = Vec::new();
+    let mut cursor = 0usize;
+    for reference in &item.page_references {
+        let prefix = points[cursor..reference.start].iter().collect::<String>();
+        if !prefix.is_empty() {
+            content.push(InlineContent::Markdown { value: prefix });
+        }
+        let page_id = page_resolution
+            .get(&reference.page_id)
+            .cloned()
+            .ok_or_else(|| {
+                CoreError::InvalidHierarchy(format!(
+                    "outline fragment page reference is missing: {}",
+                    reference.page_id
+                ))
+            })?;
+        content.push(InlineContent::PageReference { page_id });
+        cursor = reference.end;
+    }
+    let suffix = points[cursor..].iter().collect::<String>();
+    if !suffix.is_empty() {
+        content.push(InlineContent::Markdown { value: suffix });
+    }
+    if text.len_unicode() > 0 {
+        text.delete(0, text.len_unicode())?;
+    }
+    apply_inline_content(text, 0, &content)
 }
 
 fn write_fragment_property(
@@ -4876,6 +5285,112 @@ fn page_metadata(
     })
 }
 
+fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirectoryEntry> {
+    let mut entries = BTreeMap::new();
+    doc.get_map("pages").for_each(|raw_id, value| {
+        let Ok(page_id) = PageId::new(raw_id) else {
+            return;
+        };
+        let Some(page) = value_into_map(value) else {
+            return;
+        };
+        let Some(root) = page.get("root").and_then(value_into_map) else {
+            return;
+        };
+        let mut title = match root.get("content") {
+            Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
+            _ => {
+                quarantined.push(format!("page:{page_id}:root:missing-content"));
+                String::new()
+            }
+        };
+        let (properties, mut issues) = decode_bag_child(&root, "properties");
+        quarantined.append(&mut issues);
+        let journal_date = properties.iter().find_map(|field| {
+            (field.key.as_str() == "builtin.journal-date")
+                .then(|| field.values.first())
+                .flatten()
+                .and_then(|value| match value {
+                    PropertyValue::Date(date) => Some(date.clone()),
+                    _ => None,
+                })
+        });
+        if let Some(date) = &journal_date {
+            title = date.to_string();
+        }
+        entries.insert(
+            page_id.clone(),
+            PageDirectoryEntry {
+                id: page_id,
+                title,
+                journal_date,
+                deleted: bag_has_key(&properties, "builtin.deleted-at"),
+            },
+        );
+    });
+    entries.into_values().collect()
+}
+
+fn materialize_block_content(
+    text: &LoroText,
+    directory: &BTreeMap<PageId, PageDirectoryEntry>,
+    owner: &str,
+    quarantined: &mut Vec<String>,
+) -> (String, Vec<PageReferenceSpan>) {
+    let mut markdown = String::new();
+    let mut references = Vec::new();
+    let mut display_index = 0;
+    let mut logical_index = 0;
+
+    for segment in text.to_delta() {
+        let TextDelta::Insert { insert, attributes } = segment else {
+            quarantined.push(format!("{owner}:page-reference:invalid-delta"));
+            continue;
+        };
+        let marked_page = attributes
+            .as_ref()
+            .and_then(|attributes| attributes.get(PAGE_REFERENCE_MARK))
+            .and_then(|value| match value {
+                LoroValue::String(value) => PageId::new(value.as_ref()).ok(),
+                _ => None,
+            });
+        if marked_page.is_some() && !insert.contains(PAGE_REFERENCE_CHAR) {
+            quarantined.push(format!("{owner}:page-reference:mark-without-atom"));
+        }
+
+        for character in insert.chars() {
+            if character == PAGE_REFERENCE_CHAR {
+                if let Some(page_id) = &marked_page {
+                    let title = directory
+                        .get(page_id)
+                        .map(|entry| entry.title.as_str())
+                        .unwrap_or_else(|| page_id.as_str());
+                    let source = format!("[[{title}]]");
+                    let length = source.chars().count();
+                    markdown.push_str(&source);
+                    references.push(PageReferenceSpan {
+                        start: display_index,
+                        end: display_index + length,
+                        index: logical_index,
+                        page_id: page_id.clone(),
+                    });
+                    display_index += length;
+                } else {
+                    markdown.push('\u{fffd}');
+                    display_index += 1;
+                    quarantined.push(format!("{owner}:page-reference:invalid-atom"));
+                }
+            } else {
+                markdown.push(character);
+                display_index += 1;
+            }
+            logical_index += 1;
+        }
+    }
+
+    (markdown, references)
+}
+
 fn tag_summaries(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSummary> {
     let tags = doc.get_map("tags");
     let mut snapshots = BTreeMap::new();
@@ -4908,6 +5423,7 @@ fn tag_outline(tag: &LoroMap) -> Result<LoroTree, CoreError> {
 fn tag_snapshots(
     doc: &LoroDoc,
     live_tags: &BTreeSet<TagId>,
+    directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<Vec<TagSnapshot>, CoreError> {
     let mut snapshots = Vec::new();
@@ -4920,7 +5436,13 @@ fn tag_snapshots(
         let mut blocks = Vec::new();
         let outline = tag_outline(&tag)?;
         for root in outline.roots() {
-            blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
+            blocks.push(block_snapshot(
+                &outline,
+                root,
+                live_tags,
+                directory,
+                quarantined,
+            )?);
         }
         snapshots.push(TagSnapshot {
             id: summary.id,
@@ -4937,6 +5459,7 @@ fn tag_snapshot_by_id(
     doc: &LoroDoc,
     tag_id: &TagId,
     live_tags: &BTreeSet<TagId>,
+    directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<Option<TagSnapshot>, CoreError> {
     let tag = doc
@@ -4952,7 +5475,13 @@ fn tag_snapshot_by_id(
     let mut blocks = Vec::new();
     let outline = tag_outline(&tag)?;
     for root in outline.roots() {
-        blocks.push(block_snapshot(&outline, root, live_tags, quarantined)?);
+        blocks.push(block_snapshot(
+            &outline,
+            root,
+            live_tags,
+            directory,
+            quarantined,
+        )?);
     }
     Ok(Some(TagSnapshot {
         id: summary.id,
@@ -5016,14 +5545,17 @@ fn block_snapshot(
     outline: &LoroTree,
     node: TreeID,
     live_tags: &BTreeSet<TagId>,
+    directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<BlockSnapshot, CoreError> {
     let meta = outline.get_meta(node)?;
-    let markdown = match meta.get("content") {
-        Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
+    let (markdown, page_references) = match meta.get("content") {
+        Some(ValueOrContainer::Container(Container::Text(text))) => {
+            materialize_block_content(&text, directory, &format!("block:{node}"), quarantined)
+        }
         _ => {
             quarantined.push(format!("block:{node}:missing-content"));
-            String::new()
+            (String::new(), Vec::new())
         }
     };
     let (mut properties, mut issues) = decode_bag_child(&meta, "properties");
@@ -5041,11 +5573,18 @@ fn block_snapshot(
     let tags = decode_tag_refs(&meta, &format!("block:{node}"), live_tags, quarantined);
     let mut children = Vec::new();
     for child in outline.children(node).unwrap_or_default() {
-        children.push(block_snapshot(outline, child, live_tags, quarantined)?);
+        children.push(block_snapshot(
+            outline,
+            child,
+            live_tags,
+            directory,
+            quarantined,
+        )?);
     }
     Ok(BlockSnapshot {
         id: block_id(node),
         markdown,
+        page_references,
         properties,
         tags,
         children,
@@ -5336,6 +5875,7 @@ mod tests {
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
                 QUERY_VIEWS_MIGRATION_ID.to_owned(),
+                INLINE_PAGE_REFERENCES_MIGRATION_ID.to_owned(),
             ]
         );
         assert!(!first.update.is_empty());
@@ -5378,6 +5918,7 @@ mod tests {
             vec![
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
                 QUERY_VIEWS_MIGRATION_ID.to_owned(),
+                INLINE_PAGE_REFERENCES_MIGRATION_ID.to_owned(),
             ]
         );
         assert!(
@@ -5516,7 +6057,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             report.applied_migrations,
-            [QUERY_VIEWS_MIGRATION_ID.to_owned()]
+            [
+                QUERY_VIEWS_MIGRATION_ID.to_owned(),
+                INLINE_PAGE_REFERENCES_MIGRATION_ID.to_owned(),
+            ]
         );
         let read = |core: &GraphCore| {
             let snapshot = core.page_snapshot(&page()).unwrap();
@@ -5693,6 +6237,7 @@ mod tests {
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
                 QUERY_VIEWS_MIGRATION_ID.to_owned(),
+                INLINE_PAGE_REFERENCES_MIGRATION_ID.to_owned(),
             ]
         );
         assert!(!migration.update.is_empty());
@@ -5824,6 +6369,7 @@ mod tests {
                 TAG_OUTLINES_MIGRATION_ID.to_owned(),
                 GRAPH_SETTINGS_MIGRATION_ID.to_owned(),
                 QUERY_VIEWS_MIGRATION_ID.to_owned(),
+                INLINE_PAGE_REFERENCES_MIGRATION_ID.to_owned(),
             ]
         );
         for tag_id in [base_tag, tail_tag] {
@@ -7208,6 +7754,230 @@ mod tests {
     }
 
     #[test]
+    fn page_reference_identity_survives_rename_and_rich_text_split() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "home", &page());
+        let target_page = PageId::new("roadmap").unwrap();
+        ensure_regular_page(&mut core, "roadmap", &target_page);
+        let block = insert_root(&mut core, "block", &page(), 0, "See ");
+
+        core.execute(
+            envelope(
+                "reference",
+                Command::SpliceBlockContent {
+                    owner: OutlineOwner::Page { id: page() },
+                    block_id: block.clone(),
+                    index: 4,
+                    delete: 0,
+                    insert: vec![
+                        InlineContent::PageReference {
+                            page_id: target_page.clone(),
+                        },
+                        InlineContent::Markdown { value: "!".into() },
+                    ],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let referenced = core.page_snapshot(&page()).unwrap();
+        assert_eq!(referenced.blocks[0].markdown, "See [[roadmap]]!");
+        assert_eq!(
+            referenced.blocks[0].page_references,
+            [PageReferenceSpan {
+                start: 4,
+                end: 15,
+                index: 4,
+                page_id: target_page.clone(),
+            }]
+        );
+
+        let renamed = core
+            .execute(
+                envelope(
+                    "rename-target",
+                    Command::RenamePage {
+                        page_id: target_page.clone(),
+                        title: "Plan".into(),
+                    },
+                ),
+                "t4",
+            )
+            .unwrap();
+        assert!(renamed.changes.rebuild);
+        let projected = core.page_snapshot(&page()).unwrap();
+        assert_eq!(projected.blocks[0].markdown, "See [[Plan]]!");
+        assert_eq!(projected.blocks[0].page_references[0].page_id, target_page);
+        assert_eq!(projected.blocks[0].page_references[0].end, 12);
+
+        core.execute(
+            envelope(
+                "split-after-reference",
+                Command::SplitBlock {
+                    owner: OutlineOwner::Page { id: page() },
+                    block_id: block.clone(),
+                    index: 5,
+                    placement: SplitPlacement::After,
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        let split = core.page_snapshot(&page()).unwrap();
+        assert_eq!(split.blocks[0].markdown, "See [[Plan]]");
+        assert_eq!(split.blocks[0].page_references.len(), 1);
+        assert_eq!(split.blocks[1].markdown, "!");
+        assert!(split.blocks[1].page_references.is_empty());
+    }
+
+    #[test]
+    fn journal_reference_uses_its_semantic_date_as_the_shared_title() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "home", &page());
+        let journal = core
+            .execute(
+                envelope(
+                    "journal",
+                    Command::EnsureJournal {
+                        date: LocalDate::new("2026-08-27").unwrap(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap()
+            .result
+            .created_page
+            .unwrap();
+        let block = insert_root(&mut core, "block", &page(), 0, "On ");
+        core.execute(
+            envelope(
+                "journal-reference",
+                Command::SpliceBlockContent {
+                    owner: OutlineOwner::Page { id: page() },
+                    block_id: block,
+                    index: 3,
+                    delete: 0,
+                    insert: vec![InlineContent::PageReference {
+                        page_id: journal.clone(),
+                    }],
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+
+        assert_eq!(
+            core.page_snapshot(&page()).unwrap().blocks[0].markdown,
+            "On [[2026-08-27]]"
+        );
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(
+            snapshot
+                .page_directory
+                .iter()
+                .find(|entry| entry.id == journal)
+                .unwrap()
+                .title,
+            "2026-08-27"
+        );
+    }
+
+    #[test]
+    fn page_creation_and_reference_insertion_share_one_batch_boundary() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "home", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "See ");
+        let target = PageId::new("new-page").unwrap();
+
+        core.execute(
+            envelope(
+                "create-and-reference",
+                Command::Batch {
+                    commands: vec![
+                        Command::EnsurePage {
+                            page_id: target.clone(),
+                            title: "New page".into(),
+                        },
+                        Command::SpliceBlockContent {
+                            owner: OutlineOwner::Page { id: page() },
+                            block_id: block,
+                            index: 4,
+                            delete: 0,
+                            insert: vec![InlineContent::PageReference {
+                                page_id: target.clone(),
+                            }],
+                        },
+                    ],
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+
+        let referenced = core.page_snapshot(&page()).unwrap();
+        assert_eq!(referenced.blocks[0].markdown, "See [[New page]]");
+        assert_eq!(referenced.blocks[0].page_references[0].page_id, target);
+        core.execute(envelope("undo-batch", Command::Undo), "t2")
+            .unwrap();
+        assert!(matches!(
+            core.page_snapshot(&PageId::new("new-page").unwrap()),
+            Err(CoreError::PageNotFound(_))
+        ));
+        assert_eq!(
+            core.page_snapshot(&page()).unwrap().blocks[0].markdown,
+            "See "
+        );
+    }
+
+    #[test]
+    fn outline_fragment_v2_restores_semantic_page_reference_atoms() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "home", &page());
+        let target = PageId::new("target").unwrap();
+        ensure_regular_page(&mut core, "target", &target);
+        core.execute(
+            envelope(
+                "paste-reference",
+                Command::PasteOutline {
+                    owner: OutlineOwner::Page { id: page() },
+                    parent: None,
+                    index: 0,
+                    replace: None,
+                    fragment: OutlineFragment {
+                        kind: OUTLINE_FRAGMENT_KIND.into(),
+                        version: OUTLINE_FRAGMENT_VERSION,
+                        source_graph_id: graph(),
+                        items: vec![OutlineFragmentItem {
+                            depth: 0,
+                            markdown: "See [[target]]".into(),
+                            page_references: vec![PageReferenceSpan {
+                                start: 4,
+                                end: 14,
+                                index: 4,
+                                page_id: target.clone(),
+                            }],
+                            properties: Vec::new(),
+                            tags: Vec::new(),
+                        }],
+                        tags: Vec::new(),
+                        pages: vec![OutlineFragmentPage {
+                            id: target.clone(),
+                            title: "target".into(),
+                            journal_date: None,
+                        }],
+                    },
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let pasted = core.page_snapshot(&page()).unwrap();
+        assert_eq!(pasted.blocks[0].markdown, "See [[target]]");
+        assert_eq!(pasted.blocks[0].page_references[0].page_id, target);
+    }
+
+    #[test]
     fn plural_markdown_splice_preserves_blocks_and_undoes_once() {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
@@ -7405,6 +8175,7 @@ mod tests {
                         items: vec![domain::OutlineFragmentItem {
                             depth: 0,
                             markdown: "ship it".into(),
+                            page_references: Vec::new(),
                             properties: vec![
                                 PropertyField {
                                     key: key("builtin.task-status"),
@@ -7486,6 +8257,7 @@ mod tests {
             items: vec![domain::OutlineFragmentItem {
                 depth: 0,
                 markdown: "untrusted".into(),
+                page_references: Vec::new(),
                 properties: vec![PropertyField {
                     key: key("user.embedded-document"),
                     value_type: PropertyType::Document,
@@ -7523,6 +8295,7 @@ mod tests {
             items: vec![domain::OutlineFragmentItem {
                 depth: 0,
                 markdown: "untrusted".into(),
+                page_references: Vec::new(),
                 properties: Vec::new(),
                 tags: Vec::new(),
             }],
@@ -7609,6 +8382,7 @@ mod tests {
                         items: vec![domain::OutlineFragmentItem {
                             depth: 0,
                             markdown: "portable".into(),
+                            page_references: Vec::new(),
                             properties: vec![PropertyField {
                                 key: key("user.related"),
                                 value_type: PropertyType::Page,

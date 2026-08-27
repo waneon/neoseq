@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 import { BlockMarkdown } from "../../src/features/markdown/BlockMarkdown";
 import { alignSourceOffset } from "../../src/features/markdown/caret";
 import { hasMarkdownSyntax } from "../../src/features/markdown/profile";
@@ -91,6 +92,36 @@ describe("block Markdown projection", () => {
     expect(container.querySelector("button a")).toBeNull();
     expect(container.querySelector("button p, button ul, button ol, button pre")).toBeNull();
     expect(screen.getByText("Work").tagName).toBe("STRONG");
+  });
+
+  it("renders only declared page-reference spans as internal links", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <BlockMarkdown
+          markdown={"See [[Roadmap]] and [[literal]]"}
+          pageReferences={[{ start: 4, end: 15, index: 4, page_id: "roadmap" }]}
+          graphId="graph"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "[[Roadmap]]" })).toHaveAttribute(
+      "href",
+      "/g/graph/p/roadmap",
+    );
+    expect(container.querySelectorAll(".page-reference")).toHaveLength(1);
+    expect(container).toHaveTextContent("and [[literal]]");
+  });
+
+  it("does not treat an authored reserved-looking link as a semantic reference", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <BlockMarkdown markdown={"[broken](#neoseq-page:%)"} graphId="graph" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "broken" })).not.toHaveClass("page-reference");
+    expect(container.querySelectorAll(".page-reference")).toHaveLength(0);
   });
 
   it("flattens a compact table and its line breaks into one cell of text", () => {

@@ -4,11 +4,12 @@
 // decides how the selected tag or slash action mutates the canonical block.
 
 import { useEffect, useRef } from "react";
-import { CheckIcon, HashIcon } from "lucide-react";
-import type { TagSnapshot } from "../../../core-port/snapshot";
+import { CheckIcon, FileTextIcon, HashIcon, PlusIcon } from "lucide-react";
+import type { PageDirectoryEntry, TagSnapshot } from "../../../core-port/snapshot";
 import { useI18n } from "../../../i18n";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { fuzzyScore } from "../../commands/registry";
+import { canonicalEntityName } from "../../../entities/names";
 import {
   SLASH_GROUP_ORDER,
   type SlashItem,
@@ -26,7 +27,8 @@ export interface BlockCompletionRequest {
 
 export type BlockCompletion =
   | { kind: "slash"; request: BlockCompletionRequest; active: number }
-  | { kind: "hash"; request: BlockCompletionRequest; active: number };
+  | { kind: "hash"; request: BlockCompletionRequest; active: number }
+  | { kind: "page"; request: BlockCompletionRequest; active: number };
 
 export type BlockCompletionState = BlockCompletion | { kind: "none" };
 
@@ -58,6 +60,12 @@ export interface BlockTagOption {
   present: boolean;
 }
 
+export interface BlockPageOption {
+  id: string;
+  title: string;
+  create: boolean;
+}
+
 function detectToken(
   marker: "/" | "#",
   value: string,
@@ -86,6 +94,25 @@ export function detectHash(
   selectionEnd: number,
 ) {
   return detectToken("#", value, selectionStart, selectionEnd);
+}
+
+export function detectPage(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number,
+): Omit<BlockCompletionRequest, "blockId" | "anchor"> | null {
+  if (selectionStart !== selectionEnd) return null;
+  const start = value.lastIndexOf("[[", selectionStart);
+  if (start < 0 || value.slice(start + 2, selectionStart).includes("]]")) return null;
+  if (start > 0 && value[start - 1] === "\\") return null;
+  const close = value.slice(selectionStart, selectionStart + 2) === "]]"
+    ? selectionStart + 2
+    : selectionStart;
+  return {
+    start,
+    end: close,
+    query: value.slice(start + 2, selectionStart),
+  };
 }
 
 /** Removes a completion token and the otherwise stranded trailing separator. */
@@ -122,6 +149,90 @@ export function filterTagOptions(
     name: tag.name,
     present: present.has(tag.id),
   }));
+}
+
+export function filterPageOptions(
+  pages: readonly PageDirectoryEntry[],
+  query: string,
+  compare: (left: string, right: string) => number,
+): BlockPageOption[] {
+  const needle = query.trim();
+  const canonicalNeedle = canonicalEntityName(needle);
+  const live = pages.filter((page) => !page.deleted);
+  const matches = (canonicalNeedle.length === 0
+    ? [...live].sort((left, right) => compare(left.title, right.title))
+    : live
+        .map((page) => ({ page, score: fuzzyScore(page.title, canonicalNeedle) }))
+        .filter((entry): entry is { page: PageDirectoryEntry; score: number } => entry.score !== null)
+        .sort((left, right) => right.score - left.score)
+        .map((entry) => entry.page))
+    .slice(0, 8)
+    .map((page) => ({ id: page.id, title: page.title, create: false }));
+  const exact = live.some((page) => canonicalEntityName(page.title) === canonicalNeedle);
+  if (canonicalNeedle && !exact) matches.push({ id: "", title: needle, create: true });
+  return matches;
+}
+
+export function BlockPageMenu({
+  request,
+  results,
+  active,
+  onHover,
+  onChoose,
+  onClose,
+}: {
+  request: BlockCompletionRequest;
+  results: BlockPageOption[];
+  active: number;
+  onHover: (index: number) => void;
+  onChoose: (option: BlockPageOption) => void;
+  onClose: () => void;
+}) {
+  const { message } = useI18n();
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-completion-index="${active}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active, results]);
+
+  return (
+    <AnchoredPanel
+      anchor={liveCompletionAnchor(request)}
+      id="page-reference-menu"
+      className="slash-menu page-reference-menu"
+      role="listbox"
+      label={message("pageReferences.menuLabel")}
+      options={MENU_PLACEMENT}
+      revision={results.length}
+      surfaceRef={listRef}
+      preserveAnchorFocus
+      onClose={onClose}
+      testId="page-reference-menu"
+    >
+      {results.map((option, index) => (
+        <button
+          id={`page-reference-opt-${index}`}
+          key={option.create ? `create:${option.title}` : option.id}
+          role="option"
+          aria-selected={index === active}
+          data-active={index === active}
+          data-completion-index={index}
+          tabIndex={-1}
+          onPointerMove={() => onHover(index)}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => onChoose(option)}
+        >
+          {option.create ? <PlusIcon aria-hidden /> : <FileTextIcon aria-hidden />}
+          <span className="slash-item-text">
+            <strong>{option.title}</strong>
+            {option.create && <small>{message("pageReferences.create")}</small>}
+          </span>
+        </button>
+      ))}
+    </AnchoredPanel>
+  );
 }
 
 /** Resolves an optimistic editor request to the canonical textarea that replaced it. */

@@ -1,7 +1,7 @@
-import type { PropertyField } from "./snapshot";
+import type { PageReferenceSpan, PropertyField } from "./snapshot";
 
 export const OUTLINE_FRAGMENT_KIND = "neoseq.outline" as const;
-export const OUTLINE_FRAGMENT_VERSION = 1 as const;
+export const OUTLINE_FRAGMENT_VERSION = 2 as const;
 
 export interface OutlineFragment {
   kind: typeof OUTLINE_FRAGMENT_KIND;
@@ -15,6 +15,7 @@ export interface OutlineFragment {
 export interface OutlineFragmentItem {
   depth: number;
   markdown: string;
+  page_references?: PageReferenceSpan[];
   properties: PropertyField[];
   tags: string[];
 }

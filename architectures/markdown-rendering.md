@@ -13,9 +13,9 @@ titles, tag names, property strings, and product messages remain plain text.
 ## Data and Interaction Flow
 
 ```text
-Loro Text -> BlockSnapshot.markdown -> GraphSession -> block presentation
+Loro Text -> BlockSnapshot.markdown + reference spans -> GraphSession -> block presentation
                                                    |-> Markdown reading projection
-                                                   `-> source textarea -> splice_markdown
+                                                   `-> source textarea -> splice_block_content
 ```
 
 The outline keeps one active source editor, identified by the existing focused
@@ -55,7 +55,8 @@ constraints:
 - links allow only user-activated HTTP, HTTPS, mail, and local fragment targets;
 - images render as inert alternative text and never issue network requests;
 - headings are nested below the page title;
-- Markdown syntax does not create properties, tags, tasks, pages, or backlinks.
+- Markdown syntax alone does not create properties, tags, tasks, pages, or
+  backlinks. Explicit page-reference atoms project through `[[current title]]`.
 
 The two extensions are **GFM** (tables, strikethrough, autolink literals, task
 list items) and **soft breaks as line breaks**. Both are presentation-only: they
@@ -65,10 +66,10 @@ with the editor above it. A GFM task list item renders as an inert checkbox — 
 block's own task-status property remains the only representation of a task, and
 the projection never writes one.
 
-The profile, rather than the parser dependency, is the product contract. Math,
-syntax highlighting, graph references, or other extensions require an explicit
-profile change. Any extension that affects graph semantics also requires a
-core/domain design rather than a renderer-only plugin.
+The profile, rather than the parser dependency, is the product contract. Math or
+syntax highlighting requires an explicit profile change. Graph references
+follow the separate core/domain contract in
+[page references](page-references.md); the renderer never infers one from text.
 
 The syntax detector that chooses between projection and fast path answers one
 question: would parsing change what the reader sees? It is deliberately

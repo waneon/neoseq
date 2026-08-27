@@ -18,8 +18,13 @@ import {
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSession, SessionState } from "../../core-port/session";
 import type { Command } from "../../core-port/commands";
-import type { BlockSnapshot } from "../../core-port/snapshot";
-import { findBlock, findOutline, outlineOwnerKey } from "../../core-port/snapshot";
+import type { BlockSnapshot, PageReferenceSpan } from "../../core-port/snapshot";
+import {
+  findBlock,
+  findOutline,
+  materializePageReferences,
+  outlineOwnerKey,
+} from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { useImmediateState } from "../../lib/react";
@@ -40,7 +45,6 @@ import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
 import { createQueryCommand } from "./commands";
-import { diffSplice } from "../blocks/editor/text-diff";
 import {
   transformAutoClosers,
   type AutoCloserMarker,
@@ -57,17 +61,22 @@ import {
 } from "../blocks/editor/activation";
 import { BLOCK_SURFACE_POLICY } from "../blocks/editor/surface-policy";
 import {
+  BlockPageMenu,
   BlockSlashMenu,
   BlockTagMenu,
   NO_BLOCK_COMPLETION,
   blockCompletionReducer,
   detectHash,
+  detectPage,
   detectSlash,
+  filterPageOptions,
   filterTagOptions,
   removeCompletionToken,
   type BlockCompletionRequest,
+  type BlockPageOption,
   type BlockTagOption,
 } from "../blocks/editor/BlockCompletions";
+import { planInlineEdit, planPageReference } from "../blocks/editor/inline-content";
 import {
   buildSlashItems,
   filterSlashItems,
@@ -124,6 +133,7 @@ type ActiveEdit =
       origin: EditOrigin;
       anchor: Anchor;
       baseline: string;
+      references: PageReferenceSpan[];
       draft: string;
       composing: boolean;
       completing: boolean;
@@ -163,6 +173,7 @@ export interface QueryResultEditor {
   commit(close: boolean): Promise<boolean>;
   acceptSlash(request: BlockCompletionRequest, item: SlashItem): void;
   acceptTag(request: BlockCompletionRequest, option: BlockTagOption): void;
+  acceptPage(request: BlockCompletionRequest, option: BlockPageOption): number | null;
   runHistory(redo: boolean): void;
   retry(): void;
   cancel(): void;
@@ -207,6 +218,16 @@ export function useQueryResultEditor({
   const [active, setActive, activeRef] = useImmediateState<ActiveEdit | null>(null);
   const request = useRef(0);
   const preserveOnNextBlur = useRef(false);
+  const pageDirectory = useMemo(
+    () => state.snapshot.page_directory
+      ?? state.snapshot.pages.map((page) => ({
+        id: page.id,
+        title: page.title,
+        journal_date: null,
+        deleted: false,
+      })),
+    [state.snapshot.page_directory, state.snapshot.pages],
+  );
 
   const cancel = useCallback(() => {
     request.current += 1;
@@ -264,6 +285,7 @@ export function useQueryResultEditor({
             origin,
             anchor,
             baseline: block.markdown,
+            references: block.page_references ?? [],
             draft: block.markdown,
             composing: false,
             completing: false,
@@ -332,8 +354,13 @@ export function useQueryResultEditor({
         return false;
       }
       const expected = draftOverride ?? current.draft;
-      const splice = diffSplice(current.baseline, expected);
-      if (!splice && !action) {
+      const plan = planInlineEdit(
+        current.binding.block.id,
+        current.baseline,
+        current.references,
+        expected,
+      );
+      if (!plan && !action) {
         if (close) cancel();
         return true;
       }
@@ -347,6 +374,7 @@ export function useQueryResultEditor({
         return {
           ...latest,
           baseline: expected,
+          references: plan?.references ?? latest.references,
           saving: true,
           closeAfterSave: close || latest.closeAfterSave,
           error: null,
@@ -355,26 +383,32 @@ export function useQueryResultEditor({
 
       try {
         const commands: Command[] = [];
-        if (splice) {
+        if (plan) {
           commands.push({
-            type: "splice_markdown",
+            type: "splice_block_content",
             owner: current.binding.block.owner,
-            block_id: current.binding.block.id,
-            ...splice,
+            ...plan.splice,
           });
         }
         if (action) commands.push(action);
         await session.execute(commands.length === 1
           ? commands[0]
           : { type: "batch", commands });
-        const canonical = blockFrom(session.getState(), current.binding.block)?.markdown ?? expected;
+        const canonicalBlock = blockFrom(session.getState(), current.binding.block);
+        const canonical = canonicalBlock?.markdown ?? expected;
         setActive((latest) => {
           if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
             return latest;
           }
           if (latest.draft === expected) {
             if (latest.closeAfterSave) return null;
-            return { ...latest, baseline: canonical, draft: canonical, saving: false };
+            return {
+              ...latest,
+              baseline: canonical,
+              draft: canonical,
+              references: canonicalBlock?.page_references ?? plan?.references ?? latest.references,
+              saving: false,
+            };
           }
           return { ...latest, saving: false };
         });
@@ -414,19 +448,64 @@ export function useQueryResultEditor({
     return () => window.clearTimeout(timer);
   }, [active, commit]);
 
-  // A remote change can refresh a hydrated block while this editor is clean.
-  // Stand down to that authoritative value; a dirty local draft remains local
-  // until its own semantic command reconciles it.
+  const activeComposing = active?.phase === "markdown" && active.composing;
+  const activeCompleting = active?.phase === "markdown" && active.completing;
+
+  // Directory-only title changes reproject even dirty local text. A semantic
+  // atom that the draft already edited through is absent from `pending` and
+  // therefore stays ordinary Markdown. Other remote block changes still stand
+  // down only when the editor is clean.
   useEffect(() => {
     setActive((current) => {
-      if (!current || current.phase !== "markdown" || current.saving) return current;
-      const canonical = blockFrom(state, current.binding.block)?.markdown;
-      if (canonical === undefined || current.draft !== current.baseline || canonical === current.baseline) {
+      if (
+        !current
+        || current.phase !== "markdown"
+        || current.saving
+        || current.composing
+        || current.completing
+      ) return current;
+      if (current.draft !== current.baseline) {
+        const pending = planInlineEdit(
+          current.binding.block.id,
+          current.baseline,
+          current.references,
+          current.draft,
+        );
+        const baseline = materializePageReferences(
+          current.baseline,
+          current.references,
+          pageDirectory,
+        );
+        const draft = materializePageReferences(
+          current.draft,
+          pending?.references ?? current.references,
+          pageDirectory,
+        );
+        if (baseline.markdown === current.baseline && draft.markdown === current.draft) {
+          return current;
+        }
+        return {
+          ...current,
+          baseline: baseline.markdown,
+          draft: draft.markdown,
+          references: baseline.pageReferences,
+          autoClosers: [],
+        };
+      }
+      const canonicalBlock = blockFrom(state, current.binding.block);
+      const canonical = canonicalBlock?.markdown;
+      if (canonical === undefined || canonical === current.baseline) {
         return current;
       }
-      return { ...current, baseline: canonical, draft: canonical, autoClosers: [] };
+      return {
+        ...current,
+        baseline: canonical,
+        draft: canonical,
+        references: canonicalBlock?.page_references ?? [],
+        autoClosers: [],
+      };
     });
-  }, [setActive, state]);
+  }, [activeCompleting, activeComposing, pageDirectory, setActive, state]);
 
   const setDraft = useCallback((value: string, edit?: BlockTextEdit) => {
     setActive((current) => {
@@ -487,7 +566,12 @@ export function useQueryResultEditor({
         await commit(false, next, createQueryCommand(owner));
         return;
       }
-      const splice = diffSplice(current.baseline, next);
+      const plan = planInlineEdit(
+        current.binding.block.id,
+        current.baseline,
+        current.references,
+        next,
+      );
       setActive({
         phase: "picker",
         binding: {
@@ -498,12 +582,11 @@ export function useQueryResultEditor({
         origin: current.origin,
         anchor: completion.anchor.getBoundingClientRect(),
         taskMenu: false,
-        commandPrefix: splice
+        commandPrefix: plan
           ? {
-              type: "splice_markdown",
+              type: "splice_block_content",
               owner: current.binding.block.owner,
-              block_id: current.binding.block.id,
-              ...splice,
+              ...plan.splice,
             }
           : undefined,
       });
@@ -529,6 +612,95 @@ export function useQueryResultEditor({
           });
     })();
   }, [commit, setActive]);
+
+  const acceptPage = useCallback((
+    completion: BlockCompletionRequest,
+    option: BlockPageOption,
+  ): number | null => {
+    const current = activeRef.current;
+    if (!current || current.phase !== "markdown" || current.saving) return null;
+    const blockId = current.binding.block.id;
+    const pendingText = planInlineEdit(
+      blockId,
+      current.baseline,
+      current.references,
+      current.draft,
+    );
+    const pageId = option.create ? `p-${crypto.randomUUID()}` : option.id;
+    const replacement = planPageReference(
+      blockId,
+      current.draft,
+      pendingText?.references ?? current.references,
+      completion.start,
+      completion.end,
+      pageId,
+      option.title,
+    );
+    const targetKey = bindingKey(current.binding);
+    setActive({
+      ...current,
+      baseline: replacement.value,
+      draft: replacement.value,
+      references: replacement.plan.references,
+      autoClosers: [],
+      completing: false,
+      saving: true,
+      error: null,
+    });
+
+    const commands: Command[] = [];
+    if (option.create) {
+      commands.push({ type: "ensure_page", page_id: pageId, title: option.title });
+    }
+    if (pendingText) {
+      commands.push({
+        type: "splice_block_content",
+        owner: current.binding.block.owner,
+        ...pendingText.splice,
+      });
+    }
+    commands.push({
+      type: "splice_block_content",
+      owner: current.binding.block.owner,
+      ...replacement.plan.splice,
+    });
+    void session.execute(commands.length === 1
+      ? commands[0]
+      : { type: "batch", commands }).then(
+      () => {
+        const canonical = blockFrom(session.getState(), current.binding.block);
+        setActive((latest) => {
+          if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
+            return latest;
+          }
+          return {
+            ...latest,
+            baseline: canonical?.markdown ?? replacement.value,
+            draft: canonical?.markdown ?? replacement.value,
+            references: canonical?.page_references ?? replacement.plan.references,
+            saving: false,
+          };
+        });
+      },
+      (cause: unknown) => {
+        const canonical = blockFrom(session.getState(), current.binding.block);
+        setActive((latest) => {
+          if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
+            return latest;
+          }
+          return {
+            ...latest,
+            baseline: canonical?.markdown ?? current.baseline,
+            draft: canonical?.markdown ?? current.baseline,
+            references: canonical?.page_references ?? current.references,
+            saving: false,
+            error: failureReason(cause, message),
+          };
+        });
+      },
+    );
+    return replacement.caret;
+  }, [message, session, setActive]);
 
   const runHistory = useCallback((redo: boolean) => {
     void (async () => {
@@ -617,6 +789,7 @@ export function useQueryResultEditor({
     commit,
     acceptSlash,
     acceptTag,
+    acceptPage,
     runHistory,
     retry,
     cancel,
@@ -689,7 +862,10 @@ function QueryMarkdownField({
   const blockId = binding.block.id;
   const policy = BLOCK_SURFACE_POLICY[surface];
   const projected = markdown?.draft ?? value;
-  const previewMarkdown = Boolean(!current && hasMarkdownSyntax(projected));
+  const pageReferences = markdown?.references ?? block?.page_references ?? [];
+  const previewMarkdown = Boolean(
+    !current && hasMarkdownSyntax(projected, pageReferences.length > 0),
+  );
   const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
   const [completion, dispatchCompletion] = useReducer(
@@ -707,6 +883,7 @@ function QueryMarkdownField({
   };
   const slashRequest = completion.kind === "slash" ? completion.request : null;
   const hashRequest = completion.kind === "hash" ? completion.request : null;
+  const pageRequest = completion.kind === "page" ? completion.request : null;
   /** Whether the box is hiding part of the value rather than scrolling it. */
   const [clipped, setClipped] = useState(false);
   const slashResults = useMemo(
@@ -724,6 +901,20 @@ function QueryMarkdownField({
       : [],
     [block?.tags, compare, hashRequest, state.snapshot.tags],
   );
+  const pageDirectory = useMemo(
+    () => state.snapshot.page_directory
+      ?? state.snapshot.pages.map((page) => ({
+        id: page.id,
+        title: page.title,
+        journal_date: null,
+        deleted: false,
+      })),
+    [state.snapshot.page_directory, state.snapshot.pages],
+  );
+  const pageResults = useMemo(
+    () => pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : [],
+    [compare, pageDirectory, pageRequest],
+  );
   const slashIndex = Math.min(
     completion.kind === "slash" ? completion.active : 0,
     Math.max(slashResults.length - 1, 0),
@@ -732,8 +923,24 @@ function QueryMarkdownField({
     completion.kind === "hash" ? completion.active : 0,
     Math.max(hashResults.length - 1, 0),
   );
+  const pageIndex = Math.min(
+    completion.kind === "page" ? completion.active : 0,
+    Math.max(pageResults.length - 1, 0),
+  );
 
   const updateCompletions = useCallback((value: string, element: HTMLTextAreaElement) => {
+    const page = detectPage(value, element.selectionStart, element.selectionEnd);
+    if (page) {
+      const available = filterPageOptions(pageDirectory, page.query, compare).length > 0;
+      dispatchCompletion({
+        type: "set",
+        completion: available
+          ? { kind: "page", request: { blockId, ...page, anchor: element }, active: 0 }
+          : null,
+      });
+      editor.setCompleting(available);
+      return;
+    }
     const slash = detectSlash(value, element.selectionStart, element.selectionEnd);
     if (slash) {
       const available = filterSlashItems(slashItems, slash.query).length > 0;
@@ -761,7 +968,15 @@ function QueryMarkdownField({
         : null,
     });
     editor.setCompleting(Boolean(available));
-  }, [block?.tags, blockId, compare, editor, slashItems, state.snapshot.tags]);
+  }, [
+    block?.tags,
+    blockId,
+    compare,
+    editor,
+    pageDirectory,
+    slashItems,
+    state.snapshot.tags,
+  ]);
 
   useEffect(() => {
     if (completion.kind === "none") return;
@@ -849,13 +1064,23 @@ function QueryMarkdownField({
         aria-label={label}
         aria-busy={current?.phase === "loading" || undefined}
         aria-invalid={Boolean(error) || undefined}
-        aria-controls={slashRequest ? "slash-command-menu" : hashRequest ? "tag-suggest-menu" : undefined}
+        aria-controls={
+          slashRequest
+            ? "slash-command-menu"
+            : hashRequest
+              ? "tag-suggest-menu"
+              : pageRequest
+                ? "page-reference-menu"
+                : undefined
+        }
         aria-activedescendant={
           slashRequest && slashResults[slashIndex]
             ? `slash-opt-${slashResults[slashIndex].id}`
             : hashRequest && hashResults[hashIndex]
               ? `tag-opt-${hashIndex}`
-              : undefined
+              : pageRequest && pageResults[pageIndex]
+                ? `page-reference-opt-${pageIndex}`
+                : undefined
         }
         data-testid={markdown ? "query-markdown-editor" : `query-edit-${column?.variable ?? "text"}`}
         title={editor.message("query.editResult", { column: editLabel ?? column?.label ?? label })}
@@ -959,6 +1184,36 @@ function QueryMarkdownField({
               return;
             }
           }
+          if (pageRequest) {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeCompletion();
+              return;
+            }
+            if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+              event.preventDefault();
+              const chosen = pageResults[pageIndex];
+              if (chosen) {
+                const caret = editor.acceptPage(pageRequest, chosen);
+                if (caret !== null) {
+                  queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+                }
+              }
+              closeCompletion();
+              return;
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              dispatchCompletion({
+                type: "activate",
+                kind: "page",
+                index: event.key === "ArrowDown"
+                  ? Math.min(pageIndex + 1, pageResults.length - 1)
+                  : Math.max(pageIndex - 1, 0),
+              });
+              return;
+            }
+          }
           if (editor.keymap === "vim") {
             const interpretation = editor.vim.interpret(
               {
@@ -1036,6 +1291,8 @@ function QueryMarkdownField({
       {previewMarkdown && (
         <BlockMarkdown
           markdown={projected}
+          pageReferences={pageReferences}
+          graphId={state.snapshot.graph_id}
           variant={policy.markdown}
           className={cn(
             "query-markdown-preview",
@@ -1077,6 +1334,22 @@ function QueryMarkdownField({
             editor.acceptTag(hashRequest, option);
             closeCompletion();
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+          }}
+        />
+      )}
+      {pageRequest && (
+        <BlockPageMenu
+          request={pageRequest}
+          results={pageResults}
+          active={pageIndex}
+          onHover={(index) => dispatchCompletion({ type: "activate", kind: "page", index })}
+          onClose={closeCompletion}
+          onChoose={(option) => {
+            const caret = editor.acceptPage(pageRequest, option);
+            closeCompletion();
+            if (caret !== null) {
+              queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
+            }
           }}
         />
       )}
@@ -1223,7 +1496,10 @@ export function EditableBlockContent({
   context: CellContext;
   editor: QueryResultEditor;
 }) {
+  const state = useSessionState();
   const binding = editor.bindingForDirect(row.subject, { kind: "content" });
+  const block = binding?.kind === "markdown" ? blockFrom(state, binding.block) : undefined;
+  const pageReferences = block?.page_references ?? [];
   const current = binding && editor.isActive(binding, row) ? editor.active : null;
   if (binding?.kind === "markdown") {
     return (
@@ -1240,9 +1516,11 @@ export function EditableBlockContent({
     );
   }
 
-  const content = hasMarkdownSyntax(markdown) ? (
+  const content = hasMarkdownSyntax(markdown, pageReferences.length > 0) ? (
     <BlockMarkdown
       markdown={markdown}
+      pageReferences={pageReferences}
+      graphId={state.snapshot.graph_id}
       className="block-line outline-markdown query-block-content"
     />
   ) : (

@@ -103,10 +103,29 @@ export interface PropertyField {
 
 export interface BlockSnapshot {
   id: string;
+  /** Current-title projection; page-reference identity lives in `page_references`. */
   markdown: string;
+  page_references?: PageReferenceSpan[];
   properties: PropertyField[];
   tags: string[];
   children: BlockSnapshot[];
+}
+
+export interface PageReferenceSpan {
+  /** Unicode-scalar range in `markdown`. */
+  start: number;
+  end: number;
+  /** Canonical inline-content position occupied by the one reference atom. */
+  index: number;
+  page_id: string;
+}
+
+export interface PageDirectoryEntry {
+  id: string;
+  /** Shared source label: the page title, or the ISO date for a journal. */
+  title: string;
+  journal_date: string | null;
+  deleted: boolean;
 }
 
 export type OutlineOwner =
@@ -147,6 +166,7 @@ export interface GraphSummary {
   schema_version: number;
   graph_id: string;
   pages: PageSummary[];
+  page_directory?: PageDirectoryEntry[];
   tags: TagSummary[];
   settings: GraphSettings;
   quarantined: string[];
@@ -156,27 +176,78 @@ export interface GraphSnapshot {
   schema_version: number;
   graph_id: string;
   pages: PageSnapshot[];
+  page_directory?: PageDirectoryEntry[];
   tags: TagSnapshot[];
   settings: GraphSettings;
   quarantined: string[];
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 5,
+  schema_version: 6,
   graph_id: "",
   pages: [],
+  page_directory: [],
   tags: [],
   settings: { default_queries: [] },
   quarantined: [],
 };
 
 export function mergeSummary(summary: GraphSummary, current: GraphSnapshot = EMPTY_SNAPSHOT): GraphSnapshot {
-  const hydratedPages = new Map(current.pages.map((page) => [page.id, page.blocks]));
-  const hydratedTags = new Map(current.tags.map((tag) => [tag.id, tag.blocks]));
+  const hydrate = (blocks: readonly BlockSnapshot[]) =>
+    blocks.map((block) => rematerializeBlock(block, summary.page_directory ?? []));
+  const hydratedPages = new Map(current.pages.map((page) => [page.id, hydrate(page.blocks)]));
+  const hydratedTags = new Map(current.tags.map((tag) => [tag.id, hydrate(tag.blocks)]));
   return {
     ...summary,
     pages: summary.pages.map((page) => ({ ...page, blocks: hydratedPages.get(page.id) ?? [] })),
     tags: summary.tags.map((tag) => ({ ...tag, blocks: hydratedTags.get(tag.id) ?? [] })),
+  };
+}
+
+export function materializePageReferences(
+  markdown: string,
+  referencesInput: readonly PageReferenceSpan[],
+  pages: readonly PageDirectoryEntry[],
+): { markdown: string; pageReferences: PageReferenceSpan[] } {
+  const directory = new Map(pages.map((page) => [page.id, page]));
+  const references = [...referencesInput].sort((left, right) => left.start - right.start);
+  if (references.length === 0) return { markdown, pageReferences: [] };
+  const source = Array.from(markdown);
+  let cursor = 0;
+  let displayIndex = 0;
+  let projectedMarkdown = "";
+  const projected: PageReferenceSpan[] = [];
+  for (const reference of references) {
+    const prefix = source.slice(cursor, reference.start).join("");
+    projectedMarkdown += prefix;
+    displayIndex += Array.from(prefix).length;
+    const page = directory.get(reference.page_id);
+    const title = page?.journal_date ?? page?.title ?? reference.page_id;
+    const token = `[[${title}]]`;
+    const length = Array.from(token).length;
+    projectedMarkdown += token;
+    projected.push({ ...reference, start: displayIndex, end: displayIndex + length });
+    displayIndex += length;
+    cursor = reference.end;
+  }
+  projectedMarkdown += source.slice(cursor).join("");
+  return { markdown: projectedMarkdown, pageReferences: projected };
+}
+
+function rematerializeBlock(
+  block: BlockSnapshot,
+  directory: readonly PageDirectoryEntry[],
+): BlockSnapshot {
+  const projection = materializePageReferences(
+    block.markdown,
+    block.page_references ?? [],
+    directory,
+  );
+  return {
+    ...block,
+    markdown: projection.markdown,
+    page_references: projection.pageReferences,
+    children: block.children.map((child) => rematerializeBlock(child, directory)),
   };
 }
 

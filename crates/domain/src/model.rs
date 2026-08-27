@@ -50,6 +50,25 @@ pub struct MarkdownSplice {
     pub insert: String,
 }
 
+/// One canonical splice in a block's inline-content coordinate space. Plain
+/// Unicode scalar values and semantic page-reference atoms each occupy one
+/// position, independently of the current page title used to display a
+/// reference.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockContentSplice {
+    pub block_id: BlockId,
+    pub index: usize,
+    pub delete: usize,
+    pub insert: Vec<InlineContent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InlineContent {
+    Markdown { value: String },
+    PageReference { page_id: PageId },
+}
+
 /// One atomic change inside a property patch. `None` removes the complete
 /// field; a value replaces it as the field's single member.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -133,6 +152,17 @@ pub enum Command {
     SpliceMarkdowns {
         owner: OutlineOwner,
         splices: Vec<MarkdownSplice>,
+    },
+    SpliceBlockContent {
+        owner: OutlineOwner,
+        block_id: BlockId,
+        index: usize,
+        delete: usize,
+        insert: Vec<InlineContent>,
+    },
+    SpliceBlockContents {
+        owner: OutlineOwner,
+        splices: Vec<BlockContentSplice>,
     },
     MoveBlocks {
         block_ids: Vec<BlockId>,
@@ -383,7 +413,7 @@ pub struct OutlineItem {
 }
 
 pub const OUTLINE_FRAGMENT_KIND: &str = "neoseq.outline";
-pub const OUTLINE_FRAGMENT_VERSION: u32 = 1;
+pub const OUTLINE_FRAGMENT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutlineFragment {
@@ -401,6 +431,8 @@ pub struct OutlineFragment {
 pub struct OutlineFragmentItem {
     pub depth: usize,
     pub markdown: String,
+    #[serde(default)]
+    pub page_references: Vec<PageReferenceSpan>,
     #[serde(default)]
     pub properties: PropertyBag,
     #[serde(default)]
@@ -468,10 +500,24 @@ impl CommandResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockSnapshot {
     pub id: BlockId,
+    /// Current editor/read projection. Page-reference atoms are materialized as
+    /// `[[current title]]`; canonical storage never duplicates that title.
     pub markdown: String,
+    #[serde(default)]
+    pub page_references: Vec<PageReferenceSpan>,
     pub properties: PropertyBag,
     pub tags: Vec<TagId>,
     pub children: Vec<BlockSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageReferenceSpan {
+    /// Unicode-scalar range in `BlockSnapshot.markdown`.
+    pub start: usize,
+    pub end: usize,
+    /// Position of the one reference atom in canonical block content.
+    pub index: usize,
+    pub page_id: PageId,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -494,6 +540,10 @@ pub struct GraphSnapshot {
     pub schema_version: u32,
     pub graph_id: GraphId,
     pub pages: Vec<PageSnapshot>,
+    /// Live and deleted page identity used to materialize references without
+    /// hydrating or rewriting the blocks that contain them.
+    #[serde(default)]
+    pub page_directory: Vec<PageDirectoryEntry>,
     pub tags: Vec<TagSnapshot>,
     pub settings: GraphSettings,
     pub quarantined: Vec<String>,
@@ -504,9 +554,20 @@ pub struct GraphSummary {
     pub schema_version: u32,
     pub graph_id: GraphId,
     pub pages: Vec<PageSummary>,
+    #[serde(default)]
+    pub page_directory: Vec<PageDirectoryEntry>,
     pub tags: Vec<TagSummary>,
     pub settings: GraphSettings,
     pub quarantined: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageDirectoryEntry {
+    pub id: PageId,
+    /// Shared source label: the page title, or the ISO date for a journal.
+    pub title: String,
+    pub journal_date: Option<LocalDate>,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

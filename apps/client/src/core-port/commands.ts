@@ -42,6 +42,17 @@ export interface PropertyChange {
   value: PropertyValue | null;
 }
 
+export type InlineContent =
+  | { type: "markdown"; value: string }
+  | { type: "page_reference"; page_id: string };
+
+export interface BlockContentSplice {
+  block_id: string;
+  index: number;
+  delete: number;
+  insert: InlineContent[];
+}
+
 export type Command =
   | { type: "ensure_page"; page_id: string; title: string }
   | { type: "ensure_journal"; date: string }
@@ -76,6 +87,12 @@ export type Command =
       type: "splice_markdowns";
       owner: OutlineOwner;
       splices: Array<{ block_id: string; index: number; delete: number; insert: string }>;
+    }
+  | ({ type: "splice_block_content"; owner: OutlineOwner } & BlockContentSplice)
+  | {
+      type: "splice_block_contents";
+      owner: OutlineOwner;
+      splices: BlockContentSplice[];
     }
   | { type: "move_blocks"; block_ids: string[]; owner: OutlineOwner; parent: string | null; after: string | null }
   | { type: "indent_blocks"; owner: OutlineOwner; block_ids: string[] }

@@ -1,5 +1,5 @@
 // Virtualized outline editor. Rows are addressed by stable BlockId; text
-// edits become SpliceMarkdown commands at IME-safe boundaries; structural
+// edits become inline-content splices at IME-safe boundaries; structural
 // keys map to core commands and the authoritative snapshot re-render is the
 // only state path (no optimistic tree mutations).
 //
@@ -54,10 +54,11 @@ import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
-import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
+import type { BlockSnapshot, OutlineOwner, PageReferenceSpan } from "../../core-port/snapshot";
 import {
   findBlock,
   findOutline,
+  materializePageReferences,
   queryDocument,
   sameOutlineOwner,
   stringValue,
@@ -73,7 +74,6 @@ import { QueryBlock } from "../query/QueryBlock";
 import { TaskPriorityControl } from "../tasks/PriorityControl";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
-import { codePointIndex, diffSplice } from "../blocks/editor/text-diff";
 import {
   transformAutoClosers,
   type AutoCloserMarker,
@@ -140,16 +140,25 @@ import { BLOCK_SURFACE_POLICY } from "../blocks/editor/surface-policy";
 import { useEditorKeymap } from "../settings/preferences";
 import type { EditorKeymap } from "../../entities/settings";
 import {
+  BlockPageMenu,
   BlockSlashMenu,
   BlockTagMenu,
+  detectPage,
   detectHash,
   detectSlash,
+  filterPageOptions,
   filterTagOptions,
   liveCompletionAnchor,
   removeCompletionToken,
   type BlockCompletionRequest,
+  type BlockPageOption,
   type BlockTagOption,
 } from "../blocks/editor/BlockCompletions";
+import {
+  canonicalContentBoundary,
+  planInlineEdit,
+  planPageReference,
+} from "../blocks/editor/inline-content";
 import {
   buildSlashItems,
   filterSlashItems,
@@ -216,12 +225,14 @@ function isPendingId(id: string): boolean {
 
 type SlashRequest = BlockCompletionRequest;
 type TagOption = BlockTagOption;
+type PageOption = BlockPageOption;
 
 interface EditorContext {
   session: GraphSession;
   notify: Notifier;
   message: MessageFunction;
   owner: OutlineOwner;
+  graphId: string;
   readonly: boolean;
   keymap: EditorKeymap;
   vim: VimSession;
@@ -244,6 +255,9 @@ interface EditorContext {
   hashRequest: SlashRequest | null;
   hashResults: TagOption[];
   hashActive: number;
+  pageRequest: SlashRequest | null;
+  pageResults: PageOption[];
+  pageActive: number;
   menuFor: string | null;
   /** Explicit roots plus the descendants their structural action carries. */
   covered: ReadonlySet<string>;
@@ -273,9 +287,13 @@ interface EditorContext {
   closeHash(): void;
   setHashActive(index: number): void;
   acceptHash(row: OutlineRow, option?: TagOption): void;
+  closePage(): void;
+  setPageActive(index: number): void;
+  acceptPage(row: OutlineRow, option?: PageOption): void;
   toggleCollapse(id: string): void;
   draftOf(row: OutlineRow): string;
   autoClosersOf(blockId: string): readonly AutoCloserMarker[];
+  pageReferencesOf(block: BlockSnapshot): readonly PageReferenceSpan[];
   onInput(
     row: OutlineRow,
     value: string,
@@ -387,6 +405,8 @@ export function Outliner({
   const slashActive = overlay.kind === "slash" ? overlay.active : 0;
   const hashRequest = overlay.kind === "hash" ? overlay.request : null;
   const hashActive = overlay.kind === "hash" ? overlay.active : 0;
+  const pageRequest = overlay.kind === "page" ? overlay.request : null;
+  const pageActive = overlay.kind === "page" ? overlay.active : 0;
   const menuFor = overlay.kind === "menu" ? overlay.blockId : null;
   const setPropertyRequest = useCallback((request: PropertyRequest | null) => {
     dispatchOverlay(
@@ -416,11 +436,21 @@ export function Outliner({
         : { type: "close", kind: "hash" },
     );
   }, []);
+  const setPageRequest = useCallback((request: SlashRequest | null) => {
+    dispatchOverlay(
+      request
+        ? { type: "open", overlay: { kind: "page", request, active: 0 } }
+        : { type: "close", kind: "page" },
+    );
+  }, []);
   const setSlashActiveState = useCallback((index: number) => {
     dispatchOverlay({ type: "activate", kind: "slash", index });
   }, []);
   const setHashActiveState = useCallback((index: number) => {
     dispatchOverlay({ type: "activate", kind: "hash", index });
+  }, []);
+  const setPageActiveState = useCallback((index: number) => {
+    dispatchOverlay({ type: "activate", kind: "page", index });
   }, []);
   const setMenuFor = useCallback((blockId: string | null) => {
     dispatchOverlay(
@@ -447,6 +477,10 @@ export function Outliner({
     setDraftState((current) => outlineDraftReducer(current, action));
   }, [setDraftState]);
   const composing = useRef(false);
+  const [compositionRevision, finishComposition] = useReducer(
+    (revision: number) => revision + 1,
+    0,
+  );
   const mounted = useRef(true);
   const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCaret = useRef<number | null>(null);
@@ -485,6 +519,16 @@ export function Outliner({
   // still carries the previous page object cannot briefly remove the editor.
   const authoritativeOutline = findOutline(state.snapshot, owner);
   const outline = authoritativeOutline ?? { blocks };
+  const pageDirectory = useMemo(
+    () => state.snapshot.page_directory
+      ?? state.snapshot.pages.map((page) => ({
+        id: page.id,
+        title: page.title,
+        journal_date: null,
+        deleted: false,
+      })),
+    [state.snapshot.page_directory, state.snapshot.pages],
+  );
   const ownerRef = useLatest(owner);
   const outlineRef = useLatest(outline);
 
@@ -510,6 +554,56 @@ export function Outliner({
     clearVisualLineState();
     vim.reset();
   }, [clearVisualLineState, vim.reset]);
+
+  // A page rename changes only the directory and the disposable projection.
+  // Reproject local baselines and drafts as well, including a focused dirty
+  // editor, so its next splice never turns an untouched reference into stale
+  // literal source. References already edited through stay ordinary Markdown.
+  useEffect(() => {
+    if (composing.current) return;
+    const completionBlockId = slashRequest?.blockId
+      ?? hashRequest?.blockId
+      ?? pageRequest?.blockId;
+    const entries: Array<{
+      id: string;
+      baseline: string;
+      draft: string;
+      pageReferences: readonly PageReferenceSpan[];
+    }> = [];
+    for (const [id, baseline] of draftStateRef.current.baselines) {
+      if (id === completionBlockId) continue;
+      const references = draftStateRef.current.pageReferences.get(id);
+      const draft = draftStateRef.current.drafts.get(id);
+      if (!references || draft === undefined || references.length === 0) continue;
+      const pending = planInlineEdit(id, baseline, references, draft);
+      const baselineProjection = materializePageReferences(baseline, references, pageDirectory);
+      const draftProjection = materializePageReferences(
+        draft,
+        pending?.references ?? references,
+        pageDirectory,
+      );
+      if (
+        baselineProjection.markdown === baseline
+        && draftProjection.markdown === draft
+        && samePageReferences(baselineProjection.pageReferences, references)
+      ) continue;
+      entries.push({
+        id,
+        baseline: baselineProjection.markdown,
+        draft: draftProjection.markdown,
+        pageReferences: baselineProjection.pageReferences,
+      });
+    }
+    if (entries.length > 0) dispatchDraft({ type: "reproject", entries });
+  }, [
+    compositionRevision,
+    dispatchDraft,
+    hashRequest?.blockId,
+    pageDirectory,
+    pageRequest?.blockId,
+    slashRequest?.blockId,
+    state.revision,
+  ]);
 
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
@@ -618,21 +712,50 @@ export function Outliner({
     };
   }, [hashRequest]);
 
+  useEffect(() => {
+    if (!pageRequest) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      const node = event.target;
+      if (node instanceof Element && node.closest(".page-reference-menu")) return;
+      setPageRequest(null);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      setPageRequest(null);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePress, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [pageRequest, setPageRequest]);
+
   const flush = useCallback(
     (id: string) => {
       if (isPendingId(id)) return; // transferred when the real id arrives
       const draft = draftStateRef.current.drafts.get(id);
       const baseline = draftStateRef.current.baselines.get(id);
       if (draft === undefined || baseline === undefined) return;
-      const splice = diffSplice(baseline, draft);
-      if (!splice) return;
-      if (mounted.current) dispatchDraft({ type: "set-baseline", id, value: draft });
+      const references = draftStateRef.current.pageReferences.get(id)
+        ?? findBlock(outlineRef.current, id)?.page_references
+        ?? [];
+      const plan = planInlineEdit(id, baseline, references, draft);
+      if (!plan) return;
+      if (mounted.current) {
+        dispatchDraft({
+          type: "set-baseline",
+          id,
+          value: draft,
+          pageReferences: plan.references,
+        });
+      }
       void session
         .execute({
-          type: "splice_markdown",
+          type: "splice_block_content",
           owner: ownerRef.current,
-          block_id: id,
-          ...splice,
+          ...plan.splice,
         })
         .catch((error: unknown) => {
           if (!mounted.current) return;
@@ -685,14 +808,23 @@ export function Outliner({
         flushTimers.current.delete(id);
       }
       const baseline = draftStateRef.current.baselines.get(id);
-      const splice = baseline === undefined ? null : diffSplice(baseline, next);
-      if (!splice) return null;
-      dispatchDraft({ type: "set-baseline", id, value: next });
+      const references = draftStateRef.current.pageReferences.get(id)
+        ?? findBlock(outlineRef.current, id)?.page_references
+        ?? [];
+      const plan = baseline === undefined
+        ? null
+        : planInlineEdit(id, baseline, references, next);
+      if (!plan) return null;
+      dispatchDraft({
+        type: "set-baseline",
+        id,
+        value: next,
+        pageReferences: plan.references,
+      });
       return {
-        type: "splice_markdown",
+        type: "splice_block_content",
         owner: ownerRef.current,
-        block_id: id,
-        ...splice,
+        ...plan.splice,
       };
     }, [dispatchDraft]);
 
@@ -1320,6 +1452,7 @@ export function Outliner({
     }
     setSlashRequest(null);
     setHashRequest(null);
+    setPageRequest(null);
 
     const caretRow = units[plan.caret.unit];
     if (!caretRow) return;
@@ -1338,18 +1471,30 @@ export function Outliner({
     }
 
     const ids = updates.map((update) => update.row.block.id);
+    const contentPlans = updates.flatMap((update) => {
+      const references = draftStateRef.current.pageReferences.get(update.row.block.id)
+        ?? update.row.block.page_references
+        ?? [];
+      const plan = planInlineEdit(
+        update.row.block.id,
+        update.value,
+        references,
+        update.next,
+      );
+      if (!plan) return [];
+      dispatchDraft({
+        type: "set-baseline",
+        id: update.row.block.id,
+        value: update.next,
+        pageReferences: plan.references,
+      });
+      return [plan.splice];
+    });
+    if (contentPlans.length === 0) return;
     void session.execute({
-      type: "splice_markdowns",
+      type: "splice_block_contents",
       owner,
-      splices: updates.map((update) => {
-        const index = codePointIndex(update.value, update.from);
-        return {
-          block_id: update.row.block.id,
-          index,
-          delete: codePointIndex(update.value, update.to) - index,
-          insert: "",
-        };
-      }),
+      splices: contentPlans,
     }).catch((error: unknown) => {
       dispatchDraft({ type: "clear", ids });
       notify.failure(message("failure.lastEdit"), error);
@@ -1817,12 +1962,30 @@ export function Outliner({
     return filterTagOptions(state.snapshot.tags, hashRequest.query, present, compare);
   }, [compare, hashRequest, outline, state.snapshot.tags]);
   const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
+  const pageResults = useMemo<PageOption[]>(
+    () => pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : [],
+    [compare, pageDirectory, pageRequest],
+  );
+  const pageIndex = Math.min(pageActive, Math.max(pageResults.length - 1, 0));
 
   const updateCompletions = (
     blockId: string,
     value: string,
     textarea: HTMLTextAreaElement,
   ): boolean => {
+    const page = isPendingId(blockId)
+      ? null
+      : detectPage(value, textarea.selectionStart, textarea.selectionEnd);
+    if (page) {
+      const results = filterPageOptions(pageDirectory, page.query, compare);
+      dispatchOverlay({
+        type: "set-completion",
+        overlay: results.length > 0
+          ? { kind: "page", request: { blockId, ...page, anchor: textarea }, active: 0 }
+          : null,
+      });
+      return results.length > 0;
+    }
     const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
     if (slash) {
       dispatchOverlay({
@@ -1853,6 +2016,7 @@ export function Outliner({
     notify,
     message,
     owner,
+    graphId: state.snapshot.graph_id,
     readonly,
     keymap,
     vim,
@@ -1867,6 +2031,9 @@ export function Outliner({
     hashRequest,
     hashResults,
     hashActive: hashIndex,
+    pageRequest,
+    pageResults,
+    pageActive: pageIndex,
     menuFor,
     covered: selectionCovered,
     revealed,
@@ -2005,6 +2172,69 @@ export function Outliner({
         message(chosen.present ? "failure.lastEdit" : "failure.addTag"),
       );
     },
+    closePage: () => setPageRequest(null),
+    setPageActive: setPageActiveState,
+    acceptPage: (row, option) => {
+      const request = pageRequest;
+      const chosen = option ?? pageResults[pageIndex];
+      if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
+      const id = row.block.id;
+      const draft = draftStateRef.current.drafts.get(id) ?? row.block.markdown;
+      const baseline = draftStateRef.current.baselines.get(id) ?? row.block.markdown;
+      const baselineReferences = draftStateRef.current.pageReferences.get(id)
+        ?? row.block.page_references
+        ?? [];
+      const pendingText = planInlineEdit(id, baseline, baselineReferences, draft);
+      const currentReferences = pendingText?.references ?? baselineReferences;
+      const pageId = chosen.create ? `p-${crypto.randomUUID()}` : chosen.id;
+      const replacement = planPageReference(
+        id,
+        draft,
+        currentReferences,
+        request.start,
+        request.end,
+        pageId,
+        chosen.title,
+      );
+      dispatchDraft({
+        type: "edit",
+        id,
+        value: replacement.value,
+        baselineIfAbsent: row.block.markdown,
+        autoClosers: [],
+      });
+      dispatchDraft({
+        type: "set-baseline",
+        id,
+        value: replacement.value,
+        pageReferences: replacement.plan.references,
+      });
+      pendingCaret.current = replacement.caret;
+      setPageRequest(null);
+
+      const commands: Command[] = [];
+      if (chosen.create) {
+        commands.push({ type: "ensure_page", page_id: pageId, title: chosen.title });
+      }
+      if (pendingText) {
+        commands.push({
+          type: "splice_block_content",
+          owner,
+          ...pendingText.splice,
+        });
+      }
+      commands.push({
+        type: "splice_block_content",
+        owner,
+        ...replacement.plan.splice,
+      });
+      void session.execute(commands.length === 1
+        ? commands[0]
+        : { type: "batch", commands }).catch((error: unknown) => {
+        if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
+        notify.failure(message("failure.lastEdit"), error);
+      });
+    },
     toggleCollapse: (id) => {
       if (visualLineRef.current) clearSelection();
       const expanding = collapsedRef.current.has(id);
@@ -2048,6 +2278,9 @@ export function Outliner({
     },
     draftOf: (row) => draftState.drafts.get(row.block.id) ?? row.block.markdown,
     autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? [],
+    pageReferencesOf: (block) => draftState.pageReferences.get(block.id)
+      ?? block.page_references
+      ?? [],
     onInput: (row, value, textarea, edit) => {
       const previous = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       let nextClosers = transformAutoClosers(
@@ -2074,6 +2307,7 @@ export function Outliner({
         id: row.block.id,
         value,
         baselineIfAbsent: row.block.markdown,
+        pageReferencesIfAbsent: row.block.page_references ?? [],
         autoClosers: nextClosers,
       });
       if (!composing.current) {
@@ -2099,6 +2333,7 @@ export function Outliner({
     },
     onCompositionEnd: (row, textarea) => {
       composing.current = false;
+      finishComposition();
       const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       if (!updateCompletions(row.block.id, value, textarea)) scheduleFlush(row.block.id);
     },
@@ -2836,12 +3071,39 @@ export function Outliner({
           }}
         />
       )}
+      {pageRequest && (
+        <BlockPageMenu
+          request={pageRequest}
+          results={pageResults}
+          active={pageIndex}
+          onHover={setPageActiveState}
+          onClose={() => setPageRequest(null)}
+          onChoose={(option) => {
+            const row = rowsRef.current.find((entry) => entry.block.id === pageRequest.blockId);
+            if (row) editor.acceptPage(row, option);
+          }}
+        />
+      )}
     </section>
   );
 }
 
 /** No block resolved yet — the open/closed decision doesn't depend on presence. */
 const NO_TAGS: ReadonlySet<string> = new Set();
+
+function samePageReferences(
+  left: readonly PageReferenceSpan[],
+  right: readonly PageReferenceSpan[],
+): boolean {
+  return left.length === right.length && left.every((reference, index) => {
+    const other = right[index];
+    return other !== undefined
+      && reference.start === other.start
+      && reference.end === other.end
+      && reference.index === other.index
+      && reference.page_id === other.page_id;
+  });
+}
 
 /** The collapsed set as it will be after toggling `id`. */
 function nextCollapsed(current: ReadonlySet<string>, id: string): Set<string> {
@@ -3145,6 +3407,28 @@ function onKeyDown(
       return;
     }
   }
+  if (editor.pageRequest?.blockId === row.block.id) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      editor.closePage();
+      return;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      event.preventDefault();
+      editor.acceptPage(row);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      editor.setPageActive(Math.min(editor.pageActive + 1, editor.pageResults.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      editor.setPageActive(Math.max(editor.pageActive - 1, 0));
+      return;
+    }
+  }
   if (editor.keymap === "vim" && handleOutlineVim(editor, row, rows, event)) return;
   // Pending rows accept text and the core outline idioms (Enter, Tab)
   // until the insert is acknowledged; other structural keys are ignored.
@@ -3334,6 +3618,7 @@ function handleOutlineVim(
       // Normal-mode edits are complete commands, never completion prefixes.
       editor.closeSlash();
       editor.closeHash();
+      editor.closePage();
     });
     editor.publishSelection(row.block.id, textarea);
   }
@@ -3410,9 +3695,13 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
     return;
   }
   const caretUtf16 = textarea.selectionStart;
-  const caretPoint = codePointIndex(draft, caretUtf16);
-  const head = draft.slice(0, caretUtf16);
-  const tail = draft.slice(caretUtf16);
+  const boundary = canonicalContentBoundary(
+    draft,
+    editor.pageReferencesOf(row.block),
+    caretUtf16,
+  );
+  const head = draft.slice(0, boundary.utf16Offset);
+  const tail = draft.slice(boundary.utf16Offset);
   if (isPendingId(id)) {
     // The pending block's head moves locally; once its real id arrives the
     // queued split follows the baseline reconciliation in session order.
@@ -3422,7 +3711,7 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
   }
   editor.enqueuePendingSplit(
     row,
-    caretPoint,
+    boundary.index,
     tail,
     row.hasChildren && !row.collapsed,
     "keyboard",
@@ -3475,6 +3764,7 @@ function BlockRow({
   const isFocused = editor.focusedId === row.block.id;
   const pending = isPendingId(row.block.id);
   const value = editor.draftOf(row);
+  const pageReferences = editor.pageReferencesOf(row.block);
   const taskStatus = stringValue(row.block.properties, TASK_STATUS_KEY);
   const taskPriority = stringValue(row.block.properties, TASK_PRIORITY_KEY);
   const tags = row.block.tags;
@@ -3484,7 +3774,9 @@ function BlockRow({
   const peers = editor.presence.filter((peer) => peer.block_id === row.block.id);
   const projected = useRef(value);
   const revision = useRef(editor.revision);
-  const previewMarkdown = !isFocused && !pending && hasMarkdownSyntax(value);
+  const previewMarkdown = !isFocused
+    && !pending
+    && hasMarkdownSyntax(value, pageReferences.length > 0);
   // A pending row has no id a property command can name yet, so it carries no
   // task marks either.
   const marks = pending
@@ -3835,14 +4127,18 @@ function BlockRow({
               ? "slash-command-menu"
               : editor.hashRequest?.blockId === row.block.id
                 ? "tag-suggest-menu"
-                : undefined
+                : editor.pageRequest?.blockId === row.block.id
+                  ? "page-reference-menu"
+                  : undefined
           }
           aria-activedescendant={
             editor.slashRequest?.blockId === row.block.id && editor.slashResults[editor.slashActive]
               ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
               : editor.hashRequest?.blockId === row.block.id && editor.hashResults[editor.hashActive]
                 ? `tag-opt-${editor.hashActive}`
-                : undefined
+                : editor.pageRequest?.blockId === row.block.id && editor.pageResults[editor.pageActive]
+                  ? `page-reference-opt-${editor.pageActive}`
+                  : undefined
           }
           dir="auto"
           // A press marks itself before the browser focuses what it landed on,
@@ -3890,6 +4186,8 @@ function BlockRow({
         {previewMarkdown && (
           <BlockMarkdown
             markdown={value}
+            pageReferences={pageReferences}
+            graphId={editor.graphId}
             className="block-line outline-markdown"
             // Read-only blocks hand over too: the textarea is the row's tab stop
             // and its arrow-key navigation, and `readOnly` is what refuses the

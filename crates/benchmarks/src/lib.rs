@@ -45,6 +45,7 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
         schema_version: domain::SCHEMA_VERSION,
         graph_id: GraphId::new(GRAPH_ID).expect("static benchmark graph id"),
         pages,
+        page_directory: Vec::new(),
         tags,
         settings: GraphSettings::default(),
         quarantined: Vec::new(),
@@ -125,6 +126,7 @@ fn block(index: usize) -> BlockSnapshot {
     BlockSnapshot {
         id: BlockId::new(format!("block-{index:06}")).expect("generated benchmark block id"),
         markdown,
+        page_references: Vec::new(),
         properties: vec![
             single(
                 "builtin.task-status",

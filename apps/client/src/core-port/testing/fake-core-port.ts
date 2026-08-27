@@ -23,6 +23,8 @@ import type {
 import { CorePortFailure, type SavedReceipt } from "../../core-worker";
 import type {
   Command,
+  BlockContentSplice,
+  InlineContent,
   CommandEnvelope,
   EntityRef,
   HistoryEffect,
@@ -56,6 +58,17 @@ interface GraphEventRecord {
   cursor: number;
   source: "local";
   kind: Record<string, unknown>;
+}
+
+function fakeJournalDate(page: PageSnapshot): string | null {
+  const value = page.properties
+    .find((field) => field.key === "builtin.journal-date")
+    ?.values.find((candidate) => candidate.type === "date");
+  return value?.type === "date" ? value.value : null;
+}
+
+function fakePageTitle(page: PageSnapshot): string {
+  return fakeJournalDate(page) ?? page.title;
 }
 
 interface FakeHistoryEntry {
@@ -223,11 +236,17 @@ export class FakeCorePort implements SessionPort {
         .map((tag) => tag.id),
     );
     return clone({
-      schema_version: 5,
+      schema_version: 6,
       graph_id: this.graphId,
       pages: this.pages
         .filter((page) => !hasKey(page.properties, "builtin.deleted-at"))
         .map((page) => projectLiveTags(page, liveTags)),
+      page_directory: this.pages.map((page) => ({
+        id: page.id,
+        title: fakePageTitle(page),
+        journal_date: fakeJournalDate(page),
+        deleted: hasKey(page.properties, "builtin.deleted-at"),
+      })),
       tags: this.tags
         .filter((tag) => !hasKey(tag.properties, "builtin.deleted-at"))
         .map((tag) => projectLiveTagRefs(tag, liveTags)),
@@ -285,6 +304,7 @@ export class FakeCorePort implements SessionPort {
       case "rename_page":
         this.assertPageNameAvailable(command.title, command.page_id);
         this.requirePage(command.page_id).title = command.title;
+        this.rematerializePageReferences();
         break;
       case "delete_page":
         setSingle(this.requirePage(command.page_id).properties, "builtin.deleted-at", {
@@ -352,8 +372,8 @@ export class FakeCorePort implements SessionPort {
       }
       case "split_block": {
         const target = this.requireBlock(command.owner, command.block_id);
-        const points = Array.from(target.block.markdown);
-        if (command.index > points.length) {
+        const content = this.canonicalBlockContent(target.block);
+        if (command.index > content.length) {
           fail("internal", "block split is out of bounds");
         }
         if ((command.index === 0) !== (command.placement === "before")) {
@@ -362,13 +382,15 @@ export class FakeCorePort implements SessionPort {
         const id = `b-${(this.blockCounter += 1)}`;
         const block: BlockSnapshot = {
           id,
-          markdown: command.index === 0 ? "" : points.slice(command.index).join(""),
+          markdown: "",
+          page_references: [],
           properties: lifecycle(timestamp),
           tags: [],
           children: [],
         };
         if (command.index > 0) {
-          target.block.markdown = points.slice(0, command.index).join("");
+          this.materializeBlockContent(target.block, content.slice(0, command.index));
+          this.materializeBlockContent(block, content.slice(command.index));
         }
         if (command.placement === "first_child") {
           target.block.children.unshift(block);
@@ -544,6 +566,11 @@ export class FakeCorePort implements SessionPort {
               parent.children.push(block);
             }
           }
+          block.page_references = (item.page_references ?? []).map((reference) => ({
+            ...reference,
+            page_id: pageMap.get(reference.page_id) ?? reference.page_id,
+          }));
+          this.materializeBlockContent(block, this.canonicalBlockContent(block));
           block.properties.push(...clone(item.properties).map((entry: PropertyField) => ({
             ...entry,
             values: entry.values.map((value) => value.type === "page"
@@ -559,28 +586,36 @@ export class FakeCorePort implements SessionPort {
         });
         break;
       }
-      case "edit_markdown":
-        this.requireBlock(command.owner, command.block_id).block.markdown = command.markdown;
-        break;
-      case "splice_markdown": {
+      case "edit_markdown": {
         const block = this.requireBlock(command.owner, command.block_id).block;
-        const points = Array.from(block.markdown);
-        if (command.index + command.delete > points.length) {
-          fail("internal", "markdown splice is out of bounds");
-        }
-        points.splice(command.index, command.delete, ...Array.from(command.insert));
-        block.markdown = points.join("");
+        block.markdown = command.markdown;
+        block.page_references = [];
         break;
       }
+      case "splice_markdown":
+        this.applyBlockContentSplice(command.owner, {
+          block_id: command.block_id,
+          index: command.index,
+          delete: command.delete,
+          insert: command.insert ? [{ type: "markdown", value: command.insert }] : [],
+        }, command.block_id);
+        break;
       case "splice_markdowns":
         for (const splice of command.splices) {
-          const block = this.requireBlock(command.owner, splice.block_id).block;
-          const points = Array.from(block.markdown);
-          if (splice.index + splice.delete > points.length) {
-            fail("internal", "markdown splice is out of bounds");
-          }
-          points.splice(splice.index, splice.delete, ...Array.from(splice.insert));
-          block.markdown = points.join("");
+          this.applyBlockContentSplice(command.owner, {
+            block_id: splice.block_id,
+            index: splice.index,
+            delete: splice.delete,
+            insert: splice.insert ? [{ type: "markdown", value: splice.insert }] : [],
+          }, splice.block_id);
+        }
+        break;
+      case "splice_block_content":
+        this.applyBlockContentSplice(command.owner, command, command.block_id);
+        break;
+      case "splice_block_contents":
+        for (const splice of command.splices) {
+          this.applyBlockContentSplice(command.owner, splice, splice.block_id);
         }
         break;
       case "move_blocks": {
@@ -1040,12 +1075,17 @@ export class FakeCorePort implements SessionPort {
         };
       case "edit_markdown":
       case "splice_markdown":
+      case "splice_block_content":
         return outlineEntry(
           command.owner,
           [block(command.owner, command.block_id)],
           [block(command.owner, command.block_id)],
         );
       case "splice_markdowns": {
+        const candidates = command.splices.map((splice) => block(command.owner, splice.block_id));
+        return outlineEntry(command.owner, candidates, clone(candidates));
+      }
+      case "splice_block_contents": {
         const candidates = command.splices.map((splice) => block(command.owner, splice.block_id));
         return outlineEntry(command.owner, candidates, clone(candidates));
       }
@@ -1184,6 +1224,94 @@ export class FakeCorePort implements SessionPort {
     return this.pages.find((page) => page.id === id);
   }
 
+  private canonicalBlockContent(block: BlockSnapshot): InlineContent[] {
+    const points = Array.from(block.markdown);
+    const references = [...(block.page_references ?? [])]
+      .sort((left, right) => left.start - right.start);
+    const content: InlineContent[] = [];
+    let position = 0;
+    let referenceIndex = 0;
+    while (position < points.length) {
+      const reference = references[referenceIndex];
+      if (reference?.start === position) {
+        content.push({ type: "page_reference", page_id: reference.page_id });
+        position = reference.end;
+        referenceIndex += 1;
+      } else {
+        content.push({ type: "markdown", value: points[position] });
+        position += 1;
+      }
+    }
+    return content;
+  }
+
+  private materializeBlockContent(block: BlockSnapshot, content: readonly InlineContent[]): void {
+    let markdown = "";
+    let displayIndex = 0;
+    let logicalIndex = 0;
+    const references: NonNullable<BlockSnapshot["page_references"]> = [];
+    for (const item of content) {
+      if (item.type === "markdown") {
+        markdown += item.value;
+        displayIndex += Array.from(item.value).length;
+        logicalIndex += Array.from(item.value).length;
+        continue;
+      }
+      const page = this.rawPage(item.page_id);
+      const title = page ? fakePageTitle(page) : item.page_id;
+      const source = `[[${title}]]`;
+      const length = Array.from(source).length;
+      markdown += source;
+      references.push({
+        start: displayIndex,
+        end: displayIndex + length,
+        index: logicalIndex,
+        page_id: item.page_id,
+      });
+      displayIndex += length;
+      logicalIndex += 1;
+    }
+    block.markdown = markdown;
+    block.page_references = references;
+  }
+
+  private applyBlockContentSplice(
+    owner: OutlineOwner,
+    splice: BlockContentSplice,
+    blockId: string,
+  ): void {
+    const block = this.requireBlock(owner, blockId).block;
+    const content = this.canonicalBlockContent(block);
+    if (splice.index + splice.delete > content.length) {
+      fail("internal", "block content splice is out of bounds");
+    }
+    const inserted: InlineContent[] = [];
+    for (const item of splice.insert) {
+      if (item.type === "markdown") {
+        inserted.push(...Array.from(item.value).map((value) => ({
+          type: "markdown" as const,
+          value,
+        })));
+      } else {
+        inserted.push(item);
+      }
+    }
+    content.splice(splice.index, splice.delete, ...inserted);
+    this.materializeBlockContent(block, content);
+  }
+
+  private rematerializePageReferences(): void {
+    const visit = (blocks: readonly BlockSnapshot[]) => {
+      for (const block of blocks) {
+        const content = this.canonicalBlockContent(block);
+        this.materializeBlockContent(block, content);
+        visit(block.children);
+      }
+    };
+    for (const page of this.pages) visit(page.blocks);
+    for (const tag of this.tags) visit(tag.blocks);
+  }
+
   private touchCommand(
     command: Command,
     result: { created_page: string | null; created_block: string | null; created_tag: string | null },
@@ -1215,10 +1343,15 @@ export class FakeCorePort implements SessionPort {
         break;
       case "edit_markdown":
       case "splice_markdown":
+      case "splice_block_content":
         this.touchBlock(command.owner, command.block_id, timestamp);
         this.touchOutline(command.owner, timestamp);
         break;
       case "splice_markdowns":
+        for (const splice of command.splices) this.touchBlock(command.owner, splice.block_id, timestamp);
+        this.touchOutline(command.owner, timestamp);
+        break;
+      case "splice_block_contents":
         for (const splice of command.splices) this.touchBlock(command.owner, splice.block_id, timestamp);
         this.touchOutline(command.owner, timestamp);
         break;

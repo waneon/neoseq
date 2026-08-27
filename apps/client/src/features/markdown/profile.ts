@@ -41,8 +41,9 @@ const INLINE_SYNTAX = [
  * broke on purpose, so the profile renders a soft break as a line break, which
  * is what the textarea already shows.
  */
-export function hasMarkdownSyntax(markdown: string): boolean {
-  return BLOCK_SYNTAX.some((pattern) => pattern.test(markdown))
+export function hasMarkdownSyntax(markdown: string, semanticInline = false): boolean {
+  return semanticInline
+    || BLOCK_SYNTAX.some((pattern) => pattern.test(markdown))
     || INLINE_SYNTAX.some((pattern) => pattern.test(markdown));
 }
 

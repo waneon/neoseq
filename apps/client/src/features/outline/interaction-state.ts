@@ -30,7 +30,7 @@ export type OverlayAction =
   | { type: "open"; overlay: Exclude<OutlineOverlay, { kind: "none" }> }
   | { type: "close"; kind?: OutlineOverlay["kind"] }
   | { type: "set-completion"; overlay: BlockCompletion | null }
-  | { type: "activate"; kind: "slash" | "hash"; index: number }
+  | { type: "activate"; kind: "slash" | "hash" | "page"; index: number }
   | { type: "replace-pending-block"; pendingId: string; blockId: string };
 
 export function overlayReducer(state: OutlineOverlay, action: OverlayAction): OutlineOverlay {
@@ -41,16 +41,16 @@ export function overlayReducer(state: OutlineOverlay, action: OverlayAction): Ou
       return action.kind === undefined || state.kind === action.kind ? { kind: "none" } : state;
     case "set-completion":
       if (action.overlay) return action.overlay;
-      return state.kind === "slash" || state.kind === "hash"
+      return state.kind === "slash" || state.kind === "hash" || state.kind === "page"
         ? blockCompletionReducer(state, { type: "set", completion: null })
         : state;
     case "activate":
-      return state.kind === "slash" || state.kind === "hash"
+      return state.kind === "slash" || state.kind === "hash" || state.kind === "page"
         ? blockCompletionReducer(state, action)
         : state;
     case "replace-pending-block":
       if (
-        (state.kind !== "slash" && state.kind !== "hash")
+        (state.kind !== "slash" && state.kind !== "hash" && state.kind !== "page")
         || state.request.blockId !== action.pendingId
       ) {
         return state;
