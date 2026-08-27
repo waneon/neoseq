@@ -31,8 +31,10 @@ may consume either standard representation without understanding Neoseq.
 One clipboard decoder owns representation precedence. Paste prefers the custom
 fragment, then its HTML round-trip hint, a standard semantic HTML list, and an
 unambiguous plain-text list in that order. Ordinary multiline text remains an
-in-field text paste. HTML application wrappers are irrelevant: `ul`, `ol`, and
-`li` establish depth, while the list-item body becomes projected Markdown.
+in-field text paste. An HTML fragment containing a list is decoded as one flow:
+prose before, between, or after lists becomes root blocks in source order, while
+`ul`, `ol`, and `li` alone establish depth. Application wrappers and attributes
+do not affect the result, and prose is never inferred to own an adjacent list.
 
 The standard codecs obey structural invariants. Each block emits exactly one
 `li`; a nested list exists if and only if the block has children; empty list

@@ -86,8 +86,36 @@ describe("outline clipboard codecs", () => {
     });
   });
 
-  it("does not discard prose surrounding an HTML list", () => {
-    expect(parseHtmlOutline("<p>Introduction</p><ul><li>one</li></ul>")).toBeNull();
+  it("preserves prose surrounding an HTML list as sibling root blocks", () => {
+    expect(parseHtmlOutline(
+      "<p>Introduction</p><ul><li>one</li></ul><div>Conclusion</div>",
+    )).toEqual([
+      { depth: 0, markdown: "Introduction" },
+      { depth: 0, markdown: "one" },
+      { depth: 0, markdown: "Conclusion" },
+    ]);
+  });
+
+  it("normalizes a Slack-shaped text preamble and nested list without app rules", () => {
+    const html = `<meta charset="utf-8">Question?
+      <ul style="margin-left: 24px">
+        <li>Capability
+          <ul>
+            <li>Explanation</li>
+            <li>why<ul><li>Reason</li></ul></li>
+          </ul>
+        </li>
+        <li>Another capability</li>
+      </ul>`;
+
+    expect(parseHtmlOutline(html)).toEqual([
+      { depth: 0, markdown: "Question?" },
+      { depth: 0, markdown: "Capability" },
+      { depth: 1, markdown: "Explanation" },
+      { depth: 1, markdown: "why" },
+      { depth: 2, markdown: "Reason" },
+      { depth: 0, markdown: "Another capability" },
+    ]);
   });
 
   it("leaves ordinary multiline text to the browser", () => {

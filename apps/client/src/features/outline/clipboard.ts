@@ -407,9 +407,9 @@ interface ParsedMarker {
 }
 
 /**
- * Reads standard semantic HTML lists from rich-text applications. Application
- * wrappers and attributes are irrelevant; only ul/ol/li structure establishes
- * block depth. Nested lists are excluded from their parent's block body.
+ * Reads an HTML document fragment containing a semantic list. Prose around the
+ * list remains in source order as root blocks; ul/ol/li alone establishes tree
+ * depth. Application wrappers and attributes are deliberately irrelevant.
  */
 export function parseHtmlOutline(source: string): OutlineClipboardItem[] | null {
   if (
@@ -419,21 +419,80 @@ export function parseHtmlOutline(source: string): OutlineClipboardItem[] | null 
   ) return null;
 
   const document = new DOMParser().parseFromString(source, "text/html");
-  const roots = topLevelHtmlLists(document);
-  if (roots.length === 0) return null;
-
-  // A mixed document is not an outline. Consuming only its lists would silently
-  // discard the prose around them; leave that clipboard to the native text path.
-  const remainder = document.body.cloneNode(true) as HTMLElement;
-  for (const list of topLevelHtmlLists(remainder)) list.remove();
-  if (normalizeHtmlMarkdown(renderHtmlContent(remainder))) return null;
+  if (!document.querySelector("ul li, ol li")) return null;
 
   const items: OutlineClipboardItem[] = [];
-  const pending = roots
-    .flatMap((root) => ownedHtmlListItems(root).map((item) => ({ item, depth: 0 })))
+  if (!appendHtmlFlow(document.body, 0, items)) return null;
+  return items.length > 0 ? items : null;
+}
+
+function appendHtmlFlow(
+  parent: Element,
+  depth: number,
+  items: OutlineClipboardItem[],
+): boolean {
+  const inline: Node[] = [];
+  const flushInline = () => {
+    const markdown = normalizeHtmlMarkdown(inline.map(renderHtmlContent).join(""));
+    inline.length = 0;
+    return appendHtmlMarkdown(items, depth, markdown);
+  };
+
+  for (const child of parent.childNodes) {
+    if (child.nodeType !== 1) {
+      inline.push(child);
+      continue;
+    }
+    const element = child as Element;
+    const tag = element.tagName.toLowerCase();
+    if (tag === "ul" || tag === "ol") {
+      if (!flushInline() || !appendHtmlList(element, depth, items)) return false;
+      continue;
+    }
+    if (hasHtmlFlowChildren(element)) {
+      if (!flushInline() || !appendHtmlFlow(element, depth, items)) return false;
+      continue;
+    }
+    if (BLOCK_HTML_TAGS.has(tag)) {
+      if (!flushInline()) return false;
+      const markdown = normalizeHtmlMarkdown(renderHtmlContent(element));
+      if (!appendHtmlMarkdown(items, depth, markdown)) return false;
+      continue;
+    }
+    inline.push(child);
+  }
+  return flushInline();
+}
+
+function hasHtmlFlowChildren(element: Element): boolean {
+  if (element.querySelector("ul, ol")) return true;
+  return [...element.children].some((child) => {
+    const tag = child.tagName.toLowerCase();
+    return tag === "ul" || tag === "ol" || BLOCK_HTML_TAGS.has(tag);
+  });
+}
+
+function appendHtmlMarkdown(
+  items: OutlineClipboardItem[],
+  depth: number,
+  markdown: string,
+): boolean {
+  if (!markdown) return true;
+  if (items.length >= MAX_CLIPBOARD_ITEMS) return false;
+  items.push({ depth, markdown });
+  return true;
+}
+
+function appendHtmlList(
+  list: Element,
+  depth: number,
+  items: OutlineClipboardItem[],
+): boolean {
+  const pending = ownedHtmlListItems(list)
+    .map((item) => ({ item, depth }))
     .reverse();
   while (pending.length > 0) {
-    if (items.length >= MAX_CLIPBOARD_ITEMS) return null;
+    if (items.length >= MAX_CLIPBOARD_ITEMS) return false;
     const current = pending.pop()!;
     items.push({
       depth: current.depth,
@@ -445,13 +504,7 @@ export function parseHtmlOutline(source: string): OutlineClipboardItem[] | null 
       pending.push({ item: children[index], depth: current.depth + 1 });
     }
   }
-  return items.length > 0 ? items : null;
-}
-
-function topLevelHtmlLists(root: ParentNode): Element[] {
-  return [...root.querySelectorAll("ul, ol")].filter(
-    (list) => !list.parentElement?.closest("ul, ol"),
-  );
+  return true;
 }
 
 function ownedHtmlListItems(list: Element): Element[] {

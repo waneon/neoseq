@@ -272,7 +272,7 @@ describe("block selection", () => {
     ).toMatchObject([{ markdown: "", children: [] }]);
   });
 
-  it("pastes a standard HTML list before its lossy plain-text fallback", async () => {
+  it("pastes a mixed HTML flow before its lossy plain-text fallback", async () => {
     const { session, port } = await mountRows([""]);
     const commands: string[] = [];
     port.beforeExecute = async (command) => {
@@ -283,9 +283,9 @@ describe("block selection", () => {
       clipboardData: {
         getData: (type: string) => {
           if (type === "text/html") {
-            return "<ul><li>one<ol><li>two</li></ol></li><li>three</li></ul>";
+            return "Question?<ul><li>one<ol><li>two</li></ol></li><li>three</li></ul>";
           }
-          if (type === "text/plain") return "one\ntwo\nthree";
+          if (type === "text/plain") return "Question?\none\ntwo\nthree";
           return "";
         },
       },
@@ -293,8 +293,12 @@ describe("block selection", () => {
 
     await waitFor(() => {
       const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
-      expect(page?.blocks.map((block) => block.markdown)).toEqual(["one", "three"]);
-      expect(page?.blocks[0].children.map((block) => block.markdown)).toEqual(["two"]);
+      expect(page?.blocks.map((block) => block.markdown)).toEqual([
+        "Question?",
+        "one",
+        "three",
+      ]);
+      expect(page?.blocks[1].children.map((block) => block.markdown)).toEqual(["two"]);
     });
     expect(commands).toEqual(["insert_outline"]);
   });

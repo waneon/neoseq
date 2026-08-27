@@ -390,7 +390,7 @@ test("pastes Markdown list items as one outline history step", async ({ page }) 
   await expect.poll(() => blockTexts(page)).toEqual([""]);
 });
 
-test("pastes semantic HTML lists ahead of lossy plain text", async ({ page }) => {
+test("pastes mixed semantic HTML flow ahead of lossy plain text", async ({ page }) => {
   await createGraph(page, "HTML Clipboard Graph");
   await startOutline(page);
 
@@ -398,9 +398,9 @@ test("pastes semantic HTML lists ahead of lossy plain text", async ({ page }) =>
     const clipboard = new DataTransfer();
     clipboard.setData(
       "text/html",
-      "<div><ul><li>one<ol><li>two</li></ol></li><li>three</li></ul></div>",
+      "Question?<ul><li>one<ol><li>two</li></ol></li><li>three</li></ul>",
     );
-    clipboard.setData("text/plain", "one\ntwo\nthree");
+    clipboard.setData("text/plain", "Question?\none\ntwo\nthree");
     target.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true,
       cancelable: true,
@@ -408,8 +408,8 @@ test("pastes semantic HTML lists ahead of lossy plain text", async ({ page }) =>
     }));
   });
 
-  await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three"]);
-  await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "1"]);
+  await expect.poll(() => blockTexts(page)).toEqual(["Question?", "one", "two", "three"]);
+  await expect.poll(() => blockLevels(page)).toEqual(["1", "1", "2", "1"]);
 });
 
 test("pastes a rich outline fragment with properties and tags as one history step", async ({ page }) => {
