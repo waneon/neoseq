@@ -10,6 +10,16 @@ export interface InlineEditPlan {
   references: PageReferenceSpan[];
 }
 
+export interface InlineContentProjection {
+  markdown: string;
+  pageReferences: readonly PageReferenceSpan[];
+}
+
+export interface InlineContentBoundary {
+  index: number;
+  utf16Offset: number;
+}
+
 function ordered(references: readonly PageReferenceSpan[]): PageReferenceSpan[] {
   return [...references].sort((left, right) => left.start - right.start);
 }
@@ -28,7 +38,7 @@ export function canonicalContentBoundary(
   value: string,
   referencesInput: readonly PageReferenceSpan[],
   utf16Offset: number,
-): { index: number; utf16Offset: number } {
+): InlineContentBoundary {
   const position = codePointIndex(value, utf16Offset);
   const references = ordered(referencesInput);
   for (const reference of references) {
@@ -43,6 +53,33 @@ export function canonicalContentBoundary(
     }
   }
   return { index: logicalBoundary(position, references), utf16Offset };
+}
+
+/** Splits both the display projection and its canonical reference coordinates. */
+export function splitInlineContentProjection(
+  value: string,
+  referencesInput: readonly PageReferenceSpan[],
+  boundary: InlineContentBoundary,
+): { head: InlineContentProjection; tail: InlineContentProjection } {
+  const displayIndex = codePointIndex(value, boundary.utf16Offset);
+  const references = ordered(referencesInput);
+  return {
+    head: {
+      markdown: value.slice(0, boundary.utf16Offset),
+      pageReferences: references.filter((reference) => reference.end <= displayIndex),
+    },
+    tail: {
+      markdown: value.slice(boundary.utf16Offset),
+      pageReferences: references
+        .filter((reference) => reference.start >= displayIndex)
+        .map((reference) => ({
+          ...reference,
+          start: reference.start - displayIndex,
+          end: reference.end - displayIndex,
+          index: reference.index - boundary.index,
+        })),
+    },
+  };
 }
 
 function touchedBy(

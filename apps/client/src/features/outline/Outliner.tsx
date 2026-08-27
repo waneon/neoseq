@@ -98,7 +98,7 @@ import {
   initialOutlineDraftState,
   outlineDraftReducer,
   type OutlineDraftAction,
-  type PendingRow,
+  type PendingOutlineOperation,
 } from "./draft-state";
 import {
   buildClipboardBundle,
@@ -164,6 +164,8 @@ import {
   canonicalContentBoundary,
   planInlineEdit,
   planPageReference,
+  splitInlineContentProjection,
+  type InlineContentProjection,
 } from "../blocks/editor/inline-content";
 import {
   buildSlashItems,
@@ -326,7 +328,8 @@ interface EditorContext {
   enqueuePendingSplit(
     row: OutlineRow,
     index: number,
-    tail: string,
+    head: InlineContentProjection,
+    tail: InlineContentProjection,
     asChild: boolean,
     inputMethod: InputMethod,
   ): void;
@@ -540,7 +543,13 @@ export function Outliner({
   const ownerRef = useLatest(owner);
   const outlineRef = useLatest(outline);
 
-  const rows = withPendingRows(flattenOutline(outline, collapsed), draftState.pendingRows);
+  const pendingProjection = projectPendingOperations(
+    flattenOutline(outline, collapsed),
+    draftState.pendingOperations,
+    draftState.drafts,
+    draftState.pageReferences,
+  );
+  const rows = pendingProjection.rows;
   const rowsRef = useLatest(rows);
   const readonly = state.mode === "readonly";
   // `selected` is the concrete identity set the user saw selected when the
@@ -1024,13 +1033,14 @@ export function Outliner({
    */
   const abandonPending = useCallback(
     (reason: string) => {
-      const pendingRows = draftStateRef.current.pendingRows;
-      const lost = pendingRows.length;
-      const typed = pendingRows.some(
-        (entry) => (draftStateRef.current.drafts.get(entry.tempId) ?? "").length > 0,
+      const pendingOperations = draftStateRef.current.pendingOperations;
+      const lost = pendingOperations.length;
+      const typed = pendingOperations.some(
+        (entry) => (draftStateRef.current.drafts.get(entry.tempId)
+          ?? entry.created.markdown) !== entry.created.markdown,
       );
       let fallback: string | null = null;
-      for (const entry of pendingRows) {
+      for (const entry of pendingOperations) {
         if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
       }
       dispatchDraft({ type: "abandon-pending" });
@@ -1051,7 +1061,7 @@ export function Outliner({
   /** Dispatches the oldest pending creation whose anchor id is real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
-    const head = draftStateRef.current.pendingRows[0];
+    const head = draftStateRef.current.pendingOperations[0];
     if (!head || head.dispatched || isPendingId(head.anchorId)) return;
     // A preceding queued structural command may have reconciled after the
     // component's last render. Compute the next insert from GraphSession's
@@ -1074,13 +1084,13 @@ export function Outliner({
       : head.mode === "child"
         ? "first_child"
         : "after";
-    const command: Command = head.splitIndex === undefined
+    const command: Command = head.kind === "insert"
       ? {
           type: "insert_block",
           owner: ownerRef.current,
           parent: head.mode === "child" ? head.anchorId : source.parentId,
           index: head.mode === "before" ? source.index : head.mode === "child" ? 0 : source.index + 1,
-          markdown: head.baseline,
+          markdown: head.created.markdown,
         }
       : {
           type: "split_block",
@@ -1093,10 +1103,11 @@ export function Outliner({
       .execute(command)
       .then(async (result) => {
         const realId = result.created_block;
-        const structural = draftStateRef.current.pendingRows
-          .find((row) => row.tempId === head.tempId)
+        const structural = draftStateRef.current.pendingOperations
+          .find((operation) => operation.tempId === head.tempId)
           ?.structural ?? head.structural;
-        const typed = draftStateRef.current.drafts.get(head.tempId) ?? head.baseline;
+        const typed = draftStateRef.current.drafts.get(head.tempId)
+          ?? head.created.markdown;
         const wasFocused = focusedRef.current === head.tempId;
         const active = document.activeElement;
         const caret =
@@ -1114,7 +1125,6 @@ export function Outliner({
               tempId: head.tempId,
               blockId: realId,
               typed,
-              baseline: head.baseline,
             });
             if (wasFocused) activateBlock(realId, caret, "programmatic");
             // A slash menu opened on the pending row must follow the block to
@@ -1189,7 +1199,7 @@ export function Outliner({
             );
             completionCommitted = true;
           }
-          if (typed !== head.baseline && !completionCommitted) {
+          if (typed !== head.created.markdown && !completionCommitted) {
             if (composing.current) scheduleFlush(realId);
             else flushNow(realId);
           }
@@ -2303,9 +2313,12 @@ export function Outliner({
         }
       }
     },
-    draftOf: (row) => draftState.drafts.get(row.block.id) ?? row.block.markdown,
+    draftOf: (row) => pendingProjection.content.get(row.block.id)?.markdown
+      ?? draftState.drafts.get(row.block.id)
+      ?? row.block.markdown,
     autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? [],
-    pageReferencesOf: (block) => draftState.pageReferences.get(block.id)
+    pageReferencesOf: (block) => pendingProjection.content.get(block.id)?.pageReferences
+      ?? draftState.pageReferences.get(block.id)
       ?? block.page_references
       ?? [],
     onInput: (row, value, textarea, edit) => {
@@ -2392,38 +2405,38 @@ export function Outliner({
       flushSync(() => {
         dispatchDraft({
           type: "enqueue",
-          row: {
+          operation: {
+            kind: "insert",
             tempId,
             anchorId: row.block.id,
             mode: asChild ? "child" : "sibling",
-            baseline: tail,
+            created: { markdown: tail, pageReferences: [] },
             dispatched: false,
             structural: [],
           },
-          draft: tail,
         });
         activateBlock(tempId, 0, inputMethod);
       });
       dispatchPending();
     },
-    enqueuePendingSplit: (row, index, tail, asChild, inputMethod) => {
+    enqueuePendingSplit: (row, index, head, tail, asChild, inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
       const leading = index === 0;
-      const baseline = leading ? "" : tail;
       flushSync(() => {
         dispatchDraft({
           type: "enqueue",
-          row: {
+          operation: {
+            kind: "split",
             tempId,
             anchorId: row.block.id,
             mode: leading ? "before" : asChild ? "child" : "sibling",
             splitIndex: index,
-            baseline,
+            source: leading ? tail : head,
+            created: leading ? head : tail,
             dispatched: false,
             structural: [],
           },
-          draft: baseline,
         });
         activateBlock(tempId, 0, inputMethod);
       });
@@ -3702,7 +3715,19 @@ function runOutlineVimSurface(
   if (command.type === "open") {
     editor.flushNow(row.block.id);
     if (command.side === "after") editor.enqueuePendingInsert(row, "", false, "keyboard");
-    else editor.enqueuePendingSplit(row, 0, "", false, "keyboard");
+    else {
+      editor.enqueuePendingSplit(
+        row,
+        0,
+        { markdown: "", pageReferences: [] },
+        {
+          markdown: editor.draftOf(row),
+          pageReferences: editor.pageReferencesOf(row.block),
+        },
+        false,
+        "keyboard",
+      );
+    }
     return;
   }
   if (command.type === "delete-unit") {
@@ -3729,37 +3754,64 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
     editor.pageReferencesOf(row.block),
     caretUtf16,
   );
-  const head = draft.slice(0, boundary.utf16Offset);
-  const tail = draft.slice(boundary.utf16Offset);
+  const split = splitInlineContentProjection(
+    draft,
+    editor.pageReferencesOf(row.block),
+    boundary,
+  );
   if (isPendingId(id)) {
     // The pending block's head moves locally; once its real id arrives the
     // queued split follows the baseline reconciliation in session order.
-    editor.onInput(row, head, textarea);
+    editor.onInput(row, split.head.markdown, textarea);
   } else {
     editor.flushNow(id);
   }
   editor.enqueuePendingSplit(
     row,
     boundary.index,
-    tail,
+    split.head,
+    split.tail,
     row.hasChildren && !row.collapsed,
     "keyboard",
   );
 }
 
-/** Injects the optimistic pending rows into the flattened outline. */
-function withPendingRows(rows: OutlineRow[], pending: readonly PendingRow[]): OutlineRow[] {
+interface PendingOutlineProjection {
+  rows: OutlineRow[];
+  content: ReadonlyMap<string, InlineContentProjection>;
+}
+
+/**
+ * Applies every visible effect of a pending operation as one pure projection.
+ * A split owns both the source head and its created tail, so no render can show
+ * the same content in both blocks while the canonical command is in flight.
+ */
+function projectPendingOperations(
+  rows: OutlineRow[],
+  pending: readonly PendingOutlineOperation[],
+  drafts: ReadonlyMap<string, string>,
+  pageReferences: ReadonlyMap<string, readonly PageReferenceSpan[]>,
+): PendingOutlineProjection {
   let result = rows;
+  const content = new Map<string, InlineContentProjection>();
   for (const entry of pending) {
     const sourceIndex = result.findIndex((row) => row.block.id === entry.anchorId);
     if (sourceIndex < 0) continue;
     const source = result[sourceIndex];
+    if (entry.kind === "split") content.set(entry.anchorId, entry.source);
     let insertAt = entry.mode === "before" ? sourceIndex : sourceIndex + 1;
     if (entry.mode === "sibling") {
       while (insertAt < result.length && result[insertAt].depth > source.depth) insertAt += 1;
     }
     const pendingRow: OutlineRow = {
-      block: { id: entry.tempId, markdown: "", properties: [], tags: [], children: [] },
+      block: {
+        id: entry.tempId,
+        markdown: entry.created.markdown,
+        page_references: [...entry.created.pageReferences],
+        properties: [],
+        tags: [],
+        children: [],
+      },
       depth: entry.mode === "child" ? source.depth + 1 : source.depth,
       parentId: entry.mode === "child" ? source.block.id : source.parentId,
       index: entry.mode === "child" ? 0 : source.index + (entry.mode === "before" ? 0 : 1),
@@ -3767,9 +3819,13 @@ function withPendingRows(rows: OutlineRow[], pending: readonly PendingRow[]): Ou
       hasChildren: false,
       collapsed: false,
     };
+    content.set(entry.tempId, {
+      markdown: drafts.get(entry.tempId) ?? entry.created.markdown,
+      pageReferences: pageReferences.get(entry.tempId) ?? entry.created.pageReferences,
+    });
     result = [...result.slice(0, insertAt), pendingRow, ...result.slice(insertAt)];
   }
-  return result;
+  return { rows: result, content };
 }
 
 function BlockRow({

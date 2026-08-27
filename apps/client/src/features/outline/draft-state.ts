@@ -1,19 +1,31 @@
 import type { AutoCloserMarker } from "../blocks/editor/auto-pair";
 import type { PageReferenceSpan } from "../../core-port/snapshot";
+import type { InlineContentProjection } from "../blocks/editor/inline-content";
 
-export interface PendingRow {
+interface PendingOutlineOperationBase {
   tempId: string;
-  /** Block this row is positioned relative to — a real BlockId or earlier tempId. */
+  /** Block the created row is positioned relative to — a real BlockId or earlier tempId. */
   anchorId: string;
   mode: "before" | "child" | "sibling";
-  /** Present when Enter atomically splits the anchor; absent for plain insertion. */
-  splitIndex?: number;
-  /** Authoritative Markdown expected on the newly created block. */
-  baseline: string;
+  /** Authoritative content expected on the newly created block. */
+  created: InlineContentProjection;
   dispatched: boolean;
   /** Indent/outdent keys typed before the real id arrived. */
   structural: readonly ("indent" | "outdent")[];
 }
+
+export interface PendingInsertOperation extends PendingOutlineOperationBase {
+  kind: "insert";
+}
+
+export interface PendingSplitOperation extends PendingOutlineOperationBase {
+  kind: "split";
+  splitIndex: number;
+  /** Complete visible content of the source while the split is pending. */
+  source: InlineContentProjection;
+}
+
+export type PendingOutlineOperation = PendingInsertOperation | PendingSplitOperation;
 
 export interface OutlineDraftState {
   drafts: ReadonlyMap<string, string>;
@@ -21,7 +33,7 @@ export interface OutlineDraftState {
   autoClosers: ReadonlyMap<string, readonly AutoCloserMarker[]>;
   /** Semantic spans aligned with the current local baseline. */
   pageReferences: ReadonlyMap<string, readonly PageReferenceSpan[]>;
-  pendingRows: readonly PendingRow[];
+  pendingOperations: readonly PendingOutlineOperation[];
 }
 
 export const initialOutlineDraftState: OutlineDraftState = {
@@ -29,7 +41,7 @@ export const initialOutlineDraftState: OutlineDraftState = {
   baselines: new Map(),
   autoClosers: new Map(),
   pageReferences: new Map(),
-  pendingRows: [],
+  pendingOperations: [],
 };
 
 export type OutlineDraftAction =
@@ -59,9 +71,9 @@ export type OutlineDraftAction =
       }[];
     }
   | { type: "reconcile"; draftIds: readonly string[]; autoCloserIds: readonly string[] }
-  | { type: "enqueue"; row: PendingRow; draft: string }
+  | { type: "enqueue"; operation: PendingOutlineOperation }
   | { type: "mark-dispatched"; tempId: string }
-  | { type: "adopt"; tempId: string; blockId: string; typed: string; baseline: string }
+  | { type: "adopt"; tempId: string; blockId: string; typed: string }
   | { type: "discard-head"; tempId: string }
   | { type: "queue-structural"; tempId: string; kind: "indent" | "outdent" }
   | { type: "abandon-pending" };
@@ -153,24 +165,30 @@ export function outlineDraftReducer(
     case "enqueue":
       return {
         ...state,
-        drafts: new Map(state.drafts).set(action.row.tempId, action.draft),
-        pendingRows: [...state.pendingRows, action.row],
+        drafts: new Map(state.drafts).set(
+          action.operation.tempId,
+          action.operation.created.markdown,
+        ),
+        pendingOperations: [...state.pendingOperations, action.operation],
       };
     case "mark-dispatched":
       return {
         ...state,
-        pendingRows: state.pendingRows.map((row) =>
-          row.tempId === action.tempId ? { ...row, dispatched: true } : row),
+        pendingOperations: state.pendingOperations.map((operation) =>
+          operation.tempId === action.tempId
+            ? { ...operation, dispatched: true }
+            : operation),
       };
     case "adopt": {
-      if (state.pendingRows[0]?.tempId !== action.tempId) return state;
+      const operation = state.pendingOperations[0];
+      if (operation?.tempId !== action.tempId) return state;
       const drafts = without(state.drafts, [action.tempId]);
       const baselines = without(state.baselines, [action.tempId]);
       const autoClosers = without(state.autoClosers, [action.tempId]);
       const pageReferences = without(state.pageReferences, [action.tempId]);
-      if (action.typed !== action.baseline) {
+      if (action.typed !== operation.created.markdown) {
         drafts.set(action.blockId, action.typed);
-        baselines.set(action.blockId, action.baseline);
+        baselines.set(action.blockId, operation.created.markdown);
       }
       const generatedClosers = state.autoClosers.get(action.tempId);
       if (generatedClosers) autoClosers.set(action.blockId, generatedClosers);
@@ -179,37 +197,38 @@ export function outlineDraftReducer(
         baselines,
         autoClosers,
         pageReferences,
-        pendingRows: state.pendingRows
+        pendingOperations: state.pendingOperations
           .slice(1)
-          .map((row) => row.anchorId === action.tempId
-            ? { ...row, anchorId: action.blockId }
-            : row),
+          .map((pending) => pending.anchorId === action.tempId
+            ? { ...pending, anchorId: action.blockId }
+            : pending),
       };
     }
     case "discard-head":
-      if (state.pendingRows[0]?.tempId !== action.tempId) return state;
+      if (state.pendingOperations[0]?.tempId !== action.tempId) return state;
       return {
         drafts: without(state.drafts, [action.tempId]),
         baselines: without(state.baselines, [action.tempId]),
         autoClosers: without(state.autoClosers, [action.tempId]),
         pageReferences: without(state.pageReferences, [action.tempId]),
-        pendingRows: state.pendingRows.slice(1),
+        pendingOperations: state.pendingOperations.slice(1),
       };
     case "queue-structural":
       return {
         ...state,
-        pendingRows: state.pendingRows.map((row) => row.tempId === action.tempId
-          ? { ...row, structural: [...row.structural, action.kind] }
-          : row),
+        pendingOperations: state.pendingOperations.map((operation) =>
+          operation.tempId === action.tempId
+            ? { ...operation, structural: [...operation.structural, action.kind] }
+            : operation),
       };
     case "abandon-pending": {
-      const ids = state.pendingRows.map((row) => row.tempId);
+      const ids = state.pendingOperations.map((operation) => operation.tempId);
       return {
         drafts: without(state.drafts, ids),
         baselines: without(state.baselines, ids),
         autoClosers: without(state.autoClosers, ids),
         pageReferences: without(state.pageReferences, ids),
-        pendingRows: [],
+        pendingOperations: [],
       };
     }
   }

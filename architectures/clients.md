@@ -155,11 +155,14 @@ possible graph mutation or remote import advances the latter and invalidates
 visible queries.
 
 Enter is one atomic `split_block` command; on an empty block it is instead an
-insert below, so the caret always lands on the new line. A pending row mounts
-immediately so fast typing has a focus target, then swaps to the real block ID
-during reconciliation. Pending rows may chain; queued structural intents replay in
-order after IDs resolve. Rejection applies the known inverse and retains a draft
-until authoritative state agrees.
+insert below, so the caret always lands on the new line. Visible rows are a pure
+projection of the authoritative outline, local drafts, and ordered pending outline
+operations. A pending split owns both visible effects: the source content before
+the boundary and the temporary row content after it. Therefore every visible atom
+belongs to exactly one row even before the command resolves. Reconciliation adopts
+the temporary identity atomically; rejection removes the whole projection. Pending
+operations may chain, and queued structural intents replay in order after IDs
+resolve.
 
 Bulk move, indent, outdent, and delete send one plural command for the selected
 roots. The core removes duplicate descendants, derives authoritative order, and

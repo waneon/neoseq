@@ -4,6 +4,7 @@ import {
   canonicalContentBoundary,
   planInlineEdit,
   planPageReference,
+  splitInlineContentProjection,
 } from "../../src/features/blocks/editor/inline-content";
 
 const reference: PageReferenceSpan = {
@@ -48,6 +49,31 @@ describe("inline content projection", () => {
     expect(canonicalContentBoundary("A [[Page]] Z", [reference], 8)).toEqual({
       index: 3,
       utf16Offset: 10,
+    });
+  });
+
+  it("re-bases reference coordinates when projecting the two sides of a split", () => {
+    const beforeReference = canonicalContentBoundary("A [[Page]] Z", [reference], 2);
+    expect(splitInlineContentProjection(
+      "A [[Page]] Z",
+      [reference],
+      beforeReference,
+    )).toEqual({
+      head: { markdown: "A ", pageReferences: [] },
+      tail: {
+        markdown: "[[Page]] Z",
+        pageReferences: [{ ...reference, start: 0, end: 8, index: 0 }],
+      },
+    });
+
+    const afterReference = canonicalContentBoundary("A [[Page]] Z", [reference], 10);
+    expect(splitInlineContentProjection(
+      "A [[Page]] Z",
+      [reference],
+      afterReference,
+    )).toEqual({
+      head: { markdown: "A [[Page]]", pageReferences: [reference] },
+      tail: { markdown: " Z", pageReferences: [] },
     });
   });
 

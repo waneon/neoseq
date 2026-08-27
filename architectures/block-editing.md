@@ -35,6 +35,13 @@ canonical `BlockSnapshot`, schedules or flushes writes, reports failure, and
 chooses the meaning of structural keys. All writes still use ordinary
 `GraphSession` commands; a query result never writes through the derived index.
 
+The outline keeps persistence drafts distinct from pending structural projections.
+In particular, splitting a dirty block retains the complete draft long enough to
+serialize the canonical write, while one pending operation projects its source and
+created halves together. Acknowledgement replaces only the temporary identity; it
+does not introduce a second content transition. Semantic reference spans split and
+rebase with their half of the projection.
+
 Editable plain text keeps one textarea DOM boundary at rest and while focused.
 Focus starts the surface's draft session, so the browser retains the pointer's
 native caret instead of spending the first click replacing a display trigger.

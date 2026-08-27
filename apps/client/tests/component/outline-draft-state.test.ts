@@ -7,36 +7,41 @@ import {
 describe("outline draft state", () => {
   it("adopts a pending row and remaps the next queued anchor atomically", () => {
     const first = {
+      kind: "insert" as const,
       tempId: "pending-1",
       anchorId: "block-1",
       mode: "sibling" as const,
-      baseline: "tail",
+      created: { markdown: "tail", pageReferences: [] },
       dispatched: true,
       structural: ["indent" as const],
     };
     const second = {
+      kind: "insert" as const,
       tempId: "pending-2",
       anchorId: "pending-1",
       mode: "sibling" as const,
-      baseline: "",
+      created: { markdown: "next", pageReferences: [] },
       dispatched: false,
       structural: [],
     };
     let state = outlineDraftReducer(initialOutlineDraftState, {
       type: "enqueue",
-      row: first,
-      draft: "tail",
+      operation: first,
     });
-    state = outlineDraftReducer(state, { type: "enqueue", row: second, draft: "next" });
+    state = outlineDraftReducer(state, { type: "enqueue", operation: second });
+    state = outlineDraftReducer(state, {
+      type: "edit",
+      id: "pending-1",
+      value: "tail typed",
+    });
     state = outlineDraftReducer(state, {
       type: "adopt",
       tempId: "pending-1",
       blockId: "block-2",
       typed: "tail typed",
-      baseline: "tail",
     });
 
-    expect(state.pendingRows).toEqual([{ ...second, anchorId: "block-2" }]);
+    expect(state.pendingOperations).toEqual([{ ...second, anchorId: "block-2" }]);
     expect(state.drafts.get("block-2")).toBe("tail typed");
     expect(state.baselines.get("block-2")).toBe("tail");
     expect(state.drafts.has("pending-1")).toBe(false);
@@ -66,19 +71,19 @@ describe("outline draft state", () => {
     });
     state = outlineDraftReducer(state, {
       type: "enqueue",
-      row: {
+      operation: {
+        kind: "insert",
         tempId: "pending-1",
         anchorId: "block-1",
         mode: "sibling",
-        baseline: "",
+        created: { markdown: "lost", pageReferences: [] },
         dispatched: false,
         structural: [],
       },
-      draft: "lost",
     });
     state = outlineDraftReducer(state, { type: "abandon-pending" });
 
-    expect(state.pendingRows).toEqual([]);
+    expect(state.pendingOperations).toEqual([]);
     expect(state.drafts.get("block-1")).toBe("kept");
     expect(state.drafts.has("pending-1")).toBe(false);
   });
@@ -86,15 +91,15 @@ describe("outline draft state", () => {
   it("does not let an out-of-order acknowledgement consume the queue head", () => {
     const state = outlineDraftReducer(initialOutlineDraftState, {
       type: "enqueue",
-      row: {
+      operation: {
+        kind: "insert",
         tempId: "pending-1",
         anchorId: "block-1",
         mode: "sibling",
-        baseline: "",
+        created: { markdown: "typed", pageReferences: [] },
         dispatched: true,
         structural: [],
       },
-      draft: "typed",
     });
 
     const unchanged = outlineDraftReducer(state, {
@@ -102,7 +107,6 @@ describe("outline draft state", () => {
       tempId: "pending-2",
       blockId: "block-2",
       typed: "wrong row",
-      baseline: "",
     });
 
     expect(unchanged).toBe(state);

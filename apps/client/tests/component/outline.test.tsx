@@ -40,6 +40,18 @@ async function settleFrame(): Promise<void> {
   });
 }
 
+function waitForPendingRowsToSettle(): Promise<void> {
+  if (!document.querySelector('[data-block-id^="pending-"]')) return Promise.resolve();
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[data-block-id^="pending-"]')) return;
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
 describe("outliner keyboard commands", () => {
   it("enters Insert on the press, not on the click a paint later", async () => {
     setEditorKeymap("vim");
@@ -781,6 +793,81 @@ describe("outliner keyboard commands", () => {
       const page = session.getState().snapshot.pages.find((p) => p.id === "home");
       expect(page?.blocks.map((b) => b.markdown)).toEqual(["headtail"]);
     });
+  });
+
+  it("projects both halves exactly once while a middle split is in flight", async () => {
+    const { session, port } = await mountOutline(["headtail"]);
+    let releaseSplit = () => undefined;
+    const splitGate = new Promise<void>((resolve) => {
+      releaseSplit = resolve;
+    });
+    let signalSplitStarted = () => undefined;
+    const splitStarted = new Promise<void>((resolve) => {
+      signalSplitStarted = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type !== "split_block") return;
+      signalSplitStarted();
+      await splitGate;
+    };
+
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(textarea);
+    textarea.setSelectionRange(4, 4);
+    await user.keyboard("{Enter}");
+    await act(async () => splitStarted);
+
+    const pending = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+    expect(pending.map((input) => input.value)).toEqual(["head", "tail"]);
+
+    const adopted = waitForPendingRowsToSettle();
+    await act(async () => {
+      releaseSplit();
+      await adopted;
+    });
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["head", "tail"]);
+    });
+    port.beforeExecute = null;
+    expect((screen.getAllByLabelText("Block text") as HTMLTextAreaElement[])
+      .map((input) => input.value)).toEqual(["head", "tail"]);
+  });
+
+  it("removes the complete split projection when the canonical split fails", async () => {
+    const { port } = await mountOutline(["headtail"]);
+    let rejectSplit = () => undefined;
+    const splitGate = new Promise<void>((resolve) => {
+      rejectSplit = resolve;
+    });
+    let signalSplitStarted = () => undefined;
+    const splitStarted = new Promise<void>((resolve) => {
+      signalSplitStarted = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type !== "split_block") return;
+      signalSplitStarted();
+      await splitGate;
+      throw new Error("split rejected");
+    };
+
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(textarea);
+    textarea.setSelectionRange(4, 4);
+    await user.keyboard("{Enter}");
+    await act(async () => splitStarted);
+    expect((screen.getAllByLabelText("Block text") as HTMLTextAreaElement[])
+      .map((input) => input.value)).toEqual(["head", "tail"]);
+
+    const restored = waitForPendingRowsToSettle();
+    await act(async () => {
+      rejectSplit();
+      await restored;
+    });
+    expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
+    expect(screen.getByLabelText("Block text")).toHaveValue("headtail");
   });
 
   it("inserts before a leading caret and preserves the original block metadata", async () => {
