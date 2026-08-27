@@ -90,8 +90,9 @@ copy with new block IDs.
 An Enter split preserves the source block's identity. A leading split inserts
 an empty sibling before it; a middle split retains metadata on the head and
 creates an unadorned tail; a trailing split creates an empty block after it or
-as its first child. Structural commands validate the entire proposed change
-before mutation.
+as its first child. A backward merge preserves the previous sibling, appends the
+source's rich text and children, and deletes the source identity and metadata.
+Structural commands validate the entire proposed change before mutation.
 
 ## Tags and Properties
 

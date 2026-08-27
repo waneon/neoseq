@@ -118,6 +118,12 @@ metadata. A trailing split creates an empty block after the target or as its fir
 child. The Core resolves semantic placement against authoritative tree state; all
 text and tree operations belong to the command's single undo item.
 
+`merge_block_backward` is the inverse boundary gesture for adjacent siblings.
+The previous sibling keeps its identity and metadata, receives the source's
+canonical inline content without an inserted separator, and adopts the source's
+children after its own. The source identity and metadata are deleted. Validation,
+mutation, and undo cover the complete text-and-tree change atomically.
+
 Live regular page names and live tag names are unique in separate graph-scoped
 namespaces. Comparison trims and collapses whitespace and applies Unicode
 lowercasing; commands preserve the submitted display form. Snapshot open and

@@ -82,7 +82,7 @@ test("builds a deep outline with the keyboard and reorders a subtree", async ({ 
   ]);
 });
 
-test("splits a block at the caret and deletes empty blocks", async ({ page }) => {
+test("splits a block at the caret and merges an empty block backward", async ({ page }) => {
   await createGraph(page, "Split Graph");
   await startOutline(page);
   await page.keyboard.type("headtail");
@@ -93,7 +93,7 @@ test("splits a block at the caret and deletes empty blocks", async ({ page }) =>
   await page.keyboard.press("Enter");
   await expect.poll(() => blockTexts(page)).toEqual(["head", "tail"]);
 
-  // Backspace on an emptied block removes it and refocuses the previous one.
+  // Backspace at the empty block's leading boundary merges it backward.
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.press("Backspace");
   await expect.poll(() => blockTexts(page)).toEqual(["head", ""]);

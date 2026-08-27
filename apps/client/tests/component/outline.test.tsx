@@ -835,6 +835,50 @@ describe("outliner keyboard commands", () => {
       .map((input) => input.value)).toEqual(["head", "tail"]);
   });
 
+  it("queues a backward merge from a pending split tail", async () => {
+    const { session, port } = await mountOutline(["headtail"]);
+    let releaseSplit = () => undefined;
+    const splitGate = new Promise<void>((resolve) => {
+      releaseSplit = resolve;
+    });
+    let signalSplitStarted = () => undefined;
+    const splitStarted = new Promise<void>((resolve) => {
+      signalSplitStarted = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type !== "split_block") return;
+      signalSplitStarted();
+      await splitGate;
+    };
+
+    const user = userEvent.setup();
+    const original = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(original);
+    original.setSelectionRange(4, 4);
+    await user.keyboard("{Enter}");
+    await act(async () => splitStarted);
+    const pendingTail = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
+    await user.clear(pendingTail);
+    expect(pendingTail).toHaveValue("");
+    await user.keyboard("{Backspace}");
+    expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
+    expect(screen.getByLabelText("Block text")).toHaveValue("head");
+
+    const persisted = new Promise<void>((resolve) => {
+      const unsubscribe = session.subscribe(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        if (page?.blocks.length !== 1 || page.blocks[0].markdown !== "head") return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    await act(async () => {
+      releaseSplit();
+      await persisted;
+    });
+    port.beforeExecute = null;
+  });
+
   it("removes the complete split projection when the canonical split fails", async () => {
     const { port } = await mountOutline(["headtail"]);
     let rejectSplit = () => undefined;
@@ -927,13 +971,141 @@ describe("outliner keyboard commands", () => {
     });
   });
 
-  it("deletes an empty block with Backspace and moves within siblings with Alt+Arrows", async () => {
+  it("merges backward at the content boundary and serializes raced typing after it", async () => {
+    const { session, port } = await mountOutline(["head", "tail"]);
+    let releaseMerge = () => undefined;
+    const mergeGate = new Promise<void>((resolve) => {
+      releaseMerge = resolve;
+    });
+    let signalMergeStarted = () => undefined;
+    const mergeStarted = new Promise<void>((resolve) => {
+      signalMergeStarted = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type !== "merge_block_backward") return;
+      signalMergeStarted();
+      await mergeGate;
+    };
+
+    const user = userEvent.setup();
+    const source = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
+    await user.click(source);
+    source.setSelectionRange(0, 0);
+    await user.keyboard("{Backspace}");
+    await act(async () => mergeStarted);
+
+    const target = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
+    expect(target).toHaveValue("headtail");
+    expect(target).toHaveFocus();
+    expect([target.selectionStart, target.selectionEnd]).toEqual([4, 4]);
+    await user.keyboard("!");
+    expect(target).toHaveValue("head!tail");
+
+    const persisted = new Promise<void>((resolve) => {
+      const unsubscribe = session.subscribe(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        if (page?.blocks.length !== 1 || page.blocks[0].markdown !== "head!tail") return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    await act(async () => {
+      releaseMerge();
+      await persisted;
+    });
+    port.beforeExecute = null;
+    expect(findPage(session.getState().snapshot, "home")?.blocks[0].markdown).toBe("head!tail");
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["headtail"]);
+    });
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      const page = findPage(session.getState().snapshot, "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["head", "tail"]);
+    });
+  });
+
+  it("restores both blocks and the source caret when a backward merge fails", async () => {
+    const { port } = await mountOutline(["head", "tail"]);
+    let rejectMerge = () => undefined;
+    const mergeGate = new Promise<void>((resolve) => {
+      rejectMerge = resolve;
+    });
+    let signalMergeStarted = () => undefined;
+    const mergeStarted = new Promise<void>((resolve) => {
+      signalMergeStarted = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type !== "merge_block_backward") return;
+      signalMergeStarted();
+      await mergeGate;
+      throw new Error("merge rejected");
+    };
+
+    const user = userEvent.setup();
+    const source = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
+    await user.click(source);
+    source.setSelectionRange(0, 0);
+    await user.keyboard("{Backspace}");
+    await act(async () => mergeStarted);
+    expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
+    expect(screen.getByLabelText("Block text")).toHaveValue("headtail");
+
+    const restored = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (screen.queryAllByLabelText("Block text").length !== 2) return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    await act(async () => {
+      rejectMerge();
+      await restored;
+    });
+    const blocks = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+    expect(blocks.map((block) => block.value)).toEqual(["head", "tail"]);
+    expect(blocks[1]).toHaveFocus();
+    expect([blocks[1].selectionStart, blocks[1].selectionEnd]).toEqual([0, 0]);
+  });
+
+  it("outdents a first child and leaves the first root intact at its leading boundary", async () => {
+    const { session } = await mountOutline(["parent", "child"]);
+    const user = userEvent.setup();
+    const child = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
+    await user.click(child);
+    await user.keyboard("{Tab}");
+    await waitFor(() => {
+      expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("aria-level", "2");
+    });
+    child.setSelectionRange(0, 0);
+    await user.keyboard("{Backspace}");
+    await waitFor(() => {
+      expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("aria-level", "1");
+      expect(findPage(session.getState().snapshot, "home")?.blocks
+        .map((block) => block.markdown)).toEqual(["parent", "child"]);
+    });
+
+    const first = screen.getAllByLabelText("Block text")[0] as HTMLTextAreaElement;
+    await user.click(first);
+    first.setSelectionRange(0, 0);
+    await user.keyboard("{Backspace}");
+    expect(findPage(session.getState().snapshot, "home")?.blocks
+      .map((block) => block.markdown)).toEqual(["parent", "child"]);
+  });
+
+  it("merges an empty block with Backspace and moves within siblings with Alt+Arrows", async () => {
     const { session } = await mountOutline(["one", "two", ""]);
     const user = userEvent.setup();
     const empty = screen.getAllByLabelText("Block text")[2];
     await user.click(empty);
     await user.keyboard("{Backspace}");
     await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
+    expect(screen.getAllByLabelText("Block text")[1]).toHaveFocus();
 
     const first = screen.getAllByLabelText("Block text")[0];
     await user.click(first);

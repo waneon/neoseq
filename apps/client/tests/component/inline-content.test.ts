@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PageReferenceSpan } from "../../src/core-port/snapshot";
 import {
   canonicalContentBoundary,
+  joinInlineContentProjections,
   planInlineEdit,
   planPageReference,
   splitInlineContentProjection,
@@ -74,6 +75,22 @@ describe("inline content projection", () => {
     )).toEqual({
       head: { markdown: "A [[Page]]", pageReferences: [reference] },
       tail: { markdown: " Z", pageReferences: [] },
+    });
+  });
+
+  it("re-bases the tail references when deleting a block boundary", () => {
+    expect(joinInlineContentProjections(
+      { markdown: "A [[Page]] ", pageReferences: [reference] },
+      {
+        markdown: "[[Other]] Z",
+        pageReferences: [{ start: 0, end: 9, index: 0, page_id: "page-2" }],
+      },
+    )).toEqual({
+      markdown: "A [[Page]] [[Other]] Z",
+      pageReferences: [
+        reference,
+        { start: 11, end: 20, index: 4, page_id: "page-2" },
+      ],
     });
   });
 

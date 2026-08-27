@@ -82,6 +82,27 @@ export function splitInlineContentProjection(
   };
 }
 
+/** Concatenates two display projections while preserving canonical atom positions. */
+export function joinInlineContentProjections(
+  head: InlineContentProjection,
+  tail: InlineContentProjection,
+): InlineContentProjection {
+  const displayOffset = Array.from(head.markdown).length;
+  const logicalOffset = logicalBoundary(displayOffset, ordered(head.pageReferences));
+  return {
+    markdown: `${head.markdown}${tail.markdown}`,
+    pageReferences: [
+      ...head.pageReferences,
+      ...tail.pageReferences.map((reference) => ({
+        ...reference,
+        start: reference.start + displayOffset,
+        end: reference.end + displayOffset,
+        index: reference.index + logicalOffset,
+      })),
+    ],
+  };
+}
+
 function touchedBy(
   reference: PageReferenceSpan,
   start: number,

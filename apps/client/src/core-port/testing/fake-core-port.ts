@@ -401,6 +401,21 @@ export class FakeCorePort implements SessionPort {
         result.created_block = id;
         break;
       }
+      case "merge_block_backward": {
+        const source = this.requireBlock(command.owner, command.block_id);
+        const position = source.siblings.indexOf(source.block);
+        if (position === 0) fail("internal", "first sibling cannot merge backward");
+        const target = source.siblings[position - 1];
+        const content = [
+          ...this.canonicalBlockContent(target),
+          ...this.canonicalBlockContent(source.block),
+        ];
+        this.materializeBlockContent(target, content);
+        target.children.push(...source.block.children);
+        this.touchBlock(command.owner, target.id, timestamp);
+        source.siblings.splice(position, 1);
+        break;
+      }
       case "insert_outline": {
         if (command.items.length === 0 || command.items[0].depth !== 0) {
           fail("internal", "outline insert must start at depth zero");
@@ -1061,6 +1076,17 @@ export class FakeCorePort implements SessionPort {
           ),
           redoCreatedBlock: true,
         };
+      case "merge_block_backward": {
+        const source = this.requireBlock(command.owner, command.block_id);
+        const position = source.siblings.indexOf(source.block);
+        if (position === 0) fail("internal", "first sibling cannot merge backward");
+        const target = source.siblings[position - 1];
+        return outlineEntry(
+          command.owner,
+          [block(command.owner, source.block.id), block(command.owner, target.id)],
+          [block(command.owner, target.id)],
+        );
+      }
       case "insert_outline":
       case "paste_outline":
         return {
@@ -1334,6 +1360,9 @@ export class FakeCorePort implements SessionPort {
       case "split_block":
         if (command.index > 0) this.touchBlock(command.owner, command.block_id, timestamp);
         if (result.created_block) this.touchBlock(command.owner, result.created_block, timestamp);
+        this.touchOutline(command.owner, timestamp);
+        break;
+      case "merge_block_backward":
         this.touchOutline(command.owner, timestamp);
         break;
       case "insert_outline":

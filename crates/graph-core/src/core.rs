@@ -1,7 +1,7 @@
 mod migrations;
 mod outline;
 
-use self::outline::{MovePlan, OutlinePlan};
+use self::outline::{MergePlan, MovePlan, OutlinePlan};
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandId, CommandResult,
     DefaultQueryId, DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot,
@@ -72,6 +72,7 @@ const MAX_BATCH_COMMANDS: usize = 64;
 #[derive(Debug)]
 enum CommandPlan {
     None,
+    Merge(MergePlan),
     Move(MovePlan),
     Outline(OutlinePlan),
     TagDetach(TagDetachPlan),
@@ -90,6 +91,13 @@ impl CommandPlan {
     fn move_blocks(&self) -> &MovePlan {
         let Self::Move(plan) = self else {
             unreachable!("block move was prepared without a move plan")
+        };
+        plan
+    }
+
+    fn merge_block(&self) -> &MergePlan {
+        let Self::Merge(plan) = self else {
+            unreachable!("block merge was prepared without a merge plan")
         };
         plan
     }
@@ -124,6 +132,10 @@ impl PreparedCommand<'_> {
 
     fn move_blocks(&self) -> &MovePlan {
         self.plan.move_blocks()
+    }
+
+    fn merge_block(&self) -> &MergePlan {
+        self.plan.merge_block()
     }
 
     fn tag_detach(&self) -> &TagDetachPlan {
@@ -1233,6 +1245,9 @@ impl GraphCore {
             Command::DeleteBlocks { owner, block_ids } => {
                 CommandPlan::Outline(self.plan_delete_blocks(owner, block_ids)?)
             }
+            Command::MergeBlockBackward { owner, block_id } => {
+                CommandPlan::Merge(self.plan_merge_block_backward(owner, block_id)?)
+            }
             Command::DeleteTag { tag_id } => CommandPlan::TagDetach(self.plan_delete_tag(tag_id)?),
             Command::PasteOutline { fragment, .. } => {
                 CommandPlan::Fragment(self.resolve_outline_fragment(fragment)?)
@@ -1321,6 +1336,10 @@ impl GraphCore {
                         "a leading split must create a block before the target".into(),
                     ));
                 }
+            }
+            Command::MergeBlockBackward { owner, block_id } => {
+                self.require_live_outline_owner(owner)?;
+                self.require_block(owner, block_id)?;
             }
             Command::InsertOutline {
                 owner,
@@ -1904,6 +1923,34 @@ impl GraphCore {
                 }
                 result.created_block = Some(block_id(node));
             }
+            Command::MergeBlockBackward { owner, .. } => {
+                let plan = prepared.merge_block();
+                let target = self.block_text(owner, &plan.target)?;
+                let source = self.block_text(owner, &plan.source)?;
+                let target_length = target.len_unicode();
+                let mut tail = source.slice_delta(0, source.len_unicode(), PosType::Unicode)?;
+                if !tail.is_empty() && target_length > 0 {
+                    tail.insert(
+                        0,
+                        TextDelta::Retain {
+                            retain: target_length,
+                            attributes: None,
+                        },
+                    );
+                }
+                if !tail.is_empty() {
+                    target.apply_delta(&tail)?;
+                }
+                let outline = self.outline(owner)?;
+                let source_node = require_block_in(&outline, &plan.source)?;
+                let target_node = require_block_in(&outline, &plan.target)?;
+                for child in outline.children(source_node).unwrap_or_default() {
+                    outline.mov(child, target_node)?;
+                }
+                self.touch_block(owner, &plan.target, now)?;
+                self.touch_block(owner, &plan.source, now)?;
+                outline.delete(source_node)?;
+            }
             Command::InsertOutline {
                 owner,
                 parent,
@@ -2386,6 +2433,9 @@ impl GraphCore {
                 if let Some(created) = &result.created_block {
                     self.touch_block(owner, created, now)?;
                 }
+                self.touch_outline_owner(owner, now)?;
+            }
+            Command::MergeBlockBackward { owner, .. } => {
                 self.touch_outline_owner(owner, now)?;
             }
             Command::InsertOutline { owner, .. } | Command::PasteOutline { owner, .. } => {
@@ -2876,6 +2926,7 @@ impl GraphCore {
                 }),
                 Command::InsertBlock { owner, .. }
                 | Command::SplitBlock { owner, .. }
+                | Command::MergeBlockBackward { owner, .. }
                 | Command::InsertOutline { owner, .. }
                 | Command::PasteOutline { owner, .. }
                 | Command::EditMarkdown { owner, .. }
@@ -3120,6 +3171,34 @@ impl GraphCore {
                 true,
                 false,
             ),
+            Command::MergeBlockBackward { owner, .. } => {
+                let merge = match prepared {
+                    CommandPlan::Merge(merge) => merge,
+                    _ => unreachable!("block merge was prepared without a merge plan"),
+                };
+                let parent = merge.before.parents.get(&merge.source).cloned().flatten();
+                let index = merge
+                    .before
+                    .children
+                    .get(&parent)
+                    .and_then(|siblings| siblings.iter().position(|id| id == &merge.source))
+                    .ok_or_else(|| CoreError::BlockNotFound(merge.source.clone()))?;
+                plan(
+                    HistoryScope::Entity,
+                    vec![owner.clone()],
+                    vec![
+                        HistoryTarget::BlockPosition {
+                            owner: owner.clone(),
+                            parent,
+                            index,
+                        },
+                        block(owner, &merge.target),
+                    ],
+                    vec![block(owner, &merge.target)],
+                    false,
+                    false,
+                )
+            }
             Command::EditMarkdown {
                 owner, block_id, ..
             }
@@ -4315,6 +4394,7 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::InsertOutline { .. }
         | Command::PasteOutline { .. } => "BlockInserted",
         Command::SplitBlock { .. } => "BlockSplit",
+        Command::MergeBlockBackward { .. } => "BlockMergedBackward",
         Command::EditMarkdown { .. }
         | Command::SpliceMarkdown { .. }
         | Command::SpliceMarkdowns { .. }
@@ -7751,6 +7831,151 @@ mod tests {
         assert_eq!(restored.blocks.len(), 1);
         assert_eq!(restored.blocks[0].id, target);
         assert_eq!(restored.blocks[0].markdown, "한글tail");
+    }
+
+    #[test]
+    fn backward_merge_preserves_rich_text_moves_children_and_undoes_once() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "home", &page());
+        let referenced_page = PageId::new("roadmap").unwrap();
+        ensure_regular_page(&mut core, "roadmap", &referenced_page);
+        let target = insert_root(&mut core, "target", &page(), 0, "head ");
+        let source = insert_root(&mut core, "source", &page(), 1, "tail");
+        core.execute(
+            envelope(
+                "reference",
+                Command::SpliceBlockContent {
+                    owner: OutlineOwner::Page { id: page() },
+                    block_id: source.clone(),
+                    index: 4,
+                    delete: 0,
+                    insert: vec![InlineContent::PageReference {
+                        page_id: referenced_page.clone(),
+                    }],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "target-child",
+                Command::InsertBlock {
+                    owner: OutlineOwner::Page { id: page() },
+                    parent: Some(target.clone()),
+                    index: 0,
+                    markdown: "before".into(),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "source-child-one",
+                Command::InsertBlock {
+                    owner: OutlineOwner::Page { id: page() },
+                    parent: Some(source.clone()),
+                    index: 0,
+                    markdown: "after one".into(),
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "source-child-two",
+                Command::InsertBlock {
+                    owner: OutlineOwner::Page { id: page() },
+                    parent: Some(source.clone()),
+                    index: 1,
+                    markdown: "after two".into(),
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+
+        core.execute(
+            envelope(
+                "merge",
+                Command::MergeBlockBackward {
+                    owner: OutlineOwner::Page { id: page() },
+                    block_id: source.clone(),
+                },
+            ),
+            "t6",
+        )
+        .unwrap();
+        let merged = core.page_snapshot(&page()).unwrap();
+        assert_eq!(merged.blocks.len(), 1);
+        assert_eq!(merged.blocks[0].id, target);
+        assert_eq!(merged.blocks[0].markdown, "head tail[[roadmap]]");
+        assert_eq!(
+            merged.blocks[0].page_references,
+            [PageReferenceSpan {
+                start: 9,
+                end: 20,
+                index: 9,
+                page_id: referenced_page,
+            }]
+        );
+        assert_eq!(
+            merged.blocks[0]
+                .children
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            ["before", "after one", "after two"]
+        );
+
+        core.execute(envelope("undo-merge", Command::Undo), "t7")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(
+            restored
+                .blocks
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            ["head ", "tail[[roadmap]]"]
+        );
+        assert_eq!(restored.blocks[0].children[0].markdown, "before");
+        assert_eq!(
+            restored.blocks[1]
+                .children
+                .iter()
+                .map(|block| block.markdown.as_str())
+                .collect::<Vec<_>>(),
+            ["after one", "after two"]
+        );
+
+        core.execute(envelope("redo-merge", Command::Redo), "t8")
+            .unwrap();
+        assert_eq!(core.page_snapshot(&page()).unwrap().blocks.len(), 1);
+    }
+
+    #[test]
+    fn backward_merge_rejects_the_first_sibling() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let first = insert_root(&mut core, "first", &page(), 0, "first");
+
+        let error = core
+            .execute(
+                envelope(
+                    "merge-first",
+                    Command::MergeBlockBackward {
+                        owner: OutlineOwner::Page { id: page() },
+                        block_id: first,
+                    },
+                ),
+                "t3",
+            )
+            .unwrap_err();
+        assert!(matches!(error, CoreError::InvalidHierarchy(_)));
+        assert_eq!(core.page_snapshot(&page()).unwrap().blocks.len(), 1);
     }
 
     #[test]

@@ -65,6 +65,7 @@ export type Command =
   | { type: "restore_tag"; tag_id: string }
   | { type: "insert_block"; owner: OutlineOwner; parent: string | null; index: number; markdown: string }
   | { type: "split_block"; owner: OutlineOwner; block_id: string; index: number; placement: SplitPlacement }
+  | { type: "merge_block_backward"; owner: OutlineOwner; block_id: string }
   | {
       type: "insert_outline";
       owner: OutlineOwner;

@@ -3,29 +3,44 @@ import type { PageReferenceSpan } from "../../core-port/snapshot";
 import type { InlineContentProjection } from "../blocks/editor/inline-content";
 
 interface PendingOutlineOperationBase {
+  id: string;
+  dispatched: boolean;
+}
+
+interface PendingCreationOperationBase extends PendingOutlineOperationBase {
   tempId: string;
   /** Block the created row is positioned relative to — a real BlockId or earlier tempId. */
   anchorId: string;
   mode: "before" | "child" | "sibling";
   /** Authoritative content expected on the newly created block. */
   created: InlineContentProjection;
-  dispatched: boolean;
   /** Indent/outdent keys typed before the real id arrived. */
   structural: readonly ("indent" | "outdent")[];
 }
 
-export interface PendingInsertOperation extends PendingOutlineOperationBase {
+export interface PendingInsertOperation extends PendingCreationOperationBase {
   kind: "insert";
 }
 
-export interface PendingSplitOperation extends PendingOutlineOperationBase {
+export interface PendingSplitOperation extends PendingCreationOperationBase {
   kind: "split";
   splitIndex: number;
   /** Complete visible content of the source while the split is pending. */
   source: InlineContentProjection;
 }
 
-export type PendingOutlineOperation = PendingInsertOperation | PendingSplitOperation;
+export interface PendingMergeOperation extends PendingOutlineOperationBase {
+  kind: "merge";
+  sourceId: string;
+  targetId: string;
+  /** Complete target content after deleting the boundary. */
+  merged: InlineContentProjection;
+  /** UTF-16 caret position between the original target and source content. */
+  joinCaret: number;
+}
+
+export type PendingCreationOperation = PendingInsertOperation | PendingSplitOperation;
+export type PendingOutlineOperation = PendingCreationOperation | PendingMergeOperation;
 
 export interface OutlineDraftState {
   drafts: ReadonlyMap<string, string>;
@@ -72,9 +87,11 @@ export type OutlineDraftAction =
     }
   | { type: "reconcile"; draftIds: readonly string[]; autoCloserIds: readonly string[] }
   | { type: "enqueue"; operation: PendingOutlineOperation }
-  | { type: "mark-dispatched"; tempId: string }
+  | { type: "mark-dispatched"; id: string }
   | { type: "adopt"; tempId: string; blockId: string; typed: string }
   | { type: "discard-head"; tempId: string }
+  | { type: "complete-merge"; id: string }
+  | { type: "fail-merge"; id: string }
   | { type: "queue-structural"; tempId: string; kind: "indent" | "outdent" }
   | { type: "abandon-pending" };
 
@@ -163,6 +180,24 @@ export function outlineDraftReducer(
         pageReferences: without(state.pageReferences, action.draftIds),
       };
     case "enqueue":
+      if (action.operation.kind === "merge") {
+        return {
+          ...state,
+          drafts: new Map(state.drafts).set(
+            action.operation.targetId,
+            action.operation.merged.markdown,
+          ),
+          baselines: new Map(state.baselines).set(
+            action.operation.targetId,
+            action.operation.merged.markdown,
+          ),
+          pageReferences: new Map(state.pageReferences).set(
+            action.operation.targetId,
+            action.operation.merged.pageReferences,
+          ),
+          pendingOperations: [...state.pendingOperations, action.operation],
+        };
+      }
       return {
         ...state,
         drafts: new Map(state.drafts).set(
@@ -175,13 +210,15 @@ export function outlineDraftReducer(
       return {
         ...state,
         pendingOperations: state.pendingOperations.map((operation) =>
-          operation.tempId === action.tempId
+          operation.id === action.id
             ? { ...operation, dispatched: true }
             : operation),
       };
     case "adopt": {
       const operation = state.pendingOperations[0];
-      if (operation?.tempId !== action.tempId) return state;
+      if (!operation || operation.kind === "merge" || operation.tempId !== action.tempId) {
+        return state;
+      }
       const drafts = without(state.drafts, [action.tempId]);
       const baselines = without(state.baselines, [action.tempId]);
       const autoClosers = without(state.autoClosers, [action.tempId]);
@@ -199,13 +236,29 @@ export function outlineDraftReducer(
         pageReferences,
         pendingOperations: state.pendingOperations
           .slice(1)
-          .map((pending) => pending.anchorId === action.tempId
-            ? { ...pending, anchorId: action.blockId }
-            : pending),
+          .map((pending) => {
+            if (pending.kind === "merge") {
+              return {
+                ...pending,
+                sourceId: pending.sourceId === action.tempId
+                  ? action.blockId
+                  : pending.sourceId,
+                targetId: pending.targetId === action.tempId
+                  ? action.blockId
+                  : pending.targetId,
+              };
+            }
+            return pending.anchorId === action.tempId
+              ? { ...pending, anchorId: action.blockId }
+              : pending;
+          }),
       };
     }
-    case "discard-head":
-      if (state.pendingOperations[0]?.tempId !== action.tempId) return state;
+    case "discard-head": {
+      const operation = state.pendingOperations[0];
+      if (!operation || operation.kind === "merge" || operation.tempId !== action.tempId) {
+        return state;
+      }
       return {
         drafts: without(state.drafts, [action.tempId]),
         baselines: without(state.baselines, [action.tempId]),
@@ -213,16 +266,45 @@ export function outlineDraftReducer(
         pageReferences: without(state.pageReferences, [action.tempId]),
         pendingOperations: state.pendingOperations.slice(1),
       };
+    }
+    case "complete-merge": {
+      const operation = state.pendingOperations[0];
+      if (operation?.kind !== "merge" || operation.id !== action.id) return state;
+      const unchanged = state.drafts.get(operation.targetId) === operation.merged.markdown;
+      const ids = unchanged ? [operation.targetId] : [];
+      return {
+        ...state,
+        drafts: without(state.drafts, ids),
+        baselines: without(state.baselines, ids),
+        autoClosers: without(state.autoClosers, ids),
+        pageReferences: without(state.pageReferences, ids),
+        pendingOperations: state.pendingOperations.slice(1),
+      };
+    }
+    case "fail-merge": {
+      const operation = state.pendingOperations[0];
+      if (operation?.kind !== "merge" || operation.id !== action.id) return state;
+      return {
+        ...state,
+        drafts: without(state.drafts, [operation.targetId]),
+        baselines: without(state.baselines, [operation.targetId]),
+        autoClosers: without(state.autoClosers, [operation.targetId]),
+        pageReferences: without(state.pageReferences, [operation.targetId]),
+        pendingOperations: state.pendingOperations.slice(1),
+      };
+    }
     case "queue-structural":
       return {
         ...state,
         pendingOperations: state.pendingOperations.map((operation) =>
-          operation.tempId === action.tempId
+          operation.kind !== "merge" && operation.tempId === action.tempId
             ? { ...operation, structural: [...operation.structural, action.kind] }
             : operation),
       };
     case "abandon-pending": {
-      const ids = state.pendingOperations.map((operation) => operation.tempId);
+      const ids = state.pendingOperations.map((operation) => operation.kind === "merge"
+        ? operation.targetId
+        : operation.tempId);
       return {
         drafts: without(state.drafts, ids),
         baselines: without(state.baselines, ids),

@@ -123,6 +123,10 @@ pub enum Command {
         index: usize,
         placement: SplitPlacement,
     },
+    MergeBlockBackward {
+        owner: OutlineOwner,
+        block_id: BlockId,
+    },
     InsertOutline {
         owner: OutlineOwner,
         parent: Option<BlockId>,

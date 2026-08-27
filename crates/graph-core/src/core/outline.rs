@@ -1,4 +1,4 @@
-use super::{CoreError, GraphCore, MAX_STRUCTURAL_TARGETS};
+use super::{CoreError, GraphCore, MAX_BLOCK_TEXT_BYTES, MAX_STRUCTURAL_TARGETS};
 use domain::{BlockId, BlockSnapshot, OutlineOwner};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,6 +13,13 @@ pub(super) struct MovePlan {
     pub(super) outline: OutlinePlan,
     pub(super) parent: Option<BlockId>,
     pub(super) after: Option<BlockId>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct MergePlan {
+    pub(super) before: OutlineState,
+    pub(super) source: BlockId,
+    pub(super) target: BlockId,
 }
 
 #[derive(Debug, Clone)]
@@ -305,6 +312,46 @@ impl GraphCore {
         Ok(OutlinePlan {
             roots: before.roots(block_ids)?,
             before,
+        })
+    }
+
+    pub(super) fn plan_merge_block_backward(
+        &self,
+        owner: &OutlineOwner,
+        block_id: &BlockId,
+    ) -> Result<MergePlan, CoreError> {
+        let before = self.outline_state(owner)?;
+        let parent = before
+            .parents
+            .get(block_id)
+            .cloned()
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        let siblings = before
+            .children
+            .get(&parent)
+            .ok_or_else(|| CoreError::InvalidHierarchy("block parent has no child list".into()))?;
+        let position = siblings
+            .iter()
+            .position(|candidate| candidate == block_id)
+            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
+        let target = position
+            .checked_sub(1)
+            .map(|target| siblings[target].clone())
+            .ok_or_else(|| {
+                CoreError::InvalidHierarchy("first sibling cannot merge backward".into())
+            })?;
+        let combined_bytes = self
+            .block_text(owner, &target)?
+            .to_string()
+            .len()
+            .saturating_add(self.block_text(owner, block_id)?.to_string().len());
+        if combined_bytes > MAX_BLOCK_TEXT_BYTES {
+            return Err(CoreError::TextTooLong);
+        }
+        Ok(MergePlan {
+            before,
+            source: block_id.clone(),
+            target,
         })
     }
 }

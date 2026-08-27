@@ -164,6 +164,12 @@ the temporary identity atomically; rejection removes the whole projection. Pendi
 operations may chain, and queued structural intents replay in order after IDs
 resolve.
 
+Backspace at canonical offset zero merges with the previous sibling. Its pending
+operation projects the combined target and hidden source together, moves focus to
+the join, and serializes raced typing after the canonical merge. A first child
+outdents instead; the first root is unchanged. Merge rejection restores both rows
+and the source caret.
+
 Bulk move, indent, outdent, and delete send one plural command for the selected
 roots. The core removes duplicate descendants, derives authoritative order, and
 owns the transaction and undo group. A structural copy projects one versioned

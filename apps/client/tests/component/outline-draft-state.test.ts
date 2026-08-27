@@ -8,6 +8,7 @@ describe("outline draft state", () => {
   it("adopts a pending row and remaps the next queued anchor atomically", () => {
     const first = {
       kind: "insert" as const,
+      id: "pending-1",
       tempId: "pending-1",
       anchorId: "block-1",
       mode: "sibling" as const,
@@ -17,6 +18,7 @@ describe("outline draft state", () => {
     };
     const second = {
       kind: "insert" as const,
+      id: "pending-2",
       tempId: "pending-2",
       anchorId: "pending-1",
       mode: "sibling" as const,
@@ -73,6 +75,7 @@ describe("outline draft state", () => {
       type: "enqueue",
       operation: {
         kind: "insert",
+        id: "pending-1",
         tempId: "pending-1",
         anchorId: "block-1",
         mode: "sibling",
@@ -93,6 +96,7 @@ describe("outline draft state", () => {
       type: "enqueue",
       operation: {
         kind: "insert",
+        id: "pending-1",
         tempId: "pending-1",
         anchorId: "block-1",
         mode: "sibling",
@@ -110,5 +114,77 @@ describe("outline draft state", () => {
     });
 
     expect(unchanged).toBe(state);
+  });
+
+  it("owns the merged target draft until acknowledgement or failure", () => {
+    const operation = {
+      kind: "merge" as const,
+      id: "merge-1",
+      sourceId: "block-2",
+      targetId: "block-1",
+      merged: { markdown: "headtail", pageReferences: [] },
+      joinCaret: 4,
+      dispatched: false,
+    };
+    const pending = outlineDraftReducer(initialOutlineDraftState, {
+      type: "enqueue",
+      operation,
+    });
+    expect(pending.drafts.get("block-1")).toBe("headtail");
+    expect(pending.baselines.get("block-1")).toBe("headtail");
+
+    const typed = outlineDraftReducer(pending, {
+      type: "edit",
+      id: "block-1",
+      value: "headtail!",
+    });
+    const completed = outlineDraftReducer(typed, { type: "complete-merge", id: "merge-1" });
+    expect(completed.pendingOperations).toEqual([]);
+    expect(completed.drafts.get("block-1")).toBe("headtail!");
+    expect(completed.baselines.get("block-1")).toBe("headtail");
+
+    const failed = outlineDraftReducer(pending, { type: "fail-merge", id: "merge-1" });
+    expect(failed.pendingOperations).toEqual([]);
+    expect(failed.drafts.has("block-1")).toBe(false);
+    expect(failed.baselines.has("block-1")).toBe(false);
+  });
+
+  it("remaps a merge queued behind a temporary source", () => {
+    const creation = {
+      kind: "insert" as const,
+      id: "pending-1",
+      tempId: "pending-1",
+      anchorId: "block-1",
+      mode: "sibling" as const,
+      created: { markdown: "tail", pageReferences: [] },
+      dispatched: true,
+      structural: [],
+    };
+    let state = outlineDraftReducer(initialOutlineDraftState, {
+      type: "enqueue",
+      operation: creation,
+    });
+    state = outlineDraftReducer(state, {
+      type: "enqueue",
+      operation: {
+        kind: "merge",
+        id: "merge-1",
+        sourceId: "pending-1",
+        targetId: "block-1",
+        merged: { markdown: "headtail", pageReferences: [] },
+        joinCaret: 4,
+        dispatched: false,
+      },
+    });
+    state = outlineDraftReducer(state, {
+      type: "adopt",
+      tempId: "pending-1",
+      blockId: "block-2",
+      typed: "tail",
+    });
+
+    expect(state.pendingOperations).toEqual([
+      expect.objectContaining({ kind: "merge", sourceId: "block-2", targetId: "block-1" }),
+    ]);
   });
 });

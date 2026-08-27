@@ -481,6 +481,7 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
       return { kind: "outline", owner: { kind: "page", id: command.page_id } };
     case "insert_block":
     case "split_block":
+    case "merge_block_backward":
     case "insert_outline":
     case "paste_outline":
     case "edit_markdown":

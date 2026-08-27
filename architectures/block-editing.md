@@ -42,6 +42,12 @@ created halves together. Acknowledgement replaces only the temporary identity; i
 does not introduce a second content transition. Semantic reference spans split and
 rebase with their half of the projection.
 
+Deleting a block boundary uses the same separation. The pending merge projects one
+combined target and removes the source while the complete canonical merge is in
+flight. Its join caret is stable, and edits arriving there use the merged content
+as their persistence baseline. Failure removes the whole projection and restores
+the source caret.
+
 Editable plain text keeps one textarea DOM boundary at rest and while focused.
 Focus starts the surface's draft session, so the browser retains the pointer's
 native caret instead of spending the first click replacing a display trigger.

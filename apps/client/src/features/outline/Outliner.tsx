@@ -162,6 +162,7 @@ import {
 } from "../blocks/editor/BlockCompletions";
 import {
   canonicalContentBoundary,
+  joinInlineContentProjections,
   planInlineEdit,
   planPageReference,
   splitInlineContentProjection,
@@ -331,6 +332,12 @@ interface EditorContext {
     head: InlineContentProjection,
     tail: InlineContentProjection,
     asChild: boolean,
+    inputMethod: InputMethod,
+  ): void;
+  mergeBackward(
+    row: OutlineRow,
+    rows: OutlineRow[],
+    textarea: HTMLTextAreaElement,
     inputMethod: InputMethod,
   ): void;
   queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
@@ -543,8 +550,14 @@ export function Outliner({
   const ownerRef = useLatest(owner);
   const outlineRef = useLatest(outline);
 
+  const projectedCollapsed = new Set(collapsed);
+  for (const operation of draftState.pendingOperations) {
+    if (operation.kind === "merge" && !collapsed.has(operation.targetId)) {
+      projectedCollapsed.delete(operation.sourceId);
+    }
+  }
   const pendingProjection = projectPendingOperations(
-    flattenOutline(outline, collapsed),
+    flattenOutline(outline, projectedCollapsed),
     draftState.pendingOperations,
     draftState.drafts,
     draftState.pageReferences,
@@ -752,6 +765,9 @@ export function Outliner({
   const flush = useCallback(
     (id: string) => {
       if (isPendingId(id)) return; // transferred when the real id arrives
+      if (draftStateRef.current.pendingOperations.some(
+        (operation) => operation.kind === "merge" && operation.targetId === id,
+      )) return; // flushed after the canonical merge establishes this baseline
       const draft = draftStateRef.current.drafts.get(id);
       const baseline = draftStateRef.current.baselines.get(id);
       if (draft === undefined || baseline === undefined) return;
@@ -1034,13 +1050,14 @@ export function Outliner({
   const abandonPending = useCallback(
     (reason: string) => {
       const pendingOperations = draftStateRef.current.pendingOperations;
-      const lost = pendingOperations.length;
-      const typed = pendingOperations.some(
+      const creations = pendingOperations.filter((entry) => entry.kind !== "merge");
+      const lost = creations.length;
+      const typed = creations.some(
         (entry) => (draftStateRef.current.drafts.get(entry.tempId)
           ?? entry.created.markdown) !== entry.created.markdown,
       );
       let fallback: string | null = null;
-      for (const entry of pendingOperations) {
+      for (const entry of creations) {
         if (!isPendingId(entry.anchorId)) fallback = entry.anchorId;
       }
       dispatchDraft({ type: "abandon-pending" });
@@ -1058,11 +1075,54 @@ export function Outliner({
     [activateBlock, dispatchDraft, message, notify],
   );
 
-  /** Dispatches the oldest pending creation whose anchor id is real. */
+  /** Dispatches the oldest pending outline operation whose dependencies are real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
     const head = draftStateRef.current.pendingOperations[0];
-    if (!head || head.dispatched || isPendingId(head.anchorId)) return;
+    if (!head || head.dispatched) return;
+    if (head.kind === "merge") {
+      if (isPendingId(head.sourceId) || isPendingId(head.targetId)) return;
+      dispatchDraft({ type: "mark-dispatched", id: head.id });
+      pendingDispatching.current = true;
+      void session
+        .execute({
+          type: "merge_block_backward",
+          owner: ownerRef.current,
+          block_id: head.sourceId,
+        })
+        .then(() => {
+          const typed = draftStateRef.current.drafts.get(head.targetId)
+            ?? head.merged.markdown;
+          const active = document.activeElement;
+          const caret = active instanceof HTMLTextAreaElement
+            ? active.selectionStart
+            : head.joinCaret;
+          const wasFocused = focusedRef.current === head.targetId;
+          flushSync(() => {
+            dispatchDraft({ type: "complete-merge", id: head.id });
+            if (wasFocused) activateBlock(head.targetId, caret, "programmatic");
+          });
+          if (typed !== head.merged.markdown) flushNow(head.targetId);
+          pendingDispatching.current = false;
+          dispatchPending();
+        })
+        .catch((error: unknown) => {
+          const timer = flushTimers.current.get(head.targetId);
+          if (timer) {
+            clearTimeout(timer);
+            flushTimers.current.delete(head.targetId);
+          }
+          flushSync(() => {
+            dispatchDraft({ type: "fail-merge", id: head.id });
+            activateBlock(head.sourceId, 0, "programmatic");
+          });
+          pendingDispatching.current = false;
+          notify.failure(message("failure.mergeBlock"), error);
+          dispatchPending();
+        });
+      return;
+    }
+    if (isPendingId(head.anchorId)) return;
     // A preceding queued structural command may have reconciled after the
     // component's last render. Compute the next insert from GraphSession's
     // current snapshot, not the render-time page ref, so parent/index cannot
@@ -1077,7 +1137,7 @@ export function Outliner({
       abandonPending("The block it would follow is gone.");
       return;
     }
-    dispatchDraft({ type: "mark-dispatched", tempId: head.tempId });
+    dispatchDraft({ type: "mark-dispatched", id: head.id });
     pendingDispatching.current = true;
     const placement: SplitPlacement = head.mode === "before"
       ? "before"
@@ -1104,7 +1164,7 @@ export function Outliner({
       .then(async (result) => {
         const realId = result.created_block;
         const structural = draftStateRef.current.pendingOperations
-          .find((operation) => operation.tempId === head.tempId)
+          .find((operation) => operation.kind !== "merge" && operation.tempId === head.tempId)
           ?.structural ?? head.structural;
         const typed = draftStateRef.current.drafts.get(head.tempId)
           ?? head.created.markdown;
@@ -2407,6 +2467,7 @@ export function Outliner({
           type: "enqueue",
           operation: {
             kind: "insert",
+            id: tempId,
             tempId,
             anchorId: row.block.id,
             mode: asChild ? "child" : "sibling",
@@ -2428,6 +2489,7 @@ export function Outliner({
           type: "enqueue",
           operation: {
             kind: "split",
+            id: tempId,
             tempId,
             anchorId: row.block.id,
             mode: leading ? "before" : asChild ? "child" : "sibling",
@@ -2439,6 +2501,48 @@ export function Outliner({
           },
         });
         activateBlock(tempId, 0, inputMethod);
+      });
+      dispatchPending();
+    },
+    mergeBackward: (row, allRows, textarea, inputMethod) => {
+      if (
+        draftStateRef.current.pendingOperations.length > 0
+        && !isPendingId(row.block.id)
+      ) return;
+      const target = allRows.find(
+        (candidate) => candidate.parentId === row.parentId && candidate.index === row.index - 1,
+      );
+      if (!target || (!isPendingId(row.block.id) && isPendingId(target.block.id))) return;
+      const targetContent = {
+        markdown: editor.draftOf(target),
+        pageReferences: editor.pageReferencesOf(target.block),
+      };
+      const projectedSource = editor.draftOf(row);
+      const projectedReferences = editor.pageReferencesOf(row.block);
+      const liveSource = textarea.value;
+      const liveReferences = liveSource === projectedSource
+        ? projectedReferences
+        : planInlineEdit(row.block.id, projectedSource, projectedReferences, liveSource)
+          ?.references ?? projectedReferences;
+      const sourceContent = { markdown: liveSource, pageReferences: liveReferences };
+      flushNow(target.block.id);
+      flushNow(row.block.id);
+      pendingSeq.current += 1;
+      const operationId = `merge-${pendingSeq.current}`;
+      flushSync(() => {
+        dispatchDraft({
+          type: "enqueue",
+          operation: {
+            kind: "merge",
+            id: operationId,
+            sourceId: row.block.id,
+            targetId: target.block.id,
+            merged: joinInlineContentProjections(targetContent, sourceContent),
+            joinCaret: targetContent.markdown.length,
+            dispatched: false,
+          },
+        });
+        activateBlock(target.block.id, targetContent.markdown.length, inputMethod);
       });
       dispatchPending();
     },
@@ -3481,9 +3585,18 @@ function onKeyDown(
     } else if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (!editor.readonly) handleEnter(editor, row, event.currentTarget);
-    } else if (event.key === "Backspace" || event.altKey) {
-      // Deletion/moves need a real id; swallow only the structural cases.
-      if (editor.draftOf(row).length === 0) event.preventDefault();
+    } else if (
+      event.key === "Backspace"
+      && event.currentTarget.selectionStart === 0
+      && event.currentTarget.selectionEnd === 0
+    ) {
+      event.preventDefault();
+      if (!editor.readonly && row.index > 0) {
+        editor.mergeBackward(row, rows, event.currentTarget, "keyboard");
+      }
+    } else if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      // Moves need a real id; swallow only the structural cases.
+      event.preventDefault();
     }
     return;
   }
@@ -3543,16 +3656,17 @@ function onKeyDown(
   }
 
   if (event.key === "Backspace") {
-    const value = editor.draftOf(row);
     if (
-      value.length === 0 &&
       textarea.selectionStart === 0 &&
-      textarea.selectionEnd === 0 &&
-      !row.hasChildren
+      textarea.selectionEnd === 0
     ) {
       event.preventDefault();
       if (editor.readonly) return;
-      editor.menu.remove(row, rows);
+      if (row.index > 0) {
+        editor.mergeBackward(row, rows, textarea, "keyboard");
+      } else if (row.depth > 0) {
+        editor.menu.outdent(row);
+      }
       return;
     }
   }
@@ -3795,6 +3909,52 @@ function projectPendingOperations(
   let result = rows;
   const content = new Map<string, InlineContentProjection>();
   for (const entry of pending) {
+    if (entry.kind === "merge") {
+      const sourceIndex = result.findIndex((row) => row.block.id === entry.sourceId);
+      const targetIndex = result.findIndex((row) => row.block.id === entry.targetId);
+      if (sourceIndex < 0 || targetIndex < 0) continue;
+      const source = result[sourceIndex];
+      const target = result[targetIndex];
+      const targetChildCount = result.filter(
+        (row) => row.parentId === entry.targetId,
+      ).length;
+      const sourceChildCount = result.filter(
+        (row) => row.parentId === entry.sourceId,
+      ).length;
+      const mergedChildCount = targetChildCount + sourceChildCount;
+      content.set(entry.targetId, {
+        markdown: drafts.get(entry.targetId) ?? entry.merged.markdown,
+        pageReferences: pageReferences.get(entry.targetId) ?? entry.merged.pageReferences,
+      });
+      let sourceSubtreeEnd = sourceIndex + 1;
+      while (
+        sourceSubtreeEnd < result.length
+        && result[sourceSubtreeEnd].depth > source.depth
+      ) sourceSubtreeEnd += 1;
+      const hidden = target.collapsed
+        ? new Set(result.slice(sourceIndex, sourceSubtreeEnd).map((row) => row.block.id))
+        : new Set([entry.sourceId]);
+      result = result
+        .filter((row) => !hidden.has(row.block.id))
+        .map((row) => {
+          if (row.block.id === entry.targetId) {
+            return { ...row, hasChildren: row.hasChildren || source.hasChildren };
+          }
+          if (row.parentId === entry.targetId) {
+            return { ...row, siblingCount: mergedChildCount };
+          }
+          if (row.parentId === entry.sourceId) {
+            return {
+              ...row,
+              parentId: entry.targetId,
+              index: targetChildCount + row.index,
+              siblingCount: mergedChildCount,
+            };
+          }
+          return row;
+        });
+      continue;
+    }
     const sourceIndex = result.findIndex((row) => row.block.id === entry.anchorId);
     if (sourceIndex < 0) continue;
     const source = result[sourceIndex];
