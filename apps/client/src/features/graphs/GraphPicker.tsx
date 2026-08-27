@@ -462,25 +462,20 @@ function DeleteDialog({
 }) {
   const { message } = useI18n();
   const notify = useNotify();
-  const [busy, setBusy] = useState(false);
   return (
     <ConfirmDialog
       title={message("graph.deleteTitle")}
       cancelLabel={message("common.cancel")}
       confirmLabel={message("common.deleteForever")}
-      busy={busy}
       testId="confirm-delete-graph"
       returnFocus={returnFocus}
       onClose={onClose}
-      onConfirm={() => {
-        setBusy(true);
-        deleteGraph(graph.id)
-          .then(onDeleted)
-          .catch((cause: unknown) => {
-            setBusy(false);
-            notify.failure(message("failure.deleteGraph", { name: graph.name }), cause);
-          });
+      onConfirm={async () => {
+        await deleteGraph(graph.id);
+        onDeleted();
       }}
+      onConfirmError={(cause) =>
+        notify.failure(message("failure.deleteGraph", { name: graph.name }), cause)}
     >
       {message("graph.deleteConfirm", { name: graph.name })}
     </ConfirmDialog>

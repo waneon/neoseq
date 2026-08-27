@@ -24,6 +24,11 @@ function mountNotifier(): Notifier {
   return notifier;
 }
 
+function MissingProviderProbe() {
+  useNotify();
+  return null;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -64,6 +69,11 @@ describe("failure copy", () => {
 });
 
 describe("toast surface", () => {
+  it("fails fast outside the notification boundary", () => {
+    expect(() => render(<MissingProviderProbe />))
+      .toThrow("useNotify must be used within NotifyProvider");
+  });
+
   it("announces a failure assertively and a notice politely", async () => {
     const notify = mountNotifier();
     act(() => {

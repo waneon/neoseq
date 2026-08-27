@@ -10,7 +10,9 @@ import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
 import { Outliner } from "../../src/features/outline/Outliner";
 import { SessionContext } from "../../src/features/shell/session-context";
 import { HistoryProvider } from "../../src/features/history/context";
-import { GRAPH_ID, mountAt, openBlockMenu } from "./harness";
+import { NotifyProvider } from "../../src/features/notify/context";
+import { LocaleProvider } from "../../src/i18n";
+import { GRAPH_ID, mountAt, openBlockMenu, TestCommandProvider } from "./harness";
 
 async function mountOutline(markdowns: string[] = ["alpha"]) {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -699,17 +701,23 @@ describe("outliner keyboard commands", () => {
     // Model the real handoff race: GraphSession has reconciled the insert,
     // while the parent still holds the page object from the previous render.
     render(
-      <MemoryRouter>
-        <SessionContext.Provider value={session}>
-          <HistoryProvider session={session} graphId="pending-handoff">
-            <Outliner
-              owner={{ kind: "page", id: frozenPage.id }}
-              blocks={frozenPage.blocks}
-              scrollElement={null}
-            />
-          </HistoryProvider>
-        </SessionContext.Provider>
-      </MemoryRouter>,
+      <LocaleProvider initialPreference="en">
+        <NotifyProvider>
+          <MemoryRouter>
+            <TestCommandProvider>
+              <SessionContext.Provider value={session}>
+                <HistoryProvider session={session} graphId="pending-handoff">
+                  <Outliner
+                    owner={{ kind: "page", id: frozenPage.id }}
+                    blocks={frozenPage.blocks}
+                    scrollElement={null}
+                  />
+                </HistoryProvider>
+              </SessionContext.Provider>
+            </TestCommandProvider>
+          </MemoryRouter>
+        </NotifyProvider>
+      </LocaleProvider>,
     );
     const user = userEvent.setup();
     await user.click(screen.getByLabelText("Block text"));

@@ -22,7 +22,7 @@
 import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { dateValue, stringValue } from "../../core-port/snapshot";
 import { MinusIcon } from "lucide-react";
-import type { Command } from "../../core-port/commands";
+import type { Command, PropertyChange } from "../../core-port/commands";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -92,15 +92,15 @@ export function TaskStatusMenu({
   const { message, formatJournalDate } = useI18n();
   const entity = { kind: "block", owner, id: block.id } as const;
 
-  const run = (commands: Command[]) =>
-    commands
-      .reduce<Promise<unknown>>(
-        (chain, command) => chain.then(() => session.execute(command)),
-        Promise.resolve(),
-      )
-      .catch((error: unknown) => {
-        notify.failure(message("failure.setProperty"), error);
-      });
+  const run = async (command: Command) => {
+    try {
+      await session.execute(command);
+      return true;
+    } catch (error) {
+      notify.failure(message("failure.setProperty"), error);
+      return false;
+    }
+  };
 
   const setStatus = (value: string): Command => ({
     type: "set_property",
@@ -114,28 +114,23 @@ export function TaskStatusMenu({
   const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
   const recurs = repeat !== null && (scheduled !== undefined || deadline !== undefined);
 
-  /**
-   * Rolling a recurrence forward is three property writes rather than one
-   * command, because the domain has no composite "advance this task" verb and
-   * inventing one would be a core change for a client behaviour. They are
-   * issued in order and each is its own undo item, which also means a user can
-   * step back through exactly the part they did not mean.
-   */
-  const advance = () => {
+  /** One completed occurrence is one property transition and one undo item. */
+  const advance = async () => {
     if (!repeat) return;
-    const commands: Command[] = [];
+    const changes: PropertyChange[] = [];
     const rolled = (key: string, date: string) => {
-      commands.push({
-        type: "set_property",
-        owner: entity,
+      changes.push({
         key,
         value: { type: "date", value: advanceDate(date, repeat) },
       });
     };
     if (scheduled !== undefined) rolled(TASK_SCHEDULED_KEY, scheduled);
     if (deadline !== undefined) rolled(TASK_DEADLINE_KEY, deadline);
-    if (status !== "todo") commands.push(setStatus("todo"));
-    void run(commands);
+    if (status !== "todo") {
+      changes.push({ key: TASK_STATUS_KEY, value: { type: "string", value: "todo" } });
+    }
+    const committed = await run({ type: "set_properties", owner: entity, changes });
+    if (!committed) return;
     // The one visible thing a completed occurrence does is move a date the user
     // may not be looking at, so the roll-forward says where it went.
     const next = scheduled ?? deadline;
@@ -152,10 +147,10 @@ export function TaskStatusMenu({
 
   const choose = (value: string) => {
     if (value === "done" && recurs) {
-      advance();
+      void advance();
       return;
     }
-    void run([setStatus(value)]);
+    void run(setStatus(value));
   };
 
   // A value the core holds that is not one of the suggested four is still a
@@ -189,7 +184,7 @@ export function TaskStatusMenu({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         data-testid="remove-status"
-        onSelect={() => void run([{ type: "remove_property", owner: entity, key: TASK_STATUS_KEY }])}
+        onSelect={() => void run({ type: "remove_property", owner: entity, key: TASK_STATUS_KEY })}
       >
         <MinusIcon aria-hidden />
         {message("task.removeStatus")}

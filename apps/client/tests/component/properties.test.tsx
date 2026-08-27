@@ -58,7 +58,7 @@ describe("the page's own menu", () => {
 
 describe("property picker", () => {
   it("edits all five value types and keeps unknown keys editable", async () => {
-    const { session } = await mountPage();
+    const { session, port } = await mountPage();
     const user = userEvent.setup();
     const owner = { kind: "page", id: "home" } as const;
     await session.execute({ type: "set_property", owner, key: "user.text", value: { type: "string", value: "hello" } });
@@ -112,12 +112,18 @@ describe("property picker", () => {
   });
 
   it("creates a page reference from the filterable combobox", async () => {
-    await mountPage();
+    const { session } = await mountPage();
     const user = userEvent.setup();
 
     await createCustomProperty(user, "destination", "page", "Roadmap");
 
     expect(await screen.findByTestId("prop-user.destination")).toHaveTextContent("Roadmap");
+
+    await session.execute({ type: "undo" });
+    await waitFor(() => {
+      expect(screen.queryByTestId("prop-user.destination")).not.toBeInTheDocument();
+      expect(session.getState().snapshot.pages.map((page) => page.title)).not.toContain("Roadmap");
+    });
   });
 
   it("creates an empty field and clears a value without removing its field", async () => {
@@ -325,7 +331,7 @@ describe("property picker", () => {
   });
 
   it("opens from slash and removes the slash token before applying a value", async () => {
-    const { session } = await mountPage();
+    const { session, port } = await mountPage();
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
@@ -335,6 +341,8 @@ describe("property picker", () => {
       markdown: "",
     });
     const textarea = await screen.findByLabelText("Block text");
+    const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
+    port.beforeExecute = async (command) => { commands.push(command); };
     await user.click(textarea);
     await user.type(textarea, "/prop");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
@@ -346,10 +354,19 @@ describe("property picker", () => {
     await waitFor(() =>
       expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing"),
     );
+    // The completion token was never persisted, so the semantic property write
+    // is the whole history entry; no compensating text command is necessary.
+    expect(commands).toEqual([expect.objectContaining({ type: "set_property" })]);
+    await waitFor(() => expect(textarea).toHaveFocus());
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      expect(textarea).toHaveValue("");
+      expect(screen.queryByTestId("task-status-toggle")).not.toBeInTheDocument();
+    });
   });
 
   it("sets a status straight from the slash menu, in one keystroke", async () => {
-    const { session } = await mountPage();
+    const { session, port } = await mountPage();
     const user = userEvent.setup();
     await session.execute({
       type: "insert_block",
@@ -359,6 +376,8 @@ describe("property picker", () => {
       markdown: "ship it ",
     });
     const textarea = await screen.findByLabelText("Block text");
+    const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
+    port.beforeExecute = async (command) => { commands.push(command); };
     await user.click(textarea);
     await user.type(textarea, "/done");
     const menu = await screen.findByTestId("slash-menu");
@@ -373,6 +392,19 @@ describe("property picker", () => {
     );
     // Settled text reads as settled.
     expect(textarea.closest(".outline-text")).toHaveAttribute("data-task-status", "done");
+    expect(commands).toContainEqual(expect.objectContaining({
+      type: "batch",
+      commands: expect.arrayContaining([
+        expect.objectContaining({ type: "splice_markdown" }),
+        expect.objectContaining({ type: "set_property" }),
+      ]),
+    }));
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      expect(textarea).toHaveValue("ship it ");
+      expect(screen.queryByTestId("task-status-toggle")).not.toBeInTheDocument();
+    });
   });
 
   it("offers grouped commands for an empty slash query", async () => {

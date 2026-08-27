@@ -18,7 +18,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import type { Anchor, AnchoredOptions } from "./anchored";
+import { snapshotAnchor, type Anchor, type AnchoredOptions } from "./anchored";
 import { OverlayRoot, useOverlayRoot } from "./overlay-root";
 import {
   Popover,
@@ -34,13 +34,16 @@ interface Measurable {
 }
 
 function measurableAnchor(anchor: Anchor): Measurable {
-  if (anchor instanceof HTMLElement) return anchor;
-  if (anchor) return { getBoundingClientRect: () => anchor };
+  let lastValid = snapshotAnchor(anchor);
   return {
-    getBoundingClientRect: () => DOMRect.fromRect({
-      x: window.innerWidth / 2,
-      y: VIEWPORT_INSET,
-    }),
+    getBoundingClientRect: () => {
+      const current = snapshotAnchor(anchor);
+      if (current) lastValid = current;
+      return lastValid ?? DOMRect.fromRect({
+        x: window.innerWidth / 2,
+        y: VIEWPORT_INSET,
+      });
+    },
   };
 }
 
@@ -66,12 +69,17 @@ function panelStyle(options: AnchoredOptions): CSSProperties {
 export function AnchoredPanel({
   anchor,
   label,
+  id,
+  role = "dialog",
   className,
   options = {},
   revision: _revision,
   testId,
   surfaceRef,
   dismissOnExternalScroll = false,
+  trapFocus = false,
+  preserveAnchorFocus = false,
+  initialFocus,
   onEscapeKeyDown,
   onFocusOutside,
   onKeyDown,
@@ -81,6 +89,8 @@ export function AnchoredPanel({
   /** The control the panel hangs off; Escape gives it focus back. */
   anchor: Anchor;
   label: string;
+  id?: string;
+  role?: "dialog" | "listbox";
   className: string;
   options?: AnchoredOptions;
   /** Content changes are observed by Radix and cause placement to be recomputed. */
@@ -90,6 +100,11 @@ export function AnchoredPanel({
   surfaceRef?: RefObject<HTMLDivElement | null>;
   /** The panel belongs to its anchor's current viewport, not to a later scroll position. */
   dismissOnExternalScroll?: boolean;
+  /** Dialog-like editors contain Tab and move focus to their first useful field. */
+  trapFocus?: boolean;
+  /** Combobox lists leave the caret in their anchor while options are active descendants. */
+  preserveAnchorFocus?: boolean;
+  initialFocus?: () => HTMLElement | null;
   /** Prevent the event to keep the panel open, as a staged editor does on its way back. */
   onEscapeKeyDown?: ComponentProps<typeof PopoverContent>["onEscapeKeyDown"];
   onFocusOutside?: ComponentProps<typeof PopoverContent>["onFocusOutside"];
@@ -128,13 +143,14 @@ export function AnchoredPanel({
   }, [anchor, dismissOnExternalScroll, onClose, surface]);
 
   return (
-    <Popover open onOpenChange={(open) => !open && onClose()}>
+    <Popover open modal={trapFocus} onOpenChange={(open) => !open && onClose()}>
       <PopoverAnchor virtualRef={virtualRef} />
       <PopoverPortal container={root}>
         <PopoverContent
           ref={rememberSurface}
+          id={id}
           className={className}
-          role="dialog"
+          role={role}
           aria-label={label}
           align={align}
           side="bottom"
@@ -147,7 +163,22 @@ export function AnchoredPanel({
             onEscapeKeyDown?.(event);
             if (!event.defaultPrevented) escaped.current = true;
           }}
-          onFocusOutside={onFocusOutside}
+          onOpenAutoFocus={(event) => {
+            if (preserveAnchorFocus) {
+              event.preventDefault();
+              return;
+            }
+            if (!initialFocus) return;
+            event.preventDefault();
+            queueMicrotask(() => initialFocus()?.focus({ preventScroll: true }));
+          }}
+          onFocusOutside={(event) => {
+            onFocusOutside?.(event);
+            // A combobox expresses focus through aria-activedescendant: DOM
+            // focus intentionally stays in the anchor, and its small blur
+            // grace period owns pointer handoff and stale-focus cancellation.
+            if (preserveAnchorFocus) event.preventDefault();
+          }}
           onPointerDownOutside={(event) => {
             const target = event.detail.originalEvent.target;
             // A virtual anchor is not a DOM ancestor of the content, so Radix

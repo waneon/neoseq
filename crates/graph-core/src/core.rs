@@ -3,17 +3,17 @@ mod outline;
 
 use self::outline::{MovePlan, OutlinePlan};
 use domain::{
-    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandResult, DefaultQueryId,
-    DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot, GraphSummary,
-    HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
-    OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner, OutlineSnapshot, PageId,
-    PageSnapshot, PageSummary, PropertyBag, PropertyChange, PropertyCopyPolicy, PropertyDocument,
-    PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
-    PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
-    QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
-    QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
-    property_copy_policy, validate_property, validate_property_field, validate_property_shape,
-    validate_property_target, validate_property_write,
+    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandId, CommandResult,
+    DefaultQueryId, DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot,
+    GraphSummary, HistoryEffect, HistoryScope, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION,
+    OutlineFragment, OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner,
+    OutlineSnapshot, PageId, PageSnapshot, PageSummary, PropertyBag, PropertyChange,
+    PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader, PropertyError, PropertyField,
+    PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA,
+    QUERY_DOCUMENT_VERSION, QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView,
+    QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId,
+    TagSnapshot, TagSummary, property_copy_policy, validate_property, validate_property_field,
+    validate_property_shape, validate_property_target, validate_property_write,
 };
 use loro::{
     Container, ContainerID, ContainerTrait, ExportMode, Index, LoroDoc, LoroEncodeError, LoroError,
@@ -61,6 +61,7 @@ pub fn empty_version_vector() -> Vec<u8> {
 const IDEMPOTENCY_CAPACITY: usize = 1024;
 const MAX_STRUCTURAL_TARGETS: usize = 10_000;
 const MAX_PROPERTY_CHANGES: usize = 64;
+const MAX_BATCH_COMMANDS: usize = 64;
 
 #[derive(Debug)]
 enum CommandPlan {
@@ -224,6 +225,8 @@ pub enum CoreError {
     TagNotFound(TagId),
     #[error("tag is deleted: {0}")]
     TagDeleted(TagId),
+    #[error("invalid command batch: {0}")]
+    InvalidBatch(String),
     #[error("page name already exists: {name} (page {existing})")]
     PageNameConflict { name: String, existing: PageId },
     #[error("tag name already exists: {name} (tag {existing})")]
@@ -1152,6 +1155,20 @@ impl GraphCore {
         })
     }
 
+    fn validation_fork(&self) -> Self {
+        let doc = self.doc.fork();
+        let undo = UndoManager::new(&doc);
+        Self {
+            graph_id: self.graph_id.clone(),
+            doc,
+            undo,
+            command_results: BTreeMap::new(),
+            command_order: VecDeque::new(),
+            undo_history: Vec::new(),
+            redo_history: Vec::new(),
+        }
+    }
+
     fn validate(&self, command: &Command) -> Result<(), CoreError> {
         match command {
             Command::EnsurePage { page_id, title } => {
@@ -1571,6 +1588,67 @@ impl GraphCore {
             Command::RemoveTag { entity, tag_id } => {
                 self.validate_entity(entity)?;
                 self.require_tag(tag_id)?;
+            }
+            Command::Batch { commands } => {
+                if commands.is_empty() || commands.len() > MAX_BATCH_COMMANDS {
+                    return Err(CoreError::InvalidBatch(format!(
+                        "expected between 1 and {MAX_BATCH_COMMANDS} commands"
+                    )));
+                }
+                let created_pages = commands
+                    .iter()
+                    .filter(|step| {
+                        matches!(
+                            step,
+                            Command::EnsurePage { .. } | Command::EnsureJournal { .. }
+                        )
+                    })
+                    .count();
+                let created_tags = commands
+                    .iter()
+                    .filter(|step| matches!(step, Command::EnsureTag { .. }))
+                    .count();
+                let created_blocks = commands
+                    .iter()
+                    .filter(|step| {
+                        matches!(
+                            step,
+                            Command::InsertBlock { .. }
+                                | Command::SplitBlock { .. }
+                                | Command::InsertOutline { .. }
+                                | Command::PasteOutline { .. }
+                        )
+                    })
+                    .count();
+                if created_pages > 1 || created_tags > 1 || created_blocks > 1 {
+                    return Err(CoreError::InvalidBatch(
+                        "at most one page, block, and tag creation may report a result".into(),
+                    ));
+                }
+
+                // Later steps may intentionally target an entity created by an
+                // earlier one. Validate against a disposable fork in order;
+                // canonical state remains untouched if any step is rejected.
+                let mut staged = self.validation_fork();
+                for step in commands {
+                    if matches!(step, Command::Batch { .. } | Command::Undo | Command::Redo) {
+                        return Err(CoreError::InvalidBatch(
+                            "nested batches and history commands are not allowed".into(),
+                        ));
+                    }
+                    let prepared = staged.prepare(step)?;
+                    let mut result = CommandResult {
+                        command_id: CommandId::new("batch-preflight")
+                            .expect("the fixed preflight command id is valid"),
+                        created_page: None,
+                        created_block: None,
+                        created_tag: None,
+                        changed: true,
+                        history_effect: None,
+                    };
+                    staged.apply(&prepared, "1970-01-01T00:00:00Z", &mut result)?;
+                    staged.doc.commit();
+                }
             }
             Command::EnsureJournal { .. } | Command::Undo | Command::Redo => {}
         }
@@ -1996,6 +2074,25 @@ impl GraphCore {
             Command::RemoveTag { entity, tag_id } => {
                 self.entity_tags(entity)?.delete(tag_id.as_str())?;
             }
+            Command::Batch { commands } => {
+                result.changed = false;
+                for step in commands {
+                    let prepared = self.prepare(step)?;
+                    let mut nested = CommandResult {
+                        command_id: result.command_id.clone(),
+                        created_page: None,
+                        created_block: None,
+                        created_tag: None,
+                        changed: true,
+                        history_effect: None,
+                    };
+                    self.apply(&prepared, now, &mut nested)?;
+                    result.created_page = result.created_page.take().or(nested.created_page);
+                    result.created_block = result.created_block.take().or(nested.created_block);
+                    result.created_tag = result.created_tag.take().or(nested.created_tag);
+                    result.changed |= nested.changed;
+                }
+            }
             Command::Undo | Command::Redo => unreachable!("handled before apply"),
         }
         if result.changed {
@@ -2188,6 +2285,9 @@ impl GraphCore {
             Command::RenameTag { tag_id, .. }
             | Command::DeleteTag { tag_id }
             | Command::RestoreTag { tag_id } => self.touch_tag(tag_id, now)?,
+            // Each nested command has already touched its complete ownership
+            // boundary with the batch timestamp.
+            Command::Batch { .. } => {}
             Command::Undo | Command::Redo => {}
         }
         Ok(())
@@ -2574,6 +2674,92 @@ impl GraphCore {
                 .all(|field| property_copy_policy(&field.key) != PropertyCopyPolicy::Portable))
     }
 
+    fn batch_affected_outlines(
+        &self,
+        commands: &[Command],
+    ) -> Result<Vec<OutlineOwner>, CoreError> {
+        let mut owners = Vec::new();
+        for command in commands {
+            match command {
+                Command::EnsurePage { page_id, .. }
+                | Command::RenamePage { page_id, .. }
+                | Command::DeletePage { page_id }
+                | Command::RestorePage { page_id } => {
+                    owners.push(OutlineOwner::Page {
+                        id: page_id.clone(),
+                    });
+                }
+                Command::EnsureJournal { date } => owners.push(OutlineOwner::Page {
+                    id: self.journal_page_id(date),
+                }),
+                Command::InsertBlock { owner, .. }
+                | Command::SplitBlock { owner, .. }
+                | Command::InsertOutline { owner, .. }
+                | Command::PasteOutline { owner, .. }
+                | Command::EditMarkdown { owner, .. }
+                | Command::SpliceMarkdown { owner, .. }
+                | Command::SpliceMarkdowns { owner, .. }
+                | Command::MoveBlocks { owner, .. }
+                | Command::IndentBlocks { owner, .. }
+                | Command::OutdentBlocks { owner, .. }
+                | Command::DeleteBlocks { owner, .. } => owners.push(owner.clone()),
+                Command::EnsureProperty { owner, .. }
+                | Command::SetProperty { owner, .. }
+                | Command::SetProperties { owner, .. }
+                | Command::ClearPropertyValues { owner, .. }
+                | Command::RemoveProperty { owner, .. }
+                | Command::AddRepeatedProperty { owner, .. }
+                | Command::RemoveRepeatedProperty { owner, .. } => match owner {
+                    PropertyOwner::Page { id } => {
+                        owners.push(OutlineOwner::Page { id: id.clone() });
+                    }
+                    PropertyOwner::Block { owner, .. } => owners.push(owner.clone()),
+                    PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => {}
+                },
+                Command::SetQuerySource { owner, .. }
+                | Command::SpliceQuerySource { owner, .. }
+                | Command::SetQueryPlan { owner, .. }
+                | Command::ClearQueryPlan { owner, .. }
+                | Command::PutQueryView { owner, .. }
+                | Command::RemoveQueryView { owner, .. }
+                | Command::SetQueryDefaultView { owner, .. } => match owner {
+                    QueryOwner::Page { id } => {
+                        owners.push(OutlineOwner::Page { id: id.clone() });
+                    }
+                    QueryOwner::Block { owner, .. } => owners.push(owner.clone()),
+                    QueryOwner::Tag { .. } | QueryOwner::GraphDefault { .. } => {}
+                },
+                Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
+                    match entity {
+                        EntityId::Page { id } => owners.push(OutlineOwner::Page { id: id.clone() }),
+                        EntityId::Block { owner, .. } => owners.push(owner.clone()),
+                    }
+                }
+                Command::DeleteTag { tag_id } => owners.extend(
+                    self.plan_delete_tag(tag_id)?
+                        .outlines
+                        .into_iter()
+                        .map(|entry| entry.owner),
+                ),
+                Command::Batch { commands } => {
+                    owners.extend(self.batch_affected_outlines(commands)?);
+                }
+                Command::EnsureTag { .. }
+                | Command::RenameTag { .. }
+                | Command::RestoreTag { .. }
+                | Command::CreateDefaultQuery { .. }
+                | Command::RenameDefaultQuery { .. }
+                | Command::MoveDefaultQuery { .. }
+                | Command::DeleteDefaultQuery { .. }
+                | Command::Undo
+                | Command::Redo => {}
+            }
+        }
+        owners.sort();
+        owners.dedup();
+        Ok(owners)
+    }
+
     fn plan_history(
         &self,
         command: &Command,
@@ -2865,6 +3051,14 @@ impl GraphCore {
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
                 entity_plan(entity)
             }
+            Command::Batch { commands } => plan(
+                HistoryScope::Graph,
+                self.batch_affected_outlines(commands)?,
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+            ),
             Command::Undo | Command::Redo => None,
         })
     }
@@ -3807,6 +4001,7 @@ fn semantic_name(command: &Command) -> &'static str {
         | Command::RenameDefaultQuery { .. }
         | Command::MoveDefaultQuery { .. }
         | Command::DeleteDefaultQuery { .. } => "GraphSettingsChanged",
+        Command::Batch { .. } => "CommandBatchApplied",
         Command::Undo => "LocalUndo",
         Command::Redo => "LocalRedo",
     }
@@ -5043,6 +5238,88 @@ mod tests {
         core.doc
             .export(ExportMode::shallow_snapshot(&frontiers))
             .unwrap()
+    }
+
+    #[test]
+    fn batch_preflights_cross_owner_intent_and_undoes_it_once() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block_id = insert_root(&mut core, "block", &page(), 0, "tag me");
+        let tag_id = TagId::new("project").unwrap();
+        let owner = OutlineOwner::Page { id: page() };
+
+        core.execute(
+            envelope(
+                "create-and-attach",
+                Command::Batch {
+                    commands: vec![
+                        Command::EnsureTag {
+                            tag_id: tag_id.clone(),
+                            name: "Project".into(),
+                        },
+                        Command::SetProperty {
+                            owner: PropertyOwner::Tag {
+                                tag_id: tag_id.clone(),
+                            },
+                            key: key("builtin.tag-order"),
+                            value: PropertyValue::Number(7.0),
+                        },
+                        Command::AddTag {
+                            entity: EntityId::Block {
+                                owner: owner.clone(),
+                                id: block_id.clone(),
+                            },
+                            tag_id: tag_id.clone(),
+                        },
+                    ],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let snapshot = core.snapshot().unwrap();
+        assert_eq!(snapshot.tags.len(), 1);
+        assert_eq!(snapshot.pages[0].blocks[0].tags, vec![tag_id.clone()]);
+
+        core.execute(envelope("undo-batch", Command::Undo), "t4")
+            .unwrap();
+        let snapshot = core.snapshot().unwrap();
+        assert!(snapshot.tags.is_empty());
+        assert!(snapshot.pages[0].blocks[0].tags.is_empty());
+    }
+
+    #[test]
+    fn rejected_batch_leaves_no_partial_entity() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag_id = TagId::new("project").unwrap();
+        let before = core.frontier();
+
+        let error = core
+            .execute(
+                envelope(
+                    "invalid-batch",
+                    Command::Batch {
+                        commands: vec![
+                            Command::EnsureTag {
+                                tag_id: tag_id.clone(),
+                                name: "Project".into(),
+                            },
+                            Command::SetProperty {
+                                owner: PropertyOwner::Tag { tag_id },
+                                key: key("builtin.created-at"),
+                                value: PropertyValue::String("forged".into()),
+                            },
+                        ],
+                    },
+                ),
+                "t1",
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, CoreError::Property(_)));
+        assert_eq!(core.frontier(), before);
+        assert!(core.snapshot().unwrap().tags.is_empty());
     }
 
     #[test]

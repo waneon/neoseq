@@ -186,6 +186,7 @@ describe("query and task projections", () => {
     for (const command of [
       { key: "builtin.task-status", value: { type: "string", value: "todo" } },
       { key: "builtin.task-scheduled", value: { type: "date", value: "2026-08-21" } },
+      { key: "builtin.task-deadline", value: { type: "date", value: "2026-08-28" } },
       { key: "builtin.task-scheduled-time", value: { type: "string", value: "21:30" } },
       { key: "builtin.task-repeat", value: { type: "string", value: "2w" } },
     ] as const) {
@@ -206,6 +207,16 @@ describe("query and task projections", () => {
       // the date moves by the stored interval, counted from the date that was set.
       expect(block && stringValue(block.properties, "builtin.task-status")).toBe("todo");
       expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-09-04");
+      expect(block && dateValue(block.properties, "builtin.task-deadline")).toBe("2026-09-11");
+    });
+
+    // Both dates belong to the same completed occurrence, so undo restores
+    // them together instead of exposing an impossible half-advanced task.
+    await act(async () => { await session.execute({ type: "undo" }); });
+    await waitFor(() => {
+      const block = session.getState().snapshot.pages[0]?.blocks[0];
+      expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
+      expect(block && dateValue(block.properties, "builtin.task-deadline")).toBe("2026-08-28");
     });
   });
 });

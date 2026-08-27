@@ -33,7 +33,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: /(?:mobile|motion)\.spec\.ts/,
     },
     {
       name: "mobile-chromium",
@@ -46,6 +46,14 @@ export default defineConfig({
       name: "chromium-dark",
       use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
       testMatch: /(?:a11y|visual)\.spec\.ts/,
+    },
+    {
+      name: "chromium-reduced-motion",
+      use: {
+        ...devices["Desktop Chrome"],
+        contextOptions: { reducedMotion: "reduce" },
+      },
+      testMatch: /motion\.spec\.ts/,
     },
   ],
   webServer: {

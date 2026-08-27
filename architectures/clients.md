@@ -229,6 +229,11 @@ command share its localized label, binding, icon, and disabled reason. IME and
 already-handled events win before global shortcuts; global shortcuts stand down
 while a modal is open.
 
+`ui/anchored-panel` owns contextual overlay placement, collision handling,
+portaling, dismissal, and focus restoration. Property, tag, completion, and
+combobox surfaces provide only content and whether focus stays in the anchor or
+is trapped in the panel; they do not calculate viewport coordinates themselves.
+
 Routes use stable page and tag IDs; a tag is a route (`t/:tagId`) rather than a
 card in a grid, so everything the graph names has one address. Settings is a
 dialog whose section is represented by a query parameter, so browser Back closes

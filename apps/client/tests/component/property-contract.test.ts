@@ -20,4 +20,8 @@ describe("property key namespaces", () => {
     expect(canUserWrite("builtin.future-field", "page")).toBe(false);
     expect(validateKey("builtin.future-field")?.code).toBe("reserved_key");
   });
+
+  it("keeps feature-owned ordering out of generic property surfaces", () => {
+    expect(visibilityOf("builtin.favorite-order")).toBe("feature_only");
+  });
 });

@@ -131,9 +131,11 @@ export function TagsView() {
 
   const run = (commands: Command[], failure: string) => {
     if (commands.length === 0) return;
-    // Positions are independent single-value writes, so they travel together; the
-    // snapshot only has to agree with the screen once all of them land.
-    void Promise.all(commands.map((command) => session.execute(command)))
+    // Filing and ordering are one visible gesture even when several tag-owned
+    // fields move. The core preflights and commits that gesture as one state.
+    void session.execute(commands.length === 1
+      ? commands[0]
+      : { type: "batch", commands })
       .catch((cause: unknown) => notify.failure(failure, cause));
   };
 
@@ -339,9 +341,9 @@ function TagGroupSection({
   const { message } = useI18n();
   const [renaming, setRenaming] = useState(false);
 
-  const file = (tag: TagSnapshot, group: string | null) => {
+  const fileCommand = (tag: TagSnapshot, group: string | null): Command => {
     const owner = { kind: "tag", tag_id: tag.id } as const;
-    const command: Command = group === null
+    return group === null
       ? { type: "remove_property", owner, key: TAG_GROUP_KEY }
       : {
           type: "set_property",
@@ -349,8 +351,15 @@ function TagGroupSection({
           key: TAG_GROUP_KEY,
           value: { type: "string", value: group },
         };
-    return session.execute(command).catch((cause: unknown) => {
-      notify.failure(message("failure.fileTag", { name: tag.name }), cause);
+  };
+
+  const fileAll = (group: string | null) => {
+    const commands = tags.map((tag) => fileCommand(tag, group));
+    if (commands.length === 0) return;
+    void session.execute(commands.length === 1
+      ? commands[0]
+      : { type: "batch", commands }).catch((cause: unknown) => {
+      notify.failure(message("failure.fileTag", { name: name ?? tags[0]?.name ?? "" }), cause);
     });
   };
 
@@ -359,11 +368,11 @@ function TagGroupSection({
     setRenaming(false);
     const trimmed = next.trim();
     if (!trimmed || trimmed === name) return;
-    void Promise.all(tags.map((tag) => file(tag, trimmed)));
+    fileAll(trimmed);
   };
 
   const ungroup = () => {
-    void Promise.all(tags.map((tag) => file(tag, null)));
+    fileAll(null);
   };
 
   const movingGroup = drag?.kind === "group";
@@ -756,14 +765,11 @@ function TagRow({
           testId="confirm-delete-tag"
           returnFocus={() => actionsRef.current}
           onClose={() => setConfirmDelete(false)}
-          onConfirm={() => {
-            setConfirmDelete(false);
-            void session
-              .execute({ type: "delete_tag", tag_id: tag.id })
-              .catch((cause: unknown) => {
-                notify.failure(message("failure.deleteTag", { name: tag.name }), cause);
-              });
+          onConfirm={async () => {
+            await session.execute({ type: "delete_tag", tag_id: tag.id });
           }}
+          onConfirmError={(cause) =>
+            notify.failure(message("failure.deleteTag", { name: tag.name }), cause)}
         >
           {message("tags.deleteConfirm", { name: tag.name })}
         </ConfirmDialog>
@@ -815,9 +821,9 @@ function NewTagRow({
     const owner = { kind: "tag", tag_id: tagId } as const;
     const siblings = existing.filter((tag) => tagGroup(tag) === group);
     try {
-      await session.execute({ type: "ensure_tag", tag_id: tagId, name });
+      const commands: Command[] = [{ type: "ensure_tag", tag_id: tagId, name }];
       if (group !== null) {
-        await session.execute({
+        commands.push({
           type: "set_property",
           owner,
           key: TAG_GROUP_KEY,
@@ -825,12 +831,13 @@ function NewTagRow({
         });
       }
       // Seeded on creation, so an ordinary move only ever writes the tag it moved.
-      await session.execute({
+      commands.push({
         type: "set_property",
         owner,
         key: TAG_ORDER_KEY,
         value: { type: "number", value: nextTagOrder(siblings) },
       });
+      await session.execute({ type: "batch", commands });
       setDraft("");
       inputRef.current?.focus();
     } catch (error) {

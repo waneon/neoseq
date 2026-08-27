@@ -352,15 +352,12 @@ function TagMenu({
           testId="confirm-delete-tag"
           returnFocus={() => document.querySelector<HTMLElement>('[data-testid="tag-title"]')}
           onClose={() => setDialog(null)}
-          onConfirm={() => {
-            setDialog(null);
-            void session
-              .execute({ type: "delete_tag", tag_id: tag.id })
-              .then(() => navigate(`/g/${graphId}/tags`))
-              .catch((error: unknown) => {
-                notify.failure(message("failure.deleteTag", { name: tag.name }), error);
-              });
+          onConfirm={async () => {
+            await session.execute({ type: "delete_tag", tag_id: tag.id });
+            navigate(`/g/${graphId}/tags`);
           }}
+          onConfirmError={(error) =>
+            notify.failure(message("failure.deleteTag", { name: tag.name }), error)}
         >
           {message("tags.deleteConfirm", { name: tag.name })}
         </ConfirmDialog>

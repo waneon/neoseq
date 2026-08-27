@@ -8,12 +8,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../../src/features/commands/CommandPalette";
+import { NotifyProvider } from "../../src/features/notify/context";
 import { LocaleProvider } from "../../src/i18n";
 
 function mountPalette(onClose: () => void) {
   return render(
     <LocaleProvider initialPreference="en">
-      <CommandPalette commands={[]} onClose={onClose} />
+      <NotifyProvider>
+        <CommandPalette commands={[]} onClose={onClose} />
+      </NotifyProvider>
     </LocaleProvider>,
   );
 }

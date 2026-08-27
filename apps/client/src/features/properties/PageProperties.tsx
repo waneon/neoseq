@@ -7,6 +7,7 @@ import { useCommands } from "../commands/context";
 import { useSessionState } from "../shell/session-context";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 import { PropertyPicker } from "./PropertyPicker";
+import { snapshotAnchor, type Anchor } from "@/ui/anchored";
 
 const STRIP_LIMIT = 4;
 
@@ -25,15 +26,22 @@ export function PageProperties({
   const { message } = useI18n();
   const anchorRef = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const pickerAnchor = useRef<Anchor>(null);
   const openedFromHere = useRef(false);
   const [initialKey, setInitialKey] = useState<string | undefined>();
 
   const show = useCallback((key?: string, anchor?: HTMLElement) => {
     openedFromHere.current = true;
     setInitialKey(key);
-    restoreFocus.current = anchor ?? (document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null);
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const invokedFromPalette = Boolean(active?.closest('[data-testid="command-palette"]'));
+    restoreFocus.current = anchor
+      ?? (!invokedFromPalette ? active : null)
+      ?? document.querySelector<HTMLElement>('[data-testid="page-title"]');
+    // The command palette disappears before this picker measures. The page strip
+    // is the durable owner of this surface; a palette input is only the route that
+    // summoned it, never a geometry source that may survive the transition.
+    pickerAnchor.current = anchor ?? snapshotAnchor(anchorRef.current);
     onOpenChange(true);
   }, [onOpenChange]);
 
@@ -46,11 +54,18 @@ export function PageProperties({
     // PageView's title menu owns only the boolean disclosure state. Treat that
     // route as a fresh add/change request, never as a replay of the last row.
     setInitialKey(undefined);
+    pickerAnchor.current = snapshotAnchor(anchorRef.current);
+    restoreFocus.current = document.querySelector<HTMLElement>('[data-testid="page-title"]');
   }, [open]);
 
   const close = () => {
     onOpenChange(false);
-    requestAnimationFrame(() => restoreFocus.current?.focus({ preventScroll: true }));
+    queueMicrotask(() => {
+      const target = restoreFocus.current?.isConnected
+        ? restoreFocus.current
+        : document.querySelector<HTMLElement>('[data-testid="page-title"]');
+      target?.focus({ preventScroll: true });
+    });
   };
 
   useEffect(() => {
@@ -91,7 +106,7 @@ export function PageProperties({
         <PropertyPicker
           key={`${page.id}:${initialKey ?? "new"}`}
           target={{ kind: "page", id: page.id, bag: page.properties }}
-          anchor={restoreFocus.current ?? anchorRef.current}
+          anchor={pickerAnchor.current ?? anchorRef.current}
           initialKey={initialKey}
           onClose={close}
         />

@@ -89,11 +89,14 @@ export function PropertyPicker({
   target,
   anchor,
   initialKey,
+  commandPrefix,
   onClose,
 }: {
   target: PropertyTarget;
   anchor: Anchor;
   initialKey?: string;
+  /** A completion-token edit that must commit with the chosen property. */
+  commandPrefix?: Command;
   onClose: () => void;
 }) {
   const session = useSession();
@@ -109,6 +112,7 @@ export function PropertyPicker({
   const committing = request.status === "busy";
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const prefixPending = useRef(commandPrefix);
   const listId = useId();
   const key = stage.kind === "property" ? null : stage.key;
 
@@ -202,7 +206,11 @@ export function PropertyPicker({
   const run = async (command: Command): Promise<boolean> => {
     setRequest({ status: "busy" });
     try {
-      await session.execute(command);
+      const prefix = prefixPending.current;
+      await session.execute(prefix
+        ? { type: "batch", commands: [prefix, command] }
+        : command);
+      prefixPending.current = undefined;
       setRequest({ status: "idle" });
       return true;
     } catch (cause) {
@@ -210,6 +218,17 @@ export function PropertyPicker({
       setRequest({ status: "failed", message: message("failure.setProperty") });
       return false;
     }
+  };
+
+  const close = () => {
+    const prefix = prefixPending.current;
+    prefixPending.current = undefined;
+    if (prefix) {
+      void session.execute(prefix).catch((cause: unknown) => {
+        notify.failure(message("failure.lastEdit"), cause);
+      });
+    }
+    onClose();
   };
 
   const chooseKey = (candidate: Candidate) => {
@@ -256,7 +275,7 @@ export function PropertyPicker({
       ? { type: "add_repeated_property", owner, key, value }
       : { type: "set_property", owner, key, value });
     if (!saved) return;
-    onClose();
+    close();
   };
 
   const ensureEmpty = async () => {
@@ -270,28 +289,28 @@ export function PropertyPicker({
       value_type: valueType,
       cardinality,
     });
-    if (saved) onClose();
+    if (saved) close();
   };
 
   const removeValue = async (value: PropertyValue) => {
     if (stage.kind !== "value" || writeDisabled) return;
     const { key } = stage;
     const removed = await run({ type: "remove_repeated_property", owner, key, value });
-    if (removed) onClose();
+    if (removed) close();
   };
 
   const clearValues = async () => {
     if (stage.kind !== "value" || writeDisabled) return;
     const { key } = stage;
     const cleared = await run({ type: "clear_property_values", owner, key });
-    if (cleared) onClose();
+    if (cleared) close();
   };
 
   const removeField = async () => {
     if (stage.kind !== "value" || writeDisabled) return;
     const { key } = stage;
     const removed = await run({ type: "remove_property", owner, key });
-    if (removed) onClose();
+    if (removed) close();
   };
 
   const commitMoment = async (
@@ -330,7 +349,7 @@ export function PropertyPicker({
       owner,
       changes,
     });
-    if (saved) onClose();
+    if (saved) close();
   };
 
   const clearMoment = async () => {
@@ -343,7 +362,7 @@ export function PropertyPicker({
         { key: timeKeyFor(stage.key), value: null },
       ],
     });
-    if (cleared) onClose();
+    if (cleared) close();
   };
 
   const onKeyList = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -359,7 +378,7 @@ export function PropertyPicker({
       if (candidates[active]) chooseKey(candidates[active]);
     } else if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      close();
     }
   };
 
@@ -415,7 +434,7 @@ export function PropertyPicker({
       testId="property-picker"
       surfaceRef={panelRef}
       dismissOnExternalScroll
-      onClose={onClose}
+      onClose={close}
       onEscapeKeyDown={(event) => {
         if (stage.kind === "property") return;
         event.preventDefault();
@@ -603,7 +622,7 @@ export function PropertyPicker({
                     : "task.clearDeadline")}
                   onApply={(date, time, repeat) => void commitMoment(date, time, repeat)}
                   onClear={() => void clearMoment()}
-                  onCancel={onClose}
+                  onCancel={close}
                 />
               )
             : (
@@ -618,6 +637,28 @@ export function PropertyPicker({
                       current.kind === "value" ? { ...current, draft } : current);
                   }}
                   onCommit={(value) => void commit(value)}
+                  onCreatePage={(id) => {
+                    const command: Command = selectedCardinality === "set"
+                      ? {
+                        type: "add_repeated_property",
+                        owner,
+                        key: stage.key,
+                        value: { type: "page", value: id },
+                      }
+                      : {
+                        type: "set_property",
+                        owner,
+                        key: stage.key,
+                        value: { type: "page", value: id },
+                      };
+                    return prefixPending.current
+                      ? [prefixPending.current, command]
+                      : command;
+                  }}
+                  onPageCreated={() => {
+                    prefixPending.current = undefined;
+                    close();
+                  }}
                 />
               )}
           {!taskMoment && <div className="property-picker-actions">
@@ -696,6 +737,8 @@ function ValueInput({
   readonly,
   onChange,
   onCommit,
+  onCreatePage,
+  onPageCreated,
 }: {
   entryKey: string;
   type: PropertyValueType;
@@ -704,6 +747,8 @@ function ValueInput({
   readonly: boolean;
   onChange: (value: PropertyValue) => void;
   onCommit: (value: PropertyValue) => void;
+  onCreatePage: (id: string) => Command | Command[];
+  onPageCreated: () => void;
 }) {
   const { message } = useI18n();
   const label = message("properties.value", { key: propertyDisplayName(entryKey, message) });
@@ -721,6 +766,8 @@ function ValueInput({
         placeholder={message("properties.pickPage")}
         allowCreate
         onPick={(id) => onCommit({ type: "page", value: id })}
+        onCreate={onCreatePage}
+        onCreated={onPageCreated}
       />
     );
   }

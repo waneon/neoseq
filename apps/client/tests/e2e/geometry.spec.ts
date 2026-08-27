@@ -974,8 +974,8 @@ test("a query column seam stands on the body column boundary", async ({ page }) 
     return {
       header: headerBox.right,
       body: bodyBox.right,
-      // The gradient's 1px stroke runs from 4px to 5px in its 9px target.
-      seam: handleBox.left + 4.5,
+      // The target stays inside its column; the stroke is its last pixel.
+      seam: handleBox.right - 0.5,
     };
   });
 
@@ -1002,7 +1002,12 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   });
   const line = page.locator('textarea:focus');
   await expect.poll(async () => (await line.boundingBox())?.y).toBeCloseTo(430, 0);
-  const lineBox = (await line.boundingBox())!;
+  // The virtualizer may replace the textarea between two protocol reads even
+  // though the logical row never moved. Read one attached node atomically.
+  const lineBox = await line.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
   const roomBelow = 633 - lineBox.y - lineBox.height - 4 - 12;
 
   await page.keyboard.type("/scheduled");

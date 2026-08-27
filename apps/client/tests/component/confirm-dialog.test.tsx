@@ -4,7 +4,11 @@ import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "../../src/ui/components";
 
-function renderConfirmation(onClose = vi.fn(), onConfirm = vi.fn()) {
+function renderConfirmation(
+  onClose = vi.fn(),
+  onConfirm: () => void | Promise<void> = vi.fn(),
+  onConfirmError = vi.fn(),
+) {
   function ConfirmationHarness() {
     const [open, setOpen] = useState(true);
     const trigger = useRef<HTMLButtonElement>(null);
@@ -22,6 +26,7 @@ function renderConfirmation(onClose = vi.fn(), onConfirm = vi.fn()) {
               setOpen(false);
             }}
             onConfirm={onConfirm}
+            onConfirmError={onConfirmError}
           >
             This cannot be undone.
           </ConfirmDialog>
@@ -31,7 +36,7 @@ function renderConfirmation(onClose = vi.fn(), onConfirm = vi.fn()) {
   }
 
   render(<ConfirmationHarness />);
-  return { onClose, onConfirm };
+  return { onClose, onConfirm, onConfirmError };
 }
 
 describe("a destructive confirmation", () => {
@@ -46,13 +51,36 @@ describe("a destructive confirmation", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Delete page…" })).toHaveFocus());
   });
 
-  it("lets the caller own completion", async () => {
+  it("stays open and blocks dismissal until an async operation succeeds", async () => {
     const user = userEvent.setup();
-    const { onConfirm } = renderConfirmation();
+    let resolve!: () => void;
+    const onConfirm = vi.fn(() => new Promise<void>((done) => { resolve = done; }));
+    const { onClose } = renderConfirmation(undefined, onConfirm);
 
     await user.click(screen.getByRole("button", { name: "Delete page" }));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Delete page" })).toBeDisabled();
+    expect(screen.getByRole("alertdialog", { name: "Delete page?" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolve();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alertdialog", { name: "Delete page?" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the explanation visible when the operation fails", async () => {
+    const user = userEvent.setup();
+    const failure = new Error("storage unavailable");
+    const onConfirm = vi.fn(async () => { throw failure; });
+    const { onClose, onConfirmError } = renderConfirmation(undefined, onConfirm);
+
+    await user.click(screen.getByRole("button", { name: "Delete page" }));
+
+    await waitFor(() => expect(onConfirmError).toHaveBeenCalledWith(failure));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Delete page" })).toBeEnabled();
     expect(screen.getByRole("alertdialog", { name: "Delete page?" })).toBeInTheDocument();
   });
 });

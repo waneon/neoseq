@@ -4,6 +4,7 @@ import {
   type BlockCompletionState,
 } from "../blocks/editor/BlockCompletions";
 import type { Anchor } from "@/ui/anchored";
+import type { Command } from "../../core-port/commands";
 import type { DropTarget } from "./selection";
 
 export interface PropertyRequest {
@@ -11,6 +12,7 @@ export interface PropertyRequest {
   key?: string;
   anchor: Anchor;
   selection?: { start: number; end: number };
+  commandPrefix?: Command;
 }
 
 export interface TagRequest {

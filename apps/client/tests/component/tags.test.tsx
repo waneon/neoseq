@@ -1,6 +1,6 @@
 // First-class tag chips + default materialization from TagRecord defaults.
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { chooseFromMenu, GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openViewMenu } from "./harness";
@@ -96,7 +96,7 @@ describe("first-class tags and tag defaults", () => {
   });
 
   it("does not offer a duplicate tag create action", async () => {
-    await mountTagged();
+    const { port } = await mountTagged();
     const user = userEvent.setup();
     await openBlockMenu();
     await user.click(await screen.findByTestId("menu-tags"));
@@ -155,9 +155,11 @@ describe("first-class tags and tag defaults", () => {
 
 describe("the # tag menu in a block", () => {
   it("adds an existing tag and strips the token from the Markdown", async () => {
-    await mountTagged();
+    const { port } = await mountTagged();
     const user = userEvent.setup();
     const textarea = await screen.findByLabelText("Block text");
+    const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
+    port.beforeExecute = async (command) => { commands.push(command); };
     await user.click(textarea);
     await user.type(textarea, " #proj");
     const menu = await screen.findByTestId("tag-menu");
@@ -174,6 +176,13 @@ describe("the # tag menu in a block", () => {
     await waitFor(() =>
       expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do"),
     );
+    expect(commands).toEqual([expect.objectContaining({ type: "add_tag" })]);
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => {
+      expect(textarea).toHaveValue("existing status");
+      expect(within(text).queryByTestId("tag-chip")).not.toBeInTheDocument();
+    });
   });
 
   it("never offers to create a tag — a query nothing matches closes the menu", async () => {
@@ -255,13 +264,16 @@ describe("the tags screen", () => {
   });
 
   it("creates a tag, and keeps the field open for the next name", async () => {
-    await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await user.click(await screen.findByTestId("new-tag"));
     const input = await screen.findByTestId("new-tag-name");
     await user.type(input, "Research{enter}");
     expect(await screen.findByTestId("tag-row")).toHaveTextContent("#Research");
     expect(screen.getByTestId("new-tag-name")).toHaveValue("");
+
+    await act(async () => { await session.execute({ type: "undo" }); });
+    await waitFor(() => expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument());
   });
 
   it("refuses a duplicate name without creating anything", async () => {
@@ -341,6 +353,17 @@ describe("the tags screen", () => {
       { type: "string", value: "Practices" },
       { type: "string", value: "Practices" },
     ]);
+
+    await session.execute({ type: "undo" });
+    await waitFor(() =>
+      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
+    );
+    expect(session.getState().snapshot.tags.map((tag) =>
+      tag.properties.find((field) => field.key === "builtin.tag-group")?.values[0],
+    )).toEqual([
+      { type: "string", value: "Areas" },
+      { type: "string", value: "Areas" },
+    ]);
   });
 
   it("reorders tags inside a group, and says where the drop will land", async () => {
@@ -375,6 +398,9 @@ describe("the tags screen", () => {
     expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]);
     fireEvent.drop(rows[2], { dataTransfer: transfer() });
     await waitFor(() => expect(rowNames()).toEqual(["Alpha", "Charlie", "Bravo"]));
+
+    await act(async () => { await session.execute({ type: "undo" }); });
+    await waitFor(() => expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]));
   });
 
   it("reorders groups among themselves", async () => {
@@ -682,5 +708,8 @@ describe("a tag's own page", () => {
     // Positions, not an array order — so the document reads back in the order the
     // strip now shows, with the seeded view second.
     expect(tagQuery(session)?.views[1].id).toBe("all");
+
+    await session.execute({ type: "undo" });
+    await waitFor(() => expect(tabNames()).toEqual(["All", "List"]));
   });
 });

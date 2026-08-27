@@ -243,6 +243,12 @@ pub enum Command {
         entity: EntityId,
         tag_id: TagId,
     },
+    /// A single user intent that crosses existing command families. The core
+    /// preflights every step against a staged document, then commits the list
+    /// as one transaction and one undo item.
+    Batch {
+        commands: Vec<Command>,
+    },
     Undo,
     Redo,
 }

@@ -6,9 +6,9 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router";
 import {
+  deleteGraph,
   graphName,
   renameGraph,
-  schedulePendingDelete,
   subscribeGraphDirectory,
 } from "../../core-port/directory";
 import {
@@ -182,7 +182,7 @@ export function SettingsDialog({
           {section === "keyboard" && <ShortcutEditor />}
           {section === "storage" && <StorageSection />}
           {section === "graph" && <GraphSection graphId={graphId} />}
-          {section === "danger" && <DangerSection graphId={graphId} onClose={onClose} />}
+          {section === "danger" && <DangerSection graphId={graphId} />}
         </div>
       </div>
     </Dialog>
@@ -603,11 +603,22 @@ function GraphSection({ graphId }: { graphId: string }) {
   );
 }
 
-function DangerSection({ graphId, onClose }: { graphId: string; onClose: () => void }) {
+function DangerSection({ graphId }: { graphId: string }) {
   const navigate = useNavigate();
+  const session = useSession();
   const { message } = useI18n();
+  const notify = useNotify();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteStarted = useRef(false);
+
+  const closeConfirmation = () => {
+    setConfirmDelete(false);
+    // Once deletion has retired the owning session, the old graph surface is
+    // no longer a safe place to return to — whether the storage deletion
+    // succeeded or the user abandons a failed attempt.
+    if (deleteStarted.current) navigate("/");
+  };
 
   return (
     <section className="settings-section settings-danger">
@@ -629,15 +640,17 @@ function DangerSection({ graphId, onClose }: { graphId: string; onClose: () => v
           confirmLabel={message("common.deleteForever")}
           testId="settings-confirm-delete"
           returnFocus={() => deleteButtonRef.current}
-          onClose={() => setConfirmDelete(false)}
-          onConfirm={() => {
-            // The shell owns the open session; the picker performs the
-            // deletion once the graph lease is released by the close.
-            setConfirmDelete(false);
-            onClose();
-            schedulePendingDelete(graphId);
-            navigate("/");
+          onClose={closeConfirmation}
+          onConfirm={async () => {
+            deleteStarted.current = true;
+            // Release the current graph's lease first, then perform the same
+            // durable deletion used by the graph picker. ConfirmDialog stays
+            // pending across both operations and closes only after success.
+            await session.close();
+            await deleteGraph(graphId);
           }}
+          onConfirmError={(cause) =>
+            notify.failure(message("failure.deleteGraph", { name: graphName(graphId) }), cause)}
         >
           {message("graph.deleteConfirm", { name: graphName(graphId) })}
         </ConfirmDialog>

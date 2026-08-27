@@ -85,6 +85,7 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { Button } from "@/ui/shadcn/button";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
+import { newQueryDocument } from "../../entities/query-document";
 import {
   isSettledStatus,
   TASK_STATUS_KEY,
@@ -96,7 +97,6 @@ import {
   compilePlan,
   isCompilerVariable,
   planBindings,
-  QUERY_LANGUAGE,
 } from "../../entities/query-compile";
 import {
   inferOrderSemantics,
@@ -238,21 +238,10 @@ function QueryPanelSurface({
   const [localViewId, setLocalViewId] = useState<string | null>(null);
   const seedViews = useMemo<QueryView[]>(() => {
     const compiled = seedPlan ? compilePlan(seedPlan) : null;
-    return [{
-      id: "all",
-      name: "All",
-      definition: {
-        source: compiled?.source ?? "",
-        language: QUERY_LANGUAGE,
-        plan: seedPlan
-          ? { version: QUERY_PLAN_VERSION, payload: encodePlan(seedPlan) }
-          : null,
-      },
-      kind: "table",
-      position: 0,
-      columns: [],
-      options: defaultOptions(),
-    }];
+    return newQueryDocument(
+      compiled?.source ?? "",
+      seedPlan ? { version: QUERY_PLAN_VERSION, payload: encodePlan(seedPlan) } : null,
+    ).views;
   }, [seedPlan]);
   const views = document?.views ?? seedViews;
   const preferredViewId = (canManageViews ? null : localViewId)
@@ -379,6 +368,17 @@ function QueryPanelSurface({
       return Promise.reject(new Error("query views are not manageable"));
     }
     return execute(command);
+  };
+  const writeViewCollectionBatch = (
+    commands: (target: QueryOwnerRef) => Command[],
+  ): Promise<void> => {
+    if (!canManageViews) {
+      return Promise.reject(new Error("query views are not manageable"));
+    }
+    const next = commands(owner);
+    if (next.length === 0) return Promise.resolve();
+    return session.execute(next.length === 1 ? next[0] : { type: "batch", commands: next })
+      .then(() => undefined);
   };
   const saveDefinition = useLatest(
     (payload: string, compiledSource: string) =>
@@ -673,27 +673,25 @@ function QueryPanelSurface({
     const definition = definitionInHand;
     void (async () => {
       await flushDefinition();
-      await writeViewCollection((target) => ({
-        type: "put_query_view",
-        owner: target,
-        view: {
-          id,
-          name,
-          definition: {
-            ...definition,
-            plan: definition.plan ? { ...definition.plan } : null,
+      await writeViewCollectionBatch((target) => [
+        {
+          type: "put_query_view",
+          owner: target,
+          view: {
+            id,
+            name,
+            definition: {
+              ...definition,
+              plan: definition.plan ? { ...definition.plan } : null,
+            },
+            kind,
+            position,
+            columns: [],
+            options: defaultOptions(),
           },
-          kind,
-          position,
-          columns: [],
-          options: defaultOptions(),
         },
-      }));
-      await writeViewCollection((target) => ({
-        type: "set_query_default_view",
-        owner: target,
-        view_id: id,
-      }));
+        { type: "set_query_default_view", owner: target, view_id: id },
+      ]);
     })().catch(report);
   };
 
@@ -708,25 +706,23 @@ function QueryPanelSurface({
     void (async () => {
       if (view.id === activeView.id) await flushDefinition();
       else await materialize();
-      await writeViewCollection((target) => ({
-        type: "put_query_view",
-        owner: target,
-        view: {
-          ...view,
-          id,
-          name,
-          position,
-          definition: {
-            ...definition,
-            plan: definition.plan ? { ...definition.plan } : null,
+      await writeViewCollectionBatch((target) => [
+        {
+          type: "put_query_view",
+          owner: target,
+          view: {
+            ...view,
+            id,
+            name,
+            position,
+            definition: {
+              ...definition,
+              plan: definition.plan ? { ...definition.plan } : null,
+            },
           },
         },
-      }));
-      await writeViewCollection((target) => ({
-        type: "set_query_default_view",
-        owner: target,
-        view_id: id,
-      }));
+        { type: "set_query_default_view", owner: target, view_id: id },
+      ]);
     })().catch(report);
   };
 
@@ -764,16 +760,10 @@ function QueryPanelSurface({
   const reorderViews = (next: QueryView[]) => {
     void (async () => {
       await materialize();
-      await Promise.all(next.flatMap((view, position) => (
+      await writeViewCollectionBatch((target) => next.flatMap((view, position) => (
         view.position === position
           ? []
-          : [
-              writeViewCollection((target) => ({
-                type: "put_query_view",
-                owner: target,
-                view: { ...view, position },
-              })),
-            ]
+          : [{ type: "put_query_view", owner: target, view: { ...view, position } }]
       )));
     })().catch(report);
   };

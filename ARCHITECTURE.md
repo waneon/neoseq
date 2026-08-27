@@ -136,13 +136,16 @@ CorePort.
   document. Empty atomic fields are first-class; repeated values and document
   children have stable identities and independent merge granularity.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
-  current v7 registry shared by core and client. Property keys have exactly two
+  current v9 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined
   `user.<name>`. Unknown built-ins remain readable but core-managed; unknown user
   properties remain readable and editable.
 - Deleting a page is a soft delete and page references remain resolvable as
   tombstones. Deleting a tag soft-deletes its record and atomically detaches
   that tag from every page root and block in any outline; copied default-property values remain.
+- A user intent that needs several ordinary commands uses one bounded, flat
+  batch. The core preflights its ordered steps on a fork, then commits one CRDT
+  transaction, history entry, durable update, and semantic event.
 - Shared saved-view definitions and the query builder's plan behind a built
   query are graph data. RDF triples, query results and evaluation plans, private
   presentation preferences, UI selection, and connection state are derived,

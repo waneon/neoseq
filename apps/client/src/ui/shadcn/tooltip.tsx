@@ -44,7 +44,7 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-[var(--z-popover)] w-fit rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade",
+          "z-[var(--z-popover)] w-fit rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade-fast",
           className,
         )}
         {...props}

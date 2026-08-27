@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   blockTexts,
   createGraph,
+  openSettings,
   openSidebar,
   startOutline,
   typeInFocusedBlock,
@@ -67,6 +68,16 @@ test("graph lifecycle: rename and explicit delete", async ({ page }) => {
   await page.getByRole("button", { name: /^Actions for / }).click();
   await page.getByRole("menuitem", { name: /^Delete graph/ }).click();
   await page.getByTestId("confirm-delete-graph").click();
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+});
+
+test("settings keeps graph deletion inside the confirmation transaction", async ({ page }) => {
+  await createGraph(page, "Settings Delete");
+  await openSettings(page, "danger");
+  await page.getByTestId("settings-delete-graph").click();
+  const confirmation = page.getByTestId("settings-confirm-delete");
+  await confirmation.click();
+  await expect(confirmation).toHaveCount(0);
   await expect(page.getByTestId("picker-empty")).toBeVisible();
 });
 

@@ -53,6 +53,10 @@ The registry never stores React component names, CSS, icons, or localized copy.
 An unknown future document version is preserved by the CRDT document and is not
 generically editable by an older client.
 
+Client presentation policy keeps feature-owned fields out of generic property
+surfaces. In particular, favourite and tag ordering remain writable only through
+their ordering interactions; their numeric storage is not a second editor.
+
 ## Task Keys
 
 The task keys are ordinary registry entries; there is no task storage shape. Two of
@@ -161,9 +165,12 @@ different targets: `tag` is the tag's own metadata — what the tag *is*, includ
 its query — and `tag_default` is what the tag copies onto whatever it is added
 to. Document schemas add semantic commands; the query document currently supports
 source set/splice, plan set/clear, view put/remove, and default-view selection.
-One command remains one Loro transaction, undo item, durable update, and semantic
-event. A write to either tag bag is a graph-scoped history effect, because a tag
-belongs to no page.
+One user intent remains one Loro transaction, undo item, durable update, and
+semantic event. A bounded, flat `batch` command composes ordinary commands when
+one intent crosses property or entity boundaries; it validates every step on a
+disposable fork before canonical state changes. History commands and nested
+batches are forbidden. A write to either tag bag is a graph-scoped history
+effect, because a tag belongs to no page.
 
 Tag defaults materialize only schemas whose registry contract allows copying.
 The query document has a tag-metadata placement and no tag-default placement: a

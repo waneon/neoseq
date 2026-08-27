@@ -73,8 +73,6 @@ import { QueryBlock } from "../query/QueryBlock";
 import { TaskPriorityControl } from "../tasks/PriorityControl";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
-import { compilePlan } from "../../entities/query-compile";
-import { defaultPlan, encodePlan, QUERY_PLAN_VERSION } from "../../entities/query-plan";
 import { codePointIndex, diffSplice } from "../blocks/editor/text-diff";
 import {
   transformAutoClosers,
@@ -157,6 +155,7 @@ import {
   filterSlashItems,
   type SlashItem,
 } from "../blocks/editor/slash-commands";
+import { createQueryCommand } from "../query/commands";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -674,6 +673,48 @@ export function Outliner({
     [flush],
   );
 
+  /**
+   * Commits the text edit that consumed a completion token together with the
+   * semantic action selected from that completion. Neither half may survive if
+   * the other is rejected, and one undo restores both.
+   */
+  const stageDraftSplice = useCallback((id: string, next: string): Command | null => {
+      const timer = flushTimers.current.get(id);
+      if (timer) {
+        clearTimeout(timer);
+        flushTimers.current.delete(id);
+      }
+      const baseline = draftStateRef.current.baselines.get(id);
+      const splice = baseline === undefined ? null : diffSplice(baseline, next);
+      if (!splice) return null;
+      dispatchDraft({ type: "set-baseline", id, value: next });
+      return {
+        type: "splice_markdown",
+        owner: ownerRef.current,
+        block_id: id,
+        ...splice,
+      };
+    }, [dispatchDraft]);
+
+  const commitDraftWith = useCallback(
+    async (id: string, next: string, action: Command | null, failure: string) => {
+      const commands: Command[] = [];
+      const splice = stageDraftSplice(id, next);
+      if (splice) commands.push(splice);
+      if (action) commands.push(action);
+      if (commands.length === 0) return;
+      try {
+        await session.execute(commands.length === 1
+          ? commands[0]
+          : { type: "batch", commands });
+      } catch (error) {
+        if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
+        notify.failure(failure, error);
+      }
+    },
+    [dispatchDraft, notify, session, stageDraftSplice],
+  );
+
   const flushRef = useLatest(flush);
   useEffect(() => {
     mounted.current = true;
@@ -838,49 +879,6 @@ export function Outliner({
   );
 
   /**
-   * Lands a `#` menu choice on a real block. A tag the block already carries
-   * writes nothing — removing the token was the whole gesture.
-   */
-  const applyTagOption = useCallback(
-    async (blockId: string, option: TagOption) => {
-      if (option.present) return;
-      try {
-        await session.execute({
-          type: "add_tag",
-          entity: { kind: "block", owner: ownerRef.current, id: blockId },
-          tag_id: option.id,
-        });
-      } catch (error) {
-        notify.failure(message("failure.addTag"), error);
-      }
-    },
-    [message, notify, session],
-  );
-
-  /**
-   * Turns a block into a query. The plan and the SPARQL it compiles to travel in
-   * one command, so the block never exists in a state where the two disagree.
-   */
-  const createQuery = useCallback(
-    async (blockId: string) => {
-      const owner = { kind: "block", owner: ownerRef.current, id: blockId } as const;
-      const plan = defaultPlan();
-      try {
-        await session.execute({
-          type: "set_query_plan",
-          owner,
-          view_id: "all",
-          plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-          source: compilePlan(plan).source,
-        });
-      } catch (error) {
-        notify.failure(message("failure.createQuery"), error);
-      }
-    },
-    [message, notify, session],
-  );
-
-  /**
    * Drops the optimistic rows an insert never claimed. Whatever the user typed
    * into them goes with them, so this is never allowed to happen quietly.
    */
@@ -988,39 +986,68 @@ export function Outliner({
               blockId: realId,
             });
           });
+          let completionCommitted = false;
           if (pendingProperty.current?.blockId === head.tempId) {
             const intent = pendingProperty.current;
             pendingProperty.current = null;
             if (intent.action?.kind === "set") {
               const action = intent.action;
-              void session
-                .execute({
+              void commitDraftWith(
+                realId,
+                typed,
+                {
                   type: "set_property",
                   owner: { kind: "block", owner: ownerRef.current, id: realId },
                   key: action.key,
                   value: action.value,
-                })
-                .catch((error: unknown) => {
-                  notify.failure(message("failure.setProperty"), error);
-                });
+                },
+                message("failure.setProperty"),
+              );
+              completionCommitted = true;
             } else if (intent.action?.kind === "query") {
-              void createQuery(realId);
+              void commitDraftWith(
+                realId,
+                typed,
+                createQueryCommand({ kind: "block", owner: ownerRef.current, id: realId }),
+                message("failure.createQuery"),
+              );
+              completionCommitted = true;
             } else {
               const key = intent.action?.kind === "picker" ? intent.action.key : undefined;
+              const commandPrefix = stageDraftSplice(realId, typed) ?? undefined;
+              completionCommitted = true;
               requestAnimationFrame(() => {
                 const anchor = document.querySelector<HTMLTextAreaElement>(
                   `[data-block-id="${cssEscape(realId)}"] textarea`,
                 );
-                setPropertyRequest({ blockId: realId, key, anchor, selection: intent.selection });
+                setPropertyRequest({
+                  blockId: realId,
+                  key,
+                  anchor,
+                  selection: intent.selection,
+                  commandPrefix,
+                });
               });
             }
           }
           if (pendingTag.current?.blockId === head.tempId) {
             const intent = pendingTag.current;
             pendingTag.current = null;
-            void applyTagOption(realId, intent.option);
+            void commitDraftWith(
+              realId,
+              typed,
+              intent.option.present
+                ? null
+                : {
+                    type: "add_tag",
+                    entity: { kind: "block", owner: ownerRef.current, id: realId },
+                    tag_id: intent.option.id,
+                  },
+              message(intent.option.present ? "failure.lastEdit" : "failure.addTag"),
+            );
+            completionCommitted = true;
           }
-          if (typed !== head.baseline) {
+          if (typed !== head.baseline && !completionCommitted) {
             if (composing.current) scheduleFlush(realId);
             else flushNow(realId);
           }
@@ -1057,14 +1084,14 @@ export function Outliner({
   }, [
     abandonPending,
     activateBlock,
-    applyTagOption,
-    createQuery,
+    commitDraftWith,
     dispatchDraft,
     flushNow,
     message,
     notify,
     scheduleFlush,
     session,
+    stageDraftSplice,
   ]);
 
   const run = useCallback(
@@ -1795,7 +1822,7 @@ export function Outliner({
     blockId: string,
     value: string,
     textarea: HTMLTextAreaElement,
-  ) => {
+  ): boolean => {
     const slash = detectSlash(value, textarea.selectionStart, textarea.selectionEnd);
     if (slash) {
       dispatchOverlay({
@@ -1804,17 +1831,21 @@ export function Outliner({
           ? { kind: "slash", request: { blockId, ...slash, anchor: textarea }, active: 0 }
           : null,
       });
-      return;
+      return filterSlashItems(slashItems, slash.query).length > 0;
     }
 
     const hash = detectHash(value, textarea.selectionStart, textarea.selectionEnd);
+    const hasHashResults = hash
+      ? filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
+      : false;
     dispatchOverlay({
       type: "set-completion",
       overlay:
-        hash && filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
+        hash && hasHashResults
           ? { kind: "hash", request: { blockId, ...hash, anchor: textarea }, active: 0 }
           : null,
     });
+    return hasHashResults;
   };
 
   const editor: EditorContext = {
@@ -1902,30 +1933,37 @@ export function Outliner({
         dispatchPending();
         return;
       }
-      flushNow(row.block.id);
       if (chosen.action.kind === "set") {
         // A direct item is one keystroke to one property write — no picker.
-        void session
-          .execute({
+        void commitDraftWith(
+          row.block.id,
+          next,
+          {
             type: "set_property",
             owner: { kind: "block", owner, id: row.block.id },
             key: chosen.action.key,
             value: chosen.action.value,
-          })
-          .catch((error: unknown) => {
-            notify.failure(message("failure.setProperty"), error);
-          });
+          },
+          message("failure.setProperty"),
+        );
         return;
       }
       if (chosen.action.kind === "query") {
-        void createQuery(row.block.id);
+        void commitDraftWith(
+          row.block.id,
+          next,
+          createQueryCommand({ kind: "block", owner, id: row.block.id }),
+          message("failure.createQuery"),
+        );
         return;
       }
+      const commandPrefix = stageDraftSplice(row.block.id, next) ?? undefined;
       setPropertyRequest({
         blockId: row.block.id,
         key: chosen.action.key,
         anchor: pickerAnchor,
         selection: { start: caret, end: caret },
+        commandPrefix,
       });
     },
     closeHash: () => setHashRequest(null),
@@ -1954,8 +1992,18 @@ export function Outliner({
         dispatchPending();
         return;
       }
-      flushNow(row.block.id);
-      void applyTagOption(row.block.id, chosen);
+      void commitDraftWith(
+        row.block.id,
+        next,
+        chosen.present
+          ? null
+          : {
+              type: "add_tag",
+              entity: { kind: "block", owner, id: row.block.id },
+              tag_id: chosen.id,
+            },
+        message(chosen.present ? "failure.lastEdit" : "failure.addTag"),
+      );
     },
     toggleCollapse: (id) => {
       if (visualLineRef.current) clearSelection();
@@ -2029,8 +2077,16 @@ export function Outliner({
         autoClosers: nextClosers,
       });
       if (!composing.current) {
-        scheduleFlush(row.block.id);
-        updateCompletions(row.block.id, value, textarea);
+        const completing = updateCompletions(row.block.id, value, textarea);
+        if (completing) {
+          const timer = flushTimers.current.get(row.block.id);
+          if (timer) {
+            clearTimeout(timer);
+            flushTimers.current.delete(row.block.id);
+          }
+        } else {
+          scheduleFlush(row.block.id);
+        }
       }
     },
     onCompositionStart: (row) => {
@@ -2043,9 +2099,8 @@ export function Outliner({
     },
     onCompositionEnd: (row, textarea) => {
       composing.current = false;
-      scheduleFlush(row.block.id);
       const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
-      updateCompletions(row.block.id, value, textarea);
+      if (!updateCompletions(row.block.id, value, textarea)) scheduleFlush(row.block.id);
     },
     onKeyDown: (row, allRows, event) => onKeyDown(editor, row, allRows, event, bindings),
     flushNow,
@@ -2743,6 +2798,7 @@ export function Outliner({
           }}
           anchor={propertyRequest.anchor}
           initialKey={propertyRequest.key}
+          commandPrefix={propertyRequest.commandPrefix}
           onClose={closePropertyPicker}
         />
       )}
@@ -2760,6 +2816,7 @@ export function Outliner({
           results={slashResults}
           active={slashIndex}
           onHover={setSlashActiveState}
+          onClose={() => setSlashRequest(null)}
           onChoose={(item) => {
             const row = rowsRef.current.find((entry) => entry.block.id === slashRequest.blockId);
             if (row) editor.acceptSlash(row, item);
@@ -2772,6 +2829,7 @@ export function Outliner({
           results={hashResults}
           active={hashIndex}
           onHover={setHashActiveState}
+          onClose={() => setHashRequest(null)}
           onChoose={(option) => {
             const row = rowsRef.current.find((entry) => entry.block.id === hashRequest.blockId);
             if (row) editor.acceptHash(row, option);

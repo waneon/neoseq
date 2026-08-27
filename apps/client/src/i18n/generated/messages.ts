@@ -66,6 +66,9 @@ export interface MessageArgumentMap {
   "commands.label.tags": undefined;
   "commands.label.todayJournal": undefined;
   "commands.label.undo": undefined;
+  "commands.noDeletablePageReason": undefined;
+  "commands.noPageTargetReason": undefined;
+  "commands.noPropertyTargetReason": undefined;
   "commands.pagePropertiesHint": undefined;
   "commands.palette": undefined;
   "commands.paletteRoute": undefined;
@@ -657,6 +660,7 @@ export interface MessageArgumentMap {
   "tags.namePlaceholder": undefined;
   "tags.new": undefined;
   "tags.newHere": undefined;
+  "tags.noGroups": undefined;
   "tags.queryFor": { readonly "name": string | number };
   "tags.renameGroup": undefined;
   "tags.restore": undefined;

@@ -17,6 +17,7 @@ import {
 } from "react";
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSession, SessionState } from "../../core-port/session";
+import type { Command } from "../../core-port/commands";
 import type { BlockSnapshot } from "../../core-port/snapshot";
 import { findBlock, findOutline, outlineOwnerKey } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
@@ -29,8 +30,6 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
-import { compilePlan } from "../../entities/query-compile";
-import { defaultPlan, encodePlan, QUERY_PLAN_VERSION } from "../../entities/query-plan";
 import { useCommands } from "../commands/context";
 import { bindingMatches, useShortcutBindings } from "../commands/shortcuts";
 import { useHistoryActions } from "../history/context";
@@ -40,7 +39,7 @@ import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
-import { useNotify } from "../notify/context";
+import { createQueryCommand } from "./commands";
 import { diffSplice } from "../blocks/editor/text-diff";
 import {
   transformAutoClosers,
@@ -127,6 +126,7 @@ type ActiveEdit =
       baseline: string;
       draft: string;
       composing: boolean;
+      completing: boolean;
       autoClosers: AutoCloserMarker[];
       saving: boolean;
       closeAfterSave: boolean;
@@ -139,6 +139,7 @@ type ActiveEdit =
       anchor: Anchor;
       /** A status/priority cell owns a dedicated menu; command routes do not. */
       taskMenu: boolean;
+      commandPrefix?: Command;
     };
 
 export interface QueryResultEditor {
@@ -156,6 +157,7 @@ export interface QueryResultEditor {
   begin(binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor): void;
   setDraft(value: string, edit?: BlockTextEdit): void;
   setComposing(composing: boolean): void;
+  setCompleting(completing: boolean): void;
   preserveDraftForPresentationChange(): void;
   consumePresentationChangeIntent(): boolean;
   commit(close: boolean): Promise<boolean>;
@@ -200,7 +202,6 @@ export function useQueryResultEditor({
 }): QueryResultEditor {
   const commands = useCommands();
   const history = useHistoryActions();
-  const notify = useNotify();
   const keymap = useEditorKeymap();
   const vim = useVimSession(keymap === "vim");
   const [active, setActive, activeRef] = useImmediateState<ActiveEdit | null>(null);
@@ -265,6 +266,7 @@ export function useQueryResultEditor({
             baseline: block.markdown,
             draft: block.markdown,
             composing: false,
+            completing: false,
             autoClosers: [],
             saving: false,
             closeAfterSave: false,
@@ -317,7 +319,7 @@ export function useQueryResultEditor({
   );
 
   const commit = useCallback(
-    async (close: boolean, draftOverride?: string): Promise<boolean> => {
+    async (close: boolean, draftOverride?: string, action?: Command): Promise<boolean> => {
       const current = activeRef.current;
       if (!current || current.phase !== "markdown") return false;
       if (current.composing) return false;
@@ -331,7 +333,7 @@ export function useQueryResultEditor({
       }
       const expected = draftOverride ?? current.draft;
       const splice = diffSplice(current.baseline, expected);
-      if (!splice) {
+      if (!splice && !action) {
         if (close) cancel();
         return true;
       }
@@ -352,12 +354,19 @@ export function useQueryResultEditor({
       });
 
       try {
-        await session.execute({
-          type: "splice_markdown",
-          owner: current.binding.block.owner,
-          block_id: current.binding.block.id,
-          ...splice,
-        });
+        const commands: Command[] = [];
+        if (splice) {
+          commands.push({
+            type: "splice_markdown",
+            owner: current.binding.block.owner,
+            block_id: current.binding.block.id,
+            ...splice,
+          });
+        }
+        if (action) commands.push(action);
+        await session.execute(commands.length === 1
+          ? commands[0]
+          : { type: "batch", commands });
         const canonical = blockFrom(session.getState(), current.binding.block)?.markdown ?? expected;
         setActive((latest) => {
           if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
@@ -396,6 +405,7 @@ export function useQueryResultEditor({
       !active
       || active.phase !== "markdown"
       || active.composing
+      || active.completing
       || active.saving
       || active.error
       || active.draft === active.baseline
@@ -446,86 +456,79 @@ export function useQueryResultEditor({
       : current);
   }, [setActive]);
 
+  const setCompleting = useCallback((completing: boolean) => {
+    setActive((current) => current?.phase === "markdown"
+      ? { ...current, completing }
+      : current);
+  }, [setActive]);
+
   const acceptSlash = useCallback((completion: BlockCompletionRequest, item: SlashItem) => {
     const current = activeRef.current;
     if (!current || current.phase !== "markdown") return;
     const next = removeCompletionToken(current.draft, completion).value;
-    setActive({ ...current, draft: next, autoClosers: [], error: null });
+    setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
 
     void (async () => {
-      if (!(await commit(false, next))) return;
       const owner = {
         kind: "block",
         owner: current.binding.block.owner,
         id: current.binding.block.id,
       } as const;
-      try {
-        if (item.action.kind === "set") {
-          await session.execute({
+      if (item.action.kind === "set") {
+        await commit(false, next, {
             type: "set_property",
             owner,
             key: item.action.key,
             value: item.action.value,
           });
-          return;
-        }
-        if (item.action.kind === "query") {
-          const plan = defaultPlan();
-          await session.execute({
-            type: "set_query_plan",
-            owner,
-            view_id: "all",
-            plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-            source: compilePlan(plan).source,
-          });
-          return;
-        }
-        const latest = activeRef.current;
-        if (!latest || latest.phase !== "markdown") return;
-        setActive({
-          phase: "picker",
-          binding: {
-            kind: "property",
-            block: current.binding.block,
-            key: item.action.key ?? "",
-          },
-          origin: current.origin,
-          anchor: completion.anchor.getBoundingClientRect(),
-          taskMenu: false,
-        });
-      } catch (cause) {
-        notify.failure(
-          item.action.kind === "query"
-            ? message("failure.createQuery")
-            : message("failure.setProperty"),
-          cause,
-        );
+        return;
       }
+      if (item.action.kind === "query") {
+        await commit(false, next, createQueryCommand(owner));
+        return;
+      }
+      const splice = diffSplice(current.baseline, next);
+      setActive({
+        phase: "picker",
+        binding: {
+          kind: "property",
+          block: current.binding.block,
+          key: item.action.key ?? "",
+        },
+        origin: current.origin,
+        anchor: completion.anchor.getBoundingClientRect(),
+        taskMenu: false,
+        commandPrefix: splice
+          ? {
+              type: "splice_markdown",
+              owner: current.binding.block.owner,
+              block_id: current.binding.block.id,
+              ...splice,
+            }
+          : undefined,
+      });
     })();
-  }, [commit, message, notify, session, setActive]);
+  }, [commit, setActive]);
 
   const acceptTag = useCallback((completion: BlockCompletionRequest, option: BlockTagOption) => {
     const current = activeRef.current;
     if (!current || current.phase !== "markdown") return;
     const next = removeCompletionToken(current.draft, completion).value;
-    setActive({ ...current, draft: next, autoClosers: [], error: null });
+    setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
     void (async () => {
-      if (!(await commit(false, next)) || option.present) return;
-      try {
-        await session.execute({
-          type: "add_tag",
-          entity: {
-            kind: "block",
-            owner: current.binding.block.owner,
-            id: current.binding.block.id,
-          },
-          tag_id: option.id,
-        });
-      } catch (cause) {
-        notify.failure(message("failure.addTag"), cause);
-      }
+      await commit(false, next, option.present
+        ? undefined
+        : {
+            type: "add_tag",
+            entity: {
+              kind: "block",
+              owner: current.binding.block.owner,
+              id: current.binding.block.id,
+            },
+            tag_id: option.id,
+          });
     })();
-  }, [commit, message, notify, session, setActive]);
+  }, [commit, setActive]);
 
   const runHistory = useCallback((redo: boolean) => {
     void (async () => {
@@ -608,6 +611,7 @@ export function useQueryResultEditor({
     begin,
     setDraft,
     setComposing,
+    setCompleting,
     preserveDraftForPresentationChange,
     consumePresentationChangeIntent,
     commit,
@@ -637,6 +641,7 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
         }}
         anchor={active.anchor}
         initialKey={active.binding.key || undefined}
+        commandPrefix={active.commandPrefix}
         onClose={editor.cancel}
       />
     );
@@ -691,6 +696,10 @@ function QueryMarkdownField({
     blockCompletionReducer,
     NO_BLOCK_COMPLETION,
   );
+  const closeCompletion = useCallback(() => {
+    dispatchCompletion({ type: "set", completion: null });
+    editor.setCompleting(false);
+  }, [editor]);
   const activationEntrance = useBlockActivationEntrance();
   const activateVim = (inputMethod: BlockActivationMethod) => {
     const mode = vimModeForActivation(editor.keymap, false, inputMethod);
@@ -727,39 +736,43 @@ function QueryMarkdownField({
   const updateCompletions = useCallback((value: string, element: HTMLTextAreaElement) => {
     const slash = detectSlash(value, element.selectionStart, element.selectionEnd);
     if (slash) {
+      const available = filterSlashItems(slashItems, slash.query).length > 0;
       dispatchCompletion({
         type: "set",
-        completion: filterSlashItems(slashItems, slash.query).length > 0
+        completion: available
           ? { kind: "slash", request: { blockId, ...slash, anchor: element }, active: 0 }
           : null,
       });
+      editor.setCompleting(available);
       return;
     }
 
     const hash = detectHash(value, element.selectionStart, element.selectionEnd);
+    const available = hash && filterTagOptions(
+      state.snapshot.tags,
+      hash.query,
+      new Set(block?.tags ?? []),
+      compare,
+    ).length > 0;
     dispatchCompletion({
       type: "set",
-      completion: hash && filterTagOptions(
-        state.snapshot.tags,
-        hash.query,
-        new Set(block?.tags ?? []),
-        compare,
-      ).length > 0
+      completion: hash && available
         ? { kind: "hash", request: { blockId, ...hash, anchor: element }, active: 0 }
         : null,
     });
-  }, [block?.tags, blockId, compare, slashItems, state.snapshot.tags]);
+    editor.setCompleting(Boolean(available));
+  }, [block?.tags, blockId, compare, editor, slashItems, state.snapshot.tags]);
 
   useEffect(() => {
     if (completion.kind === "none") return;
     const closeOnOutsidePress = (event: PointerEvent) => {
       const node = event.target;
       if (node instanceof Element && node.closest(".slash-menu")) return;
-      dispatchCompletion({ type: "set", completion: null });
+      closeCompletion();
     };
     window.addEventListener("pointerdown", closeOnOutsidePress, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-  }, [completion.kind]);
+  }, [closeCompletion, completion.kind]);
 
   useLayoutEffect(() => {
     const element = textarea.current;
@@ -891,7 +904,7 @@ function QueryMarkdownField({
           if (slashRequest) {
             if (event.key === "Escape") {
               event.preventDefault();
-              dispatchCompletion({ type: "set", completion: null });
+              closeCompletion();
               return;
             }
             if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
@@ -902,7 +915,7 @@ function QueryMarkdownField({
                 editor.acceptSlash(slashRequest, chosen);
                 queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
-              dispatchCompletion({ type: "set", completion: null });
+              closeCompletion();
               return;
             }
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -920,7 +933,7 @@ function QueryMarkdownField({
           if (hashRequest) {
             if (event.key === "Escape") {
               event.preventDefault();
-              dispatchCompletion({ type: "set", completion: null });
+              closeCompletion();
               return;
             }
             if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
@@ -931,7 +944,7 @@ function QueryMarkdownField({
                 editor.acceptTag(hashRequest, chosen);
                 queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
-              dispatchCompletion({ type: "set", completion: null });
+              closeCompletion();
               return;
             }
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -974,7 +987,7 @@ function QueryMarkdownField({
                 }
                 applyVimTextEffect(event.currentTarget, effect, (value, _element, edit) => {
                   editor.setDraft(value, edit);
-                  dispatchCompletion({ type: "set", completion: null });
+                  closeCompletion();
                 });
               }
               return;
@@ -1041,11 +1054,12 @@ function QueryMarkdownField({
           results={slashResults}
           active={slashIndex}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "slash", index })}
+          onClose={closeCompletion}
           onChoose={(item) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
             editor.acceptSlash(slashRequest, item);
-            dispatchCompletion({ type: "set", completion: null });
+            closeCompletion();
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
         />
@@ -1056,11 +1070,12 @@ function QueryMarkdownField({
           results={hashResults}
           active={hashIndex}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "hash", index })}
+          onClose={closeCompletion}
           onChoose={(option) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
             editor.acceptTag(hashRequest, option);
-            dispatchCompletion({ type: "set", completion: null });
+            closeCompletion();
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
         />

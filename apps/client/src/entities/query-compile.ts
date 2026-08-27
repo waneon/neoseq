@@ -40,7 +40,7 @@ const XSD = "http://www.w3.org/2001/XMLSchema#";
  * every request and is stored in every query document, so it is named once here
  * rather than restated by each surface that asks a question.
  */
-export const QUERY_LANGUAGE = "sparql-1.1/neoseq-v1" as const;
+export { QUERY_LANGUAGE } from "./query-document";
 
 export const LIST_SEPARATOR = "\u001F";
 

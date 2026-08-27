@@ -107,6 +107,7 @@ export type Command =
   | { type: "set_query_default_view"; owner: QueryOwnerRef; view_id: string }
   | { type: "add_tag"; entity: EntityRef; tag_id: string }
   | { type: "remove_tag"; entity: EntityRef; tag_id: string }
+  | { type: "batch"; commands: Command[] }
   | { type: "undo" }
   | { type: "redo" };
 

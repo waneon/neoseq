@@ -15,7 +15,14 @@ import type { SettingsSection } from "../settings/SettingsDialog";
 
 export interface PageActions {
   info(): void;
-  remove(): void;
+  /** Journals have page information, but they are never deletable pages. */
+  remove?: () => void;
+}
+
+export interface CommandAvailability {
+  properties: boolean;
+  pageInfo: boolean;
+  pageDelete: boolean;
 }
 
 export interface CommandBridge {
@@ -29,27 +36,17 @@ export interface CommandBridge {
   setPageProperties(handler: ((key?: string) => void) | null): void;
   /** Set by PageView: the verbs its title-row context menu offers. */
   setPageActions(actions: PageActions | null): void;
+  /** The palette reads this after every contextual registration change. */
+  availability(): CommandAvailability;
   /**
    * Mod+P: opens the contextual target and reports whether one existed. A key
    * opens the picker already on that property — the palette's task commands
    * ride this.
    */
   requestProperties(key?: string): boolean;
-  requestPageInfo(): void;
-  requestPageDelete(): void;
+  requestPageInfo(): boolean;
+  requestPageDelete(): boolean;
 }
-
-const NOOP: CommandBridge = {
-  openPalette: () => {},
-  openShortcuts: () => {},
-  openSettings: () => {},
-  registerBlockProperties: () => () => {},
-  setPageProperties: () => {},
-  setPageActions: () => {},
-  requestProperties: () => false,
-  requestPageInfo: () => {},
-  requestPageDelete: () => {},
-};
 
 /** Focus-ordered contextual handlers; the newest live registration wins. */
 export interface ContextualHandlerRegistry<T> {
@@ -75,8 +72,10 @@ export function createContextualHandlerRegistry<T>(): ContextualHandlerRegistry<
   };
 }
 
-export const CommandContext = createContext<CommandBridge>(NOOP);
+export const CommandContext = createContext<CommandBridge | null>(null);
 
 export function useCommands(): CommandBridge {
-  return useContext(CommandContext);
+  const commands = useContext(CommandContext);
+  if (!commands) throw new Error("useCommands requires a CommandContext provider");
+  return commands;
 }

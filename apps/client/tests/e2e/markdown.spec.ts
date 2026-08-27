@@ -43,11 +43,7 @@ test("renders safe Markdown at rest and restores its source editor", async ({ pa
   await expect(projection.locator(".markdown-image-alt")).toHaveText("diagram");
   expect(externalRequests).toEqual([]);
   const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
-  expect(
-    audit.violations.filter(
-      (violation) => violation.impact === "serious" || violation.impact === "critical",
-    ),
-  ).toEqual([]);
+  expect(audit.violations).toEqual([]);
 
   await projection.getByRole("heading", { name: "Release note" }).click();
   const editor = page.getByLabel("Block text").first();

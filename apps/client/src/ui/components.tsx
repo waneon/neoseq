@@ -104,6 +104,7 @@ export function ConfirmDialog({
   returnFocus,
   onClose,
   onConfirm,
+  onConfirmError,
   children,
 }: {
   title: string;
@@ -113,12 +114,27 @@ export function ConfirmDialog({
   testId?: string;
   returnFocus?: () => HTMLElement | null;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
+  onConfirmError?: (cause: unknown) => void;
   children: ReactNode;
 }) {
+  const [pending, setPending] = useState(false);
+  const working = busy || pending;
   const close = () => {
     onClose();
     queueMicrotask(() => returnFocus?.()?.focus({ preventScroll: true }));
+  };
+
+  const confirm = async () => {
+    if (working) return;
+    setPending(true);
+    try {
+      await onConfirm();
+      close();
+    } catch (cause) {
+      setPending(false);
+      onConfirmError?.(cause);
+    }
   };
 
   return (
@@ -126,7 +142,7 @@ export function ConfirmDialog({
       <AlertDialogContent
         onEscapeKeyDown={(event) => {
           event.preventDefault();
-          close();
+          if (!working) close();
         }}
       >
         <AlertDialogHeader>
@@ -135,21 +151,20 @@ export function ConfirmDialog({
         </AlertDialogHeader>
         <div className="dialog-actions">
           <AlertDialogCancel asChild>
-            <Button variant="secondary" disabled={busy} onClick={close}>
+            <Button variant="secondary" disabled={working} onClick={close}>
               {cancelLabel}
             </Button>
           </AlertDialogCancel>
           <AlertDialogAction asChild>
             <Button
               variant="destructive"
-              disabled={busy}
+              disabled={working}
               data-testid={testId}
               onClick={(event) => {
-                // The caller owns completion. Preventing the primitive's eager
-                // close lets an async deletion keep the explanation on screen
-                // when it fails; synchronous callers close their own state.
+                // A destructive operation owns the lifetime of its dialog: it
+                // remains visible until the operation has actually committed.
                 event.preventDefault();
-                onConfirm();
+                void confirm();
               }}
             >
               {confirmLabel}

@@ -1,8 +1,9 @@
 // The notification layer's one entry point.
 //
 // Mounted above the router so a toast survives navigation and reaches the graph
-// picker as well as the shell. Consumers get a working no-op default rather than
-// a thrown error, which is what lets a feature be mounted bare in a test.
+// picker as well as the shell. A missing provider is a broken application
+// boundary, so consumers fail immediately instead of silently swallowing the
+// error the notification was meant to surface.
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { failureToast } from "./errors";
@@ -24,16 +25,12 @@ export interface Notifier {
   failure(summary: string, error: unknown, retry?: ToastAction): string | null;
 }
 
-const SILENT: Notifier = {
-  show: () => "",
-  dismiss: () => {},
-  failure: () => null,
-};
-
-const NotifyContext = createContext<Notifier>(SILENT);
+const NotifyContext = createContext<Notifier | null>(null);
 
 export function useNotify(): Notifier {
-  return useContext(NotifyContext);
+  const notifier = useContext(NotifyContext);
+  if (!notifier) throw new Error("useNotify must be used within NotifyProvider");
+  return notifier;
 }
 
 export function NotifyProvider({ children }: { children: ReactNode }) {

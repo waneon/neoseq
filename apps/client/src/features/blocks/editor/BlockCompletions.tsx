@@ -4,12 +4,10 @@
 // decides how the selected tag or slash action mutates the canonical block.
 
 import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { CheckIcon, HashIcon } from "lucide-react";
 import type { TagSnapshot } from "../../../core-port/snapshot";
 import { useI18n } from "../../../i18n";
-import { useAnchoredPosition } from "@/ui/anchored";
-import { useOverlayRoot } from "@/ui/overlay-root";
+import { AnchoredPanel } from "@/ui/anchored-panel";
 import { fuzzyScore } from "../../commands/registry";
 import {
   SLASH_GROUP_ORDER,
@@ -142,21 +140,17 @@ export function BlockTagMenu({
   active,
   onHover,
   onChoose,
+  onClose,
 }: {
   request: BlockCompletionRequest;
   results: BlockTagOption[];
   active: number;
   onHover: (index: number) => void;
   onChoose: (option: BlockTagOption) => void;
+  onClose: () => void;
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(
-    liveCompletionAnchor(request),
-    MENU_PLACEMENT,
-    results.length,
-  );
-  const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
     listRef.current
@@ -164,15 +158,19 @@ export function BlockTagMenu({
       ?.scrollIntoView({ block: "nearest" });
   }, [active, results]);
 
-  return createPortal(
-    <div
+  return (
+    <AnchoredPanel
+      anchor={liveCompletionAnchor(request)}
       id="tag-suggest-menu"
-      ref={listRef}
       className="slash-menu tag-menu"
-      style={position}
       role="listbox"
-      aria-label={message("tags.menuLabel")}
-      data-testid="tag-menu"
+      label={message("tags.menuLabel")}
+      options={MENU_PLACEMENT}
+      revision={results.length}
+      surfaceRef={listRef}
+      preserveAnchorFocus
+      onClose={onClose}
+      testId="tag-menu"
     >
       {results.map((option, index) => (
         <button
@@ -192,8 +190,7 @@ export function BlockTagMenu({
           {option.present && <CheckIcon className="tag-opt-check" aria-hidden />}
         </button>
       ))}
-    </div>,
-    overlayRoot,
+    </AnchoredPanel>
   );
 }
 
@@ -203,21 +200,17 @@ export function BlockSlashMenu({
   active,
   onHover,
   onChoose,
+  onClose,
 }: {
   request: BlockCompletionRequest;
   results: SlashItem[];
   active: number;
   onHover: (index: number) => void;
   onChoose: (item: SlashItem) => void;
+  onClose: () => void;
 }) {
   const { message } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(
-    liveCompletionAnchor(request),
-    MENU_PLACEMENT,
-    results.length,
-  );
-  const overlayRoot = useOverlayRoot();
 
   useEffect(() => {
     listRef.current
@@ -256,15 +249,19 @@ export function BlockSlashMenu({
     );
   };
 
-  return createPortal(
-    <div
+  return (
+    <AnchoredPanel
+      anchor={liveCompletionAnchor(request)}
       id="slash-command-menu"
-      ref={listRef}
       className="slash-menu"
-      style={position}
       role="listbox"
-      aria-label={message("slash.menuLabel")}
-      data-testid="slash-menu"
+      label={message("slash.menuLabel")}
+      options={MENU_PLACEMENT}
+      revision={results.length}
+      surfaceRef={listRef}
+      preserveAnchorFocus
+      onClose={onClose}
+      testId="slash-menu"
     >
       {sections.map((section) => (
         <div key={section.group ?? "ranked"} className="slash-group" role="presentation">
@@ -281,7 +278,6 @@ export function BlockSlashMenu({
           {section.items.map(renderItem)}
         </div>
       ))}
-    </div>,
-    overlayRoot,
+    </AnchoredPanel>
   );
 }

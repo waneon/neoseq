@@ -4,6 +4,7 @@
 
 import registryContract from "../../../../contracts/property-registry.json";
 import type { PropertyValue, PropertyValueType } from "../core-port/snapshot";
+import { newQueryDocument } from "./query-document";
 
 type PropertyTarget = "page" | "block" | "tag_metadata" | "tag_default";
 type PropertyAccess = "user" | "core";
@@ -76,8 +77,11 @@ const FEATURE_ONLY_RENDERERS = new Set([
   "builtin.tag-icon",
   // Starring something is one press on the thing itself, wherever it is named —
   // a generic checkbox row beside it would be a second, worse control for a
-  // value that is already a verb in three menus.
+  // value that is already a verb in three menus. Its ordering number belongs
+  // to that same feature: exposing it as an editable numeric property lets a
+  // reader break an order whose drag interaction already owns the invariant.
   "builtin.favorite",
+  "builtin.favorite-order",
 ]);
 const METADATA_RENDERERS = new Set([
   "builtin.page-kind",
@@ -341,24 +345,5 @@ export function sameValue(left: PropertyValue, right: PropertyValue): boolean {
 }
 
 export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type: "document" }>["value"] {
-  return {
-    schema: "neoseq.query",
-    version: 2,
-    // One view, named for what it shows rather than for how it is drawn — the
-    // same shape `domain::PropertyDocument::default_query` writes.
-    views: [
-      {
-        id: "all",
-        name: "All",
-        definition: { source, language: "sparql-1.1/neoseq-v1", plan: null },
-        kind: "table",
-        position: 0,
-        columns: [],
-        options: VIEW_OPTIONS,
-      },
-    ],
-    default_view_id: "all",
-  };
+  return newQueryDocument(source);
 }
-
-const VIEW_OPTIONS = { compact: false, wrap: false, sort: [], list_sort: [] };

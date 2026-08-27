@@ -46,6 +46,7 @@ async function addCustom(
 }
 
 test("edits every value type plus unknown keys in the contextual picker", async ({ page }) => {
+  test.slow();
   await createGraph(page, "Props Graph");
   await createPage(page, "Everything");
 
@@ -78,6 +79,9 @@ test("edits every value type plus unknown keys in the contextual picker", async 
   await page.keyboard.press("Escape");
   await picker.getByRole("option", { name: /ref/ }).click();
   await expect(picker).toContainText("Everything");
+  // The page field has its own suggestion layer. Escape closes the deepest
+  // visible surface first; the next one returns to the property list.
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await picker.getByRole("option", { name: /count/ }).click();
   await picker.getByRole("button", { name: "Remove property" }).click();

@@ -14,11 +14,10 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import type { Command } from "../../core-port/commands";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
-import { useAnchoredPosition } from "@/ui/anchored";
-import { useOverlayRoot } from "@/ui/overlay-root";
+import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Input } from "@/ui/shadcn/input";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
@@ -37,6 +36,8 @@ export function PageAutocomplete({
   inputId,
   kind = "page",
   onPick,
+  onCreate,
+  onCreated,
 }: {
   placeholder: string;
   allowCreate?: boolean;
@@ -44,6 +45,9 @@ export function PageAutocomplete({
   inputId?: string;
   kind?: "page" | "tag";
   onPick: (entityId: string) => void | Promise<void>;
+  /** Commands that attach a newly created entity to the intent's target. */
+  onCreate?: (entityId: string) => Command | Command[];
+  onCreated?: (entityId: string) => void | Promise<void>;
 }) {
   const session = useSession();
   const state = useSessionState();
@@ -88,27 +92,19 @@ export function PageAutocomplete({
     return result;
   }, [state.snapshot, query, allowCreate, kind, compare]);
 
-  // The list sizes to its own content between the field's width and 320px, and
-  // it flips above the field when the field sits near the bottom of the window.
-  const position = useAnchoredPosition(
-    open ? inputRef.current : null,
-    { matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 },
-    options.length,
-    open
-      ? { surface: listRef, onExternalScroll: () => setOpen(false) }
-      : undefined,
-  );
-  const overlayRoot = useOverlayRoot();
-
   const pick = async (option: Option) => {
     try {
       if (option.create) {
         const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
-        const command = kind === "tag"
+        const ensure = kind === "tag"
           ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
           : { type: "ensure_page" as const, page_id: id, title: option.label };
-        await session.execute(command);
-        await onPick(id);
+        const attached = onCreate?.(id);
+        const commands = attached === undefined
+          ? [ensure]
+          : [ensure, ...(Array.isArray(attached) ? attached : [attached])];
+        await session.execute({ type: "batch", commands });
+        await onCreated?.(id);
       } else {
         await onPick(option.id);
       }
@@ -156,7 +152,7 @@ export function PageAutocomplete({
         id={inputId}
         role="combobox"
         aria-expanded={open}
-        aria-controls={open && options.length > 0 ? listId : undefined}
+        aria-controls={open ? listId : undefined}
         aria-autocomplete="list"
         aria-label={placeholder}
         aria-activedescendant={open && options[active] ? optionId(active) : undefined}
@@ -174,7 +170,9 @@ export function PageAutocomplete({
           // claimed it. The last focus event is authoritative: an older blur
           // must not close the list underneath an in-progress interaction.
           cancelBlur();
-          setOpen(true);
+          // An empty, untyped list offers no action. Keeping it closed also
+          // leaves Escape for the picker that owns this field.
+          setOpen(options.length > 0);
         }}
         onBlur={() => {
           cancelBlur();
@@ -185,17 +183,28 @@ export function PageAutocomplete({
         }}
         onKeyDown={onKeyDown}
       />
-      {open &&
-        createPortal(
-          <div ref={listRef} className="ac-popover" style={position}>
+      {open && inputRef.current && (
+        <AnchoredPanel
+          anchor={inputRef.current}
+          id={listId}
+          role="listbox"
+          label={placeholder}
+          className="ac-popover"
+          options={{ matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 }}
+          revision={options.length}
+          surfaceRef={listRef}
+          dismissOnExternalScroll
+          preserveAnchorFocus
+          onClose={() => setOpen(false)}
+        >
             {options.length === 0 ? (
               <div role="status" className="ac-hint">
                 {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
               </div>
             ) : (
-              <ul id={listId} role="listbox" className="m-0 list-none p-0">
+              <ul role="presentation" className="m-0 list-none p-0">
                 {options.map((option, index) => (
-                  <li key={option.create ? "__create" : option.id}>
+                  <li key={option.create ? "__create" : option.id} role="presentation">
                     <button
                       id={optionId(index)}
                       role="option"
@@ -230,9 +239,8 @@ export function PageAutocomplete({
                 ))}
               </ul>
             )}
-          </div>,
-          overlayRoot,
-        )}
+        </AnchoredPanel>
+      )}
     </div>
   );
 }

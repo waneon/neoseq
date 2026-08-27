@@ -1139,6 +1139,8 @@ describe("query result views", () => {
 
     await user.click(within(table).getByTestId("query-edit-text"));
     const editor = await screen.findByTestId("query-markdown-editor");
+    const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
+    harness.port.beforeExecute = async (command) => { commands.push(command); };
     await user.type(editor, " /done");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
     await user.keyboard("{Enter}");
@@ -1149,6 +1151,12 @@ describe("query result views", () => {
         .toBe("done");
     });
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+    expect(commands).toEqual([expect.objectContaining({ type: "set_property" })]);
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
+    expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"))
+      .toBeUndefined();
   });
 
   it("keeps result completions attached when the surrounding document scrolls", async () => {
@@ -1177,12 +1185,19 @@ describe("query result views", () => {
 
     await user.click(within(table).getByTestId("query-edit-text"));
     const editor = await screen.findByTestId("query-markdown-editor");
+    const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
+    harness.port.beforeExecute = async (command) => { commands.push(command); };
     await user.type(editor, " #pro");
     expect(await screen.findByTestId("tag-menu")).toBeVisible();
     await user.keyboard("{Enter}");
 
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
     await waitFor(() => expect(resultBlock(harness)?.tags).toContain("project"));
+    expect(commands).toEqual([expect.objectContaining({ type: "add_tag" })]);
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
+    expect(resultBlock(harness)?.tags).not.toContain("project");
   });
 
   it("routes undo and redo through document history while the query editor is focused", async () => {

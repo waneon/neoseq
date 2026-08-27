@@ -17,7 +17,6 @@ async function audit(page: Page, include?: string): Promise<string[]> {
   if (include) builder = builder.include(include);
   const results = await builder.analyze();
   return results.violations
-    .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
     .flatMap((violation) =>
       violation.nodes.map(
         (node) => `${violation.id}: ${violation.help} (${node.target.join(" ")})`,
@@ -234,7 +233,8 @@ test("a journal's standing questions pass the basic audit, written and read", as
   // shapes this section has, and the audit should see both at once.
   await page.getByTestId("add-default-query").click();
   await page.getByTestId("add-default-query").click();
-  await expect(page.getByTestId("query-builder")).toBeVisible();
+  const settings = page.getByTestId("settings-default-queries");
+  await expect(settings.getByTestId("query-builder")).toBeVisible();
   expect(await audit(page)).toEqual([]);
 
   // …and the columns panel, which is the one floating surface this section

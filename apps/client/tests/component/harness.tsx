@@ -4,7 +4,7 @@
 import { act, fireEvent, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement, type ReactNode } from "react";
 import { GraphSession } from "../../src/core-port/session";
 import {
   FakeCorePort,
@@ -21,6 +21,12 @@ import { JournalView } from "../../src/features/journal/JournalView";
 import { PageView } from "../../src/features/page/PageView";
 import { TagsView } from "../../src/features/tags/TagsView";
 import { TagView } from "../../src/features/tags/TagView";
+import {
+  CommandContext,
+  createContextualHandlerRegistry,
+  type CommandBridge,
+  type PageActions,
+} from "../../src/features/commands/context";
 
 export const GRAPH_ID = "test-graph";
 
@@ -34,6 +40,50 @@ export interface Harness {
     (): Promise<void>;
     <T>(work: () => T | Promise<T>): Promise<T>;
   };
+}
+
+/** Explicit command wiring for feature tests that intentionally omit GraphShell. */
+export function TestCommandProvider({ children }: { children: ReactNode }) {
+  const commands = useMemo<CommandBridge>(() => {
+    const blocks = createContextualHandlerRegistry<(key?: string) => void>();
+    let pageProperties: ((key?: string) => void) | null = null;
+    let pageActions: PageActions | null = null;
+    return {
+      openPalette: () => {},
+      openShortcuts: () => {},
+      openSettings: () => {},
+      registerBlockProperties: blocks.register,
+      setPageProperties: (handler) => {
+        pageProperties = handler;
+      },
+      setPageActions: (actions) => {
+        pageActions = actions;
+      },
+      availability: () => ({
+        properties: blocks.current() !== undefined || pageProperties !== null,
+        pageInfo: pageActions !== null,
+        pageDelete: pageActions?.remove !== undefined,
+      }),
+      requestProperties: (key) => {
+        const handler = blocks.current() ?? pageProperties;
+        if (!handler) return false;
+        handler(key);
+        return true;
+      },
+      requestPageInfo: () => {
+        if (!pageActions) return false;
+        pageActions.info();
+        return true;
+      },
+      requestPageDelete: () => {
+        const remove = pageActions?.remove;
+        if (!remove) return false;
+        remove();
+        return true;
+      },
+    };
+  }, []);
+  return <CommandContext.Provider value={commands}>{children}</CommandContext.Provider>;
 }
 
 export async function mountAt(
@@ -58,11 +108,13 @@ export async function mountAt(
       {
         path: "/g/:graphId",
         element: (
-          <SessionContext.Provider value={session}>
-            <HistoryProvider session={session} graphId={GRAPH_ID}>
-              <Outlet />
-            </HistoryProvider>
-          </SessionContext.Provider>
+          <TestCommandProvider>
+            <SessionContext.Provider value={session}>
+              <HistoryProvider session={session} graphId={GRAPH_ID}>
+                <Outlet />
+              </HistoryProvider>
+            </SessionContext.Provider>
+          </TestCommandProvider>
         ),
         children: [
           { path: "journal", element: custom ?? <JournalView /> },

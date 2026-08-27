@@ -874,6 +874,31 @@ export class FakeCorePort implements SessionPort {
         if (index >= 0) tags.splice(index, 1);
         break;
       }
+      case "batch": {
+        if (command.commands.length === 0 || command.commands.length > 64) {
+          fail("internal", "command batch must contain between 1 and 64 commands");
+        }
+        result.changed = false;
+        for (const step of command.commands) {
+          if (step.type === "batch" || step.type === "undo" || step.type === "redo") {
+            fail("internal", "command batches cannot contain batch or history commands");
+          }
+          const nested = {
+            created_page: null as string | null,
+            created_block: null as string | null,
+            created_tag: null as string | null,
+            changed: true,
+            history_effect: null as HistoryEffect | null,
+          };
+          this.apply(step, nested, timestamp);
+          if (nested.changed) this.touchCommand(step, nested, timestamp);
+          result.created_page ??= nested.created_page;
+          result.created_block ??= nested.created_block;
+          result.created_tag ??= nested.created_tag;
+          result.changed ||= nested.changed;
+        }
+        break;
+      }
       case "undo": {
         const previous = this.history.pop();
         const entry = this.historyEntries.pop();
@@ -1068,6 +1093,22 @@ export class FakeCorePort implements SessionPort {
       case "add_tag":
       case "remove_tag":
         return entity(command.entity);
+      case "batch": {
+        const affectedOutlines = command.commands
+          .filter((step) => step.type !== "undo" && step.type !== "redo")
+          .flatMap((step) => this.planHistory(step).affectedOutlines)
+          .filter((owner, index, all) =>
+            all.findIndex((candidate) =>
+              candidate.kind === owner.kind && candidate.id === owner.id) === index)
+          .sort((left, right) =>
+            `${left.kind}:${left.id}`.localeCompare(`${right.kind}:${right.id}`));
+        return {
+          scope: "graph",
+          affectedOutlines,
+          undoCandidates: [],
+          redoCandidates: [],
+        };
+      }
     }
   }
 
@@ -1224,6 +1265,9 @@ export class FakeCorePort implements SessionPort {
       case "delete_tag":
       case "restore_tag":
         this.touchTag(command.tag_id, timestamp);
+        break;
+      case "batch":
+        // Nested commands were touched while the atomic batch was applied.
         break;
       case "undo":
       case "redo":

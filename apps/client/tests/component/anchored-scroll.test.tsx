@@ -1,49 +1,43 @@
-// The scroll contract of a contextual anchored surface.
-
+import { createPortal } from "react-dom";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
-import { useAnchoredPosition } from "../../src/ui/anchored";
+import { AnchoredPanel } from "../../src/ui/anchored-panel";
+import { useOverlayRoot } from "../../src/ui/overlay-root";
 
 const ANCHOR = new DOMRect(120, 200, 240, 28);
 
+function NestedChoice() {
+  const root = useOverlayRoot();
+  return createPortal(<div data-testid="nested-scroll" />, root);
+}
+
 function ContextualSurface({ nested = false }: { nested?: boolean }) {
   const [open, setOpen] = useState(true);
-  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
-  const surfaceRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(
-    anchor ?? ANCHOR,
-    { width: 320, maxHeight: 320 },
-    undefined,
-    open
-      ? {
-          surface: surfaceRef,
-          onExternalScroll: () => setOpen(false),
-          exemptSelector: nested ? ".nested-choice" : undefined,
-        }
-      : undefined,
-  );
-
   return (
     <>
-      <div ref={setAnchor} data-testid="anchor-scroll" />
       <div data-testid="document-scroll" />
       {open && (
-        <div ref={surfaceRef} data-testid="surface" style={position}>
+        <AnchoredPanel
+          anchor={ANCHOR}
+          label="Context"
+          className="context-panel"
+          testId="surface"
+          dismissOnExternalScroll
+          onClose={() => setOpen(false)}
+        >
           <div data-testid="surface-scroll" />
-        </div>
+          {nested && <NestedChoice />}
+        </AnchoredPanel>
       )}
-      {open && nested && <div className="nested-choice" data-testid="nested-scroll" />}
     </>
   );
 }
 
 describe("a contextual anchored surface", () => {
-  it("stays open for its own scrolling and dismisses on external scrolling", () => {
+  it("stays open for its own scrolling and dismisses on external scrolling", async () => {
     render(<ContextualSurface />);
-
-    fireEvent.scroll(screen.getByTestId("anchor-scroll"));
-    expect(screen.getByTestId("surface")).toBeInTheDocument();
+    await screen.findByTestId("surface");
 
     fireEvent.scroll(screen.getByTestId("surface-scroll"));
     expect(screen.getByTestId("surface")).toBeInTheDocument();
@@ -52,10 +46,13 @@ describe("a contextual anchored surface", () => {
     expect(screen.queryByTestId("surface")).not.toBeInTheDocument();
   });
 
-  it("treats a nested portaled choice as part of the surface", () => {
+  it("keeps a nested portaled choice inside the owning surface", async () => {
     render(<ContextualSurface nested />);
+    const surface = await screen.findByTestId("surface");
+    const nested = await screen.findByTestId("nested-scroll");
+    expect(surface).toContainElement(nested);
 
-    fireEvent.scroll(screen.getByTestId("nested-scroll"));
+    fireEvent.scroll(nested);
     expect(screen.getByTestId("surface")).toBeInTheDocument();
   });
 });

@@ -147,7 +147,7 @@ export function PageBody({
       page={page}
       at={menuAt}
       onClose={() => setMenuAt(null)}
-      onOpenProperties={() => requestAnimationFrame(() => setPropsOpen(true))}
+      onOpenProperties={() => queueMicrotask(() => setPropsOpen(true))}
     />
   );
 
@@ -257,9 +257,7 @@ function PageMenu({
   useEffect(() => {
     bridge.setPageActions({
       info: () => setDialog("info"),
-      remove: () => {
-        if (!isJournal && !readonly) setDialog("delete");
-      },
+      remove: !isJournal && !readonly ? () => setDialog("delete") : undefined,
     });
     return () => bridge.setPageActions(null);
   }, [bridge, isJournal, readonly]);
@@ -351,17 +349,11 @@ function PageMenu({
           testId="confirm-delete-page"
           returnFocus={() => document.querySelector<HTMLElement>('[data-testid="page-title"]')}
           onClose={() => setDialog(null)}
-          onConfirm={() => {
-            setDialog(null);
-            void session
-              .execute({ type: "delete_page", page_id: page.id })
-              .catch((error: unknown) => {
-                notify.failure(
-                  message("failure.deletePage", { name: pageTitle(page) }),
-                  error,
-                );
-              });
+          onConfirm={async () => {
+            await session.execute({ type: "delete_page", page_id: page.id });
           }}
+          onConfirmError={(error) =>
+            notify.failure(message("failure.deletePage", { name: pageTitle(page) }), error)}
         >
           {message("page.deleteConfirm", { name: pageTitle(page) })}
         </ConfirmDialog>

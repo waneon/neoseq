@@ -21,7 +21,6 @@
 // rendered as text.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { CheckIcon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import {
@@ -37,8 +36,8 @@ import {
   type TagColor,
 } from "../../entities/tag-identity";
 import { canonicalEntityName } from "../../entities/names";
-import { useAnchoredPosition, type Anchor } from "@/ui/anchored";
-import { useOverlayRoot } from "@/ui/overlay-root";
+import type { Anchor } from "@/ui/anchored";
+import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Input } from "@/ui/shadcn/input";
 import { useI18n, type MessageKey } from "../../i18n";
 import { useNotify } from "../notify/context";
@@ -131,48 +130,8 @@ export function TagIdentityPicker({
   const notify = useNotify();
   const { message } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(
-    anchor,
-    { width: 296, minWidth: 264, maxHeight: 440 },
-    undefined,
-    {
-      surface: panelRef,
-      onExternalScroll: onClose,
-      exemptSelector: ".ac-popover",
-    },
-  );
-  const overlayRoot = useOverlayRoot();
   const icon = tagIcon(tag);
   const color = tagColor(tag);
-
-  useEffect(() => {
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (
-        node instanceof Node
-        && !panelRef.current?.contains(node)
-        && !(node instanceof Element && node.closest(".ac-popover"))
-      ) onClose();
-    };
-    // Deferred a tick, or the very press that opened the panel closes it again.
-    const timer = window.setTimeout(() => {
-      window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-    };
-  }, [onClose]);
-
-  useEffect(() => {
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
 
   const write = (key: string, value: string | null) => {
     const owner = { kind: "tag", tag_id: tag.id } as const;
@@ -186,14 +145,18 @@ export function TagIdentityPicker({
     });
   };
 
-  return createPortal(
-    <div
-      ref={panelRef}
+  return (
+    <AnchoredPanel
+      anchor={anchor}
+      label={message("tags.customizeNamed", { name: tag.name })}
       className="tag-identity"
-      style={position}
-      role="dialog"
-      aria-label={message("tags.customizeNamed", { name: tag.name })}
-      data-testid="tag-identity"
+      options={{ width: 296, minWidth: 264, maxHeight: 440 }}
+      surfaceRef={panelRef}
+      dismissOnExternalScroll
+      trapFocus
+      initialFocus={() => panelRef.current?.querySelector<HTMLElement>('[data-testid="tag-mark-field"]') ?? null}
+      testId="tag-identity"
+      onClose={onClose}
     >
       <section className="tag-identity-section">
         <h3>{message("tags.mark")}</h3>
@@ -286,8 +249,7 @@ export function TagIdentityPicker({
         <h3>{message("tags.group")}</h3>
         <GroupField tag={tag} onChange={(next) => write(TAG_GROUP_KEY, next)} />
       </section>
-    </div>,
-    overlayRoot,
+    </AnchoredPanel>
   );
 }
 
@@ -339,16 +301,7 @@ function GroupField({
     ...options.names.map((name) => ({ label: name })),
     ...(options.create ? [{ label: draft.trim(), create: true }] : []),
   ];
-  const position = useAnchoredPosition(
-    open ? inputRef.current : null,
-    { matchAnchorWidth: true, maxWidth: 320, maxHeight: 220 },
-    rows.length,
-    open
-      ? { surface: listRef, onExternalScroll: () => setOpen(false) }
-      : undefined,
-  );
-  const overlayRoot = useOverlayRoot();
-
+  const optionId = (index: number) => `${listId}-opt-${index}`;
   const commit = (name: string) => {
     const next = name.trim();
     setOpen(false);
@@ -363,8 +316,9 @@ function GroupField({
         ref={inputRef}
         role="combobox"
         aria-expanded={open}
-        aria-controls={open && rows.length > 0 ? listId : undefined}
+        aria-controls={open ? listId : undefined}
         aria-autocomplete="list"
+        aria-activedescendant={open && rows[active] ? optionId(active) : undefined}
         aria-label={message("tags.group")}
         placeholder={message("tags.groupPlaceholder")}
         value={draft}
@@ -405,23 +359,39 @@ function GroupField({
           }
         }}
       />
-      {open && rows.length > 0 && createPortal(
-        <div ref={listRef} className="ac-popover" style={position}>
-          <ul id={listId} role="listbox" className="m-0 list-none p-0">
+      {open && inputRef.current && (
+        <AnchoredPanel
+          anchor={inputRef.current}
+          id={listId}
+          role="listbox"
+          label={message("tags.group")}
+          className="ac-popover"
+          options={{ matchAnchorWidth: true, maxWidth: 320, maxHeight: 220 }}
+          revision={rows.length}
+          surfaceRef={listRef}
+          dismissOnExternalScroll
+          preserveAnchorFocus
+          onClose={() => setOpen(false)}
+        >
+          {rows.length === 0 ? (
+            <div role="status" className="ac-hint">{message("tags.noGroups")}</div>
+          ) : (
+          <ul role="presentation" className="m-0 list-none p-0">
             {rows.map((row, index) => (
-              <li key={row.create ? "__create" : row.label}>
+              <li key={row.create ? "__create" : row.label} role="presentation">
                 <button
+                  id={optionId(index)}
                   role="option"
                   aria-selected={index === active}
                   data-active={index === active}
                   className="property-picker-option"
                   tabIndex={-1}
                   onPointerMove={() => setActive(index)}
-                  onMouseDown={(event) => {
+                  onPointerDown={(event) => {
                     event.preventDefault();
                     cancelBlur();
-                    commit(row.label);
                   }}
+                  onClick={() => commit(row.label)}
                 >
                   <span className="property-picker-candidate">
                     <span>
@@ -434,8 +404,8 @@ function GroupField({
               </li>
             ))}
           </ul>
-        </div>,
-        overlayRoot,
+          )}
+        </AnchoredPanel>
       )}
     </div>
   );

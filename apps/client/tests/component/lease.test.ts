@@ -62,4 +62,20 @@ describe("graph lease lifecycle", () => {
     expect(firstOpen.mock.calls[0][0].peer_id).not.toBe(secondOpen.mock.calls[0][0].peer_id);
     await second.close();
   });
+
+  it("retires one open handle once when deletion and route cleanup close together", async () => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+    const port = new FakeCorePort();
+    const closeGraph = vi.spyOn(port, "closeGraph");
+    const session = new GraphSession("single-close", port);
+    await session.open();
+
+    await Promise.all([session.close(), session.close()]);
+
+    expect(closeGraph).toHaveBeenCalledTimes(1);
+    expect(session.getState().status).toBe("closed");
+  });
 });

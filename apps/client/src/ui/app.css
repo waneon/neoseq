@@ -1171,7 +1171,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     box-shadow var(--dur-press) var(--ease-out),
@@ -1430,7 +1430,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-size: var(--text-sm);
   letter-spacing: var(--track-sm);
   font-weight: var(--weight-medium);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background-color var(--dur-press) var(--ease-out);
 }
@@ -1507,7 +1507,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     box-shadow var(--dur-press) var(--ease-out),
@@ -1568,7 +1568,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     background-color var(--dur-press) var(--ease-out),
@@ -1652,8 +1652,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .shell-nav-item[data-seam]::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 2px;
   border-radius: 1px;
   background: var(--accent);
@@ -1677,7 +1676,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   gap: var(--sp-1);
   height: 28px;
   margin-top: var(--sp-4);
-  padding-left: var(--sp-2);
+  padding-inline-start: var(--sp-2);
 }
 
 /* Typography comes from designs/foundations.md § Typography; only the layout is local. */
@@ -1784,7 +1783,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .topbar-title {
   min-width: 0;
-  padding-left: var(--sp-1);
+  padding-inline-start: var(--sp-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1936,7 +1935,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
   .shell[data-rail="collapsed"] .shell-sidebar {
     display: flex;
     position: fixed;
-    inset: 0 auto 0 0;
+    inset-block: 0;
+    inset-inline-start: 0;
     width: var(--drawer-w);
     z-index: var(--z-drawer);
     box-shadow: var(--e3);
@@ -2090,6 +2090,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .page-title:focus {
+  outline: none;
   background: none;
   cursor: text;
 }
@@ -2261,7 +2262,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   font: inherit;
   font-family: var(--font-mono);
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 
 .page-info button:hover {
@@ -2429,14 +2430,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
      strip beside every bullet — a root's included — that belongs to the row but
      not to its text. That strip is where a selection drag starts, and it is why
      the thread's offset carries the same term. */
-  margin-left: calc(var(--gutter) * -1);
+  margin-inline-start: calc(var(--gutter) * -1);
   /* 1px, not 2. A screen of one-line blocks is a list, and at 30px a row the
      list read as loose — the gap between two siblings competed with the gap
      between a block and its own metadata strip. 28px keeps the 26px line
      comfortable and lets depth, not air, do the separating. */
   padding-top: 1px;
   padding-bottom: 1px;
-  padding-left: calc(var(--gutter) + var(--depth) * var(--indent));
+  padding-inline-start: calc(var(--gutter) + var(--depth) * var(--indent));
   border-radius: 0;
   cursor: text;
   background-image:
@@ -2492,7 +2493,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   content: "";
   position: absolute;
   top: 0;
-  left: calc(
+  inset-inline-start: calc(
     var(--thread-axis) + (var(--depth) - 1) * var(--indent)
       - var(--branch-w) / 2
   );
@@ -2500,9 +2501,9 @@ button.chip:focus-visible .chip-glyph .chip-x {
      so 3px short of that centre is exactly its left edge. */
   width: calc(var(--indent) - 3px + var(--branch-w) / 2);
   height: calc(1px + var(--lh-md) / 2 + var(--branch-w) / 2);
-  border-left: var(--branch-w) solid var(--thread-lit);
+  border-inline-start: var(--branch-w) solid var(--thread-lit);
   border-bottom: var(--branch-w) solid var(--thread-lit);
-  border-bottom-left-radius: var(--branch-turn);
+  border-end-start-radius: var(--branch-turn);
   pointer-events: none;
 }
 
@@ -2596,7 +2597,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    thread shows straight through it — and no caret, because it is not text. */
 .outline-grip {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 0;
   bottom: 0;
   width: calc(var(--gutter) + var(--depth) * var(--indent));
@@ -2624,7 +2625,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    between the two the chevron is the one the pointer came for. */
 .outline-toggle {
   position: absolute;
-  left: calc(var(--slot) / 2 - var(--indent) / 2 - 8px);
+  inset-inline-start: calc(var(--slot) / 2 - var(--indent) / 2 - 8px);
   z-index: 1;
   display: inline-flex;
   align-items: center;
@@ -2806,8 +2807,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .outline-drop {
   --drop-depth: 0;
   position: absolute;
-  left: calc(var(--drop-depth) * var(--indent));
-  right: 0;
+  inset-inline-start: calc(var(--drop-depth) * var(--indent));
+  inset-inline-end: 0;
   height: 2px;
   margin-top: -1px;
   border-radius: var(--r-full);
@@ -2818,7 +2819,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
 .outline-drop::before {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: -3px;
   width: 8px;
   height: 8px;
@@ -3147,7 +3148,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   border-spacing: 0;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  text-align: left;
+  text-align: start;
 }
 
 .block-markdown th {
@@ -3363,7 +3364,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
    sentence — the column is reserved by the text's own padding instead. */
 .task-marks {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 1px;
   display: flex;
   align-items: center;
@@ -3415,11 +3416,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
 /* The hanging indent the mark cluster stands in. One rule per count, because
    there are exactly two counts a block can have. */
 .block-body[data-marks="1"] > .block-line {
-  padding-left: 28px;
+  padding-inline-start: 28px;
 }
 
 .block-body[data-marks="2"] > .block-line {
-  padding-left: 52px;
+  padding-inline-start: 52px;
 }
 
 /* A settled task reads as settled: the strike is the signal, the ink only
@@ -3795,11 +3796,11 @@ button.chip:focus-visible .chip-glyph .chip-x {
 }
 
 .query-view-tab[data-seam="before"]::before {
-  left: -2px;
+  inset-inline-start: -2px;
 }
 
 .query-view-tab[data-seam="after"]::before {
-  right: -2px;
+  inset-inline-end: -2px;
 }
 
 .query-view-name {
@@ -4047,7 +4048,7 @@ button.query-disclosure:focus-visible {
    arriving must not slide the line it arrives on eighteen pixels to the right.
    An empty gutter is a quieter thing than a header that moves. */
 .query-disclosure:has(> .query-count[data-static]) {
-  padding-left: calc(var(--sp-1) + var(--chevron-slot));
+  padding-inline-start: calc(var(--sp-1) + var(--chevron-slot));
 }
 
 /* A count that failed says so in the one tone a failure has, wherever the count
@@ -4162,7 +4163,7 @@ button.query-disclosure:focus-visible {
   align-items: center;
   gap: var(--sp-1);
   min-width: 0;
-  padding-left: var(--sp-1);
+  padding-inline-start: var(--sp-1);
 }
 
 /* Precedence as a figure, in the same voice the heading states it in. */
@@ -4521,7 +4522,7 @@ button.query-disclosure:focus-visible {
 }
 
 .qb-head > .menu-select + .menu-select {
-  margin-left: var(--sp-1);
+  margin-inline-start: var(--sp-1);
 }
 
 /* ── A control that reads as a word ──
@@ -4591,8 +4592,8 @@ button.query-disclosure:focus-visible {
 }
 
 .qb-group:not([data-depth="0"]) > .qb-children {
-  margin-left: var(--sp-1);
-  padding-left: var(--sp-3);
+  margin-inline-start: var(--sp-1);
+  padding-inline-start: var(--sp-3);
   box-shadow: inset 1px 0 0 var(--thread);
 }
 
@@ -4816,7 +4817,7 @@ button.query-disclosure:focus-visible {
   border-spacing: 0;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  text-align: left;
+  text-align: start;
 }
 
 /* The last column is declared with no width, so it takes exactly the space the
@@ -4894,12 +4895,12 @@ button.query-disclosure:focus-visible {
 
 .query-table th[data-seam="before"] .query-th::after,
 .query-table td[data-seam="before"]::after {
-  left: -1px;
+  inset-inline-start: -1px;
 }
 
 .query-table th[data-seam="after"] .query-th::after,
 .query-table td[data-seam="after"]::after {
-  right: -1px;
+  inset-inline-end: -1px;
 }
 
 .query-table[data-compact="true"] .query-th {
@@ -4995,17 +4996,16 @@ button.query-disclosure:focus-visible {
 
 /* The width handle. It is the only vertical line in a table, and it is the
    thread colour, so it reads as the seam between two columns rather than as a
-   drawn cell border. The nine-pixel target straddles the column boundary: its
-   one-pixel centre line occupies the last pixel of this column, while four
-   transparent pixels on either side make the seam easy to take hold of. */
+   drawn cell border. The nine-pixel target stays inside the column: straddling
+   the outermost seam creates four pixels of empty horizontal overflow. */
 .query-resize {
   position: absolute;
   top: 0;
-  right: -4px;
+  inset-inline-end: 0;
   bottom: 0;
   width: 9px;
   background:
-    linear-gradient(to right, transparent 4px, var(--thread) 4px 5px, transparent 5px);
+    linear-gradient(to right, transparent 8px, var(--thread) 8px 9px);
   cursor: col-resize;
   touch-action: none;
 }
@@ -5015,7 +5015,7 @@ button.query-disclosure:focus-visible {
 .query-resize[data-resizing="true"] {
   outline: none;
   background:
-    linear-gradient(to right, transparent 4px, var(--accent) 4px 5px, transparent 5px);
+    linear-gradient(to right, transparent 8px, var(--accent) 8px 9px);
 }
 
 /* ── A cell is the writing, not a note about it ──
@@ -5213,7 +5213,7 @@ button.query-disclosure:focus-visible {
 .query-table .query-cell-frame > .query-cell-open {
   position: absolute;
   inset-block: 0;
-  right: var(--sp-1);
+  inset-inline-end: var(--sp-1);
   margin-block: auto;
 }
 
@@ -5753,7 +5753,7 @@ button.query-list-status[data-active="true"] {
   font: inherit;
   font-size: var(--text-md);
   line-height: var(--lh-md);
-  text-align: left;
+  text-align: start;
   cursor: text;
 }
 
@@ -5799,7 +5799,7 @@ button.query-list-status[data-active="true"] {
   content: "";
   position: absolute;
   top: 12px;
-  left: calc(var(--slot) / 2 - 2.5px);
+  inset-inline-start: calc(var(--slot) / 2 - 2.5px);
   width: 5px;
   height: 5px;
   border-radius: var(--r-full);
@@ -5845,11 +5845,6 @@ button.query-list-status[data-active="true"] {
   min-height: 0;
 }
 
-.tag-picker,
-.slash-menu {
-  position: fixed;
-}
-
 .property-picker,
 .tag-picker,
 .slash-menu {
@@ -5859,7 +5854,6 @@ button.query-list-status[data-active="true"] {
   background: var(--overlay);
   box-shadow: var(--e2);
   color: var(--ink);
-  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
 /* Height and placement belong to the anchored primitives: they hand every
@@ -5927,7 +5921,7 @@ button.query-list-status[data-active="true"] {
   font: inherit;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -6022,7 +6016,7 @@ button.query-list-status[data-active="true"] {
   min-height: var(--sp-6);
   align-items: center;
   gap: var(--sp-2);
-  padding-left: var(--sp-2);
+  padding-inline-start: var(--sp-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
@@ -6376,6 +6370,10 @@ button.query-list-status[data-active="true"] {
   transform: translateX(16px);
 }
 
+html[dir="rtl"] .moment-time-switch[data-selected] .moment-switch-track > span {
+  transform: translateX(-16px);
+}
+
 .moment-time-switch[data-focus-visible] {
   outline: none;
 }
@@ -6716,8 +6714,7 @@ button.tag-mark:focus-visible {
 .tag-group-drop[data-seam]::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 2px;
   border-radius: 1px;
   background: var(--accent);
@@ -7348,7 +7345,7 @@ button.tag-mark:focus-visible {
   font: inherit;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -7398,21 +7395,18 @@ button.tag-mark:focus-visible {
   /* Radix owns the desktop coordinates. On a compact viewport the property
      editor becomes a sheet, so its positioning wrapper becomes the viewport
      edge and the editor fills that wrapper. */
-  [data-radix-popper-content-wrapper]:has(> .property-picker) {
+  [data-radix-popper-content-wrapper]:has(> .property-picker),
+  [data-radix-popper-content-wrapper]:has(> .tag-picker) {
     inset: auto 0 0 !important;
     min-width: 0 !important;
     transform: none !important;
   }
 
-  .property-picker {
+  .property-picker,
+  .tag-picker {
     position: static !important;
     width: 100% !important;
     max-width: none !important;
-  }
-
-  .tag-picker {
-    inset: auto 0 0 !important;
-    width: 100% !important;
   }
 
   .property-picker,
@@ -7424,7 +7418,7 @@ button.tag-mark:focus-visible {
 
   .property-picker-option,
   .property-picker-members > div {
-    min-height: var(--sp-6);
+    min-height: var(--sp-7);
   }
 
   .moment-mobile-tabs {
@@ -7436,7 +7430,7 @@ button.tag-mark:focus-visible {
   }
 
   .moment-mobile-tabs button {
-    min-height: var(--sp-6);
+    min-height: var(--sp-7);
     padding: 0 var(--sp-2);
     border: 0;
     border-radius: calc(var(--r-2) - 2px);
@@ -7939,7 +7933,7 @@ button.tag-mark:focus-visible {
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -8007,7 +8001,7 @@ button.tag-mark:focus-visible {
 
 .graph-actions {
   flex: none;
-  padding-right: var(--sp-2);
+  padding-inline-end: var(--sp-2);
   opacity: 0;
   transition: opacity 0ms;
 }
@@ -8204,7 +8198,7 @@ button.tag-mark:focus-visible {
 }
 
 .settings-shell > .settings-pane {
-  padding-left: var(--sp-5);
+  padding-inline-start: var(--sp-5);
   border-inline-start: 1px solid var(--thread);
 }
 
@@ -8246,7 +8240,7 @@ button.tag-mark:focus-visible {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
   letter-spacing: var(--track-sm);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background-color var(--dur-press) var(--ease-out);
 }
@@ -8305,7 +8299,7 @@ button.tag-mark:focus-visible {
   flex-direction: column;
   gap: var(--sp-5);
   min-width: 0;
-  padding-right: var(--sp-1);
+  padding-inline-end: var(--sp-1);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -8351,8 +8345,8 @@ button.tag-mark:focus-visible {
      lands on a half pixel and renders as a two-pixel smear (designs/foundations.md § Geometry, Depth, and Shape). */
   .settings-shell > .settings-pane {
     max-height: round(down, 46vh, 1px);
-    padding-left: 0;
-    border-left: 0;
+    padding-inline-start: 0;
+    border-inline-start: 0;
     border-top: 1px solid var(--thread);
     padding-top: var(--sp-4);
   }
@@ -8404,7 +8398,7 @@ button.tag-mark:focus-visible {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 
 .settings-grid dd button:hover {
@@ -8641,8 +8635,8 @@ button.tag-mark:focus-visible {
 }
 
 .accent-custom-trigger > svg {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
 }
 
 .accent-custom-well {
@@ -8659,8 +8653,8 @@ button.tag-mark:focus-visible {
   }
 
   .accent-color-controls .color-swatch {
-    width: 28px;
-    height: 28px;
+    width: var(--sp-6);
+    height: var(--sp-6);
   }
 
   .accent-custom-trigger {
@@ -9378,11 +9372,9 @@ button.tag-mark:focus-visible {
   line-height: var(--lh-xs);
 }
 
-/* Portaled so it escapes the outline's scroll container, clipping, and the
-   virtualizer's transformed stacking context. Placed by `ui/anchored`, which
-   owns its position, its width band and its max-height. */
+/* Portaled by the shared anchored-panel primitive so it escapes clipping while
+   preserving the combobox caret as the list's active-descendant owner. */
 .ac-popover {
-  position: fixed;
   z-index: var(--z-popover);
   margin: 0;
   padding: var(--sp-1);
@@ -9392,7 +9384,6 @@ button.tag-mark:focus-visible {
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
 /* ─────────────────────────── 12. states ─────────────────────────── */
@@ -9483,7 +9474,7 @@ button.tag-mark:focus-visible {
 .toast-viewport {
   position: fixed;
   top: calc(var(--topbar-h) + var(--sp-2));
-  right: var(--sp-3);
+  inset-inline-end: var(--sp-3);
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
@@ -9513,7 +9504,7 @@ button.tag-mark:focus-visible {
    timer does. */
 .toast-timer {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   width: 100%;
   height: 2px;
@@ -9606,14 +9597,60 @@ button.tag-mark:focus-visible {
 
 @media (max-width: 600px) {
   .toast-viewport {
-    left: var(--sp-2);
-    right: var(--sp-2);
+    inset-inline: var(--sp-2);
     width: auto;
   }
 
   .toast-close {
     width: var(--sp-6);
     height: var(--sp-6);
+  }
+}
+
+/* Logical properties carry most bidirectional layout. These four painted or
+   transformed details have an intrinsically physical axis and therefore need
+   an explicit mirror. */
+html[dir="rtl"] .outline-row {
+  background-image:
+    linear-gradient(var(--thread-own, transparent), var(--thread-own, transparent)),
+    linear-gradient(var(--thread-lit), var(--thread-lit)),
+    repeating-linear-gradient(
+      to left,
+      var(--thread-line) 0 var(--guide-w),
+      transparent var(--guide-w) var(--indent)
+    );
+  background-position:
+    calc(100% - var(--thread-axis) - var(--depth) * var(--indent)
+      + var(--own-w) / 2) var(--thread-head),
+    calc(100% - var(--thread-axis) - (var(--lit) - 1) * var(--indent)
+      + var(--branch-w) / 2) 0,
+    calc(100% - var(--thread-axis) + var(--guide-w) / 2) 0;
+}
+
+html[dir="rtl"] .qb-group:not([data-depth="0"]) > .qb-children {
+  box-shadow: inset -1px 0 0 var(--thread);
+}
+
+html[dir="rtl"] .query-resize {
+  background:
+    linear-gradient(to left, transparent 8px, var(--thread) 8px 9px);
+}
+
+html[dir="rtl"] .query-resize:hover,
+html[dir="rtl"] .query-resize:focus-visible,
+html[dir="rtl"] .query-resize[data-resizing="true"] {
+  background:
+    linear-gradient(to left, transparent 8px, var(--accent) 8px 9px);
+}
+
+@media (max-width: 800px) {
+  html[dir="rtl"] .shell-sidebar,
+  html[dir="rtl"] .shell[data-rail="collapsed"] .shell-sidebar {
+    transform: translateX(105%);
+  }
+
+  html[dir="rtl"] .shell-sidebar[data-open="true"] {
+    transform: translateX(0);
   }
 }
 
@@ -9625,47 +9662,6 @@ button.tag-mark:focus-visible {
   }
   to {
     opacity: 1;
-  }
-}
-
-/* ── Arrival ──
-   A floating surface travels `--rise` on the way in and settles a hair up in
-   scale. It is the one place a transform is animated, and the argument is the
-   same one that admits the collapse chevron's rotation: the surface was not on
-   screen a frame ago, so nothing is being moved out from under a pointer that
-   was already travelling toward it — the movement *is* the arrival, and without
-   it a menu appears as a hard cut, which is the single cheapest-looking thing an
-   interface can do.
-
-   Opacity finishes in the first 40%. The audit and the reader both sample a
-   surface the instant it is visible, and a panel that is still half-transparent
-   when its text is first read is a panel whose contrast has not yet happened. */
-@keyframes ns-rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(var(--rise)) scale(0.985);
-  }
-  40% {
-    opacity: 1;
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* The same arrival from below, for a surface anchored above its trigger. */
-@keyframes ns-sink-in {
-  from {
-    opacity: 0;
-    transform: translateY(calc(var(--rise) * -1)) scale(0.985);
-  }
-  40% {
-    opacity: 1;
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
 
@@ -9708,35 +9704,12 @@ button.tag-mark:focus-visible {
   animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
-/* ── An arrival lets go once it has landed ──
-   The three transform arrivals below fill `backwards` and not `both`. Their last
-   keyframe *is* the resting style, so filling it forwards changes nothing a
-   reader could see — but it leaves the element animating an identity transform
-   forever, and an element with a transform is the containing block for every
-   `position: fixed` descendant. A dialog parked on `matrix(1, 0, 0, 1, 0, 0)`
-   re-anchored every panel summoned inside it to the dialog's own corner instead
-   of to the window, which is why a surface may now be portaled into the modal it
-   belongs to (§ ui/overlay-root). */
-
-/* Menus and option lists are re-clicked in quick succession, so they take the
-   shortest arrival in the system: long enough to explain where the surface came
-   from, short enough that it never sits between two clicks. */
-.enter-fade-fast {
-  animation: ns-rise-in 130ms var(--ease-entrance) backwards;
-}
-
-/* A panel that floats: the palette, a dialog, an anchored picker. Same arrival,
-   one notch slower, because it is a surface a reader stops at rather than passes
-   through. `--transform-box` stays default: these surfaces are portaled, so no
-   ancestor's own transform is in play. */
+/* Floating controls are stable on their first frame. Their anchor already
+   explains where they came from; moving the surface after it becomes clickable
+   makes its measured and perceived target disagree. */
+.enter-fade-fast,
 .enter-rise {
-  animation: ns-rise-in var(--dur-overlay) var(--ease-entrance) backwards;
-}
-
-/* Flipped above its anchor, so it arrives from the direction it opened. */
-.enter-rise[data-side="top"],
-.enter-rise[data-placement="above"] {
-  animation-name: ns-sink-in;
+  animation: none;
 }
 
 /* The opacity-free arrival — see `ns-drop-in`. */
@@ -9744,14 +9717,10 @@ button.tag-mark:focus-visible {
   animation: ns-drop-in var(--dur-overlay) var(--ease-entrance) backwards;
 }
 
-/* A view swap: one routed page replacing another, one settings section replacing
-   another, one dialog body replacing another. `--dur-view` is deliberately the
-   second-shortest duration in the system and deliberately opacity-only — the point
-   is to say "this is different content", not to make the user wait for it. It is
-   short enough that a surface is fully opaque well before anything reads it,
-   which is the constraint designs/foundations.md § Motion protects. */
+/* Routed and settings content is readable on its first frame. Unlike a scrim,
+   the content itself must never pass through a low-contrast translucent state. */
 .enter-fade-view {
-  animation: ns-fade-in var(--dur-view) var(--ease-out) both;
+  animation: none;
 }
 
 /* ── The size transition ──

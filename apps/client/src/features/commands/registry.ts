@@ -1,4 +1,5 @@
-// The command registry: one place that knows every verb in the application.
+// The command registry contract and matcher. `catalog.tsx` owns the concrete
+// application verbs; every rendered route consumes those same command objects.
 //
 // This exists because the interface is deliberately bare (see
 // designs/shell-and-navigation.md § Disclosure and Commands). Removing a button

@@ -91,6 +91,7 @@ export class GraphSession {
   private cursor = 0;
   private lease: Lease | null = null;
   private opening: Promise<void> | null = null;
+  private closing: Promise<void> | null = null;
   private closeRequested = false;
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
@@ -247,7 +248,12 @@ export class GraphSession {
     });
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (!this.closing) this.closing = this.closeNow();
+    return this.closing;
+  }
+
+  private async closeNow(): Promise<void> {
     this.closeRequested = true;
     this.syncAgent?.stop();
     this.syncAgent = null;
@@ -463,6 +469,11 @@ export class GraphSession {
 
 function commandReconcileScope(command: Command, result?: CommandResult): ReconcileScope {
   switch (command.type) {
+    case "batch":
+      // A batch deliberately crosses existing ownership boundaries. Re-read
+      // every mounted outline as well as the summary rather than guessing
+      // which of its independently valid steps dominates reconciliation.
+      return { kind: "all-hydrated-outlines" };
     case "ensure_page":
     case "rename_page":
     case "delete_page":
