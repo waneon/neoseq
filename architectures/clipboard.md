@@ -28,8 +28,18 @@ The HTML root also carries the versioned fragment as a best-effort round-trip
 fallback when a browser does not preserve custom formats. External applications
 may consume either standard representation without understanding Neoseq.
 
-Paste prefers the custom fragment, then the HTML fallback, then an unambiguous
-plain Markdown list. Ordinary multiline text remains an in-field text paste.
+One clipboard decoder owns representation precedence. Paste prefers the custom
+fragment, then its HTML round-trip hint, a standard semantic HTML list, and an
+unambiguous plain-text list in that order. Ordinary multiline text remains an
+in-field text paste. HTML application wrappers are irrelevant: `ul`, `ol`, and
+`li` establish depth, while the list-item body becomes projected Markdown.
+
+The standard codecs obey structural invariants. Each block emits exactly one
+`li`; a nested list exists if and only if the block has children; empty list
+containers are forbidden. Decoding any recognized representation produces
+either a rich fragment or the same bounded pre-order `{ depth, markdown }`
+shape accepted by `insert_outline`. Format selection does not live in an editor
+surface.
 
 ## Paste Semantics
 

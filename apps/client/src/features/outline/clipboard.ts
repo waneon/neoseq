@@ -13,12 +13,33 @@ import type {
   PropertyValue,
 } from "../../core-port/snapshot";
 import { journalDate } from "../../core-port/snapshot";
-import type { OutlineRow } from "../../entities/outline";
 import { propertyCopyPolicy } from "../../entities/properties";
-import { coveredMask } from "./selection";
 
 export const NEOSEQ_OUTLINE_MIME = "application/vnd.neoseq.outline+json";
 export const NEOSEQ_OUTLINE_WEB_MIME = `web ${NEOSEQ_OUTLINE_MIME}`;
+const MAX_CLIPBOARD_SOURCE_LENGTH = 4 * 1_048_576;
+const MAX_CLIPBOARD_ITEMS = 10_000;
+const IGNORED_HTML_TAGS = new Set(["script", "style", "template", "noscript"]);
+const BLOCK_HTML_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "footer",
+  "header",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "main",
+  "nav",
+  "p",
+  "pre",
+  "section",
+]);
 
 export interface OutlineClipboardBundle {
   fragment: OutlineFragment;
@@ -32,29 +53,10 @@ export interface OutlineClipboardItem {
   markdown: string;
 }
 
-/**
- * Serializes the blocks a structural selection actually covers as a portable
- * Markdown list. The shallowest selected row becomes depth zero, so copying a
- * nested branch does not carry invisible ancestors into another document.
- */
-export function serializeOutlineSelection(
-  rows: readonly OutlineRow[],
-  selected: ReadonlySet<string>,
-): string {
-  const mask = coveredMask(rows, selected);
-  const covered = rows.filter((_row, index) => mask[index]);
-  if (covered.length === 0) return "";
-  const baseDepth = Math.min(...covered.map((row) => row.depth));
-
-  return covered
-    .flatMap((row) => {
-      const indent = "  ".repeat(Math.max(0, row.depth - baseDepth));
-      const lines = row.block.markdown.replaceAll("\r\n", "\n").split("\n");
-      const first = lines[0] ? `${indent}- ${lines[0]}` : `${indent}-`;
-      return [first, ...lines.slice(1).map((line) => `${indent}  ${line}`)];
-    })
-    .join("\n");
-}
+export type DecodedOutlineClipboard =
+  | { kind: "fragment"; fragment: OutlineFragment }
+  | { kind: "outline"; items: OutlineClipboardItem[]; source: "html" | "markdown" }
+  | { kind: "text" };
 
 /**
  * Builds the lossless, versioned representation from authoritative DTOs. The
@@ -198,6 +200,22 @@ export function readOutlineFragment(clipboard: Pick<DataTransfer, "getData">): O
   return parseOutlineFragment(encoded ?? "");
 }
 
+/** Resolves every clipboard representation at one format-policy boundary. */
+export function decodeOutlineClipboard(
+  clipboard: Pick<DataTransfer, "getData">,
+): DecodedOutlineClipboard {
+  const fragment = readOutlineFragment(clipboard);
+  if (fragment) return { kind: "fragment", fragment };
+
+  const html = parseHtmlOutline(clipboard.getData("text/html"));
+  if (html) return { kind: "outline", items: html, source: "html" };
+
+  const markdown = parseMarkdownOutline(clipboard.getData("text/plain"));
+  if (markdown) return { kind: "outline", items: markdown, source: "markdown" };
+
+  return { kind: "text" };
+}
+
 export function serializeOutlineFragmentPlain(fragment: OutlineFragment): string {
   const tagNames = new Map(fragment.tags.map((tag) => [tag.id, tag.name]));
   const pageNames = new Map(fragment.pages.map((page) => [
@@ -235,23 +253,29 @@ export function serializeOutlineFragmentHtml(fragment: OutlineFragment): string 
     page.journal_date ?? page.title,
   ]));
   const roots = outlineTree(fragment.items);
-  const render = (nodes: readonly OutlineTreeNode[]): string => `<ul>${nodes.map((node) => {
-    const content = escapeHtml(node.item.markdown).replaceAll("\n", "<br>");
-    const tags = node.item.tags
-      .map((id) => tagNames.get(id))
-      .filter((name): name is string => name !== undefined)
-      .map((name) => escapeHtml(formatTag(name)));
-    const metadata = [
-      tags.length > 0 ? `<div><strong>Tags:</strong> ${tags.join(" ")}</div>` : "",
-      ...node.item.properties.map((field) => {
-        const value = field.values.length === 0
-          ? ""
-          : field.values.map((entry) => formatPropertyValue(entry, pageNames)).join(", ");
-        return `<div><strong>${escapeHtml(field.key)}:</strong>${value ? ` ${escapeHtml(value)}` : ""}</div>`;
-      }),
-    ].join("");
-    return `<li><div>${content}</div>${metadata ? `<small>${metadata}</small>` : ""}${render(node.children)}</li>`;
-  }).join("")}</ul>`;
+  const render = (nodes: readonly OutlineTreeNode[]): string => {
+    if (nodes.length === 0) return "";
+    const items = nodes.map((node) => {
+      const content = escapeHtml(node.item.markdown).replaceAll("\n", "<br>");
+      const tags = node.item.tags
+        .map((id) => tagNames.get(id))
+        .filter((name): name is string => name !== undefined)
+        .map((name) => escapeHtml(formatTag(name)));
+      const metadata = [
+        tags.length > 0 ? `<div><strong>Tags:</strong> ${tags.join(" ")}</div>` : "",
+        ...node.item.properties.map((field) => {
+          const value = field.values.length === 0
+            ? ""
+            : field.values.map((entry) => formatPropertyValue(entry, pageNames)).join(", ");
+          const label = `<strong>${escapeHtml(field.key)}:</strong>`;
+          return `<div>${label}${value ? ` ${escapeHtml(value)}` : ""}</div>`;
+        }),
+      ].join("");
+      const metadataHtml = metadata ? `<small data-neoseq-metadata>${metadata}</small>` : "";
+      return `<li><div data-neoseq-block-content>${content}</div>${metadataHtml}${render(node.children)}</li>`;
+    }).join("");
+    return `<ul>${items}</ul>`;
+  };
   return `<div data-neoseq-outline="${escapeHtml(JSON.stringify(fragment))}">${render(roots)}</div>`;
 }
 
@@ -383,11 +407,124 @@ interface ParsedMarker {
 }
 
 /**
+ * Reads standard semantic HTML lists from rich-text applications. Application
+ * wrappers and attributes are irrelevant; only ul/ol/li structure establishes
+ * block depth. Nested lists are excluded from their parent's block body.
+ */
+export function parseHtmlOutline(source: string): OutlineClipboardItem[] | null {
+  if (
+    !source
+    || source.length > MAX_CLIPBOARD_SOURCE_LENGTH
+    || typeof DOMParser === "undefined"
+  ) return null;
+
+  const document = new DOMParser().parseFromString(source, "text/html");
+  const roots = topLevelHtmlLists(document);
+  if (roots.length === 0) return null;
+
+  // A mixed document is not an outline. Consuming only its lists would silently
+  // discard the prose around them; leave that clipboard to the native text path.
+  const remainder = document.body.cloneNode(true) as HTMLElement;
+  for (const list of topLevelHtmlLists(remainder)) list.remove();
+  if (normalizeHtmlMarkdown(renderHtmlContent(remainder))) return null;
+
+  const items: OutlineClipboardItem[] = [];
+  const pending = roots
+    .flatMap((root) => ownedHtmlListItems(root).map((item) => ({ item, depth: 0 })))
+    .reverse();
+  while (pending.length > 0) {
+    if (items.length >= MAX_CLIPBOARD_ITEMS) return null;
+    const current = pending.pop()!;
+    items.push({
+      depth: current.depth,
+      markdown: htmlListItemMarkdown(current.item),
+    });
+    const children = ownedHtmlChildLists(current.item)
+      .flatMap((list) => ownedHtmlListItems(list));
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({ item: children[index], depth: current.depth + 1 });
+    }
+  }
+  return items.length > 0 ? items : null;
+}
+
+function topLevelHtmlLists(root: ParentNode): Element[] {
+  return [...root.querySelectorAll("ul, ol")].filter(
+    (list) => !list.parentElement?.closest("ul, ol"),
+  );
+}
+
+function ownedHtmlListItems(list: Element): Element[] {
+  const items: Element[] = [];
+  const visit = (parent: Element) => {
+    for (const child of parent.children) {
+      const tag = child.tagName.toLowerCase();
+      if (tag === "li") items.push(child);
+      else if (tag !== "ul" && tag !== "ol") visit(child);
+    }
+  };
+  visit(list);
+  return items;
+}
+
+function ownedHtmlChildLists(item: Element): Element[] {
+  const lists: Element[] = [];
+  const visit = (parent: Element) => {
+    for (const child of parent.children) {
+      const tag = child.tagName.toLowerCase();
+      if (tag === "ul" || tag === "ol") lists.push(child);
+      else if (tag !== "li") visit(child);
+    }
+  };
+  visit(item);
+  return lists;
+}
+
+function htmlListItemMarkdown(item: Element): string {
+  const explicit = [...item.querySelectorAll("[data-neoseq-block-content]")].find(
+    (candidate) => candidate.closest("li") === item,
+  );
+  if (explicit) return normalizeHtmlMarkdown(renderHtmlContent(explicit));
+
+  const content = item.cloneNode(true) as Element;
+  for (const nested of content.querySelectorAll("ul, ol, [data-neoseq-metadata]")) {
+    nested.remove();
+  }
+  return normalizeHtmlMarkdown(renderHtmlContent(content));
+}
+
+function renderHtmlContent(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? "";
+  if (node.nodeType !== 1) return "";
+  const element = node as Element;
+  const tag = element.tagName.toLowerCase();
+  if (IGNORED_HTML_TAGS.has(tag)) return "";
+  if (tag === "br") return "\n";
+
+  const content = [...element.childNodes].map(renderHtmlContent).join("");
+  if (tag === "strong" || tag === "b") return content ? `**${content}**` : "";
+  if (tag === "em" || tag === "i") return content ? `*${content}*` : "";
+  if (tag === "code") return content ? `\`${content}\`` : "";
+  if (BLOCK_HTML_TAGS.has(tag)) return `${content}\n`;
+  return content;
+}
+
+function normalizeHtmlMarkdown(value: string): string {
+  return value
+    .replaceAll("\u00a0", " ")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Parses an unordered or ordered Markdown list into the normalized pre-order
  * shape the core accepts. Plain multiline text returns null and keeps the
  * browser's normal in-field paste behavior.
  */
 export function parseMarkdownOutline(source: string): OutlineClipboardItem[] | null {
+  if (!source || source.length > MAX_CLIPBOARD_SOURCE_LENGTH) return null;
   const lines = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
   while (lines[0]?.trim() === "") lines.shift();
   while (lines.at(-1)?.trim() === "") lines.pop();
@@ -400,6 +537,7 @@ export function parseMarkdownOutline(source: string): OutlineClipboardItem[] | n
   for (const line of lines) {
     const marker = parseMarker(line);
     if (marker) {
+      if (result.length >= MAX_CLIPBOARD_ITEMS) return null;
       let depth: number;
       if (levels.length === 0) {
         levels.push(marker.indent);
@@ -432,12 +570,12 @@ export function parseMarkdownOutline(source: string): OutlineClipboardItem[] | n
 }
 
 function parseMarker(line: string): ParsedMarker | null {
-  const match = /^([ \t]*)([-+*]|\d+[.)])(?:[ \t]+(.*)|[ \t]*)$/.exec(line);
+  const match = /^([ \t\u00a0]*)([-+*•◦▪‣⁃]|\d+[.)])(?:[ \t\u00a0]+(.*)|[ \t\u00a0]*)$/.exec(line);
   if (!match) return null;
   const indent = leadingColumns(match[1]);
   const markerEnd = match[1].length + match[2].length;
   let contentStart = markerEnd;
-  while (line[contentStart] === " " || line[contentStart] === "\t") contentStart += 1;
+  while ([" ", "\t", "\u00a0"].includes(line[contentStart])) contentStart += 1;
   return {
     indent,
     contentIndent:
@@ -449,7 +587,7 @@ function parseMarker(line: string): ParsedMarker | null {
 function leadingColumns(value: string): number {
   let columns = 0;
   for (const character of value) {
-    if (character === " ") columns += 1;
+    if (character === " " || character === "\u00a0") columns += 1;
     else if (character === "\t") columns += 4 - (columns % 4);
     else break;
   }
@@ -460,7 +598,7 @@ function sliceColumns(value: string, requested: number): string {
   let columns = 0;
   let index = 0;
   while (index < value.length && columns < requested) {
-    if (value[index] === " ") columns += 1;
+    if (value[index] === " " || value[index] === "\u00a0") columns += 1;
     else if (value[index] === "\t") columns += 4 - (columns % 4);
     else break;
     index += 1;

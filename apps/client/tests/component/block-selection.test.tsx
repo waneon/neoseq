@@ -272,6 +272,33 @@ describe("block selection", () => {
     ).toMatchObject([{ markdown: "", children: [] }]);
   });
 
+  it("pastes a standard HTML list before its lossy plain-text fallback", async () => {
+    const { session, port } = await mountRows([""]);
+    const commands: string[] = [];
+    port.beforeExecute = async (command) => {
+      commands.push(command.type);
+    };
+
+    fireEvent.paste(screen.getByLabelText("Block text"), {
+      clipboardData: {
+        getData: (type: string) => {
+          if (type === "text/html") {
+            return "<ul><li>one<ol><li>two</li></ol></li><li>three</li></ul>";
+          }
+          if (type === "text/plain") return "one\ntwo\nthree";
+          return "";
+        },
+      },
+    });
+
+    await waitFor(() => {
+      const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["one", "three"]);
+      expect(page?.blocks[0].children.map((block) => block.markdown)).toEqual(["two"]);
+    });
+    expect(commands).toEqual(["insert_outline"]);
+  });
+
   it("round-trips properties and tags through the rich clipboard fragment", async () => {
     const { session, port } = await mountRows(["source", ""]);
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });

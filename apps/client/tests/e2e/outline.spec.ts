@@ -217,14 +217,19 @@ test("drags a range of blocks out and moves them as one", async ({ page }) => {
   await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
 
   const [copied] = await Promise.all([
-    page.evaluate(() => new Promise<string>((resolve) => {
+    page.evaluate(() => new Promise<{ plain: string; html: string }>((resolve) => {
       document.addEventListener("copy", (event) => {
-        resolve(event.clipboardData?.getData("text/plain") ?? "");
+        resolve({
+          plain: event.clipboardData?.getData("text/plain") ?? "",
+          html: event.clipboardData?.getData("text/html") ?? "",
+        });
       }, { once: true });
     })),
     page.keyboard.press("ControlOrMeta+c"),
   ]);
-  expect(copied).toBe("- one\n- two");
+  expect(copied.plain).toBe("- one\n- two");
+  expect(copied.html).not.toContain("<ul></ul>");
+  expect(copied.html.match(/<li>/g)).toHaveLength(2);
 
   // Dragging any selected bullet past the last row moves the whole selection.
   const handle = await page.getByTestId("block-bullet").nth(0).boundingBox();
@@ -383,6 +388,28 @@ test("pastes Markdown list items as one outline history step", async ({ page }) 
   await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "2", "1"]);
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => blockTexts(page)).toEqual([""]);
+});
+
+test("pastes semantic HTML lists ahead of lossy plain text", async ({ page }) => {
+  await createGraph(page, "HTML Clipboard Graph");
+  await startOutline(page);
+
+  await page.getByLabel("Block text").evaluate((target) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData(
+      "text/html",
+      "<div><ul><li>one<ol><li>two</li></ol></li><li>three</li></ul></div>",
+    );
+    clipboard.setData("text/plain", "one\ntwo\nthree");
+    target.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+
+  await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three"]);
+  await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "1"]);
 });
 
 test("pastes a rich outline fragment with properties and tags as one history step", async ({ page }) => {

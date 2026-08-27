@@ -1,37 +1,34 @@
 import { describe, expect, it } from "vitest";
-import type { OutlineRow } from "../../src/entities/outline";
 import {
   buildClipboardBundle,
   createOutlineFragment,
+  decodeOutlineClipboard,
+  parseHtmlOutline,
   parseMarkdownOutline,
   readOutlineFragment,
-  serializeOutlineSelection,
   setClipboardData,
 } from "../../src/features/outline/clipboard";
+import type { OutlineFragment } from "../../src/core-port/fragment";
 import type { GraphSnapshot, PageSnapshot } from "../../src/core-port/snapshot";
 
-function row(id: string, markdown: string, depth: number): OutlineRow {
+function fragment(items: readonly { depth: number; markdown: string }[]): OutlineFragment {
   return {
-    block: { id, markdown, properties: [], tags: [], children: [] },
-    depth,
-    parentId: null,
-    index: 0,
-    siblingCount: 1,
-    hasChildren: false,
-    collapsed: false,
+    kind: "neoseq.outline",
+    version: 2,
+    source_graph_id: "graph",
+    items: items.map((item) => ({ ...item, page_references: [], properties: [], tags: [] })),
+    tags: [],
+    pages: [],
   };
 }
 
-describe("outline clipboard Markdown", () => {
-  it("copies covered descendants and normalizes their indentation", () => {
-    const rows = [
-      row("before", "before", 0),
-      row("parent", "parent", 1),
-      row("child", "child\ncontinuation", 2),
-      row("after", "after", 1),
-    ];
-
-    expect(serializeOutlineSelection(rows, new Set(["parent"]))).toBe(
+describe("outline clipboard codecs", () => {
+  it("serializes normalized fragment depth as portable Markdown", () => {
+    const bundle = buildClipboardBundle(fragment([
+      { depth: 0, markdown: "parent" },
+      { depth: 1, markdown: "child\ncontinuation" },
+    ]));
+    expect(bundle.plain).toBe(
       "- parent\n  - child\n    continuation",
     );
   });
@@ -43,6 +40,54 @@ describe("outline clipboard Markdown", () => {
       { depth: 1, markdown: "three" },
       { depth: 0, markdown: "four" },
     ]);
+  });
+
+  it("parses semantic HTML lists independently of application wrappers", () => {
+    const html = `
+      <div class="c-message__body">
+        <ul data-stringify-type="unordered-list">
+          <li><p>Plan <strong>today</strong></p>
+            <ol><li><div>Ship<br>carefully</div></li></ol>
+          </li>
+          <li><span>Review</span></li>
+        </ul>
+      </div>
+    `;
+
+    expect(parseHtmlOutline(html)).toEqual([
+      { depth: 0, markdown: "Plan **today**" },
+      { depth: 1, markdown: "Ship\ncarefully" },
+      { depth: 0, markdown: "Review" },
+    ]);
+  });
+
+  it("accepts portable Unicode bullets when rich HTML is unavailable", () => {
+    expect(parseMarkdownOutline("• one\n  ◦ two\n• three")).toEqual([
+      { depth: 0, markdown: "one" },
+      { depth: 1, markdown: "two" },
+      { depth: 0, markdown: "three" },
+    ]);
+  });
+
+  it("prefers semantic HTML over a lossy plain-text projection", () => {
+    const values = new Map([
+      ["text/html", "<ol><li>one<ul><li>two</li></ul></li></ol>"],
+      ["text/plain", "one\ntwo"],
+    ]);
+    expect(decodeOutlineClipboard({
+      getData: (type: string) => values.get(type) ?? "",
+    })).toEqual({
+      kind: "outline",
+      source: "html",
+      items: [
+        { depth: 0, markdown: "one" },
+        { depth: 1, markdown: "two" },
+      ],
+    });
+  });
+
+  it("does not discard prose surrounding an HTML list", () => {
+    expect(parseHtmlOutline("<p>Introduction</p><ul><li>one</li></ul>")).toBeNull();
   });
 
   it("leaves ordinary multiline text to the browser", () => {
@@ -131,6 +176,17 @@ describe("outline clipboard Markdown", () => {
     expect(bundle.plain).toContain("builtin.task-status:: doing");
     expect(bundle.plain).toContain("user.reviewers::");
     expect(bundle.html).toContain("data-neoseq-outline=");
+
+    const document = new DOMParser().parseFromString(bundle.html, "text/html");
+    expect(document.querySelectorAll("li")).toHaveLength(2);
+    expect([...document.querySelectorAll("ul, ol")].every(
+      (list) => [...list.children].some((child) => child.tagName === "LI"),
+    )).toBe(true);
+    expect(bundle.html).not.toContain("<ul></ul>");
+    expect(parseHtmlOutline(bundle.html)).toEqual([
+      { depth: 0, markdown: "ship it" },
+      { depth: 1, markdown: "collapsed child" },
+    ]);
 
     const values = new Map<string, string>();
     const clipboard = {

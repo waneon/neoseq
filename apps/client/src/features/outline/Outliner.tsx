@@ -103,9 +103,8 @@ import {
 import {
   buildClipboardBundle,
   createOutlineFragment,
+  decodeOutlineClipboard,
   isPlainEmptyBlock,
-  parseMarkdownOutline,
-  readOutlineFragment,
   setClipboardData,
   writeClipboardBundle,
   type OutlineClipboardItem,
@@ -4416,16 +4415,14 @@ function BlockRow({
           onCompositionEnd={(event) => editor.onCompositionEnd(row, event.currentTarget)}
           onKeyDown={(event) => editor.onKeyDown(row, rows, event)}
           onPaste={(event) => {
-            const fragment = readOutlineFragment(event.clipboardData);
-            if (fragment && !editor.readonly && !pending) {
-              event.preventDefault();
-              editor.pasteFragment(row, fragment);
-              return;
-            }
-            const items = parseMarkdownOutline(event.clipboardData.getData("text/plain"));
-            if (!items || editor.readonly || pending) return;
+            const decoded = decodeOutlineClipboard(event.clipboardData);
+            if (decoded.kind === "text" || editor.readonly || pending) return;
             event.preventDefault();
-            editor.pasteOutline(row, items);
+            if (decoded.kind === "fragment") {
+              editor.pasteFragment(row, decoded.fragment);
+            } else {
+              editor.pasteOutline(row, decoded.items);
+            }
           }}
         />
         {previewMarkdown && (
