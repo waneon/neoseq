@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { AnchoredPanel } from "../../src/ui/anchored-panel";
+import { rectAnchor } from "../../src/ui/anchored";
 import { useOverlayRoot } from "../../src/ui/overlay-root";
 
 const ANCHOR = new DOMRect(120, 200, 240, 28);
@@ -19,7 +20,7 @@ function ContextualSurface({ nested = false }: { nested?: boolean }) {
       <div data-testid="document-scroll" />
       {open && (
         <AnchoredPanel
-          anchor={ANCHOR}
+          anchor={rectAnchor(ANCHOR)}
           label="Context"
           className="context-panel"
           testId="surface"

@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AnchoredPanel } from "../../src/ui/anchored-panel";
+import { elementAnchor } from "../../src/ui/anchored";
 import { MenuSelect } from "../../src/ui/menu-select";
 
 /** Holds the arrival frame so a test can decide what happens before it runs. */
@@ -26,7 +27,7 @@ function Panel() {
     <>
       <button ref={anchor} type="button">order</button>
       <AnchoredPanel
-        anchor={anchor.current}
+        anchor={elementAnchor(anchor.current)}
         className="query-sort-panel"
         label="Order"
         testId="panel"

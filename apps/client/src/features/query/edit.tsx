@@ -29,7 +29,12 @@ import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { useImmediateState } from "../../lib/react";
 import { cn } from "../../lib/utils";
-import type { Anchor } from "@/ui/anchored";
+import {
+  caretAnchor,
+  elementAnchor,
+  snapshotAnchor,
+  type Anchor,
+} from "@/ui/anchored";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -66,6 +71,7 @@ import {
   BlockTagMenu,
   NO_BLOCK_COMPLETION,
   blockCompletionReducer,
+  completionAnchor,
   detectHash,
   detectPage,
   detectSlash,
@@ -191,9 +197,9 @@ function blockFrom(state: SessionState, block: BlockRef): BlockSnapshot | undefi
   return outline ? findBlock(outline, block.id) : undefined;
 }
 
-/** A frozen box, for an anchor that will not outlive the edit it opens. */
-function rectOf(element: HTMLElement): DOMRect {
-  return element.getBoundingClientRect();
+/** A frozen box, for an anchor whose result row may disappear while loading. */
+function capturedElementAnchor(element: HTMLElement): Anchor {
+  return snapshotAnchor(elementAnchor(element));
 }
 
 /**
@@ -580,7 +586,7 @@ export function useQueryResultEditor({
           key: item.action.key ?? "",
         },
         origin: current.origin,
-        anchor: completion.anchor.getBoundingClientRect(),
+        anchor: snapshotAnchor(completionAnchor(completion)),
         taskMenu: false,
         commandPrefix: plan
           ? {
@@ -761,11 +767,16 @@ export function useQueryResultEditor({
       if (!current) return;
       if (current.phase === "markdown") void commit(false);
       const focused = document.activeElement;
+      const focusedAnchor = focused instanceof HTMLTextAreaElement
+        ? caretAnchor(focused, focused.selectionStart)
+        : focused instanceof HTMLElement
+          ? elementAnchor(focused)
+          : current.anchor;
       setActive({
         phase: "picker",
         binding: { kind: "property", block: current.binding.block, key: key ?? "" },
         origin: current.origin,
-        anchor: focused instanceof HTMLElement ? focused.getBoundingClientRect() : current.anchor,
+        anchor: snapshotAnchor(focusedAnchor) ?? current.anchor,
         taskMenu: false,
       });
     });
@@ -1090,7 +1101,7 @@ function QueryMarkdownField({
         onFocus={(event) => {
           if (!current) {
             activateVim(activationEntrance.focusMethod());
-            editor.begin(binding, row, event.currentTarget);
+            editor.begin(binding, row, elementAnchor(event.currentTarget));
           }
         }}
         onClick={() => {
@@ -1301,7 +1312,7 @@ function QueryMarkdownField({
           onActivate={(caret, anchor, inputMethod) => {
             pendingCaret.current = caret ?? projected.length;
             activateVim(inputMethod);
-            editor.begin(binding, row, anchor);
+            editor.begin(binding, row, elementAnchor(anchor));
           }}
         />
       )}
@@ -1454,7 +1465,7 @@ function TaskChoiceCell({
       modal={false}
       open={block !== undefined}
       onOpenChange={(next) => {
-        if (next) editor.begin(binding, row, trigger.current);
+        if (next) editor.begin(binding, row, elementAnchor(trigger.current));
         else editor.cancel();
       }}
     >
@@ -1684,7 +1695,7 @@ export function EditableCellValue({
       // measured anything — so the panel would place itself from nothing and
       // land in the middle of the window's top edge. The press had a place on
       // screen; that is the anchor (`ui/anchored` § Anchor).
-      onClick={(event) => editor.begin(binding, row, rectOf(event.currentTarget))}
+      onClick={(event) => editor.begin(binding, row, capturedElementAnchor(event.currentTarget))}
     >
       {value}
     </button>
@@ -1737,7 +1748,7 @@ export function EditableStatusValue({
       data-active={current ? true : undefined}
       aria-busy={current?.phase === "loading" || undefined}
       title={context.message("query.editResult", { column: column.label })}
-      onClick={(event) => editor.begin(binding, row, event.currentTarget)}
+      onClick={(event) => editor.begin(binding, row, elementAnchor(event.currentTarget))}
     >
       <TaskStatusGlyph status={status} />
     </button>

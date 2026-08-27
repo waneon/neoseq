@@ -33,6 +33,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { elementAnchor } from "@/ui/anchored";
 import {
   ChevronDownIcon,
   ChevronUpIcon,
@@ -747,12 +748,16 @@ function TagRow({
         </DropdownMenu>
       )}
       {identityAt && (
-        <TagIdentityPicker tag={tag} anchor={identityAt} onClose={() => setIdentityAt(null)} />
+        <TagIdentityPicker
+          tag={tag}
+          anchor={elementAnchor(identityAt)}
+          onClose={() => setIdentityAt(null)}
+        />
       )}
       {picker && (
         <PropertyPicker
           target={{ kind: "tag", id: tag.id, bag: tag.defaults }}
-          anchor={picker.anchor}
+          anchor={elementAnchor(picker.anchor)}
           initialKey={picker.key}
           onClose={() => setPicker(null)}
         />

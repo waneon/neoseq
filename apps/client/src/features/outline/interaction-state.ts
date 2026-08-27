@@ -17,14 +17,14 @@ export interface PropertyRequest {
 
 export interface TagRequest {
   blockId: string;
-  anchor: HTMLElement | null;
+  anchor: Anchor;
 }
 
 export type OutlineOverlay =
   | BlockCompletionState
   | { kind: "property"; request: PropertyRequest }
   | { kind: "tag"; request: TagRequest }
-  | { kind: "menu"; blockId: string };
+  | { kind: "menu"; blockId: string; anchor: Anchor };
 
 export type OverlayAction =
   | { type: "open"; overlay: Exclude<OutlineOverlay, { kind: "none" }> }

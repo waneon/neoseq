@@ -111,7 +111,13 @@ import {
   type OutlineClipboardItem,
 } from "./clipboard";
 import type { OutlineFragment } from "../../core-port/fragment";
-import { snapshotAnchor } from "@/ui/anchored";
+import {
+  caretAnchor,
+  elementAnchor,
+  pointAnchor,
+  snapshotAnchor,
+  type Anchor,
+} from "@/ui/anchored";
 import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
 import { useImmediateState, useLatest } from "../../lib/react";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
@@ -143,12 +149,12 @@ import {
   BlockPageMenu,
   BlockSlashMenu,
   BlockTagMenu,
+  completionAnchor,
   detectPage,
   detectHash,
   detectSlash,
   filterPageOptions,
   filterTagOptions,
-  liveCompletionAnchor,
   removeCompletionToken,
   type BlockCompletionRequest,
   type BlockPageOption,
@@ -259,6 +265,7 @@ interface EditorContext {
   pageResults: PageOption[];
   pageActive: number;
   menuFor: string | null;
+  menuAnchor: Anchor;
   /** Explicit roots plus the descendants their structural action carries. */
   covered: ReadonlySet<string>;
   /** Rows the last expand uncovered. They fade up; nothing else in the list does. */
@@ -278,9 +285,9 @@ interface EditorContext {
   takeTreeFocus(): void;
   /** Drops the caret and selects exactly this block (⌘A past the text). */
   selectOnly(row: OutlineRow): void;
-  openMenu(id: string | null): void;
-  openProperties(id: string, key?: string, anchor?: HTMLElement | null): void;
-  openTags(id: string, anchor?: HTMLElement | null): void;
+  openMenu(id: string | null, anchor?: Anchor): void;
+  openProperties(id: string, key?: string, anchor?: HTMLElement | Anchor): void;
+  openTags(id: string, anchor?: HTMLElement | Anchor): void;
   closeSlash(): void;
   setSlashActive(index: number): void;
   acceptSlash(row: OutlineRow, item?: SlashItem): void;
@@ -408,6 +415,7 @@ export function Outliner({
   const pageRequest = overlay.kind === "page" ? overlay.request : null;
   const pageActive = overlay.kind === "page" ? overlay.active : 0;
   const menuFor = overlay.kind === "menu" ? overlay.blockId : null;
+  const menuAnchor = overlay.kind === "menu" ? overlay.anchor : null;
   const setPropertyRequest = useCallback((request: PropertyRequest | null) => {
     dispatchOverlay(
       request
@@ -452,10 +460,10 @@ export function Outliner({
   const setPageActiveState = useCallback((index: number) => {
     dispatchOverlay({ type: "activate", kind: "page", index });
   }, []);
-  const setMenuFor = useCallback((blockId: string | null) => {
+  const setMenuFor = useCallback((blockId: string | null, anchor: Anchor = null) => {
     dispatchOverlay(
       blockId
-        ? { type: "open", overlay: { kind: "menu", blockId } }
+        ? { type: "open", overlay: { kind: "menu", blockId, anchor } }
         : { type: "close", kind: "menu" },
     );
   }, []);
@@ -1155,7 +1163,9 @@ export function Outliner({
                 setPropertyRequest({
                   blockId: realId,
                   key,
-                  anchor,
+                  anchor: anchor
+                    ? caretAnchor(anchor, intent.selection?.start ?? anchor.selectionStart)
+                    : null,
                   selection: intent.selection,
                   commandPrefix,
                 });
@@ -1852,7 +1862,10 @@ export function Outliner({
         anchorId.current = row.block.id;
         setSelected(new Set());
       }
-      setMenuFor(row.block.id);
+      const editor = event.currentTarget
+        .closest<HTMLElement>('[data-testid="outline-row"]')
+        ?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
+      setMenuFor(row.block.id, pointAnchor(event.clientX, event.clientY, editor));
     },
     [selectionCovered],
   );
@@ -2035,6 +2048,7 @@ export function Outliner({
     pageResults,
     pageActive: pageIndex,
     menuFor,
+    menuAnchor,
     covered: selectionCovered,
     revealed,
     selectionCount,
@@ -2055,17 +2069,30 @@ export function Outliner({
     },
     openMenu: setMenuFor,
     openProperties: (id, key, anchor = null) => {
+      const element = anchor instanceof HTMLElement ? anchor : anchor?.owner ?? null;
+      const placement = anchor instanceof HTMLTextAreaElement
+        ? caretAnchor(anchor, anchor.selectionStart)
+        : anchor instanceof HTMLElement
+          ? elementAnchor(anchor)
+          : anchor;
       setPropertyRequest({
         blockId: id,
         key,
-        anchor,
-        selection: anchor instanceof HTMLTextAreaElement
-          ? { start: anchor.selectionStart, end: anchor.selectionEnd }
+        anchor: placement,
+        selection: element instanceof HTMLTextAreaElement
+          ? { start: element.selectionStart, end: element.selectionEnd }
           : undefined,
       });
     },
     openTags: (id, anchor = null) => {
-      setTagRequest({ blockId: id, anchor });
+      setTagRequest({
+        blockId: id,
+        anchor: anchor instanceof HTMLTextAreaElement
+          ? caretAnchor(anchor, anchor.selectionStart)
+          : anchor instanceof HTMLElement
+            ? elementAnchor(anchor)
+            : anchor,
+      });
     },
     closeSlash: () => setSlashRequest(null),
     setSlashActive: setSlashActiveState,
@@ -2077,7 +2104,7 @@ export function Outliner({
       // picker mounts. Its place is part of this gesture, so capture it while
       // the gesture's anchor still exists instead of handing Radix a detached
       // element whose bounding box is the origin.
-      const pickerAnchor = snapshotAnchor(liveCompletionAnchor(request));
+      const pickerAnchor = snapshotAnchor(completionAnchor(request));
       const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
       dispatchDraft({
@@ -2781,7 +2808,7 @@ export function Outliner({
       setPropertyRequest({
         blockId: targetId,
         key,
-        anchor,
+        anchor: anchor ? caretAnchor(anchor, anchor.selectionStart) : null,
         selection: anchor
           ? { start: anchor.selectionStart, end: anchor.selectionEnd }
           : undefined,
@@ -2863,8 +2890,8 @@ export function Outliner({
       // A picker opened from a slash command owns a captured box because the
       // command may replace its textarea. Restore focus to the live canonical
       // editor, never to that geometry value or a detached former editor.
-      const anchor = originalAnchor instanceof HTMLElement && originalAnchor.isConnected
-        ? originalAnchor
+      const anchor = originalAnchor?.owner?.isConnected
+        ? originalAnchor.owner
         : blockId
           ? document.querySelector<HTMLTextAreaElement>(
             `[data-block-id="${cssEscape(blockId)}"] textarea`,
@@ -2882,9 +2909,11 @@ export function Outliner({
   };
 
   const closeTagPicker = () => {
-    const anchor = tagRequest?.anchor;
+    const anchor = tagRequest?.anchor?.owner;
     setTagRequest(null);
-    requestAnimationFrame(() => anchor?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => {
+      if (anchor?.isConnected) anchor.focus({ preventScroll: true });
+    });
   };
 
   return (
@@ -3986,7 +4015,7 @@ function BlockRow({
                   <DropdownMenuItem
                     data-testid="menu-properties"
                     onSelect={() => {
-                      const anchor = textareaRef.current;
+                      const anchor = editor.menuAnchor ?? textareaRef.current;
                       requestAnimationFrame(() => editor.openProperties(row.block.id, undefined, anchor));
                     }}
                   >
@@ -3999,7 +4028,7 @@ function BlockRow({
                   <DropdownMenuItem
                     data-testid="menu-tags"
                     onSelect={() => {
-                      const anchor = textareaRef.current;
+                      const anchor = editor.menuAnchor ?? textareaRef.current;
                       requestAnimationFrame(() => editor.openTags(row.block.id, anchor));
                     }}
                   >

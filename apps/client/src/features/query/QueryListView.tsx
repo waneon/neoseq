@@ -9,6 +9,7 @@
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { findBlock, findOutline, stringValue } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
+import { elementAnchor, snapshotAnchor } from "@/ui/anchored";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockChips } from "../properties/BlockChips";
 import { TagChips } from "../properties/TagChips";
@@ -98,7 +99,7 @@ export function QueryListView({
           anchor: HTMLElement,
         ) => {
           const binding = editor.bindingForDirect(entity, field);
-          if (binding) editor.begin(binding, row, anchor.getBoundingClientRect());
+          if (binding) editor.begin(binding, row, snapshotAnchor(elementAnchor(anchor)));
           else openBlock();
         };
 

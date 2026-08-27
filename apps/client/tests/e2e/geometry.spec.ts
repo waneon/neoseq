@@ -1008,6 +1008,10 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
     const box = node.getBoundingClientRect();
     return { x: box.x, y: box.y, width: box.width, height: box.height };
   });
+  const lineTextInset = await line.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.paddingLeft);
+  });
   const roomBelow = 633 - lineBox.y - lineBox.height - 4 - 12;
 
   await page.keyboard.type("/scheduled");
@@ -1019,8 +1023,11 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   await expect(picker).toHaveAttribute("data-side", "top");
   const pickerBox = (await picker.boundingBox())!;
   expect(pickerBox.height).toBeGreaterThan(roomBelow);
-  expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(lineBox.y - 3);
-  expect(Math.abs(pickerBox.x - lineBox.x)).toBeLessThan(2);
+  // The panel hangs from the caret's line box, whose top begins inside the
+  // textarea's own padding. Flipping above must clear the editor box; an extra
+  // field-edge gap is not part of a point-like caret anchor.
+  expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(lineBox.y);
+  expect(Math.abs((pickerBox.x - lineBox.x) - lineTextInset)).toBeLessThan(1.5);
 
   const datePane = (await picker.getByTestId("moment-pane-date").boundingBox())!;
   const rulesPane = (await picker.getByTestId("moment-pane-rules").boundingBox())!;
@@ -1088,6 +1095,52 @@ test("closing the scheduled editor releases the outline scroll", async ({ page }
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
   const after = await scroller.evaluate((node) => node.scrollTop);
   expect(after).toBeLessThan(before - 200);
+});
+
+test("token and pointer routes keep their panels at the invocation", async ({ page }) => {
+  await createGraph(page, "Caret Anchored Menu Graph");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await page.getByTestId("new-tag").click();
+  await page.getByTestId("new-tag-name").fill("Project");
+  await page.getByTestId("new-tag-name").press("Enter");
+  await openSidebar(page);
+  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
+  await startOutline(page);
+
+  const line = page.getByLabel("Block text");
+  await page.keyboard.type("prefix words #Pro");
+  const tagMenu = page.getByTestId("tag-menu");
+  await expect(tagMenu).toBeVisible();
+  const lineBox = (await line.boundingBox())!;
+  const tagBox = (await tagMenu.boundingBox())!;
+  expect(tagBox.x - lineBox.x).toBeGreaterThan(70);
+  await page.keyboard.press("Escape");
+
+  await line.press("ControlOrMeta+A");
+  await line.pressSequentially("prefix words /pro");
+  const slashMenu = page.getByTestId("slash-menu");
+  await expect(slashMenu).toBeVisible();
+  const slashBox = (await slashMenu.boundingBox())!;
+  expect(slashBox.x - lineBox.x).toBeGreaterThan(70);
+
+  await slashMenu.getByRole("option", { name: /Add property/ }).click();
+  const picker = page.getByTestId("property-picker");
+  await expect(picker).toBeVisible();
+  const pickerBox = (await picker.boundingBox())!;
+  expect(Math.abs(pickerBox.x - slashBox.x)).toBeLessThan(2);
+
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  const bullet = page.getByTestId("block-bullet");
+  const bulletBox = (await bullet.boundingBox())!;
+  const pointerX = bulletBox.x + bulletBox.width / 2;
+  await bullet.click({ button: "right" });
+  await page.getByTestId("menu-properties").click();
+  const pointerPicker = page.getByTestId("property-picker");
+  await expect(pointerPicker).toBeVisible();
+  const pointerPickerBox = (await pointerPicker.boundingBox())!;
+  expect(Math.abs(pointerPickerBox.x - pointerX)).toBeLessThan(2);
 });
 
 test("the property editor remains an edge-to-edge sheet on a phone", async ({ page }) => {

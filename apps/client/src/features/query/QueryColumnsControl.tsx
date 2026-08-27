@@ -22,6 +22,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Columns3Icon, SearchIcon } from "lucide-react";
 import { AnchoredPanel } from "@/ui/anchored-panel";
+import { elementAnchor } from "@/ui/anchored";
 import { Button } from "@/ui/shadcn/button";
 import {
   columnSourceKey,
@@ -130,7 +131,7 @@ export function QueryColumnsControl({
       </Button>
       {open && (
         <AnchoredPanel
-          anchor={triggerRef.current}
+          anchor={elementAnchor(triggerRef.current)}
           className="query-columns-panel"
           label={message("query.columns")}
           options={{ width: 268, maxHeight: 380 }}

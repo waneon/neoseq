@@ -30,6 +30,7 @@ import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
+import { elementAnchor } from "@/ui/anchored";
 import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
@@ -183,13 +184,17 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
       {picker && (
         <PropertyPicker
           target={{ kind: "tag", id: tag.id, bag: tag.defaults }}
-          anchor={picker.anchor}
+          anchor={elementAnchor(picker.anchor)}
           initialKey={picker.key}
           onClose={() => setPicker(null)}
         />
       )}
       {identityAt && (
-        <TagIdentityPicker tag={tag} anchor={identityAt} onClose={() => setIdentityAt(null)} />
+        <TagIdentityPicker
+          tag={tag}
+          anchor={elementAnchor(identityAt)}
+          onClose={() => setIdentityAt(null)}
+        />
       )}
     </div>
   );

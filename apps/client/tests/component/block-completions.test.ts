@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   detectPage,
+  completionAnchor,
   filterPageOptions,
   liveCompletionAnchor,
   type BlockCompletionRequest,
@@ -18,10 +19,15 @@ describe("completion anchors", () => {
       start: 0,
       end: 10,
       query: "scheduled",
+      anchorOffset: 0,
       anchor: pending,
     };
 
     expect(liveCompletionAnchor(request)).toBe(canonical);
+    expect(completionAnchor(request)).toEqual({
+      geometry: { kind: "caret", textarea: canonical, offset: 0 },
+      owner: canonical,
+    });
     canonical.remove();
   });
 });
@@ -32,6 +38,7 @@ describe("page reference completion", () => {
       start: 4,
       end: 20,
       query: "project plan",
+      anchorOffset: 4,
     });
   });
 

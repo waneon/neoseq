@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 import { CheckIcon, FileTextIcon, HashIcon, PlusIcon } from "lucide-react";
 import type { PageDirectoryEntry, TagSnapshot } from "../../../core-port/snapshot";
 import { useI18n } from "../../../i18n";
+import { caretAnchor, type Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { fuzzyScore } from "../../commands/registry";
 import { canonicalEntityName } from "../../../entities/names";
@@ -22,6 +23,8 @@ export interface BlockCompletionRequest {
   start: number;
   end: number;
   query: string;
+  /** Visual token origin; independent of the range accepting a choice replaces. */
+  anchorOffset: number;
   anchor: HTMLTextAreaElement;
 }
 
@@ -77,7 +80,7 @@ function detectToken(
   while (start > 0 && !/\s/u.test(value[start - 1])) start -= 1;
   const token = value.slice(start, selectionStart);
   if (!token.startsWith(marker) || token.slice(1).includes(marker)) return null;
-  return { start, end: selectionStart, query: token.slice(1) };
+  return { start, end: selectionStart, query: token.slice(1), anchorOffset: start };
 }
 
 export function detectSlash(
@@ -112,6 +115,7 @@ export function detectPage(
     start,
     end: close,
     query: value.slice(start + 2, selectionStart),
+    anchorOffset: start,
   };
 }
 
@@ -199,7 +203,7 @@ export function BlockPageMenu({
 
   return (
     <AnchoredPanel
-      anchor={liveCompletionAnchor(request)}
+      anchor={completionAnchor(request)}
       id="page-reference-menu"
       className="slash-menu page-reference-menu"
       role="listbox"
@@ -245,6 +249,11 @@ export function liveCompletionAnchor(request: BlockCompletionRequest): HTMLTextA
       : request.anchor;
 }
 
+/** One completion policy for slash, tag and page tokens: stable at their origin. */
+export function completionAnchor(request: BlockCompletionRequest): Anchor {
+  return caretAnchor(liveCompletionAnchor(request), request.anchorOffset);
+}
+
 export function BlockTagMenu({
   request,
   results,
@@ -271,7 +280,7 @@ export function BlockTagMenu({
 
   return (
     <AnchoredPanel
-      anchor={liveCompletionAnchor(request)}
+      anchor={completionAnchor(request)}
       id="tag-suggest-menu"
       className="slash-menu tag-menu"
       role="listbox"
@@ -362,7 +371,7 @@ export function BlockSlashMenu({
 
   return (
     <AnchoredPanel
-      anchor={liveCompletionAnchor(request)}
+      anchor={completionAnchor(request)}
       id="slash-command-menu"
       className="slash-menu"
       role="listbox"

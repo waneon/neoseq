@@ -18,7 +18,12 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { snapshotAnchor, type Anchor, type AnchoredOptions } from "./anchored";
+import {
+  anchorElement,
+  measureAnchor,
+  type Anchor,
+  type AnchoredOptions,
+} from "./anchored";
 import { OverlayRoot, useOverlayRoot } from "./overlay-root";
 import {
   Popover,
@@ -31,18 +36,26 @@ const VIEWPORT_INSET = 12;
 
 interface Measurable {
   getBoundingClientRect(): DOMRect;
+  contextElement?: Element;
 }
 
-function measurableAnchor(anchor: Anchor): Measurable {
-  let lastValid = snapshotAnchor(anchor);
+function measurableAnchor(
+  anchor: Anchor,
+  lastValid: { current: DOMRectReadOnly | null },
+): Measurable {
+  const initial = measureAnchor(anchor);
+  if (initial) lastValid.current = initial;
+  const contextElement = anchorElement(anchor) ?? undefined;
   return {
+    contextElement,
     getBoundingClientRect: () => {
-      const current = snapshotAnchor(anchor);
-      if (current) lastValid = current;
-      return lastValid ?? DOMRect.fromRect({
+      const current = measureAnchor(anchor);
+      if (current) lastValid.current = current;
+      const rect = lastValid.current ?? DOMRect.fromRect({
         x: window.innerWidth / 2,
         y: VIEWPORT_INSET,
       });
+      return DOMRect.fromRect(rect);
     },
   };
 }
@@ -115,8 +128,11 @@ export function AnchoredPanel({
   const root = useOverlayRoot();
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const escaped = useRef(false);
+  const lastValid = useRef<DOMRectReadOnly | null>(null);
+  const liveElement = anchorElement(anchor);
+  const owner = anchor?.owner ?? null;
   const virtualRef = useMemo(
-    () => ({ current: measurableAnchor(anchor) }),
+    () => ({ current: measurableAnchor(anchor, lastValid) }),
     [anchor],
   );
   const rememberSurface = useCallback((node: HTMLDivElement | null) => {
@@ -135,12 +151,12 @@ export function AnchoredPanel({
     const dismiss = (event: Event) => {
       const target = event.target;
       if (target instanceof Node && surface?.contains(target)) return;
-      if (target instanceof Node && anchor instanceof HTMLElement && anchor.contains(target)) return;
+      if (target instanceof Node && liveElement?.contains(target)) return;
       onClose();
     };
     window.addEventListener("scroll", dismiss, true);
     return () => window.removeEventListener("scroll", dismiss, true);
-  }, [anchor, dismissOnExternalScroll, onClose, surface]);
+  }, [dismissOnExternalScroll, liveElement, onClose, surface]);
 
   return (
     <Popover open modal={trapFocus} onOpenChange={(open) => !open && onClose()}>
@@ -187,15 +203,14 @@ export function AnchoredPanel({
             // toggle or retarget the panel. The anchor owns that gesture.
             if (
               target instanceof Node
-              && anchor instanceof HTMLElement
-              && anchor.contains(target)
+              && liveElement?.contains(target)
             ) event.preventDefault();
           }}
           onKeyDown={onKeyDown}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            if (escaped.current && anchor instanceof HTMLElement) {
-              anchor.focus({ preventScroll: true });
+            if (escaped.current && owner?.isConnected) {
+              owner.focus({ preventScroll: true });
             }
           }}
         >

@@ -14,7 +14,14 @@ describe("outline interaction state", () => {
       type: "open",
       overlay: {
         kind: "slash",
-        request: { blockId: "pending-1", query: "q", start: 0, end: 2, anchor },
+        request: {
+          blockId: "pending-1",
+          query: "q",
+          start: 0,
+          end: 2,
+          anchorOffset: 0,
+          anchor,
+        },
         active: 0,
       },
     });
@@ -45,7 +52,14 @@ describe("outline interaction state", () => {
       type: "set-completion",
       overlay: {
         kind: "slash",
-        request: { blockId: "block-1", query: "q", start: 0, end: 2, anchor },
+        request: {
+          blockId: "block-1",
+          query: "q",
+          start: 0,
+          end: 2,
+          anchorOffset: 0,
+          anchor,
+        },
         active: 0,
       },
     });
@@ -59,7 +73,14 @@ describe("outline interaction state", () => {
     const anchor = document.createElement("textarea");
     const pending: OutlineOverlay = {
       kind: "hash",
-      request: { blockId: "pending-1", query: "tag", start: 0, end: 4, anchor },
+      request: {
+        blockId: "pending-1",
+        query: "tag",
+        start: 0,
+        end: 4,
+        anchorOffset: 0,
+        anchor,
+      },
       active: 2,
     };
 
@@ -69,7 +90,14 @@ describe("outline interaction state", () => {
       blockId: "block-1",
     })).toEqual({
       kind: "hash",
-      request: { blockId: "block-1", query: "tag", start: 0, end: 4, anchor },
+      request: {
+        blockId: "block-1",
+        query: "tag",
+        start: 0,
+        end: 4,
+        anchorOffset: 0,
+        anchor,
+      },
       active: 2,
     });
   });

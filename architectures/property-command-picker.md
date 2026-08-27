@@ -37,9 +37,10 @@ flowchart LR
 ### Outline and Slash Commands
 
 `features/blocks/editor` owns slash and hash detection, ranking, token removal,
-and menu presentation. Outline and query adapters apply the chosen action to
-their own draft sessions; the outline additionally owns pending-block
-reconciliation.
+and menu presentation. Their menus share one live text-caret anchor at the
+token's start, so the surface stays beside the invocation without moving as its
+query grows. Outline and query adapters apply the chosen action to their own
+draft sessions; the outline additionally owns pending-block reconciliation.
 
 Detection is a pure scan of the current whitespace-delimited token at a
 collapsed caret. A token beginning with `/` opens the slash menu when its query
@@ -184,8 +185,11 @@ z-index scale carries the matching order: `--z-menu` sits above `--z-popover`,
 because a menu and a popover only ever coexist when the popover opened the menu.
 
 The picker is portaled to `document.body` and positioned in viewport space from
-the invoking element. This avoids clipping by the scroll container and the
-virtualizer's transformed rows. Placement itself is not the picker's own: every
+the invoking anchor. Element, caret, pointer, and captured-box geometry share a
+focus owner without conflating that owner with the measured box. A slash route
+captures its caret geometry before token removal can reconcile the row. This
+avoids clipping by the scroll container and the virtualizer's transformed rows.
+Placement itself is not the picker's own: every
 anchored panel in the client — this picker, the tag picker, the slash and tag
 menus, `PageAutocomplete` — goes through `ui/anchored`, which prefers the space
 below the anchor, pins the panel by its `bottom` and lets it grow upward when the

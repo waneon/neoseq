@@ -15,6 +15,7 @@ import { useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
 import { MenuSelect } from "@/ui/menu-select";
 import { AnchoredPanel } from "@/ui/anchored-panel";
+import { elementAnchor } from "@/ui/anchored";
 import { Button } from "@/ui/shadcn/button";
 import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
@@ -94,7 +95,7 @@ export function QuerySortControl({
       </Button>
       {open && (
         <AnchoredPanel
-          anchor={triggerRef.current}
+          anchor={elementAnchor(triggerRef.current)}
           className="query-sort-panel"
           label={message("query.sortOrder")}
           // The panel grows a row per term, so it re-places when the list does.

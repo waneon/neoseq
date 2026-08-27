@@ -96,10 +96,12 @@ One element owns scrolling on each axis within an overlay. A descendant may own
 a genuinely independent list, but layout wrappers do not compensate for focus
 paint with negative margins or create a second scrollport around the same flow.
 
-An anchor is either a measurable live element or a captured box. Zero-area
-geometry is absence, not the viewport origin. If a live anchor disappears, the
-overlay keeps its last valid position; callers that know their element will be
-replaced provide a captured box.
+An anchor separates geometry from ownership. Geometry is a measurable live
+element or text caret, a viewport point, or a captured box; its owner is the
+control or editor that receives restored focus. Zero-area geometry is absence,
+not the viewport origin. If a live anchor disappears, the overlay keeps its last
+valid position; callers that know their element will be replaced provide a
+captured box while retaining the gesture's owner.
 
 Opening and closing restore focus to the invoking control or caret unless the
 chosen action explicitly transfers focus elsewhere.

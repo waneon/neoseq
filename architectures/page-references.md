@@ -31,6 +31,11 @@ Editing through a displayed reference demotes that atom to its current
 replaces the typed source with one atom. Untouched references survive ordinary
 text edits, splits, synchronization, and title changes.
 
+The completion list uses the same token-origin caret anchor as slash and tag
+completion. Its replacement span may include an existing `]]`, but that span and
+the visual anchor offset are separate values: editing semantics cannot move the
+overlay, and placement cannot change what accepting a reference replaces.
+
 ## Commands and Consistency
 
 `splice_block_content` accepts a bounded sequence of Markdown and page-reference

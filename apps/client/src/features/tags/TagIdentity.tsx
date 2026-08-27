@@ -36,7 +36,7 @@ import {
   type TagColor,
 } from "../../entities/tag-identity";
 import { canonicalEntityName } from "../../entities/names";
-import type { Anchor } from "@/ui/anchored";
+import { elementAnchor, type Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Input } from "@/ui/shadcn/input";
 import { useI18n, type MessageKey } from "../../i18n";
@@ -361,7 +361,7 @@ function GroupField({
       />
       {open && inputRef.current && (
         <AnchoredPanel
-          anchor={inputRef.current}
+          anchor={elementAnchor(inputRef.current)}
           id={listId}
           role="listbox"
           label={message("tags.group")}

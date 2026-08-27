@@ -137,15 +137,18 @@ export function PropertyPicker({
   }, []);
 
   useEffect(() => {
-    if (!(anchor instanceof HTMLElement)) return;
+    const invokingElement = anchor?.geometry.kind === "element"
+      ? anchor.geometry.element
+      : null;
+    if (!invokingElement) return;
     const reopenAtAnchor = () => {
       setStage(initialStage(initial, target.bag));
       setQuery("");
       setActive(0);
       setRequest({ status: "idle" });
     };
-    anchor.addEventListener("click", reopenAtAnchor);
-    return () => anchor.removeEventListener("click", reopenAtAnchor);
+    invokingElement.addEventListener("click", reopenAtAnchor);
+    return () => invokingElement.removeEventListener("click", reopenAtAnchor);
   }, [anchor, initial, target.bag]);
 
   useEffect(() => {

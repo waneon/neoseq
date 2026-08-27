@@ -18,6 +18,7 @@ import type { Command } from "../../core-port/commands";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
 import { AnchoredPanel } from "@/ui/anchored-panel";
+import { elementAnchor } from "@/ui/anchored";
 import { Input } from "@/ui/shadcn/input";
 import { useSession, useSessionState } from "../shell/session-context";
 import { useI18n } from "../../i18n";
@@ -185,7 +186,7 @@ export function PageAutocomplete({
       />
       {open && inputRef.current && (
         <AnchoredPanel
-          anchor={inputRef.current}
+          anchor={elementAnchor(inputRef.current)}
           id={listId}
           role="listbox"
           label={placeholder}

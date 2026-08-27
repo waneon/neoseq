@@ -7,7 +7,7 @@ import { useCommands } from "../commands/context";
 import { useSessionState } from "../shell/session-context";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 import { PropertyPicker } from "./PropertyPicker";
-import { snapshotAnchor, type Anchor } from "@/ui/anchored";
+import { elementAnchor, snapshotAnchor, type Anchor } from "@/ui/anchored";
 
 const STRIP_LIMIT = 4;
 
@@ -41,7 +41,9 @@ export function PageProperties({
     // The command palette disappears before this picker measures. The page strip
     // is the durable owner of this surface; a palette input is only the route that
     // summoned it, never a geometry source that may survive the transition.
-    pickerAnchor.current = anchor ?? snapshotAnchor(anchorRef.current);
+    pickerAnchor.current = anchor
+      ? elementAnchor(anchor)
+      : snapshotAnchor(elementAnchor(anchorRef.current));
     onOpenChange(true);
   }, [onOpenChange]);
 
@@ -54,7 +56,7 @@ export function PageProperties({
     // PageView's title menu owns only the boolean disclosure state. Treat that
     // route as a fresh add/change request, never as a replay of the last row.
     setInitialKey(undefined);
-    pickerAnchor.current = snapshotAnchor(anchorRef.current);
+    pickerAnchor.current = snapshotAnchor(elementAnchor(anchorRef.current));
     restoreFocus.current = document.querySelector<HTMLElement>('[data-testid="page-title"]');
   }, [open]);
 
@@ -106,7 +108,7 @@ export function PageProperties({
         <PropertyPicker
           key={`${page.id}:${initialKey ?? "new"}`}
           target={{ kind: "page", id: page.id, bag: page.properties }}
-          anchor={pickerAnchor.current ?? anchorRef.current}
+          anchor={pickerAnchor.current ?? elementAnchor(anchorRef.current)}
           initialKey={initialKey}
           onClose={close}
         />
