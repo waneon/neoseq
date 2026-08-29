@@ -54,7 +54,7 @@ async fn structured_telemetry_excludes_content_credentials_and_raw_updates() {
     let raw_update_hex = hex::encode(&update.bytes);
     let mut opened = fixture
         .manager
-        .open(GRAPH, "telemetry-session", OWNER, &fixture.base_version)
+        .open(GRAPH, "telemetry-session", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;

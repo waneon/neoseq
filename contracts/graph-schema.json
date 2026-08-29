@@ -1,7 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Neoseq Graph Document Schema v6",
-  "current": 6,
-  "minMigratable": 1,
-  "minimumWriter": 6
+  "current": 6
 }

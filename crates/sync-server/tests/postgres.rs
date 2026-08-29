@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use sync_protocol::{Hello, Message, PROTOCOL_VERSION, VersionRange, decode, encode};
+use sync_protocol::{Hello, Message, PROTOCOL_VERSION, decode, encode};
 use sync_server::{
     AccountPatch, AccountStatus, AppState, GraphAdmin, GraphRole, GraphStore, IdentityService,
     Metrics, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole, SessionPurpose, StoreError,
@@ -387,11 +387,10 @@ async fn websocket_commit(
     );
     let (mut socket, _) = connect_async(request).await.unwrap();
     let hello = Message::Hello(Hello {
-        protocol: VersionRange::exact(PROTOCOL_VERSION),
-        schema: VersionRange::exact(SCHEMA_VERSION as u16),
+        protocol: PROTOCOL_VERSION,
+        schema: SCHEMA_VERSION as u16,
         graph_id: graph_id.to_owned(),
         session_id: "postgres-websocket".into(),
-        replica_id: 2,
         history_epoch: 0,
         version_vector: base_version.to_vec(),
     });

@@ -1,7 +1,7 @@
 import type { OutboxMessage, SyncState } from "../../core-worker";
 import type { RemoteGraphConnection } from "../../core-port/directory";
 import type { OutlineOwner } from "../../core-port/snapshot";
-import { MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION } from "../../generated/graph-schema";
+import { SCHEMA_VERSION } from "../../generated/graph-schema";
 import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
 import { readAuthSession } from "./auth";
 
@@ -181,11 +181,10 @@ export class SyncAgent {
     const state = await this.port.syncState(this.graphHandle);
     const frame = await this.port.encodeSyncMessage({
       Hello: {
-        protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION },
-        schema: { min: MIN_MIGRATABLE_SCHEMA_VERSION, max: SCHEMA_VERSION },
+        protocol: PROTOCOL_VERSION,
+        schema: SCHEMA_VERSION,
         graph_id: this.graphId,
         session_id: this.transportSessionId,
-        replica_id: state.replica_id,
         history_epoch: state.history_epoch,
         version_vector: state.version_vector,
       },

@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use std::{sync::Arc, time::Duration};
 use support::*;
-use sync_protocol::{Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, VersionRange, decode, encode};
+use sync_protocol::{Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, decode, encode};
 use sync_server::{AppState, GraphStore, RoomConfig, router};
 use tokio_tungstenite::{
     connect_async,
@@ -58,11 +58,10 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
         SUBPROTOCOL
     );
     let hello = Message::Hello(Hello {
-        protocol: VersionRange::exact(PROTOCOL_VERSION),
-        schema: VersionRange::exact(graph_core::SCHEMA_VERSION as u16),
+        protocol: PROTOCOL_VERSION,
+        schema: graph_core::SCHEMA_VERSION as u16,
         graph_id: GRAPH.into(),
         session_id: "websocket-client".into(),
-        replica_id: 2,
         history_epoch: 0,
         version_vector: fixture.base_version.clone(),
     });

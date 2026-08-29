@@ -1,74 +1,8 @@
 mod support;
 
-use std::sync::Arc;
 use support::*;
 use sync_protocol::Limits;
-use sync_server::{GraphStore, Metrics, RoomConfig, RoomManager};
-
-#[tokio::test]
-async fn schema_v1_fixture_migrates_before_the_room_accepts_writes() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../fixtures/compatibility/schema-v1-basic.json"
-    ))
-    .unwrap();
-    assert_fixture_migrates(fixture).await;
-}
-
-#[tokio::test]
-async fn schema_v2_tag_fixture_migrates_before_the_room_accepts_writes() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../fixtures/compatibility/schema-v2-tag-without-outline.json"
-    ))
-    .unwrap();
-    assert_fixture_migrates(fixture).await;
-}
-
-async fn assert_fixture_migrates(fixture: serde_json::Value) {
-    let graph_id = fixture["graph_id"].as_str().unwrap();
-    let snapshot = hex::decode(fixture["snapshot_hex"].as_str().unwrap()).unwrap();
-    let document_schema = fixture["document_schema"].as_u64().unwrap() as u32;
-    let store = Arc::new(MemoryStore::new());
-    store.seed_graph(
-        graph_id,
-        OWNER,
-        document_schema,
-        8 * 1024 * 1024,
-        snapshot,
-        graph_core::empty_version_vector(),
-    );
-    let manager = RoomManager::new(
-        store.clone(),
-        RoomConfig::default(),
-        Arc::new(Metrics::default()),
-    );
-
-    let opened = manager
-        .open_replica(
-            graph_id,
-            "migrating-client",
-            OWNER,
-            22,
-            0,
-            &graph_core::empty_version_vector(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(opened.welcome.schema, graph_core::SCHEMA_VERSION as u16);
-    assert_eq!(opened.welcome.history_epoch, 1);
-    assert!(opened.welcome.replace_checkpoint);
-    let durable = store.load_graph(graph_id).await.unwrap();
-    assert_eq!(durable.schema_version, graph_core::SCHEMA_VERSION);
-    let migrated = graph_core::GraphCore::from_snapshot(
-        domain::GraphId::new(graph_id).unwrap(),
-        23,
-        &opened.welcome.checkpoint,
-    )
-    .unwrap();
-    assert_eq!(
-        migrated.fingerprint().unwrap(),
-        fixture["expected_current_fingerprint"].as_str().unwrap()
-    );
-}
+use sync_server::{GraphStore, RoomConfig};
 
 #[tokio::test]
 async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
@@ -79,14 +13,14 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
         client_update(&fixture.snapshot, 3, "create-b", "message-b", "page-b", "B");
     let mut a = fixture
         .manager
-        .open(GRAPH, "a", OWNER, &fixture.base_version)
+        .open(GRAPH, "a", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
     let mut a_rx = a.take_outbound();
     let mut b = fixture
         .manager
-        .open(GRAPH, "b", PEER, &fixture.base_version)
+        .open(GRAPH, "b", PEER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -124,7 +58,7 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
     // version vector; transport cursors are not used as CRDT truth.
     let reconnect = fixture
         .manager
-        .open(GRAPH, "reconnect", OWNER, &fixture.base_version)
+        .open(GRAPH, "reconnect", OWNER, 0, &fixture.base_version)
         .await
         .unwrap();
     let mut client_c = graph_core::GraphCore::from_snapshot(
@@ -174,7 +108,7 @@ async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
         .unwrap();
     let opened = fixture
         .manager
-        .open(GRAPH, "checkpoint-client", OWNER, &fixture.base_version)
+        .open(GRAPH, "checkpoint-client", OWNER, 0, &fixture.base_version)
         .await
         .unwrap();
     assert!(opened.welcome.missing_update.is_empty());
@@ -251,7 +185,7 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
 
     let mut opened = fixture
         .manager
-        .open_replica(GRAPH, "stale-client", OWNER, 3, 0, &fixture.base_version)
+        .open(GRAPH, "stale-client", OWNER, 0, &fixture.base_version)
         .await
         .unwrap();
     assert_eq!(opened.welcome.history_epoch, 2);

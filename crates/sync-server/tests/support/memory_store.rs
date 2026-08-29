@@ -4,10 +4,9 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use sync_protocol::GraphStatus;
 use sync_server::store::{
-    CommitOutcome, GraphAdmin, GraphListing, GraphLoad, GraphRole, GraphStore, Membership,
-    MembershipListing, StoreError, StoredCheckpoint, StoredUpdate,
+    CommitOutcome, GraphAdmin, GraphListing, GraphLoad, GraphRole, GraphStatus, GraphStore,
+    Membership, MembershipListing, StoreError, StoredCheckpoint, StoredUpdate,
 };
 
 const MAX_RETAINED_RECEIPTS: usize = 4_096;

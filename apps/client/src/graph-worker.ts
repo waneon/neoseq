@@ -7,7 +7,7 @@ import init, {
   encodeSyncMessageJson,
 } from "./wasm/neoseq_core.js";
 import { CORE_PORT_VERSION } from "./generated/core-port";
-import { MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION } from "./generated/graph-schema";
+import { SCHEMA_VERSION } from "./generated/graph-schema";
 import type {
   CloseGraphRequest,
   CorePortError,
@@ -196,10 +196,7 @@ async function openGraph(request: OpenGraphRequest) {
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = createRepository();
   const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
-  if (
-    metadata.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION ||
-    metadata.schema_version > SCHEMA_VERSION
-  ) {
+  if (metadata.schema_version !== SCHEMA_VERSION) {
     throw failure(
       "unsupported_schema",
       `unsupported schema version ${metadata.schema_version}`,
@@ -240,10 +237,7 @@ async function recover(
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (
-      checkpoint.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION ||
-      checkpoint.schema_version > SCHEMA_VERSION
-    )
+    if (checkpoint.schema_version !== SCHEMA_VERSION)
       reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload)))
       reason = "checkpoint-checksum-mismatch";
@@ -590,10 +584,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
         source: { graph_id: string; document_schema: number };
         suggested_name?: string;
       };
-      if (
-        manifest.source.document_schema < MIN_MIGRATABLE_SCHEMA_VERSION ||
-        manifest.source.document_schema > SCHEMA_VERSION
-      ) {
+      if (manifest.source.document_schema !== SCHEMA_VERSION) {
         throw failure(
           "unsupported_schema",
           `unsupported schema version ${manifest.source.document_schema}`,
@@ -784,16 +775,6 @@ async function testControl(payload: Record<string, unknown>) {
     }
     case "replica_id":
       return repository.metadata(String(payload.graph_id)).then((value) => value.replica_id);
-    case "schema_version":
-      return repository.metadata(String(payload.graph_id)).then((value) => value.schema_version);
-    case "install_legacy_fixture":
-      return repository
-        .installLegacyFixture(
-          String(payload.graph_id),
-          Number(payload.schema_version),
-          ownedBuffer(asUint8Array(payload.snapshot as ArrayBuffer | Uint8Array)),
-        )
-        .then(() => null);
     case "gc_checkpoint": {
       const state = requireState(String(payload.graph_handle));
       return {

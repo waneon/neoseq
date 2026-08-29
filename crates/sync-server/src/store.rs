@@ -1,11 +1,16 @@
 use async_trait::async_trait;
 use graph_core::checksum;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
-use sync_protocol::GraphStatus;
 use thiserror::Error;
 
 pub const DATABASE_SCHEMA_VERSION: i32 = 3;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphStatus {
+    Active,
+    ReadOnly,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphRole {

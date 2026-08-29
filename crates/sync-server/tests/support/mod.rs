@@ -270,11 +270,10 @@ pub async fn room_fingerprint<S: GraphStore>(
     let suffix = SESSION.fetch_add(1, Ordering::Relaxed);
     manager.evict(graph_id).await;
     let opened = manager
-        .open_replica(
+        .open(
             graph_id,
             &format!("fingerprint-{suffix}"),
             account_id,
-            1,
             u64::MAX,
             &graph_core::empty_version_vector(),
         )

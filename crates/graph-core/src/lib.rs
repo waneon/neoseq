@@ -7,10 +7,7 @@ mod persistence;
 mod runtime;
 
 pub use core::{
-    CoreError, CoreExecution, GRAPH_SETTINGS_MIGRATION_ID, GraphChangeSet, GraphCore,
-    INLINE_PAGE_REFERENCES_MIGRATION_ID, LIFECYCLE_MIGRATION_ID, MIN_MIGRATABLE_SCHEMA_VERSION,
-    MINIMUM_WRITER_SCHEMA, MigrationReport, SCHEMA_VERSION, TAG_OUTLINES_MIGRATION_ID,
-    empty_version_vector,
+    CoreError, CoreExecution, GraphChangeSet, GraphCore, SCHEMA_VERSION, empty_version_vector,
 };
 pub use persistence::{
     AppendReceipt, CheckpointRecord, GraphLocator, GraphMetadata, LocalGraphRepository,

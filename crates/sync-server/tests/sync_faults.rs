@@ -12,14 +12,14 @@ async fn no_ack_or_fanout_before_commit_and_retry_converges() {
         client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
     let mut owner = fixture
         .manager
-        .open(GRAPH, "owner-1", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner-1", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
     let mut owner_rx = owner.take_outbound();
     let mut peer = fixture
         .manager
-        .open(GRAPH, "peer-1", PEER, &fixture.base_version)
+        .open(GRAPH, "peer-1", PEER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -36,7 +36,7 @@ async fn no_ack_or_fanout_before_commit_and_retry_converges() {
 
     let mut retry = fixture
         .manager
-        .open(GRAPH, "owner-retry", OWNER, &client.version_vector())
+        .open(GRAPH, "owner-retry", OWNER, 0, &client.version_vector())
         .await
         .unwrap()
         .connection;
@@ -61,7 +61,7 @@ async fn ambiguous_post_commit_failure_is_durable_but_never_acknowledged_early()
         client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
     let mut opened = fixture
         .manager
-        .open(GRAPH, "owner-1", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner-1", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -79,7 +79,7 @@ async fn ambiguous_post_commit_failure_is_durable_but_never_acknowledged_early()
 
     let mut retry = fixture
         .manager
-        .open(GRAPH, "owner-retry", OWNER, &client.version_vector())
+        .open(GRAPH, "owner-retry", OWNER, 0, &client.version_vector())
         .await
         .unwrap()
         .connection;
@@ -100,7 +100,7 @@ async fn failed_live_import_discards_and_rehydrates_before_reconnect() {
         client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
     let mut opened = fixture
         .manager
-        .open(GRAPH, "owner-1", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner-1", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -132,14 +132,14 @@ async fn bounded_queue_disconnects_a_slow_consumer() {
     let (_, second) = client_update(&fixture.snapshot, 3, "create-b", "message-b", "page-b", "B");
     let mut fast = fixture
         .manager
-        .open(GRAPH, "fast", OWNER, &fixture.base_version)
+        .open(GRAPH, "fast", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
     let mut fast_rx = fast.take_outbound();
     let mut slow = fixture
         .manager
-        .open(GRAPH, "slow", PEER, &fixture.base_version)
+        .open(GRAPH, "slow", PEER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -162,7 +162,7 @@ async fn membership_revocation_closes_the_authorization_seam() {
     let (_, update) = client_update(&fixture.snapshot, 3, "create-b", "message-b", "page-b", "B");
     let opened = fixture
         .manager
-        .open(GRAPH, "peer", PEER, &fixture.base_version)
+        .open(GRAPH, "peer", PEER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -187,6 +187,7 @@ async fn unauthorized_and_unknown_graphs_have_the_same_error_shape() {
             GRAPH,
             "intruder-existing",
             "principal-intruder",
+            0,
             &fixture.base_version,
         )
         .await
@@ -198,6 +199,7 @@ async fn unauthorized_and_unknown_graphs_have_the_same_error_shape() {
             "unknown-graph",
             "intruder-unknown",
             "principal-intruder",
+            0,
             &fixture.base_version,
         )
         .await
@@ -218,7 +220,7 @@ async fn malformed_loro_bytes_never_reach_durable_storage() {
     let fixture = fixture(RoomConfig::default());
     let mut opened = fixture
         .manager
-        .open(GRAPH, "owner", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -258,7 +260,7 @@ async fn reconstructed_document_limit_rejects_expansion_before_commit() {
     );
     let mut opened = fixture
         .manager
-        .open(GRAPH, "owner-limit", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner-limit", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -292,7 +294,7 @@ async fn reused_message_id_with_different_bytes_is_rejected() {
     conflicting.message_id = "same-message".into();
     let mut opened = fixture
         .manager
-        .open(GRAPH, "owner", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;
@@ -313,7 +315,7 @@ async fn new_server_manager_reconstructs_all_acknowledged_updates() {
         client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
     let mut opened = fixture
         .manager
-        .open(GRAPH, "owner", OWNER, &fixture.base_version)
+        .open(GRAPH, "owner", OWNER, 0, &fixture.base_version)
         .await
         .unwrap()
         .connection;

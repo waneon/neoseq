@@ -31,23 +31,6 @@ export class TestCoreWorker extends CoreWorker {
     });
   }
 
-  installLegacyFixture(
-    graphId: string,
-    schemaVersion: number,
-    snapshot: ArrayBuffer,
-  ): Promise<void> {
-    return this.request("test_control", {
-      action: "install_legacy_fixture",
-      graph_id: graphId,
-      schema_version: schemaVersion,
-      snapshot,
-    });
-  }
-
-  schemaVersion(graphId: string): Promise<number> {
-    return this.request("test_control", { action: "schema_version", graph_id: graphId });
-  }
-
   storageStats(graphId: string): Promise<GraphStorageStats> {
     return this.request("test_control", { action: "storage_stats", graph_id: graphId });
   }

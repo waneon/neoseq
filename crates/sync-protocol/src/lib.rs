@@ -15,31 +15,6 @@ pub const HEADER_LEN: usize = 10;
 const MAGIC: [u8; 4] = *b"NSQP";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VersionRange {
-    pub min: u16,
-    pub max: u16,
-}
-
-impl VersionRange {
-    pub const fn exact(version: u16) -> Self {
-        Self {
-            min: version,
-            max: version,
-        }
-    }
-
-    pub fn select(self, supported: Self) -> Option<u16> {
-        let min = self.min.max(supported.min);
-        let max = self.max.min(supported.max);
-        (min <= max).then_some(max)
-    }
-
-    pub const fn is_valid(self) -> bool {
-        self.min <= self.max
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limits {
     pub max_frame_bytes: u32,
     pub max_update_bytes: u32,
@@ -61,21 +36,12 @@ impl Default for Limits {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GraphStatus {
-    Active,
-    ReadOnly,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
-    pub protocol: VersionRange,
-    pub schema: VersionRange,
+    pub protocol: u16,
+    pub schema: u16,
     pub graph_id: String,
     pub session_id: String,
-    /// Stable identity of this durable graph replica.
-    pub replica_id: u64,
     /// History generation owned by the server checkpoint coordinator.
     pub history_epoch: u64,
     /// Loro's encoded version vector. Transport cursors are never substituted here.
@@ -84,13 +50,7 @@ pub struct Hello {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Welcome {
-    pub protocol: u16,
-    pub schema: u16,
-    pub graph_status: GraphStatus,
-    pub limits: Limits,
-    pub membership_version: u64,
     pub history_epoch: u64,
-    pub server_cursor: u64,
     pub server_version_vector: Vec<u8>,
     /// A Loro update containing operations absent from the client's version vector.
     pub missing_update: Vec<u8>,
@@ -240,13 +200,10 @@ pub fn decode(frame: &[u8], max_frame_bytes: usize) -> Result<Message, ProtocolE
 pub fn validate_message(message: &Message, limits: Limits) -> Result<(), ProtocolError> {
     match message {
         Message::Hello(hello) => {
-            if !hello.protocol.is_valid()
-                || !hello.schema.is_valid()
-                || hello.graph_id.is_empty()
+            if hello.graph_id.is_empty()
                 || hello.graph_id.len() > 128
                 || hello.session_id.is_empty()
                 || hello.session_id.len() > 128
-                || hello.replica_id == 0
                 || hello.version_vector.len() > 16_384
             {
                 return Err(ProtocolError::new(
@@ -294,6 +251,7 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct Fixture {
         protocol_version: u16,
+        schema_version: u16,
         hello: HelloFixture,
         errors: Vec<ErrorFixture>,
     }
@@ -318,11 +276,10 @@ mod tests {
 
     fn hello() -> Message {
         Message::Hello(Hello {
-            protocol: VersionRange::exact(PROTOCOL_VERSION),
-            schema: VersionRange::exact(1),
+            protocol: PROTOCOL_VERSION,
+            schema: 6,
             graph_id: "graph-1".into(),
             session_id: "session-1".into(),
-            replica_id: 1,
             history_epoch: 0,
             version_vector: vec![1, 2, 3],
         })
@@ -375,29 +332,16 @@ mod tests {
     }
 
     #[test]
-    fn selects_highest_shared_version() {
-        assert_eq!(
-            VersionRange { min: 1, max: 4 }.select(VersionRange { min: 2, max: 3 }),
-            Some(3)
-        );
-        assert_eq!(
-            VersionRange { min: 1, max: 2 }.select(VersionRange { min: 3, max: 4 }),
-            None
-        );
-    }
-
-    #[test]
     fn shared_normal_and_error_fixture_is_current() {
         let fixture: Fixture =
             serde_json::from_str(include_str!("../../../fixtures/sync-protocol/current.json"))
                 .unwrap();
         assert_eq!(fixture.protocol_version, PROTOCOL_VERSION);
         let message = Message::Hello(Hello {
-            protocol: VersionRange::exact(fixture.protocol_version),
-            schema: VersionRange::exact(1),
+            protocol: fixture.protocol_version,
+            schema: fixture.schema_version,
             graph_id: fixture.hello.graph_id,
             session_id: fixture.hello.session_id,
-            replica_id: 1,
             history_epoch: 0,
             version_vector: fixture.hello.version_vector,
         });

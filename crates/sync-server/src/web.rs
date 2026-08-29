@@ -5,7 +5,7 @@ use crate::{
     },
     metrics::Metrics,
     room::{RoomConnection, RoomError, RoomManager},
-    store::{GraphAdmin, GraphRole, GraphStore, StoreError},
+    store::{GraphAdmin, GraphRole, GraphStatus, GraphStore, StoreError},
 };
 use axum::{
     Json, Router,
@@ -29,8 +29,8 @@ use std::{
     time::{Duration, Instant},
 };
 use sync_protocol::{
-    ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, VersionRange, decode,
-    encode, validate_message,
+    ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, decode, encode,
+    validate_message,
 };
 use tokio::sync::watch;
 use tokio::time::{interval, timeout};
@@ -421,8 +421,8 @@ async fn list_graphs<S: GraphAdmin>(
                     graph_id: graph.graph_id,
                     role: role_name(graph.role),
                     status: match graph.status {
-                        sync_protocol::GraphStatus::Active => "active",
-                        sync_protocol::GraphStatus::ReadOnly => "read_only",
+                        GraphStatus::Active => "active",
+                        GraphStatus::ReadOnly => "read_only",
                     },
                     membership_version: graph.membership_version,
                 })
@@ -810,32 +810,24 @@ async fn session<S: GraphStore>(
             return;
         }
     };
-    if hello
-        .protocol
-        .select(VersionRange::exact(PROTOCOL_VERSION))
-        .is_none()
-    {
+    if hello.protocol != PROTOCOL_VERSION {
         let _ = send_error(
             &mut socket,
             &state,
             ErrorCode::UnsupportedProtocol,
             false,
-            "no compatible protocol version",
+            "unsupported protocol version",
         )
         .await;
         return;
     }
-    if hello
-        .schema
-        .select(VersionRange::exact(graph_core::SCHEMA_VERSION as u16))
-        .is_none()
-    {
+    if hello.schema != graph_core::SCHEMA_VERSION as u16 {
         let _ = send_error(
             &mut socket,
             &state,
             ErrorCode::UnsupportedSchema,
             false,
-            "no compatible graph schema",
+            "unsupported graph schema",
         )
         .await;
         return;
@@ -843,11 +835,10 @@ async fn session<S: GraphStore>(
 
     let opened = match state
         .rooms
-        .open_replica(
+        .open(
             &hello.graph_id,
             &hello.session_id,
             &principal.id,
-            hello.replica_id,
             hello.history_epoch,
             &hello.version_vector,
         )

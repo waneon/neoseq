@@ -4,7 +4,7 @@ use domain::{
     ExecuteRequest, GraphId, GraphLocatorDto, OpenGraphRequest, PageId, QueryRequestDto,
     ReadOutlineRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
 };
-use graph_core::{GraphLocator, LocalGraphRepository, SCHEMA_VERSION};
+use graph_core::{GraphLocator, SCHEMA_VERSION};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -291,60 +291,5 @@ fn core_port_native_unsupported_schema_has_stable_code() {
             .unwrap_err()
             .code,
         CorePortErrorCode::UnsupportedSchema
-    );
-}
-
-#[test]
-fn core_port_native_migrates_the_schema_v2_tag_fixture_before_opening() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../fixtures/compatibility/schema-v2-tag-without-outline.json"
-    ))
-    .unwrap();
-    let graph_id = GraphId::new(fixture["graph_id"].as_str().unwrap()).unwrap();
-    let snapshot = hex::decode(fixture["snapshot_hex"].as_str().unwrap()).unwrap();
-    let database = TempDb::new();
-    let mut repository = SqliteGraphRepository::open(
-        &database.0,
-        GraphLocator::local(graph_id.clone()),
-        "2026-08-23T00:00:00Z",
-        121,
-    )
-    .unwrap();
-    repository
-        .install_compatibility_fixture(2, &snapshot, "2026-08-23T00:00:01Z")
-        .unwrap();
-    drop(repository);
-
-    let mut port = NativeCorePort::new(&database.0, 4);
-    let opened = port
-        .open_graph(open_request(graph_id.as_str(), 122))
-        .unwrap();
-    assert_eq!(opened.summary["schema_version"], SCHEMA_VERSION);
-    let outline = port
-        .read_outline(ReadOutlineRequest {
-            graph_handle: opened.graph_handle.clone(),
-            owner: json!({ "kind": "tag", "id": fixture["tag_id"] }),
-        })
-        .unwrap();
-    assert!(outline.outline["blocks"].as_array().unwrap().is_empty());
-    port.close_graph(CloseGraphRequest {
-        graph_handle: opened.graph_handle,
-    })
-    .unwrap();
-
-    let mut repository = SqliteGraphRepository::open(
-        &database.0,
-        GraphLocator::local(graph_id),
-        "2026-08-23T00:00:02Z",
-        123,
-    )
-    .unwrap();
-    assert_eq!(
-        repository.metadata().unwrap().schema_version,
-        SCHEMA_VERSION
-    );
-    assert_eq!(
-        repository.checkpoints_descending().unwrap()[0].schema_version,
-        SCHEMA_VERSION
     );
 }

@@ -3,7 +3,7 @@ use crate::{
     store::{GraphStore, Membership, StoreError},
 };
 use domain::GraphId;
-use graph_core::{GraphCore, MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION};
+use graph_core::{GraphCore, SCHEMA_VERSION};
 #[cfg(debug_assertions)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{collections::HashMap, sync::Arc};
@@ -65,8 +65,6 @@ struct RoomSlot {
 struct Room {
     core: GraphCore,
     cursor: u64,
-    status: sync_protocol::GraphStatus,
-    schema_version: u32,
     history_epoch: u64,
     tail_updates: usize,
     tail_bytes: usize,
@@ -142,25 +140,6 @@ impl<S: GraphStore> RoomManager<S> {
         graph_id: &str,
         session_id: &str,
         principal_id: &str,
-        client_version_vector: &[u8],
-    ) -> Result<OpenedRoom, RoomError> {
-        self.open_replica(
-            graph_id,
-            session_id,
-            principal_id,
-            1,
-            0,
-            client_version_vector,
-        )
-        .await
-    }
-
-    pub async fn open_replica(
-        &self,
-        graph_id: &str,
-        session_id: &str,
-        principal_id: &str,
-        _replica_id: u64,
         client_history_epoch: u64,
         client_version_vector: &[u8],
     ) -> Result<OpenedRoom, RoomError> {
@@ -168,7 +147,7 @@ impl<S: GraphStore> RoomManager<S> {
             return Err(RoomError::InvalidSession);
         }
         let membership = self.store.authorize(graph_id, principal_id).await?;
-        if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&membership.schema_version) {
+        if membership.schema_version != SCHEMA_VERSION {
             return Err(RoomError::UnsupportedSchema);
         }
         let room = self.room_for(graph_id).await?;
@@ -213,13 +192,7 @@ impl<S: GraphStore> RoomManager<S> {
             },
         );
         let welcome = Welcome {
-            protocol: sync_protocol::PROTOCOL_VERSION,
-            schema: guard.schema_version as u16,
-            graph_status: guard.status,
-            limits: self.config.limits,
-            membership_version: membership.version,
             history_epoch: guard.history_epoch,
-            server_cursor: guard.cursor,
             server_version_vector: guard.core.version_vector(),
             missing_update,
             checkpoint,
@@ -276,7 +249,7 @@ impl<S: GraphStore> RoomManager<S> {
 
     async fn reconstruct(&self, graph_id: &str) -> Result<Arc<Mutex<Room>>, RoomError> {
         let durable = self.store.load_graph(graph_id).await?;
-        if !(MIN_MIGRATABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&durable.schema_version) {
+        if durable.schema_version != SCHEMA_VERSION {
             return Err(RoomError::UnsupportedSchema);
         }
         if graph_core::checksum(&durable.checkpoint.snapshot) != durable.checkpoint.checksum {
@@ -300,35 +273,14 @@ impl<S: GraphStore> RoomManager<S> {
                 .map_err(|_| StoreError::Corrupt("durable Loro update is invalid"))?;
         }
         core.finish_recovery()
-            .map_err(|_| StoreError::Corrupt("durable graph migration failed"))?;
-        let mut history_epoch = durable.history_epoch;
-        let mut tail_updates = durable.updates.len();
-        let mut tail_bytes = durable
+            .map_err(|_| StoreError::Corrupt("durable graph validation failed"))?;
+        let history_epoch = durable.history_epoch;
+        let tail_updates = durable.updates.len();
+        let tail_bytes = durable
             .updates
             .iter()
             .map(|update| update.bytes.len())
             .sum();
-        if durable.schema_version < SCHEMA_VERSION {
-            let snapshot = core
-                .export_gc_checkpoint()
-                .map_err(|_| StoreError::Corrupt("migrated checkpoint export failed"))?;
-            let version_vector = core.version_vector();
-            history_epoch = self
-                .store
-                .install_checkpoint(
-                    graph_id,
-                    durable.history_epoch,
-                    durable.latest_cursor(),
-                    SCHEMA_VERSION,
-                    &snapshot,
-                    &version_vector,
-                )
-                .await?;
-            core = GraphCore::from_snapshot(graph.clone(), SERVER_PEER_ID, &snapshot)
-                .map_err(|_| StoreError::Corrupt("migrated checkpoint is invalid"))?;
-            tail_updates = 0;
-            tail_bytes = 0;
-        }
         core.reset_local_history();
         self.metrics.room_opened();
         let graph_log_id = telemetry_id(graph_id);
@@ -341,8 +293,6 @@ impl<S: GraphStore> RoomManager<S> {
         Ok(Arc::new(Mutex::new(Room {
             core,
             cursor: durable.latest_cursor(),
-            status: durable.status,
-            schema_version: SCHEMA_VERSION,
             history_epoch,
             tail_updates,
             tail_bytes,

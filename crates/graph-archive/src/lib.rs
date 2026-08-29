@@ -253,17 +253,6 @@ fn hex_lower(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    fn decode_hex(value: &str) -> Vec<u8> {
-        value
-            .as_bytes()
-            .chunks_exact(2)
-            .map(|pair| {
-                let text = std::str::from_utf8(pair).unwrap();
-                u8::from_str_radix(text, 16).unwrap()
-            })
-            .collect()
-    }
-
     fn metadata() -> ArchiveMetadata {
         ArchiveMetadata {
             archive_id: "archive-1".to_owned(),
@@ -282,30 +271,6 @@ mod tests {
         assert_eq!(decoded.manifest.archive_id, "archive-1");
         assert_eq!(decoded.manifest.source.graph_id.as_str(), "source-graph");
         assert_eq!(decoded.manifest.suggested_name.as_deref(), Some("Research"));
-    }
-
-    #[test]
-    fn archive_v1_carries_the_checked_in_schema_v1_fixture_losslessly() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../fixtures/compatibility/schema-v1-basic.json"
-        ))
-        .unwrap();
-        let snapshot = decode_hex(fixture["snapshot_hex"].as_str().unwrap());
-        let bytes = encode(
-            &snapshot,
-            ArchiveMetadata {
-                archive_id: "schema-v1-compatibility".to_owned(),
-                source_graph_id: GraphId::new(fixture["graph_id"].as_str().unwrap()).unwrap(),
-                document_schema: fixture["document_schema"].as_u64().unwrap() as u32,
-                exported_at: "2026-08-23T00:00:00Z".to_owned(),
-                suggested_name: Some("Compatibility fixture".to_owned()),
-            },
-        )
-        .unwrap();
-        let decoded = decode(&bytes).unwrap();
-        assert_eq!(decoded.manifest.archive_version, ARCHIVE_VERSION);
-        assert_eq!(decoded.manifest.source.document_schema, 1);
-        assert_eq!(decoded.snapshot, snapshot);
     }
 
     #[test]
