@@ -118,11 +118,9 @@ export function RemoteMembersDialog({
       </form>
       <ul className="member-list" aria-busy={busy}>
         {members.map((member) => (
-          <li key={member.principal_id}>
-            {/* An account id is an identifier, not prose — it takes the mono
-                voice, and the role sits under it in the metadata voice. */}
+          <li key={member.account_id}>
             <span className="member-id">
-              <span className="mono">{member.principal_id}</span>
+              <span>{member.username}</span>
               <small>{message(`graph.${member.role}`)}</small>
             </span>
             {member.role !== "owner" && (
@@ -133,13 +131,13 @@ export function RemoteMembersDialog({
                   const auth = readAuthSession(connection.server_url);
                   if (!auth) return;
                   setRequest({ status: "busy" });
-                  void revokeMembership(connection.server_url, auth, graphId, member.principal_id)
+                  void revokeMembership(connection.server_url, auth, graphId, member.username)
                     .then(() => refresh(auth))
                     .catch(() => {
                       setRequest({
                         status: "failed",
                         message: message("graph.revokeFailed", {
-                          account: member.principal_id,
+                          account: member.username,
                         }),
                       });
                     });

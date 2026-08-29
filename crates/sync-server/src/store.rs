@@ -59,7 +59,7 @@ pub struct GraphListing {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MembershipListing {
-    pub principal_id: String,
+    pub account_id: String,
     pub role: GraphRole,
     pub version: u64,
 }
@@ -128,6 +128,8 @@ pub enum StoreError {
     AccessDenied,
     #[error("membership is read-only")]
     ReadOnly,
+    #[error("owner membership is established only when a graph is created")]
+    InvalidMembershipRole,
     #[error("graph byte quota exceeded")]
     QuotaExceeded,
     #[error("message id was already committed with different bytes")]
@@ -180,7 +182,7 @@ pub trait GraphStore: Send + Sync + 'static {
 
 #[async_trait]
 pub trait GraphAdmin: GraphStore {
-    async fn create_remote_graph(
+    async fn create_graph(
         &self,
         graph_id: &str,
         owner_principal_id: &str,
@@ -231,7 +233,7 @@ impl PgStore {
         &self.pool
     }
 
-    pub async fn create_graph(
+    async fn insert_graph(
         &self,
         graph_id: &str,
         owner_principal_id: &str,
@@ -291,12 +293,15 @@ impl PgStore {
         Ok(())
     }
 
-    pub async fn grant(
+    async fn upsert_membership(
         &self,
         graph_id: &str,
         principal_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
+        if role == GraphRole::Owner {
+            return Err(StoreError::InvalidMembershipRole);
+        }
         let mut transaction = self.pool.begin().await?;
         let version = bump_membership_version(&mut transaction, graph_id).await?;
         sqlx::query(
@@ -323,7 +328,11 @@ impl PgStore {
         Ok(version)
     }
 
-    pub async fn revoke(&self, graph_id: &str, principal_id: &str) -> Result<u64, StoreError> {
+    async fn revoke_membership_row(
+        &self,
+        graph_id: &str,
+        principal_id: &str,
+    ) -> Result<u64, StoreError> {
         let mut transaction = self.pool.begin().await?;
         let version = bump_membership_version(&mut transaction, graph_id).await?;
         let affected = sqlx::query(
@@ -872,7 +881,7 @@ impl GraphStore for PgStore {
 
 #[async_trait]
 impl GraphAdmin for PgStore {
-    async fn create_remote_graph(
+    async fn create_graph(
         &self,
         graph_id: &str,
         owner_principal_id: &str,
@@ -881,7 +890,7 @@ impl GraphAdmin for PgStore {
         snapshot: &[u8],
         version_vector: &[u8],
     ) -> Result<(), StoreError> {
-        self.create_graph(
+        self.insert_graph(
             graph_id,
             owner_principal_id,
             schema_version,
@@ -928,7 +937,7 @@ impl GraphAdmin for PgStore {
         rows.into_iter()
             .map(|row| {
                 Ok(MembershipListing {
-                    principal_id: row.try_get("principal_id")?,
+                    account_id: row.try_get("principal_id")?,
                     role: GraphRole::parse(row.try_get("role")?)?,
                     version: as_u64(row.try_get("version")?)?,
                 })
@@ -942,7 +951,7 @@ impl GraphAdmin for PgStore {
         principal_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
-        self.grant(graph_id, principal_id, role).await
+        self.upsert_membership(graph_id, principal_id, role).await
     }
 
     async fn revoke_membership(
@@ -950,7 +959,7 @@ impl GraphAdmin for PgStore {
         graph_id: &str,
         principal_id: &str,
     ) -> Result<u64, StoreError> {
-        self.revoke(graph_id, principal_id).await
+        self.revoke_membership_row(graph_id, principal_id).await
     }
 }
 
@@ -1409,7 +1418,7 @@ impl GraphStore for MemoryStore {
 
 #[async_trait]
 impl GraphAdmin for MemoryStore {
-    async fn create_remote_graph(
+    async fn create_graph(
         &self,
         graph_id: &str,
         owner_principal_id: &str,
@@ -1484,13 +1493,13 @@ impl GraphAdmin for MemoryStore {
             .iter()
             .filter_map(|(principal_id, membership)| {
                 (!membership.revoked).then_some(MembershipListing {
-                    principal_id: principal_id.clone(),
+                    account_id: principal_id.clone(),
                     role: membership.role,
                     version: membership.version,
                 })
             })
             .collect::<Vec<_>>();
-        memberships.sort_by(|left, right| left.principal_id.cmp(&right.principal_id));
+        memberships.sort_by(|left, right| left.account_id.cmp(&right.account_id));
         Ok(memberships)
     }
 
@@ -1500,6 +1509,9 @@ impl GraphAdmin for MemoryStore {
         principal_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
+        if role == GraphRole::Owner {
+            return Err(StoreError::InvalidMembershipRole);
+        }
         self.grant(graph_id, principal_id, role);
         self.authorize(graph_id, principal_id)
             .await

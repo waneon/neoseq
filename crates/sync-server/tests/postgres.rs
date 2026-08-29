@@ -173,11 +173,11 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .await
         .unwrap();
     store
-        .grant(&graph_id, &editor.account_id, GraphRole::Editor)
+        .grant_membership(&graph_id, &editor.account_id, GraphRole::Editor)
         .await
         .unwrap();
     store
-        .grant(&graph_id, &viewer.account_id, GraphRole::Viewer)
+        .grant_membership(&graph_id, &viewer.account_id, GraphRole::Viewer)
         .await
         .unwrap();
     store
@@ -186,7 +186,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .unwrap();
     let memberships = store.list_memberships(&graph_id).await.unwrap();
     assert!(memberships.iter().any(|membership| {
-        membership.principal_id == api_editor.account_id && membership.role == GraphRole::Editor
+        membership.account_id == api_editor.account_id && membership.role == GraphRole::Editor
     }));
 
     let mut client = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
@@ -342,7 +342,10 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         expected
     );
 
-    store.revoke(&graph_id, &editor.account_id).await.unwrap();
+    store
+        .revoke_membership(&graph_id, &editor.account_id)
+        .await
+        .unwrap();
     assert!(matches!(
         store.authorize(&graph_id, &editor.account_id).await,
         Err(StoreError::AccessDenied)
@@ -357,7 +360,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
             .await
             .unwrap()
             .iter()
-            .all(|membership| membership.principal_id != api_editor.account_id)
+            .all(|membership| membership.account_id != api_editor.account_id)
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();

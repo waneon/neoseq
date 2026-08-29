@@ -112,7 +112,7 @@ pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
         .route("/v1/graphs", get(list_graphs::<S>).post(create_graph::<S>))
         .route("/v1/graphs/{graph_id}/members", get(list_memberships::<S>))
         .route(
-            "/v1/graphs/{graph_id}/members/{principal_id}",
+            "/v1/graphs/{graph_id}/members/{username}",
             put(grant_membership::<S>).delete(revoke_membership::<S>),
         )
         .with_state(state)
@@ -143,7 +143,8 @@ struct CreatedGraphResponse {
 
 #[derive(Serialize)]
 struct MembershipResponse {
-    principal_id: String,
+    account_id: String,
+    username: String,
     role: &'static str,
     version: u64,
 }
@@ -456,7 +457,7 @@ async fn create_graph<S: GraphAdmin>(
     match state
         .rooms
         .store()
-        .create_remote_graph(
+        .create_graph(
             &request.graph_id,
             &principal,
             graph_core::SCHEMA_VERSION,
@@ -489,13 +490,14 @@ async fn list_memberships<S: GraphAdmin>(
         Ok(memberships) => {
             let mut response = Vec::with_capacity(memberships.len());
             for membership in memberships {
-                let principal_id = match state.identity.username_for(&membership.principal_id).await
-                {
+                let username = match state.identity.username_for(&membership.account_id).await {
                     Ok(Some(username)) => username,
-                    Ok(None) | Err(_) => membership.principal_id,
+                    Ok(None) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                    Err(error) => return auth_error_response(error),
                 };
                 response.push(MembershipResponse {
-                    principal_id,
+                    account_id: membership.account_id,
+                    username,
                     role: role_name(membership.role),
                     version: membership.version,
                 });
@@ -512,7 +514,7 @@ async fn list_memberships<S: GraphAdmin>(
 async fn grant_membership<S: GraphAdmin>(
     State(state): State<AppState<S>>,
     headers: HeaderMap,
-    Path((graph_id, principal_id)): Path<(String, String)>,
+    Path((graph_id, username)): Path<(String, String)>,
     Json(request): Json<GrantRequest>,
 ) -> Response<Body> {
     if let Err(response) = require_owner(&state, &headers, &graph_id).await {
@@ -523,14 +525,14 @@ async fn grant_membership<S: GraphAdmin>(
         "viewer" => GraphRole::Viewer,
         _ => return (StatusCode::BAD_REQUEST, "role must be editor or viewer\n").into_response(),
     };
-    let principal_id = match membership_principal(&state, &principal_id).await {
-        Ok(principal_id) => principal_id,
+    let account_id = match membership_account(&state, &username).await {
+        Ok(account_id) => account_id,
         Err(response) => return response,
     };
     match state
         .rooms
         .store()
-        .grant_membership(&graph_id, &principal_id, role)
+        .grant_membership(&graph_id, &account_id, role)
         .await
     {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -541,17 +543,17 @@ async fn grant_membership<S: GraphAdmin>(
 async fn revoke_membership<S: GraphAdmin>(
     State(state): State<AppState<S>>,
     headers: HeaderMap,
-    Path((graph_id, principal_id)): Path<(String, String)>,
+    Path((graph_id, username)): Path<(String, String)>,
 ) -> Response<Body> {
     let owner = match require_owner(&state, &headers, &graph_id).await {
         Ok(owner) => owner,
         Err(response) => return *response,
     };
-    let principal_id = match membership_principal(&state, &principal_id).await {
-        Ok(principal_id) => principal_id,
+    let account_id = match membership_account(&state, &username).await {
+        Ok(account_id) => account_id,
         Err(response) => return response,
     };
-    if owner == principal_id {
+    if owner == account_id {
         return (
             StatusCode::BAD_REQUEST,
             "owner membership cannot be revoked\n",
@@ -561,7 +563,7 @@ async fn revoke_membership<S: GraphAdmin>(
     match state
         .rooms
         .store()
-        .revoke_membership(&graph_id, &principal_id)
+        .revoke_membership(&graph_id, &account_id)
         .await
     {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -623,7 +625,7 @@ async fn admin_principal<S: GraphStore>(
     }
 }
 
-async fn membership_principal<S: GraphStore>(
+async fn membership_account<S: GraphStore>(
     state: &AppState<S>,
     username: &str,
 ) -> Result<String, Response<Body>> {

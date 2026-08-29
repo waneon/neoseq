@@ -3,7 +3,8 @@ import type { AuthSession } from "./auth";
 export type RemoteRole = "owner" | "editor" | "viewer";
 
 export interface RemoteGraphMembership {
-  principal_id: string;
+  account_id: string;
+  username: string;
   role: RemoteRole;
   version: number;
 }
@@ -76,13 +77,13 @@ export function grantMembership(
   serverUrl: string,
   auth: AuthSession,
   graphId: string,
-  principal: string,
+  username: string,
   role: Exclude<RemoteRole, "owner">,
 ): Promise<void> {
   return request(
     serverUrl,
     auth,
-    `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(principal)}`,
+    `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(username)}`,
     {
       method: "PUT",
       body: JSON.stringify({ role }),
@@ -94,12 +95,12 @@ export function revokeMembership(
   serverUrl: string,
   auth: AuthSession,
   graphId: string,
-  principal: string,
+  username: string,
 ): Promise<void> {
   return request(
     serverUrl,
     auth,
-    `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(principal)}`,
+    `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(username)}`,
     {
       method: "DELETE",
     },
