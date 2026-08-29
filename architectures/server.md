@@ -5,9 +5,8 @@
 The `sync-protocol` and `sync-server` crates provide the durable synchronization
 service. The Web client consumes its account login, graph-management HTTP API,
 and WebSocket protocol; the separate Admin Web app consumes its account
-administration API. Production identity is the PostgreSQL-backed account and
-opaque-session authority behind `TokenVerifier`; local development may also
-enable the explicit test issuer.
+administration API. Identity is the PostgreSQL-backed account and opaque-session
+authority behind the required `IdentityService` boundary.
 
 The server makes a remote graph available to authorized replicas. It owns:
 
@@ -165,12 +164,11 @@ Loro operation identity keeps their content import idempotent.
 - Password verification runs on the blocking pool with Argon2id, login failures
   are throttled, and errors do not reveal whether an account exists.
 - The first active administrator is an explicit one-time bootstrap operation.
-  `serve` accepts a username and exactly one password source through bootstrap
+  The service accepts a username and exactly one password source through bootstrap
   configuration; a mounted secret file is preferred over a direct environment
-  value. Configuration is validated before listening, creates only when no active
-  administrator exists, and never changes an existing account. The interactive
-  command remains a recovery path. Routine account management occurs only through
-  the Admin Web app; deterministic token issuance remains development-only.
+  value. Configuration is required before an empty identity store can listen,
+  creates only when no active administrator exists, and never changes an existing
+  account. Routine account management occurs only through the Admin Web app.
 - Connection, session, frame, message, update-rate, graph-byte, presence, and
   reconstructed-document limits are enforced at their owning boundaries.
 - CRDT import is treated as untrusted parsing: malformed updates fail
@@ -205,6 +203,8 @@ rejected frames, slow consumers, and room reconstruction count.
 - Multi-peer tests reorder, duplicate, drop, and reconnect update streams and
   assert convergence.
 - Authorization tests cover revocation during live sessions and graph isolation.
+- HTTP and browser tests provision ordinary accounts through the same bootstrap,
+  administration, login, and opaque-session path used by the product.
 - Fault tests inject failure before/after database commit and at the committed
   update/live-import boundary, then verify acknowledgement semantics.
 - Envelope tests cover malformed/version/size failures, and Loro import tests

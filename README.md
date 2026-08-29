@@ -93,20 +93,18 @@ file instead:
 ```sh
 set -x NEOSEQ_BOOTSTRAP_ADMIN_USERNAME admin
 set -x NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD_FILE /run/secrets/neoseq-admin-password
-sync-server serve
+sync-server
 ```
 
-The bootstrap configuration is used only while no active server administrator
+The bootstrap configuration is required until an active server administrator
 exists. Later starts ignore it and never reset an existing password. Configure
 exactly one of `NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD` and
 `NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD_FILE`; a single trailing line ending in a
 password file is not part of the password. Incomplete or ambiguous bootstrap
-configuration stops the server before it listens. The interactive
-`bootstrap-admin` command remains available for manual recovery.
-
-`issue-token`, `create-graph`, `grant`, and `revoke` remain explicit development
-and recovery commands. Production account administration does not depend on
-them, and production service processes should not set `NEOSEQ_TEST_AUTH_SECRET`.
+configuration, or an empty identity store without bootstrap configuration,
+stops the server before it listens. Routine account and graph administration
+uses the authenticated Web interfaces; the service binary has no administrative
+or test-authentication commands.
 Deploy `outputs.admin` on a private TLS-protected origin and route that origin's
 `/v1` requests to the sync server; the browser never needs direct database
 access.

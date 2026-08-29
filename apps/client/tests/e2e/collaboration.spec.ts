@@ -1,10 +1,19 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { blockTexts, startOutline, typeInFocusedBlock } from "./helpers";
 
-const ownerToken = process.env.NEOSEQ_E2E_OWNER_TOKEN;
-const peerToken = process.env.NEOSEQ_E2E_PEER_TOKEN;
+const syncOrigin = process.env.NEOSEQ_E2E_SYNC_ORIGIN;
+const adminPassword = process.env.NEOSEQ_E2E_ADMIN_PASSWORD;
+const ownerPassword = process.env.NEOSEQ_E2E_OWNER_PASSWORD;
+const peerPassword = process.env.NEOSEQ_E2E_PEER_PASSWORD;
 
-test.skip(!ownerToken || !peerToken, "collaboration server credentials are not configured");
+test.skip(
+  !syncOrigin || !adminPassword || !ownerPassword || !peerPassword,
+  "collaboration server credentials are not configured",
+);
+
+test.beforeAll(async ({ request }) => {
+  await provisionAccounts(request);
+});
 
 test("two remote browser profiles converge after offline edits and revocation", async ({
   browser,
@@ -16,9 +25,9 @@ test("two remote browser profiles converge after offline edits and revocation", 
   const peerContext = peer.context();
   const graphName = `Collaboration ${Date.now()}`;
 
-  await createRemote(owner, graphName, "e2e-owner", ownerToken!);
+  await createRemote(owner, graphName, "e2e-owner", ownerPassword!);
   await invite(owner, "e2e-peer");
-  await connectRemote(peer, graphName, "e2e-peer", peerToken!);
+  await connectRemote(peer, graphName, "e2e-peer", peerPassword!);
 
   await startOutline(owner);
   await typeInFocusedBlock(owner, "owner online");
@@ -48,12 +57,30 @@ test("two remote browser profiles converge after offline edits and revocation", 
   await ownerContext.close();
 });
 
-async function createRemote(page: Page, name: string, principal: string, token: string) {
+async function provisionAccounts(request: APIRequestContext) {
+  const login = await request.post(`${syncOrigin}/v1/auth/login`, {
+    data: { username: "e2e-admin", password: adminPassword, purpose: "admin" },
+  });
+  expect(login.ok()).toBe(true);
+  const { access_token: token } = (await login.json()) as { access_token: string };
+  for (const [username, password] of [
+    ["e2e-owner", ownerPassword],
+    ["e2e-peer", peerPassword],
+  ]) {
+    const response = await request.post(`${syncOrigin}/v1/admin/accounts`, {
+      headers: { authorization: `Bearer ${token}` },
+      data: { username, password, server_role: "user" },
+    });
+    expect([201, 409]).toContain(response.status());
+  }
+}
+
+async function createRemote(page: Page, name: string, username: string, password: string) {
   await page.goto("/");
   await page.getByTestId("new-graph-name").fill(name);
   await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Username").fill(principal);
-  await page.getByLabel("Password").fill(token);
+  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create remote graph", exact: true }).last().click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {
@@ -61,12 +88,12 @@ async function createRemote(page: Page, name: string, principal: string, token: 
   });
 }
 
-async function connectRemote(page: Page, name: string, principal: string, token: string) {
+async function connectRemote(page: Page, name: string, username: string, password: string) {
   await page.goto("/");
   await page.getByTestId("new-graph-name").fill(name);
   await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Username").fill(principal);
-  await page.getByLabel("Password").fill(token);
+  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Connect available graphs", exact: true }).click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {

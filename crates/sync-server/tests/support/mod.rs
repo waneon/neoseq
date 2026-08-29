@@ -1,18 +1,155 @@
 #![allow(dead_code)]
 
+use async_trait::async_trait;
 use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use std::sync::Arc;
 use sync_protocol::{Message, Update};
-use sync_server::{GraphRole, MemoryStore, Metrics, RoomConfig, RoomManager};
+use sync_server::{
+    AccountPatch, AccountStatus, AccountView, AuthError, GraphRole, IdentityService, LoginSession,
+    MemoryStore, Metrics, Principal, RoomConfig, RoomManager, ServerRole, SessionPurpose,
+};
 use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
 };
 
 pub const GRAPH: &str = "sync-test-graph";
-pub const OWNER: &str = "principal-owner";
-pub const PEER: &str = "principal-peer";
+pub const OWNER: &str = "acct-owner";
+pub const PEER: &str = "acct-peer";
+pub const INVITED: &str = "acct-invited";
+pub const OWNER_USERNAME: &str = "owner";
+pub const PEER_USERNAME: &str = "peer";
+pub const INVITED_USERNAME: &str = "invited-editor";
+pub const OWNER_TOKEN: &str = "session-owner";
+pub const PEER_TOKEN: &str = "session-peer";
+
+#[derive(Default)]
+pub struct TestIdentity;
+
+impl TestIdentity {
+    fn principal(account_id: &str, username: &str) -> Principal {
+        Principal {
+            id: account_id.to_owned(),
+            username: username.to_owned(),
+            is_admin: false,
+            purpose: SessionPurpose::Client,
+        }
+    }
+
+    fn account(account_id: &str, username: &str) -> AccountView {
+        AccountView {
+            account_id: account_id.to_owned(),
+            username: username.to_owned(),
+            status: AccountStatus::Active,
+            server_role: ServerRole::User,
+            created_at: "test".to_owned(),
+        }
+    }
+}
+
+#[async_trait]
+impl IdentityService for TestIdentity {
+    async fn verify(&self, token: &str) -> Result<Principal, AuthError> {
+        match token {
+            OWNER_TOKEN => Ok(Self::principal(OWNER, OWNER_USERNAME)),
+            PEER_TOKEN => Ok(Self::principal(PEER, PEER_USERNAME)),
+            _ => Err(AuthError::Invalid),
+        }
+    }
+
+    async fn login(
+        &self,
+        username: &str,
+        _password: &str,
+        purpose: SessionPurpose,
+    ) -> Result<LoginSession, AuthError> {
+        if purpose != SessionPurpose::Client {
+            return Err(AuthError::Invalid);
+        }
+        let (account_id, token) = match username {
+            OWNER_USERNAME => (OWNER, OWNER_TOKEN),
+            PEER_USERNAME => (PEER, PEER_TOKEN),
+            _ => return Err(AuthError::Invalid),
+        };
+        Ok(LoginSession {
+            access_token: token.to_owned(),
+            account: Self::account(account_id, username),
+            purpose,
+        })
+    }
+
+    async fn logout(&self, token: &str) -> Result<(), AuthError> {
+        self.verify(token).await.map(|_| ())
+    }
+
+    async fn change_password(
+        &self,
+        _principal: &Principal,
+        _current_password: &str,
+        _new_password: &str,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::Forbidden)
+    }
+
+    async fn list_accounts(&self, _actor: &Principal) -> Result<Vec<AccountView>, AuthError> {
+        Err(AuthError::Forbidden)
+    }
+
+    async fn create_account(
+        &self,
+        _actor: &Principal,
+        _username: &str,
+        _password: &str,
+        _role: ServerRole,
+    ) -> Result<AccountView, AuthError> {
+        Err(AuthError::Forbidden)
+    }
+
+    async fn update_account(
+        &self,
+        _actor: &Principal,
+        _account_id: &str,
+        _patch: AccountPatch,
+    ) -> Result<AccountView, AuthError> {
+        Err(AuthError::Forbidden)
+    }
+
+    async fn reset_password(
+        &self,
+        _actor: &Principal,
+        _account_id: &str,
+        _password: &str,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::Forbidden)
+    }
+
+    async fn revoke_sessions(
+        &self,
+        _actor: &Principal,
+        _account_id: &str,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::Forbidden)
+    }
+
+    async fn resolve_username(&self, username: &str) -> Result<String, AuthError> {
+        match username {
+            OWNER_USERNAME => Ok(OWNER.to_owned()),
+            PEER_USERNAME => Ok(PEER.to_owned()),
+            INVITED_USERNAME => Ok(INVITED.to_owned()),
+            _ => Err(AuthError::InvalidInput("unknown or disabled account")),
+        }
+    }
+
+    async fn username_for(&self, account_id: &str) -> Result<Option<String>, AuthError> {
+        Ok(match account_id {
+            OWNER => Some(OWNER_USERNAME.to_owned()),
+            PEER => Some(PEER_USERNAME.to_owned()),
+            INVITED => Some(INVITED_USERNAME.to_owned()),
+            _ => None,
+        })
+    }
+}
 
 pub struct Fixture {
     pub store: Arc<MemoryStore>,

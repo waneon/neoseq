@@ -1,14 +1,11 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use thiserror::Error;
-
-type HmacSha256 = Hmac<Sha256>;
 
 const CLIENT_SESSION_SECONDS: i64 = 12 * 60 * 60;
 const ADMIN_SESSION_SECONDS: i64 = 60 * 60;
@@ -140,16 +137,12 @@ impl From<sqlx::Error> for AuthError {
     }
 }
 
-/// Resolves a short-lived transport credential into a stable principal.
-/// Verification is asynchronous so revocation and account status remain
-/// authoritative for long-lived WebSocket sessions.
-#[async_trait]
-pub trait TokenVerifier: Send + Sync + 'static {
-    async fn verify(&self, token: &str) -> Result<Principal, AuthError>;
-}
-
 #[async_trait]
 pub trait IdentityService: Send + Sync + 'static {
+    /// Resolves a short-lived transport credential into a stable account.
+    /// Verification remains asynchronous so revocation and account status are
+    /// authoritative for long-lived WebSocket sessions.
+    async fn verify(&self, token: &str) -> Result<Principal, AuthError>;
     async fn login(
         &self,
         username: &str,
@@ -188,100 +181,21 @@ pub trait IdentityService: Send + Sync + 'static {
     async fn username_for(&self, account_id: &str) -> Result<Option<String>, AuthError>;
 }
 
-#[derive(Clone)]
-pub struct TestIssuer {
-    secret: Arc<[u8]>,
-}
-
-impl TestIssuer {
-    pub fn new(secret: impl AsRef<[u8]>) -> Result<Self, AuthError> {
-        let secret = secret.as_ref();
-        if secret.len() < 16 {
-            return Err(AuthError::Invalid);
-        }
-        Ok(Self {
-            secret: Arc::from(secret),
-        })
-    }
-
-    pub fn issue(&self, principal_id: &str) -> Result<String, AuthError> {
-        validate_test_principal(principal_id)?;
-        let encoded = URL_SAFE_NO_PAD.encode(principal_id.as_bytes());
-        let signature = self.sign(encoded.as_bytes());
-        Ok(format!("test.{encoded}.{signature}"))
-    }
-
-    fn sign(&self, value: &[u8]) -> String {
-        let mut mac = HmacSha256::new_from_slice(&self.secret).expect("HMAC accepts any key size");
-        mac.update(value);
-        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
-    }
-
-    fn verify_token(&self, token: &str) -> Result<Principal, AuthError> {
-        let mut parts = token.split('.');
-        let (Some("test"), Some(encoded), Some(signature), None) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            return Err(AuthError::Invalid);
-        };
-        let signature = URL_SAFE_NO_PAD
-            .decode(signature)
-            .map_err(|_| AuthError::Invalid)?;
-        let mut mac = HmacSha256::new_from_slice(&self.secret).map_err(|_| AuthError::Invalid)?;
-        mac.update(encoded.as_bytes());
-        mac.verify_slice(&signature)
-            .map_err(|_| AuthError::Invalid)?;
-        let principal = URL_SAFE_NO_PAD
-            .decode(encoded)
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .ok_or(AuthError::Invalid)?;
-        validate_test_principal(&principal)?;
-        Ok(Principal {
-            id: principal.clone(),
-            username: principal,
-            is_admin: false,
-            purpose: SessionPurpose::Client,
-        })
-    }
-}
-
-#[async_trait]
-impl TokenVerifier for TestIssuer {
-    async fn verify(&self, token: &str) -> Result<Principal, AuthError> {
-        self.verify_token(token)
-    }
-}
-
-/// PostgreSQL-backed account and opaque-session authority. A development-only
-/// issuer may be supplied so the deterministic protocol fixtures remain useful;
-/// production deployments leave it absent.
+/// PostgreSQL-backed account and opaque-session authority.
 #[derive(Clone)]
 pub struct PgIdentity {
     pool: PgPool,
-    test_issuer: Option<TestIssuer>,
     dummy_password_hash: Arc<str>,
 }
 
 impl PgIdentity {
-    pub fn new(pool: PgPool, test_issuer: Option<TestIssuer>) -> Result<Self, AuthError> {
+    pub fn new(pool: PgPool) -> Result<Self, AuthError> {
         Ok(Self {
             pool,
-            test_issuer,
             dummy_password_hash: Arc::from(hash_password_blocking(
                 "this password deliberately never authenticates",
             )?),
         })
-    }
-
-    pub async fn bootstrap_admin(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<AccountView, AuthError> {
-        self.bootstrap_admin_if_absent(username, password)
-            .await?
-            .ok_or(AuthError::Conflict)
     }
 
     /// Creates the first active administrator, or leaves an initialized identity
@@ -434,15 +348,8 @@ impl PgIdentity {
 }
 
 #[async_trait]
-impl TokenVerifier for PgIdentity {
+impl IdentityService for PgIdentity {
     async fn verify(&self, token: &str) -> Result<Principal, AuthError> {
-        if token.starts_with("test.") {
-            return self
-                .test_issuer
-                .as_ref()
-                .ok_or(AuthError::Invalid)?
-                .verify_token(token);
-        }
         let digest = token_digest(token);
         let row = sqlx::query(
             "SELECT a.account_id, a.username, a.server_role, s.purpose
@@ -464,10 +371,6 @@ impl TokenVerifier for PgIdentity {
             purpose: SessionPurpose::parse(row.try_get("purpose")?)?,
         })
     }
-}
-
-#[async_trait]
-impl IdentityService for PgIdentity {
     async fn login(
         &self,
         username: &str,
@@ -475,26 +378,6 @@ impl IdentityService for PgIdentity {
         purpose: SessionPurpose,
     ) -> Result<LoginSession, AuthError> {
         let username = normalize_username(username)?;
-        // Development protocol fixtures can still exchange their explicit test
-        // token for a client session. This path cannot create an admin session.
-        if purpose == SessionPurpose::Client
-            && let Some(issuer) = &self.test_issuer
-            && let Ok(principal) = issuer.verify_token(password)
-            && principal.id == username
-        {
-            return Ok(LoginSession {
-                access_token: password.to_owned(),
-                account: AccountView {
-                    account_id: principal.id,
-                    username,
-                    status: AccountStatus::Active,
-                    server_role: ServerRole::User,
-                    created_at: String::new(),
-                },
-                purpose,
-            });
-        }
-
         let row = sqlx::query(
             "SELECT account_id, username, password_hash, status, server_role,
                     COALESCE(login_blocked_until > NOW(), FALSE) AS blocked,
@@ -586,9 +469,6 @@ impl IdentityService for PgIdentity {
     }
 
     async fn logout(&self, token: &str) -> Result<(), AuthError> {
-        if token.starts_with("test.") {
-            return Ok(());
-        }
         sqlx::query(
             "UPDATE account_session SET revoked_at = NOW()
              WHERE session_id_hash = $1 AND revoked_at IS NULL",
@@ -797,9 +677,6 @@ impl IdentityService for PgIdentity {
         .await?;
         match account {
             Some(account_id) => Ok(account_id),
-            // Explicit test authentication treats the fixture principal as its
-            // stable identity; no durable account row is implied.
-            None if self.test_issuer.is_some() => Ok(username),
             None => Err(AuthError::InvalidInput("unknown or disabled account")),
         }
     }
@@ -854,14 +731,6 @@ fn validate_password(value: &str) -> Result<(), AuthError> {
     }
 }
 
-fn validate_test_principal(value: &str) -> Result<(), AuthError> {
-    if value.is_empty() || value.len() > 160 || value.chars().any(char::is_control) {
-        Err(AuthError::Invalid)
-    } else {
-        Ok(())
-    }
-}
-
 async fn hash_password(value: &str) -> Result<String, AuthError> {
     let value = value.to_owned();
     tokio::task::spawn_blocking(move || hash_password_blocking(&value))
@@ -903,17 +772,6 @@ fn token_digest(token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn test_tokens_are_signed_and_tamper_evident() {
-        let issuer = TestIssuer::new(b"0123456789abcdef").unwrap();
-        let token = issuer.issue("principal-a").unwrap();
-        assert_eq!(issuer.verify(&token).await.unwrap().id, "principal-a");
-        assert!(matches!(
-            issuer.verify(&(token + "x")).await,
-            Err(AuthError::Invalid)
-        ));
-    }
 
     #[test]
     fn usernames_are_small_unambiguous_identifiers() {

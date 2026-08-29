@@ -9,7 +9,7 @@ use sync_protocol::{Hello, Message, PROTOCOL_VERSION, VersionRange, decode, enco
 use sync_server::{
     AccountPatch, AccountStatus, AppState, GraphAdmin, GraphRole, GraphStore, IdentityService,
     Metrics, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole, SessionPurpose, StoreError,
-    TestIssuer, TokenVerifier, router,
+    router,
 };
 use tokio_tungstenite::{
     connect_async,
@@ -26,12 +26,13 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let identity = PgIdentity::new(store.pool().clone(), None).unwrap();
+    let identity = Arc::new(PgIdentity::new(store.pool().clone()).unwrap());
     let admin_username = format!("admin-{suffix}");
     let admin_password = "a deliberately long admin passphrase";
     let admin = identity
-        .bootstrap_admin(&admin_username, admin_password)
+        .bootstrap_admin_if_absent(&admin_username, admin_password)
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(admin.server_role, ServerRole::Admin);
     let ignored_password = "a replacement bootstrap password";
@@ -113,6 +114,49 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .await
         .unwrap();
     assert!(identity.resolve_username(&user_username).await.is_err());
+
+    let owner = identity
+        .create_account(
+            &admin_principal,
+            &format!("owner-{suffix}"),
+            "an owner password long enough",
+            ServerRole::User,
+        )
+        .await
+        .unwrap();
+    let editor_username = format!("editor-{suffix}");
+    let editor_password = "an editor password long enough";
+    let editor = identity
+        .create_account(
+            &admin_principal,
+            &editor_username,
+            editor_password,
+            ServerRole::User,
+        )
+        .await
+        .unwrap();
+    let viewer = identity
+        .create_account(
+            &admin_principal,
+            &format!("viewer-{suffix}"),
+            "a viewer password long enough",
+            ServerRole::User,
+        )
+        .await
+        .unwrap();
+    let api_editor = identity
+        .create_account(
+            &admin_principal,
+            &format!("api-editor-{suffix}"),
+            "an api editor password long enough",
+            ServerRole::User,
+        )
+        .await
+        .unwrap();
+    let editor_session = identity
+        .login(&editor_username, editor_password, SessionPurpose::Client)
+        .await
+        .unwrap();
     let graph_id = format!("postgres-sync-{suffix}");
     let graph = GraphId::new(&graph_id).unwrap();
     let base = GraphCore::new(graph.clone(), 1, "base").unwrap();
@@ -120,7 +164,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
     store
         .create_graph(
             &graph_id,
-            "postgres-owner",
+            &owner.account_id,
             SCHEMA_VERSION,
             8 * 1024 * 1024,
             &snapshot,
@@ -129,20 +173,20 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .await
         .unwrap();
     store
-        .grant(&graph_id, "postgres-editor", GraphRole::Editor)
+        .grant(&graph_id, &editor.account_id, GraphRole::Editor)
         .await
         .unwrap();
     store
-        .grant(&graph_id, "postgres-viewer", GraphRole::Viewer)
+        .grant(&graph_id, &viewer.account_id, GraphRole::Viewer)
         .await
         .unwrap();
     store
-        .grant_membership(&graph_id, "postgres-api-editor", GraphRole::Editor)
+        .grant_membership(&graph_id, &api_editor.account_id, GraphRole::Editor)
         .await
         .unwrap();
     let memberships = store.list_memberships(&graph_id).await.unwrap();
     assert!(memberships.iter().any(|membership| {
-        membership.principal_id == "postgres-api-editor" && membership.role == GraphRole::Editor
+        membership.principal_id == api_editor.account_id && membership.role == GraphRole::Editor
     }));
 
     let mut client = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
@@ -167,12 +211,19 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         bytes: execution.update,
     };
 
-    let durable_cursor =
-        websocket_commit(&store, &graph_id, &base.version_vector(), update.clone()).await;
+    let durable_cursor = websocket_commit(
+        &store,
+        identity.clone(),
+        &editor_session.access_token,
+        &graph_id,
+        &base.version_vector(),
+        update.clone(),
+    )
+    .await;
     let duplicate = store
         .commit_update(
             &graph_id,
-            "postgres-editor",
+            &editor.account_id,
             &update.message_id,
             &update.bytes,
         )
@@ -184,7 +235,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         store
             .commit_update(
                 &graph_id,
-                "postgres-editor",
+                &editor.account_id,
                 &update.message_id,
                 b"different bytes",
             )
@@ -193,7 +244,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
     ));
     assert!(matches!(
         store
-            .commit_update(&graph_id, "postgres-viewer", "viewer-write", &update.bytes)
+            .commit_update(&graph_id, &viewer.account_id, "viewer-write", &update.bytes)
             .await,
         Err(StoreError::ReadOnly)
     ));
@@ -291,13 +342,13 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         expected
     );
 
-    store.revoke(&graph_id, "postgres-editor").await.unwrap();
+    store.revoke(&graph_id, &editor.account_id).await.unwrap();
     assert!(matches!(
-        store.authorize(&graph_id, "postgres-editor").await,
+        store.authorize(&graph_id, &editor.account_id).await,
         Err(StoreError::AccessDenied)
     ));
     store
-        .revoke_membership(&graph_id, "postgres-api-editor")
+        .revoke_membership(&graph_id, &api_editor.account_id)
         .await
         .unwrap();
     assert!(
@@ -306,7 +357,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
             .await
             .unwrap()
             .iter()
-            .all(|membership| membership.principal_id != "postgres-api-editor")
+            .all(|membership| membership.principal_id != api_editor.account_id)
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();
@@ -334,19 +385,19 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
 
 async fn websocket_commit(
     store: &PgStore,
+    identity: Arc<PgIdentity>,
+    token: &str,
     graph_id: &str,
     base_version: &[u8],
     update: sync_protocol::Update,
 ) -> u64 {
-    let issuer = Arc::new(TestIssuer::new(b"0123456789abcdef").unwrap());
-    let token = issuer.issue("postgres-editor").unwrap();
     let metrics = Arc::new(Metrics::default());
     let rooms = Arc::new(RoomManager::new(
         Arc::new(store.clone()),
         RoomConfig::default(),
         metrics.clone(),
     ));
-    let state = AppState::new(rooms, issuer, metrics, 8, Duration::from_secs(1));
+    let state = AppState::new(rooms, identity, metrics, 8, Duration::from_secs(1));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {

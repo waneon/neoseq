@@ -6,7 +6,7 @@ use http_body_util::BodyExt;
 use std::{sync::Arc, time::Duration};
 use support::*;
 use sync_protocol::{Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, VersionRange, decode, encode};
-use sync_server::{AppState, GraphStore, RoomConfig, TestIssuer, router};
+use sync_server::{AppState, GraphStore, RoomConfig, router};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{Message as WsMessage, client::IntoClientRequest, http::HeaderValue},
@@ -16,11 +16,11 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let fixture = fixture(RoomConfig::default());
-    let issuer = Arc::new(TestIssuer::new(b"0123456789abcdef").unwrap());
-    let token = issuer.issue(OWNER).unwrap();
+    let identity = Arc::new(TestIdentity);
+    let token = OWNER_TOKEN;
     let state = AppState::new(
         fixture.manager.clone(),
-        issuer,
+        identity,
         Arc::new(sync_server::Metrics::default()),
         32,
         Duration::from_millis(50),
@@ -104,11 +104,11 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
 #[tokio::test]
 async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     let fixture = fixture(RoomConfig::default());
-    let issuer = Arc::new(TestIssuer::new(b"0123456789abcdef").unwrap());
-    let token = issuer.issue(OWNER).unwrap();
+    let identity = Arc::new(TestIdentity);
+    let token = OWNER_TOKEN;
     let app = router(AppState::new(
         fixture.manager,
-        issuer,
+        identity,
         Arc::new(sync_server::Metrics::default()),
         32,
         Duration::from_millis(50),
@@ -133,42 +133,30 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     )
     .await;
     assert_eq!(members.0, 200);
-    assert!(members.1.contains(OWNER));
+    assert!(members.1.contains(OWNER_USERNAME));
     assert!(members.1.contains("owner"));
 
     let granted = authorized_request(
         &app,
         "PUT",
-        &format!("/v1/graphs/{graph_id}/members/invited-editor"),
+        &format!("/v1/graphs/{graph_id}/members/{INVITED_USERNAME}"),
         &token,
         r#"{"role":"editor"}"#,
     )
     .await;
     assert_eq!(granted.0, 204, "{}", granted.1);
-    assert!(
-        fixture
-            .store
-            .authorize(graph_id, "invited-editor")
-            .await
-            .is_ok()
-    );
+    assert!(fixture.store.authorize(graph_id, INVITED).await.is_ok());
 
     let revoked = authorized_request(
         &app,
         "DELETE",
-        &format!("/v1/graphs/{graph_id}/members/invited-editor"),
+        &format!("/v1/graphs/{graph_id}/members/{INVITED_USERNAME}"),
         &token,
         "",
     )
     .await;
     assert_eq!(revoked.0, 204, "{}", revoked.1);
-    assert!(
-        fixture
-            .store
-            .authorize(graph_id, "invited-editor")
-            .await
-            .is_err()
-    );
+    assert!(fixture.store.authorize(graph_id, INVITED).await.is_err());
 }
 
 async fn probe(app: &axum::Router, path: &str) -> (u16, String) {

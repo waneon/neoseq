@@ -4,7 +4,9 @@ let
   client = "pnpm --filter @neoseq/client exec";
   syncPort = config.processes.e2e-sync-server.ports.http.value;
   previewPort = config.processes.e2e-web.ports.http.value;
-  testAuthSecret = "neoseq-browser-collaboration";
+  adminPassword = "browser admin password";
+  ownerPassword = "browser owner password";
+  peerPassword = "browser peer password";
 in
 {
   packages = [ pkgs.playwright-driver ];
@@ -15,10 +17,11 @@ in
 
   processes = {
     e2e-sync-server = {
-      exec = "with-test-database cargo run --quiet --locked -p sync-server -- serve";
+      exec = "with-test-database cargo run --quiet --locked -p sync-server";
       env = {
         NEOSEQ_BIND = "127.0.0.1:${toString syncPort}";
-        NEOSEQ_TEST_AUTH_SECRET = testAuthSecret;
+        NEOSEQ_BOOTSTRAP_ADMIN_USERNAME = "e2e-admin";
+        NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD = adminPassword;
       };
       ports.http.allocate = 8787;
       after = [ "devenv:processes:postgres" ];
@@ -60,9 +63,10 @@ in
       description = "Run browser end-to-end tests";
       exec = ''
         set -euo pipefail
-        export NEOSEQ_TEST_AUTH_SECRET="${testAuthSecret}"
-        export NEOSEQ_E2E_OWNER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-owner)"
-        export NEOSEQ_E2E_PEER_TOKEN="$(cargo run --quiet --locked -p sync-server -- issue-token e2e-peer)"
+        export NEOSEQ_E2E_SYNC_ORIGIN="http://127.0.0.1:${toString syncPort}"
+        export NEOSEQ_E2E_ADMIN_PASSWORD="${adminPassword}"
+        export NEOSEQ_E2E_OWNER_PASSWORD="${ownerPassword}"
+        export NEOSEQ_E2E_PEER_PASSWORD="${peerPassword}"
         export NEOSEQ_PREVIEW_PORT="${toString previewPort}"
         export NEOSEQ_E2E_MANAGED_PREVIEW=1
         ${client} playwright test

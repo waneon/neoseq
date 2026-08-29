@@ -135,9 +135,8 @@ in
       env = {
         DATABASE_URL = databaseUrl;
         NEOSEQ_BIND = "127.0.0.1:${toString ports.sync}";
-        NEOSEQ_TEST_AUTH_SECRET = "neoseq-local-development-only";
       };
-      exec = "exec cargo run --locked -p sync-server -- serve";
+      exec = "exec cargo run --locked -p sync-server";
       after = [ "devenv:processes:postgres" ];
       ready.http.get = {
         port = ports.sync;

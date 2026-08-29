@@ -90,13 +90,19 @@ impl BootstrapAdminConfig {
 pub(crate) async fn bootstrap_admin_from_environment(
     identity: &PgIdentity,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(config) = BootstrapAdminConfig::from_environment()? else {
-        return Ok(());
-    };
+    let config = BootstrapAdminConfig::from_environment()?;
     if identity.has_active_admin().await? {
-        tracing::info!("initial administrator already exists; bootstrap configuration ignored");
+        if config.is_some() {
+            tracing::info!("initial administrator already exists; bootstrap configuration ignored");
+        }
         return Ok(());
     }
+    let Some(config) = config else {
+        return Err(invalid_config(format!(
+            "{ADMIN_USERNAME} and one administrator password source are required until the first administrator exists",
+        ))
+        .into());
+    };
     let password = config.read_password()?;
     match identity
         .bootstrap_admin_if_absent(&config.username, &password)

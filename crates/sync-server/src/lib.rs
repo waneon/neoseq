@@ -8,7 +8,7 @@ pub mod web;
 
 pub use auth::{
     AccountPatch, AccountStatus, AccountView, AuthError, IdentityService, LoginSession, PgIdentity,
-    Principal, ServerRole, SessionPurpose, TestIssuer, TokenVerifier,
+    Principal, ServerRole, SessionPurpose,
 };
 pub use metrics::Metrics;
 pub use room::{RoomConfig, RoomConnection, RoomError, RoomManager};
