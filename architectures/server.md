@@ -164,9 +164,13 @@ Loro operation identity keeps their content import idempotent.
   graph membership and audit records use the immutable account ID.
 - Password verification runs on the blocking pool with Argon2id, login failures
   are throttled, and errors do not reveal whether an account exists.
-- The first administrator is an explicit one-time bootstrap operation. Routine
-  account management occurs only through the Admin Web app; deterministic token
-  issuance remains development-only.
+- The first active administrator is an explicit one-time bootstrap operation.
+  `serve` accepts a username and exactly one password source through bootstrap
+  configuration; a mounted secret file is preferred over a direct environment
+  value. Configuration is validated before listening, creates only when no active
+  administrator exists, and never changes an existing account. The interactive
+  command remains a recovery path. Routine account management occurs only through
+  the Admin Web app; deterministic token issuance remains development-only.
 - Connection, session, frame, message, update-rate, graph-byte, presence, and
   reconstructed-document limits are enforced at their owning boundaries.
 - CRDT import is treated as untrusted parsing: malformed updates fail

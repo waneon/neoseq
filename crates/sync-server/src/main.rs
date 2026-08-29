@@ -1,3 +1,6 @@
+mod bootstrap;
+
+use bootstrap::bootstrap_admin_from_environment;
 use domain::GraphId;
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use std::{env, io, net::SocketAddr, sync::Arc, time::Duration};
@@ -94,6 +97,7 @@ async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
         store.pool().clone(),
         optional_test_issuer()?,
     )?);
+    bootstrap_admin_from_environment(&identity).await?;
     let bind = env::var("NEOSEQ_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let address: SocketAddr = bind.parse()?;
     let metrics = Arc::new(Metrics::default());

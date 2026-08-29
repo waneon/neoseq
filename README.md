@@ -75,15 +75,34 @@ cargo bench -p neoseq-benchmarks
 
 ## Sync server
 
-Start PostgreSQL and create the first server administrator once. `devenv up`
-then serves the Admin Web app at `http://127.0.0.1:4174` and the Neoseq client at
-`http://127.0.0.1:4173`. Further accounts are created and managed in the Admin
-Web app; users sign in to the client with their username and password.
+Start PostgreSQL and provide the first server administrator to the `serve`
+process. `devenv up` then serves the Admin Web app at
+`http://127.0.0.1:4174` and the Neoseq client at `http://127.0.0.1:4173`.
+Further accounts are created and managed in the Admin Web app; users sign in to
+the client with their username and password.
 
 ```sh
-set -x DATABASE_URL "postgresql:///neoseq?host=$PGHOST"
-cargo run -p sync-server -- bootstrap-admin admin
+set -x NEOSEQ_BOOTSTRAP_ADMIN_USERNAME admin
+set -x NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD "a development password of your choice"
+devenv up
 ```
+
+Production deployments should provide the password through a mounted secret
+file instead:
+
+```sh
+set -x NEOSEQ_BOOTSTRAP_ADMIN_USERNAME admin
+set -x NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD_FILE /run/secrets/neoseq-admin-password
+sync-server serve
+```
+
+The bootstrap configuration is used only while no active server administrator
+exists. Later starts ignore it and never reset an existing password. Configure
+exactly one of `NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD` and
+`NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD_FILE`; a single trailing line ending in a
+password file is not part of the password. Incomplete or ambiguous bootstrap
+configuration stops the server before it listens. The interactive
+`bootstrap-admin` command remains available for manual recovery.
 
 `issue-token`, `create-graph`, `grant`, and `revoke` remain explicit development
 and recovery commands. Production account administration does not depend on

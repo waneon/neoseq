@@ -34,6 +34,14 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .await
         .unwrap();
     assert_eq!(admin.server_role, ServerRole::Admin);
+    let ignored_password = "a replacement bootstrap password";
+    assert!(
+        identity
+            .bootstrap_admin_if_absent(&admin_username, ignored_password)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(
         identity
             .login(
@@ -41,6 +49,12 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
                 "wrong password long enough",
                 SessionPurpose::Admin,
             )
+            .await
+            .is_err()
+    );
+    assert!(
+        identity
+            .login(&admin_username, ignored_password, SessionPurpose::Admin)
             .await
             .is_err()
     );

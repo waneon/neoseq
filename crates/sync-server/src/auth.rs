@@ -279,6 +279,24 @@ impl PgIdentity {
         username: &str,
         password: &str,
     ) -> Result<AccountView, AuthError> {
+        self.bootstrap_admin_if_absent(username, password)
+            .await?
+            .ok_or(AuthError::Conflict)
+    }
+
+    /// Creates the first active administrator, or leaves an initialized identity
+    /// store untouched. The check inside the advisory lock remains authoritative;
+    /// the early check avoids validating and hashing a retained bootstrap secret on
+    /// every normal server restart.
+    pub async fn bootstrap_admin_if_absent(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<AccountView>, AuthError> {
+        if self.has_active_admin().await? {
+            return Ok(None);
+        }
+
         let username = normalize_username(username)?;
         validate_password(password)?;
         let password_hash = hash_password(password).await?;
@@ -293,7 +311,7 @@ impl PgIdentity {
         .fetch_one(&mut *transaction)
         .await?;
         if existing != 0 {
-            return Err(AuthError::Conflict);
+            return Ok(None);
         }
         sqlx::query(
             "INSERT INTO account(account_id, username, password_hash, server_role)
@@ -307,7 +325,19 @@ impl PgIdentity {
         transaction.commit().await?;
         self.audit(None, Some(&account_id), "account.bootstrap")
             .await?;
-        self.account(&account_id).await
+        self.account(&account_id).await.map(Some)
+    }
+
+    /// Reports whether routine account administration is already bootstrapped.
+    pub async fn has_active_admin(&self) -> Result<bool, AuthError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM account WHERE status = 'active' AND server_role = 'admin'
+             )",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
     }
 
     async fn insert_account(
