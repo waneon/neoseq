@@ -16,10 +16,20 @@ graph-core = { path = "../graph-core" }
 hmac = "0.12"
 serde.workspace = true
 sha2.workspace = true
-sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+sqlx = { version = "=0.8.6", default-features = false, features = [
+  "runtime-tokio-rustls",
+  "postgres",
+] }
 sync-protocol = { path = "../sync-protocol" }
 thiserror.workspace = true
-tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.47", features = [
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 

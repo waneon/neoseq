@@ -14,13 +14,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-export function AutoHeight({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function AutoHeight({ children, className }: { children: ReactNode; className?: string }) {
   const inner = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | null>(null);
 

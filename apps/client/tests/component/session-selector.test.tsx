@@ -3,10 +3,7 @@ import { type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import type { GraphSession, SessionState } from "../../src/core-port/session";
 import { EMPTY_SNAPSHOT } from "../../src/core-port/snapshot";
-import {
-  SessionContext,
-  useSessionSelector,
-} from "../../src/features/shell/session-context";
+import { SessionContext, useSessionSelector } from "../../src/features/shell/session-context";
 
 describe("session selectors", () => {
   it("does not render an outline subscriber for a save-only publication", () => {
@@ -38,10 +35,13 @@ describe("session selectors", () => {
       <SessionContext.Provider value={session}>{children}</SessionContext.Provider>
     );
 
-    const { result } = renderHook(() => {
-      renders += 1;
-      return useSessionSelector((current) => current.snapshot);
-    }, { wrapper });
+    const { result } = renderHook(
+      () => {
+        renders += 1;
+        return useSessionSelector((current) => current.snapshot);
+      },
+      { wrapper },
+    );
     const initialRenders = renders;
 
     act(() => {

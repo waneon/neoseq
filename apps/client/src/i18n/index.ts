@@ -11,8 +11,4 @@ export {
   type SupportedLocale,
 } from "./runtime";
 export type { MessageFunction, MessageKey } from "./generated/messages";
-export type {
-  TemporalLanguagePack,
-  TemporalParser,
-  TemporalRecognition,
-} from "./temporal";
+export type { TemporalLanguagePack, TemporalParser, TemporalRecognition } from "./temporal";

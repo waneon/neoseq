@@ -19,12 +19,7 @@ import {
 } from "../../entities/settings";
 import type { DueTier } from "../../entities/tasks";
 import { useI18n, type MessageKey } from "../../i18n";
-import {
-  Popover,
-  PopoverContent,
-  PopoverPortal,
-  PopoverTrigger,
-} from "../../ui/shadcn/popover";
+import { Popover, PopoverContent, PopoverPortal, PopoverTrigger } from "../../ui/shadcn/popover";
 import { tonePresentation } from "../tasks/tone-presentation";
 
 const TONE_MESSAGE = {
@@ -57,8 +52,9 @@ export function ToneChoice({
   const inputId = useId();
   const position = customTone(value);
   const intensity = Math.round(
-    ((position.chroma - MIN_CUSTOM_TONE_CHROMA)
-      / (MAX_CUSTOM_TONE_CHROMA - MIN_CUSTOM_TONE_CHROMA)) * 100,
+    ((position.chroma - MIN_CUSTOM_TONE_CHROMA) /
+      (MAX_CUSTOM_TONE_CHROMA - MIN_CUSTOM_TONE_CHROMA)) *
+      100,
   );
   const custom = (patch: Partial<typeof position>) => onChange({ ...position, ...patch });
 
@@ -179,8 +175,9 @@ export function ToneChoice({
 function samePreset(value: ToneValue, preset: ToneName): boolean {
   if (typeof value === "string") return value === preset;
   const expected = TONE_PRESETS[preset];
-  return Math.abs(value.hue - expected.hue) < 0.5
-    && Math.abs(value.chroma - expected.chroma) < 0.001;
+  return (
+    Math.abs(value.hue - expected.hue) < 0.5 && Math.abs(value.chroma - expected.chroma) < 0.001
+  );
 }
 
 /** Preview through the mode-owned lightness even while the value is a preset. */

@@ -23,13 +23,7 @@
 // number behind, so starring the same page again puts it back where it was.
 
 import type { GraphSnapshot, PageSnapshot, TagSnapshot } from "../core-port/snapshot";
-import {
-  booleanValue,
-  isDeleted,
-  numberValue,
-  pageKind,
-  pageTitle,
-} from "../core-port/snapshot";
+import { booleanValue, isDeleted, numberValue, pageKind, pageTitle } from "../core-port/snapshot";
 import { moveWrites, place, type Placed } from "./ordering";
 
 export const FAVOURITE_KEY = "builtin.favorite";
@@ -65,17 +59,16 @@ export function favourites(
       name: pageTitle(page),
       order: favouriteOrder(page),
     }));
-  const tags: Favourite[] = snapshot.tags
-    .filter(isFavourite)
-    .map((tag) => ({
-      kind: "tag",
-      id: tag.id,
-      name: tag.name,
-      order: favouriteOrder(tag),
-      tag,
-    }));
-  return [...pages, ...tags].sort((left, right) =>
-    place(left.order, right.order) || compare(left.name, right.name));
+  const tags: Favourite[] = snapshot.tags.filter(isFavourite).map((tag) => ({
+    kind: "tag",
+    id: tag.id,
+    name: tag.name,
+    order: favouriteOrder(tag),
+    tag,
+  }));
+  return [...pages, ...tags].sort(
+    (left, right) => place(left.order, right.order) || compare(left.name, right.name),
+  );
 }
 
 /**
@@ -109,9 +102,8 @@ export function moveFavourite(
   // a row the remainder no longer holds, and "stay put" becomes "go last".
   if (before !== null && favouriteKey(before) === key) return [];
   const rest = ordered.filter((entry) => favouriteKey(entry) !== key);
-  const found = before === null
-    ? -1
-    : rest.findIndex((entry) => favouriteKey(entry) === favouriteKey(before));
+  const found =
+    before === null ? -1 : rest.findIndex((entry) => favouriteKey(entry) === favouriteKey(before));
   const index = found < 0 ? rest.length : found;
   const next = [...rest.slice(0, index), moved, ...rest.slice(index)];
   const placed: Placed[] = next.map((entry) => ({ id: favouriteKey(entry), order: entry.order }));

@@ -1,8 +1,4 @@
-{
-  config,
-  pkgs,
-  ...
-}:
+{ config, pkgs, ... }:
 
 let
   client = "pnpm --filter @neoseq/client exec";
@@ -14,9 +10,7 @@ in
   packages = [ pkgs.playwright-driver ];
   env = {
     PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
-    FONTCONFIG_FILE = pkgs.makeFontsConf {
-      fontDirectories = [ pkgs.dejavu_fonts ];
-    };
+    FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
   };
 
   processes = {

@@ -77,7 +77,9 @@ export function orderSemanticsForField(field: PlanField): OrderSemantics {
   }
 }
 
-export function orderSemanticsForColumn(column: Pick<PlanColumn, "source" | "aggregate">): OrderSemantics {
+export function orderSemanticsForColumn(
+  column: Pick<PlanColumn, "source" | "aggregate">,
+): OrderSemantics {
   switch (column.aggregate) {
     case "count":
     case "sum":

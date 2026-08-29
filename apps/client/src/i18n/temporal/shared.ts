@@ -80,9 +80,7 @@ export function normalizeTemporalInput(input: string, locale: string): string {
   return normalized.toLocaleLowerCase(locale).replace(/\s+/g, " ");
 }
 
-export function recognizeInvariantDate(
-  input: string,
-): TemporalRecognition<TemporalDateIntent> {
+export function recognizeInvariantDate(input: string): TemporalRecognition<TemporalDateIntent> {
   return ISO_DATE.test(input)
     ? temporalMatch({ kind: "absolute", date: input })
     : NO_TEMPORAL_MATCH;
@@ -93,9 +91,7 @@ export function recognizeInvariantMoment(input: string) {
   if (moment) {
     return temporalMatch({
       date: { kind: "absolute", date: moment[1] } as const,
-      ...(moment[2]
-        ? { time: { hour: Number(moment[2]), minute: Number(moment[3]) } }
-        : {}),
+      ...(moment[2] ? { time: { hour: Number(moment[2]), minute: Number(moment[3]) } } : {}),
     });
   }
   const time = CLOCK.exec(input);

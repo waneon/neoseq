@@ -16,7 +16,10 @@ export interface RemoteGraphListing {
 }
 
 class RemoteApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -76,10 +79,15 @@ export function grantMembership(
   principal: string,
   role: Exclude<RemoteRole, "owner">,
 ): Promise<void> {
-  return request(serverUrl, auth, `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(principal)}`, {
-    method: "PUT",
-    body: JSON.stringify({ role }),
-  });
+  return request(
+    serverUrl,
+    auth,
+    `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(principal)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    },
+  );
 }
 
 export function revokeMembership(
@@ -88,7 +96,12 @@ export function revokeMembership(
   graphId: string,
   principal: string,
 ): Promise<void> {
-  return request(serverUrl, auth, `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(principal)}`, {
-    method: "DELETE",
-  });
+  return request(
+    serverUrl,
+    auth,
+    `/v1/graphs/${encodeURIComponent(graphId)}/members/${encodeURIComponent(principal)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }

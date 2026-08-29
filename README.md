@@ -25,6 +25,13 @@ locked pnpm workspace dependencies whenever the lockfile changes.
 devenv shell
 ```
 
+Format all maintained source, configuration, and documentation files with the
+Nix-pinned repository formatter:
+
+```sh
+treefmt
+```
+
 Start the development Web client with Hot Module Replacement (HMR), then open
 `http://127.0.0.1:4173`. Frontend changes are applied automatically. After
 changing Rust code, rebuild the development Wasm bindings to trigger HMR.

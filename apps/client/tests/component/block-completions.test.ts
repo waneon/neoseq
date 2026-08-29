@@ -43,20 +43,28 @@ describe("page reference completion", () => {
   });
 
   it("offers live pages and one explicit create choice", () => {
-    expect(filterPageOptions([
-      { id: "one", title: "Project Plan", journal_date: null, deleted: false },
-      { id: "deleted", title: "Project Past", journal_date: null, deleted: true },
-    ], "project n", (left, right) => left.localeCompare(right))).toEqual([
+    expect(
+      filterPageOptions(
+        [
+          { id: "one", title: "Project Plan", journal_date: null, deleted: false },
+          { id: "deleted", title: "Project Past", journal_date: null, deleted: true },
+        ],
+        "project n",
+        (left, right) => left.localeCompare(right),
+      ),
+    ).toEqual([
       { id: "one", title: "Project Plan", create: false },
       { id: "", title: "project n", create: true },
     ]);
   });
 
   it("does not offer a duplicate create choice for the core's normalized name", () => {
-    expect(filterPageOptions([
-      { id: "one", title: "Project Plan", journal_date: null, deleted: false },
-    ], "  project   plan ", (left, right) => left.localeCompare(right))).toEqual([
-      { id: "one", title: "Project Plan", create: false },
-    ]);
+    expect(
+      filterPageOptions(
+        [{ id: "one", title: "Project Plan", journal_date: null, deleted: false }],
+        "  project   plan ",
+        (left, right) => left.localeCompare(right),
+      ),
+    ).toEqual([{ id: "one", title: "Project Plan", create: false }]);
   });
 });

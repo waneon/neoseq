@@ -58,10 +58,11 @@ export function TagView() {
   const { graphId = "", tagId = "" } = useParams();
   const state = useSessionSelector(
     (current) => current,
-    (left, right) => left.snapshot === right.snapshot
-      && left.mode === right.mode
-      && left.status === right.status
-      && left.hydratedOutlines === right.hydratedOutlines,
+    (left, right) =>
+      left.snapshot === right.snapshot &&
+      left.mode === right.mode &&
+      left.status === right.status &&
+      left.hydratedOutlines === right.hydratedOutlines,
   );
   const session = useSession();
   const notify = useNotify();
@@ -78,10 +79,11 @@ export function TagView() {
 
   useEffect(() => {
     if (
-      !tag
-      || state.status !== "ready"
-      || state.hydratedOutlines.has(outlineOwnerKey({ kind: "tag", id: tagId }))
-    ) return;
+      !tag ||
+      state.status !== "ready" ||
+      state.hydratedOutlines.has(outlineOwnerKey({ kind: "tag", id: tagId }))
+    )
+      return;
     load();
   }, [load, state.hydratedOutlines, state.status, tag, tagId]);
 
@@ -166,7 +168,11 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
             onCustomize={() => setIdentityAt(markRef.current)}
           />
         </div>
-        {group && <p className="tag-page-group" data-testid="tag-page-group">{group}</p>}
+        {group && (
+          <p className="tag-page-group" data-testid="tag-page-group">
+            {group}
+          </p>
+        )}
         {/* What this tag *does*: a named section of rows, not a run of chips —
             a default is a key and a value, and neither has a column in a chip. */}
         <TagDefaults
@@ -233,8 +239,7 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
       validate={(next) => {
         const clash = state.snapshot.tags.find(
           (other) =>
-            other.id !== tag.id
-            && canonicalEntityName(other.name) === canonicalEntityName(next),
+            other.id !== tag.id && canonicalEntityName(other.name) === canonicalEntityName(next),
         );
         if (!clash) return true;
         notify.show({
@@ -245,7 +250,8 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
         return false;
       }}
       onCommit={(name) =>
-        session.execute({ type: "rename_tag", tag_id: tag.id, name }).then(() => undefined)}
+        session.execute({ type: "rename_tag", tag_id: tag.id, name }).then(() => undefined)
+      }
       onError={(error) => {
         notify.failure(message("failure.renameTag", { name: tag.name }), error);
       }}
@@ -315,16 +321,19 @@ function TagMenu({
                 onSelect={() => {
                   const owner = { kind: "tag", tag_id: tag.id } as const;
                   void session
-                    .execute(starred
-                      ? { type: "remove_property", owner, key: FAVOURITE_KEY }
-                      : {
-                          type: "set_property",
-                          owner,
-                          key: FAVOURITE_KEY,
-                          value: { type: "checkbox", value: true },
-                        })
+                    .execute(
+                      starred
+                        ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                        : {
+                            type: "set_property",
+                            owner,
+                            key: FAVOURITE_KEY,
+                            value: { type: "checkbox", value: true },
+                          },
+                    )
                     .catch((error: unknown) =>
-                      notify.failure(message("failure.customizeTag", { name: tag.name }), error));
+                      notify.failure(message("failure.customizeTag", { name: tag.name }), error),
+                    );
                 }}
               >
                 {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
@@ -339,10 +348,7 @@ function TagMenu({
               </DropdownMenuItem>
             </>
           )}
-          <DropdownMenuItem
-            data-testid="menu-tag-info"
-            onSelect={() => setDialog("info")}
-          >
+          <DropdownMenuItem data-testid="menu-tag-info" onSelect={() => setDialog("info")}>
             <InfoIcon aria-hidden />
             {message("tags.info")}
           </DropdownMenuItem>
@@ -377,7 +383,8 @@ function TagMenu({
             navigate(`/g/${graphId}/tags`);
           }}
           onConfirmError={(error) =>
-            notify.failure(message("failure.deleteTag", { name: tag.name }), error)}
+            notify.failure(message("failure.deleteTag", { name: tag.name }), error)
+          }
         >
           {message("tags.deleteConfirm", { name: tag.name })}
         </ConfirmDialog>

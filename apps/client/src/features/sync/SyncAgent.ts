@@ -114,15 +114,19 @@ export class SyncAgent {
     await this.flush();
   }
 
-  async publishPresence(value: Omit<PeerPresence, "session_id" | "principal" | "expires_at">): Promise<void> {
+  async publishPresence(
+    value: Omit<PeerPresence, "session_id" | "principal" | "expires_at">,
+  ): Promise<void> {
     const socket = this.socket;
     const auth = readAuthSession(this.connection.server_url);
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.welcomed || !auth) return;
-    const payload = new TextEncoder().encode(JSON.stringify({
-      session_id: this.transportSessionId,
-      principal: auth.principal,
-      ...value,
-    }));
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        session_id: this.transportSessionId,
+        principal: auth.principal,
+        ...value,
+      }),
+    );
     const frame = await this.port.encodeSyncMessage({
       Presence: {
         expires_in_ms: PRESENCE_TTL_MS,
@@ -147,19 +151,18 @@ export class SyncAgent {
     const url = new URL("/v1/sync", `${this.connection.server_url}/`);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     this.transportSessionId = `${this.sessionId}:${crypto.randomUUID()}`;
-    const socket = new WebSocket(url, [
-      SUBPROTOCOL,
-      `neoseq.auth.${base64Url(auth.token)}`,
-    ]);
+    const socket = new WebSocket(url, [SUBPROTOCOL, `neoseq.auth.${base64Url(auth.token)}`]);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
     socket.onopen = () => void this.hello();
     socket.onmessage = (event) => {
       const frame = event.data as ArrayBuffer;
-      this.incoming = this.incoming.then(() => this.receive(frame)).catch((error: unknown) => {
-        this.patch({ sync: { kind: "error", message: String(error) } });
-        socket.close(CLOSE_INVALID_MESSAGE, "invalid sync message");
-      });
+      this.incoming = this.incoming
+        .then(() => this.receive(frame))
+        .catch((error: unknown) => {
+          this.patch({ sync: { kind: "error", message: String(error) } });
+          socket.close(CLOSE_INVALID_MESSAGE, "invalid sync message");
+        });
     };
     socket.onclose = () => {
       if (this.socket !== socket) return;
@@ -191,7 +194,7 @@ export class SyncAgent {
   }
 
   private async receive(frame: ArrayBuffer): Promise<void> {
-    const message = await this.port.decodeSyncMessage(frame) as WireMessage;
+    const message = (await this.port.decodeSyncMessage(frame)) as WireMessage;
     if (message.Welcome) {
       const welcome = message.Welcome;
       const missing = numberArray(welcome.missing_update);

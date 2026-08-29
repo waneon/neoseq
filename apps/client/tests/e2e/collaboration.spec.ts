@@ -6,7 +6,10 @@ const peerToken = process.env.NEOSEQ_E2E_PEER_TOKEN;
 
 test.skip(!ownerToken || !peerToken, "collaboration server credentials are not configured");
 
-test("two remote browser profiles converge after offline edits and revocation", async ({ browser, page: peer }) => {
+test("two remote browser profiles converge after offline edits and revocation", async ({
+  browser,
+  page: peer,
+}) => {
   test.setTimeout(120_000);
   const ownerContext = await browser.newContext();
   const owner = await ownerContext.newPage();
@@ -102,11 +105,16 @@ async function appendBlock(page: Page, text: string) {
 
 async function pollConverged(owner: Page, peer: Page): Promise<string[]> {
   let latest: string[] = [];
-  await expect.poll(async () => {
-    const left = await blockTexts(owner);
-    const right = await blockTexts(peer);
-    latest = right;
-    return JSON.stringify(left) === JSON.stringify(right);
-  }, { timeout: 30_000 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const left = await blockTexts(owner);
+        const right = await blockTexts(peer);
+        latest = right;
+        return JSON.stringify(left) === JSON.stringify(right);
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   return latest;
 }

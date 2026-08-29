@@ -75,10 +75,7 @@ import { QueryBlock } from "../query/QueryBlock";
 import { TaskPriorityControl } from "../tasks/PriorityControl";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
-import {
-  transformAutoClosers,
-  type AutoCloserMarker,
-} from "../blocks/editor/auto-pair";
+import { transformAutoClosers, type AutoCloserMarker } from "../blocks/editor/auto-pair";
 import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
@@ -169,11 +166,7 @@ import {
   splitInlineContentProjection,
   type InlineContentProjection,
 } from "../blocks/editor/inline-content";
-import {
-  buildSlashItems,
-  filterSlashItems,
-  type SlashItem,
-} from "../blocks/editor/slash-commands";
+import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { createQueryCommand } from "../query/commands";
 
 const FLUSH_DEBOUNCE_MS = 400;
@@ -351,11 +344,7 @@ interface EditorContext {
     rows: OutlineRow[],
     count: number,
   ): void;
-  runVimVisualLine(
-    command: VimVisualLineCommand,
-    row?: OutlineRow,
-    rows?: OutlineRow[],
-  ): void;
+  runVimVisualLine(command: VimVisualLineCommand, row?: OutlineRow, rows?: OutlineRow[]): void;
   runVimWordMotion(
     command: VimWordMotionCommand,
     row: OutlineRow,
@@ -398,10 +387,11 @@ export function Outliner({
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
-    (left, right) => left.snapshot === right.snapshot
-      && left.mode === right.mode
-      && left.revision === right.revision
-      && left.presence === right.presence,
+    (left, right) =>
+      left.snapshot === right.snapshot &&
+      left.mode === right.mode &&
+      left.revision === right.revision &&
+      left.presence === right.presence,
   );
   const commands = useCommands();
   const history = useHistoryActions();
@@ -487,13 +477,12 @@ export function Outliner({
         : { type: "close", kind: "menu" },
     );
   }, []);
-  const [collapsed, setCollapsed, collapsedRef] =
-    useImmediateState<ReadonlySet<string>>(new Set());
+  const [collapsed, setCollapsed, collapsedRef] = useImmediateState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
-  const [selected, setSelected, selectedRef] =
-    useImmediateState<ReadonlySet<string>>(new Set());
-  const [visualLine, setVisualLine, visualLineRef] =
-    useImmediateState<VisualLineRange | null>(null);
+  const [selected, setSelected, selectedRef] = useImmediateState<ReadonlySet<string>>(new Set());
+  const [visualLine, setVisualLine, visualLineRef] = useImmediateState<VisualLineRange | null>(
+    null,
+  );
   const [pointerGesture, dispatchPointerGesture] = useReducer(pointerGestureReducer, {
     kind: "idle",
   });
@@ -501,9 +490,12 @@ export function Outliner({
   const marqueeing = pointerGesture.kind === "selecting";
   const drop = pointerGesture.kind === "dragging" ? pointerGesture.drop : null;
   const [draftState, setDraftState, draftStateRef] = useImmediateState(initialOutlineDraftState);
-  const dispatchDraft = useCallback((action: OutlineDraftAction) => {
-    setDraftState((current) => outlineDraftReducer(current, action));
-  }, [setDraftState]);
+  const dispatchDraft = useCallback(
+    (action: OutlineDraftAction) => {
+      setDraftState((current) => outlineDraftReducer(current, action));
+    },
+    [setDraftState],
+  );
   const composing = useRef(false);
   const [compositionRevision, finishComposition] = useReducer(
     (revision: number) => revision + 1,
@@ -539,7 +531,10 @@ export function Outliner({
   const autoScroll = useRef<{ speed: number; frame: number } | null>(null);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presenceTimer = useRef<number | null>(null);
-  const presenceDraft = useRef<Omit<PeerPresence, "session_id" | "principal" | "expires_at"> | null>(null);
+  const presenceDraft = useRef<Omit<
+    PeerPresence,
+    "session_id" | "principal" | "expires_at"
+  > | null>(null);
   const pendingHistoryReveal = useRef<HistoryRevealRequest | null>(null);
   const overlayAtPressStart = useRef(false);
   // GraphSession resolves commands only after reconciling its snapshot. Read
@@ -548,8 +543,9 @@ export function Outliner({
   const authoritativeOutline = findOutline(state.snapshot, owner);
   const outline = authoritativeOutline ?? { blocks };
   const pageDirectory = useMemo(
-    () => state.snapshot.page_directory
-      ?? state.snapshot.pages.map((page) => ({
+    () =>
+      state.snapshot.page_directory ??
+      state.snapshot.pages.map((page) => ({
         id: page.id,
         title: page.title,
         journal_date: null,
@@ -574,23 +570,17 @@ export function Outliner({
     [outline, projectedCollapsed],
   );
   const pendingProjection = useMemo(
-    () => projectPendingOperations(
-      structuralRows,
-      draftState.pendingOperations,
-      draftState.drafts,
-      draftState.pageReferences,
-    ),
-    [
-      draftState.drafts,
-      draftState.pageReferences,
-      draftState.pendingOperations,
-      structuralRows,
-    ],
+    () =>
+      projectPendingOperations(
+        structuralRows,
+        draftState.pendingOperations,
+        draftState.drafts,
+        draftState.pageReferences,
+      ),
+    [draftState.drafts, draftState.pageReferences, draftState.pendingOperations, structuralRows],
   );
   const rows = pendingProjection.rows;
-  const menuRow = menuFor === null
-    ? null
-    : rows.find((row) => row.block.id === menuFor) ?? null;
+  const menuRow = menuFor === null ? null : (rows.find((row) => row.block.id === menuFor) ?? null);
   const rowsRef = useLatest(rows);
   const readonly = state.mode === "readonly";
   // `selected` is the concrete identity set the user saw selected when the
@@ -619,9 +609,7 @@ export function Outliner({
   // literal source. References already edited through stay ordinary Markdown.
   useEffect(() => {
     if (composing.current) return;
-    const completionBlockId = slashRequest?.blockId
-      ?? hashRequest?.blockId
-      ?? pageRequest?.blockId;
+    const completionBlockId = slashRequest?.blockId ?? hashRequest?.blockId ?? pageRequest?.blockId;
     const entries: Array<{
       id: string;
       baseline: string;
@@ -641,10 +629,11 @@ export function Outliner({
         pageDirectory,
       );
       if (
-        baselineProjection.markdown === baseline
-        && draftProjection.markdown === draft
-        && samePageReferences(baselineProjection.pageReferences, references)
-      ) continue;
+        baselineProjection.markdown === baseline &&
+        draftProjection.markdown === draft &&
+        samePageReferences(baselineProjection.pageReferences, references)
+      )
+        continue;
       entries.push({
         id,
         baseline: baselineProjection.markdown,
@@ -689,11 +678,9 @@ export function Outliner({
   useEffect(() => {
     const visual = visualLineRef.current;
     if (
-      visual
-      && (
-        !findBlock(outlineRef.current, visual.anchorId)
-        || !findBlock(outlineRef.current, visual.headId)
-      )
+      visual &&
+      (!findBlock(outlineRef.current, visual.anchorId) ||
+        !findBlock(outlineRef.current, visual.headId))
     ) {
       const empty = new Set<string>();
       setSelected(empty);
@@ -719,8 +706,7 @@ export function Outliner({
   // always answers no. See `dismissTransient`.
   useEffect(() => {
     const sample = () => {
-      overlayAtPressStart.current =
-        document.querySelector(FLOATING_OVERLAY_SELECTOR) !== null;
+      overlayAtPressStart.current = document.querySelector(FLOATING_OVERLAY_SELECTOR) !== null;
     };
     window.addEventListener("pointerdown", sample, true);
     return () => window.removeEventListener("pointerdown", sample, true);
@@ -793,15 +779,19 @@ export function Outliner({
   const flush = useCallback(
     (id: string) => {
       if (isPendingId(id)) return; // transferred when the real id arrives
-      if (draftStateRef.current.pendingOperations.some(
-        (operation) => operation.kind === "merge" && operation.targetId === id,
-      )) return; // flushed after the canonical merge establishes this baseline
+      if (
+        draftStateRef.current.pendingOperations.some(
+          (operation) => operation.kind === "merge" && operation.targetId === id,
+        )
+      )
+        return; // flushed after the canonical merge establishes this baseline
       const draft = draftStateRef.current.drafts.get(id);
       const baseline = draftStateRef.current.baselines.get(id);
       if (draft === undefined || baseline === undefined) return;
-      const references = draftStateRef.current.pageReferences.get(id)
-        ?? findBlock(outlineRef.current, id)?.page_references
-        ?? [];
+      const references =
+        draftStateRef.current.pageReferences.get(id) ??
+        findBlock(outlineRef.current, id)?.page_references ??
+        [];
       const plan = planInlineEdit(id, baseline, references, draft);
       if (!plan) return;
       if (mounted.current) {
@@ -862,19 +852,19 @@ export function Outliner({
    * semantic action selected from that completion. Neither half may survive if
    * the other is rejected, and one undo restores both.
    */
-  const stageDraftSplice = useCallback((id: string, next: string): Command | null => {
+  const stageDraftSplice = useCallback(
+    (id: string, next: string): Command | null => {
       const timer = flushTimers.current.get(id);
       if (timer) {
         clearTimeout(timer);
         flushTimers.current.delete(id);
       }
       const baseline = draftStateRef.current.baselines.get(id);
-      const references = draftStateRef.current.pageReferences.get(id)
-        ?? findBlock(outlineRef.current, id)?.page_references
-        ?? [];
-      const plan = baseline === undefined
-        ? null
-        : planInlineEdit(id, baseline, references, next);
+      const references =
+        draftStateRef.current.pageReferences.get(id) ??
+        findBlock(outlineRef.current, id)?.page_references ??
+        [];
+      const plan = baseline === undefined ? null : planInlineEdit(id, baseline, references, next);
       if (!plan) return null;
       dispatchDraft({
         type: "set-baseline",
@@ -887,7 +877,9 @@ export function Outliner({
         owner: ownerRef.current,
         ...plan.splice,
       };
-    }, [dispatchDraft]);
+    },
+    [dispatchDraft],
+  );
 
   const commitDraftWith = useCallback(
     async (id: string, next: string, action: Command | null, failure: string) => {
@@ -897,9 +889,7 @@ export function Outliner({
       if (action) commands.push(action);
       if (commands.length === 0) return;
       try {
-        await session.execute(commands.length === 1
-          ? commands[0]
-          : { type: "batch", commands });
+        await session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands });
       } catch (error) {
         if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
         notify.failure(failure, error);
@@ -951,22 +941,25 @@ export function Outliner({
     [dispatchDraft, flushNow, history, message, notify],
   );
 
-  const publishSelection = useCallback((blockId: string, textarea: HTMLTextAreaElement) => {
-    // Coalesced: `select` fires for every keystroke and caret move, and each
-    // publish is a worker round-trip plus a socket frame. Peers reading a
-    // caret 150ms late is invisible; a frame per keystroke is not free.
-    presenceDraft.current = {
-      owner,
-      block_id: blockId,
-      anchor: textarea.selectionStart,
-      head: textarea.selectionEnd,
-    };
-    if (presenceTimer.current !== null) return;
-    presenceTimer.current = window.setTimeout(() => {
-      presenceTimer.current = null;
-      if (presenceDraft.current) session.publishPresence(presenceDraft.current);
-    }, PRESENCE_PUBLISH_MS);
-  }, [owner, session]);
+  const publishSelection = useCallback(
+    (blockId: string, textarea: HTMLTextAreaElement) => {
+      // Coalesced: `select` fires for every keystroke and caret move, and each
+      // publish is a worker round-trip plus a socket frame. Peers reading a
+      // caret 150ms late is invisible; a frame per keystroke is not free.
+      presenceDraft.current = {
+        owner,
+        block_id: blockId,
+        anchor: textarea.selectionStart,
+        head: textarea.selectionEnd,
+      };
+      if (presenceTimer.current !== null) return;
+      presenceTimer.current = window.setTimeout(() => {
+        presenceTimer.current = null;
+        if (presenceDraft.current) session.publishPresence(presenceDraft.current);
+      }, PRESENCE_PUBLISH_MS);
+    },
+    [owner, session],
+  );
 
   /**
    * One entrance to a caret. Pointer-owned entrances start writing; keyboard
@@ -974,39 +967,36 @@ export function Outliner({
    * without an intermediate Normal reset, so call order cannot overwrite the
    * mode chosen by the same activation.
    */
-  const activateBlock = useCallback((
-    id: string | null,
-    caret: number | undefined,
-    inputMethod: BlockActivationMethod,
-  ) => {
-    const previous = focusedRef.current;
-    if (previous !== null && previous !== id) {
-      dispatchDraft({ type: "clear-auto-closers", ids: [previous] });
-    }
-    pendingCaret.current = caret ?? null;
-    setFocusedId(id);
-    // The caret and the block selection are two answers to "what does the next
-    // command act on", so only one of them may exist at a time.
-    if (id !== null) {
-      const leavingVisualLine = visualLineRef.current !== null;
-      if (selectedRef.current.size > 0) {
-        const empty = new Set<string>();
-        setSelected(empty);
+  const activateBlock = useCallback(
+    (id: string | null, caret: number | undefined, inputMethod: BlockActivationMethod) => {
+      const previous = focusedRef.current;
+      if (previous !== null && previous !== id) {
+        dispatchDraft({ type: "clear-auto-closers", ids: [previous] });
       }
-      clearVisualLineState();
-      const activationMode = vimModeForActivation(keymap, readonly, inputMethod);
-      if (activationMode) {
-        vim.reset(activationMode);
-      } else if (keymap === "vim" && leavingVisualLine) {
-        vim.reset();
+      pendingCaret.current = caret ?? null;
+      setFocusedId(id);
+      // The caret and the block selection are two answers to "what does the next
+      // command act on", so only one of them may exist at a time.
+      if (id !== null) {
+        const leavingVisualLine = visualLineRef.current !== null;
+        if (selectedRef.current.size > 0) {
+          const empty = new Set<string>();
+          setSelected(empty);
+        }
+        clearVisualLineState();
+        const activationMode = vimModeForActivation(keymap, readonly, inputMethod);
+        if (activationMode) {
+          vim.reset(activationMode);
+        } else if (keymap === "vim" && leavingVisualLine) {
+          vim.reset();
+        }
       }
-    }
-    revealNavigationTarget(
-      id !== null && (inputMethod === "keyboard" || inputMethod === "programmatic")
-        ? id
-        : null,
-    );
-  }, [clearVisualLineState, dispatchDraft, keymap, readonly, revealNavigationTarget, vim.reset]);
+      revealNavigationTarget(
+        id !== null && (inputMethod === "keyboard" || inputMethod === "programmatic") ? id : null,
+      );
+    },
+    [clearVisualLineState, dispatchDraft, keymap, readonly, revealNavigationTarget, vim.reset],
+  );
 
   const clearSelection = useCallback(() => {
     anchorId.current = null;
@@ -1035,19 +1025,22 @@ export function Outliner({
    * it — that is how the caret is still there on return — so the same test that
    * asks "is focus still in this row?" answers this too.
    */
-  const releaseFocus = useCallback((id: string) => {
-    requestAnimationFrame(() => {
-      if (focusedRef.current !== id) return;
-      const active = document.activeElement;
-      if (active instanceof Element) {
-        if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
-        if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
-      }
-      dispatchDraft({ type: "clear-auto-closers", ids: [id] });
-      setFocusedId(null);
-      revealNavigationTarget(null);
-    });
-  }, [dispatchDraft, revealNavigationTarget]);
+  const releaseFocus = useCallback(
+    (id: string) => {
+      requestAnimationFrame(() => {
+        if (focusedRef.current !== id) return;
+        const active = document.activeElement;
+        if (active instanceof Element) {
+          if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
+          if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
+        }
+        dispatchDraft({ type: "clear-auto-closers", ids: [id] });
+        setFocusedId(null);
+        revealNavigationTarget(null);
+      });
+    },
+    [dispatchDraft, revealNavigationTarget],
+  );
 
   /**
    * Hands the keyboard to the tree. A selection and a caret are the two answers
@@ -1081,8 +1074,9 @@ export function Outliner({
       const creations = pendingOperations.filter((entry) => entry.kind !== "merge");
       const lost = creations.length;
       const typed = creations.some(
-        (entry) => (draftStateRef.current.drafts.get(entry.tempId)
-          ?? entry.created.markdown) !== entry.created.markdown,
+        (entry) =>
+          (draftStateRef.current.drafts.get(entry.tempId) ?? entry.created.markdown) !==
+          entry.created.markdown,
       );
       let fallback: string | null = null;
       for (const entry of creations) {
@@ -1119,12 +1113,10 @@ export function Outliner({
           block_id: head.sourceId,
         })
         .then(() => {
-          const typed = draftStateRef.current.drafts.get(head.targetId)
-            ?? head.merged.markdown;
+          const typed = draftStateRef.current.drafts.get(head.targetId) ?? head.merged.markdown;
           const active = document.activeElement;
-          const caret = active instanceof HTMLTextAreaElement
-            ? active.selectionStart
-            : head.joinCaret;
+          const caret =
+            active instanceof HTMLTextAreaElement ? active.selectionStart : head.joinCaret;
           const wasFocused = focusedRef.current === head.targetId;
           flushSync(() => {
             dispatchDraft({ type: "complete-merge", id: head.id });
@@ -1167,41 +1159,40 @@ export function Outliner({
     }
     dispatchDraft({ type: "mark-dispatched", id: head.id });
     pendingDispatching.current = true;
-    const placement: SplitPlacement = head.mode === "before"
-      ? "before"
-      : head.mode === "child"
-        ? "first_child"
-        : "after";
-    const command: Command = head.kind === "insert"
-      ? {
-          type: "insert_block",
-          owner: ownerRef.current,
-          parent: head.mode === "child" ? head.anchorId : source.parentId,
-          index: head.mode === "before" ? source.index : head.mode === "child" ? 0 : source.index + 1,
-          markdown: head.created.markdown,
-        }
-      : {
-          type: "split_block",
-          owner: ownerRef.current,
-          block_id: head.anchorId,
-          index: head.splitIndex,
-          placement,
-        };
+    const placement: SplitPlacement =
+      head.mode === "before" ? "before" : head.mode === "child" ? "first_child" : "after";
+    const command: Command =
+      head.kind === "insert"
+        ? {
+            type: "insert_block",
+            owner: ownerRef.current,
+            parent: head.mode === "child" ? head.anchorId : source.parentId,
+            index:
+              head.mode === "before" ? source.index : head.mode === "child" ? 0 : source.index + 1,
+            markdown: head.created.markdown,
+          }
+        : {
+            type: "split_block",
+            owner: ownerRef.current,
+            block_id: head.anchorId,
+            index: head.splitIndex,
+            placement,
+          };
     session
       .execute(command)
       .then(async (result) => {
         const realId = result.created_block;
-        const pendingCreation = draftStateRef.current.pendingOperations
-          .find((operation) => operation.kind !== "merge" && operation.tempId === head.tempId);
-        const structural = pendingCreation && pendingCreation.kind !== "merge"
-          ? pendingCreation.structural
-          : head.structural;
-        const typed = draftStateRef.current.drafts.get(head.tempId)
-          ?? head.created.markdown;
+        const pendingCreation = draftStateRef.current.pendingOperations.find(
+          (operation) => operation.kind !== "merge" && operation.tempId === head.tempId,
+        );
+        const structural =
+          pendingCreation && pendingCreation.kind !== "merge"
+            ? pendingCreation.structural
+            : head.structural;
+        const typed = draftStateRef.current.drafts.get(head.tempId) ?? head.created.markdown;
         const wasFocused = focusedRef.current === head.tempId;
         const active = document.activeElement;
-        const caret =
-          active instanceof HTMLTextAreaElement ? active.selectionStart : typed.length;
+        const caret = active instanceof HTMLTextAreaElement ? active.selectionStart : typed.length;
         if (realId) {
           // Commit removal of the temp row, the real-id focus state, and the
           // reconciled snapshot in one browser task. The layout focus effect
@@ -1337,11 +1328,8 @@ export function Outliner({
   ]);
 
   const run = useCallback(
-    (
-      command: Parameters<GraphSession["execute"]>[0],
-      summary: string,
-    ) => session.execute(command)
-      .catch((error: unknown) => {
+    (command: Parameters<GraphSession["execute"]>[0], summary: string) =>
+      session.execute(command).catch((error: unknown) => {
         notify.failure(summary, error);
         return undefined;
       }),
@@ -1359,268 +1347,276 @@ export function Outliner({
     return caretForVerticalEntry(value, head < anchor ? -1 : 1, range.returnColumn);
   }, []);
 
-  const restoreVisualCaret = useCallback((range: VisualLineRange) => {
-    const caret = visualCaret(range);
-    setVisualLine(null);
-    anchorId.current = null;
-    const empty = new Set<string>();
-    setSelected(empty);
-    activateBlock(range.headId, caret, "keyboard");
-  }, [activateBlock, setVisualLine, visualCaret]);
+  const restoreVisualCaret = useCallback(
+    (range: VisualLineRange) => {
+      const caret = visualCaret(range);
+      setVisualLine(null);
+      anchorId.current = null;
+      const empty = new Set<string>();
+      setSelected(empty);
+      activateBlock(range.headId, caret, "keyboard");
+    },
+    [activateBlock, setVisualLine, visualCaret],
+  );
 
-  const runVimVisualLine = useCallback((
-    command: VimVisualLineCommand,
-    row?: OutlineRow,
-    allRows: OutlineRow[] = rowsRef.current,
-  ) => {
-    if (command.action === "begin") {
-      if (!row || readonly || isPendingId(row.block.id)) {
-        vim.reset();
-        return;
-      }
-      flushNow(row.block.id);
-      const anchor = rowIndexOf(allRows, row.block.id);
-      if (anchor < 0) {
-        vim.reset();
-        return;
-      }
-      const head = stepVisualLineIndex(allRows, anchor, anchor, 1, command.count - 1);
-      const range: VisualLineRange = {
-        anchorId: row.block.id,
-        headId: allRows[head].block.id,
-        returnCaret: command.caret,
-        returnColumn: command.column,
-      };
-      anchorId.current = range.anchorId;
-      setVisualLine(range);
-      const ids = selectableIds(allRows, anchor, head);
-      setSelected(ids);
-      takeTreeFocus();
-      revealNavigationTarget(range.headId);
-      return;
-    }
-
-    const range = visualLineRef.current;
-    if (!range) {
-      vim.reset();
-      return;
-    }
-    const anchor = rowIndexOf(allRows, range.anchorId);
-    const head = rowIndexOf(allRows, range.headId);
-    if (anchor < 0 || head < 0) {
-      clearSelection();
-      return;
-    }
-
-    if (command.action === "move" || command.action === "edge") {
-      const target = command.action === "move"
-        ? stepVisualLineIndex(allRows, anchor, head, command.direction, command.count)
-        : edgeVisualLineIndex(allRows, anchor, command.edge);
-      const next = { ...range, headId: allRows[target].block.id };
-      setVisualLine(next);
-      const ids = selectableIds(allRows, anchor, target);
-      setSelected(ids);
-      revealNavigationTarget(next.headId);
-      return;
-    }
-    if (command.action === "cancel") {
-      restoreVisualCaret(range);
-      return;
-    }
-
-    const roots = selectionRoots(allRows, selectedRef.current);
-    if (roots.length === 0) {
-      restoreVisualCaret(range);
-      return;
-    }
-    if (command.action === "delete") {
-      const mask = coveredMask(allRows, selectedRef.current);
-      const first = mask.findIndex(Boolean);
-      let fallback: OutlineRow | undefined;
-      for (let index = first; index < allRows.length; index += 1) {
-        if (!mask[index]) {
-          fallback = allRows[index];
-          break;
+  const runVimVisualLine = useCallback(
+    (command: VimVisualLineCommand, row?: OutlineRow, allRows: OutlineRow[] = rowsRef.current) => {
+      if (command.action === "begin") {
+        if (!row || readonly || isPendingId(row.block.id)) {
+          vim.reset();
+          return;
         }
+        flushNow(row.block.id);
+        const anchor = rowIndexOf(allRows, row.block.id);
+        if (anchor < 0) {
+          vim.reset();
+          return;
+        }
+        const head = stepVisualLineIndex(allRows, anchor, anchor, 1, command.count - 1);
+        const range: VisualLineRange = {
+          anchorId: row.block.id,
+          headId: allRows[head].block.id,
+          returnCaret: command.caret,
+          returnColumn: command.column,
+        };
+        anchorId.current = range.anchorId;
+        setVisualLine(range);
+        const ids = selectableIds(allRows, anchor, head);
+        setSelected(ids);
+        takeTreeFocus();
+        revealNavigationTarget(range.headId);
+        return;
       }
-      if (!fallback) {
-        for (let index = first - 1; index >= 0; index -= 1) {
+
+      const range = visualLineRef.current;
+      if (!range) {
+        vim.reset();
+        return;
+      }
+      const anchor = rowIndexOf(allRows, range.anchorId);
+      const head = rowIndexOf(allRows, range.headId);
+      if (anchor < 0 || head < 0) {
+        clearSelection();
+        return;
+      }
+
+      if (command.action === "move" || command.action === "edge") {
+        const target =
+          command.action === "move"
+            ? stepVisualLineIndex(allRows, anchor, head, command.direction, command.count)
+            : edgeVisualLineIndex(allRows, anchor, command.edge);
+        const next = { ...range, headId: allRows[target].block.id };
+        setVisualLine(next);
+        const ids = selectableIds(allRows, anchor, target);
+        setSelected(ids);
+        revealNavigationTarget(next.headId);
+        return;
+      }
+      if (command.action === "cancel") {
+        restoreVisualCaret(range);
+        return;
+      }
+
+      const roots = selectionRoots(allRows, selectedRef.current);
+      if (roots.length === 0) {
+        restoreVisualCaret(range);
+        return;
+      }
+      if (command.action === "delete") {
+        const mask = coveredMask(allRows, selectedRef.current);
+        const first = mask.findIndex(Boolean);
+        let fallback: OutlineRow | undefined;
+        for (let index = first; index < allRows.length; index += 1) {
           if (!mask[index]) {
             fallback = allRows[index];
             break;
           }
         }
+        if (!fallback) {
+          for (let index = first - 1; index >= 0; index -= 1) {
+            if (!mask[index]) {
+              fallback = allRows[index];
+              break;
+            }
+          }
+        }
+        setVisualLine(null);
+        anchorId.current = null;
+        const empty = new Set<string>();
+        setSelected(empty);
+        void run(
+          { type: "delete_blocks", owner, block_ids: roots.map((entry) => entry.block.id) },
+          message("failure.deleteBlocks", { count: roots.length }),
+        ).then(() => activateBlock(fallback?.block.id ?? null, 0, "programmatic"));
+        return;
       }
+
+      const caret = visualCaret(range);
       setVisualLine(null);
       anchorId.current = null;
       const empty = new Set<string>();
       setSelected(empty);
+      activateBlock(range.headId, caret, "keyboard");
       void run(
-        { type: "delete_blocks", owner, block_ids: roots.map((entry) => entry.block.id) },
-        message("failure.deleteBlocks", { count: roots.length }),
-      ).then(() => activateBlock(fallback?.block.id ?? null, 0, "programmatic"));
-      return;
-    }
+        {
+          type: command.action === "indent" ? "indent_blocks" : "outdent_blocks",
+          owner,
+          block_ids: roots.map((entry) => entry.block.id),
+        },
+        message(command.action === "indent" ? "failure.indentBlock" : "failure.outdentBlock"),
+      );
+    },
+    [
+      clearSelection,
+      flushNow,
+      message,
+      owner,
+      readonly,
+      revealNavigationTarget,
+      restoreVisualCaret,
+      run,
+      activateBlock,
+      setVisualLine,
+      takeTreeFocus,
+      vim.reset,
+      visualCaret,
+    ],
+  );
 
-    const caret = visualCaret(range);
-    setVisualLine(null);
-    anchorId.current = null;
-    const empty = new Set<string>();
-    setSelected(empty);
-    activateBlock(range.headId, caret, "keyboard");
-    void run(
-      {
-        type: command.action === "indent" ? "indent_blocks" : "outdent_blocks",
-        owner,
-        block_ids: roots.map((entry) => entry.block.id),
-      },
-      message(command.action === "indent" ? "failure.indentBlock" : "failure.outdentBlock"),
-    );
-  }, [
-    clearSelection,
-    flushNow,
-    message,
-    owner,
-    readonly,
-    revealNavigationTarget,
-    restoreVisualCaret,
-    run,
-    activateBlock,
-    setVisualLine,
-    takeTreeFocus,
-    vim.reset,
-    visualCaret,
-  ]);
+  const runVimWordMotion = useCallback(
+    (
+      command: VimWordMotionCommand,
+      row: OutlineRow,
+      allRows: OutlineRow[],
+      textarea: HTMLTextAreaElement,
+    ) => {
+      const units = allRows.filter((entry) => !isPendingId(entry.block.id));
+      const current = units.findIndex((entry) => entry.block.id === row.block.id);
+      if (current < 0) return;
+      const values = units.map(
+        (entry) => draftStateRef.current.drafts.get(entry.block.id) ?? entry.block.markdown,
+      );
 
-  const runVimWordMotion = useCallback((
-    command: VimWordMotionCommand,
-    row: OutlineRow,
-    allRows: OutlineRow[],
-    textarea: HTMLTextAreaElement,
-  ) => {
-    const units = allRows.filter((entry) => !isPendingId(entry.block.id));
-    const current = units.findIndex((entry) => entry.block.id === row.block.id);
-    if (current < 0) return;
-    const values = units.map((entry) => (
-      draftStateRef.current.drafts.get(entry.block.id) ?? entry.block.markdown
-    ));
+      if (command.operator === null) {
+        const target = wordMotionAcrossUnits(
+          values,
+          { unit: current, offset: command.caret },
+          command.motion,
+          command.count,
+        );
+        const targetRow = units[target.unit];
+        if (!targetRow) return;
+        if (targetRow.block.id === row.block.id) {
+          textarea.setSelectionRange(target.offset, target.offset);
+          publishSelection(row.block.id, textarea);
+          return;
+        }
+        flushNow(row.block.id);
+        activateBlock(targetRow.block.id, target.offset, "keyboard");
+        return;
+      }
 
-    if (command.operator === null) {
-      const target = wordMotionAcrossUnits(
+      if (readonly) return;
+      const plan = wordEditsAcrossUnits(
         values,
         { unit: current, offset: command.caret },
         command.motion,
         command.count,
       );
-      const targetRow = units[target.unit];
-      if (!targetRow) return;
-      if (targetRow.block.id === row.block.id) {
-        textarea.setSelectionRange(target.offset, target.offset);
-        publishSelection(row.block.id, textarea);
+      if (plan.edits.length === 0) {
+        if (command.operator === "change") vim.reset();
         return;
       }
-      flushNow(row.block.id);
-      activateBlock(targetRow.block.id, target.offset, "keyboard");
-      return;
-    }
 
-    if (readonly) return;
-    const plan = wordEditsAcrossUnits(
-      values,
-      { unit: current, offset: command.caret },
-      command.motion,
-      command.count,
-    );
-    if (plan.edits.length === 0) {
-      if (command.operator === "change") vim.reset();
-      return;
-    }
+      const updates = plan.edits
+        .map((edit) => {
+          const targetRow = units[edit.unit];
+          const value = values[edit.unit];
+          return {
+            row: targetRow,
+            value,
+            next: `${value.slice(0, edit.from)}${value.slice(edit.to)}`,
+            from: edit.from,
+            to: edit.to,
+          };
+        })
+        .filter((update) => update.row !== undefined);
+      if (updates.length === 0) return;
 
-    const updates = plan.edits.map((edit) => {
-      const targetRow = units[edit.unit];
-      const value = values[edit.unit];
-      return {
-        row: targetRow,
-        value,
-        next: `${value.slice(0, edit.from)}${value.slice(edit.to)}`,
-        from: edit.from,
-        to: edit.to,
-      };
-    }).filter((update) => update.row !== undefined);
-    if (updates.length === 0) return;
+      for (const update of updates) flushNow(update.row.block.id);
+      draftInputRevision.current += 1;
+      for (const update of updates) {
+        dispatchDraft({
+          type: "edit",
+          id: update.row.block.id,
+          value: update.next,
+          baselineIfAbsent: update.row.block.markdown,
+          autoClosers: [],
+        });
+      }
+      setSlashRequest(null);
+      setHashRequest(null);
+      setPageRequest(null);
 
-    for (const update of updates) flushNow(update.row.block.id);
-    draftInputRevision.current += 1;
-    for (const update of updates) {
-      dispatchDraft({
-        type: "edit",
-        id: update.row.block.id,
-        value: update.next,
-        baselineIfAbsent: update.row.block.markdown,
-        autoClosers: [],
+      const caretRow = units[plan.caret.unit];
+      if (!caretRow) return;
+      const caretValue =
+        updates.find((update) => update.row.block.id === caretRow.block.id)?.next ??
+        values[plan.caret.unit];
+      const caret =
+        command.operator === "change"
+          ? Math.min(plan.caret.offset, caretValue.length)
+          : normalCaretAfterEdit(caretValue, plan.caret.offset);
+      const currentUpdate = updates.find((update) => update.row.block.id === row.block.id);
+      if (caretRow.block.id === row.block.id) {
+        if (currentUpdate) textarea.value = currentUpdate.next;
+        textarea.setSelectionRange(caret, caret);
+        publishSelection(row.block.id, textarea);
+      } else {
+        activateBlock(caretRow.block.id, caret, "keyboard");
+      }
+
+      const ids = updates.map((update) => update.row.block.id);
+      const contentPlans = updates.flatMap((update) => {
+        const references =
+          draftStateRef.current.pageReferences.get(update.row.block.id) ??
+          update.row.block.page_references ??
+          [];
+        const plan = planInlineEdit(update.row.block.id, update.value, references, update.next);
+        if (!plan) return [];
+        dispatchDraft({
+          type: "set-baseline",
+          id: update.row.block.id,
+          value: update.next,
+          pageReferences: plan.references,
+        });
+        return [plan.splice];
       });
-    }
-    setSlashRequest(null);
-    setHashRequest(null);
-    setPageRequest(null);
-
-    const caretRow = units[plan.caret.unit];
-    if (!caretRow) return;
-    const caretValue = updates.find((update) => update.row.block.id === caretRow.block.id)?.next
-      ?? values[plan.caret.unit];
-    const caret = command.operator === "change"
-      ? Math.min(plan.caret.offset, caretValue.length)
-      : normalCaretAfterEdit(caretValue, plan.caret.offset);
-    const currentUpdate = updates.find((update) => update.row.block.id === row.block.id);
-    if (caretRow.block.id === row.block.id) {
-      if (currentUpdate) textarea.value = currentUpdate.next;
-      textarea.setSelectionRange(caret, caret);
-      publishSelection(row.block.id, textarea);
-    } else {
-      activateBlock(caretRow.block.id, caret, "keyboard");
-    }
-
-    const ids = updates.map((update) => update.row.block.id);
-    const contentPlans = updates.flatMap((update) => {
-      const references = draftStateRef.current.pageReferences.get(update.row.block.id)
-        ?? update.row.block.page_references
-        ?? [];
-      const plan = planInlineEdit(
-        update.row.block.id,
-        update.value,
-        references,
-        update.next,
-      );
-      if (!plan) return [];
-      dispatchDraft({
-        type: "set-baseline",
-        id: update.row.block.id,
-        value: update.next,
-        pageReferences: plan.references,
-      });
-      return [plan.splice];
-    });
-    if (contentPlans.length === 0) return;
-    void session.execute({
-      type: "splice_block_contents",
+      if (contentPlans.length === 0) return;
+      void session
+        .execute({
+          type: "splice_block_contents",
+          owner,
+          splices: contentPlans,
+        })
+        .catch((error: unknown) => {
+          dispatchDraft({ type: "clear", ids });
+          notify.failure(message("failure.lastEdit"), error);
+        });
+    },
+    [
+      dispatchDraft,
+      flushNow,
+      message,
+      notify,
       owner,
-      splices: contentPlans,
-    }).catch((error: unknown) => {
-      dispatchDraft({ type: "clear", ids });
-      notify.failure(message("failure.lastEdit"), error);
-    });
-  }, [
-    dispatchDraft,
-    flushNow,
-    message,
-    notify,
-    owner,
-    publishSelection,
-    readonly,
-    session,
-    activateBlock,
-    vim.reset,
-  ]);
+      publishSelection,
+      readonly,
+      session,
+      activateBlock,
+      vim.reset,
+    ],
+  );
 
   // ── pointer plumbing ────────────────────────────────────────────────────
   //
@@ -1747,7 +1743,8 @@ export function Outliner({
               const under = rowIndexAtPoint(viewportRef.current, move.clientY, rowsRef.current);
               if (under === null || under === start) return;
             } else if (
-              Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX
+              Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) <
+              DRAG_THRESHOLD_PX
             ) {
               return;
             }
@@ -1773,14 +1770,7 @@ export function Outliner({
         },
       );
     },
-    [
-      anchorRowIndex,
-      clearSelection,
-      leaveVisualLine,
-      listen,
-      takeTreeFocus,
-      updateAutoScroll,
-    ],
+    [anchorRowIndex, clearSelection, leaveVisualLine, listen, takeTreeFocus, updateAutoScroll],
   );
 
   const onGripPointerDown = useCallback(
@@ -1796,7 +1786,11 @@ export function Outliner({
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest("button, a, select, input, [contenteditable='true'], .outline-tags, .block-chips, .query-block")) {
+      if (
+        target.closest(
+          "button, a, select, input, [contenteditable='true'], .outline-tags, .block-chips, .query-block",
+        )
+      ) {
         return;
       }
       if (target instanceof HTMLTextAreaElement) {
@@ -1908,7 +1902,10 @@ export function Outliner({
       listen(
         (move) => {
           if (!started) {
-            if (Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX) {
+            if (
+              Math.abs(move.clientY - startY) + Math.abs(move.clientX - startX) <
+              DRAG_THRESHOLD_PX
+            ) {
               return;
             }
             if (readonly) return;
@@ -1942,14 +1939,7 @@ export function Outliner({
         },
       );
     },
-    [
-      applyMove,
-      activateBlock,
-      leaveVisualLine,
-      listen,
-      readonly,
-      updateAutoScroll,
-    ],
+    [applyMove, activateBlock, leaveVisualLine, listen, readonly, updateAutoScroll],
   );
 
   const onRowContextMenu = useCallback(
@@ -1962,9 +1952,10 @@ export function Outliner({
         anchorId.current = row.block.id;
         setSelected(new Set());
       }
-      const editor = event.currentTarget
-        .closest<HTMLElement>('[data-testid="outline-row"]')
-        ?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
+      const editor =
+        event.currentTarget
+          .closest<HTMLElement>('[data-testid="outline-row"]')
+          ?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
       setMenuFor(row.block.id, pointAnchor(event.clientX, event.clientY, editor));
     },
     [selectionCovered],
@@ -1972,11 +1963,7 @@ export function Outliner({
 
   const copySelection = useCallback(
     (_inputMethod: InputMethod) => {
-      const fragment = createOutlineFragment(
-        state.snapshot,
-        outline,
-        selectedRef.current,
-      );
+      const fragment = createOutlineFragment(state.snapshot, outline, selectedRef.current);
       if (!fragment) return;
       void writeClipboardBundle(buildClipboardBundle(fragment)).catch((error: unknown) => {
         notify.failure(message("failure.copyBlocks"), error);
@@ -1988,11 +1975,7 @@ export function Outliner({
   const onCopySelection = useCallback(
     (event: ClipboardEvent<HTMLDivElement>) => {
       if (selectedRef.current.size === 0) return;
-      const fragment = createOutlineFragment(
-        state.snapshot,
-        outline,
-        selectedRef.current,
-      );
+      const fragment = createOutlineFragment(state.snapshot, outline, selectedRef.current);
       if (!fragment) return;
       event.preventDefault();
       setClipboardData(event.clipboardData, buildClipboardBundle(fragment));
@@ -2005,28 +1988,30 @@ export function Outliner({
       if (readonly || isPendingId(row.block.id) || items.length === 0) return;
       flushNow(row.block.id);
       const replace = isPlainEmptyBlock(
-          row.block,
-          draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
-        )
+        row.block,
+        draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
+      )
         ? row.block.id
         : null;
-      void session.execute({
-        type: "insert_outline",
-        owner,
-        parent: row.parentId,
-        index: replace ? row.index : row.index + 1,
-        replace,
-        items,
-      }).then(
-        (result) => {
-          if (result.created_block) {
-            activateBlock(result.created_block, undefined, "keyboard");
-          }
-        },
-        (error: unknown) => {
-          notify.failure(message("failure.pasteBlocks"), error);
-        },
-      );
+      void session
+        .execute({
+          type: "insert_outline",
+          owner,
+          parent: row.parentId,
+          index: replace ? row.index : row.index + 1,
+          replace,
+          items,
+        })
+        .then(
+          (result) => {
+            if (result.created_block) {
+              activateBlock(result.created_block, undefined, "keyboard");
+            }
+          },
+          (error: unknown) => {
+            notify.failure(message("failure.pasteBlocks"), error);
+          },
+        );
     },
     [activateBlock, flushNow, message, notify, owner, readonly, session],
   );
@@ -2036,28 +2021,30 @@ export function Outliner({
       if (readonly || isPendingId(row.block.id) || fragment.items.length === 0) return;
       flushNow(row.block.id);
       const replace = isPlainEmptyBlock(
-          row.block,
-          draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
-        )
+        row.block,
+        draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
+      )
         ? row.block.id
         : null;
-      void session.execute({
-        type: "paste_outline",
-        owner,
-        parent: row.parentId,
-        index: replace ? row.index : row.index + 1,
-        replace,
-        fragment,
-      }).then(
-        (result) => {
-          if (result.created_block) {
-            activateBlock(result.created_block, undefined, "keyboard");
-          }
-        },
-        (error: unknown) => {
-          notify.failure(message("failure.pasteBlocks"), error);
-        },
-      );
+      void session
+        .execute({
+          type: "paste_outline",
+          owner,
+          parent: row.parentId,
+          index: replace ? row.index : row.index + 1,
+          replace,
+          fragment,
+        })
+        .then(
+          (result) => {
+            if (result.created_block) {
+              activateBlock(result.created_block, undefined, "keyboard");
+            }
+          },
+          (error: unknown) => {
+            notify.failure(message("failure.pasteBlocks"), error);
+          },
+        );
     },
     [activateBlock, flushNow, message, notify, owner, readonly, session],
   );
@@ -2076,7 +2063,7 @@ export function Outliner({
   }, [compare, hashRequest, outline, state.snapshot.tags]);
   const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
   const pageResults = useMemo<PageOption[]>(
-    () => pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : [],
+    () => (pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : []),
     [compare, pageDirectory, pageRequest],
   );
   const pageIndex = Math.min(pageActive, Math.max(pageResults.length - 1, 0));
@@ -2093,9 +2080,10 @@ export function Outliner({
       const results = filterPageOptions(pageDirectory, page.query, compare);
       dispatchOverlay({
         type: "set-completion",
-        overlay: results.length > 0
-          ? { kind: "page", request: { blockId, ...page, anchor: textarea }, active: 0 }
-          : null,
+        overlay:
+          results.length > 0
+            ? { kind: "page", request: { blockId, ...page, anchor: textarea }, active: 0 }
+            : null,
       });
       return results.length > 0;
     }
@@ -2103,9 +2091,10 @@ export function Outliner({
     if (slash) {
       dispatchOverlay({
         type: "set-completion",
-        overlay: filterSlashItems(slashItems, slash.query).length > 0
-          ? { kind: "slash", request: { blockId, ...slash, anchor: textarea }, active: 0 }
-          : null,
+        overlay:
+          filterSlashItems(slashItems, slash.query).length > 0
+            ? { kind: "slash", request: { blockId, ...slash, anchor: textarea }, active: 0 }
+            : null,
       });
       return filterSlashItems(slashItems, slash.query).length > 0;
     }
@@ -2169,29 +2158,32 @@ export function Outliner({
     },
     openMenu: setMenuFor,
     openProperties: (id, key, anchor = null) => {
-      const element = anchor instanceof HTMLElement ? anchor : anchor?.owner ?? null;
-      const placement = anchor instanceof HTMLTextAreaElement
-        ? caretAnchor(anchor, anchor.selectionStart)
-        : anchor instanceof HTMLElement
-          ? elementAnchor(anchor)
-          : anchor;
+      const element = anchor instanceof HTMLElement ? anchor : (anchor?.owner ?? null);
+      const placement =
+        anchor instanceof HTMLTextAreaElement
+          ? caretAnchor(anchor, anchor.selectionStart)
+          : anchor instanceof HTMLElement
+            ? elementAnchor(anchor)
+            : anchor;
       setPropertyRequest({
         blockId: id,
         key,
         anchor: placement,
-        selection: element instanceof HTMLTextAreaElement
-          ? { start: element.selectionStart, end: element.selectionEnd }
-          : undefined,
+        selection:
+          element instanceof HTMLTextAreaElement
+            ? { start: element.selectionStart, end: element.selectionEnd }
+            : undefined,
       });
     },
     openTags: (id, anchor = null) => {
       setTagRequest({
         blockId: id,
-        anchor: anchor instanceof HTMLTextAreaElement
-          ? caretAnchor(anchor, anchor.selectionStart)
-          : anchor instanceof HTMLElement
-            ? elementAnchor(anchor)
-            : anchor,
+        anchor:
+          anchor instanceof HTMLTextAreaElement
+            ? caretAnchor(anchor, anchor.selectionStart)
+            : anchor instanceof HTMLElement
+              ? elementAnchor(anchor)
+              : anchor,
       });
     },
     closeSlash: () => setSlashRequest(null),
@@ -2308,9 +2300,8 @@ export function Outliner({
       const id = row.block.id;
       const draft = draftStateRef.current.drafts.get(id) ?? row.block.markdown;
       const baseline = draftStateRef.current.baselines.get(id) ?? row.block.markdown;
-      const baselineReferences = draftStateRef.current.pageReferences.get(id)
-        ?? row.block.page_references
-        ?? [];
+      const baselineReferences =
+        draftStateRef.current.pageReferences.get(id) ?? row.block.page_references ?? [];
       const pendingText = planInlineEdit(id, baseline, baselineReferences, draft);
       const currentReferences = pendingText?.references ?? baselineReferences;
       const pageId = chosen.create ? `p-${crypto.randomUUID()}` : chosen.id;
@@ -2355,12 +2346,12 @@ export function Outliner({
         owner,
         ...replacement.plan.splice,
       });
-      void session.execute(commands.length === 1
-        ? commands[0]
-        : { type: "batch", commands }).catch((error: unknown) => {
-        if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
-        notify.failure(message("failure.lastEdit"), error);
-      });
+      void session
+        .execute(commands.length === 1 ? commands[0] : { type: "batch", commands })
+        .catch((error: unknown) => {
+          if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
+          notify.failure(message("failure.lastEdit"), error);
+        });
     },
     toggleCollapse: (id) => {
       if (visualLineRef.current) clearSelection();
@@ -2376,9 +2367,7 @@ export function Outliner({
       // to mount while scrolling — fade up while the chevron turns.
       if (expanding) {
         const before = new Set(rowsRef.current.map((row) => row.block.id));
-        const uncovered = after
-          .map((row) => row.block.id)
-          .filter((entry) => !before.has(entry));
+        const uncovered = after.map((row) => row.block.id).filter((entry) => !before.has(entry));
         if (uncovered.length > 0) {
           setRevealed(new Set(uncovered));
           if (revealTimer.current) clearTimeout(revealTimer.current);
@@ -2403,14 +2392,16 @@ export function Outliner({
         }
       }
     },
-    draftOf: (row) => pendingProjection.content.get(row.block.id)?.markdown
-      ?? draftState.drafts.get(row.block.id)
-      ?? row.block.markdown,
+    draftOf: (row) =>
+      pendingProjection.content.get(row.block.id)?.markdown ??
+      draftState.drafts.get(row.block.id) ??
+      row.block.markdown,
     autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? NO_AUTO_CLOSERS,
-    pageReferencesOf: (block) => pendingProjection.content.get(block.id)?.pageReferences
-      ?? draftState.pageReferences.get(block.id)
-      ?? block.page_references
-      ?? NO_PAGE_REFERENCES,
+    pageReferencesOf: (block) =>
+      pendingProjection.content.get(block.id)?.pageReferences ??
+      draftState.pageReferences.get(block.id) ??
+      block.page_references ??
+      NO_PAGE_REFERENCES,
     onInput: (row, value, textarea, edit) => {
       const previous = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
       let nextClosers = transformAutoClosers(
@@ -2425,8 +2416,7 @@ export function Outliner({
         nextClosers = [
           ...nextClosers.filter(
             (marker) =>
-              marker.offset !== generatedCloser.offset ||
-              marker.closer !== generatedCloser.closer,
+              marker.offset !== generatedCloser.offset || marker.closer !== generatedCloser.closer,
           ),
           generatedCloser,
         ];
@@ -2535,10 +2525,7 @@ export function Outliner({
       dispatchPending();
     },
     mergeBackward: (row, allRows, textarea, inputMethod) => {
-      if (
-        draftStateRef.current.pendingOperations.length > 0
-        && !isPendingId(row.block.id)
-      ) return;
+      if (draftStateRef.current.pendingOperations.length > 0 && !isPendingId(row.block.id)) return;
       const target = allRows.find(
         (candidate) => candidate.parentId === row.parentId && candidate.index === row.index - 1,
       );
@@ -2550,10 +2537,11 @@ export function Outliner({
       const projectedSource = editor.draftOf(row);
       const projectedReferences = editor.pageReferencesOf(row.block);
       const liveSource = textarea.value;
-      const liveReferences = liveSource === projectedSource
-        ? projectedReferences
-        : planInlineEdit(row.block.id, projectedSource, projectedReferences, liveSource)
-          ?.references ?? projectedReferences;
+      const liveReferences =
+        liveSource === projectedSource
+          ? projectedReferences
+          : (planInlineEdit(row.block.id, projectedSource, projectedReferences, liveSource)
+              ?.references ?? projectedReferences);
       const sourceContent = { markdown: liveSource, pageReferences: liveReferences };
       flushNow(target.block.id);
       flushNow(row.block.id);
@@ -2757,9 +2745,10 @@ export function Outliner({
   // editor after a memoized row has skipped unrelated parent renders.
   const editorRef = useLatest(editor);
   const liveEditor = useMemo(
-    () => new Proxy(editor, {
-      get: (_target, property: keyof EditorContext) => editorRef.current[property],
-    }),
+    () =>
+      new Proxy(editor, {
+        get: (_target, property: keyof EditorContext) => editorRef.current[property],
+      }),
     [editorRef],
   );
 
@@ -2795,9 +2784,7 @@ export function Outliner({
         scrollElement.scrollTop;
       // A fractional layout would otherwise re-render the whole outline on every
       // observation without moving a single row.
-      setScrollMargin((current) =>
-        Math.abs(current - offset) < 1 ? current : offset,
-      );
+      setScrollMargin((current) => (Math.abs(current - offset) < 1 ? current : offset));
     };
     measure();
 
@@ -2811,11 +2798,7 @@ export function Outliner({
     // parent already in this walk.
     for (let node: Element | null = viewport; node; node = node.parentElement) {
       observer.observe(node);
-      for (
-        let above = node.previousElementSibling;
-        above;
-        above = above.previousElementSibling
-      ) {
+      for (let above = node.previousElementSibling; above; above = above.previousElementSibling) {
         observer.observe(above);
       }
       if (node === scrollElement) break;
@@ -2900,8 +2883,10 @@ export function Outliner({
   // it, so intersection is the whole test.
   useEffect(() => {
     if (!navigationReveal) return;
-    const consume = () => setNavigationReveal((current) =>
-      current?.sequence === navigationReveal.sequence ? null : current);
+    const consume = () =>
+      setNavigationReveal((current) =>
+        current?.sequence === navigationReveal.sequence ? null : current,
+      );
     const index = rowIndexOf(rows, navigationReveal.id);
     if (index < 0) return;
     const element = viewportRef.current?.querySelector(
@@ -2938,9 +2923,10 @@ export function Outliner({
         const active = document.activeElement;
         pendingProperty.current = {
           blockId: focusedId,
-          selection: active instanceof HTMLTextAreaElement
-            ? { start: active.selectionStart, end: active.selectionEnd }
-            : undefined,
+          selection:
+            active instanceof HTMLTextAreaElement
+              ? { start: active.selectionStart, end: active.selectionEnd }
+              : undefined,
           action: key ? { kind: "picker", key } : undefined,
         };
         dispatchPending();
@@ -2950,11 +2936,13 @@ export function Outliner({
     const targetId = focusedId ?? selectedId;
     if (!targetId) {
       if (selected.size > 1) {
-        return commands.registerBlockProperties(() => notify.show({
-          tone: "info",
-          key: "property-selection-count",
-          title: message("properties.selectOne"),
-        }));
+        return commands.registerBlockProperties(() =>
+          notify.show({
+            tone: "info",
+            key: "property-selection-count",
+            title: message("properties.selectOne"),
+          }),
+        );
       }
       return;
     }
@@ -2966,9 +2954,7 @@ export function Outliner({
         blockId: targetId,
         key,
         anchor: anchor ? caretAnchor(anchor, anchor.selectionStart) : null,
-        selection: anchor
-          ? { start: anchor.selectionStart, end: anchor.selectionEnd }
-          : undefined,
+        selection: anchor ? { start: anchor.selectionStart, end: anchor.selectionEnd } : undefined,
       });
     });
   }, [commands, dispatchPending, focusedId, message, notify, selected]);
@@ -3033,9 +3019,7 @@ export function Outliner({
     }
   };
 
-  const propertyBlock = propertyRequest
-    ? findBlock(outline, propertyRequest.blockId)
-    : undefined;
+  const propertyBlock = propertyRequest ? findBlock(outline, propertyRequest.blockId) : undefined;
   const tagBlock = tagRequest ? findBlock(outline, tagRequest.blockId) : undefined;
 
   const closePropertyPicker = () => {
@@ -3051,8 +3035,8 @@ export function Outliner({
         ? originalAnchor.owner
         : blockId
           ? document.querySelector<HTMLTextAreaElement>(
-            `[data-block-id="${cssEscape(blockId)}"] textarea`,
-          )
+              `[data-block-id="${cssEscape(blockId)}"] textarea`,
+            )
           : null;
       if (anchor instanceof HTMLTextAreaElement) {
         keepingPageStill(anchor, () => {
@@ -3123,11 +3107,7 @@ export function Outliner({
           aria-label={message("outline.blocks")}
           aria-multiselectable="true"
           aria-activedescendant={
-            focusedId
-              ? `row-${focusedId}`
-              : visualLine
-                ? `row-${visualLine.headId}`
-                : undefined
+            focusedId ? `row-${focusedId}` : visualLine ? `row-${visualLine.headId}` : undefined
           }
           style={{ height: virtualizer.getTotalSize() }}
           ref={viewportRef}
@@ -3171,22 +3151,13 @@ export function Outliner({
               </div>
             );
           })}
-          {menuRow && (
-            <BlockMenu
-              row={menuRow}
-              rows={rows}
-              editor={editor}
-              bindings={bindings}
-            />
-          )}
+          {menuRow && <BlockMenu row={menuRow} rows={rows} editor={editor} bindings={bindings} />}
           {drop && (
             <div
               className="outline-drop"
               data-testid="outline-drop"
               data-after-id={drop.afterId ?? ""}
-              style={
-                { top: drop.top, "--drop-depth": drop.depth } as CSSProperties
-              }
+              style={{ top: drop.top, "--drop-depth": drop.depth } as CSSProperties}
             />
           )}
         </div>
@@ -3288,14 +3259,19 @@ function samePageReferences(
   left: readonly PageReferenceSpan[],
   right: readonly PageReferenceSpan[],
 ): boolean {
-  return left.length === right.length && left.every((reference, index) => {
-    const other = right[index];
-    return other !== undefined
-      && reference.start === other.start
-      && reference.end === other.end
-      && reference.index === other.index
-      && reference.page_id === other.page_id;
-  });
+  return (
+    left.length === right.length &&
+    left.every((reference, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        reference.start === other.start &&
+        reference.end === other.end &&
+        reference.index === other.index &&
+        reference.page_id === other.page_id
+      );
+    })
+  );
 }
 
 /** The collapsed set as it will be after toggling `id`. */
@@ -3354,10 +3330,7 @@ function nextVisualLineIndex(
   if (direction === 1 && !movingTowardAnchor) {
     const mask = coveredMask(rows, selectableIds(rows, anchor, from));
     let candidate = from + 1;
-    while (
-      candidate < rows.length
-      && (mask[candidate] || isPendingId(rows[candidate].block.id))
-    ) {
+    while (candidate < rows.length && (mask[candidate] || isPendingId(rows[candidate].block.id))) {
       candidate += 1;
     }
     return candidate < rows.length ? candidate : from;
@@ -3392,9 +3365,7 @@ function edgeVisualLineIndex(
   boundary = Math.max(0, Math.min(rows.length - 1, boundary));
   const roots = selectionRoots(rows, selectableIds(rows, anchor, boundary));
   const target = edge === "first" ? roots[0] : roots[roots.length - 1];
-  return target
-    ? rows.findIndex((row) => row.block.id === target.block.id)
-    : anchor;
+  return target ? rows.findIndex((row) => row.block.id === target.block.id) : anchor;
 }
 
 interface Metrics {
@@ -3460,9 +3431,7 @@ function resolveDrop(
   const viewportRect = viewport.getBoundingClientRect();
   const after = clientY > rect.top + rect.height / 2;
   const gap = after ? index + 1 : index;
-  const desired = Math.round(
-    (clientX - viewportRect.left - metrics.slot / 2) / metrics.indent,
-  );
+  const desired = Math.round((clientX - viewportRect.left - metrics.slot / 2) / metrics.indent);
   const target = dropTarget(rows, moving, gap, Math.max(0, desired));
   if (!target) return null;
   const top = (after ? rect.bottom : rect.top) - viewportRect.top;
@@ -3633,9 +3602,9 @@ function onKeyDown(
       event.preventDefault();
       if (!editor.readonly) handleEnter(editor, row, event.currentTarget);
     } else if (
-      event.key === "Backspace"
-      && event.currentTarget.selectionStart === 0
-      && event.currentTarget.selectionEnd === 0
+      event.key === "Backspace" &&
+      event.currentTarget.selectionStart === 0 &&
+      event.currentTarget.selectionEnd === 0
     ) {
       event.preventDefault();
       if (!editor.readonly && row.index > 0) {
@@ -3654,9 +3623,10 @@ function onKeyDown(
   // block's verbs would be pointer-only now that the row has no ⋯ button.
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
     event.preventDefault();
-    const bullet = textarea
-      .closest<HTMLElement>('[data-testid="outline-row"]')
-      ?.querySelector<HTMLElement>('[data-testid="block-bullet"]') ?? null;
+    const bullet =
+      textarea
+        .closest<HTMLElement>('[data-testid="outline-row"]')
+        ?.querySelector<HTMLElement>('[data-testid="block-bullet"]') ?? null;
     const bulletAnchor = elementAnchor(bullet);
     editor.openMenu(
       id,
@@ -3710,10 +3680,7 @@ function onKeyDown(
   }
 
   if (event.key === "Backspace") {
-    if (
-      textarea.selectionStart === 0 &&
-      textarea.selectionEnd === 0
-    ) {
+    if (textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
       event.preventDefault();
       if (editor.readonly) return;
       if (row.index > 0) {
@@ -3806,12 +3773,9 @@ function handleOutlineVim(
       selectionEnd: textarea.selectionEnd,
       editable: !editor.readonly,
       supportsVisualLine:
-        BLOCK_SURFACE_POLICY.outline.visualLine
-        && !editor.readonly
-        && !isPendingId(row.block.id),
+        BLOCK_SURFACE_POLICY.outline.visualLine && !editor.readonly && !isPendingId(row.block.id),
       supportsCrossBlockWords:
-        BLOCK_SURFACE_POLICY.outline.crossBlockWords
-        && !isPendingId(row.block.id),
+        BLOCK_SURFACE_POLICY.outline.crossBlockWords && !isPendingId(row.block.id),
     },
     vimKeyFromEvent(event),
   );
@@ -3856,7 +3820,8 @@ function runOutlineVimSurface(
   }
   if (command.type === "focus") {
     const current = rowIndexOf(rows, row.block.id);
-    const target = rows[Math.max(0, Math.min(rows.length - 1, current + command.direction * command.count))];
+    const target =
+      rows[Math.max(0, Math.min(rows.length - 1, current + command.direction * command.count))];
     if (!target || target.block.id === row.block.id) return;
     editor.flushNow(row.block.id);
     const value = editor.draftOf(target);
@@ -3917,16 +3882,8 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
     return;
   }
   const caretUtf16 = textarea.selectionStart;
-  const boundary = canonicalContentBoundary(
-    draft,
-    editor.pageReferencesOf(row.block),
-    caretUtf16,
-  );
-  const split = splitInlineContentProjection(
-    draft,
-    editor.pageReferencesOf(row.block),
-    boundary,
-  );
+  const boundary = canonicalContentBoundary(draft, editor.pageReferencesOf(row.block), caretUtf16);
+  const split = splitInlineContentProjection(draft, editor.pageReferencesOf(row.block), boundary);
   if (isPendingId(id)) {
     // The pending block's head moves locally; once its real id arrives the
     // queued split follows the baseline reconciliation in session order.
@@ -3970,22 +3927,16 @@ function projectPendingOperations(
       if (sourceIndex < 0 || targetIndex < 0) continue;
       const source = result[sourceIndex];
       const target = result[targetIndex];
-      const targetChildCount = result.filter(
-        (row) => row.parentId === entry.targetId,
-      ).length;
-      const sourceChildCount = result.filter(
-        (row) => row.parentId === entry.sourceId,
-      ).length;
+      const targetChildCount = result.filter((row) => row.parentId === entry.targetId).length;
+      const sourceChildCount = result.filter((row) => row.parentId === entry.sourceId).length;
       const mergedChildCount = targetChildCount + sourceChildCount;
       content.set(entry.targetId, {
         markdown: drafts.get(entry.targetId) ?? entry.merged.markdown,
         pageReferences: pageReferences.get(entry.targetId) ?? entry.merged.pageReferences,
       });
       let sourceSubtreeEnd = sourceIndex + 1;
-      while (
-        sourceSubtreeEnd < result.length
-        && result[sourceSubtreeEnd].depth > source.depth
-      ) sourceSubtreeEnd += 1;
+      while (sourceSubtreeEnd < result.length && result[sourceSubtreeEnd].depth > source.depth)
+        sourceSubtreeEnd += 1;
       const hidden = target.collapsed
         ? new Set(result.slice(sourceIndex, sourceSubtreeEnd).map((row) => row.block.id))
         : new Set([entry.sourceId]);
@@ -4099,53 +4050,50 @@ function projectBlockRowView(editor: EditorContext, row: OutlineRow): BlockRowVi
         : page
           ? "page-reference-menu"
           : undefined,
-    activeDescendant: slash && editor.slashResults[editor.slashActive]
-      ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
-      : hash && editor.hashResults[editor.hashActive]
-        ? `tag-opt-${editor.hashActive}`
-        : page && editor.pageResults[editor.pageActive]
-          ? `page-reference-opt-${editor.pageActive}`
-          : undefined,
+    activeDescendant:
+      slash && editor.slashResults[editor.slashActive]
+        ? `slash-opt-${editor.slashResults[editor.slashActive].id}`
+        : hash && editor.hashResults[editor.hashActive]
+          ? `tag-opt-${editor.hashActive}`
+          : page && editor.pageResults[editor.pageActive]
+            ? `page-reference-opt-${editor.pageActive}`
+            : undefined,
   };
 }
 
 function sameBlockRowProps(left: BlockRowProps, right: BlockRowProps): boolean {
   const a = left.view;
   const b = right.view;
-  return left.row.block === right.row.block
-    && left.row.depth === right.row.depth
-    && left.row.parentId === right.row.parentId
-    && left.row.index === right.row.index
-    && left.row.siblingCount === right.row.siblingCount
-    && left.row.hasChildren === right.row.hasChildren
-    && left.row.collapsed === right.row.collapsed
-    && left.editor === right.editor
-    && left.lit === right.lit
-    && left.ancestor === right.ancestor
-    && a.value === b.value
-    && a.pageReferences === b.pageReferences
-    && a.autoClosers === b.autoClosers
-    && a.focused === b.focused
-    && a.selected === b.selected
-    && a.revealed === b.revealed
-    && a.readonly === b.readonly
-    && a.revision === b.revision
-    && a.keymap === b.keymap
-    && a.vimMode === b.vimMode
-    && sameOutlineOwner(a.owner, b.owner)
-    && a.graphId === b.graphId
-    && a.peerNames === b.peerNames
-    && a.controls === b.controls
-    && a.activeDescendant === b.activeDescendant;
+  return (
+    left.row.block === right.row.block &&
+    left.row.depth === right.row.depth &&
+    left.row.parentId === right.row.parentId &&
+    left.row.index === right.row.index &&
+    left.row.siblingCount === right.row.siblingCount &&
+    left.row.hasChildren === right.row.hasChildren &&
+    left.row.collapsed === right.row.collapsed &&
+    left.editor === right.editor &&
+    left.lit === right.lit &&
+    left.ancestor === right.ancestor &&
+    a.value === b.value &&
+    a.pageReferences === b.pageReferences &&
+    a.autoClosers === b.autoClosers &&
+    a.focused === b.focused &&
+    a.selected === b.selected &&
+    a.revealed === b.revealed &&
+    a.readonly === b.readonly &&
+    a.revision === b.revision &&
+    a.keymap === b.keymap &&
+    a.vimMode === b.vimMode &&
+    sameOutlineOwner(a.owner, b.owner) &&
+    a.graphId === b.graphId &&
+    a.peerNames === b.peerNames &&
+    a.controls === b.controls &&
+    a.activeDescendant === b.activeDescendant
+  );
 }
 
-function BlockRow({
-  row,
-  editor,
-  view,
-  lit,
-  ancestor,
-}: BlockRowProps) {
+function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
   const { message } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isFocused = view.focused;
@@ -4158,14 +4106,11 @@ function BlockRow({
   const selected = view.selected;
   const projected = useRef(value);
   const revision = useRef(view.revision);
-  const previewMarkdown = !isFocused
-    && !pending
-    && hasMarkdownSyntax(value, pageReferences.length > 0);
+  const previewMarkdown =
+    !isFocused && !pending && hasMarkdownSyntax(value, pageReferences.length > 0);
   // A pending row has no id a property command can name yet, so it carries no
   // task marks either.
-  const marks = pending
-    ? 0
-    : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
+  const marks = pending ? 0 : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -4248,7 +4193,7 @@ function BlockRow({
       // shorthand, which silently overrode the row's own padding.
       style={{ "--depth": row.depth, "--lit": lit } as CSSProperties}
       gutterClassName="outline-gutter"
-      prefix={(
+      prefix={
         /* Everything left of the bullet. Dragging here selects rows; right-click
            opens the same menu the bullet does. */
         <span
@@ -4258,35 +4203,33 @@ function BlockRow({
           onPointerDown={(event) => editor.onGripPointerDown(row, event)}
           onContextMenu={(event) => editor.onRowContextMenu(row, event)}
         />
-      )}
-      gutter={(
+      }
+      gutter={
         <>
-        <button
-          className="outline-toggle"
-          aria-label={
-            row.collapsed ? message("outline.expand") : message("outline.collapse")
-          }
-          tabIndex={-1}
-          onClick={() => editor.toggleCollapse(row.block.id)}
-        >
-          {/* One glyph, rotated by the row's `data-collapsed` state rather than
+          <button
+            className="outline-toggle"
+            aria-label={row.collapsed ? message("outline.expand") : message("outline.collapse")}
+            tabIndex={-1}
+            onClick={() => editor.toggleCollapse(row.block.id)}
+          >
+            {/* One glyph, rotated by the row's `data-collapsed` state rather than
               two glyphs swapped on it. A swap changes the mark with no indication
               of which way it went; a turn IS the direction, which is the whole
               content of this control. app.css § .outline-toggle svg. */}
-          <ChevronDownIcon />
-        </button>
-        {/* The bullet is a row handle. One outline-level menu is anchored to the
+            <ChevronDownIcon />
+          </button>
+          {/* The bullet is a row handle. One outline-level menu is anchored to the
             active bullet or pointer, so closed rows carry no menu subtree. */}
-        <button
-          className="outline-bullet"
-          data-testid="block-bullet"
-          tabIndex={-1}
-          aria-label={message("outline.blockActions")}
-          onPointerDown={(event) => editor.onBulletPointerDown(row, event)}
-          onContextMenu={(event) => editor.onRowContextMenu(row, event)}
-        />
+          <button
+            className="outline-bullet"
+            data-testid="block-bullet"
+            tabIndex={-1}
+            aria-label={message("outline.blockActions")}
+            onPointerDown={(event) => editor.onBulletPointerDown(row, event)}
+            onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+          />
         </>
-      )}
+      }
     >
       <BlockBody
         className="outline-text"
@@ -4302,11 +4245,7 @@ function BlockRow({
               <TaskStatusControl owner={view.owner} block={row.block} status={taskStatus} />
             )}
             {taskPriority !== undefined && (
-              <TaskPriorityControl
-                owner={view.owner}
-                block={row.block}
-                priority={taskPriority}
-              />
+              <TaskPriorityControl owner={view.owner} block={row.block} priority={taskPriority} />
             )}
           </span>
         )}
@@ -4327,9 +4266,7 @@ function BlockRow({
           spellCheck={false}
           tabIndex={previewMarkdown ? -1 : undefined}
           readOnly={view.readonly}
-          acceptsTextInput={
-            view.keymap !== "vim" || view.vimMode === "insert"
-          }
+          acceptsTextInput={view.keymap !== "vim" || view.vimMode === "insert"}
           aria-readonly={view.readonly ? true : undefined}
           data-vim-mode={view.keymap === "vim" ? view.vimMode : undefined}
           aria-label={message("outline.blockText")}
@@ -4390,11 +4327,7 @@ function BlockRow({
             }}
           />
         )}
-        {view.peerNames.length > 0 && (
-          <span className="remote-presence">
-            {view.peerNames}
-          </span>
-        )}
+        {view.peerNames.length > 0 && <span className="remote-presence">{view.peerNames}</span>}
         {tags.length > 0 && (
           <div className="outline-tags">
             {/* A reference, not a delete button: the chip goes to the tag, which
@@ -4462,9 +4395,12 @@ function BlockMenu({
             return;
           }
           if (editor.focusedId !== null && editor.focusedId !== row.block.id) return;
-          const textarea = focusOwner instanceof HTMLTextAreaElement
-            ? focusOwner
-            : document.querySelector<HTMLTextAreaElement>(`#row-${CSS.escape(row.block.id)} textarea`);
+          const textarea =
+            focusOwner instanceof HTMLTextAreaElement
+              ? focusOwner
+              : document.querySelector<HTMLTextAreaElement>(
+                  `#row-${CSS.escape(row.block.id)} textarea`,
+                );
           textarea?.focus({ preventScroll: true });
         }}
       >
@@ -4541,10 +4477,7 @@ function BlockMenu({
               {message("outline.tags")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.addChild(row)}
-            >
+            <DropdownMenuItem disabled={editor.readonly} onSelect={() => editor.menu.addChild(row)}>
               <CornerDownRightIcon aria-hidden />
               {message("outline.addChild")}
             </DropdownMenuItem>

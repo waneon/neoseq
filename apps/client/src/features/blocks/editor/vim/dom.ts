@@ -16,11 +16,7 @@ export function vimKeyFromEvent(event: KeyboardEvent | ReactKeyboardEvent): VimK
 export function applyVimTextEffect(
   textarea: HTMLTextAreaElement,
   effect: Extract<VimEffect, { kind: "selection" | "edit" }>,
-  onEdit: (
-    value: string,
-    textarea: HTMLTextAreaElement,
-    edit?: BlockTextEdit,
-  ) => void,
+  onEdit: (value: string, textarea: HTMLTextAreaElement, edit?: BlockTextEdit) => void,
 ): void {
   if (effect.kind === "selection") {
     textarea.setSelectionRange(effect.start, effect.end);

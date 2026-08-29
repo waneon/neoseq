@@ -63,12 +63,9 @@ export function QuerySortControl({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const nameOf = (key: string) =>
-    options.find((option) => option.key === key)?.label ?? key;
+  const nameOf = (key: string) => options.find((option) => option.key === key)?.label ?? key;
 
-  const remaining = options.filter(
-    (option) => !sorts.some((sort) => sort.key === option.key),
-  );
+  const remaining = options.filter((option) => !sorts.some((sort) => sort.key === option.key));
 
   const move = (index: number, delta: -1 | 1) => {
     const target = index + delta;
@@ -105,9 +102,7 @@ export function QuerySortControl({
           onClose={() => setOpen(false)}
         >
           <p className="group-label">{message("query.sortOrder")}</p>
-          {sorts.length === 0 && (
-            <p className="query-sort-empty">{message("query.sortEmpty")}</p>
-          )}
+          {sorts.length === 0 && <p className="query-sort-empty">{message("query.sortEmpty")}</p>}
           {sorts.length > 0 && (
             <ol className="query-sort-list">
               {sorts.map((sort, index) => (
@@ -125,8 +120,12 @@ export function QuerySortControl({
                       { value: "desc", label: message("query.descending") },
                     ]}
                     onValueChange={(value) =>
-                      onChange(sorts.map((entry, at) =>
-                        at === index ? { ...entry, descending: value === "desc" } : entry))}
+                      onChange(
+                        sorts.map((entry, at) =>
+                          at === index ? { ...entry, descending: value === "desc" } : entry,
+                        ),
+                      )
+                    }
                   />
                   <Button
                     size="icon"
@@ -167,16 +166,11 @@ export function QuerySortControl({
                   value: option.key,
                   label: option.label,
                 }))}
-                onValueChange={(key) =>
-                  onChange([...sorts, { key, descending: false }])}
+                onValueChange={(key) => onChange([...sorts, { key, descending: false }])}
               />
             )}
             {sorts.length > 0 && (
-              <button
-                type="button"
-                className="query-sort-clear"
-                onClick={() => onChange([])}
-              >
+              <button type="button" className="query-sort-clear" onClick={() => onChange([])}>
                 {message("query.clearSort")}
               </button>
             )}

@@ -53,11 +53,7 @@ class FaultController implements PersistenceHooks {
     }
   }
 
-  afterRecoveryRead(
-    kind: "checkpoint" | "tail",
-    records: number,
-    bytes: number,
-  ): void {
+  afterRecoveryRead(kind: "checkpoint" | "tail", records: number, bytes: number): void {
     if (kind === "checkpoint") {
       this.recoveryReads.checkpoint_records += records;
       this.recoveryReads.checkpoint_bytes += bytes;

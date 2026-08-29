@@ -8,7 +8,13 @@
 
 import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
 import { FAVOURITE_ORDER_KEY } from "./favourites";
-import { cardinalityOf, isGenericProperty, REGISTRY, stringChoicesOf, valueTypeOf } from "./properties";
+import {
+  cardinalityOf,
+  isGenericProperty,
+  REGISTRY,
+  stringChoicesOf,
+  valueTypeOf,
+} from "./properties";
 
 export const QUERY_PLAN_VERSION = 1;
 
@@ -248,7 +254,13 @@ const DATE_OPERATORS: PlanOperator[] = [
   "is_empty",
 ];
 const CHOICE_OPERATORS: PlanOperator[] = ["equals", "not_equals", "any_of", "is_set", "is_empty"];
-const REFERENCE_OPERATORS: PlanOperator[] = ["equals", "not_equals", "any_of", "is_set", "is_empty"];
+const REFERENCE_OPERATORS: PlanOperator[] = [
+  "equals",
+  "not_equals",
+  "any_of",
+  "is_set",
+  "is_empty",
+];
 const CHECKBOX_OPERATORS: PlanOperator[] = ["is_true", "is_false", "is_set", "is_empty"];
 
 export function operatorsFor(field: PlanField): PlanOperator[] {
@@ -288,10 +300,7 @@ export function fieldKindsFor(subject: PlanSubject): PlanFieldKind[] {
  * this same catalog, so a field can never be filterable but absent from its sort
  * control merely because a table did not project it.
  */
-export function queryFieldsFor(
-  subject: PlanSubject,
-  propertyKeys: readonly string[],
-): PlanField[] {
+export function queryFieldsFor(subject: PlanSubject, propertyKeys: readonly string[]): PlanField[] {
   return [
     ...fieldKindsFor(subject)
       .filter((kind) => kind !== "property")
@@ -324,8 +333,7 @@ export function columnSourcesFor(
   subject: PlanSubject,
   propertyKeys: readonly string[],
 ): PlanColumnSource[] {
-  const kinds = columnKindsFor(subject)
-    .filter((kind) => kind !== "property");
+  const kinds = columnKindsFor(subject).filter((kind) => kind !== "property");
   return [
     ...kinds.map((kind) => ({ kind }) as PlanColumnSource),
     ...propertyKeys
@@ -344,11 +352,7 @@ export function columnKindsFor(subject: PlanSubject): PlanColumnSource["kind"][]
 
 /** Whether the columns panel may offer or retain this source. */
 export function isDisplayColumnSource(source: PlanColumnSource): boolean {
-  if (
-    source.kind === "subject"
-    || source.kind === "parent"
-    || source.kind === "sibling_index"
-  ) {
+  if (source.kind === "subject" || source.kind === "parent" || source.kind === "sibling_index") {
     return false;
   }
   return source.kind !== "property" || source.key !== FAVOURITE_ORDER_KEY;
@@ -484,7 +488,8 @@ export function appendNode(root: PlanGroup, groupId: string, node: PlanNode): Pl
   return {
     ...root,
     children: root.children.map((child) =>
-      child.kind === "group" ? appendNode(child, groupId, node) : child),
+      child.kind === "group" ? appendNode(child, groupId, node) : child,
+    ),
   };
 }
 
@@ -536,11 +541,14 @@ export function columnBaseId(source: PlanColumnSource): string {
 export function withColumn(plan: QueryPlan, source: PlanColumnSource): QueryPlan {
   return {
     ...plan,
-    columns: [...plan.columns, {
-      id: nextColumnId(plan, columnBaseId(source)),
-      source,
-      aggregate: defaultAggregateFor(source),
-    }],
+    columns: [
+      ...plan.columns,
+      {
+        id: nextColumnId(plan, columnBaseId(source)),
+        source,
+        aggregate: defaultAggregateFor(source),
+      },
+    ],
   };
 }
 
@@ -587,9 +595,7 @@ export function decodePlan(payload: string, version: number): QueryPlan | null {
     where: parsed.where,
     // An old plan may have contained only a structural or summary column. Text
     // is the one useful field every subject has, so it is the safe replacement.
-    columns: columns.length > 0
-      ? columns
-      : [{ id: "text", source: { kind: "content" } }],
+    columns: columns.length > 0 ? columns : [{ id: "text", source: { kind: "content" } }],
     limit: parsed.limit,
     distinct: parsed.distinct === true,
   };
@@ -615,9 +621,9 @@ function validNode(value: unknown): value is PlanNode {
   if (node.kind === "group") {
     const group = value as PlanGroup;
     return (
-      ["all", "any", "none"].includes(group.match)
-      && Array.isArray(group.children)
-      && group.children.every(validNode)
+      ["all", "any", "none"].includes(group.match) &&
+      Array.isArray(group.children) &&
+      group.children.every(validNode)
     );
   }
   if (node.kind !== "condition") return false;

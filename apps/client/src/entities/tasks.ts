@@ -132,16 +132,15 @@ export function formatRepeat(interval: RepeatInterval): string {
 }
 
 /** Adapt locale-neutral temporal meaning to the task recurrence storage model. */
-export function repeatFromTemporalRecurrence(
-  recurrence: TemporalRecurrenceIntent,
-): RepeatInterval {
-  const unit: RepeatUnit = recurrence.unit === "day"
-    ? "d"
-    : recurrence.unit === "week"
-      ? "w"
-      : recurrence.unit === "month"
-        ? "m"
-        : "y";
+export function repeatFromTemporalRecurrence(recurrence: TemporalRecurrenceIntent): RepeatInterval {
+  const unit: RepeatUnit =
+    recurrence.unit === "day"
+      ? "d"
+      : recurrence.unit === "week"
+        ? "w"
+        : recurrence.unit === "month"
+          ? "m"
+          : "y";
   return { count: recurrence.count, unit };
 }
 

@@ -5,23 +5,15 @@ import { CheckIcon } from "lucide-react";
 import { useOverlayRoot } from "@/ui/overlay-root";
 import { cn } from "@/lib/utils";
 
-function DropdownMenu(
-  props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>,
-) {
+function DropdownMenu(props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
 }
 
-function DropdownMenuTrigger(
-  props: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>,
-) {
-  return (
-    <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
-  );
+function DropdownMenuTrigger(props: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />;
 }
 
-function DropdownMenuGroup(
-  props: React.ComponentProps<typeof DropdownMenuPrimitive.Group>,
-) {
+function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
   return <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />;
 }
 
@@ -94,9 +86,7 @@ function DropdownMenuItem({
 function DropdownMenuRadioGroup(
   props: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>,
 ) {
-  return (
-    <DropdownMenuPrimitive.RadioGroup data-slot="dropdown-menu-radio-group" {...props} />
-  );
+  return <DropdownMenuPrimitive.RadioGroup data-slot="dropdown-menu-radio-group" {...props} />;
 }
 
 function DropdownMenuRadioItem({
@@ -201,10 +191,7 @@ function DropdownMenuSeparator({
  * font that renders those three glyphs at three different sizes, in an ink that
  * fails contrast the moment the row takes its `--surface-2` highlight.
  */
-function DropdownMenuShortcut({
-  className,
-  ...props
-}: React.ComponentProps<"span">) {
+function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       data-slot="dropdown-menu-shortcut"

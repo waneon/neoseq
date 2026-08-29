@@ -465,7 +465,6 @@ const TRUNCATION = /* language=JavaScript */ `
 })()
 `;
 
-
 /** Nothing is measured mid-animation: an arriving overlay is fractionally scaled. */
 async function still(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -491,8 +490,9 @@ async function audit(page: Page, label: string): Promise<void> {
 
 async function noClippedFocus(page: Page, label: string): Promise<void> {
   await still(page);
-  const findings = ((await page.evaluate(AUDIT)) as string[])
-    .filter((finding) => finding.startsWith("clipped-halo:"));
+  const findings = ((await page.evaluate(AUDIT)) as string[]).filter((finding) =>
+    finding.startsWith("clipped-halo:"),
+  );
   if (findings.length > 0) console.log(`\n──── ${label}\n   ${findings.join("\n   ")}`);
   expect(findings, label).toEqual([]);
 }
@@ -523,15 +523,17 @@ async function noShift(page: Page, label: string, act: () => Promise<void>): Pro
   const stableSnapshot = async (): Promise<Record<string, string>> => {
     let previous: Record<string, string> | undefined;
     let settled: Record<string, string> | undefined;
-    await expect.poll(async () => {
-      await still(page);
-      const current = (await page.evaluate(SNAP)) as Record<string, string>;
-      const unchanged =
-        previous !== undefined && JSON.stringify(current) === JSON.stringify(previous);
-      previous = current;
-      if (unchanged) settled = current;
-      return unchanged;
-    }).toBe(true);
+    await expect
+      .poll(async () => {
+        await still(page);
+        const current = (await page.evaluate(SNAP)) as Record<string, string>;
+        const unchanged =
+          previous !== undefined && JSON.stringify(current) === JSON.stringify(previous);
+        previous = current;
+        if (unchanged) settled = current;
+        return unchanged;
+      })
+      .toBe(true);
     return settled!;
   };
 
@@ -541,7 +543,8 @@ async function noShift(page: Page, label: string, act: () => Promise<void>): Pro
   const moved = Object.entries(before)
     .filter(([k, v]) => after[k] !== undefined && after[k] !== v)
     .map(([k, v]) => `${k}: ${v} -> ${after[k]}`);
-  if (moved.length > 0) console.log(`\n──── shift on ${label}\n   ${moved.slice(0, 10).join("\n   ")}`);
+  if (moved.length > 0)
+    console.log(`\n──── shift on ${label}\n   ${moved.slice(0, 10).join("\n   ")}`);
   expect(moved, `shift on ${label}`).toEqual([]);
 }
 
@@ -597,7 +600,6 @@ async function focusSweep(page: Page, label: string, steps = 22): Promise<void> 
   expect(unmarked, `focus sweep ${label}`).toEqual([]);
 }
 
-
 // Measuring thirty-odd surfaces costs more wall clock than asserting one
 // behaviour does, and under a loaded suite it costs more than the default budget.
 // `slow` is the idiomatic way to say "this one is a sweep", rather than trimming
@@ -639,8 +641,10 @@ test("every surface is measured and square", async ({ page }) => {
 
   await openBlockProperties(page);
   await audit(page, "property picker");
-  await page.getByTestId("property-picker")
-    .getByRole("option", { name: "Scheduled", exact: true }).click();
+  await page
+    .getByTestId("property-picker")
+    .getByRole("option", { name: "Scheduled", exact: true })
+    .click();
   await expect(page.getByTestId("moment-picker")).toBeVisible();
   await noClippedFocus(page, "task moment picker focus");
   // The first Escape returns the staged editor to the property list; the second
@@ -654,15 +658,21 @@ test("every surface is measured and square", async ({ page }) => {
 
   // A task's marks hang before the writing and must not push it.
   await openBlockProperties(page);
-  await page.getByTestId("property-picker").getByRole("option", { name: "Status", exact: true }).click();
+  await page
+    .getByTestId("property-picker")
+    .getByRole("option", { name: "Status", exact: true })
+    .click();
   await mutateAndAwaitSaved(page, () =>
-    page.getByTestId("property-picker")
-      .getByRole("option", { name: "Doing", exact: true }).click());
+    page.getByTestId("property-picker").getByRole("option", { name: "Doing", exact: true }).click(),
+  );
   await openBlockProperties(page);
-  await page.getByTestId("property-picker").getByRole("option", { name: "Priority", exact: true }).click();
+  await page
+    .getByTestId("property-picker")
+    .getByRole("option", { name: "Priority", exact: true })
+    .click();
   await mutateAndAwaitSaved(page, () =>
-    page.getByTestId("property-picker")
-      .getByRole("option", { name: "High", exact: true }).click());
+    page.getByTestId("property-picker").getByRole("option", { name: "High", exact: true }).click(),
+  );
   await audit(page, "task row (status + priority)");
 
   // The slash menu, then a query block: the densest control surface there is.
@@ -712,7 +722,15 @@ test("every surface is measured and square", async ({ page }) => {
 
   await openSettings(page, "appearance");
   await audit(page, "settings / appearance");
-  for (const section of ["language", "journal", "tasks", "keyboard", "storage", "graph", "danger"]) {
+  for (const section of [
+    "language",
+    "journal",
+    "tasks",
+    "keyboard",
+    "storage",
+    "graph",
+    "danger",
+  ]) {
     await page.getByTestId(`settings-tab-${section}`).click();
     await audit(page, `settings / ${section}`);
   }
@@ -735,8 +753,7 @@ test("every surface is measured and square", async ({ page }) => {
   await expect(identity).toBeVisible();
   await audit(page, "tag identity panel");
   await identity.getByTestId("tag-group-field").fill("Areas");
-  await mutateAndAwaitSaved(page, () =>
-    identity.getByTestId("tag-group-field").press("Enter"));
+  await mutateAndAwaitSaved(page, () => identity.getByTestId("tag-group-field").press("Enter"));
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
   await audit(page, "tags (grouped)");
@@ -748,10 +765,13 @@ test("every surface is measured and square", async ({ page }) => {
   await expect(page.getByTestId("tag-title")).toHaveValue("design-system");
   await audit(page, "tag page");
   await page.getByTestId("tag-add-default").click();
-  await page.getByTestId("property-picker").getByRole("option", { name: "Status", exact: true }).click();
+  await page
+    .getByTestId("property-picker")
+    .getByRole("option", { name: "Status", exact: true })
+    .click();
   await mutateAndAwaitSaved(page, () =>
-    page.getByTestId("property-picker")
-      .getByRole("option", { name: "Doing", exact: true }).click());
+    page.getByTestId("property-picker").getByRole("option", { name: "Doing", exact: true }).click(),
+  );
   await audit(page, "tag page (a default)");
   await page.getByTestId("query-view-add").click();
   await audit(page, "tag page (new view)");
@@ -789,7 +809,10 @@ test("the bullet and every segment of its thread share one axis", async ({ page 
   // Measure the quiet 1px thread, not the 2px path shown while the child owns
   // the caret. This is where a guide that starts *on* the axis instead of
   // straddling it moves half a CSS pixel to the right.
-  await page.getByLabel("Block text").last().evaluate((line) => line.blur());
+  await page
+    .getByLabel("Block text")
+    .last()
+    .evaluate((line) => line.blur());
   const axes = await page.getByTestId("outline-row").evaluateAll((rows) => {
     const [parent, child] = rows;
     if (!(parent instanceof HTMLElement) || !(child instanceof HTMLElement)) {
@@ -895,7 +918,8 @@ test("the command palette holds its size as the list narrows", async ({ page }) 
   // Measured after the arrival, or the first reading catches the entrance
   // translate and every comparison is three pixels of animation.
   await palette.evaluate((element) =>
-    Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    Promise.all(element.getAnimations().map((animation) => animation.finished)),
+  );
   const full = (await palette.boundingBox())!;
   expect(await palette.locator(".cmdk-row").count()).toBeGreaterThan(6);
 
@@ -950,8 +974,7 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   const panel = page.getByTestId("query-sort-panel");
   await expect(panel).toBeVisible();
   const panelBox = (await panel.boundingBox())!;
-  expect(Math.abs((panelBox.x + panelBox.width) - (triggerBox.x + triggerBox.width)))
-    .toBeLessThan(2);
+  expect(Math.abs(panelBox.x + panelBox.width - (triggerBox.x + triggerBox.width))).toBeLessThan(2);
   expect(panelBox.x).toBeLessThan(triggerBox.x);
 });
 
@@ -1003,7 +1026,7 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
     if (!(anchor instanceof HTMLElement)) throw new Error("the last block lost focus");
     node.scrollTop += anchor.getBoundingClientRect().top - 430;
   });
-  const line = page.locator('textarea:focus');
+  const line = page.locator("textarea:focus");
   await expect.poll(async () => (await line.boundingBox())?.y).toBeCloseTo(430, 0);
   // The virtualizer may replace the textarea between two protocol reads even
   // though the logical row never moved. Read one attached node atomically.
@@ -1030,7 +1053,7 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   // textarea's own padding. Flipping above must clear the editor box; an extra
   // field-edge gap is not part of a point-like caret anchor.
   expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(lineBox.y);
-  expect(Math.abs((pickerBox.x - lineBox.x) - lineTextInset)).toBeLessThan(1.5);
+  expect(Math.abs(pickerBox.x - lineBox.x - lineTextInset)).toBeLessThan(1.5);
 
   const datePane = (await picker.getByTestId("moment-pane-date").boundingBox())!;
   const rulesPane = (await picker.getByTestId("moment-pane-rules").boundingBox())!;
@@ -1045,9 +1068,7 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
       text.selectNodeContents(cell);
       const textBox = text.getBoundingClientRect();
       const cellBox = cell.getBoundingClientRect();
-      return Math.abs(
-        (textBox.top + textBox.height / 2) - (cellBox.top + cellBox.height / 2),
-      );
+      return Math.abs(textBox.top + textBox.height / 2 - (cellBox.top + cellBox.height / 2));
     });
   expect(selectedCenterDelta).toBeLessThan(1.5);
 
@@ -1094,8 +1115,14 @@ test("closing the scheduled editor releases the outline scroll", async ({ page }
 
   // Let the wheel, React, and the virtualizer each finish a paint. A durable
   // focus-derived reveal used to pull the last block back here on those renders.
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+      ),
+  );
   const after = await scroller.evaluate((node) => node.scrollTop);
   expect(after).toBeLessThan(before - 200);
 });

@@ -45,7 +45,7 @@ draft sessions; the outline additionally owns pending-block reconciliation.
 Detection is a pure scan of the current whitespace-delimited token at a
 collapsed caret. A token beginning with `/` opens the slash menu when its query
 reaches at least one declared item. A token beginning with `#` opens the tag
-menu the same way: *existing* tags ranked by the palette's fuzzy scorer — tag
+menu the same way: _existing_ tags ranked by the palette's fuzzy scorer — tag
 creation belongs to the tags view, so a query nothing matches closes the menu.
 Accepting removes the token and issues `add_tag`; a tag the block already
 carries writes nothing. Pending blocks defer the choice until the real

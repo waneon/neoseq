@@ -90,9 +90,7 @@ function localeFallbacks(tag: string): readonly string[] {
 
 export function resolveLocale(
   preference: LocalePreference,
-  platformLocales: readonly string[] = typeof navigator === "undefined"
-    ? []
-    : navigator.languages,
+  platformLocales: readonly string[] = typeof navigator === "undefined" ? [] : navigator.languages,
 ): SupportedLocale {
   if (preference !== "system") return preference;
   for (const candidate of platformLocales) {
@@ -109,9 +107,7 @@ export function resolveLocale(
  * `Intl` options per journal date format, or `null` for ISO — the one choice that
  * is not a locale rendering at all but the stored value shown unchanged.
  */
-export function journalDateOptions(
-  format: JournalDateFormat,
-): Intl.DateTimeFormatOptions | null {
+export function journalDateOptions(format: JournalDateFormat): Intl.DateTimeFormatOptions | null {
   switch (format) {
     case "full":
       return { weekday: "long", year: "numeric", month: "long", day: "numeric" };
@@ -212,23 +208,19 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
     formatInstant: (value, timeZone, options) => {
       const instant = value instanceof Date ? value : new Date(value);
       if (Number.isNaN(instant.valueOf())) return String(value);
-      return formatDate(
-        instant,
-        timeZone,
-        {
-          ...(options ?? {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          // A caller may shape which fields appear, but not switch the
-          // application's clock back to a locale-default 12-hour cycle.
-          hour12: undefined,
-          hourCycle: "h23",
-        },
-      );
+      return formatDate(instant, timeZone, {
+        ...(options ?? {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        // A caller may shape which fields appear, but not switch the
+        // application's clock back to a locale-default 12-hour cycle.
+        hour12: undefined,
+        hourCycle: "h23",
+      });
     },
     compare: collator.compare,
   };

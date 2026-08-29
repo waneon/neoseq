@@ -11,6 +11,8 @@ provenance enter only in the stages that implement them.
 The devenv configuration is composed around three developer-facing concerns:
 
 - a shared Rust, Node, pnpm, PostgreSQL, and artifact foundation;
+- one pinned repository formatter spanning maintained source, configuration,
+  and documentation;
 - one supervised development runtime; and
 - one verification graph, extended by the optional browser profile.
 
@@ -65,10 +67,17 @@ named database.
 `devenv test` runs the portable gate:
 
 - fixed-output Cargo and pnpm dependency hashes for both production outputs;
-- Rust formatting, strict Clippy, workspace and PostgreSQL integration tests,
-  and dependency policy;
+- repository-wide formatting, strict Clippy, Rust workspace and PostgreSQL
+  integration tests, and dependency policy;
 - generated contract and locale drift checks;
 - TypeScript and component tests.
+
+Treefmt is the single formatting boundary. It delegates Rust, Nix, Web and
+document formats, TOML, and shell scripts to pinned language-native formatters.
+Generated sources remain owned by their generators, lockfiles remain owned by
+their package managers, and applied SQL migrations remain byte-stable. Running
+`treefmt` formats maintained files; the portable gate runs the same formatter
+set in CI mode and rejects drift.
 
 `devenv build outputs.web` and `devenv build outputs.sync-server` realize the
 production artifacts. Keeping artifact construction separate from tasks makes

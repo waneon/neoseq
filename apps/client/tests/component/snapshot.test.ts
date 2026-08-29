@@ -7,26 +7,31 @@ describe("graph summary projection", () => {
     const current: GraphSnapshot = {
       schema_version: 6,
       graph_id: "graph",
-      pages: [{
-        id: "home",
-        title: "Home",
-        properties: [],
-        tags: [],
-        blocks: [{
-          id: "block",
-          markdown: "See [[Old]] now",
-          page_references: [{ start: 4, end: 11, index: 4, page_id: "target" }],
+      pages: [
+        {
+          id: "home",
+          title: "Home",
           properties: [],
           tags: [],
-          children: [],
-        }],
-      }, {
-        id: "target",
-        title: "Old",
-        properties: [],
-        tags: [],
-        blocks: [],
-      }],
+          blocks: [
+            {
+              id: "block",
+              markdown: "See [[Old]] now",
+              page_references: [{ start: 4, end: 11, index: 4, page_id: "target" }],
+              properties: [],
+              tags: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          id: "target",
+          title: "Old",
+          properties: [],
+          tags: [],
+          blocks: [],
+        },
+      ],
       page_directory: [
         { id: "home", title: "Home", journal_date: null, deleted: false },
         { id: "target", title: "Old", journal_date: null, deleted: false },
@@ -47,12 +52,14 @@ describe("graph summary projection", () => {
 
     const merged = mergeSummary(summary, current);
     expect(merged.pages[0].blocks[0].markdown).toBe("See [[Longer title]] now");
-    expect(merged.pages[0].blocks[0].page_references).toEqual([{
-      start: 4,
-      end: 20,
-      index: 4,
-      page_id: "target",
-    }]);
+    expect(merged.pages[0].blocks[0].page_references).toEqual([
+      {
+        start: 4,
+        end: 20,
+        index: 4,
+        page_id: "target",
+      },
+    ]);
   });
 
   it("preserves unrelated hydrated block identities", () => {
@@ -67,13 +74,15 @@ describe("graph summary projection", () => {
     const current: GraphSnapshot = {
       schema_version: 6,
       graph_id: "graph",
-      pages: [{
-        id: "home",
-        title: "Home",
-        properties: [],
-        tags: [],
-        blocks: [untouched],
-      }],
+      pages: [
+        {
+          id: "home",
+          title: "Home",
+          properties: [],
+          tags: [],
+          blocks: [untouched],
+        },
+      ],
       page_directory: [{ id: "home", title: "Home", journal_date: null, deleted: false }],
       tags: [],
       settings: { default_queries: [] },

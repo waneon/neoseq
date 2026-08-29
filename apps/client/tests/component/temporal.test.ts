@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createLocaleRuntime,
-  LOCALE_DEFINITIONS,
-  type TemporalRecognition,
-} from "../../src/i18n";
+import { createLocaleRuntime, LOCALE_DEFINITIONS, type TemporalRecognition } from "../../src/i18n";
 
 function matched<T>(recognition: TemporalRecognition<T>): T {
   expect(recognition.kind).toBe("match");
@@ -122,10 +118,14 @@ describe("localized temporal input", () => {
     for (const definition of LOCALE_DEFINITIONS) {
       const parser = createLocaleRuntime(definition.tag).temporal;
       for (const example of parser.examples.dates) {
-        expect(parser.parseDate(example, context).kind, `${definition.tag}: ${example}`).toBe("match");
+        expect(parser.parseDate(example, context).kind, `${definition.tag}: ${example}`).toBe(
+          "match",
+        );
       }
       for (const example of parser.examples.moments) {
-        expect(parser.parseMoment(example, context).kind, `${definition.tag}: ${example}`).toBe("match");
+        expect(parser.parseMoment(example, context).kind, `${definition.tag}: ${example}`).toBe(
+          "match",
+        );
       }
     }
   });

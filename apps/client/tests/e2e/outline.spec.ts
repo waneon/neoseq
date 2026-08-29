@@ -27,12 +27,9 @@ test("builds a deep outline with the keyboard and reorders a subtree", async ({ 
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.type("second root");
 
-  await expect.poll(() => blockTexts(page)).toEqual([
-    "parent",
-    "child",
-    "grandchild",
-    "second root",
-  ]);
+  await expect
+    .poll(() => blockTexts(page))
+    .toEqual(["parent", "child", "grandchild", "second root"]);
   await expect.poll(() => blockLevels(page)).toEqual(["1", "2", "3", "1"]);
 
   // Keyboard traversal across the deep outline.
@@ -44,42 +41,30 @@ test("builds a deep outline with the keyboard and reorders a subtree", async ({ 
   const secondRoot = page.locator('[data-testid="outline-row"] textarea').nth(3);
   await secondRoot.click();
   await page.keyboard.press("Alt+ArrowUp");
-  await expect.poll(() => blockTexts(page)).toEqual([
-    "second root",
-    "parent",
-    "child",
-    "grandchild",
-  ]);
+  await expect
+    .poll(() => blockTexts(page))
+    .toEqual(["second root", "parent", "child", "grandchild"]);
   await expect.poll(() => blockLevels(page)).toEqual(["1", "1", "2", "3"]);
 
   // Collapse hides the subtree without touching canonical state.
   await page.locator('[data-testid="outline-row"]').nth(1).getByLabel("Collapse").click();
   await expect.poll(() => blockTexts(page)).toEqual(["second root", "parent"]);
   await page.locator('[data-testid="outline-row"]').nth(1).getByLabel("Expand").click();
-  await expect.poll(() => blockTexts(page)).toEqual([
-    "second root",
-    "parent",
-    "child",
-    "grandchild",
-  ]);
+  await expect
+    .poll(() => blockTexts(page))
+    .toEqual(["second root", "parent", "child", "grandchild"]);
 
   // Undo and redo are keyboard-and-palette verbs now; the top bar carries state,
   // not commands. The outline's textarea maps them to the *document* undo.
   await page.locator('[data-testid="outline-row"] textarea').first().click();
   await page.keyboard.press("ControlOrMeta+z");
-  await expect.poll(() => blockTexts(page)).toEqual([
-    "parent",
-    "child",
-    "grandchild",
-    "second root",
-  ]);
+  await expect
+    .poll(() => blockTexts(page))
+    .toEqual(["parent", "child", "grandchild", "second root"]);
   await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect.poll(() => blockTexts(page)).toEqual([
-    "second root",
-    "parent",
-    "child",
-    "grandchild",
-  ]);
+  await expect
+    .poll(() => blockTexts(page))
+    .toEqual(["second root", "parent", "child", "grandchild"]);
 });
 
 test("splits a block at the caret and merges an empty block backward", async ({ page }) => {
@@ -117,7 +102,8 @@ test("leading Enter keeps block properties with the original identity and undoes
   const picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Status", exact: true }).click();
   await mutateAndAwaitSaved(page, () =>
-    picker.getByRole("option", { name: "Doing", exact: true }).click());
+    picker.getByRole("option", { name: "Doing", exact: true }).click(),
+  );
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
 
   const textarea = page.getByLabel("Block text");
@@ -153,9 +139,7 @@ test("undo and redo reconcile text in the focused block", async ({ page }) => {
   await expect(textarea).toHaveValue("alpha");
 });
 
-test("the bullet carries the block's menu, and every structural verb in it", async ({
-  page,
-}) => {
+test("the bullet carries the block's menu, and every structural verb in it", async ({ page }) => {
   await createGraph(page, "Menu Graph");
   await startOutline(page);
   await page.keyboard.type("first");
@@ -221,14 +205,21 @@ test("drags a range of blocks out and moves them as one", async ({ page }) => {
   await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
 
   const [copied] = await Promise.all([
-    page.evaluate(() => new Promise<{ plain: string; html: string }>((resolve) => {
-      document.addEventListener("copy", (event) => {
-        resolve({
-          plain: event.clipboardData?.getData("text/plain") ?? "",
-          html: event.clipboardData?.getData("text/html") ?? "",
-        });
-      }, { once: true });
-    })),
+    page.evaluate(
+      () =>
+        new Promise<{ plain: string; html: string }>((resolve) => {
+          document.addEventListener(
+            "copy",
+            (event) => {
+              resolve({
+                plain: event.clipboardData?.getData("text/plain") ?? "",
+                html: event.clipboardData?.getData("text/html") ?? "",
+              });
+            },
+            { once: true },
+          );
+        }),
+    ),
     page.keyboard.press("ControlOrMeta+c"),
   ]);
   expect(copied.plain).toBe("- one\n- two");
@@ -266,12 +257,15 @@ test("keeps a bulk selection contiguous when it moves into the middle", async ({
     page.getByLabel("Block text").evaluate((target) => {
       const clipboard = new DataTransfer();
       clipboard.setData("text/plain", "- 1\n- 2\n- 3\n- 4\n- 5\n- 6\n- 7\n- 8\n- 9");
-      target.dispatchEvent(new ClipboardEvent("paste", {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: clipboard,
-      }));
-    }));
+      target.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: clipboard,
+        }),
+      );
+    }),
+  );
   await expect.poll(() => blockTexts(page)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
 
   const rows = page.getByTestId("outline-row");
@@ -309,7 +303,9 @@ test("keeps a bulk selection contiguous when it moves into the middle", async ({
   await expect.poll(() => blockTexts(page)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
 });
 
-test("keeps selected passengers selected when undo restores their old hierarchy", async ({ page }) => {
+test("keeps selected passengers selected when undo restores their old hierarchy", async ({
+  page,
+}) => {
   await createGraph(page, "Selection Identity Graph");
   await startOutline(page);
 
@@ -317,12 +313,15 @@ test("keeps selected passengers selected when undo restores their old hierarchy"
     page.getByLabel("Block text").evaluate((target) => {
       const clipboard = new DataTransfer();
       clipboard.setData("text/plain", "- 8\n- 2\n- 4");
-      target.dispatchEvent(new ClipboardEvent("paste", {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: clipboard,
-      }));
-    }));
+      target.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: clipboard,
+        }),
+      );
+    }),
+  );
   await expect.poll(() => blockTexts(page)).toEqual(["8", "2", "4"]);
 
   const rows = page.getByTestId("outline-row");
@@ -340,7 +339,9 @@ test("keeps selected passengers selected when undo restores their old hierarchy"
   await mutateAndAwaitSaved(page, async () => {
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
     await page.mouse.down();
-    await page.mouse.move(handle.x + handle.width * 2.5, parent.y + parent.height - 2, { steps: 8 });
+    await page.mouse.move(handle.x + handle.width * 2.5, parent.y + parent.height - 2, {
+      steps: 8,
+    });
     await expect(page.getByTestId("outline-drop")).toBeVisible();
     await page.mouse.up();
   });
@@ -381,11 +382,13 @@ test("pastes Markdown list items as one outline history step", async ({ page }) 
   await page.getByLabel("Block text").evaluate((target) => {
     const clipboard = new DataTransfer();
     clipboard.setData("text/plain", "- one\n  - two\n  - three\n- four");
-    target.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: clipboard,
-    }));
+    target.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }),
+    );
   });
 
   await expect.poll(() => blockTexts(page)).toEqual(["one", "two", "three", "four"]);
@@ -405,18 +408,22 @@ test("pastes mixed semantic HTML flow ahead of lossy plain text", async ({ page 
       "Question?<ul><li>one<ol><li>two</li></ol></li><li>three</li></ul>",
     );
     clipboard.setData("text/plain", "Question?\none\ntwo\nthree");
-    target.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: clipboard,
-    }));
+    target.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }),
+    );
   });
 
   await expect.poll(() => blockTexts(page)).toEqual(["Question?", "one", "two", "three"]);
   await expect.poll(() => blockLevels(page)).toEqual(["1", "1", "2", "1"]);
 });
 
-test("pastes a rich outline fragment with properties and tags as one history step", async ({ page }) => {
+test("pastes a rich outline fragment with properties and tags as one history step", async ({
+  page,
+}) => {
   await createGraph(page, "Rich Clipboard Graph");
   await startOutline(page);
 
@@ -425,28 +432,34 @@ test("pastes a rich outline fragment with properties and tags as one history ste
       kind: "neoseq.outline",
       version: 1,
       source_graph_id: "external-graph",
-      items: [{
-        depth: 0,
-        markdown: "portable block",
-        properties: [{
-          key: "builtin.task-status",
-          value_type: "string",
-          cardinality: "single",
-          values: [{ type: "string", value: "doing" }],
-        }],
-        tags: ["source-project"],
-      }],
+      items: [
+        {
+          depth: 0,
+          markdown: "portable block",
+          properties: [
+            {
+              key: "builtin.task-status",
+              value_type: "string",
+              cardinality: "single",
+              values: [{ type: "string", value: "doing" }],
+            },
+          ],
+          tags: ["source-project"],
+        },
+      ],
       tags: [{ id: "source-project", name: "Project" }],
       pages: [],
     };
     const clipboard = new DataTransfer();
     clipboard.setData("application/vnd.neoseq.outline+json", JSON.stringify(fragment));
     clipboard.setData("text/plain", "- portable block\n  Tags: #Project");
-    target.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: clipboard,
-    }));
+    target.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }),
+    );
   });
 
   await expect(page.getByLabel("Block text")).toHaveValue("portable block");
@@ -485,12 +498,14 @@ test("pressing a block taller than the viewport does not move the page", async (
     let previous = Number.NaN;
     let current = Number.NaN;
     let consecutive = 0;
-    await expect.poll(async () => {
-      current = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
-      consecutive = Math.abs(current - previous) < 1 ? consecutive + 1 : 0;
-      previous = current;
-      return consecutive;
-    }).toBeGreaterThanOrEqual(2);
+    await expect
+      .poll(async () => {
+        current = await page.evaluate(() => document.querySelector(".page-scroll")!.scrollTop);
+        consecutive = Math.abs(current - previous) < 1 ? consecutive + 1 : 0;
+        previous = current;
+        return consecutive;
+      })
+      .toBeGreaterThanOrEqual(2);
     return current;
   };
   const before = await settledScrollTop();
@@ -563,26 +578,32 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
   await mutateAndAwaitSaved(page, () =>
     page.getByLabel("Block text").evaluate((target) => {
       const clipboard = new DataTransfer();
-      clipboard.setData("application/vnd.neoseq.outline+json", JSON.stringify({
-        kind: "neoseq.outline",
-        version: 1,
-        source_graph_id: "external-graph",
-        items: Array.from({ length: 15 }, (_, index) => ({
-          depth: 0,
-          markdown: `tagged thing ${index}`,
-          properties: [],
-          tags: ["design"],
-        })),
-        tags: [{ id: "design", name: "design" }],
-        pages: [],
-      }));
+      clipboard.setData(
+        "application/vnd.neoseq.outline+json",
+        JSON.stringify({
+          kind: "neoseq.outline",
+          version: 1,
+          source_graph_id: "external-graph",
+          items: Array.from({ length: 15 }, (_, index) => ({
+            depth: 0,
+            markdown: `tagged thing ${index}`,
+            properties: [],
+            tags: ["design"],
+          })),
+          tags: [{ id: "design", name: "design" }],
+          pages: [],
+        }),
+      );
       clipboard.setData("text/plain", "- tagged thing");
-      target.dispatchEvent(new ClipboardEvent("paste", {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: clipboard,
-      }));
-    }));
+      target.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: clipboard,
+        }),
+      );
+    }),
+  );
   await expect(page.locator(".outline-tags").getByTestId("tag-chip")).toHaveCount(15);
 
   await openSidebar(page);
@@ -606,12 +627,15 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
         "text/plain",
         Array.from({ length: 80 }, (_, index) => `- row number ${index}`).join("\n"),
       );
-      target.dispatchEvent(new ClipboardEvent("paste", {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: clipboard,
-      }));
-    }));
+      target.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: clipboard,
+        }),
+      );
+    }),
+  );
 
   // The header has to be tall enough for the defect to be a defect: shorter than
   // the rows virtualization renders beyond its window anyway, and this test would
@@ -622,9 +646,7 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
     return {
       scrollable: scroll.scrollHeight - scroll.clientHeight,
       header:
-        outline.getBoundingClientRect().top -
-        scroll.getBoundingClientRect().top +
-        scroll.scrollTop,
+        outline.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
     };
   });
   expect(room.header).toBeGreaterThan(600);

@@ -70,8 +70,8 @@ export function moveWrites(ordered: readonly Placed[], movedId: string): Placeme
   if (index < 0) return [];
   const previous = index > 0 ? ordered[index - 1].order : null;
   const next = index < ordered.length - 1 ? ordered[index + 1].order : null;
-  const known = (index === 0 || previous !== null)
-    && (index === ordered.length - 1 || next !== null);
+  const known =
+    (index === 0 || previous !== null) && (index === ordered.length - 1 || next !== null);
   if (known) {
     const low = previous ?? (next ?? ORDER_STEP) - 2 * ORDER_STEP;
     const high = next ?? (previous ?? 0) + 2 * ORDER_STEP;
@@ -85,24 +85,18 @@ export function moveWrites(ordered: readonly Placed[], movedId: string): Placeme
  * group has no record of its own — its place *is* its members' places — so
  * moving one is moving them, bounded by the run's size.
  */
-export function runWrites(
-  runs: readonly (readonly Placed[])[],
-  movedIndex: number,
-): Placement[] {
+export function runWrites(runs: readonly (readonly Placed[])[], movedIndex: number): Placement[] {
   const moved = runs[movedIndex] ?? [];
   if (moved.length === 0) return [];
-  const bound = (
-    run: readonly Placed[] | undefined,
-    pick: (values: number[]) => number,
-  ) => {
+  const bound = (run: readonly Placed[] | undefined, pick: (values: number[]) => number) => {
     if (!run) return null;
     const values = run.map((item) => item.order);
     return values.every((value) => value !== null) ? pick(values as number[]) : null;
   };
   const previous = bound(runs[movedIndex - 1], (values) => Math.max(...values));
   const next = bound(runs[movedIndex + 1], (values) => Math.min(...values));
-  const known = (movedIndex === 0 || previous !== null)
-    && (movedIndex === runs.length - 1 || next !== null);
+  const known =
+    (movedIndex === 0 || previous !== null) && (movedIndex === runs.length - 1 || next !== null);
   if (known) {
     const low = previous ?? (next ?? ORDER_STEP) - (moved.length + 1) * ORDER_STEP;
     const high = next ?? (previous ?? 0) + (moved.length + 1) * ORDER_STEP;

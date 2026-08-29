@@ -9,10 +9,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CorePortFailure } from "../../src/core-worker";
-import {
-  newDefaultQueryDocument,
-  type DefaultQuery,
-} from "../../src/entities/default-queries";
+import { newDefaultQueryDocument, type DefaultQuery } from "../../src/entities/default-queries";
 import { compilePlan } from "../../src/entities/query-compile";
 import {
   decodePlan,
@@ -29,12 +26,7 @@ import { GRAPH_ID, mountAt, type Harness } from "./harness";
 const SOURCE = "PREFIX neo: <urn:neoseq:vocab:v1:>\nSELECT ?block WHERE { ?block a neo:Block . }";
 
 const settings = (
-  <SettingsDialog
-    graphId={GRAPH_ID}
-    section="queries"
-    onSection={() => {}}
-    onClose={() => {}}
-  />
+  <SettingsDialog graphId={GRAPH_ID} section="queries" onSection={() => {}} onClose={() => {}} />
 );
 
 function queries(harness: Harness): DefaultQuery[] {
@@ -59,9 +51,7 @@ async function seed(
       title: query.title ?? "Scheduled",
       document: newDefaultQueryDocument(
         source,
-        query.plan
-          ? { version: QUERY_PLAN_VERSION, payload: encodePlan(query.plan) }
-          : undefined,
+        query.plan ? { version: QUERY_PLAN_VERSION, payload: encodePlan(query.plan) } : undefined,
         query.layout ?? "list",
       ),
     }),
@@ -74,13 +64,15 @@ function oneRow(harness: Harness): void {
   harness.port.queryResult = {
     kind: "select",
     variables: ["block"],
-    rows: [{
-      block: {
-        kind: "iri",
-        value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
-        entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+    rows: [
+      {
+        block: {
+          kind: "iri",
+          value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+        },
       },
-    }],
+    ],
     revision: 2,
     frontier: "fake-2",
   };
@@ -91,23 +83,25 @@ function tableRow(harness: Harness): void {
   harness.port.queryResult = {
     kind: "select",
     variables: ["q_subject", "text", "page"],
-    rows: [{
-      q_subject: {
-        kind: "iri",
-        value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
-        entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+    rows: [
+      {
+        q_subject: {
+          kind: "iri",
+          value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+        },
+        text: {
+          kind: "literal",
+          value: "Ship the builder",
+          datatype: "http://www.w3.org/2001/XMLSchema#string",
+        },
+        page: {
+          kind: "iri",
+          value: `urn:neoseq:entity:${GRAPH_ID}:page:home`,
+          entity: { kind: "page", id: "home" },
+        },
       },
-      text: {
-        kind: "literal",
-        value: "Ship the builder",
-        datatype: "http://www.w3.org/2001/XMLSchema#string",
-      },
-      page: {
-        kind: "iri",
-        value: `urn:neoseq:entity:${GRAPH_ID}:page:home`,
-        entity: { kind: "page", id: "home" },
-      },
-    }],
+    ],
     revision: 3,
     frontier: "fake-3",
   };
@@ -132,10 +126,12 @@ describe("writing a standing question", () => {
     const [built] = queries(harness);
     // A built query stores its plan beside the SPARQL it compiled to, exactly as
     // a query owned by a block does — one canonical shape in the graph.
-    expect(decodePlan(
-      built.document.views[0].definition.plan!.payload,
-      built.document.views[0].definition.plan!.version,
-    )?.subject).toBe("block");
+    expect(
+      decodePlan(
+        built.document.views[0].definition.plan!.payload,
+        built.document.views[0].definition.plan!.version,
+      )?.subject,
+    ).toBe("block");
     expect(built.document.views[0].definition.source).toContain("?q_subject a neo:Block .");
     expect(await screen.findByTestId("query-builder")).toBeInTheDocument();
 
@@ -157,9 +153,7 @@ describe("writing a standing question", () => {
 
     await user.click(screen.getByTestId("query-columns-trigger"));
     const panel = await screen.findByTestId("query-columns-panel");
-    await user.click(
-      within(panel).getByTestId("query-column-toggle-property:builtin.task-status"),
-    );
+    await user.click(within(panel).getByTestId("query-column-toggle-property:builtin.task-status"));
 
     await waitFor(() => {
       const [query] = queries(harness);
@@ -167,9 +161,12 @@ describe("writing a standing question", () => {
         query.document.views[0].definition.plan!.payload,
         query.document.views[0].definition.plan!.version,
       );
-      expect(plan?.columns.some((column) =>
-        column.source.kind === "property" && column.source.key === "builtin.task-status"))
-        .toBe(true);
+      expect(
+        plan?.columns.some(
+          (column) =>
+            column.source.kind === "property" && column.source.key === "builtin.task-status",
+        ),
+      ).toBe(true);
       // The plan and the SPARQL it compiles to are written together, never apart.
       expect(query.document.views[0].definition.source).toContain("prop:builtin.task-status");
     });
@@ -195,24 +192,29 @@ describe("writing a standing question", () => {
     await user.click(screen.getByTestId("add-default-query"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("default-query-count")).toHaveTextContent("1 result"));
+      expect(screen.getByTestId("default-query-count")).toHaveTextContent("1 result"),
+    );
   });
 
   it("reports a failing query as a failure rather than as an empty answer", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    harness.port.query = () => Promise.reject(new CorePortFailure({
-      code: "invalid_query",
-      message: "unreadable",
-      retryable: false,
-    }));
+    harness.port.query = () =>
+      Promise.reject(
+        new CorePortFailure({
+          code: "invalid_query",
+          message: "unreadable",
+          retryable: false,
+        }),
+      );
 
     await user.click(screen.getByTestId("add-default-query"));
 
     // The count is the first thing that says so, and the reason is stated beside
     // the editor that can fix it rather than only under the journal.
     await waitFor(() =>
-      expect(screen.getByTestId("default-query-count")).toHaveTextContent("Query failed"));
+      expect(screen.getByTestId("default-query-count")).toHaveTextContent("Query failed"),
+    );
     expect(await screen.findByRole("alert")).toHaveTextContent("The query could not be read.");
   });
 
@@ -258,8 +260,7 @@ describe("writing a standing question", () => {
 
     await user.click(page);
     await waitFor(() => {
-      const saved = queries(harness)
-        .find((entry) => entry.id === query.id)?.document.views[0];
+      const saved = queries(harness).find((entry) => entry.id === query.id)?.document.views[0];
       expect(saved?.columns.find((column) => column.variable === "page")?.hidden).toBe(false);
     });
   });
@@ -277,7 +278,8 @@ describe("reading a standing question", () => {
     oneRow(harness);
     await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await waitFor(() =>
-      expect(within(section).getByTestId("query-count")).toHaveTextContent("1 result"));
+      expect(within(section).getByTestId("query-count")).toHaveTextContent("1 result"),
+    );
   });
 
   it("keeps authoring in Settings while presenting the saved view here", async () => {
@@ -294,8 +296,9 @@ describe("reading a standing question", () => {
     expect(within(section).getByTestId("query-view-trigger")).toBeInTheDocument();
 
     await user.click(within(section).getByTestId("query-actions-trigger"));
-    expect(await screen.findByTestId("journal-query-settings"))
-      .toHaveTextContent("Edit in Settings");
+    expect(await screen.findByTestId("journal-query-settings")).toHaveTextContent(
+      "Edit in Settings",
+    );
     // What runs is still readable, which is the only way to check a question
     // whose editor is elsewhere.
     await user.click(await screen.findByRole("menuitem", { name: "Show SPARQL" }));
@@ -308,16 +311,14 @@ describe("reading a standing question", () => {
     tableRow(harness);
     const query = await seed(harness, { layout: "table", plan: defaultPlan("block") });
     const table = await screen.findByTestId("query-table");
-    expect(within(table).getAllByRole("columnheader")[0])
-      .toHaveAttribute("draggable", "true");
+    expect(within(table).getAllByRole("columnheader")[0]).toHaveAttribute("draggable", "true");
 
     // Keyboard resizing takes the same saved-view path as the pointer gesture.
     const resize = within(table).getByRole("separator", { name: "Resize Text" });
     resize.focus();
     await user.keyboard("{ArrowRight}");
     await waitFor(() => {
-      const view = queries(harness)
-        .find((entry) => entry.id === query.id)?.document.views[0];
+      const view = queries(harness).find((entry) => entry.id === query.id)?.document.views[0];
       const widths = new Map(view?.columns.map((column) => [column.variable, column.width]));
       expect(widths.get("page")).toBeGreaterThan(0);
       expect(widths.get("text")).toBe((widths.get("page") ?? 0) + 8);
@@ -326,8 +327,7 @@ describe("reading a standing question", () => {
     await user.click(within(table).getByTestId("query-col-menu-text"));
     await user.click(await screen.findByRole("menuitem", { name: "Move right" }));
     await waitFor(() => {
-      const view = queries(harness)
-        .find((entry) => entry.id === query.id)?.document.views[0];
+      const view = queries(harness).find((entry) => entry.id === query.id)?.document.views[0];
       expect(view?.columns.map((column) => column.variable)).toEqual(["page", "text"]);
     });
   });

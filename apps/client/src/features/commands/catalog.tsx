@@ -28,11 +28,7 @@ import type { HistoryActions, HistoryInvocation } from "../history/context";
 import type { Notifier } from "../notify/context";
 import type { CommandBridge } from "./context";
 import type { Command } from "./registry";
-import {
-  formatBindingParts,
-  type Binding,
-  type ShortcutId,
-} from "./shortcuts";
+import { formatBindingParts, type Binding, type ShortcutId } from "./shortcuts";
 
 export interface CommandInputs {
   pages: PageSnapshot[];
@@ -112,9 +108,7 @@ export function buildCommands(input: CommandInputs): Command[] {
   const noPropertyTarget = commandAvailability.properties
     ? null
     : message("commands.noPropertyTargetReason");
-  const noPageTarget = commandAvailability.pageInfo
-    ? null
-    : message("commands.noPageTargetReason");
+  const noPageTarget = commandAvailability.pageInfo ? null : message("commands.noPageTargetReason");
   const noDeletablePage = commandAvailability.pageDelete
     ? null
     : message("commands.noDeletablePageReason");
@@ -167,7 +161,9 @@ export function buildCommands(input: CommandInputs): Command[] {
       icon: <InfoIcon aria-hidden />,
       disabledReason: noPageTarget,
       pointerRoute: message("shortcuts.pageDetailsRoute"),
-      run: () => { bridge.requestPageInfo(); },
+      run: () => {
+        bridge.requestPageInfo();
+      },
     },
     {
       id: "delete-page",
@@ -177,7 +173,9 @@ export function buildCommands(input: CommandInputs): Command[] {
       icon: <Trash2Icon aria-hidden />,
       disabledReason: blocked ?? noDeletablePage,
       pointerRoute: message("shortcuts.deletePageRoute"),
-      run: () => { bridge.requestPageDelete(); },
+      run: () => {
+        bridge.requestPageDelete();
+      },
     },
   );
 
@@ -223,7 +221,9 @@ export function buildCommands(input: CommandInputs): Command[] {
     icon: <Settings2Icon aria-hidden />,
     disabledReason: noPropertyTarget,
     pointerRoute: message("shortcuts.blockActionsRoute"),
-    run: () => { bridge.requestProperties(); },
+    run: () => {
+      bridge.requestProperties();
+    },
   });
 
   commands.push(
@@ -236,7 +236,9 @@ export function buildCommands(input: CommandInputs): Command[] {
       icon: <CircleCheckIcon aria-hidden />,
       disabledReason: noPropertyTarget,
       pointerRoute: message("shortcuts.slashRoute"),
-      run: () => { bridge.requestProperties("builtin.task-status"); },
+      run: () => {
+        bridge.requestProperties("builtin.task-status");
+      },
     },
     {
       id: "set-priority",
@@ -247,7 +249,9 @@ export function buildCommands(input: CommandInputs): Command[] {
       icon: <FlagIcon aria-hidden />,
       disabledReason: noPropertyTarget,
       pointerRoute: message("shortcuts.slashRoute"),
-      run: () => { bridge.requestProperties("builtin.task-priority"); },
+      run: () => {
+        bridge.requestProperties("builtin.task-priority");
+      },
     },
     {
       id: "set-scheduled",
@@ -258,7 +262,9 @@ export function buildCommands(input: CommandInputs): Command[] {
       icon: <CalendarIcon aria-hidden />,
       disabledReason: noPropertyTarget,
       pointerRoute: message("shortcuts.slashRoute"),
-      run: () => { bridge.requestProperties("builtin.task-scheduled"); },
+      run: () => {
+        bridge.requestProperties("builtin.task-scheduled");
+      },
     },
     {
       id: "set-deadline",
@@ -269,7 +275,9 @@ export function buildCommands(input: CommandInputs): Command[] {
       icon: <AlarmClockIcon aria-hidden />,
       disabledReason: noPropertyTarget,
       pointerRoute: message("shortcuts.slashRoute"),
-      run: () => { bridge.requestProperties("builtin.task-deadline"); },
+      run: () => {
+        bridge.requestProperties("builtin.task-deadline");
+      },
     },
   );
 
@@ -318,15 +326,17 @@ export function buildCommands(input: CommandInputs): Command[] {
       run: () => bridge.openSettings(),
     },
     ...(openMembers
-      ? [{
-          id: "manage-members",
-          group: "Graph",
-          label: message("graph.manageMembers"),
-          keywords: ["invite", "share", "collaborators", "revoke"],
-          icon: <UsersIcon aria-hidden />,
-          pointerRoute: message("shortcuts.switchGraphRoute"),
-          run: openMembers,
-        } satisfies Command]
+      ? [
+          {
+            id: "manage-members",
+            group: "Graph",
+            label: message("graph.manageMembers"),
+            keywords: ["invite", "share", "collaborators", "revoke"],
+            icon: <UsersIcon aria-hidden />,
+            pointerRoute: message("shortcuts.switchGraphRoute"),
+            run: openMembers,
+          } satisfies Command,
+        ]
       : []),
     {
       id: "all-graphs",

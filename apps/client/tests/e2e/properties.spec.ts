@@ -27,14 +27,18 @@ async function addCustom(
   await picker.getByRole("option", { name: type, exact: true }).click();
   if (type === "checkbox") {
     await mutateAndAwaitSaved(page, () =>
-      picker.getByRole("option", {
-        name: value === "yes" ? "Checked" : "Unchecked",
-        exact: true,
-      }).click());
+      picker
+        .getByRole("option", {
+          name: value === "yes" ? "Checked" : "Unchecked",
+          exact: true,
+        })
+        .click(),
+    );
   } else if (type === "page") {
     await picker.getByTestId("page-autocomplete").fill(value);
     await mutateAndAwaitSaved(page, () =>
-      page.getByRole("option", { name: "Everything", exact: true }).click());
+      page.getByRole("option", { name: "Everything", exact: true }).click(),
+    );
   } else if (type === "date") {
     // The platform's own date input commits the moment it holds a full date.
     await mutateAndAwaitSaved(page, () => picker.getByLabel("Pick a date").fill(value));
@@ -90,16 +94,16 @@ test("edits every value type plus unknown keys in the contextual picker", async 
   await expect(page.getByRole("option", { name: "Create property “count”" })).toBeVisible();
 });
 
-test("rejects property keys outside the owned namespaces with a visible validation error", async ({ page }) => {
+test("rejects property keys outside the owned namespaces with a visible validation error", async ({
+  page,
+}) => {
   await createGraph(page, "Validation Graph");
   await createPage(page, "Rules");
   await openPageProperties(page);
   const picker = page.getByTestId("property-picker");
   // A bare name would become user.tag; only a malformed dotted key is a dead end.
   await picker.getByLabel("Property key").fill("user.Bad!");
-  await expect(picker.getByTestId("props-error")).toContainText(
-    "must use builtin.* or user.*",
-  );
+  await expect(picker.getByTestId("props-error")).toContainText("must use builtin.* or user.*");
 });
 
 test("slash, block properties, and tags share the same focused target", async ({ page }) => {
@@ -169,7 +173,8 @@ test("a tag under a block is an accent reference that leads to the tag, never a 
   await openBlockTags(page);
   await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Design");
   await mutateAndAwaitSaved(page, () =>
-    page.getByRole("option", { name: "Design", exact: true }).click());
+    page.getByRole("option", { name: "Design", exact: true }).click(),
+  );
   await page.keyboard.press("Escape");
 
   const chip = page.locator(".outline-tags").getByTestId("tag-chip");
@@ -244,8 +249,7 @@ test("a starred page and a starred tag share one list in the rail", async ({ pag
   // Matched whole, because "Reading list" contains the tag's name.
   const tag = items.filter({ hasText: /^#Reading$/ });
   const list = items.filter({ hasText: /^Reading list$/ });
-  await mutateAndAwaitSaved(page, () =>
-    list.dragTo(tag, { targetPosition: { x: 20, y: 2 } }));
+  await mutateAndAwaitSaved(page, () => list.dragTo(tag, { targetPosition: { x: 20, y: 2 } }));
   await expect(items).toHaveText(["Reading list", "#Reading"]);
 
   // …and the same move from a keyboard, because a rail row is a link and a
@@ -286,10 +290,10 @@ test("tags are filed into groups, marked, and coloured from one panel", async ({
   const panel = page.getByTestId("tag-identity");
   await mutateAndAwaitSaved(page, () => panel.getByTestId("tag-colour-teal").click());
   await mutateAndAwaitSaved(page, () =>
-    panel.getByRole("button", { name: "🎨", exact: true }).click());
+    panel.getByRole("button", { name: "🎨", exact: true }).click(),
+  );
   await panel.getByTestId("tag-group-field").fill("Areas");
-  await mutateAndAwaitSaved(page, () =>
-    panel.getByTestId("tag-group-field").press("Enter"));
+  await mutateAndAwaitSaved(page, () => panel.getByTestId("tag-group-field").press("Enter"));
   await page.keyboard.press("Escape");
 
   // The mark is the tag's own: its emoji, in its own hue, wherever it appears.
@@ -309,7 +313,8 @@ test("tags are filed into groups, marked, and coloured from one panel", async ({
   const areas = page.locator(".tag-group").filter({ hasText: "Areas" });
   await expect(areas.getByTestId("tag-row-link")).toHaveText(["Design", "Reading"]);
   await mutateAndAwaitSaved(page, () =>
-    reading.dragTo(design, { targetPosition: { x: 20, y: 2 } }));
+    reading.dragTo(design, { targetPosition: { x: 20, y: 2 } }),
+  );
   await expect(areas.getByTestId("tag-row-link")).toHaveText(["Reading", "Design"]);
 
   await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
@@ -319,8 +324,7 @@ test("tags are filed into groups, marked, and coloured from one panel", async ({
   await areas.getByTestId("tag-group-menu").click();
   await page.getByTestId("tag-group-rename").click();
   await page.getByTestId("tag-group-rename-field").fill("Practices");
-  await mutateAndAwaitSaved(page, () =>
-    page.getByTestId("tag-group-rename-field").press("Enter"));
+  await mutateAndAwaitSaved(page, () => page.getByTestId("tag-group-rename-field").press("Enter"));
   await expect(page.getByTestId("tag-group-name")).toHaveText(["Practices", "Ungrouped"]);
 
   const practices = page.locator(".tag-group").filter({ hasText: "Practices" });
@@ -347,15 +351,15 @@ test("a tag's page carries its query, and the query's views are its tabs", async
   await openBlockTags(page);
   await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Reading");
   await mutateAndAwaitSaved(page, () =>
-    page.getByRole("option", { name: "Reading", exact: true }).click());
+    page.getByRole("option", { name: "Reading", exact: true }).click(),
+  );
   await page.keyboard.press("Escape");
 
   await page.locator(".outline-tags").getByTestId("tag-chip").click();
   await expect(page.getByTestId("tag-title")).toHaveValue("Reading");
   // The seeded query answers what the tag is for, without anyone writing it.
   const query = page.getByTestId("query-block");
-  await expect(query.getByTestId("query-conditions-trigger"))
-    .toHaveAttribute("title", /#Reading/);
+  await expect(query.getByTestId("query-conditions-trigger")).toHaveAttribute("title", /#Reading/);
   await expect(query.getByTestId("query-count")).toContainText("1 result");
   await expect(query.getByTestId("query-table")).toBeVisible();
 
@@ -372,13 +376,15 @@ test("a tag's page carries its query, and the query's views are its tabs", async
   await page.getByTestId("query-view-rename").click();
   await query.getByTestId("query-view-rename-field").fill("Everything");
   await mutateAndAwaitSaved(page, () =>
-    query.getByTestId("query-view-rename-field").press("Enter"));
+    query.getByTestId("query-view-rename-field").press("Enter"),
+  );
   await expect(query.getByRole("tab", { name: "Everything" })).toBeVisible();
 
   // A new view opens on itself, and is renamed where it stands.
   await query.getByTestId("query-view-add").click();
   await mutateAndAwaitSaved(page, () =>
-    page.getByRole("menuitem", { name: "List", exact: true }).click());
+    page.getByRole("menuitem", { name: "List", exact: true }).click(),
+  );
   await expect(tabs).toHaveCount(2);
   await expect(tabs.nth(1)).toHaveText("List");
   await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
@@ -392,18 +398,15 @@ test("a tag's page carries its query, and the query's views are its tabs", async
 
   // And the order survives a reload, because a view is graph data.
   await page.reload();
-  await expect(query.getByRole("tab", { name: "Unread" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect(query.getByRole("tab", { name: "Unread" })).toHaveAttribute("aria-selected", "true");
   await expect(query.getByRole("tab", { name: "Everything" })).toBeVisible();
 
   // Dragging a tab past its neighbour is the same move the menu makes.
   await mutateAndAwaitSaved(page, () =>
-    query.getByRole("tab", { name: "Unread" }).dragTo(
-      query.getByRole("tab", { name: "Everything" }),
-      { targetPosition: { x: 2, y: 10 } },
-    ));
+    query
+      .getByRole("tab", { name: "Unread" })
+      .dragTo(query.getByRole("tab", { name: "Everything" }), { targetPosition: { x: 2, y: 10 } }),
+  );
   await expect(query.getByRole("tab")).toHaveText(["Unread", "Everything"]);
 
   await query.getByRole("tab", { name: "Unread" }).click({ button: "right" });
@@ -421,8 +424,9 @@ test("deleted page references resolve to a tombstone, not a new page", async ({ 
   await page.getByTestId("delete-page").click();
   await page.getByTestId("confirm-delete-page").click();
   await expect(page.getByTestId("tombstone")).toBeVisible();
-  await expect(page.getByTestId("page-list").getByRole("link", { name: "Ephemeral" }))
-    .toHaveCount(0);
+  await expect(page.getByTestId("page-list").getByRole("link", { name: "Ephemeral" })).toHaveCount(
+    0,
+  );
 
   await page.getByTestId("restore-page").click();
   await expect(page.getByTestId("page-title")).toHaveValue("Ephemeral");

@@ -2,11 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
-import {
-  createLocaleRuntime,
-  resolveLocale,
-  storedLocalePreference,
-} from "../../src/i18n";
+import { createLocaleRuntime, resolveLocale, storedLocalePreference } from "../../src/i18n";
 import { chooseFromMenu, mountAt } from "./harness";
 
 describe("locale runtime", () => {

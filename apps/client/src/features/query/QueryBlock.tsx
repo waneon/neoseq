@@ -18,7 +18,13 @@ import { useSession } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { QueryPanel } from "./QueryPanel";
 
-export function QueryBlock({ owner: outlineOwner, block }: { owner: OutlineOwner; block: BlockSnapshot }) {
+export function QueryBlock({
+  owner: outlineOwner,
+  block,
+}: {
+  owner: OutlineOwner;
+  block: BlockSnapshot;
+}) {
   const session = useSession();
   const notify = useNotify();
   const { message } = useI18n();

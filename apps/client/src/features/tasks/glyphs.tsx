@@ -36,7 +36,10 @@ const BASE: SVGProps<SVGSVGElement> = {
   "aria-hidden": true,
 };
 
-export function TaskStatusGlyph({ status, ...props }: { status: string } & SVGProps<SVGSVGElement>) {
+export function TaskStatusGlyph({
+  status,
+  ...props
+}: { status: string } & SVGProps<SVGSVGElement>) {
   switch (status) {
     case "todo":
       return (
@@ -64,11 +67,7 @@ export function TaskStatusGlyph({ status, ...props }: { status: string } & SVGPr
       return (
         <svg {...BASE} {...props} data-status-glyph="cancelled">
           <circle cx="10" cy="10" r="8" fill="currentColor" stroke="none" />
-          <path
-            className="glyph-mark"
-            d="m7 7 6 6 M13 7l-6 6"
-            strokeWidth={2.2}
-          />
+          <path className="glyph-mark" d="m7 7 6 6 M13 7l-6 6" strokeWidth={2.2} />
         </svg>
       );
     default:
@@ -88,7 +87,10 @@ export function TaskStatusGlyph({ status, ...props }: { status: string } & SVGPr
 // the fix was a rectangle. At 4px across 75%, with the tallest bar reaching the
 // ring's own top and bottom, the two marks read at one weight and the tile is
 // gone (app.css § .task-priority-toggle).
-export function PriorityGlyph({ priority, ...props }: { priority: string } & SVGProps<SVGSVGElement>) {
+export function PriorityGlyph({
+  priority,
+  ...props
+}: { priority: string } & SVGProps<SVGSVGElement>) {
   const level = ["low", "medium", "high"].indexOf(priority) + 1;
   const bars = [
     { x: 2.5, y: 10 },

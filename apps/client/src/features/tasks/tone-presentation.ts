@@ -1,9 +1,5 @@
 import type { CSSProperties } from "react";
-import {
-  customToneCss,
-  type ToneName,
-  type ToneValue,
-} from "../../entities/settings";
+import { customToneCss, type ToneName, type ToneValue } from "../../entities/settings";
 
 /** The two presentation channels a persisted tone may use. */
 export function tonePresentation(value: ToneValue): {

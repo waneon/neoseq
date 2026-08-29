@@ -132,18 +132,20 @@ export function outlineDraftReducer(
         drafts,
         baselines,
         pageReferences,
-        autoClosers: action.autoClosers === undefined
-          ? state.autoClosers
-          : withAutoClosers(state.autoClosers, action.id, action.autoClosers),
+        autoClosers:
+          action.autoClosers === undefined
+            ? state.autoClosers
+            : withAutoClosers(state.autoClosers, action.id, action.autoClosers),
       };
     }
     case "set-baseline":
       return {
         ...state,
         baselines: new Map(state.baselines).set(action.id, action.value),
-        pageReferences: action.pageReferences === undefined
-          ? state.pageReferences
-          : new Map(state.pageReferences).set(action.id, action.pageReferences),
+        pageReferences:
+          action.pageReferences === undefined
+            ? state.pageReferences
+            : new Map(state.pageReferences).set(action.id, action.pageReferences),
       };
     case "clear":
       return {
@@ -173,10 +175,7 @@ export function outlineDraftReducer(
         ...state,
         drafts: without(state.drafts, action.draftIds),
         baselines: without(state.baselines, action.draftIds),
-        autoClosers: without(
-          state.autoClosers,
-          [...action.draftIds, ...action.autoCloserIds],
-        ),
+        autoClosers: without(state.autoClosers, [...action.draftIds, ...action.autoCloserIds]),
         pageReferences: without(state.pageReferences, action.draftIds),
       };
     case "enqueue":
@@ -210,9 +209,8 @@ export function outlineDraftReducer(
       return {
         ...state,
         pendingOperations: state.pendingOperations.map((operation) =>
-          operation.id === action.id
-            ? { ...operation, dispatched: true }
-            : operation),
+          operation.id === action.id ? { ...operation, dispatched: true } : operation,
+        ),
       };
     case "adopt": {
       const operation = state.pendingOperations[0];
@@ -234,24 +232,18 @@ export function outlineDraftReducer(
         baselines,
         autoClosers,
         pageReferences,
-        pendingOperations: state.pendingOperations
-          .slice(1)
-          .map((pending) => {
-            if (pending.kind === "merge") {
-              return {
-                ...pending,
-                sourceId: pending.sourceId === action.tempId
-                  ? action.blockId
-                  : pending.sourceId,
-                targetId: pending.targetId === action.tempId
-                  ? action.blockId
-                  : pending.targetId,
-              };
-            }
-            return pending.anchorId === action.tempId
-              ? { ...pending, anchorId: action.blockId }
-              : pending;
-          }),
+        pendingOperations: state.pendingOperations.slice(1).map((pending) => {
+          if (pending.kind === "merge") {
+            return {
+              ...pending,
+              sourceId: pending.sourceId === action.tempId ? action.blockId : pending.sourceId,
+              targetId: pending.targetId === action.tempId ? action.blockId : pending.targetId,
+            };
+          }
+          return pending.anchorId === action.tempId
+            ? { ...pending, anchorId: action.blockId }
+            : pending;
+        }),
       };
     }
     case "discard-head": {
@@ -299,12 +291,13 @@ export function outlineDraftReducer(
         pendingOperations: state.pendingOperations.map((operation) =>
           operation.kind !== "merge" && operation.tempId === action.tempId
             ? { ...operation, structural: [...operation.structural, action.kind] }
-            : operation),
+            : operation,
+        ),
       };
     case "abandon-pending": {
-      const ids = state.pendingOperations.map((operation) => operation.kind === "merge"
-        ? operation.targetId
-        : operation.tempId);
+      const ids = state.pendingOperations.map((operation) =>
+        operation.kind === "merge" ? operation.targetId : operation.tempId,
+      );
       return {
         drafts: without(state.drafts, ids),
         baselines: without(state.baselines, ids),

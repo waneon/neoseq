@@ -99,7 +99,7 @@ that stayed in one browser would disagree with the favourites it arranges.
 
 `builtin.tag-group`, `builtin.tag-order`, `builtin.tag-color`, and
 `builtin.tag-icon` are ordinary registry entries placed on `tag_metadata` and
-nowhere else: they describe what a tag *is*, and no tag copies them onto a block.
+nowhere else: they describe what a tag _is_, and no tag copies them onto a block.
 There is no group entity — a group is the string its members carry, so it exists
 because a tag is in it, disappears with its last member, and is renamed by
 rewriting them. `tag-order` is one number carrying both orders: tags sort by it
@@ -161,7 +161,7 @@ between one and thirty-two views, ordered by `position`.
 
 Page, block, tag, and tag-default bags share atomic property commands. Target
 policy comes from the owner and registry. A tag owns two bags and they are
-different targets: `tag` is the tag's own metadata — what the tag *is*, including
+different targets: `tag` is the tag's own metadata — what the tag _is_, including
 its query — and `tag_default` is what the tag copies onto whatever it is added
 to. Document schemas add semantic commands; the query document currently supports
 source set/splice, plan set/clear, view put/remove, and default-view selection.

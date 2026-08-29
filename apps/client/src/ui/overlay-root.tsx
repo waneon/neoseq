@@ -27,13 +27,7 @@ import { createContext, useContext, type ReactNode } from "react";
 const OverlayRootContext = createContext<HTMLElement | null>(null);
 
 /** Declares this subtree's summoned surfaces to belong to `node`. */
-export function OverlayRoot({
-  node,
-  children,
-}: {
-  node: HTMLElement | null;
-  children: ReactNode;
-}) {
+export function OverlayRoot({ node, children }: { node: HTMLElement | null; children: ReactNode }) {
   return <OverlayRootContext.Provider value={node}>{children}</OverlayRootContext.Provider>;
 }
 

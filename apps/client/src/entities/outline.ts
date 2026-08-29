@@ -15,7 +15,10 @@ export interface OutlineRow {
 }
 
 /** Flattens the visible tree in document order, honoring collapsed nodes. */
-export function flattenOutline(outline: { blocks: BlockSnapshot[] }, collapsedIds: ReadonlySet<string>): OutlineRow[] {
+export function flattenOutline(
+  outline: { blocks: BlockSnapshot[] },
+  collapsedIds: ReadonlySet<string>,
+): OutlineRow[] {
   const rows: OutlineRow[] = [];
   const walk = (blocks: BlockSnapshot[], depth: number, parentId: string | null) => {
     blocks.forEach((block, index) => {

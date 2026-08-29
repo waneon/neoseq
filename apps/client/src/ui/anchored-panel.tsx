@@ -18,19 +18,9 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import {
-  anchorElement,
-  measureAnchor,
-  type Anchor,
-  type AnchoredOptions,
-} from "./anchored";
+import { anchorElement, measureAnchor, type Anchor, type AnchoredOptions } from "./anchored";
 import { OverlayRoot, useOverlayRoot } from "./overlay-root";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverPortal,
-} from "./shadcn/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverPortal } from "./shadcn/popover";
 
 const VIEWPORT_INSET = 12;
 
@@ -51,10 +41,12 @@ function measurableAnchor(
     getBoundingClientRect: () => {
       const current = measureAnchor(anchor);
       if (current) lastValid.current = current;
-      const rect = lastValid.current ?? DOMRect.fromRect({
-        x: window.innerWidth / 2,
-        y: VIEWPORT_INSET,
-      });
+      const rect =
+        lastValid.current ??
+        DOMRect.fromRect({
+          x: window.innerWidth / 2,
+          y: VIEWPORT_INSET,
+        });
       return DOMRect.fromRect(rect);
     },
   };
@@ -70,12 +62,14 @@ function panelStyle(options: AnchoredOptions): CSSProperties {
         ? "var(--radix-popover-trigger-width)"
         : `max(${options.minWidth}px, var(--radix-popover-trigger-width))`
       : options.minWidth,
-    maxWidth: options.maxWidth === undefined
-      ? availableWidth
-      : `min(${options.maxWidth}px, ${availableWidth})`,
-    maxHeight: options.maxHeight === undefined
-      ? "var(--radix-popover-content-available-height)"
-      : `min(${options.maxHeight}px, var(--radix-popover-content-available-height))`,
+    maxWidth:
+      options.maxWidth === undefined
+        ? availableWidth
+        : `min(${options.maxWidth}px, ${availableWidth})`,
+    maxHeight:
+      options.maxHeight === undefined
+        ? "var(--radix-popover-content-available-height)"
+        : `min(${options.maxHeight}px, var(--radix-popover-content-available-height))`,
   };
 }
 
@@ -131,20 +125,18 @@ export function AnchoredPanel({
   const lastValid = useRef<DOMRectReadOnly | null>(null);
   const liveElement = anchorElement(anchor);
   const owner = anchor?.owner ?? null;
-  const virtualRef = useMemo(
-    () => ({ current: measurableAnchor(anchor, lastValid) }),
-    [anchor],
+  const virtualRef = useMemo(() => ({ current: measurableAnchor(anchor, lastValid) }), [anchor]);
+  const rememberSurface = useCallback(
+    (node: HTMLDivElement | null) => {
+      setSurface(node);
+      if (surfaceRef) surfaceRef.current = node;
+    },
+    [surfaceRef],
   );
-  const rememberSurface = useCallback((node: HTMLDivElement | null) => {
-    setSurface(node);
-    if (surfaceRef) surfaceRef.current = node;
-  }, [surfaceRef]);
   const rect = virtualRef.current.getBoundingClientRect();
   const extent = options.width ?? options.maxWidth ?? window.innerWidth - VIEWPORT_INSET * 2;
   const pointLike = !options.matchAnchorWidth && rect.width < extent;
-  const align = pointLike && (rect.left + rect.right) / 2 > window.innerWidth / 2
-    ? "end"
-    : "start";
+  const align = pointLike && (rect.left + rect.right) / 2 > window.innerWidth / 2 ? "end" : "start";
 
   useEffect(() => {
     if (!dismissOnExternalScroll) return;
@@ -201,10 +193,7 @@ export function AnchoredPanel({
             // otherwise calls it "outside" and removes the panel on pointerdown.
             // That can detach the pressed control before its click gets to
             // toggle or retarget the panel. The anchor owns that gesture.
-            if (
-              target instanceof Node
-              && liveElement?.contains(target)
-            ) event.preventDefault();
+            if (target instanceof Node && liveElement?.contains(target)) event.preventDefault();
           }}
           onKeyDown={onKeyDown}
           onCloseAutoFocus={(event) => {

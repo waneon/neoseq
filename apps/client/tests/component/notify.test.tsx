@@ -70,8 +70,9 @@ describe("failure copy", () => {
 
 describe("toast surface", () => {
   it("fails fast outside the notification boundary", () => {
-    expect(() => render(<MissingProviderProbe />))
-      .toThrow("useNotify must be used within NotifyProvider");
+    expect(() => render(<MissingProviderProbe />)).toThrow(
+      "useNotify must be used within NotifyProvider",
+    );
   });
 
   it("announces a failure assertively and a notice politely", async () => {

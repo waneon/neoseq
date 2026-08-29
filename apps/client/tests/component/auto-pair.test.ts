@@ -44,13 +44,15 @@ describe("auto pair planner", () => {
   });
 
   it("wraps a selection and preserves its direction", () => {
-    const plan = planAutoPair(request({
-      value: "before selected after",
-      start: 7,
-      end: 15,
-      direction: "backward",
-      data: "[",
-    }));
+    const plan = planAutoPair(
+      request({
+        value: "before selected after",
+        start: 7,
+        end: 15,
+        direction: "backward",
+        data: "[",
+      }),
+    );
 
     expect(plan).toEqual({
       from: 7,
@@ -79,13 +81,15 @@ describe("auto pair planner", () => {
   });
 
   it("deletes both delimiters when backspacing inside an empty pair", () => {
-    const plan = planAutoPair(request({
-      value: "before [] after",
-      start: 8,
-      end: 8,
-      inputType: "deleteContentBackward",
-      data: null,
-    }));
+    const plan = planAutoPair(
+      request({
+        value: "before [] after",
+        start: 8,
+        end: 8,
+        inputType: "deleteContentBackward",
+        data: null,
+      }),
+    );
 
     expect(plan).not.toBeNull();
     expect(apply("before [] after", plan!)).toBe("before  after");

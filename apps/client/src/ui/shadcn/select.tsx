@@ -28,16 +28,9 @@ function SelectTrigger({
   );
 }
 
-function SelectValue({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.Value>) {
+function SelectValue({ className, ...props }: React.ComponentProps<typeof SelectPrimitive.Value>) {
   return (
-    <SelectPrimitive.Value
-      data-slot="select-value"
-      className={cn("value", className)}
-      {...props}
-    />
+    <SelectPrimitive.Value data-slot="select-value" className={cn("value", className)} {...props} />
   );
 }
 
@@ -65,8 +58,7 @@ function SelectContent({
           data-slot="select-viewport"
           className={cn(
             "p-0",
-            position === "popper" &&
-              "min-w-[var(--radix-select-trigger-width)]",
+            position === "popper" && "min-w-[var(--radix-select-trigger-width)]",
           )}
         >
           {children}

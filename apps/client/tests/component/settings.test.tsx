@@ -10,16 +10,9 @@ import {
   setConfiguredTimezone,
   setJournalDateFormat,
 } from "../../src/entities/journal";
-import {
-  dueTiers,
-  editorKeymap,
-  resetAppSettingsCache,
-} from "../../src/entities/settings";
+import { dueTiers, editorKeymap, resetAppSettingsCache } from "../../src/entities/settings";
 import { graphName, renameGraph } from "../../src/core-port/directory";
-import {
-  DEFAULT_BINDINGS,
-  resolveBindings,
-} from "../../src/features/commands/shortcuts";
+import { DEFAULT_BINDINGS, resolveBindings } from "../../src/features/commands/shortcuts";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
 import { DEFAULT_ACCENT_HUE, storedAccentHue } from "../../src/ui/theme";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
@@ -27,12 +20,7 @@ import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 function mountSettings(section: "journal" | "keyboard" | "appearance" | "tasks" | "graph") {
   return mountAt(
     `/g/${GRAPH_ID}/custom`,
-    <SettingsDialog
-      graphId={GRAPH_ID}
-      section={section}
-      onSection={() => {}}
-      onClose={() => {}}
-    />,
+    <SettingsDialog graphId={GRAPH_ID} section={section} onSection={() => {}} onClose={() => {}} />,
   );
 }
 
@@ -192,8 +180,9 @@ describe("presentation preferences", () => {
     fireEvent.change(within(picker).getByLabelText("Hue"), { target: { value: "318" } });
     fireEvent.change(within(picker).getByLabelText("Intensity"), { target: { value: "0.18" } });
     await waitFor(() => expect(dueTiers().soonTone).toEqual({ hue: 318, chroma: 0.18 }));
-    expect(screen.getByTestId("due-preview-soon").style.getPropertyValue("--tone"))
-      .toContain("318");
+    expect(screen.getByTestId("due-preview-soon").style.getPropertyValue("--tone")).toContain(
+      "318",
+    );
     for (const preview of picker.querySelectorAll(".color-studio-preview .task-chip")) {
       expect(preview).not.toHaveAttribute("data-palette");
       expect((preview as HTMLElement).style.getPropertyValue("--tone")).toContain("318");

@@ -11,10 +11,7 @@ import { caretAnchor, type Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { fuzzyScore } from "../../commands/registry";
 import { canonicalEntityName } from "../../../entities/names";
-import {
-  SLASH_GROUP_ORDER,
-  type SlashItem,
-} from "./slash-commands";
+import { SLASH_GROUP_ORDER, type SlashItem } from "./slash-commands";
 
 const MENU_PLACEMENT = { width: 320, minWidth: 260, maxHeight: 320 } as const;
 
@@ -72,11 +69,7 @@ export interface BlockPageOption {
 const COMPLETION_LIMIT = 8;
 
 /** Keeps a tiny ordered frontier without allocating and sorting the directory. */
-function insertBest<T>(
-  best: T[],
-  candidate: T,
-  compare: (left: T, right: T) => number,
-) {
+function insertBest<T>(best: T[], candidate: T, compare: (left: T, right: T) => number) {
   const at = best.findIndex((current) => compare(candidate, current) < 0);
   if (at < 0) {
     if (best.length < COMPLETION_LIMIT) best.push(candidate);
@@ -100,19 +93,11 @@ function detectToken(
   return { start, end: selectionStart, query: token.slice(1), anchorOffset: start };
 }
 
-export function detectSlash(
-  value: string,
-  selectionStart: number,
-  selectionEnd: number,
-) {
+export function detectSlash(value: string, selectionStart: number, selectionEnd: number) {
   return detectToken("/", value, selectionStart, selectionEnd);
 }
 
-export function detectHash(
-  value: string,
-  selectionStart: number,
-  selectionEnd: number,
-) {
+export function detectHash(value: string, selectionStart: number, selectionEnd: number) {
   return detectToken("#", value, selectionStart, selectionEnd);
 }
 
@@ -125,9 +110,8 @@ export function detectPage(
   const start = value.lastIndexOf("[[", selectionStart);
   if (start < 0 || value.slice(start + 2, selectionStart).includes("]]")) return null;
   if (start > 0 && value[start - 1] === "\\") return null;
-  const close = value.slice(selectionStart, selectionStart + 2) === "]]"
-    ? selectionStart + 2
-    : selectionStart;
+  const close =
+    value.slice(selectionStart, selectionStart + 2) === "]]" ? selectionStart + 2 : selectionStart;
   return {
     start,
     end: close,
@@ -159,9 +143,11 @@ export function filterTagOptions(
   for (const tag of tags) {
     const score = needle ? fuzzyScore(tag.name, needle) : 0;
     if (score === null) continue;
-    insertBest(best, { tag, score }, (left, right) => needle
-      ? right.score - left.score || compare(left.tag.name, right.tag.name)
-      : compare(left.tag.name, right.tag.name));
+    insertBest(best, { tag, score }, (left, right) =>
+      needle
+        ? right.score - left.score || compare(left.tag.name, right.tag.name)
+        : compare(left.tag.name, right.tag.name),
+    );
   }
   return best.map(({ tag }) => ({
     id: tag.id,
@@ -185,9 +171,11 @@ export function filterPageOptions(
     if (canonicalTitle === canonicalNeedle) exact = true;
     const score = canonicalNeedle ? fuzzyScore(page.title, canonicalNeedle) : 0;
     if (score === null) continue;
-    insertBest(best, { page, score }, (left, right) => canonicalNeedle
-      ? right.score - left.score || compare(left.page.title, right.page.title)
-      : compare(left.page.title, right.page.title));
+    insertBest(best, { page, score }, (left, right) =>
+      canonicalNeedle
+        ? right.score - left.score || compare(left.page.title, right.page.title)
+        : compare(left.page.title, right.page.title),
+    );
   }
   const matches = best.map(({ page }) => ({
     id: page.id,
@@ -327,7 +315,9 @@ export function BlockTagMenu({
           onClick={() => onChoose(option)}
         >
           <HashIcon aria-hidden />
-          <span className="slash-item-text"><strong>{option.name}</strong></span>
+          <span className="slash-item-text">
+            <strong>{option.name}</strong>
+          </span>
           {option.present && <CheckIcon className="tag-opt-check" aria-hidden />}
         </button>
       ))}
@@ -361,9 +351,10 @@ export function BlockSlashMenu({
 
   const grouped = request.query.trim().length === 0;
   const sections = grouped
-    ? SLASH_GROUP_ORDER
-        .map((group) => ({ group, items: results.filter((item) => item.group === group) }))
-        .filter((section) => section.items.length > 0)
+    ? SLASH_GROUP_ORDER.map((group) => ({
+        group,
+        items: results.filter((item) => item.group === group),
+      })).filter((section) => section.items.length > 0)
     : [{ group: null, items: results }];
 
   const renderItem = (item: SlashItem) => {
@@ -408,12 +399,14 @@ export function BlockSlashMenu({
         <div key={section.group ?? "ranked"} className="slash-group" role="presentation">
           {section.group && (
             <div className="group-label" role="presentation">
-              {message(`slash.group.${section.group}` as
-                | "slash.group.status"
-                | "slash.group.priority"
-                | "slash.group.date"
-                | "slash.group.query"
-                | "slash.group.property")}
+              {message(
+                `slash.group.${section.group}` as
+                  | "slash.group.status"
+                  | "slash.group.priority"
+                  | "slash.group.date"
+                  | "slash.group.query"
+                  | "slash.group.property",
+              )}
             </div>
           )}
           {section.items.map(renderItem)}

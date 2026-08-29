@@ -59,12 +59,7 @@ import {
   EyeOffIcon,
   MoreHorizontalIcon,
 } from "lucide-react";
-import {
-  rowSortingFeature,
-  tableFeatures,
-  useTable,
-  type ColumnDef,
-} from "@tanstack/react-table";
+import { rowSortingFeature, tableFeatures, useTable, type ColumnDef } from "@tanstack/react-table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,11 +70,7 @@ import {
 import type { QueryViewSort } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
 import { cycleSort, SORT_LIMIT } from "./QuerySortControl";
-import {
-  type CellContext,
-  type ResultColumn,
-  type ResultViewRow,
-} from "./cells";
+import { type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
 import { EditableCellValue, type QueryResultEditor } from "./edit";
 import { QueryTableCellFrame } from "./QueryTableCell";
 import { useProgressiveRows } from "./progressive-rows";
@@ -344,10 +335,7 @@ export function QueryTableView({
             // short while half the table stood empty — a column of clipped text
             // beside five hundred pixels of nothing — which is also why the drag
             // that hands the layout over declares the widths it measures.
-            <col
-              key={header.id}
-              style={{ width: sized ? widthOf(header.column.id) : undefined }}
-            />
+            <col key={header.id} style={{ width: sized ? widthOf(header.column.id) : undefined }} />
           ))}
           {/* Only once the reader owns the widths: it takes whatever they did not,
               so a sized column keeps exactly the width it was given. Without one,
@@ -403,11 +391,7 @@ export function QueryTableView({
                       commitDrop();
                     }}
                     aria-sort={
-                      term === null
-                        ? "none"
-                        : term.descending
-                          ? "descending"
-                          : "ascending"
+                      term === null ? "none" : term.descending ? "descending" : "ascending"
                     }
                   >
                     <div className="query-th">
@@ -419,9 +403,12 @@ export function QueryTableView({
                         title={message("query.sortBy", { column: label })}
                       >
                         <span>{label}</span>
-                        {term && (term.descending
-                          ? <ArrowDownIcon aria-hidden />
-                          : <ArrowUpIcon aria-hidden />)}
+                        {term &&
+                          (term.descending ? (
+                            <ArrowDownIcon aria-hidden />
+                          ) : (
+                            <ArrowUpIcon aria-hidden />
+                          ))}
                         {/* Rank, not decoration: with a second term in the list,
                             an arrow alone cannot say which column wins. */}
                         {term && sorts.length > 1 && (
@@ -462,8 +449,9 @@ export function QueryTableView({
                             </DropdownMenuItem>
                             {term && (
                               <DropdownMenuItem
-                                onSelect={() => onSort(
-                                  sorts.filter((sort) => sort.variable !== header.column.id))}
+                                onSelect={() =>
+                                  onSort(sorts.filter((sort) => sort.variable !== header.column.id))
+                                }
                               >
                                 <ArrowUpDownIcon aria-hidden />
                                 {message("query.stopSorting")}
@@ -552,15 +540,12 @@ export function QueryTableView({
               {row.getAllCells().map((cell, cellIndex) => {
                 const column = byVariable.get(cell.column.id);
                 const term = row.original.values[cell.column.id];
-                const binding = column
-                  ? editor.bindingFor(row.original.subject, column)
-                  : null;
-                const active = binding
-                  ? editor.isActive(binding, row.original)
-                  : false;
-                const canOpen = binding?.kind === "markdown"
-                  && row.original.subject !== undefined
-                  && context.onOpen !== undefined;
+                const binding = column ? editor.bindingFor(row.original.subject, column) : null;
+                const active = binding ? editor.isActive(binding, row.original) : false;
+                const canOpen =
+                  binding?.kind === "markdown" &&
+                  row.original.subject !== undefined &&
+                  context.onOpen !== undefined;
                 return (
                   <td
                     key={cell.id}
@@ -581,20 +566,23 @@ export function QueryTableView({
                     )}
                     {column && (
                       <QueryTableCellFrame
-                        action={canOpen ? (
-                          <button
-                            type="button"
-                            className="query-cell-open"
-                            aria-label={message("query.openResult", {
-                              name: term?.kind === "literal" && term.value
-                                ? term.value
-                                : column.label,
-                            })}
-                            onClick={() => context.onOpen?.(row.original.subject!)}
-                          >
-                            <ArrowUpRightIcon aria-hidden />
-                          </button>
-                        ) : undefined}
+                        action={
+                          canOpen ? (
+                            <button
+                              type="button"
+                              className="query-cell-open"
+                              aria-label={message("query.openResult", {
+                                name:
+                                  term?.kind === "literal" && term.value
+                                    ? term.value
+                                    : column.label,
+                              })}
+                              onClick={() => context.onOpen?.(row.original.subject!)}
+                            >
+                              <ArrowUpRightIcon aria-hidden />
+                            </button>
+                          ) : undefined
+                        }
                       >
                         <EditableCellValue
                           term={term}

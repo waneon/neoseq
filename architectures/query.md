@@ -27,18 +27,18 @@ entity IRI: urn:neoseq:entity:<GraphId>:<kind>:<EntityId>
 
 The projection emits no blank nodes. Its principal triples are:
 
-| Loro/domain value | RDF projection |
-| --- | --- |
-| live page | `rdf:type neo:Page`, `neo:content` |
-| live block | `rdf:type neo:Block`, `neo:content`, `neo:owner`, `neo:parent`, `neo:siblingIndex`; page-owned blocks also have `neo:page` |
-| live tag | `rdf:type neo:Tag`, `neo:name` |
-| node tag reference | `neo:tag <tag-entity-IRI>` |
-| block page reference | `neo:references <page-entity-IRI>` |
-| entity property field `k` | `<subject> neo:hasProperty <property-key-IRI>` |
-| page/block property `k = v` | `<subject> prop:<encoded-k> <typed-v>` |
-| tag metadata property `k = v` | `<tag> prop:<encoded-k> <typed-v>` |
-| tag default field `k` | `<tag> neo:hasDefaultProperty <property-key-IRI>` |
-| tag default `k = v` | `<tag> def:<encoded-k> <typed-v>` |
+| Loro/domain value             | RDF projection                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| live page                     | `rdf:type neo:Page`, `neo:content`                                                                                         |
+| live block                    | `rdf:type neo:Block`, `neo:content`, `neo:owner`, `neo:parent`, `neo:siblingIndex`; page-owned blocks also have `neo:page` |
+| live tag                      | `rdf:type neo:Tag`, `neo:name`                                                                                             |
+| node tag reference            | `neo:tag <tag-entity-IRI>`                                                                                                 |
+| block page reference          | `neo:references <page-entity-IRI>`                                                                                         |
+| entity property field `k`     | `<subject> neo:hasProperty <property-key-IRI>`                                                                             |
+| page/block property `k = v`   | `<subject> prop:<encoded-k> <typed-v>`                                                                                     |
+| tag metadata property `k = v` | `<tag> prop:<encoded-k> <typed-v>`                                                                                         |
+| tag default field `k`         | `<tag> neo:hasDefaultProperty <property-key-IRI>`                                                                          |
+| tag default `k = v`           | `<tag> def:<encoded-k> <typed-v>`                                                                                          |
 
 A root block's parent and `neo:owner` are its page or tag IRI; other blocks point
 to their parent block while retaining the same owner. `neo:page` remains on
@@ -205,7 +205,7 @@ ordering cannot offer different fields. Unknown or no-longer-applicable terms
 remain readable and simply stop applying. Table deserialization also accepts the
 single-object form earlier builds wrote as a one-term list.
 
-Which columns a table *shows* is held per view as a hidden flag beside each
+Which columns a table _shows_ is held per view as a hidden flag beside each
 column's width and place. A block list has no columns: it resolves each result
 subject to its canonical `BlockSnapshot` and draws the block's inline grammar —
 Markdown, task marks, tags, and generic property chips. Result cells never become
@@ -229,7 +229,7 @@ still receive one `q_subject` binding to hydrate each canonical block.
 Every plan-carrying view is built. A view with no plan still runs and reads from
 its source, but the client offers no builder for it.
 
-A graph may also own query documents directly. Its *standing questions* — the
+A graph may also own query documents directly. Its _standing questions_ — the
 answers today's journal opens with — live under `graph_settings.default_queries`,
 synchronize with the graph, and use the same document shape as entity queries.
 `QueryOwner` keeps this ownership explicit: entity variants resolve through
@@ -321,7 +321,7 @@ invalidate query results by itself.
 ## Authoring: the Query Builder
 
 SPARQL stays the only executable query language, and the core reads nothing
-else. A **query plan** is the *authoring* representation the client's query
+else. A **query plan** is the _authoring_ representation the client's query
 builder writes that SPARQL from: a subject kind, a nested all/any/none tree of
 typed conditions, output columns, and a row limit. Repeated columns are folded
 into one cell by their cardinality rather than by a reader-facing mode. The plan is
@@ -335,7 +335,7 @@ a question belongs. What runs stays readable — every query discloses its compi
 source — but nothing asks a person to type it.
 
 The split of ownership is deliberate. The domain owns whether a plan is
-*well-formed* — a bounded JSON object carrying its own version — and enforces
+_well-formed_ — a bounded JSON object carrying its own version — and enforces
 that setting a plan writes it and its compiled source in one transaction, and
 that writing source directly clears the plan. The client owns the authoring
 grammar and its compiler, because a builder is an editor for the source, and the
@@ -357,7 +357,7 @@ Three properties of the emitted SPARQL are contractual rather than incidental:
   bound parameter is visible inside it — the branch would ask its question of
   the whole graph, and a parameterized branch would silently answer nothing.
   `EXISTS` is evaluated against the solution in hand, which is what "any of
-  these is true *of this row*" means.
+  these is true _of this row_" means.
 
 A repeated relation, folded into one cell by default, compiles to `GROUP_CONCAT`
 with the remaining columns in `GROUP BY`. All of these shapes are covered by a

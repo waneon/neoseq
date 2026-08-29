@@ -9,10 +9,7 @@ function HistoryPage() {
   const history = useHistoryActions();
   return (
     <>
-      <button
-        type="button"
-        onClick={() => void history.run("undo", { kind: "global-shortcut" })}
-      >
+      <button type="button" onClick={() => void history.run("undo", { kind: "global-shortcut" })}>
         Undo history
       </button>
       <PageView />
@@ -60,10 +57,7 @@ describe("history navigation", () => {
   });
 
   it("moves to a cross-page block target and reveals it without stealing focus", async () => {
-    const { session, router } = await mountAt(
-      `/g/${GRAPH_ID}/p/home`,
-      <HistoryPage />,
-    );
+    const { session, router } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await session.execute({ type: "ensure_page", page_id: "target", title: "Target" });
     await session.execute({
@@ -100,10 +94,7 @@ describe("history navigation", () => {
   });
 
   it("keeps the current route for graph-wide history effects", async () => {
-    const { session, router } = await mountAt(
-      `/g/${GRAPH_ID}/p/home`,
-      <HistoryPage />,
-    );
+    const { session, router } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await session.execute({ type: "ensure_tag", tag_id: "topic", name: "Topic" });
     await session.execute({ type: "delete_tag", tag_id: "topic" });

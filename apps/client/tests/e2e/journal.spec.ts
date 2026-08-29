@@ -28,9 +28,7 @@ test("creates a graph, writes today's journal, and survives reload", async ({ pa
 
   await page.reload();
   await expect(page.getByTestId("journal-title")).toBeVisible();
-  await expect
-    .poll(() => blockTexts(page))
-    .toEqual(["captured before reload"]);
+  await expect.poll(() => blockTexts(page)).toEqual(["captured before reload"]);
 });
 
 test("navigates journal days and keeps entries per date", async ({ page }) => {

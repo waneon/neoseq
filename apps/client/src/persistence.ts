@@ -1,4 +1,8 @@
-import type { CorePortErrorCode, GraphLocatorDto, StorageCapabilitiesDto } from "./generated/core-port";
+import type {
+  CorePortErrorCode,
+  GraphLocatorDto,
+  StorageCapabilitiesDto,
+} from "./generated/core-port";
 
 const DATABASE = "neoseq-local";
 const VERSION = 3;
@@ -86,11 +90,7 @@ export interface PersistenceHooks {
   before?(operation: "append" | "checkpoint"): void;
   beforeCommit?(transaction: IDBTransaction): void;
   after?(operation: "append" | "checkpoint"): void;
-  afterRecoveryRead?(
-    kind: "checkpoint" | "tail",
-    records: number,
-    bytes: number,
-  ): void;
+  afterRecoveryRead?(kind: "checkpoint" | "tail", records: number, bytes: number): void;
 }
 
 export class StorageError extends Error {
@@ -118,9 +118,7 @@ export class IndexedDbGraphRepository {
     if (existing) {
       await complete(transaction);
       database.close();
-      return hasStorageAccounting(existing)
-        ? existing
-        : backfillStorageAccounting(existing);
+      return hasStorageAccounting(existing) ? existing : backfillStorageAccounting(existing);
     }
     const metadata: MetadataRecord = {
       graph_id: locator.graph_id,
@@ -341,10 +339,7 @@ export class IndexedDbGraphRepository {
   async updatesAfter(graphId: string, sequence: number): Promise<UpdateRecord[]> {
     const database = await openDatabase();
     const transaction = database.transaction(STORES.updates, "readonly");
-    const range = IDBKeyRange.bound(
-      [graphId, sequence + 1],
-      [graphId, Number.MAX_SAFE_INTEGER],
-    );
+    const range = IDBKeyRange.bound([graphId, sequence + 1], [graphId, Number.MAX_SAFE_INTEGER]);
     const values = await request<UpdateRecord[]>(
       transaction.objectStore(STORES.updates).getAll(range),
     );
@@ -382,14 +377,9 @@ export class IndexedDbGraphRepository {
   ): Promise<MetadataRecord> {
     const digest = await checksum(checkpoint);
     const database = await openDatabase();
-    const transaction = database.transaction(
-      [STORES.metadata, STORES.checkpoints],
-      "readwrite",
-    );
+    const transaction = database.transaction([STORES.metadata, STORES.checkpoints], "readwrite");
     const metadataStore = transaction.objectStore(STORES.metadata);
-    const existing = await request<MetadataRecord | undefined>(
-      metadataStore.get(locator.graph_id),
-    );
+    const existing = await request<MetadataRecord | undefined>(metadataStore.get(locator.graph_id));
     if (existing) {
       transaction.abort();
       database.close();
@@ -466,9 +456,11 @@ export class IndexedDbGraphRepository {
       created_at: now,
     } satisfies CheckpointRecord);
     const pinned = new Set(
-      (await request<OutboxRecord[]>(
-        transaction.objectStore(STORES.outbox).index("by_graph").getAll(graphId),
-      ))
+      (
+        await request<OutboxRecord[]>(
+          transaction.objectStore(STORES.outbox).index("by_graph").getAll(graphId),
+        )
+      )
         .map((record) => record.local_sequence)
         .filter((value) => value > 0),
     );
@@ -565,10 +557,7 @@ export class IndexedDbGraphRepository {
       checkpoint_bytes: checkpoints
         .slice(0, 2)
         .reduce((total, record) => total + record.payload.byteLength, 0),
-      tail_bytes: retainedUpdates.reduce(
-        (total, record) => total + record.payload.byteLength,
-        0,
-      ),
+      tail_bytes: retainedUpdates.reduce((total, record) => total + record.payload.byteLength, 0),
       tail_count: retainedUpdates.length,
       updated_at: now,
     });
@@ -686,7 +675,9 @@ export class IndexedDbGraphRepository {
   }
 
   async capabilities(graphId: string): Promise<StorageCapabilitiesDto> {
-    const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : undefined;
+    const persisted = navigator.storage?.persisted
+      ? await navigator.storage.persisted()
+      : undefined;
     const estimate = navigator.storage?.estimate ? await navigator.storage.estimate() : {};
     const metadata = await this.metadata(graphId);
     const [outbox, quarantine] = await Promise.all([
@@ -708,10 +699,7 @@ export class IndexedDbGraphRepository {
       // This field is graph data, not the origin-wide allocation returned by
       // StorageManager (which also includes the Wasm/font shell cache).
       usage_bytes:
-        metadata.checkpoint_bytes
-        + metadata.tail_bytes
-        + standaloneOutboxBytes
-        + quarantineBytes,
+        metadata.checkpoint_bytes + metadata.tail_bytes + standaloneOutboxBytes + quarantineBytes,
     };
   }
 
@@ -723,17 +711,11 @@ export class IndexedDbGraphRepository {
       allByGraph<OutboxRecord>(STORES.outbox, graphId),
     ]);
     return {
-      checkpoint_bytes: checkpoints.reduce(
-        (total, record) => total + record.payload.byteLength,
-        0,
-      ),
+      checkpoint_bytes: checkpoints.reduce((total, record) => total + record.payload.byteLength, 0),
       checkpoint_count: checkpoints.length,
       update_bytes: updates.reduce((total, record) => total + record.payload.byteLength, 0),
       update_count: updates.length,
-      outbox_bytes: outbox.reduce(
-        (total, record) => total + (record.payload?.byteLength ?? 0),
-        0,
-      ),
+      outbox_bytes: outbox.reduce((total, record) => total + (record.payload?.byteLength ?? 0), 0),
       outbox_count: outbox.length,
       compacted_through: metadata.compacted_through,
     };
@@ -741,10 +723,12 @@ export class IndexedDbGraphRepository {
 }
 
 function hasStorageAccounting(metadata: MetadataRecord): boolean {
-  return Number.isFinite(metadata.compacted_through)
-    && Number.isFinite(metadata.checkpoint_bytes)
-    && Number.isFinite(metadata.tail_bytes)
-    && Number.isFinite(metadata.tail_count);
+  return (
+    Number.isFinite(metadata.compacted_through) &&
+    Number.isFinite(metadata.checkpoint_bytes) &&
+    Number.isFinite(metadata.tail_bytes) &&
+    Number.isFinite(metadata.tail_count)
+  );
 }
 
 /** One cold compatibility path for metadata written before storage accounting. */
@@ -756,10 +740,7 @@ async function backfillStorageAccounting(metadata: MetadataRecord): Promise<Meta
   const repaired: MetadataRecord = {
     ...metadata,
     compacted_through: metadata.compacted_through ?? 0,
-    checkpoint_bytes: checkpoints.reduce(
-      (total, value) => total + value.payload.byteLength,
-      0,
-    ),
+    checkpoint_bytes: checkpoints.reduce((total, value) => total + value.payload.byteLength, 0),
     tail_bytes: updates.reduce((total, value) => total + value.payload.byteLength, 0),
     tail_count: updates.length,
   };
@@ -821,7 +802,9 @@ async function openDatabase(): Promise<IDBDatabase> {
 async function allByGraph<T>(storeName: string, graphId: string): Promise<T[]> {
   const database = await openDatabase();
   const transaction = database.transaction(storeName, "readonly");
-  const values = await request<T[]>(transaction.objectStore(storeName).index("by_graph").getAll(graphId));
+  const values = await request<T[]>(
+    transaction.objectStore(storeName).index("by_graph").getAll(graphId),
+  );
   await complete(transaction);
   database.close();
   return values;
@@ -842,14 +825,23 @@ function request<T>(value: IDBRequest<T>): Promise<T> {
 function complete(transaction: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(mapDomError(transaction.error ?? new DOMException("transaction aborted", "AbortError")));
+    transaction.onabort = () =>
+      reject(
+        mapDomError(transaction.error ?? new DOMException("transaction aborted", "AbortError")),
+      );
     transaction.onerror = () => reject(mapDomError(transaction.error));
   });
 }
 
 function mapDomError(error: DOMException | null): StorageError {
-  if (error?.name === "QuotaExceededError") return new StorageError("storage_full", error.message, true);
-  if (error?.name === "AbortError") return new StorageError("dirty_unsaved", error.message || "IndexedDB transaction aborted", true);
+  if (error?.name === "QuotaExceededError")
+    return new StorageError("storage_full", error.message, true);
+  if (error?.name === "AbortError")
+    return new StorageError(
+      "dirty_unsaved",
+      error.message || "IndexedDB transaction aborted",
+      true,
+    );
   return new StorageError("storage_corrupt", error?.message ?? "IndexedDB operation failed", false);
 }
 

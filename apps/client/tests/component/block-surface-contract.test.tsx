@@ -71,21 +71,19 @@ describe("block surface contracts", () => {
       expect(projection).toHaveTextContent("14:30");
     }
     expect(container.querySelectorAll(".task-moment-value")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /Scheduled August 26 14:30/ }))
-      .toBeInTheDocument();
-    expect(container.querySelector(".query-due")).toHaveAttribute(
-      "title",
-      "August 26 · 14:30",
-    );
+    expect(screen.getByRole("button", { name: /Scheduled August 26 14:30/ })).toBeInTheDocument();
+    expect(container.querySelector(".query-due")).toHaveAttribute("title", "August 26 · 14:30");
   });
 
   it("removes urgency from settled moments before any surface sees them", () => {
-    expect(taskMomentDue({
-      date: "2026-08-26",
-      settled: true,
-      today: "2026-08-26",
-      now: "12:00",
-      tiers: DEFAULT_DUE_TIERS,
-    })).toBeNull();
+    expect(
+      taskMomentDue({
+        date: "2026-08-26",
+        settled: true,
+        today: "2026-08-26",
+        now: "12:00",
+        tiers: DEFAULT_DUE_TIERS,
+      }),
+    ).toBeNull();
   });
 });

@@ -23,11 +23,7 @@ import {
 import { configuredTimezone } from "../../entities/journal";
 
 export function useConfiguredTimezone(): string {
-  return useSyncExternalStore(
-    subscribeAppSettings,
-    configuredTimezone,
-    configuredTimezone,
-  );
+  return useSyncExternalStore(subscribeAppSettings, configuredTimezone, configuredTimezone);
 }
 
 export function useEditorKeymap(): EditorKeymap {

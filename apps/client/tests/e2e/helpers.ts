@@ -131,11 +131,7 @@ export async function createPage(page: Page, title: string): Promise<void> {
  * a user's route: press the trigger, then press the option. This replaces
  * `selectOption`, which only ever worked against a native `<select>`.
  */
-export async function chooseFromMenu(
-  page: Page,
-  trigger: Locator,
-  option: string,
-): Promise<void> {
+export async function chooseFromMenu(page: Page, trigger: Locator, option: string): Promise<void> {
   await trigger.click();
   const choice = page
     .getByRole("option", { name: option, exact: true })

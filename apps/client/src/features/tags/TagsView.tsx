@@ -98,9 +98,7 @@ const USAGE_OWNER = "tags:usage";
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 
 /** What is in the reader's hand. */
-type Dragged =
-  | { kind: "tag"; tag: TagSnapshot }
-  | { kind: "group"; name: string };
+type Dragged = { kind: "tag"; tag: TagSnapshot } | { kind: "group"; name: string };
 
 type TagDrop = { group: string | null; beforeId: string | null };
 type GroupDrop = { index: number };
@@ -138,9 +136,8 @@ export function TagsView() {
     if (commands.length === 0) return;
     // Filing and ordering are one visible gesture even when several tag-owned
     // fields move. The core preflights and commits that gesture as one state.
-    void session.execute(commands.length === 1
-      ? commands[0]
-      : { type: "batch", commands })
+    void session
+      .execute(commands.length === 1 ? commands[0] : { type: "batch", commands })
       .catch((cause: unknown) => notify.failure(failure, cause));
   };
 
@@ -154,22 +151,25 @@ export function TagsView() {
 
   /** File a tag: into a group, into a place inside one, or both at once. */
   const placeTag = (tag: TagSnapshot, group: string | null, beforeId: string | null) => {
-    const members = (groups.find((item) => item.name === group)?.tags ?? [])
-      .filter((item) => item.id !== tag.id);
+    const members = (groups.find((item) => item.name === group)?.tags ?? []).filter(
+      (item) => item.id !== tag.id,
+    );
     const found = beforeId === null ? -1 : members.findIndex((item) => item.id === beforeId);
     const index = found < 0 ? members.length : found;
     const ordered = [...members.slice(0, index), tag, ...members.slice(index)];
     const owner = { kind: "tag", tag_id: tag.id } as const;
     const commands: Command[] = [];
     if (tagGroup(tag) !== group) {
-      commands.push(group === null
-        ? { type: "remove_property", owner, key: TAG_GROUP_KEY }
-        : {
-            type: "set_property",
-            owner,
-            key: TAG_GROUP_KEY,
-            value: { type: "string", value: group },
-          });
+      commands.push(
+        group === null
+          ? { type: "remove_property", owner, key: TAG_GROUP_KEY }
+          : {
+              type: "set_property",
+              owner,
+              key: TAG_GROUP_KEY,
+              value: { type: "string", value: group },
+            },
+      );
     }
     commands.push(...orderCommands(orderWrites(ordered, tag.id)));
     run(commands, message("failure.fileTag", { name: tag.name }));
@@ -222,9 +222,10 @@ export function TagsView() {
   // section is both, and it appears for the length of the gesture that needs it
   // rather than standing there empty forever.
   const wantsUngrouped = drag?.kind === "tag" || creatingIn?.group === null;
-  const sections = wantsUngrouped && !groups.some((group) => group.name === null)
-    ? [...groups, { name: null, tags: [] }]
-    : groups;
+  const sections =
+    wantsUngrouped && !groups.some((group) => group.name === null)
+      ? [...groups, { name: null, tags: [] }]
+      : groups;
   const realGroups = sections.filter((group) => group.name !== null).length;
 
   if (tags.length === 0 && readonly) {
@@ -234,7 +235,9 @@ export function TagsView() {
           <div className="title-row">
             <h1>{message("tags.title")}</h1>
           </div>
-          <p className="tags-empty" data-testid="tags-empty">{message("tags.empty")}</p>
+          <p className="tags-empty" data-testid="tags-empty">
+            {message("tags.empty")}
+          </p>
         </article>
       </div>
     );
@@ -247,7 +250,7 @@ export function TagsView() {
         className="page-body enter-fade-view"
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-            setDrag((current) => current ? { ...current, drop: null } : null);
+            setDrag((current) => (current ? { ...current, drop: null } : null));
           }
         }}
       >
@@ -255,10 +258,7 @@ export function TagsView() {
           <h1>{message("tags.title")}</h1>
           {!readonly && (
             <div className="title-actions">
-              <Button
-                data-testid="new-tag"
-                onClick={() => setCreatingIn({ group: null })}
-              >
+              <Button data-testid="new-tag" onClick={() => setCreatingIn({ group: null })}>
                 <PlusIcon aria-hidden />
                 {message("tags.new")}
               </Button>
@@ -362,11 +362,11 @@ function TagGroupSection({
   const fileAll = (group: string | null) => {
     const commands = tags.map((tag) => fileCommand(tag, group));
     if (commands.length === 0) return;
-    void session.execute(commands.length === 1
-      ? commands[0]
-      : { type: "batch", commands }).catch((cause: unknown) => {
-      notify.failure(message("failure.fileTag", { name: name ?? tags[0]?.name ?? "" }), cause);
-    });
+    void session
+      .execute(commands.length === 1 ? commands[0] : { type: "batch", commands })
+      .catch((cause: unknown) => {
+        notify.failure(message("failure.fileTag", { name: name ?? tags[0]?.name ?? "" }), cause);
+      });
   };
 
   /** Renaming a group is rewriting its members: there is nothing else to rename. */
@@ -385,13 +385,14 @@ function TagGroupSection({
   const takesTag = drag?.kind === "tag";
   const groupDrop = drag?.kind === "group" ? drag.drop : null;
   const tagDrop = drag?.kind === "tag" ? drag.drop : null;
-  const groupSeam = movingGroup && groupDrop && index >= 0
-    ? groupDrop.index === index
-      ? "before"
-      : groupDrop.index === index + 1 && last
-        ? "after"
-        : undefined
-    : undefined;
+  const groupSeam =
+    movingGroup && groupDrop && index >= 0
+      ? groupDrop.index === index
+        ? "before"
+        : groupDrop.index === index + 1 && last
+          ? "after"
+          : undefined
+      : undefined;
 
   return (
     <section
@@ -518,13 +519,15 @@ function TagGroupSection({
             uses={uses.get(tag.id)}
             readonly={readonly}
             dragging={drag?.kind === "tag" && drag.tag.id === tag.id}
-            seam={tagDrop?.group === name
-              ? tagDrop.beforeId === tag.id
-                ? "before"
-                : tagDrop.beforeId === null && position === tags.length - 1
-                  ? "after"
-                  : undefined
-              : undefined}
+            seam={
+              tagDrop?.group === name
+                ? tagDrop.beforeId === tag.id
+                  ? "before"
+                  : tagDrop.beforeId === null && position === tags.length - 1
+                    ? "after"
+                    : undefined
+                : undefined
+            }
             takesTag={takesTag}
             onDragStart={() => onDragStart({ kind: "tag", tag })}
             onDragEnd={onDragEnd}
@@ -533,17 +536,14 @@ function TagGroupSection({
                 kind: "tag",
                 group: name,
                 beforeId: before ? tag.id : (tags[position + 1]?.id ?? null),
-              })}
+              })
+            }
             canMoveUp={position > 0}
             canMoveDown={position < tags.length - 1}
             onMove={(delta) => {
               const target = position + delta;
               if (target < 0 || target >= tags.length) return;
-              onPlaceTag(
-                tag,
-                name,
-                delta < 0 ? tags[target].id : (tags[target + 1]?.id ?? null),
-              );
+              onPlaceTag(tag, name, delta < 0 ? tags[target].id : (tags[target + 1]?.id ?? null));
             }}
           />
         ))}
@@ -557,12 +557,7 @@ function TagGroupSection({
           </li>
         )}
         {creating && (
-          <NewTagRow
-            group={name}
-            existing={allTags}
-            onDone={onCreated}
-            onCancel={onCreated}
-          />
+          <NewTagRow group={name} existing={allTags} onDone={onCreated} onCancel={onCreated} />
         )}
         {tags.length === 0 && !creating && (
           <li
@@ -623,9 +618,7 @@ function TagRow({
   const actionsRef = useRef<HTMLButtonElement>(null);
 
   const starred = isFavourite(tag);
-  const summary = tag.defaults
-    .map((field) => propertyDisplayName(field.key, message))
-    .join(" · ");
+  const summary = tag.defaults.map((field) => propertyDisplayName(field.key, message)).join(" · ");
 
   return (
     <li
@@ -657,10 +650,7 @@ function TagRow({
           markRef.current = node;
         }}
       >
-        <TagMark
-          tag={tag}
-          onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
-        />
+        <TagMark tag={tag} onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)} />
       </span>
       {/* The name is the link; the row is not. A link wrapping the mark and the
           menu would be a control inside a control. */}
@@ -675,7 +665,11 @@ function TagRow({
       >
         {tag.name}
       </Link>
-      {summary && <span className="tag-row-defaults" title={summary}>{summary}</span>}
+      {summary && (
+        <span className="tag-row-defaults" title={summary}>
+          {summary}
+        </span>
+      )}
       <span
         className="tag-row-uses"
         data-empty={uses ? undefined : "true"}
@@ -702,16 +696,19 @@ function TagRow({
               onSelect={() => {
                 const owner = { kind: "tag", tag_id: tag.id } as const;
                 void session
-                  .execute(starred
-                    ? { type: "remove_property", owner, key: FAVOURITE_KEY }
-                    : {
-                        type: "set_property",
-                        owner,
-                        key: FAVOURITE_KEY,
-                        value: { type: "checkbox", value: true },
-                      })
+                  .execute(
+                    starred
+                      ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                      : {
+                          type: "set_property",
+                          owner,
+                          key: FAVOURITE_KEY,
+                          value: { type: "checkbox", value: true },
+                        },
+                  )
                   .catch((cause: unknown) =>
-                    notify.failure(message("failure.customizeTag", { name: tag.name }), cause));
+                    notify.failure(message("failure.customizeTag", { name: tag.name }), cause),
+                  );
               }}
             >
               {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
@@ -725,8 +722,7 @@ function TagRow({
               {message("tags.customize")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={() =>
-                requestAnimationFrame(() => setPicker({ anchor: markRef.current }))}
+              onSelect={() => requestAnimationFrame(() => setPicker({ anchor: markRef.current }))}
             >
               <PlusIcon aria-hidden />
               {message("tags.addDefault")}
@@ -788,7 +784,8 @@ function TagRow({
             await session.execute({ type: "delete_tag", tag_id: tag.id });
           }}
           onConfirmError={(cause) =>
-            notify.failure(message("failure.deleteTag", { name: tag.name }), cause)}
+            notify.failure(message("failure.deleteTag", { name: tag.name }), cause)
+          }
         >
           {message("tags.deleteConfirm", { name: tag.name })}
         </ConfirmDialog>
@@ -946,10 +943,7 @@ function useTagUsage(): Map<string, number> {
   const session = useSession();
   const canonicalRevision = useSessionSelector((state) => state.canonicalRevision);
   const store = queryExecutionStore(session);
-  const request = useMemo(
-    () => ({ language: LANGUAGE, source: USAGE_SOURCE, bindings: {} }),
-    [],
-  );
+  const request = useMemo(() => ({ language: LANGUAGE, source: USAGE_SOURCE, bindings: {} }), []);
   const signature = useMemo(() => queryExecutionSignature(request), [request]);
   const execution = useQueryExecution(store, USAGE_OWNER, signature, canonicalRevision);
 

@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useRef,
-  useSyncExternalStore,
-} from "react";
+import { createContext, useCallback, useContext, useRef, useSyncExternalStore } from "react";
 import type { GraphSession, SessionState } from "../../core-port/session";
 
 export const SessionContext = createContext<GraphSession | null>(null);

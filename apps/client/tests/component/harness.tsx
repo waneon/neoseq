@@ -6,10 +6,7 @@ import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { useMemo, type ReactElement, type ReactNode } from "react";
 import { GraphSession } from "../../src/core-port/session";
-import {
-  FakeCorePort,
-  openFakeSession,
-} from "../../src/core-port/testing/fake-core-port";
+import { FakeCorePort, openFakeSession } from "../../src/core-port/testing/fake-core-port";
 import { resetAppSettingsCache } from "../../src/entities/settings";
 import { resetQueryDisclosure } from "../../src/features/query/presentation";
 import { queryExecutionStore } from "../../src/features/query/execution";
@@ -86,10 +83,7 @@ export function TestCommandProvider({ children }: { children: ReactNode }) {
   return <CommandContext.Provider value={commands}>{children}</CommandContext.Provider>;
 }
 
-export async function mountAt(
-  initialPath: string,
-  custom?: ReactElement,
-): Promise<Harness> {
+export async function mountAt(initialPath: string, custom?: ReactElement): Promise<Harness> {
   // App settings and query disclosure are browser-wide and cached, so a test that
   // changed one must not leak it into the next mount.
   resetAppSettingsCache();
@@ -99,9 +93,10 @@ export async function mountAt(
   // from Worker promises; component tests must mark that same boundary as a
   // React update instead of forcing every test to wrap domain setup commands.
   const subscribe = session.subscribe;
-  session.subscribe = (listener) => subscribe(() => {
-    act(listener);
-  });
+  session.subscribe = (listener) =>
+    subscribe(() => {
+      act(listener);
+    });
   const queryStore = queryExecutionStore(session);
   const router = createMemoryRouter(
     [
@@ -199,8 +194,9 @@ export async function chooseFromMenu(
 ): Promise<void> {
   await user.click(trigger);
   const choice = await waitFor(() => {
-    const row = screen.queryByRole("option", { name: option })
-      ?? screen.queryByRole("menuitemradio", { name: option });
+    const row =
+      screen.queryByRole("option", { name: option }) ??
+      screen.queryByRole("menuitemradio", { name: option });
     if (!row) throw new Error(`Choice not found: ${String(option)}`);
     return row;
   });

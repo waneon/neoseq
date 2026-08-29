@@ -137,9 +137,8 @@ export function QueryViewTabs({
       return;
     }
     const rest = views.filter((view) => view.id !== moved.id);
-    const found = drag.seamBefore === null
-      ? -1
-      : rest.findIndex((view) => view.id === drag.seamBefore);
+    const found =
+      drag.seamBefore === null ? -1 : rest.findIndex((view) => view.id === drag.seamBefore);
     const at = found < 0 ? rest.length : found;
     endDrag();
     onReorder([...rest.slice(0, at), moved, ...rest.slice(at)]);
@@ -203,13 +202,14 @@ export function QueryViewTabs({
             );
           }
           const opens = current && !readonly;
-          const seam = drag === null
-            ? undefined
-            : drag.seamBefore === view.id
-              ? "before"
-              : drag.seamBefore === null && view.id === views[views.length - 1]?.id
-                ? "after"
-                : undefined;
+          const seam =
+            drag === null
+              ? undefined
+              : drag.seamBefore === view.id
+                ? "before"
+                : drag.seamBefore === null && view.id === views[views.length - 1]?.id
+                  ? "after"
+                  : undefined;
           return (
             <button
               key={view.id}
@@ -244,8 +244,7 @@ export function QueryViewTabs({
                   seamBefore: before ? view.id : (views[position + 1]?.id ?? null),
                 });
               }}
-              onClick={(event) =>
-                opens ? summon(view, pointOf(event)) : onSelect(view.id)}
+              onClick={(event) => (opens ? summon(view, pointOf(event)) : onSelect(view.id))}
               onContextMenu={(event) => {
                 event.preventDefault();
                 summon(view, pointOf(event));

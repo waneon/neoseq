@@ -54,7 +54,12 @@ describe("a destructive confirmation", () => {
   it("stays open and blocks dismissal until an async operation succeeds", async () => {
     const user = userEvent.setup();
     let resolve!: () => void;
-    const onConfirm = vi.fn(() => new Promise<void>((done) => { resolve = done; }));
+    const onConfirm = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done;
+        }),
+    );
     const { onClose } = renderConfirmation(undefined, onConfirm);
 
     await user.click(screen.getByRole("button", { name: "Delete page" }));
@@ -73,7 +78,9 @@ describe("a destructive confirmation", () => {
   it("keeps the explanation visible when the operation fails", async () => {
     const user = userEvent.setup();
     const failure = new Error("storage unavailable");
-    const onConfirm = vi.fn(async () => { throw failure; });
+    const onConfirm = vi.fn(async () => {
+      throw failure;
+    });
     const { onClose, onConfirmError } = renderConfirmation(undefined, onConfirm);
 
     await user.click(screen.getByRole("button", { name: "Delete page" }));

@@ -14,13 +14,7 @@ export type EditorKeymap = "standard" | "vim";
 
 export const EDITOR_KEYMAPS: EditorKeymap[] = ["standard", "vim"];
 
-export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = [
-  "full",
-  "long",
-  "medium",
-  "short",
-  "iso",
-];
+export const JOURNAL_DATE_FORMATS: JournalDateFormat[] = ["full", "long", "medium", "short", "iso"];
 
 /**
  * The safe named starting points for a tone preference. A preference may keep
@@ -47,14 +41,7 @@ export type ToneValue = ToneName | CustomTone;
 export const MIN_CUSTOM_TONE_CHROMA = 0.025;
 export const MAX_CUSTOM_TONE_CHROMA = 0.2;
 
-export const TONE_NAMES: ToneName[] = [
-  "neutral",
-  "info",
-  "ok",
-  "caution",
-  "attention",
-  "danger",
-];
+export const TONE_NAMES: ToneName[] = ["neutral", "info", "ok", "caution", "attention", "danger"];
 
 export function isToneName(value: unknown): value is ToneName {
   return TONE_NAMES.includes(value as ToneName);
@@ -63,14 +50,16 @@ export function isToneName(value: unknown): value is ToneName {
 export function isCustomTone(value: unknown): value is CustomTone {
   if (!value || typeof value !== "object") return false;
   const tone = value as Partial<CustomTone>;
-  return typeof tone.hue === "number"
-    && Number.isFinite(tone.hue)
-    && tone.hue >= 0
-    && tone.hue < 360
-    && typeof tone.chroma === "number"
-    && Number.isFinite(tone.chroma)
-    && tone.chroma >= MIN_CUSTOM_TONE_CHROMA
-    && tone.chroma <= MAX_CUSTOM_TONE_CHROMA;
+  return (
+    typeof tone.hue === "number" &&
+    Number.isFinite(tone.hue) &&
+    tone.hue >= 0 &&
+    tone.hue < 360 &&
+    typeof tone.chroma === "number" &&
+    Number.isFinite(tone.chroma) &&
+    tone.chroma >= MIN_CUSTOM_TONE_CHROMA &&
+    tone.chroma <= MAX_CUSTOM_TONE_CHROMA
+  );
 }
 
 /** The continuous-picker position represented by each safe named preset. */

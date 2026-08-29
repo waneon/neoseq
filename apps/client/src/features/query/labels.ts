@@ -23,17 +23,18 @@ import type {
 } from "../../entities/query-plan";
 
 export function subjectLabel(subject: PlanSubject, message: MessageFunction): string {
-  return message(`query.subject.${subject}` as
-    | "query.subject.block"
-    | "query.subject.page"
-    | "query.subject.tag");
+  return message(
+    `query.subject.${subject}` as
+      | "query.subject.block"
+      | "query.subject.page"
+      | "query.subject.tag",
+  );
 }
 
 export function matchLabel(match: PlanMatch, message: MessageFunction): string {
-  return message(`query.match.${match}` as
-    | "query.match.all"
-    | "query.match.any"
-    | "query.match.none");
+  return message(
+    `query.match.${match}` as "query.match.all" | "query.match.any" | "query.match.none",
+  );
 }
 
 /** `content` is named after the subject it belongs to: text, title, or name. */
@@ -47,12 +48,14 @@ export function fieldKindLabel(
     if (subject === "tag") return message("query.field.name");
     return message("query.field.text");
   }
-  return message(`query.field.${kind}` as
-    | "query.field.property"
-    | "query.field.tag"
-    | "query.field.page"
-    | "query.field.ancestor"
-    | "query.field.sibling_index");
+  return message(
+    `query.field.${kind}` as
+      | "query.field.property"
+      | "query.field.tag"
+      | "query.field.page"
+      | "query.field.ancestor"
+      | "query.field.sibling_index",
+  );
 }
 
 export function fieldLabel(
@@ -83,11 +86,13 @@ export function columnSourceLabel(
   if (source.kind === "property") return propertyDisplayName(source.key, message);
   if (source.kind === "subject") return subjectLabel(subject, message);
   if (source.kind === "content") return fieldKindLabel("content", subject, message);
-  return message(`query.column.${source.kind}` as
-    | "query.column.tags"
-    | "query.column.page"
-    | "query.column.parent"
-    | "query.column.sibling_index");
+  return message(
+    `query.column.${source.kind}` as
+      | "query.column.tags"
+      | "query.column.page"
+      | "query.column.parent"
+      | "query.column.sibling_index",
+  );
 }
 
 export function aggregateLabel(aggregate: PlanAggregate, message: MessageFunction): string {
@@ -131,17 +136,19 @@ export function relativeDateId(value: PlanRelativeDate): string {
 }
 
 export function relativeDateLabel(id: string, message: MessageFunction): string {
-  return message(`query.relative.${id}` as
-    | "query.relative.today"
-    | "query.relative.tomorrow"
-    | "query.relative.yesterday"
-    | "query.relative.in7"
-    | "query.relative.ago7"
-    | "query.relative.in30"
-    | "query.relative.weekStart"
-    | "query.relative.nextWeekStart"
-    | "query.relative.monthStart"
-    | "query.relative.nextMonthStart");
+  return message(
+    `query.relative.${id}` as
+      | "query.relative.today"
+      | "query.relative.tomorrow"
+      | "query.relative.yesterday"
+      | "query.relative.in7"
+      | "query.relative.ago7"
+      | "query.relative.in30"
+      | "query.relative.weekStart"
+      | "query.relative.nextWeekStart"
+      | "query.relative.monthStart"
+      | "query.relative.nextMonthStart",
+  );
 }
 
 /**

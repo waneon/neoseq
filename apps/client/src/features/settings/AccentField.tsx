@@ -20,24 +20,10 @@
 // measured lightness/chroma pairs, so every position remains legible.
 
 import { useId, useState, type CSSProperties } from "react";
-import {
-  CheckIcon,
-  RotateCcwIcon,
-  SlidersHorizontalIcon,
-} from "lucide-react";
+import { CheckIcon, RotateCcwIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useI18n, type MessageKey } from "../../i18n";
-import {
-  DEFAULT_ACCENT_HUE,
-  normalizeHue,
-  setAccentHue,
-  storedAccentHue,
-} from "../../ui/theme";
-import {
-  Popover,
-  PopoverContent,
-  PopoverPortal,
-  PopoverTrigger,
-} from "../../ui/shadcn/popover";
+import { DEFAULT_ACCENT_HUE, normalizeHue, setAccentHue, storedAccentHue } from "../../ui/theme";
+import { Popover, PopoverContent, PopoverPortal, PopoverTrigger } from "../../ui/shadcn/popover";
 
 /** Eight steps around the circle, named, with iris where it has always been. */
 const ACCENT_STEPS = [

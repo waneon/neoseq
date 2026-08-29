@@ -86,10 +86,7 @@ import {
 import { Button } from "@/ui/shadcn/button";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import { newQueryDocument } from "../../entities/query-document";
-import {
-  isSettledStatus,
-  TASK_STATUS_KEY,
-} from "../../entities/tasks";
+import { isSettledStatus, TASK_STATUS_KEY } from "../../entities/tasks";
 import { taskMomentDue } from "../tasks/moment-presentation";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
@@ -125,11 +122,7 @@ import { useI18n } from "../../i18n";
 import { useDueTiers } from "../settings/preferences";
 import { useLatest } from "../../lib/react";
 import { QueryBuilder } from "./QueryBuilder";
-import {
-  columnChoices,
-  QueryColumnsControl,
-  type ColumnChoice,
-} from "./QueryColumnsControl";
+import { columnChoices, QueryColumnsControl, type ColumnChoice } from "./QueryColumnsControl";
 import { QueryGenericListView, QueryListView } from "./QueryListView";
 import { QuerySortControl, type SortControlEntry } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
@@ -222,10 +215,11 @@ function QueryPanelSurface({
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
-    (left, right) => left.snapshot === right.snapshot
-      && left.mode === right.mode
-      && left.status === right.status
-      && left.hydratedOutlines === right.hydratedOutlines,
+    (left, right) =>
+      left.snapshot === right.snapshot &&
+      left.mode === right.mode &&
+      left.status === right.status &&
+      left.hydratedOutlines === right.hydratedOutlines,
   );
   const notify = useNotify();
   const history = useHistoryActions();
@@ -250,19 +244,19 @@ function QueryPanelSurface({
     ).views;
   }, [seedPlan]);
   const views = document?.views ?? seedViews;
-  const preferredViewId = (canManageViews ? null : localViewId)
-    ?? document?.default_view_id
-    ?? views[0].id;
+  const preferredViewId =
+    (canManageViews ? null : localViewId) ?? document?.default_view_id ?? views[0].id;
   const activeView = views.find((view) => view.id === preferredViewId) ?? views[0];
   const source = activeView.definition.source;
   const storedPlan = useMemo(
-    () => (activeView.definition.plan
-      ? decodePlan(activeView.definition.plan.payload, activeView.definition.plan.version)
-      : null),
+    () =>
+      activeView.definition.plan
+        ? decodePlan(activeView.definition.plan.payload, activeView.definition.plan.version)
+        : null,
     [activeView.definition.plan],
   );
   const storedPayload = storedPlan ? encodePlan(storedPlan) : null;
-  const incomingPlan = storedPlan ?? (document ? null : seedPlan ?? null);
+  const incomingPlan = storedPlan ?? (document ? null : (seedPlan ?? null));
   const incomingPlanRef = useLatest(incomingPlan);
   const [draft, setDraft] = useState<{ viewId: string; plan: QueryPlan | null }>(() => ({
     viewId: activeView.id,
@@ -280,11 +274,15 @@ function QueryPanelSurface({
   // it is, is theirs from the first press — never re-derived under their hands,
   // and remembered in this browser past the visit that pressed it, the way the
   // fold under it is (§ presentation).
-  const [editing, setEditing] = useState(() => binding.kind === "managed" && queryEditorIsOpen(
-    session.graphId,
-    viewExecutionKey,
-    unwritten(storedPlan ?? seedPlan ?? null),
-  ));
+  const [editing, setEditing] = useState(
+    () =>
+      binding.kind === "managed" &&
+      queryEditorIsOpen(
+        session.graphId,
+        viewExecutionKey,
+        unwritten(storedPlan ?? seedPlan ?? null),
+      ),
+  );
   const [showSource, setShowSource] = useState(false);
   // Reading is never read-only. On a read-only graph the order lives here for as
   // long as the surface is mounted, because there is nowhere to save it.
@@ -300,16 +298,18 @@ function QueryPanelSurface({
   // plan, while a stored payload change always adopts the latest decoded value.
   // A different execution key remounts this surface at the public boundary, so
   // every piece of surface-local state changes identity together.
-  useEffect(() => setDraft({
-    viewId: activeView.id,
-    plan: incomingPlanRef.current,
-  }), [activeView.id, incomingPlanRef, storedPayload]);
+  useEffect(
+    () =>
+      setDraft({
+        viewId: activeView.id,
+        plan: incomingPlanRef.current,
+      }),
+    [activeView.id, incomingPlanRef, storedPayload],
+  );
   useEffect(() => {
-    setEditing(queryEditorIsOpen(
-      session.graphId,
-      viewExecutionKey,
-      unwritten(incomingPlanRef.current),
-    ));
+    setEditing(
+      queryEditorIsOpen(session.graphId, viewExecutionKey, unwritten(incomingPlanRef.current)),
+    );
     setShowSource(false);
     setLocalTableSorts([]);
     setLocalListSorts([]);
@@ -321,7 +321,7 @@ function QueryPanelSurface({
 
   const compiled = useMemo(() => (plan ? compilePlan(plan) : null), [plan]);
   const executionCompiled = useMemo(
-    () => canonicalBlockView && plan ? compileEntityProjection(plan) : compiled,
+    () => (canonicalBlockView && plan ? compileEntityProjection(plan) : compiled),
     [canonicalBlockView, compiled, plan],
   );
   const runtime = useMemo(
@@ -338,17 +338,20 @@ function QueryPanelSurface({
   );
   const outputId = useId();
   const builderId = useId();
-  const [resultsOpen, setResultsOpen] = useState(
-    () => queryResultsAreOpen(session.graphId, viewExecutionKey),
+  const [resultsOpen, setResultsOpen] = useState(() =>
+    queryResultsAreOpen(session.graphId, viewExecutionKey),
   );
   useEffect(() => {
     setResultsOpen(queryResultsAreOpen(session.graphId, viewExecutionKey));
   }, [session.graphId, viewExecutionKey]);
-  const request = useMemo(() => ({
-    language: activeView.definition.language,
-    source: runSource,
-    bindings: runBindings,
-  }), [activeView.definition.language, runBindings, runSource]);
+  const request = useMemo(
+    () => ({
+      language: activeView.definition.language,
+      source: runSource,
+      bindings: runBindings,
+    }),
+    [activeView.definition.language, runBindings, runSource],
+  );
   const { result, error, loading, run } = useQueryAnswer(viewExecutionKey, request);
 
   const execute = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
@@ -383,18 +386,18 @@ function QueryPanelSurface({
     }
     const next = commands(owner);
     if (next.length === 0) return Promise.resolve();
-    return session.execute(next.length === 1 ? next[0] : { type: "batch", commands: next })
+    return session
+      .execute(next.length === 1 ? next[0] : { type: "batch", commands: next })
       .then(() => undefined);
   };
-  const saveDefinition = useLatest(
-    (payload: string, compiledSource: string) =>
-      writeDefinition((target) => ({
-        type: "set_query_plan",
-        owner: target,
-        view_id: activeView.id,
-        plan: { version: QUERY_PLAN_VERSION, payload },
-        source: compiledSource,
-      })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause)),
+  const saveDefinition = useLatest((payload: string, compiledSource: string) =>
+    writeDefinition((target) => ({
+      type: "set_query_plan",
+      owner: target,
+      view_id: activeView.id,
+      plan: { version: QUERY_PLAN_VERSION, payload },
+      source: compiledSource,
+    })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause)),
   );
 
   // One command per pause in the editing, never one per keystroke — and never
@@ -425,8 +428,9 @@ function QueryPanelSurface({
     [select, activeView, plan, message],
   );
   /** Where a row states its own task status, which is what settles a moment. */
-  const statusVariable = columns.find((column) =>
-    column.source?.kind === "property" && column.source.key === TASK_STATUS_KEY)?.variable;
+  const statusVariable = columns.find(
+    (column) => column.source?.kind === "property" && column.source.key === TASK_STATUS_KEY,
+  )?.variable;
 
   /**
    * How far off a moment is, for every renderer that draws one. The thresholds
@@ -457,27 +461,30 @@ function QueryPanelSurface({
   // Both derived once, not once per render: a canonical revision re-renders every
   // mounted query, and the table rebuilds its column models whenever either of
   // these changes identity.
-  const cellContext = useMemo<CellContext>(() => ({
-    snapshot: state.snapshot,
-    subjectVariable: executionCompiled?.subjectVariable ?? null,
-    message,
-    formatDate: formatJournalDate,
-    formatTime: formatTimeOfDay,
-    compare,
-    momentDue,
-    onOpen: (entity: QueryEntityRef) => {
-      history.open(entity);
-    },
-  }), [
-    state.snapshot,
-    executionCompiled?.subjectVariable,
-    message,
-    formatJournalDate,
-    formatTimeOfDay,
-    compare,
-    momentDue,
-    history,
-  ]);
+  const cellContext = useMemo<CellContext>(
+    () => ({
+      snapshot: state.snapshot,
+      subjectVariable: executionCompiled?.subjectVariable ?? null,
+      message,
+      formatDate: formatJournalDate,
+      formatTime: formatTimeOfDay,
+      compare,
+      momentDue,
+      onOpen: (entity: QueryEntityRef) => {
+        history.open(entity);
+      },
+    }),
+    [
+      state.snapshot,
+      executionCompiled?.subjectVariable,
+      message,
+      formatJournalDate,
+      formatTimeOfDay,
+      compare,
+      momentDue,
+      history,
+    ],
+  );
 
   const resultEditor = useQueryResultEditor({
     session,
@@ -491,11 +498,16 @@ function QueryPanelSurface({
     [select, cellContext],
   );
   const resultBlockOwners = useMemo(
-    () => [...new Map(resultRows.flatMap((row) => {
-      if (row.subject?.kind !== "block") return [];
-      const owner: OutlineOwner = row.subject.owner;
-      return [[outlineOwnerKey(owner), owner] as const];
-    })).values()].sort((left, right) => outlineOwnerKey(left).localeCompare(outlineOwnerKey(right))),
+    () =>
+      [
+        ...new Map(
+          resultRows.flatMap((row) => {
+            if (row.subject?.kind !== "block") return [];
+            const owner: OutlineOwner = row.subject.owner;
+            return [[outlineOwnerKey(owner), owner] as const];
+          }),
+        ).values(),
+      ].sort((left, right) => outlineOwnerKey(left).localeCompare(outlineOwnerKey(right))),
     [resultRows],
   );
 
@@ -506,8 +518,9 @@ function QueryPanelSurface({
   useEffect(() => {
     if (!canonicalBlockView || state.status !== "ready") return;
     const missing = resultBlockOwners.filter(
-      (owner) => !state.hydratedOutlines.has(outlineOwnerKey(owner))
-        && findOutline(state.snapshot, owner) !== undefined,
+      (owner) =>
+        !state.hydratedOutlines.has(outlineOwnerKey(owner)) &&
+        findOutline(state.snapshot, owner) !== undefined,
     );
     if (missing.length === 0) return;
     void session.hydrateOutlines(missing).catch((cause: unknown) => {
@@ -549,25 +562,15 @@ function QueryPanelSurface({
     : true;
   const pinnedRow = activeOrigin && !activeRowPresent ? activeOrigin : null;
   const resultAndPinnedRows = useMemo(
-    () => pinnedRow ? [...resultRows, pinnedRow] : resultRows,
+    () => (pinnedRow ? [...resultRows, pinnedRow] : resultRows),
     [pinnedRow, resultRows],
   );
   const tableRows = useMemo(
-    () => orderResultRows(
-      resultAndPinnedRows,
-      tableSorts,
-      columns,
-      cellContext,
-    ),
+    () => orderResultRows(resultAndPinnedRows, tableSorts, columns, cellContext),
     [cellContext, columns, resultAndPinnedRows, tableSorts],
   );
   const listRows = useMemo(
-    () => orderBlockRows(
-      resultAndPinnedRows,
-      listSorts,
-      listSortFields,
-      cellContext,
-    ),
+    () => orderBlockRows(resultAndPinnedRows, listSorts, listSortFields, cellContext),
     [cellContext, listSortFields, listSorts, resultAndPinnedRows],
   );
   const visibleRows = activeView.kind === "list" ? listRows : tableRows;
@@ -579,9 +582,10 @@ function QueryPanelSurface({
   // gave it one. It stays the name of the control that *opens* the question, so
   // reading what a query asks costs one hover rather than a line of the surface.
   const summary = useMemo<QuerySummary>(
-    () => (plan
-      ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
-      : { lead: "SPARQL", detail: null }),
+    () =>
+      plan
+        ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
+        : { lead: "SPARQL", detail: null },
     [plan, state.snapshot, message, formatJournalDate],
   );
 
@@ -589,13 +593,14 @@ function QueryPanelSurface({
 
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
 
-  const definitionInHand = plan && compiled
-    ? {
-        source: compiled.source,
-        language: activeView.definition.language,
-        plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-      } as const
-    : activeView.definition;
+  const definitionInHand =
+    plan && compiled
+      ? ({
+          source: compiled.source,
+          language: activeView.definition.language,
+          plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+        } as const)
+      : activeView.definition;
 
   /** A view switch is a save boundary: a pending debounce must not lose a draft. */
   const flushDefinition = async () => {
@@ -736,11 +741,13 @@ function QueryPanelSurface({
     const next = name.trim();
     if (!next || next === view.name) return;
     const taken = views.some(
-      (item) => item.id !== view.id
-        && canonicalEntityName(item.name) === canonicalEntityName(next),
+      (item) => item.id !== view.id && canonicalEntityName(item.name) === canonicalEntityName(next),
     );
     const unique = taken
-      ? nextAvailableEntityName(next, views.map((item) => item.name))
+      ? nextAvailableEntityName(
+          next,
+          views.map((item) => item.name),
+        )
       : next;
     void putManagedView({ ...view, name: unique });
   };
@@ -766,11 +773,13 @@ function QueryPanelSurface({
   const reorderViews = (next: QueryView[]) => {
     void (async () => {
       await materialize();
-      await writeViewCollectionBatch((target) => next.flatMap((view, position) => (
-        view.position === position
-          ? []
-          : [{ type: "put_query_view", owner: target, view: { ...view, position } }]
-      )));
+      await writeViewCollectionBatch((target) =>
+        next.flatMap((view, position) =>
+          view.position === position
+            ? []
+            : [{ type: "put_query_view", owner: target, view: { ...view, position } }],
+        ),
+      );
     })().catch(report);
   };
 
@@ -801,17 +810,20 @@ function QueryPanelSurface({
    * grid — so it has no panel and does not participate in this projection.
    */
   const choosesColumns = activeView.kind === "table" && canEditDefinition && plan !== null;
-  const choices = choosesColumns && plan
-    ? columnChoices(
-      columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
-      plan.columns,
-      new Set(plan.columns
-        .filter((column) => hidden.has(columnVariable(column)))
-        .map((column) => columnSourceKey(column.source))),
-      plan.subject,
-      message,
-    )
-    : [];
+  const choices =
+    choosesColumns && plan
+      ? columnChoices(
+          columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
+          plan.columns,
+          new Set(
+            plan.columns
+              .filter((column) => hidden.has(columnVariable(column)))
+              .map((column) => columnSourceKey(column.source)),
+          ),
+          plan.subject,
+          message,
+        )
+      : [];
 
   // The first layout change writes the whole running order, so later ones have
   // a list to patch rather than a partial one to merge into.
@@ -836,9 +848,9 @@ function QueryPanelSurface({
     return putCurrentView({
       ...activeView,
       columns: dedupe([
-        ...base.map((column) => (column.variable in widths
-          ? { ...column, width: widths[column.variable] }
-          : column)),
+        ...base.map((column) =>
+          column.variable in widths ? { ...column, width: widths[column.variable] } : column,
+        ),
         ...Object.entries(widths)
           .filter(([variable]) => !known.has(variable))
           .map(([variable, width]) => ({ variable, hidden: false, width })),
@@ -938,17 +950,19 @@ function QueryPanelSurface({
   const setOption = (patch: Partial<QueryView["options"]>) =>
     putCurrentView({ ...activeView, options: { ...activeView.options, ...patch } });
 
-  const sortOptions = activeView.kind === "list"
-    ? (canonicalBlockView ? listSortFields : []).map((descriptor) => ({
-      key: descriptor.id,
-      label: fieldLabel(descriptor.field, "block", message),
-    }))
-    : columns.flatMap((column) => column.sortable
-      ? [{ key: column.variable, label: column.label }]
-      : []);
-  const sortEntries: SortControlEntry[] = activeView.kind === "list"
-    ? listSorts.map((sort) => ({ key: sort.field, descending: sort.descending }))
-    : tableSorts.map((sort) => ({ key: sort.variable, descending: sort.descending }));
+  const sortOptions =
+    activeView.kind === "list"
+      ? (canonicalBlockView ? listSortFields : []).map((descriptor) => ({
+          key: descriptor.id,
+          label: fieldLabel(descriptor.field, "block", message),
+        }))
+      : columns.flatMap((column) =>
+          column.sortable ? [{ key: column.variable, label: column.label }] : [],
+        );
+  const sortEntries: SortControlEntry[] =
+    activeView.kind === "list"
+      ? listSorts.map((sort) => ({ key: sort.field, descending: sort.descending }))
+      : tableSorts.map((sort) => ({ key: sort.variable, descending: sort.descending }));
   const setSortEntries = (next: SortControlEntry[]) => {
     if (activeView.kind === "list") {
       setListSorts(next.map((sort) => ({ field: sort.key, descending: sort.descending })));
@@ -959,9 +973,7 @@ function QueryPanelSurface({
 
   const resultLabel = answerLabel({ result, error, loading, run }, visibleRows.length, message);
   const resultCanCollapse = Boolean(
-    error
-    || result?.kind === "ask"
-    || (select && visibleRows.length > 0),
+    error || result?.kind === "ask" || (select && visibleRows.length > 0),
   );
 
   /* The two disclosures of one surface, and each remembers its own answer. The
@@ -1017,14 +1029,11 @@ function QueryPanelSurface({
       <DropdownMenuRadioGroup
         value={activeView.kind}
         onValueChange={(kind) =>
-          void putCurrentView({ ...activeView, kind: kind as QueryViewKind })}
+          void putCurrentView({ ...activeView, kind: kind as QueryViewKind })
+        }
       >
-        <DropdownMenuRadioItem value="table">
-          {message("query.viewTable")}
-        </DropdownMenuRadioItem>
-        <DropdownMenuRadioItem value="list">
-          {message("query.viewList")}
-        </DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="table">{message("query.viewTable")}</DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="list">{message("query.viewList")}</DropdownMenuRadioItem>
       </DropdownMenuRadioGroup>
       <DropdownMenuSeparator />
       <DropdownMenuLabel>{message("query.rows")}</DropdownMenuLabel>
@@ -1098,62 +1107,64 @@ function QueryPanelSurface({
             On the first run there is nothing to count yet and it says so;
             afterwards a rerun updates the number in place rather than flickering
             `running` over it on every debounced keystroke. */}
-        {(title || resultLabel) && (resultCanCollapse ? (
-          <button
-            type="button"
-            className="query-disclosure"
-            data-titled={title ? true : undefined}
-            aria-expanded={resultsOpen}
-            aria-controls={outputId}
-            aria-label={message(
-              resultsOpen ? "query.collapseResults" : "query.expandResults",
-              { result: [title, resultLabel].filter(Boolean).join(" · ") },
-            )}
-            aria-busy={loading || undefined}
-            data-testid="query-disclosure"
-            onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
-            onClick={() => void toggleResults()}
-          >
-            {/* A swap, not a rotation: designs/foundations.md § Motion allows no transform animation on
+        {(title || resultLabel) &&
+          (resultCanCollapse ? (
+            <button
+              type="button"
+              className="query-disclosure"
+              data-titled={title ? true : undefined}
+              aria-expanded={resultsOpen}
+              aria-controls={outputId}
+              aria-label={message(resultsOpen ? "query.collapseResults" : "query.expandResults", {
+                result: [title, resultLabel].filter(Boolean).join(" · "),
+              })}
+              aria-busy={loading || undefined}
+              data-testid="query-disclosure"
+              onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+              onClick={() => void toggleResults()}
+            >
+              {/* A swap, not a rotation: designs/foundations.md § Motion allows no transform animation on
                 anything a pointer must hit or an audit must read. */}
-            {resultsOpen
-              ? <ChevronDownIcon aria-hidden />
-              : <ChevronRightIcon aria-hidden />}
-            {title && (
-              <span className="query-title" data-testid="query-title">{title}</span>
-            )}
-            {resultLabel && (
-              <span
-                className="query-count"
-                data-state={error ? "error" : undefined}
-                data-testid="query-count"
-              >
-                {resultLabel}
-              </span>
-            )}
-          </button>
-        ) : (
-          <span
-            className="query-disclosure"
-            data-titled={title ? true : undefined}
-            data-testid="query-disclosure"
-          >
-            {title && (
-              <span className="query-title" data-testid="query-title">{title}</span>
-            )}
-            {resultLabel && (
-              <span
-                className="query-count"
-                data-static
-                data-state={error ? "error" : undefined}
-                data-testid="query-count"
-                aria-busy={loading || undefined}
-              >
-                {resultLabel}
-              </span>
-            )}
-          </span>
-        ))}
+              {resultsOpen ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
+              {title && (
+                <span className="query-title" data-testid="query-title">
+                  {title}
+                </span>
+              )}
+              {resultLabel && (
+                <span
+                  className="query-count"
+                  data-state={error ? "error" : undefined}
+                  data-testid="query-count"
+                >
+                  {resultLabel}
+                </span>
+              )}
+            </button>
+          ) : (
+            <span
+              className="query-disclosure"
+              data-titled={title ? true : undefined}
+              data-testid="query-disclosure"
+            >
+              {title && (
+                <span className="query-title" data-testid="query-title">
+                  {title}
+                </span>
+              )}
+              {resultLabel && (
+                <span
+                  className="query-count"
+                  data-static
+                  data-state={error ? "error" : undefined}
+                  data-testid="query-count"
+                  aria-busy={loading || undefined}
+                >
+                  {resultLabel}
+                </span>
+              )}
+            </span>
+          ))}
 
         <div className="query-header-actions">
           {/* What it asks, then what the table shows, then how it is ordered,
@@ -1185,12 +1196,7 @@ function QueryPanelSurface({
               <ListFilterIcon aria-hidden />
             </Button>
           )}
-          {choosesColumns && (
-            <QueryColumnsControl
-              choices={choices}
-              onToggle={toggleColumn}
-            />
-          )}
+          {choosesColumns && <QueryColumnsControl choices={choices} onToggle={toggleColumn} />}
           {sortOptions.length > 0 && (
             <QuerySortControl options={sortOptions} sorts={sortEntries} onChange={setSortEntries} />
           )}
@@ -1208,9 +1214,11 @@ function QueryPanelSurface({
                   data-view={activeView.kind}
                   onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
                 >
-                  {activeView.kind === "table"
-                    ? <Table2Icon aria-hidden />
-                    : <ListIcon aria-hidden />}
+                  {activeView.kind === "table" ? (
+                    <Table2Icon aria-hidden />
+                  ) : (
+                    <ListIcon aria-hidden />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               {/* One menu, because table-or-list and how tall the rows are answer
@@ -1319,9 +1327,9 @@ function QueryPanelSurface({
             sorts={tableSorts}
             onSort={setTableSorts}
             onResize={canEditCurrentView ? setColumnWidths : undefined}
-            onHide={canEditCurrentView
-              ? (variable) => setColumn(variable, { hidden: true })
-              : undefined}
+            onHide={
+              canEditCurrentView ? (variable) => setColumn(variable, { hidden: true }) : undefined
+            }
             onMove={canEditCurrentView ? moveColumn : undefined}
             onReorder={canEditCurrentView ? reorderColumns : undefined}
           />
@@ -1335,16 +1343,20 @@ function QueryPanelSurface({
             compact={activeView.options.compact}
           />
         )}
-        {!error && select && visibleRows.length > 0 && activeView.kind === "list" && !canonicalBlockView && (
-          <QueryGenericListView
-            columns={columns}
-            rows={visibleRows}
-            context={cellContext}
-            editor={resultEditor}
-            pinnedRowKey={pinnedRow?.key}
-            compact={activeView.options.compact}
-          />
-        )}
+        {!error &&
+          select &&
+          visibleRows.length > 0 &&
+          activeView.kind === "list" &&
+          !canonicalBlockView && (
+            <QueryGenericListView
+              columns={columns}
+              rows={visibleRows}
+              context={cellContext}
+              editor={resultEditor}
+              pinnedRowKey={pinnedRow?.key}
+              compact={activeView.options.compact}
+            />
+          )}
       </div>
       <QueryEditPortals editor={resultEditor} />
     </section>
@@ -1384,30 +1396,32 @@ function resultColumns(
   return select.variables
     .filter((variable) => !(plan && isCompilerVariable(variable)))
     .map((variable) => {
-    const column = planned.get(variable);
-    const ordering = column
-      ? orderSemanticsForColumn(column)
-      : inferOrderSemantics(select.rows.map((row) => row[variable]));
-    return {
-      variable,
-      label: column && plan ? columnLabel(column, plan.subject, message) : `?${variable}`,
-      source: column?.source,
-      aggregate: column?.aggregate,
-      ordering,
-      sortable: ordering.kind !== "unsupported_list",
-      numeric: ordering.kind === "number",
-      width: widths.get(variable) ?? null,
-    };
-  });
+      const column = planned.get(variable);
+      const ordering = column
+        ? orderSemanticsForColumn(column)
+        : inferOrderSemantics(select.rows.map((row) => row[variable]));
+      return {
+        variable,
+        label: column && plan ? columnLabel(column, plan.subject, message) : `?${variable}`,
+        source: column?.source,
+        aggregate: column?.aggregate,
+        ordering,
+        sortable: ordering.kind !== "unsupported_list",
+        numeric: ordering.kind === "number",
+        width: widths.get(variable) ?? null,
+      };
+    });
 }
 
 /** The reader's order first; anything the view has never seen keeps its place. */
 function inViewOrder(columns: ResultColumn[], view: QueryView): ResultColumn[] {
   if (view.columns.length === 0) return columns;
   const position = new Map(view.columns.map((column, index) => [column.variable, index]));
-  return [...columns].sort((left, right) =>
-    (position.get(left.variable) ?? Number.MAX_SAFE_INTEGER)
-    - (position.get(right.variable) ?? Number.MAX_SAFE_INTEGER));
+  return [...columns].sort(
+    (left, right) =>
+      (position.get(left.variable) ?? Number.MAX_SAFE_INTEGER) -
+      (position.get(right.variable) ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
 /** The view's running order, extended with any column it has not met yet. */

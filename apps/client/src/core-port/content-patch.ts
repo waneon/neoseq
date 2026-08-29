@@ -13,8 +13,9 @@ type CanonicalUnit =
 
 function canonicalUnits(block: BlockSnapshot): CanonicalUnit[] {
   const points = Array.from(block.markdown);
-  const references = [...(block.page_references ?? [])]
-    .sort((left, right) => left.start - right.start);
+  const references = [...(block.page_references ?? [])].sort(
+    (left, right) => left.start - right.start,
+  );
   const units: CanonicalUnit[] = [];
   let cursor = 0;
   for (const reference of references) {
@@ -88,35 +89,38 @@ export function applyAcknowledgedContentSplices(
     if (current) current.push(splice);
     else pending.set(splice.block_id, [splice]);
   }
-  const directory = new Map(
-    (snapshot.page_directory ?? []).map((page) => [page.id, page]),
-  );
+  const directory = new Map((snapshot.page_directory ?? []).map((page) => [page.id, page]));
   let failed = false;
-  const visit = (blocks: readonly BlockSnapshot[]): BlockSnapshot[] => blocks.map((block) => {
-    let next = block;
-    const blockSplices = pending.get(block.id);
-    if (blockSplices) {
-      let units = canonicalUnits(block);
-      for (const splice of blockSplices) {
-        if (splice.index < 0 || splice.delete < 0 || splice.index + splice.delete > units.length) {
-          failed = true;
-          break;
+  const visit = (blocks: readonly BlockSnapshot[]): BlockSnapshot[] =>
+    blocks.map((block) => {
+      let next = block;
+      const blockSplices = pending.get(block.id);
+      if (blockSplices) {
+        let units = canonicalUnits(block);
+        for (const splice of blockSplices) {
+          if (
+            splice.index < 0 ||
+            splice.delete < 0 ||
+            splice.index + splice.delete > units.length
+          ) {
+            failed = true;
+            break;
+          }
+          units = [
+            ...units.slice(0, splice.index),
+            ...insertedUnits(splice.insert),
+            ...units.slice(splice.index + splice.delete),
+          ];
         }
-        units = [
-          ...units.slice(0, splice.index),
-          ...insertedUnits(splice.insert),
-          ...units.slice(splice.index + splice.delete),
-        ];
+        if (!failed) next = materialize(block, units, directory);
+        pending.delete(block.id);
       }
-      if (!failed) next = materialize(block, units, directory);
-      pending.delete(block.id);
-    }
-    const children = visit(block.children);
-    if (children.some((child, index) => child !== block.children[index])) {
-      next = { ...next, children };
-    }
-    return next;
-  });
+      const children = visit(block.children);
+      if (children.some((child, index) => child !== block.children[index])) {
+        next = { ...next, children };
+      }
+      return next;
+    });
 
   if (owner.kind === "page") {
     const at = snapshot.pages.findIndex((page) => page.id === owner.id);

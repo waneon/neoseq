@@ -265,9 +265,11 @@ function conditionBody(condition: PlanCondition, emitter: Emitter, indent: strin
     // Markdown search goes through the profile's own text function, which knows
     // the analyzer; anything else is a substring test on the lexical form.
     const operand = emitter.operand(value);
-    lines.push(condition.field.kind === "content"
-      ? `${indent}FILTER(neo:matchesText(${self}, ${operand}))`
-      : `${indent}FILTER(CONTAINS(LCASE(STR(${self})), LCASE(${operand})))`);
+    lines.push(
+      condition.field.kind === "content"
+        ? `${indent}FILTER(neo:matchesText(${self}, ${operand}))`
+        : `${indent}FILTER(CONTAINS(LCASE(STR(${self})), LCASE(${operand})))`,
+    );
   } else if (op === "starts_with") {
     lines.push(`${indent}FILTER(STRSTARTS(LCASE(STR(${self})), LCASE(${emitter.operand(value)})))`);
   } else if (op === "ends_with") {
@@ -275,12 +277,12 @@ function conditionBody(condition: PlanCondition, emitter: Emitter, indent: strin
   } else if (op === "between") {
     const upperValue = condition.value2;
     const lower = emitter.operand(value);
-    const upper = emitter.operand(
-      upperValue && upperValue.type !== "list" ? upperValue : value,
-    );
+    const upper = emitter.operand(upperValue && upperValue.type !== "list" ? upperValue : value);
     lines.push(`${indent}FILTER(${self} >= ${lower} && ${self} <= ${upper})`);
   } else {
-    const comparison = { lt: "<", lte: "<=", gt: ">", gte: ">=" }[op as "lt" | "lte" | "gt" | "gte"];
+    const comparison = { lt: "<", lte: "<=", gt: ">", gte: ">=" }[
+      op as "lt" | "lte" | "gt" | "gte"
+    ];
     lines.push(`${indent}FILTER(${self} ${comparison} ${emitter.operand(value)})`);
   }
   return lines;
@@ -436,9 +438,7 @@ function compile(plan: QueryPlan, runtime: PlanRuntime | null): CompiledPlan {
     const variable = columnVariable(column);
     if (column.aggregate) {
       aggregated = true;
-      const inner = column.source.kind === "subject"
-        ? `?${self}`
-        : `?${emitter.local("a")}`;
+      const inner = column.source.kind === "subject" ? `?${self}` : `?${emitter.local("a")}`;
       if (column.source.kind !== "subject") {
         where.push(...columnPattern(column, emitter, inner.slice(1)));
       }

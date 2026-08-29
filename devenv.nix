@@ -1,4 +1,9 @@
-{ config, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   client = "pnpm --filter @neoseq/client exec";
@@ -30,6 +35,63 @@ in
         package = pkgs.pnpm_10;
         install.enable = true;
       };
+    };
+  };
+
+  treefmt = {
+    enable = true;
+    config.programs = {
+      nixfmt = {
+        enable = true;
+        strict = true;
+        width = 100;
+      };
+      prettier = {
+        enable = true;
+        includes = [
+          "*.cjs"
+          "*.css"
+          "*.html"
+          "*.js"
+          "*.json"
+          "*.json5"
+          "*.jsx"
+          "*.md"
+          "*.mdx"
+          "*.mjs"
+          "*.scss"
+          "*.ts"
+          "*.tsx"
+          "*.vue"
+          "*.yaml"
+          "*.yml"
+        ];
+        excludes = [
+          "apps/client/src/generated/**"
+          "apps/client/src/i18n/generated/**"
+          "pnpm-lock.yaml"
+        ];
+        settings = {
+          endOfLine = "lf";
+          printWidth = 100;
+          proseWrap = "preserve";
+        };
+      };
+      rustfmt = {
+        enable = true;
+        edition = "2024";
+        package = config.languages.rust.toolchainPackage;
+        excludes = [
+          "crates/domain/src/generated/**"
+          "crates/sync-protocol/src/generated/**"
+        ];
+      };
+      shfmt = {
+        enable = true;
+        indent_size = 2;
+        simplify = false;
+      };
+      taplo.enable = true;
     };
   };
 
@@ -81,6 +143,13 @@ in
   };
 
   tasks = {
+    "devenv:treefmt:run".before = lib.mkForce [ ];
+
+    "format:check" = {
+      description = "Check repository formatting";
+      exec = "treefmt --ci";
+    };
+
     "contracts:generate" = {
       description = "Generate contract files when stale";
       exec = "node scripts/generate-contracts.mjs";
@@ -112,11 +181,6 @@ in
       after = [ "contracts:check" ];
     };
 
-    "rust:fmt" = {
-      description = "Check Rust formatting";
-      exec = "cargo fmt --all -- --check";
-      after = [ "contracts:check" ];
-    };
     "rust:clippy" = {
       description = "Lint the Rust workspace";
       exec = "cargo clippy --workspace --all-targets --all-features -- --deny warnings";
@@ -175,11 +239,11 @@ in
     "devenv:enterTest".after = [
       "frontend:check"
       "frontend:test"
+      "format:check"
       "nix:hash-check"
       "node:licenses"
       "rust:clippy"
       "rust:deny"
-      "rust:fmt"
       "rust:test"
       "sync-server:postgres-test"
     ];

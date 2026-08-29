@@ -34,7 +34,8 @@ test("status and priority are the two marks before the writing", async ({ page }
   let picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Status", exact: true }).click();
   await mutateAndAwaitSaved(page, () =>
-    picker.getByRole("option", { name: "To-do", exact: true }).click());
+    picker.getByRole("option", { name: "To-do", exact: true }).click(),
+  );
   await expect(picker).toHaveCount(0);
 
   await openBlockProperties(page);
@@ -42,7 +43,8 @@ test("status and priority are the two marks before the writing", async ({ page }
   await picker.getByRole("option", { name: "Priority", exact: true }).click();
   // Strongest first: a priority list is opened to raise something.
   await mutateAndAwaitSaved(page, () =>
-    picker.getByRole("option", { name: "High", exact: true }).click());
+    picker.getByRole("option", { name: "High", exact: true }).click(),
+  );
   await expect(picker).toHaveCount(0);
 
   const text = page.getByLabel("Block text");
@@ -62,7 +64,8 @@ test("status and priority are the two marks before the writing", async ({ page }
   ]);
   expect(statusBox!.x).toBeLessThan(priorityBox!.x);
   expect(priorityBox!.x + priorityBox!.width).toBeLessThanOrEqual(
-    textBox!.x + Number(await text.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))),
+    textBox!.x +
+      Number(await text.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))),
   );
   expect(Math.abs(statusBox!.y - priorityBox!.y)).toBeLessThan(2);
 
@@ -72,7 +75,8 @@ test("status and priority are the two marks before the writing", async ({ page }
   // mark has a fill of its own at rest.
   const fills = await Promise.all(
     [status, priority].map((mark) =>
-      mark.evaluate((node) => getComputedStyle(node).backgroundColor)),
+      mark.evaluate((node) => getComputedStyle(node).backgroundColor),
+    ),
   );
   expect(fills[0]).toBe("rgba(0, 0, 0, 0)");
   expect(fills[1]).toBe(fills[0]);
@@ -95,7 +99,8 @@ test("a moment carries a time of day, and a recurrence rolls it forward", async 
   let picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Status", exact: true }).click();
   await mutateAndAwaitSaved(page, () =>
-    picker.getByRole("option", { name: "To-do", exact: true }).click());
+    picker.getByRole("option", { name: "To-do", exact: true }).click(),
+  );
   await expect(picker).toHaveCount(0);
 
   // `/` is the editor's route to a moment. Natural input resolves and persists
@@ -175,8 +180,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await page.keyboard.press("Enter");
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Date, time, or repeat").fill(localDate(4));
-  await mutateAndAwaitSaved(page, () =>
-    picker.getByLabel("Date, time, or repeat").press("Enter"));
+  await mutateAndAwaitSaved(page, () => picker.getByLabel("Date, time, or repeat").press("Enter"));
   await expect(picker).toHaveCount(0);
 
   // Four days out, with the default 3/7 calendar-day spans, is `upcoming` — and blue on
@@ -220,10 +224,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
       const style = getComputedStyle(node);
       return { tone: style.getPropertyValue("--tone").trim(), shadow: style.boxShadow };
     });
-  const [todayVisual, soonVisual] = await Promise.all([
-    tierVisual("today"),
-    tierVisual("soon"),
-  ]);
+  const [todayVisual, soonVisual] = await Promise.all([tierVisual("today"), tierVisual("soon")]);
   expect(todayVisual.tone).not.toBe(soonVisual.tone);
   // Today is distinguished by its warmer colour, not a heavier outline: every
   // due tier keeps the same quiet one-pixel boundary.
@@ -250,9 +251,7 @@ test("a date is tinted by how far off it is, on the reader's own thresholds", as
   await expect(page.getByTestId("task-chip-deadline")).toHaveAttribute("style", /0\.18 330/);
 });
 
-test("the outline is one hue at two weights, and only the live path is drawn", async ({
-  page,
-}) => {
+test("the outline is one hue at two weights, and only the live path is drawn", async ({ page }) => {
   await createGraph(page, "Branch Graph");
   await startOutline(page);
   // Four levels, with a sibling above the caret at the deepest one. Three levels
@@ -356,8 +355,9 @@ test("the outline is one hue at two weights, and only the live path is drawn", a
     return resolved;
   });
   const dotOf = (row: Locator) =>
-    row.evaluate((node) =>
-      getComputedStyle(node.querySelector(".outline-bullet")!, "::after").backgroundColor);
+    row.evaluate(
+      (node) => getComputedStyle(node.querySelector(".outline-bullet")!, "::after").backgroundColor,
+    );
   await expect.poll(() => dotOf(caret)).toBe(accent);
   await expect.poll(() => dotOf(root)).toBe(accent);
   // And a row the path does not reach keeps the resting mark.
@@ -379,10 +379,12 @@ test("the accent is a hue the reader owns, applied before the first paint", asyn
   // Nothing is written to the root until a reader chooses: iris is the default in
   // `app.css`, so an untouched install carries no override at all.
   const override = await page.evaluate(() =>
-    document.documentElement.style.getPropertyValue("--accent-h"));
+    document.documentElement.style.getPropertyValue("--accent-h"),
+  );
   expect(override).toBe("");
   const iris = await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue("--accent-h").trim());
+    getComputedStyle(document.documentElement).getPropertyValue("--accent-h").trim(),
+  );
   expect(iris).toBe("277");
 
   await openSettings(page, "appearance");
@@ -425,6 +427,7 @@ test("the accent is a hue the reader owns, applied before the first paint", asyn
   // The lightness is not the reader's, which is what keeps every hue on the
   // measured row of the contrast table: only the hue moved.
   const light = await page.evaluate(() =>
-    Number(getComputedStyle(document.documentElement).getPropertyValue("--accent-l")));
+    Number(getComputedStyle(document.documentElement).getPropertyValue("--accent-l")),
+  );
   expect(light).toBe(0.535);
 });

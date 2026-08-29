@@ -146,19 +146,14 @@
   --e1: inset 0 0 0 1px var(--line);
   --e1-chip: inset 0 0 0 1px var(--line-strong);
   --e1-raised:
-    inset 0 0 0 1px var(--line),
-    0 1px 1px -0.5px oklch(0.235 0.014 264 / 0.06),
+    inset 0 0 0 1px var(--line), 0 1px 1px -0.5px oklch(0.235 0.014 264 / 0.06),
     0 2px 4px -2px oklch(0.235 0.014 264 / 0.06);
   --e2:
-    0 0 0 1px var(--line),
-    0 1px 2px -1px oklch(0.235 0.014 264 / 0.1),
-    0 6px 12px -6px oklch(0.235 0.014 264 / 0.14),
-    0 16px 32px -12px oklch(0.235 0.014 264 / 0.14);
+    0 0 0 1px var(--line), 0 1px 2px -1px oklch(0.235 0.014 264 / 0.1),
+    0 6px 12px -6px oklch(0.235 0.014 264 / 0.14), 0 16px 32px -12px oklch(0.235 0.014 264 / 0.14);
   --e3:
-    0 0 0 1px var(--line),
-    0 2px 4px -2px oklch(0.235 0.014 264 / 0.08),
-    0 12px 24px -8px oklch(0.235 0.014 264 / 0.12),
-    0 40px 80px -24px oklch(0.235 0.014 264 / 0.24);
+    0 0 0 1px var(--line), 0 2px 4px -2px oklch(0.235 0.014 264 / 0.08),
+    0 12px 24px -8px oklch(0.235 0.014 264 / 0.12), 0 40px 80px -24px oklch(0.235 0.014 264 / 0.24);
   /* The highlight along the top of a filled control, so an accent button has a
      lit edge rather than reading as a flat rectangle of colour. In dark mode it
      is the same idea one notch stronger, because there is more room above it. */
@@ -214,13 +209,11 @@
 
   /* type — self-hosted Pretendard first, system faces as resilient fallbacks */
   --font-sans:
-    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
-    system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo",
-    "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji",
-    "Segoe UI Symbol", sans-serif;
+    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto,
+    "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   --text-xs: 12px;
   --lh-xs: 16px;
@@ -440,19 +433,12 @@
     /* the luminance step separates the rail; a line would read as a drawn box */
     --rail-edge: transparent;
 
-    --e1-raised:
-      inset 0 0 0 1px var(--line),
-      var(--lit-edge),
-      0 1px 2px -1px oklch(0 0 0 / 0.5);
+    --e1-raised: inset 0 0 0 1px var(--line), var(--lit-edge), 0 1px 2px -1px oklch(0 0 0 / 0.5);
     --e2:
-      0 0 0 1px var(--line),
-      0 2px 4px -2px oklch(0 0 0 / 0.4),
-      0 8px 16px -8px oklch(0 0 0 / 0.5),
+      0 0 0 1px var(--line), 0 2px 4px -2px oklch(0 0 0 / 0.4), 0 8px 16px -8px oklch(0 0 0 / 0.5),
       0 20px 40px -12px oklch(0 0 0 / 0.5);
     --e3:
-      0 0 0 1px var(--line),
-      0 4px 8px -4px oklch(0 0 0 / 0.4),
-      0 16px 32px -8px oklch(0 0 0 / 0.5),
+      0 0 0 1px var(--line), 0 4px 8px -4px oklch(0 0 0 / 0.4), 0 16px 32px -8px oklch(0 0 0 / 0.5),
       0 48px 96px -24px oklch(0 0 0 / 0.7);
     --lit-edge: inset 0 1px 0 oklch(1 0 0 / 0.1);
 
@@ -502,19 +488,12 @@
   --collapsed-halo: color-mix(in oklab, var(--ink) 14%, transparent);
   --rail-edge: transparent;
 
-  --e1-raised:
-    inset 0 0 0 1px var(--line),
-    var(--lit-edge),
-    0 1px 2px -1px oklch(0 0 0 / 0.5);
+  --e1-raised: inset 0 0 0 1px var(--line), var(--lit-edge), 0 1px 2px -1px oklch(0 0 0 / 0.5);
   --e2:
-    0 0 0 1px var(--line),
-    0 2px 4px -2px oklch(0 0 0 / 0.4),
-    0 8px 16px -8px oklch(0 0 0 / 0.5),
+    0 0 0 1px var(--line), 0 2px 4px -2px oklch(0 0 0 / 0.4), 0 8px 16px -8px oklch(0 0 0 / 0.5),
     0 20px 40px -12px oklch(0 0 0 / 0.5);
   --e3:
-    0 0 0 1px var(--line),
-    0 4px 8px -4px oklch(0 0 0 / 0.4),
-    0 16px 32px -8px oklch(0 0 0 / 0.5),
+    0 0 0 1px var(--line), 0 4px 8px -4px oklch(0 0 0 / 0.4), 0 16px 32px -8px oklch(0 0 0 / 0.5),
     0 48px 96px -24px oklch(0 0 0 / 0.7);
   --lit-edge: inset 0 1px 0 oklch(1 0 0 / 0.1);
 
@@ -765,9 +744,7 @@ h2 {
 
 .btn:focus-visible {
   outline: none;
-  box-shadow:
-    var(--focus-inset),
-    var(--e1-raised);
+  box-shadow: var(--focus-inset), var(--e1-raised);
 }
 
 .btn:disabled {
@@ -795,9 +772,7 @@ h2 {
 }
 
 .btn-primary:focus-visible {
-  box-shadow:
-    var(--lit-edge),
-    var(--focus-inset-on-accent);
+  box-shadow: var(--lit-edge), var(--focus-inset-on-accent);
 }
 
 /* A quiet button: no raise, because it is a verb offered beside a primary one
@@ -1247,7 +1222,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
    layer that owns every other box in the product. */
 [data-slot="dropdown-menu-content"],
 [data-slot="select-content"] {
-  max-height: var(--radix-dropdown-menu-content-available-height, var(--radix-select-content-available-height));
+  max-height: var(
+    --radix-dropdown-menu-content-available-height,
+    var(--radix-select-content-available-height)
+  );
   /* Vertical only: the horizontal clip is what keeps a row's wash inside the
      menu's rounded corners. */
   overflow: hidden auto;
@@ -1259,7 +1237,14 @@ button.chip:focus-visible .chip-glyph .chip-x {
    still cannot outgrow the room the menu has, which is what the fallback keeps
    true when there is no popper to ask. */
 .menu-select-menu {
-  max-height: min(320px, 60vh, var(--radix-dropdown-menu-content-available-height, var(--radix-select-content-available-height, 100vh)));
+  max-height: min(
+    320px,
+    60vh,
+    var(
+      --radix-dropdown-menu-content-available-height,
+      var(--radix-select-content-available-height, 100vh)
+    )
+  );
 }
 
 /* ── The roving highlight ──
@@ -2457,10 +2442,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
      the live bar and the row's own segment are pulled back half their width so
      they grow around it rather than off it. */
   background-position:
-    calc(var(--thread-axis) + var(--depth) * var(--indent)
-      - var(--own-w) / 2) var(--thread-head),
-    calc(var(--thread-axis) + (var(--lit) - 1) * var(--indent)
-      - var(--branch-w) / 2) 0,
+    calc(var(--thread-axis) + var(--depth) * var(--indent) - var(--own-w) / 2) var(--thread-head),
+    calc(var(--thread-axis) + (var(--lit) - 1) * var(--indent) - var(--branch-w) / 2) 0,
     calc(var(--thread-axis) - var(--guide-w) / 2) 0;
   background-size:
     var(--own-w) calc(100% - var(--thread-head)),
@@ -2499,8 +2482,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
   position: absolute;
   top: 0;
   inset-inline-start: calc(
-    var(--thread-axis) + (var(--depth) - 1) * var(--indent)
-      - var(--branch-w) / 2
+    var(--thread-axis) + (var(--depth) - 1) * var(--indent) - var(--branch-w) / 2
   );
   /* Ends on the dot: the bullet's centre is one indent along and its mark is 6px,
      so 3px short of that centre is exactly its left edge. */
@@ -4798,7 +4780,6 @@ button.query-disclosure:focus-visible {
   white-space: pre;
 }
 
-
 /* ── The result table ──
    Header separation is luminance, never a rule (designs/foundations.md § Geometry, Depth, and Shape): the
    header row sits on --surface-2 in the --ink-3 voice.
@@ -5059,8 +5040,7 @@ button.query-disclosure:focus-visible {
   inset-inline-end: 0;
   bottom: 0;
   width: 9px;
-  background:
-    linear-gradient(to right, transparent 8px, var(--thread) 8px 9px);
+  background: linear-gradient(to right, transparent 8px, var(--thread) 8px 9px);
   cursor: col-resize;
   touch-action: none;
 }
@@ -5069,8 +5049,7 @@ button.query-disclosure:focus-visible {
 .query-resize:focus-visible,
 .query-resize[data-resizing="true"] {
   outline: none;
-  background:
-    linear-gradient(to right, transparent 8px, var(--accent) 8px 9px);
+  background: linear-gradient(to right, transparent 8px, var(--accent) 8px 9px);
 }
 
 /* ── A cell is the writing, not a note about it ──
@@ -5219,9 +5198,7 @@ button.query-disclosure:focus-visible {
   min-height: var(--query-row-h);
   max-width: none;
   margin: 0;
-  padding:
-    calc((var(--query-row-h) - var(--lh-sm)) / 2)
-    var(--query-cell-px);
+  padding: calc((var(--query-row-h) - var(--lh-sm)) / 2) var(--query-cell-px);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -5783,7 +5760,6 @@ button.query-list-status[data-active="true"] {
     max-width: 100%;
   }
 }
-
 
 /* Empty page: a fake first line, not a button — and not a sentence either. One
    faint bullet in row 1's exact gutter position over a big target says "a line
@@ -6433,9 +6409,7 @@ html[dir="rtl"] .moment-time-switch[data-selected] .moment-switch-track > span {
 }
 
 .moment-time-switch[data-focus-visible] .moment-switch-track {
-  box-shadow:
-    var(--e1),
-    var(--focus-ring);
+  box-shadow: var(--e1), var(--focus-ring);
 }
 
 .moment-time-controls {
@@ -6632,14 +6606,30 @@ html[dir="rtl"] .moment-time-switch[data-selected] .moment-switch-track > span {
   --tag-tint: color-mix(in oklab, var(--tag) 7%, transparent);
 }
 
-[data-hue="red"] { --hue: 15; }
-[data-hue="orange"] { --hue: 55; }
-[data-hue="green"] { --hue: 145; }
-[data-hue="teal"] { --hue: 195; }
-[data-hue="blue"] { --hue: 240; }
-[data-hue="iris"] { --hue: 277; }
-[data-hue="violet"] { --hue: 310; }
-[data-hue="rose"] { --hue: 345; }
+[data-hue="red"] {
+  --hue: 15;
+}
+[data-hue="orange"] {
+  --hue: 55;
+}
+[data-hue="green"] {
+  --hue: 145;
+}
+[data-hue="teal"] {
+  --hue: 195;
+}
+[data-hue="blue"] {
+  --hue: 240;
+}
+[data-hue="iris"] {
+  --hue: 277;
+}
+[data-hue="violet"] {
+  --hue: 310;
+}
+[data-hue="rose"] {
+  --hue: 345;
+}
 
 /* ── The tag's mark ──
    Every tag already wore a `#`. It is the mark now — the reader may swap it for
@@ -9674,10 +9664,9 @@ html[dir="rtl"] .outline-row {
       transparent var(--guide-w) var(--indent)
     );
   background-position:
-    calc(100% - var(--thread-axis) - var(--depth) * var(--indent)
-      + var(--own-w) / 2) var(--thread-head),
-    calc(100% - var(--thread-axis) - (var(--lit) - 1) * var(--indent)
-      + var(--branch-w) / 2) 0,
+    calc(100% - var(--thread-axis) - var(--depth) * var(--indent) + var(--own-w) / 2)
+      var(--thread-head),
+    calc(100% - var(--thread-axis) - (var(--lit) - 1) * var(--indent) + var(--branch-w) / 2) 0,
     calc(100% - var(--thread-axis) + var(--guide-w) / 2) 0;
 }
 
@@ -9686,15 +9675,13 @@ html[dir="rtl"] .qb-group:not([data-depth="0"]) > .qb-children {
 }
 
 html[dir="rtl"] .query-resize {
-  background:
-    linear-gradient(to left, transparent 8px, var(--thread) 8px 9px);
+  background: linear-gradient(to left, transparent 8px, var(--thread) 8px 9px);
 }
 
 html[dir="rtl"] .query-resize:hover,
 html[dir="rtl"] .query-resize:focus-visible,
 html[dir="rtl"] .query-resize[data-resizing="true"] {
-  background:
-    linear-gradient(to left, transparent 8px, var(--accent) 8px 9px);
+  background: linear-gradient(to left, transparent 8px, var(--accent) 8px 9px);
 }
 
 @media (max-width: 800px) {

@@ -3,7 +3,14 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { chooseFromMenu, GRAPH_ID, mountAt, openBlockMenu, openTagMenu, openViewMenu } from "./harness";
+import {
+  chooseFromMenu,
+  GRAPH_ID,
+  mountAt,
+  openBlockMenu,
+  openTagMenu,
+  openViewMenu,
+} from "./harness";
 
 async function mountTagged() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
@@ -48,7 +55,9 @@ describe("first-class tags and tag defaults", () => {
     await user.type(autocomplete, "Proj");
     await user.click(await screen.findByRole("option", { name: "Project" }));
 
-    await waitFor(() => expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"));
+    await waitFor(() =>
+      expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
+    );
     // Existing value wins over the tag default.
     await waitFor(() =>
       expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing"),
@@ -73,9 +82,7 @@ describe("first-class tags and tag defaults", () => {
     );
 
     await user.click(within(picker).getByRole("button", { name: "Remove tag Project" }));
-    await waitFor(() =>
-      expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument());
     // Copied properties are plain properties: removing the tag keeps them.
     expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do");
   });
@@ -159,7 +166,9 @@ describe("the # tag menu in a block", () => {
     const user = userEvent.setup();
     const textarea = await screen.findByLabelText("Block text");
     const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
-    port.beforeExecute = async (command) => { commands.push(command); };
+    port.beforeExecute = async (command) => {
+      commands.push(command);
+    };
     await user.click(textarea);
     await user.type(textarea, " #proj");
     const menu = await screen.findByTestId("tag-menu");
@@ -169,9 +178,7 @@ describe("the # tag menu in a block", () => {
     // The token never reaches the Markdown, nor does the gap it sat behind.
     await waitFor(() => expect(textarea).toHaveValue("existing status"));
     const text = textarea.closest(".outline-text") as HTMLElement;
-    await waitFor(() =>
-      expect(within(text).getByTestId("tag-chip")).toHaveTextContent("#Project"),
-    );
+    await waitFor(() => expect(within(text).getByTestId("tag-chip")).toHaveTextContent("#Project"));
     // The tag's default materialized onto the block.
     await waitFor(() =>
       expect(screen.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: To-do"),
@@ -249,10 +256,14 @@ describe("the # tag menu in a block", () => {
 });
 
 /** jsdom ships no `DataTransfer`; a drag only needs the three fields we touch. */
-const transfer = () => ({ setData: () => {}, getData: () => "", dropEffect: "", effectAllowed: "" });
+const transfer = () => ({
+  setData: () => {},
+  getData: () => "",
+  dropEffect: "",
+  effectAllowed: "",
+});
 
-const rowNames = () =>
-  screen.getAllByTestId("tag-row-link").map((link) => link.textContent);
+const rowNames = () => screen.getAllByTestId("tag-row-link").map((link) => link.textContent);
 const groupNames = () =>
   screen.getAllByTestId("tag-group-name").map((heading) => heading.textContent);
 
@@ -272,7 +283,9 @@ describe("the tags screen", () => {
     expect(await screen.findByTestId("tag-row")).toHaveTextContent("#Research");
     expect(screen.getByTestId("new-tag-name")).toHaveValue("");
 
-    await act(async () => { await session.execute({ type: "undo" }); });
+    await act(async () => {
+      await session.execute({ type: "undo" });
+    });
     await waitFor(() => expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument());
   });
 
@@ -307,9 +320,7 @@ describe("the tags screen", () => {
     expect(row).not.toHaveTextContent("High");
 
     await user.click(screen.getByTestId("tag-row-link"));
-    await waitFor(() =>
-      expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/t/project`),
-    );
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/t/project`));
   });
 
   it("files a tag into a group, and renaming the group rewrites its members", async () => {
@@ -332,9 +343,7 @@ describe("the tags screen", () => {
         });
       }
     });
-    await waitFor(() =>
-      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"));
 
     await user.click(screen.getByTestId("tag-group-menu"));
     await user.click(await screen.findByTestId("tag-group-rename"));
@@ -346,21 +355,25 @@ describe("the tags screen", () => {
     );
     // A group is a name its members carry; renaming it is rewriting them.
     expect(
-      session.getState().snapshot.tags.map((tag) =>
-        tag.properties.find((field) => field.key === "builtin.tag-group")?.values[0],
-      ),
+      session
+        .getState()
+        .snapshot.tags.map(
+          (tag) => tag.properties.find((field) => field.key === "builtin.tag-group")?.values[0],
+        ),
     ).toEqual([
       { type: "string", value: "Practices" },
       { type: "string", value: "Practices" },
     ]);
 
     await session.execute({ type: "undo" });
-    await waitFor(() =>
-      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
-    );
-    expect(session.getState().snapshot.tags.map((tag) =>
-      tag.properties.find((field) => field.key === "builtin.tag-group")?.values[0],
-    )).toEqual([
+    await waitFor(() => expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"));
+    expect(
+      session
+        .getState()
+        .snapshot.tags.map(
+          (tag) => tag.properties.find((field) => field.key === "builtin.tag-group")?.values[0],
+        ),
+    ).toEqual([
       { type: "string", value: "Areas" },
       { type: "string", value: "Areas" },
     ]);
@@ -370,7 +383,11 @@ describe("the tags screen", () => {
     const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await settle(async () => {
-      for (const [id, name] of [["a", "Alpha"], ["b", "Bravo"], ["c", "Charlie"]]) {
+      for (const [id, name] of [
+        ["a", "Alpha"],
+        ["b", "Bravo"],
+        ["c", "Charlie"],
+      ]) {
         await session.execute({ type: "ensure_tag", tag_id: id, name });
         await session.execute({
           type: "set_property",
@@ -399,7 +416,9 @@ describe("the tags screen", () => {
     fireEvent.drop(rows[2], { dataTransfer: transfer() });
     await waitFor(() => expect(rowNames()).toEqual(["Alpha", "Charlie", "Bravo"]));
 
-    await act(async () => { await session.execute({ type: "undo" }); });
+    await act(async () => {
+      await session.execute({ type: "undo" });
+    });
     await waitFor(() => expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]));
   });
 
@@ -407,7 +426,10 @@ describe("the tags screen", () => {
     const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await settle(async () => {
-      for (const [id, name, group] of [["a", "Alpha", "Areas"], ["b", "Bravo", "Home"]]) {
+      for (const [id, name, group] of [
+        ["a", "Alpha", "Areas"],
+        ["b", "Bravo", "Home"],
+      ]) {
         await session.execute({ type: "ensure_tag", tag_id: id, name });
         await session.execute({
           type: "set_property",
@@ -435,9 +457,7 @@ describe("the tags screen", () => {
     await user.click(screen.getByTestId("tag-mark"));
     const panel = await screen.findByTestId("tag-identity");
     await user.click(within(panel).getByTestId("tag-colour-teal"));
-    await waitFor(() =>
-      expect(screen.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal"));
 
     await user.click(within(panel).getByRole("button", { name: "📚" }));
     await waitFor(() => expect(screen.getByTestId("tag-mark")).toHaveTextContent("📚"));
@@ -446,9 +466,7 @@ describe("the tags screen", () => {
     const group = within(panel).getByTestId("tag-group-field");
     await user.type(group, "Areas");
     await user.tab();
-    await waitFor(() =>
-      expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"),
-    );
+    await waitFor(() => expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"));
   });
 });
 
@@ -514,12 +532,14 @@ describe("a tag's own page", () => {
     expect(block).toHaveAttribute("data-variant", "page");
     // The seed asks the one question a tag is for, with the tag itself bound, and
     // the phrase for it names the control that opens it.
-    expect(within(block).getByTestId("query-conditions-trigger"))
-      .toHaveAttribute("title", expect.stringContaining("#Project"));
+    expect(within(block).getByTestId("query-conditions-trigger")).toHaveAttribute(
+      "title",
+      expect.stringContaining("#Project"),
+    );
     const request = port.queryRequests.at(-1);
-    expect(
-      Object.values(request?.query.bindings ?? {}).map((term) => term.value),
-    ).toContain(`urn:neoseq:entity:${GRAPH_ID}:tag:project`);
+    expect(Object.values(request?.query.bindings ?? {}).map((term) => term.value)).toContain(
+      `urn:neoseq:entity:${GRAPH_ID}:tag:project`,
+    );
     // Reading a tag is a read: the seed becomes a document only when shaped.
     expect(tagQuery(session)).toBeUndefined();
   });
@@ -534,17 +554,20 @@ describe("a tag's own page", () => {
       cardinality: "single",
     });
 
-    expect(
-      await screen.findByTestId("tag-default-builtin.task-priority"),
-    ).toHaveTextContent("No value");
+    expect(await screen.findByTestId("tag-default-builtin.task-priority")).toHaveTextContent(
+      "No value",
+    );
 
     await session.execute({
       type: "add_tag",
       entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
       tag_id: "project",
     });
-    const inherited = session.getState().snapshot.pages[0].blocks[0].properties
-      .find((field) => field.key === "builtin.task-priority");
+    const inherited = session
+      .getState()
+      .snapshot.pages[0].blocks[0].properties.find(
+        (field) => field.key === "builtin.task-priority",
+      );
     expect(inherited?.values).toEqual([]);
   });
 
@@ -557,25 +580,21 @@ describe("a tag's own page", () => {
       key: "builtin.task-priority",
       value: { type: "string", value: "high" },
     });
-    expect(
-      await screen.findByTestId("tag-default-builtin.task-priority"),
-    ).toHaveTextContent("High");
+    expect(await screen.findByTestId("tag-default-builtin.task-priority")).toHaveTextContent(
+      "High",
+    );
 
     await user.click(screen.getByTestId("tag-add-default"));
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: "Status" }));
     await user.click(within(picker).getByRole("option", { name: "To-do" }));
-    expect(
-      await screen.findByTestId("tag-default-builtin.task-status"),
-    ).toHaveTextContent("To-do");
+    expect(await screen.findByTestId("tag-default-builtin.task-status")).toHaveTextContent("To-do");
 
     await user.click(screen.getByTestId("tag-default-builtin.task-priority"));
     const editor = await screen.findByTestId("property-picker");
     await user.click(within(editor).getByRole("button", { name: "Remove property" }));
     await waitFor(() =>
-      expect(
-        screen.queryByTestId("tag-default-builtin.task-priority"),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryByTestId("tag-default-builtin.task-priority")).not.toBeInTheDocument(),
     );
   });
 
@@ -585,9 +604,7 @@ describe("a tag's own page", () => {
     const title = screen.getByTestId("tag-title");
     await user.clear(title);
     await user.type(title, "Shipping{enter}");
-    await waitFor(() =>
-      expect(session.getState().snapshot.tags[0].name).toBe("Shipping"),
-    );
+    await waitFor(() => expect(session.getState().snapshot.tags[0].name).toBe("Shipping"));
   });
 
   it("deletes the tag from its own menu and leaves for the directory", async () => {
@@ -596,9 +613,7 @@ describe("a tag's own page", () => {
     const menu = await openTagMenu();
     await user.click(within(menu).getByTestId("tag-delete"));
     await user.click(await screen.findByTestId("confirm-delete-tag"));
-    await waitFor(() =>
-      expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/tags`),
-    );
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/tags`));
     expect(session.getState().snapshot.tags).toHaveLength(0);
   });
 
@@ -650,9 +665,7 @@ describe("a tag's own page", () => {
     await user.clear(field);
     await user.type(field, "Everything{enter}");
 
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: "Everything" })).toBeVisible(),
-    );
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Everything" })).toBeVisible());
     expect(tagQuery(session)?.views[0]).toMatchObject({
       id: "all",
       name: "Everything",
@@ -677,9 +690,7 @@ describe("a tag's own page", () => {
     const field = await screen.findByTestId("query-view-rename-field");
     await user.clear(field);
     await user.type(field, "By status{enter}");
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: "By status" })).toBeVisible(),
-    );
+    await waitFor(() => expect(screen.getByRole("tab", { name: "By status" })).toBeVisible());
     expect(tagQuery(session)?.views).toHaveLength(2);
 
     const again = await openViewMenu("By status");

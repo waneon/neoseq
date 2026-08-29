@@ -92,18 +92,21 @@ export function DefaultQueriesSection() {
   /** A new query opens on itself: adding one and not landing on it says nothing. */
   const create = (plan: QueryPlan) => {
     const id = `dq-${crypto.randomUUID()}`;
-    void session.execute({
-      type: "create_default_query",
-      default_query_id: id,
-      title: "",
-      document: newDefaultQueryDocument(
-        compilePlan(plan).source,
-        { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-        "list",
-      ),
-    }).then(() => setOpenId(id)).catch((cause: unknown) => {
-      notify.failure(message("failure.saveQuery"), cause);
-    });
+    void session
+      .execute({
+        type: "create_default_query",
+        default_query_id: id,
+        title: "",
+        document: newDefaultQueryDocument(
+          compilePlan(plan).source,
+          { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+          "list",
+        ),
+      })
+      .then(() => setOpenId(id))
+      .catch((cause: unknown) => {
+        notify.failure(message("failure.saveQuery"), cause);
+      });
   };
 
   return (
@@ -174,14 +177,11 @@ function DefaultQueryRow({
   // The payload, not the record: every write rebuilds the stored object, so a
   // memo keyed on its identity would recompile the plan on each keystroke of the
   // name beside it.
-  const activeView = query.document.views.find(
-    (view) => view.id === query.document.default_view_id,
-  ) ?? query.document.views[0]!;
+  const activeView =
+    query.document.views.find((view) => view.id === query.document.default_view_id) ??
+    query.document.views[0]!;
   const payload = activeView.definition.plan?.payload;
-  const plan = useMemo(
-    () => (payload ? decodePlan(payload, QUERY_PLAN_VERSION) : null),
-    [payload],
-  );
+  const plan = useMemo(() => (payload ? decodePlan(payload, QUERY_PLAN_VERSION) : null), [payload]);
   const compiled = useMemo(() => (plan ? compilePlan(plan) : null), [plan]);
   const runtime = useMemo(
     () => ({ graphId: state.snapshot.graph_id, today: todayLocalDate() }),
@@ -189,15 +189,15 @@ function DefaultQueryRow({
   );
   // The same request the journal will make, so the two share one execution: the
   // count here is the count there rather than a second opinion about it.
-  const request = useMemo(() => ({
-    language: QUERY_LANGUAGE,
-    source: compiled ? compiled.source : activeView.definition.source,
-    bindings: compiled ? planBindings(compiled.parameters, runtime) : {},
-  }), [activeView.definition.source, compiled, runtime]);
-  const answer = useQueryAnswer(
-    JSON.stringify([defaultQueryKey(query), activeView.id]),
-    request,
+  const request = useMemo(
+    () => ({
+      language: QUERY_LANGUAGE,
+      source: compiled ? compiled.source : activeView.definition.source,
+      bindings: compiled ? planBindings(compiled.parameters, runtime) : {},
+    }),
+    [activeView.definition.source, compiled, runtime],
   );
+  const answer = useQueryAnswer(JSON.stringify([defaultQueryKey(query), activeView.id]), request);
   const count = answerLabel(answer, null, message);
 
   const summary = plan
@@ -211,9 +211,12 @@ function DefaultQueryRow({
 
   const owner = { kind: "graph_default", default_query_id: query.id } as const;
   const executeCommand = (command: Parameters<typeof session.execute>[0]): Promise<void> =>
-    session.execute(command).then(() => undefined).catch((cause: unknown) => {
-      notify.failure(message("failure.saveQuery"), cause);
-    });
+    session
+      .execute(command)
+      .then(() => undefined)
+      .catch((cause: unknown) => {
+        notify.failure(message("failure.saveQuery"), cause);
+      });
   const save = (command: Parameters<typeof session.execute>[0]): void => {
     void executeCommand(command);
   };
@@ -235,14 +238,16 @@ function DefaultQueryRow({
   // that state instead of claiming the hidden column is still shown.
   const choices = plan
     ? columnChoices(
-      columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
-      plan.columns,
-      new Set(plan.columns
-        .filter((column) => hiddenVariables.has(columnVariable(column)))
-        .map((column) => columnSourceKey(column.source))),
-      plan.subject,
-      message,
-    )
+        columnSourcesFor(plan.subject, graphPropertyKeys(state.snapshot)),
+        plan.columns,
+        new Set(
+          plan.columns
+            .filter((column) => hiddenVariables.has(columnVariable(column)))
+            .map((column) => columnSourceKey(column.source)),
+        ),
+        plan.subject,
+        message,
+      )
     : [];
 
   const toggleColumn = (choice: ColumnChoice, shown: boolean) => {
@@ -260,7 +265,8 @@ function DefaultQueryRow({
           view: {
             ...activeView,
             columns: activeView.columns.map((column) =>
-              column.variable === variable ? { ...column, hidden: false } : column),
+              column.variable === variable ? { ...column, hidden: false } : column,
+            ),
           },
         });
       }
@@ -309,11 +315,13 @@ function DefaultQueryRow({
           maxLength={MAX_DEFAULT_QUERY_TITLE}
           data-testid="default-query-title"
           disabled={state.mode === "readonly"}
-          onChange={(event) => save({
-            type: "rename_default_query",
-            default_query_id: query.id,
-            title: event.target.value,
-          })}
+          onChange={(event) =>
+            save({
+              type: "rename_default_query",
+              default_query_id: query.id,
+              title: event.target.value,
+            })
+          }
         />
         {count && (
           <span
@@ -343,11 +351,13 @@ function DefaultQueryRow({
             <DropdownMenuItem
               disabled={first || state.mode === "readonly"}
               data-testid="default-query-up"
-              onSelect={() => save({
-                type: "move_default_query",
-                default_query_id: query.id,
-                index: index - 1,
-              })}
+              onSelect={() =>
+                save({
+                  type: "move_default_query",
+                  default_query_id: query.id,
+                  index: index - 1,
+                })
+              }
             >
               <ChevronUpIcon aria-hidden />
               {message("common.moveUp")}
@@ -355,11 +365,13 @@ function DefaultQueryRow({
             <DropdownMenuItem
               disabled={last || state.mode === "readonly"}
               data-testid="default-query-down"
-              onSelect={() => save({
-                type: "move_default_query",
-                default_query_id: query.id,
-                index: index + 1,
-              })}
+              onSelect={() =>
+                save({
+                  type: "move_default_query",
+                  default_query_id: query.id,
+                  index: index + 1,
+                })
+              }
             >
               <ChevronDownIcon aria-hidden />
               {message("common.moveDown")}
@@ -369,10 +381,12 @@ function DefaultQueryRow({
               variant="destructive"
               disabled={state.mode === "readonly"}
               data-testid="default-query-remove"
-              onSelect={() => save({
-                type: "delete_default_query",
-                default_query_id: query.id,
-              })}
+              onSelect={() =>
+                save({
+                  type: "delete_default_query",
+                  default_query_id: query.id,
+                })
+              }
             >
               <Trash2Icon aria-hidden />
               {message("settings.removeDefaultQuery")}
@@ -418,21 +432,20 @@ function DefaultQueryRow({
                   aria-pressed={activeView.kind === layout}
                   disabled={state.mode === "readonly"}
                   data-testid={`default-query-layout-${layout}`}
-                  onClick={() => save({
-                    type: "put_query_view",
-                    owner,
-                    view: { ...activeView, kind: layout },
-                  })}
+                  onClick={() =>
+                    save({
+                      type: "put_query_view",
+                      owner,
+                      view: { ...activeView, kind: layout },
+                    })
+                  }
                 >
                   {message(layout === "list" ? "query.viewList" : "query.viewTable")}
                 </button>
               ))}
             </div>
             {activeView.kind === "table" && plan && (
-              <QueryColumnsControl
-                choices={choices}
-                onToggle={toggleColumn}
-              />
+              <QueryColumnsControl choices={choices} onToggle={toggleColumn} />
             )}
           </div>
         </div>

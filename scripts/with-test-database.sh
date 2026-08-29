@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (( $# == 0 )); then
+if (($# == 0)); then
   echo "usage: with-test-database <command> [argument ...]" >&2
   exit 64
 fi

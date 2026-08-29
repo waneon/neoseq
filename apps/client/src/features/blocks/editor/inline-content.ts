@@ -1,7 +1,4 @@
-import type {
-  BlockContentSplice,
-  InlineContent,
-} from "../../../core-port/commands";
+import type { BlockContentSplice, InlineContent } from "../../../core-port/commands";
 import type { PageReferenceSpan } from "../../../core-port/snapshot";
 import { codePointIndex, diffSplice } from "./text-diff";
 
@@ -103,11 +100,7 @@ export function joinInlineContentProjections(
   };
 }
 
-function touchedBy(
-  reference: PageReferenceSpan,
-  start: number,
-  end: number,
-): boolean {
+function touchedBy(reference: PageReferenceSpan, start: number, end: number): boolean {
   return start === end
     ? reference.start < start && start < reference.end
     : reference.start < end && start < reference.end;
@@ -124,12 +117,14 @@ function transformReferences(
   return references.flatMap((reference) => {
     if (reference.end <= start) return [reference];
     if (reference.start >= end) {
-      return [{
-        ...reference,
-        start: reference.start + displayDelta,
-        end: reference.end + displayDelta,
-        index: reference.index + logicalDelta,
-      }];
+      return [
+        {
+          ...reference,
+          start: reference.start + displayDelta,
+          end: reference.end + displayDelta,
+          index: reference.index + logicalDelta,
+        },
+      ];
     }
     return [];
   });
@@ -181,9 +176,8 @@ export function planInlineEdit(
     insertLength,
     insertLength - deleteCount,
   );
-  const insert: InlineContent[] = replacement.length === 0
-    ? []
-    : [{ type: "markdown", value: replacement }];
+  const insert: InlineContent[] =
+    replacement.length === 0 ? [] : [{ type: "markdown", value: replacement }];
   return {
     splice: { block_id: blockId, index, delete: deleteCount, insert },
     references: nextReferences,

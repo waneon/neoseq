@@ -60,11 +60,7 @@ interface PendingInputRepair {
 
 function applyTextEdit(textarea: HTMLTextAreaElement, plan: TextEditPlan) {
   textarea.setRangeText(plan.insert, plan.from, plan.to, "preserve");
-  textarea.setSelectionRange(
-    plan.selectionStart,
-    plan.selectionEnd,
-    plan.selectionDirection,
-  );
+  textarea.setSelectionRange(plan.selectionStart, plan.selectionEnd, plan.selectionDirection);
 }
 
 function assignRef(ref: Ref<HTMLTextAreaElement>, value: HTMLTextAreaElement | null) {
@@ -108,10 +104,13 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       readOnly,
     };
 
-    const setRef = useCallback((node: HTMLTextAreaElement | null) => {
-      textareaRef.current = node;
-      assignRef(forwardedRef, node);
-    }, [forwardedRef]);
+    const setRef = useCallback(
+      (node: HTMLTextAreaElement | null) => {
+        textareaRef.current = node;
+        assignRef(forwardedRef, node);
+      },
+      [forwardedRef],
+    );
 
     useLayoutEffect(() => {
       const textarea = textareaRef.current;
@@ -191,10 +190,10 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
           return;
         }
         const cameThroughComposition =
-          snapshot.inputType === "insertCompositionText"
-          || snapshot.isComposing
-          || event.isComposing
-          || (snapshot.inputType === "insertText" && !snapshot.cancelable);
+          snapshot.inputType === "insertCompositionText" ||
+          snapshot.isComposing ||
+          event.isComposing ||
+          (snapshot.inputType === "insertText" && !snapshot.cancelable);
         if (!cameThroughComposition) return;
 
         const plan = planAutoPairInputRepair(

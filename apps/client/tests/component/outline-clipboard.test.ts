@@ -24,13 +24,13 @@ function fragment(items: readonly { depth: number; markdown: string }[]): Outlin
 
 describe("outline clipboard codecs", () => {
   it("serializes normalized fragment depth as portable Markdown", () => {
-    const bundle = buildClipboardBundle(fragment([
-      { depth: 0, markdown: "parent" },
-      { depth: 1, markdown: "child\ncontinuation" },
-    ]));
-    expect(bundle.plain).toBe(
-      "- parent\n  - child\n    continuation",
+    const bundle = buildClipboardBundle(
+      fragment([
+        { depth: 0, markdown: "parent" },
+        { depth: 1, markdown: "child\ncontinuation" },
+      ]),
     );
+    expect(bundle.plain).toBe("- parent\n  - child\n    continuation");
   });
 
   it("parses unordered and ordered items while preserving multiline content", () => {
@@ -74,9 +74,11 @@ describe("outline clipboard codecs", () => {
       ["text/html", "<ol><li>one<ul><li>two</li></ul></li></ol>"],
       ["text/plain", "one\ntwo"],
     ]);
-    expect(decodeOutlineClipboard({
-      getData: (type: string) => values.get(type) ?? "",
-    })).toEqual({
+    expect(
+      decodeOutlineClipboard({
+        getData: (type: string) => values.get(type) ?? "",
+      }),
+    ).toEqual({
       kind: "outline",
       source: "html",
       items: [
@@ -87,9 +89,9 @@ describe("outline clipboard codecs", () => {
   });
 
   it("preserves prose surrounding an HTML list as sibling root blocks", () => {
-    expect(parseHtmlOutline(
-      "<p>Introduction</p><ul><li>one</li></ul><div>Conclusion</div>",
-    )).toEqual([
+    expect(
+      parseHtmlOutline("<p>Introduction</p><ul><li>one</li></ul><div>Conclusion</div>"),
+    ).toEqual([
       { depth: 0, markdown: "Introduction" },
       { depth: 0, markdown: "one" },
       { depth: 0, markdown: "Conclusion" },
@@ -133,7 +135,7 @@ describe("outline clipboard codecs", () => {
       pages: [],
     });
     const fragment = readOutlineFragment({
-      getData: (type: string) => type === "application/vnd.neoseq.outline+json" ? legacy : "",
+      getData: (type: string) => (type === "application/vnd.neoseq.outline+json" ? legacy : ""),
     });
 
     expect(fragment?.version).toBe(2);
@@ -147,38 +149,42 @@ describe("outline clipboard codecs", () => {
       title: "Home",
       properties: [],
       tags: [],
-      blocks: [{
-        id: "parent",
-        markdown: "ship it",
-        properties: [
-          {
-            key: "builtin.created-at",
-            value_type: "string",
-            cardinality: "single",
-            values: [{ type: "string", value: "old" }],
-          },
-          {
-            key: "builtin.task-status",
-            value_type: "string",
-            cardinality: "single",
-            values: [{ type: "string", value: "doing" }],
-          },
-          {
-            key: "user.reviewers",
-            value_type: "string",
-            cardinality: "set",
-            values: [],
-          },
-        ],
-        tags: ["project"],
-        children: [{
-          id: "hidden-child",
-          markdown: "collapsed child",
-          properties: [],
-          tags: [],
-          children: [],
-        }],
-      }],
+      blocks: [
+        {
+          id: "parent",
+          markdown: "ship it",
+          properties: [
+            {
+              key: "builtin.created-at",
+              value_type: "string",
+              cardinality: "single",
+              values: [{ type: "string", value: "old" }],
+            },
+            {
+              key: "builtin.task-status",
+              value_type: "string",
+              cardinality: "single",
+              values: [{ type: "string", value: "doing" }],
+            },
+            {
+              key: "user.reviewers",
+              value_type: "string",
+              cardinality: "set",
+              values: [],
+            },
+          ],
+          tags: ["project"],
+          children: [
+            {
+              id: "hidden-child",
+              markdown: "collapsed child",
+              properties: [],
+              tags: [],
+              children: [],
+            },
+          ],
+        },
+      ],
     };
     const snapshot: GraphSnapshot = {
       schema_version: 1,
@@ -207,9 +213,11 @@ describe("outline clipboard codecs", () => {
 
     const document = new DOMParser().parseFromString(bundle.html, "text/html");
     expect(document.querySelectorAll("li")).toHaveLength(2);
-    expect([...document.querySelectorAll("ul, ol")].every(
-      (list) => [...list.children].some((child) => child.tagName === "LI"),
-    )).toBe(true);
+    expect(
+      [...document.querySelectorAll("ul, ol")].every((list) =>
+        [...list.children].some((child) => child.tagName === "LI"),
+      ),
+    ).toBe(true);
     expect(bundle.html).not.toContain("<ul></ul>");
     expect(parseHtmlOutline(bundle.html)).toEqual([
       { depth: 0, markdown: "ship it" },
@@ -218,7 +226,9 @@ describe("outline clipboard codecs", () => {
 
     const values = new Map<string, string>();
     const clipboard = {
-      setData: (type: string, value: string) => { values.set(type, value); },
+      setData: (type: string, value: string) => {
+        values.set(type, value);
+      },
       getData: (type: string) => values.get(type) ?? "",
     };
     setClipboardData(clipboard, bundle);
@@ -238,14 +248,16 @@ describe("outline clipboard codecs", () => {
       title: "Home",
       properties: [],
       tags: [],
-      blocks: [{
-        id: "reference",
-        markdown: "See [[Roadmap]]",
-        page_references: [{ start: 4, end: 15, index: 4, page_id: "roadmap" }],
-        properties: [],
-        tags: [],
-        children: [],
-      }],
+      blocks: [
+        {
+          id: "reference",
+          markdown: "See [[Roadmap]]",
+          page_references: [{ start: 4, end: 15, index: 4, page_id: "roadmap" }],
+          properties: [],
+          tags: [],
+          children: [],
+        },
+      ],
     };
     const snapshot = {
       schema_version: 6,
@@ -263,10 +275,12 @@ describe("outline clipboard codecs", () => {
     const fragment = createOutlineFragment(snapshot, page, new Set(["reference"]));
     expect(fragment?.version).toBe(2);
     expect(fragment?.items[0].page_references).toEqual(page.blocks[0].page_references);
-    expect(fragment?.pages).toEqual([{
-      id: "roadmap",
-      title: "Roadmap",
-      journal_date: null,
-    }]);
+    expect(fragment?.pages).toEqual([
+      {
+        id: "roadmap",
+        title: "Roadmap",
+        journal_date: null,
+      },
+    ]);
   });
 });

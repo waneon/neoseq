@@ -95,9 +95,7 @@ export function GraphPicker() {
           <Wordmark name={message("app.title")} />
         </p>
         <h1>{message("graph.yourGraphs")}</h1>
-        <p className="picker-lede">
-          {message("graph.lede")}
-        </p>
+        <p className="picker-lede">{message("graph.lede")}</p>
         {state.status === "failed" && (
           <Callout tone="danger">
             {message("graph.listFailed", { detail: message("error.internal") })}
@@ -154,9 +152,7 @@ export function GraphPicker() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          onSelect={() => setDialog({ kind: "rename", graph })}
-                        >
+                        <DropdownMenuItem onSelect={() => setDialog({ kind: "rename", graph })}>
                           {message("graph.rename")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -166,7 +162,10 @@ export function GraphPicker() {
                             void exportGraphArchive(graph.id, graph.name)
                               .then((bytes) => downloadArchive(bytes, graph.name))
                               .catch((cause: unknown) => {
-                                notify.failure(message("failure.exportGraph", { name: graph.name }), cause);
+                                notify.failure(
+                                  message("failure.exportGraph", { name: graph.name }),
+                                  cause,
+                                );
                               })
                               .finally(() => setExporting(null));
                           }}
@@ -207,11 +206,7 @@ export function GraphPicker() {
               onChange={(event) => setNewName(event.target.value)}
               data-testid="new-graph-name"
             />
-            <Button
-              type="submit"
-              disabled={importing}
-              data-testid="create-graph"
-            >
+            <Button type="submit" disabled={importing} data-testid="create-graph">
               {message("graph.createLocal")}
             </Button>
           </div>
@@ -238,7 +233,8 @@ export function GraphPicker() {
                 const file = input.files?.[0];
                 if (!file) return;
                 setImporting(true);
-                void file.arrayBuffer()
+                void file
+                  .arrayBuffer()
                   .then((bytes) => importGraphArchive(bytes, message("graph.importedName")))
                   .then((graph) => navigate(`/g/${graph.id}`))
                   .catch((cause: unknown) => {
@@ -279,7 +275,8 @@ export function GraphPicker() {
           returnFocus={() =>
             document.querySelector<HTMLButtonElement>(
               `[data-graph-actions="${CSS.escape(dialog.graph.id)}"]`,
-            )}
+            )
+          }
           onClose={() => setDialog(null)}
           onDeleted={() => {
             setDialog(null);
@@ -309,7 +306,10 @@ function downloadArchive(bytes: ArrayBuffer, graphName: string): void {
 }
 
 function safeFilename(value: string): string {
-  const cleaned = value.trim().replace(/[\\/:*?"<>|]+/gu, "-").replace(/\s+/gu, " ");
+  const cleaned = value
+    .trim()
+    .replace(/[\\/:*?"<>|]+/gu, "-")
+    .replace(/\s+/gu, " ");
   return cleaned || "graph";
 }
 
@@ -379,20 +379,57 @@ function RemoteCreateDialog({
             });
         }}
       >
-        <label className="field-label" htmlFor="remote-graph-name">{message("graph.graphName")}</label>
-        <Input id="remote-graph-name" value={name} onChange={(event) => setName(event.target.value)} />
-        <label className="field-label" htmlFor="remote-server-url">{message("graph.serverUrl")}</label>
-        <Input id="remote-server-url" type="url" value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} />
-        <label className="field-label" htmlFor="remote-principal">{message("graph.principal")}</label>
-        <Input id="remote-principal" autoComplete="username" value={principal} onChange={(event) => setPrincipal(event.target.value)} />
-        <label className="field-label" htmlFor="remote-token">{message("graph.token")}</label>
-        <Input id="remote-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
+        <label className="field-label" htmlFor="remote-graph-name">
+          {message("graph.graphName")}
+        </label>
+        <Input
+          id="remote-graph-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <label className="field-label" htmlFor="remote-server-url">
+          {message("graph.serverUrl")}
+        </label>
+        <Input
+          id="remote-server-url"
+          type="url"
+          value={serverUrl}
+          onChange={(event) => setServerUrl(event.target.value)}
+        />
+        <label className="field-label" htmlFor="remote-principal">
+          {message("graph.principal")}
+        </label>
+        <Input
+          id="remote-principal"
+          autoComplete="username"
+          value={principal}
+          onChange={(event) => setPrincipal(event.target.value)}
+        />
+        <label className="field-label" htmlFor="remote-token">
+          {message("graph.token")}
+        </label>
+        <Input
+          id="remote-token"
+          type="password"
+          autoComplete="current-password"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+        />
         <div className="dialog-actions">
-          <Button variant="secondary" onClick={onClose} disabled={busy}>{message("common.cancel")}</Button>
-          <Button variant="secondary" onClick={connectAvailable} disabled={busy || !principal.trim() || !token.trim()}>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            {message("common.cancel")}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={connectAvailable}
+            disabled={busy || !principal.trim() || !token.trim()}
+          >
             {message("graph.connectRemote")}
           </Button>
-          <Button type="submit" disabled={busy || !name.trim() || !principal.trim() || !token.trim()}>
+          <Button
+            type="submit"
+            disabled={busy || !name.trim() || !principal.trim() || !token.trim()}
+          >
             {message("graph.createRemote")}
           </Button>
         </div>
@@ -436,11 +473,7 @@ function RenameDialog({
           <Button variant="secondary" onClick={onClose}>
             {message("common.cancel")}
           </Button>
-          <Button
-            type="submit"
-            disabled={!name.trim()}
-            data-testid="rename-graph-submit"
-          >
+          <Button type="submit" disabled={!name.trim()} data-testid="rename-graph-submit">
             {message("common.rename")}
           </Button>
         </div>
@@ -475,7 +508,8 @@ function DeleteDialog({
         onDeleted();
       }}
       onConfirmError={(cause) =>
-        notify.failure(message("failure.deleteGraph", { name: graph.name }), cause)}
+        notify.failure(message("failure.deleteGraph", { name: graph.name }), cause)
+      }
     >
       {message("graph.deleteConfirm", { name: graph.name })}
     </ConfirmDialog>

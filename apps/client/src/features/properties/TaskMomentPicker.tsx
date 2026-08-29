@@ -72,13 +72,7 @@ interface AdjacentMonthCellProps {
  * buttons make the adjacent dates that are already visible honest pointer
  * targets. Arrow keys still cross the same month boundary through React Aria.
  */
-function AdjacentMonthCell({
-  date,
-  disabled,
-  label,
-  today,
-  onSelect,
-}: AdjacentMonthCellProps) {
+function AdjacentMonthCell({ date, disabled, label, today, onSelect }: AdjacentMonthCellProps) {
   return (
     <td role="gridcell" aria-selected={false}>
       <button
@@ -122,9 +116,11 @@ export function TaskMomentPicker({
   const [time, setTime] = useState<string | null>(initialTime ?? null);
   const [rememberedTime, setRememberedTime] = useState(initialTime ?? "09:00");
   const [repeat, setRepeat] = useState<RepeatInterval | null>(() =>
-    initialRepeat ? parseRepeat(initialRepeat) : null);
-  const [rememberedRepeat, setRememberedRepeat] = useState<RepeatInterval>(() =>
-    (initialRepeat ? parseRepeat(initialRepeat) : null) ?? DEFAULT_REPEAT);
+    initialRepeat ? parseRepeat(initialRepeat) : null,
+  );
+  const [rememberedRepeat, setRememberedRepeat] = useState<RepeatInterval>(
+    () => (initialRepeat ? parseRepeat(initialRepeat) : null) ?? DEFAULT_REPEAT,
+  );
   const [repeatChanged, setRepeatChanged] = useState(false);
   const [activePane, setActivePane] = useState<"date" | "rules">("date");
   const [query, setQuery] = useState("");
@@ -134,9 +130,7 @@ export function TaskMomentPicker({
     [query, temporal, today],
   );
   const parsed = parsedResult.kind === "match" ? parsedResult.value : null;
-  const parsedRepeat = parsed?.recurrence
-    ? repeatFromTemporalRecurrence(parsed.recurrence)
-    : null;
+  const parsedRepeat = parsed?.recurrence ? repeatFromTemporalRecurrence(parsed.recurrence) : null;
   const calendarDate = parseDate(date);
   const disabled = readonly || busy;
   const repeatChange = repeatChanged ? (repeat ? formatRepeat(repeat) : null) : undefined;
@@ -193,24 +187,18 @@ export function TaskMomentPicker({
     setRepeatChanged(true);
   };
 
-  const movePane = (
-    event: KeyboardEvent<HTMLButtonElement>,
-    nextPane: "date" | "rules",
-  ) => {
+  const movePane = (event: KeyboardEvent<HTMLButtonElement>, nextPane: "date" | "rules") => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     setActivePane(nextPane);
     requestAnimationFrame(() =>
-      document.getElementById(`${paneId}-${nextPane}-tab`)?.focus({ preventScroll: true }));
+      document.getElementById(`${paneId}-${nextPane}-tab`)?.focus({ preventScroll: true }),
+    );
   };
 
   return (
     <I18nProvider locale={locale}>
-      <div
-        className="moment-picker"
-        data-active-pane={activePane}
-        data-testid="moment-picker"
-      >
+      <div className="moment-picker" data-active-pane={activePane} data-testid="moment-picker">
         <div className="moment-picker-body">
           <div className="moment-mobile-tabs" role="tablist">
             <button
@@ -327,19 +315,19 @@ export function TaskMomentPicker({
                       <CalendarGridBody>
                         {(value) => {
                           const visibleMonth = state.visibleRange.start;
-                          const outsideMonth = value.year !== visibleMonth.year
-                            || value.month !== visibleMonth.month;
-                          return outsideMonth
-                            ? (
-                                <AdjacentMonthCell
-                                  date={value}
-                                  disabled={disabled}
-                                  label={formatJournalDate(value.toString())}
-                                  today={today}
-                                  onSelect={chooseDate}
-                                />
-                              )
-                            : <CalendarCell date={value} className="moment-calendar-cell" />;
+                          const outsideMonth =
+                            value.year !== visibleMonth.year || value.month !== visibleMonth.month;
+                          return outsideMonth ? (
+                            <AdjacentMonthCell
+                              date={value}
+                              disabled={disabled}
+                              label={formatJournalDate(value.toString())}
+                              today={today}
+                              onSelect={chooseDate}
+                            />
+                          ) : (
+                            <CalendarCell date={value} className="moment-calendar-cell" />
+                          );
                         }}
                       </CalendarGridBody>
                     </CalendarGrid>
@@ -390,9 +378,11 @@ export function TaskMomentPicker({
                       {(segment) => (
                         <DateSegment
                           segment={segment}
-                          className={segment.type === "literal"
-                            ? "moment-time-segment moment-time-literal"
-                            : "moment-time-segment"}
+                          className={
+                            segment.type === "literal"
+                              ? "moment-time-segment moment-time-literal"
+                              : "moment-time-segment"
+                          }
                         />
                       )}
                     </DateInput>
@@ -453,13 +443,16 @@ export function TaskMomentPicker({
                       label: repeatUnitLabel(unit, message),
                     }))}
                     onValueChange={(unit) =>
-                      setRepeatValue({ ...repeatDraft, unit: unit as RepeatUnit })}
+                      setRepeatValue({ ...repeatDraft, unit: unit as RepeatUnit })
+                    }
                   />
                   <p className="moment-repeat-preview">
                     <span>{repeatLabel(repeatDraft, message)}</span>
-                    <span>{message("task.repeatNext", {
-                      date: formatJournalDate(advanceDate(date, repeatDraft)),
-                    })}</span>
+                    <span>
+                      {message("task.repeatNext", {
+                        date: formatJournalDate(advanceDate(date, repeatDraft)),
+                      })}
+                    </span>
                   </p>
                 </div>
               </div>

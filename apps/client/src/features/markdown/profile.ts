@@ -42,9 +42,11 @@ const INLINE_SYNTAX = [
  * is what the textarea already shows.
  */
 export function hasMarkdownSyntax(markdown: string, semanticInline = false): boolean {
-  return semanticInline
-    || BLOCK_SYNTAX.some((pattern) => pattern.test(markdown))
-    || INLINE_SYNTAX.some((pattern) => pattern.test(markdown));
+  return (
+    semanticInline ||
+    BLOCK_SYNTAX.some((pattern) => pattern.test(markdown)) ||
+    INLINE_SYNTAX.some((pattern) => pattern.test(markdown))
+  );
 }
 
 /**
@@ -68,9 +70,9 @@ export const markdownUrlTransform: UrlTransform = (url, key) => {
   if (url.startsWith("#")) return url;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "http:"
-        || parsed.protocol === "https:"
-        || parsed.protocol === "mailto:"
+    return parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "mailto:"
       ? url
       : undefined;
   } catch {

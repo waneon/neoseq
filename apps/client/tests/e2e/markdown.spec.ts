@@ -69,8 +69,9 @@ test("returns to the projection when focus leaves the outline entirely", async (
   // to sit on its raw source from that press until the next reload.
   await page.getByTestId("journal-title").click();
   await expect(page.getByTestId("block-markdown").first()).toBeVisible();
-  await expect(page.getByTestId("block-markdown").first().locator("strong"))
-    .toHaveText("bold text");
+  await expect(page.getByTestId("block-markdown").first().locator("strong")).toHaveText(
+    "bold text",
+  );
 
   // …and the row's own furniture is not "outside" it: opening the block's menu
   // must leave the editor open underneath the thing that is opening.
@@ -102,9 +103,7 @@ test("renders the structure people write, and keeps their line breaks", async ({
   await expect(projection.getByRole("columnheader", { name: "Column" })).toBeVisible();
   await expect(projection.getByRole("cell", { name: "One" })).toBeVisible();
   await expect(projection.locator("del")).toHaveText("dropped");
-  await expect(
-    projection.getByRole("link", { name: "https://example.com/docs" }),
-  ).toBeVisible();
+  await expect(projection.getByRole("link", { name: "https://example.com/docs" })).toBeVisible();
   // Markers, not indented paragraphs: preflight clears them and the profile has
   // to put them back.
   const marker = await projection

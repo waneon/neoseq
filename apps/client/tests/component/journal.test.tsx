@@ -21,9 +21,9 @@ describe("journal and navigation", () => {
   it("opens a specific journal date from the route", async () => {
     const { session } = await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
     await waitFor(() => {
-      expect(
-        session.getState().snapshot.pages.some((p) => p.id === "journal-2026-01-15"),
-      ).toBe(true);
+      expect(session.getState().snapshot.pages.some((p) => p.id === "journal-2026-01-15")).toBe(
+        true,
+      );
     });
     expect(screen.getByTestId("journal-title")).toHaveTextContent("January 15, 2026");
   });

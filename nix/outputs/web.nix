@@ -58,11 +58,7 @@ stdenv.mkDerivation {
     hash = "sha256-HY+p2aJ9OeeudHevpcC5qEcChfrvDsdem8Q5GIHAShc=";
   };
   pnpmDeps = fetchPnpmDeps {
-    inherit
-      version
-      src
-      pnpm
-      ;
+    inherit version src pnpm;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
     hash = "sha256-iqZgL4GgSeTVOzSRD5HzZQ7BhHvxBUttZ4hq07q3z+o=";

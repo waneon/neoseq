@@ -25,11 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
-import {
-  offeredChoices,
-  TASK_PRIORITIES,
-  TASK_PRIORITY_KEY,
-} from "../../entities/tasks";
+import { offeredChoices, TASK_PRIORITIES, TASK_PRIORITY_KEY } from "../../entities/tasks";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -91,9 +87,7 @@ export function TaskPriorityMenu({
   const offered = offeredChoices(TASK_PRIORITY_KEY, TASK_PRIORITIES);
   // As in the status menu: a stored value outside the set stays listed, the
   // absence of one does not.
-  const options = !priority || offered.includes(priority)
-    ? offered
-    : [priority, ...offered];
+  const options = !priority || offered.includes(priority) ? offered : [priority, ...offered];
 
   return (
     <DropdownMenuContent align="start" aria-label={message("task.priority")}>
@@ -105,7 +99,8 @@ export function TaskPriorityMenu({
             owner: entity,
             key: TASK_PRIORITY_KEY,
             value: { type: "string", value },
-          })}
+          })
+        }
       >
         {options.map((option) => (
           <DropdownMenuRadioItem key={option} value={option}>
@@ -117,7 +112,9 @@ export function TaskPriorityMenu({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         data-testid="remove-priority"
-        onSelect={() => void run({ type: "remove_property", owner: entity, key: TASK_PRIORITY_KEY })}
+        onSelect={() =>
+          void run({ type: "remove_property", owner: entity, key: TASK_PRIORITY_KEY })
+        }
       >
         <MinusIcon aria-hidden />
         {message("task.removePriority")}

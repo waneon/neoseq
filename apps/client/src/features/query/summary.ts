@@ -75,11 +75,7 @@ export function summaryLabel(summary: QuerySummary): string {
 }
 
 /** A group's own reading: its children, joined the way its match combines them. */
-function describeGroup(
-  group: PlanGroup,
-  plan: QueryPlan,
-  context: SummaryContext,
-): string | null {
+function describeGroup(group: PlanGroup, plan: QueryPlan, context: SummaryContext): string | null {
   const parts = group.children
     .map((child) => describeNode(child, plan, context))
     .filter((part): part is string => part !== null);
@@ -87,23 +83,19 @@ function describeGroup(
 
   const shown = parts.slice(0, SHOWN_PER_LEVEL);
   const rest = parts.length - shown.length;
-  const joined = rest > 0
-    ? [...shown, context.message("query.summaryMore", { count: rest })].join(SEPARATOR)
-    : shown.join(SEPARATOR);
+  const joined =
+    rest > 0
+      ? [...shown, context.message("query.summaryMore", { count: rest })].join(SEPARATOR)
+      : shown.join(SEPARATOR);
 
   // `all` is the reading a bare list already has, so it says nothing extra.
   if (group.match === "all") return joined;
-  return context.message(
-    group.match === "any" ? "query.summaryAny" : "query.summaryNone",
-    { conditions: joined },
-  );
+  return context.message(group.match === "any" ? "query.summaryAny" : "query.summaryNone", {
+    conditions: joined,
+  });
 }
 
-function describeNode(
-  node: PlanNode,
-  plan: QueryPlan,
-  context: SummaryContext,
-): string | null {
+function describeNode(node: PlanNode, plan: QueryPlan, context: SummaryContext): string | null {
   if (node.kind === "condition") return describeCondition(node, plan, context);
   const inner = describeGroup(node, plan, context);
   return inner === null ? null : `(${inner})`;
@@ -154,9 +146,7 @@ function valueText(
 }
 
 function describeList(field: PlanField, members: string[], context: SummaryContext): string {
-  const shown = members
-    .slice(0, SHOWN_MEMBERS)
-    .map((member) => memberName(field, member, context));
+  const shown = members.slice(0, SHOWN_MEMBERS).map((member) => memberName(field, member, context));
   const rest = members.length - shown.length;
   if (rest > 0) shown.push(context.message("query.summaryMore", { count: rest }));
   return shown.join(", ");
@@ -178,8 +168,8 @@ function memberName(field: PlanField, member: string, context: SummaryContext): 
  */
 function textOperand(field: PlanField, value: string, context: SummaryContext): string {
   if (value.length === 0) return "";
-  const chosen = field.kind === "property"
-    && offeredChoices(field.key, stringChoicesOf(field.key)).length > 0;
+  const chosen =
+    field.kind === "property" && offeredChoices(field.key, stringChoicesOf(field.key)).length > 0;
   return chosen
     ? choiceLabel(field.key, value, context.message)
     : context.message("query.summaryQuoted", { value });

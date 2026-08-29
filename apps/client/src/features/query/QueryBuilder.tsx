@@ -82,8 +82,7 @@ const EXACT_DATE = "exact";
  * never win. Its focus state is the base field's already: `--surface-2` plus the
  * resting `--e1` edge.
  */
-const GHOST_FIELD =
-  "bg-transparent shadow-none hover:bg-[var(--surface-2)] hover:shadow-none";
+const GHOST_FIELD = "bg-transparent shadow-none hover:bg-[var(--surface-2)] hover:shadow-none";
 
 export function QueryBuilder({
   id,
@@ -132,8 +131,7 @@ export function QueryBuilder({
             value: match,
             label: matchLabel(match, message),
           }))}
-          onValueChange={(value) =>
-            setWhere({ ...plan.where, match: value as PlanGroup["match"] })}
+          onValueChange={(value) => setWhere({ ...plan.where, match: value as PlanGroup["match"] })}
         />
         <span className="qb-lead">{message("query.ofTheFollowing")}</span>
       </div>
@@ -208,9 +206,10 @@ function retarget(plan: QueryPlan, subject: PlanSubject): QueryPlan {
     ...plan,
     subject,
     where: prune(plan.where) as PlanGroup,
-    columns: columns.length > 0
-      ? columns
-      : [{ id: "text", source: { kind: "content" } as PlanColumnSource }],
+    columns:
+      columns.length > 0
+        ? columns
+        : [{ id: "text", source: { kind: "content" } as PlanColumnSource }],
   };
 }
 
@@ -254,8 +253,7 @@ function GroupEditor({
               value: match,
               label: matchLabel(match, message),
             }))}
-            onValueChange={(value) =>
-              onChange({ ...group, match: value as PlanGroup["match"] })}
+            onValueChange={(value) => onChange({ ...group, match: value as PlanGroup["match"] })}
           />
           <span className="qb-lead">{message("query.ofTheFollowing")}</span>
           {onRemove && (
@@ -297,15 +295,15 @@ function GroupEditor({
               onChange={(next) => replaceChild(child.id, next)}
               onRemove={() => replaceChild(child.id, null)}
             />
-          ))}
+          ),
+        )}
         <div className="qb-line qb-add">
           <button
             type="button"
             className="qb-add-btn"
             disabled={readonly || full}
             data-testid={depth === 0 ? "qb-add-condition" : undefined}
-            onClick={() =>
-              onChange(appendNode(group, group.id, newCondition()))}
+            onClick={() => onChange(appendNode(group, group.id, newCondition()))}
           >
             <PlusIcon aria-hidden />
             {message("query.addCondition")}
@@ -370,9 +368,11 @@ function ConditionEditor({
     <div className="qb-condition" data-testid="qb-condition">
       <MenuSelect
         className="qb-field"
-        value={condition.field.kind === "property"
-          ? `${FIELD_PROPERTY_PREFIX}${condition.field.key}`
-          : condition.field.kind}
+        value={
+          condition.field.kind === "property"
+            ? `${FIELD_PROPERTY_PREFIX}${condition.field.key}`
+            : condition.field.kind
+        }
         label={message("query.fieldLabel")}
         testId="qb-field"
         disabled={readonly}
@@ -392,7 +392,7 @@ function ConditionEditor({
             ...condition,
             op,
             value: operatorTakesValue(op)
-              ? condition.value ?? defaultValueForField(condition.field)
+              ? (condition.value ?? defaultValueForField(condition.field))
               : undefined,
             value2: operatorTakesRange(op) ? condition.value2 : undefined,
           });
@@ -503,7 +503,10 @@ function Operand({
           ]}
           onValueChange={(next) => {
             if (next === EXACT_DATE) {
-              onChange({ type: "date", value: value.type === "date" ? value.value : todayLocalDate() });
+              onChange({
+                type: "date",
+                value: value.type === "date" ? value.value : todayLocalDate(),
+              });
               return;
             }
             const preset = RELATIVE_DATE_PRESETS.find((item) => item.id === next);
@@ -572,9 +575,8 @@ function Operand({
     );
   }
 
-  const choices = field.kind === "property"
-    ? offeredChoices(field.key, stringChoicesOf(field.key))
-    : [];
+  const choices =
+    field.kind === "property" ? offeredChoices(field.key, stringChoicesOf(field.key)) : [];
   if (choices.length > 0) {
     const current = value.type === "text" ? value.value : "";
     const options = current && !choices.includes(current) ? [current, ...choices] : choices;
@@ -624,9 +626,10 @@ function ValueListEditor({
   const [draft, setDraft] = useState("");
   const members = condition.value?.type === "list" ? condition.value.values : [];
   const type = fieldType(condition.field);
-  const choices = condition.field.kind === "property"
-    ? offeredChoices(condition.field.key, stringChoicesOf(condition.field.key))
-    : [];
+  const choices =
+    condition.field.kind === "property"
+      ? offeredChoices(condition.field.key, stringChoicesOf(condition.field.key))
+      : [];
 
   const setMembers = (next: string[]) =>
     onChange({ ...condition, value: { type: "list", values: next.slice(0, PLAN_ANY_OF_MAX) } });
@@ -646,11 +649,14 @@ function ValueListEditor({
     return member;
   };
 
-  const remaining = type === "tag"
-    ? snapshot.tags.filter((tag) => !members.includes(tag.id))
-      .map((tag) => ({ value: tag.id, label: tag.name }))
-    : choices.filter((choice) => !members.includes(choice))
-      .map((choice) => ({ value: choice, label: choice }));
+  const remaining =
+    type === "tag"
+      ? snapshot.tags
+          .filter((tag) => !members.includes(tag.id))
+          .map((tag) => ({ value: tag.id, label: tag.name }))
+      : choices
+          .filter((choice) => !members.includes(choice))
+          .map((choice) => ({ value: choice, label: choice }));
 
   return (
     <span className="qb-operand qb-list" data-testid="qb-value-list">

@@ -5,16 +5,12 @@ import parseExpression from "spdx-expression-parse";
 const deniedFamilies = /^(?:AGPL|GPL)-/;
 
 function permitsWithoutDeniedLicense(expression) {
-  const node =
-    typeof expression === "string" ? parseExpression(expression) : expression;
+  const node = typeof expression === "string" ? parseExpression(expression) : expression;
 
   if (node.license) return !deniedFamilies.test(node.license);
 
   if (node.conjunction === "or") {
-    return (
-      permitsWithoutDeniedLicense(node.left) ||
-      permitsWithoutDeniedLicense(node.right)
-    );
+    return permitsWithoutDeniedLicense(node.left) || permitsWithoutDeniedLicense(node.right);
   }
 
   if (node.conjunction === "and") {
@@ -25,9 +21,7 @@ function permitsWithoutDeniedLicense(expression) {
 }
 
 function dependencyLabel(dependency) {
-  const versions = Array.isArray(dependency.versions)
-    ? dependency.versions.join(", ")
-    : "unknown";
+  const versions = Array.isArray(dependency.versions) ? dependency.versions.join(", ") : "unknown";
   return `${dependency.name}@${versions}`;
 }
 

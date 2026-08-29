@@ -13,13 +13,7 @@
 
 import { RepeatIcon } from "lucide-react";
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
-import {
-  dateValue,
-  findPage,
-  isDeleted,
-  pageTitle,
-  stringValue,
-} from "../../core-port/snapshot";
+import { dateValue, findPage, isDeleted, pageTitle, stringValue } from "../../core-port/snapshot";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import { isGenericProperty } from "../../entities/properties";
 import {
@@ -71,8 +65,7 @@ export function BlockChips({
       !representedKeys.includes(field.key) &&
       (!isTaskKey(field.key) || field.values.length === 0),
   );
-  const hasTaskFacts =
-    scheduled !== undefined || deadline !== undefined || repeatRaw !== undefined;
+  const hasTaskFacts = scheduled !== undefined || deadline !== undefined || repeatRaw !== undefined;
   if (!hasTaskFacts && generic.length === 0) return null;
 
   // A settled task has no urgency left to report: the strike through its line is

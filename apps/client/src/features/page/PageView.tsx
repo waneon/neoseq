@@ -44,9 +44,10 @@ export function PageView() {
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
-    (left, right) => left.snapshot === right.snapshot
-      && left.status === right.status
-      && left.hydratedOutlines === right.hydratedOutlines,
+    (left, right) =>
+      left.snapshot === right.snapshot &&
+      left.status === right.status &&
+      left.hydratedOutlines === right.hydratedOutlines,
   );
   const notify = useNotify();
   const { message } = useI18n();
@@ -68,10 +69,11 @@ export function PageView() {
 
   useEffect(() => {
     if (
-      !page
-      || state.status !== "ready"
-      || state.hydratedOutlines.has(outlineOwnerKey({ kind: "page", id: pageId }))
-    ) return;
+      !page ||
+      state.status !== "ready" ||
+      state.hydratedOutlines.has(outlineOwnerKey({ kind: "page", id: pageId }))
+    )
+      return;
     load();
   }, [load, page, pageId, state.hydratedOutlines, state.status]);
 
@@ -99,16 +101,13 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
           <Button
             data-testid="restore-page"
             onClick={() =>
-              void session.execute({ type: "restore_page", page_id: pageId }).catch(
-                (error: unknown) => {
+              void session
+                .execute({ type: "restore_page", page_id: pageId })
+                .catch((error: unknown) => {
                   // The button leaves the tombstone exactly as it was, so the
                   // reason has nowhere else to be said.
-                  notify.failure(
-                    message("failure.restorePage"),
-                    error,
-                  );
-                },
-              )
+                  notify.failure(message("failure.restorePage"), error);
+                })
             }
           >
             {message("page.restore")}
@@ -218,7 +217,8 @@ function PageTitle({ page }: { page: PageSnapshot }) {
       testId="page-title"
       readonly={readonly}
       onCommit={(title) =>
-        session.execute({ type: "rename_page", page_id: page.id, title }).then(() => undefined)}
+        session.execute({ type: "rename_page", page_id: page.id, title }).then(() => undefined)
+      }
       onError={(error) => notify.failure(message("failure.renamePage"), error)}
     />
   );
@@ -307,14 +307,16 @@ function PageMenu({
               data-testid="menu-page-favourite"
               onSelect={() => {
                 void session
-                  .execute(starred
-                    ? { type: "remove_property", owner, key: FAVOURITE_KEY }
-                    : {
-                        type: "set_property",
-                        owner,
-                        key: FAVOURITE_KEY,
-                        value: { type: "checkbox", value: true },
-                      })
+                  .execute(
+                    starred
+                      ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                      : {
+                          type: "set_property",
+                          owner,
+                          key: FAVOURITE_KEY,
+                          value: { type: "checkbox", value: true },
+                        },
+                  )
                   .catch((error: unknown) => notify.failure(message("failure.saveQuery"), error));
               }}
             >
@@ -322,10 +324,7 @@ function PageMenu({
               {message(starred ? "favourites.remove" : "favourites.add")}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            data-testid="menu-page-info"
-            onSelect={() => setDialog("info")}
-          >
+          <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setDialog("info")}>
             <InfoIcon aria-hidden />
             {message("page.info")}
           </DropdownMenuItem>
@@ -357,7 +356,8 @@ function PageMenu({
             await session.execute({ type: "delete_page", page_id: page.id });
           }}
           onConfirmError={(error) =>
-            notify.failure(message("failure.deletePage", { name: pageTitle(page) }), error)}
+            notify.failure(message("failure.deletePage", { name: pageTitle(page) }), error)
+          }
         >
           {message("page.deleteConfirm", { name: pageTitle(page) })}
         </ConfirmDialog>
@@ -453,9 +453,7 @@ export function Tombstone({
           <p>{detail}</p>
           <div className="actions">
             <Button asChild variant="secondary">
-              <Link to={`/g/${graphId}/journal`}>
-                {message("page.goToJournal")}
-              </Link>
+              <Link to={`/g/${graphId}/journal`}>{message("page.goToJournal")}</Link>
             </Button>
             {actions}
           </div>

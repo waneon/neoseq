@@ -41,13 +41,7 @@ type SlashAction =
 export type SlashGroup = "status" | "priority" | "date" | "query" | "property";
 
 /** Groups in the order the menu renders them. */
-export const SLASH_GROUP_ORDER: SlashGroup[] = [
-  "status",
-  "priority",
-  "date",
-  "query",
-  "property",
-];
+export const SLASH_GROUP_ORDER: SlashGroup[] = ["status", "priority", "date", "query", "property"];
 
 export interface SlashItem {
   id: string;
@@ -79,11 +73,13 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     items.push({
       id: `status-${status}`,
       group: "status",
-      label: message(`task.status.${status}` as
-        | "task.status.todo"
-        | "task.status.doing"
-        | "task.status.done"
-        | "task.status.cancelled"),
+      label: message(
+        `task.status.${status}` as
+          | "task.status.todo"
+          | "task.status.doing"
+          | "task.status.done"
+          | "task.status.cancelled",
+      ),
       aliases: STATUS_ALIASES[status] ?? [status],
       glyph: <TaskStatusGlyph status={status} />,
       action: { kind: "set", key: TASK_STATUS_KEY, value: { type: "string", value: status } },
@@ -93,10 +89,12 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     items.push({
       id: `priority-${priority}`,
       group: "priority",
-      label: message(`task.priority.${priority}` as
-        | "task.priority.low"
-        | "task.priority.medium"
-        | "task.priority.high"),
+      label: message(
+        `task.priority.${priority}` as
+          | "task.priority.low"
+          | "task.priority.medium"
+          | "task.priority.high",
+      ),
       aliases: PRIORITY_ALIASES[priority] ?? [priority],
       glyph: <PriorityGlyph priority={priority} />,
       action: { kind: "set", key: TASK_PRIORITY_KEY, value: { type: "string", value: priority } },

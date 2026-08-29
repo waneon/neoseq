@@ -84,12 +84,33 @@ export function RemoteMembersDialog({
       <p className="dialog-lede">{message("graph.membersDetail")}</p>
       {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
       <form className="remote-account-form" onSubmit={saveAccount}>
-        <label className="field-label" htmlFor="member-account-principal">{message("graph.principal")}</label>
-        <Input id="member-account-principal" autoComplete="username" value={principal} onChange={(event) => setPrincipal(event.target.value)} />
-        <label className="field-label" htmlFor="member-account-token">{message("graph.token")}</label>
+        <label className="field-label" htmlFor="member-account-principal">
+          {message("graph.principal")}
+        </label>
+        <Input
+          id="member-account-principal"
+          autoComplete="username"
+          value={principal}
+          onChange={(event) => setPrincipal(event.target.value)}
+        />
+        <label className="field-label" htmlFor="member-account-token">
+          {message("graph.token")}
+        </label>
         <div className="remote-account-row">
-          <Input id="member-account-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
-          <Button variant="secondary" type="submit" disabled={!principal.trim() || !token.trim() || busy}>{message("graph.signIn")}</Button>
+          <Input
+            id="member-account-token"
+            type="password"
+            autoComplete="current-password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+          />
+          <Button
+            variant="secondary"
+            type="submit"
+            disabled={!principal.trim() || !token.trim() || busy}
+          >
+            {message("graph.signIn")}
+          </Button>
         </div>
       </form>
       <ul className="member-list" aria-busy={busy}>
@@ -134,7 +155,11 @@ export function RemoteMembersDialog({
           {message("graph.memberAccount")}
         </label>
         <div className="member-invite-row">
-          <Input id="member-invite-account" value={invite} onChange={(event) => setInvite(event.target.value)} />
+          <Input
+            id="member-invite-account"
+            value={invite}
+            onChange={(event) => setInvite(event.target.value)}
+          />
           {/* The one dropdown — never a native <select>, whose popup the OS
               draws in its own language. See designs/interaction.md § Choice. */}
           <MenuSelect
@@ -146,7 +171,9 @@ export function RemoteMembersDialog({
             onValueChange={(value) => setRole(value as "editor" | "viewer")}
             label={message("graph.memberRole")}
           />
-          <Button type="submit" disabled={busy || !invite.trim()}>{message("graph.invite")}</Button>
+          <Button type="submit" disabled={busy || !invite.trim()}>
+            {message("graph.invite")}
+          </Button>
         </div>
       </form>
     </Dialog>

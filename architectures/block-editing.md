@@ -61,15 +61,15 @@ Text-local and entity-local behavior is invariant: pairing, IME handling,
 Markdown completions, properties, tags, task commands, and document history use
 the shared paths. Surface-local behavior is explicit:
 
-| Behavior | Outline | Query list | Query table |
-| --- | --- | --- | --- |
-| Markdown and entity commands | shared | shared | shared |
-| Reading projection | full block | full block | compact phrasing |
-| `Enter` | split canonical tree | commit edit | commit edit |
-| Structural mutation and selection | owned | unavailable | unavailable |
-| Cross-block Vim motion | owned | unavailable | unavailable |
-| Draft lifetime | focused row | query coordinator | same query coordinator |
-| Result invalidation | not applicable | active stale row pinned | active stale row pinned |
+| Behavior                          | Outline              | Query list              | Query table             |
+| --------------------------------- | -------------------- | ----------------------- | ----------------------- |
+| Markdown and entity commands      | shared               | shared                  | shared                  |
+| Reading projection                | full block           | full block              | compact phrasing        |
+| `Enter`                           | split canonical tree | commit edit             | commit edit             |
+| Structural mutation and selection | owned                | unavailable             | unavailable             |
+| Cross-block Vim motion            | owned                | unavailable             | unavailable             |
+| Draft lifetime                    | focused row          | query coordinator       | same query coordinator  |
+| Result invalidation               | not applicable       | active stale row pinned | active stale row pinned |
 
 The policy matrix is executable configuration rather than scattered conditionals.
 Hosts consume it, but domain and interaction primitives never inspect the current

@@ -238,8 +238,9 @@ describe("outliner keyboard commands", () => {
         "false",
       ]);
       await user.keyboard("G");
-      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "true"))
-        .toBe(true);
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "true")).toBe(
+        true,
+      );
       await user.keyboard("gg");
       expect(screen.getAllByRole("treeitem").map((row) => row.dataset.selected)).toEqual([
         "true",
@@ -254,8 +255,9 @@ describe("outliner keyboard commands", () => {
       await waitFor(() => expect(fourth).toHaveFocus());
       expect(fourth).toHaveAttribute("data-vim-mode", "normal");
       expect([fourth.selectionStart, fourth.selectionEnd]).toEqual([2, 2]);
-      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "false"))
-        .toBe(true);
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "false")).toBe(
+        true,
+      );
     } finally {
       localStorage.clear();
       resetAppSettingsCache();
@@ -295,8 +297,9 @@ describe("outliner keyboard commands", () => {
       ]);
 
       await user.keyboard("j");
-      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "true"))
-        .toBe(true);
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "true")).toBe(
+        true,
+      );
 
       await user.keyboard("kV");
       await waitFor(() => expect(first).toHaveFocus());
@@ -325,8 +328,9 @@ describe("outliner keyboard commands", () => {
 
       await user.click(inputs[3]);
       expect(inputs[3]).toHaveAttribute("data-vim-mode", "insert");
-      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "false"))
-        .toBe(true);
+      expect(screen.getAllByRole("treeitem").every((row) => row.dataset.selected === "false")).toBe(
+        true,
+      );
 
       await user.click(inputs[1]);
       await user.keyboard("{Escape}Vj>");
@@ -364,20 +368,24 @@ describe("outliner keyboard commands", () => {
       // input even when beforeinput was rejected. Normal mode restores the
       // DOM value before React can turn it into a graph edit.
       fireEvent.compositionStart(textarea);
-      textarea.dispatchEvent(new InputEvent("beforeinput", {
-        bubbles: true,
-        cancelable: false,
-        data: "글",
-        inputType: "insertCompositionText",
-        isComposing: true,
-      }));
+      textarea.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: false,
+          data: "글",
+          inputType: "insertCompositionText",
+          isComposing: true,
+        }),
+      );
       textarea.setRangeText("글", 1, 1, "end");
-      textarea.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        data: "글",
-        inputType: "insertCompositionText",
-        isComposing: true,
-      }));
+      textarea.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          data: "글",
+          inputType: "insertCompositionText",
+          isComposing: true,
+        }),
+      );
       fireEvent.compositionEnd(textarea, { data: "글" });
       expect(textarea).toHaveValue("한");
 
@@ -413,11 +421,7 @@ describe("outliner keyboard commands", () => {
 
       await waitFor(() => {
         const page = findPage(session.getState().snapshot, "home");
-        expect(page?.blocks.map((block) => block.markdown)).toEqual([
-          "anchor",
-          "between",
-          "below",
-        ]);
+        expect(page?.blocks.map((block) => block.markdown)).toEqual(["anchor", "between", "below"]);
       });
     } finally {
       localStorage.clear();
@@ -512,9 +516,7 @@ describe("outliner keyboard commands", () => {
       screen.getByLabelText("Block text").blur();
     });
     await settleFrame();
-    await waitFor(() =>
-      expect(screen.getByLabelText("Block text")).toHaveAttribute("hidden"),
-    );
+    await waitFor(() => expect(screen.getByLabelText("Block text")).toHaveAttribute("hidden"));
     expect(screen.getByText("bold").tagName).toBe("STRONG");
   });
 
@@ -614,12 +616,14 @@ describe("outliner keyboard commands", () => {
       expect(textarea.dispatchEvent(beforeInput)).toBe(true);
       setNativeValue.call(textarea, next);
       textarea.setSelectionRange(caret, caret);
-      textarea.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        data,
-        inputType: "insertCompositionText",
-        isComposing: true,
-      }));
+      textarea.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          data,
+          inputType: "insertCompositionText",
+          isComposing: true,
+        }),
+      );
     };
 
     await act(async () => {
@@ -831,8 +835,9 @@ describe("outliner keyboard commands", () => {
       expect(page?.blocks.map((block) => block.markdown)).toEqual(["head", "tail"]);
     });
     port.beforeExecute = null;
-    expect((screen.getAllByLabelText("Block text") as HTMLTextAreaElement[])
-      .map((input) => input.value)).toEqual(["head", "tail"]);
+    expect(
+      (screen.getAllByLabelText("Block text") as HTMLTextAreaElement[]).map((input) => input.value),
+    ).toEqual(["head", "tail"]);
   });
 
   it("queues a backward merge from a pending split tail", async () => {
@@ -902,8 +907,9 @@ describe("outliner keyboard commands", () => {
     textarea.setSelectionRange(4, 4);
     await user.keyboard("{Enter}");
     await act(async () => splitStarted);
-    expect((screen.getAllByLabelText("Block text") as HTMLTextAreaElement[])
-      .map((input) => input.value)).toEqual(["head", "tail"]);
+    expect(
+      (screen.getAllByLabelText("Block text") as HTMLTextAreaElement[]).map((input) => input.value),
+    ).toEqual(["head", "tail"]);
 
     const restored = waitForPendingRowsToSettle();
     await act(async () => {
@@ -933,12 +939,14 @@ describe("outliner keyboard commands", () => {
       const page = findPage(session.getState().snapshot, "home")!;
       expect(page.blocks.map((block) => block.markdown)).toEqual(["", "alpha"]);
       expect(page.blocks[1].id).toBe(original.id);
-      expect(page.blocks[1].properties).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          key: "builtin.task-status",
-          values: [{ type: "string", value: "doing" }],
-        }),
-      ]));
+      expect(page.blocks[1].properties).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: "builtin.task-status",
+            values: [{ type: "string", value: "doing" }],
+          }),
+        ]),
+      );
     });
 
     await user.keyboard("{Meta>}z{/Meta}");
@@ -947,9 +955,9 @@ describe("outliner keyboard commands", () => {
       expect(page.blocks).toHaveLength(1);
       expect(page.blocks[0].id).toBe(original.id);
       expect(page.blocks[0].markdown).toBe("alpha");
-      expect(page.blocks[0].properties).toEqual(expect.arrayContaining([
-        expect.objectContaining({ key: "builtin.task-status" }),
-      ]));
+      expect(page.blocks[0].properties).toEqual(
+        expect.arrayContaining([expect.objectContaining({ key: "builtin.task-status" })]),
+      );
     });
   });
 
@@ -1086,16 +1094,18 @@ describe("outliner keyboard commands", () => {
     await user.keyboard("{Backspace}");
     await waitFor(() => {
       expect(screen.getAllByRole("treeitem")[1]).toHaveAttribute("aria-level", "1");
-      expect(findPage(session.getState().snapshot, "home")?.blocks
-        .map((block) => block.markdown)).toEqual(["parent", "child"]);
+      expect(
+        findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+      ).toEqual(["parent", "child"]);
     });
 
     const first = screen.getAllByLabelText("Block text")[0] as HTMLTextAreaElement;
     await user.click(first);
     first.setSelectionRange(0, 0);
     await user.keyboard("{Backspace}");
-    expect(findPage(session.getState().snapshot, "home")?.blocks
-      .map((block) => block.markdown)).toEqual(["parent", "child"]);
+    expect(
+      findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+    ).toEqual(["parent", "child"]);
   });
 
   it("merges an empty block with Backspace and moves within siblings with Alt+Arrows", async () => {
@@ -1185,11 +1195,13 @@ describe("outliner keyboard commands", () => {
     await waitFor(() => {
       const block = findPage(session.getState().snapshot, "home")?.blocks[0];
       expect(block?.markdown).toBe("See [[Plan]] soon");
-      expect(block?.page_references).toEqual([expect.objectContaining({
-        page_id: "roadmap",
-        start: 4,
-        end: 12,
-      })]);
+      expect(block?.page_references).toEqual([
+        expect.objectContaining({
+          page_id: "roadmap",
+          start: 4,
+          end: 12,
+        }),
+      ]);
     });
   });
 

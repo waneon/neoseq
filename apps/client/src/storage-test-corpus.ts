@@ -103,17 +103,23 @@ export async function runIndexedDbPersistenceCorpus() {
   const restorer = new TestCoreWorker();
   const reopened = await restorer.openGraph(openRequest(graph, 202));
   const recoveryReads = await restorer.recoveryReadStats(reopened.graph_handle);
-  assert(await restorer.replicaId(graph) === replicaId, "browser replica id changed across restart");
-  assert(JSON.stringify(reopened.summary) === JSON.stringify(before.summary), "worker restart changed the canonical summary");
-  assert(reopened.recovery.checkpoint_sequence >= 128, "compacted checkpoint was not selected on reopen");
+  assert(
+    (await restorer.replicaId(graph)) === replicaId,
+    "browser replica id changed across restart",
+  );
+  assert(
+    JSON.stringify(reopened.summary) === JSON.stringify(before.summary),
+    "worker restart changed the canonical summary",
+  );
+  assert(
+    reopened.recovery.checkpoint_sequence >= 128,
+    "compacted checkpoint was not selected on reopen",
+  );
   assert(
     recoveryReads.tail_records === 0 && recoveryReads.tail_bytes === 0,
     "recovery read updates already covered by the latest checkpoint",
   );
-  assert(
-    recoveryReads.checkpoint_records <= 2,
-    "recovery read an unbounded checkpoint history",
-  );
+  assert(recoveryReads.checkpoint_records <= 2, "recovery read an unbounded checkpoint history");
   await restorer.closeGraph({ graph_handle: reopened.graph_handle });
   await restorer.deleteGraph(graph);
   restorer.terminate();
@@ -134,7 +140,10 @@ export async function runIndexedDbPersistenceCorpus() {
 
   const historyReopened = new TestCoreWorker();
   const recoveredHistory = await historyReopened.openGraph(openRequest(historyGraph, 204));
-  assert(recoveredHistory.recovery.replayed_updates === 1, "history regression did not replay a same-replica Tail");
+  assert(
+    recoveredHistory.recovery.replayed_updates === 1,
+    "history regression did not replay a same-replica Tail",
+  );
   await historyReopened.execute({
     graph_handle: recoveredHistory.graph_handle,
     command: renamePage(historyGraph, "transient-after-reopen", "home", "Transient"),
@@ -149,8 +158,13 @@ export async function runIndexedDbPersistenceCorpus() {
     },
     timeout_ms: 1_000,
   });
-  assert((firstSessionUndo.result as { changed: boolean }).changed, "first edit after reopen was not undoable");
-  const restoredAfterUndo = await historyReopened.read({ graph_handle: recoveredHistory.graph_handle });
+  assert(
+    (firstSessionUndo.result as { changed: boolean }).changed,
+    "first edit after reopen was not undoable",
+  );
+  const restoredAfterUndo = await historyReopened.read({
+    graph_handle: recoveredHistory.graph_handle,
+  });
   assert(
     (restoredAfterUndo.summary as { pages: { title: string }[] }).pages[0].title === "home",
     "first undo after reopen crossed into the durable Tail",
@@ -165,7 +179,10 @@ export async function runIndexedDbPersistenceCorpus() {
   const historyDurable = new TestCoreWorker();
   const durableHistory = await historyDurable.openGraph(openRequest(historyGraph, 205));
   const durablePage = (durableHistory.summary as { pages: { title: string }[] }).pages[0];
-  assert(durablePage.title === "After reopen", "edit after reopen undo did not survive another restart");
+  assert(
+    durablePage.title === "After reopen",
+    "edit after reopen undo did not survive another restart",
+  );
   const oldSessionUndo = await historyDurable.execute({
     graph_handle: durableHistory.graph_handle,
     command: {
@@ -175,7 +192,10 @@ export async function runIndexedDbPersistenceCorpus() {
     },
     timeout_ms: 1_000,
   });
-  assert(!(oldSessionUndo.result as { changed: boolean }).changed, "reopen exposed durable Tail as undoable history");
+  assert(
+    !(oldSessionUndo.result as { changed: boolean }).changed,
+    "reopen exposed durable Tail as undoable history",
+  );
   await historyDurable.execute({
     graph_handle: durableHistory.graph_handle,
     command: renamePage(historyGraph, "current-session", "home", "Current session"),
@@ -190,7 +210,10 @@ export async function runIndexedDbPersistenceCorpus() {
     },
     timeout_ms: 1_000,
   });
-  assert((currentSessionUndo.result as { changed: boolean }).changed, "new-session edit was not undoable");
+  assert(
+    (currentSessionUndo.result as { changed: boolean }).changed,
+    "new-session edit was not undoable",
+  );
   const afterUndo = await historyDurable.read({ graph_handle: durableHistory.graph_handle });
   assert(
     (afterUndo.summary as { pages: { title: string }[] }).pages[0].title === "After reopen",
@@ -199,12 +222,28 @@ export async function runIndexedDbPersistenceCorpus() {
   await historyDurable.closeGraph({ graph_handle: durableHistory.graph_handle });
   await historyDurable.deleteGraph(historyGraph);
   historyDurable.terminate();
-  return { graph, local_sequence: saved.save_status.status === "saved_locally" ? saved.save_status.local_sequence : 0 };
+  return {
+    graph,
+    local_sequence:
+      saved.save_status.status === "saved_locally" ? saved.save_status.local_sequence : 0,
+  };
 }
 
 export async function runWorkerCorePortCorpus() {
   assert(golden.contract_version === CORE_PORT_VERSION, "golden contract version mismatch");
-  assert(JSON.stringify(golden.operations) === JSON.stringify(["open_graph", "execute", "read", "read_outline", "query", "subscribe", "close_graph"]), "golden operations changed");
+  assert(
+    JSON.stringify(golden.operations) ===
+      JSON.stringify([
+        "open_graph",
+        "execute",
+        "read",
+        "read_outline",
+        "query",
+        "subscribe",
+        "close_graph",
+      ]),
+    "golden operations changed",
+  );
   const graph = graphId("worker-port");
   const worker = new TestCoreWorker();
   await expectCode(worker.read({ graph_handle: "missing" }), "graph_not_open");
@@ -222,7 +261,10 @@ export async function runWorkerCorePortCorpus() {
     command: ensurePage(graph, "port-home", "home"),
     timeout_ms: 1_000,
   });
-  assert(executed.save_status.status === golden.transcript.execute, "worker save status differs from golden");
+  assert(
+    executed.save_status.status === golden.transcript.execute,
+    "worker save status differs from golden",
+  );
   assert(
     !(await worker.queryIndexReady(opened.graph_handle)),
     "a canonical command built an unused query index",
@@ -244,20 +286,37 @@ export async function runWorkerCorePortCorpus() {
       source: "PREFIX neo: <urn:neoseq:vocab:v1:> SELECT ?page WHERE { ?page a neo:Page }",
     },
   });
-  assert(queried.result.kind === "select" && queried.result.rows.length === 1, "worker query result differs from golden");
+  assert(
+    queried.result.kind === "select" && queried.result.rows.length === 1,
+    "worker query result differs from golden",
+  );
   assert(
     await worker.queryIndexReady(opened.graph_handle),
     "the first query did not publish its derived index",
   );
-  const subscription = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
-  assert(subscription.events.length === 2 && !subscription.resync_required, "worker subscription transcript differs");
-  const eventTypes = subscription.events.map((event) => (event as { kind: { type: string } }).kind.type);
-  assert(JSON.stringify(eventTypes) === JSON.stringify(golden.transcript.subscribe), "worker event types differ from golden");
-  await expectCode(worker.execute({
+  const subscription = await worker.subscribe({
     graph_handle: opened.graph_handle,
-    command: ensurePage(graph, "timeout", "timeout"),
-    timeout_ms: 0,
-  }), golden.transcript.timeout_error);
+    after_cursor: 0,
+  });
+  assert(
+    subscription.events.length === 2 && !subscription.resync_required,
+    "worker subscription transcript differs",
+  );
+  const eventTypes = subscription.events.map(
+    (event) => (event as { kind: { type: string } }).kind.type,
+  );
+  assert(
+    JSON.stringify(eventTypes) === JSON.stringify(golden.transcript.subscribe),
+    "worker event types differ from golden",
+  );
+  await expectCode(
+    worker.execute({
+      graph_handle: opened.graph_handle,
+      command: ensurePage(graph, "timeout", "timeout"),
+      timeout_ms: 0,
+    }),
+    golden.transcript.timeout_error,
+  );
   for (let index = 0; index < 33; index += 1) {
     await worker.execute({
       graph_handle: opened.graph_handle,
@@ -266,7 +325,10 @@ export async function runWorkerCorePortCorpus() {
     });
   }
   const overflow = await worker.subscribe({ graph_handle: opened.graph_handle, after_cursor: 0 });
-  assert(overflow.resync_required && overflow.events.length === 0, "subscription overflow did not request resync");
+  assert(
+    overflow.resync_required && overflow.events.length === 0,
+    "subscription overflow did not request resync",
+  );
   await worker.closeGraph({ graph_handle: opened.graph_handle });
   await worker.deleteGraph(graph);
   worker.terminate();
@@ -278,15 +340,21 @@ export async function runIndexedDbFaultCorpus() {
   const after = new TestCoreWorker();
   const afterOpen = await after.openGraph(openRequest(afterGraph, 221));
   await after.injectFault(afterOpen.graph_handle, "append_after");
-  await expectCode(after.execute({
-    graph_handle: afterOpen.graph_handle,
-    command: ensurePage(afterGraph, "after-commit", "after"),
-    timeout_ms: 1_000,
-  }), "dirty_unsaved");
+  await expectCode(
+    after.execute({
+      graph_handle: afterOpen.graph_handle,
+      command: ensurePage(afterGraph, "after-commit", "after"),
+      timeout_ms: 1_000,
+    }),
+    "dirty_unsaved",
+  );
   after.terminate();
   const afterRecovery = new TestCoreWorker();
   const recovered = await afterRecovery.openGraph(openRequest(afterGraph, 222));
-  assert((recovered.summary as Snapshot).pages.length === 1, "after-commit process kill lost durable update");
+  assert(
+    (recovered.summary as Snapshot).pages.length === 1,
+    "after-commit process kill lost durable update",
+  );
   await afterRecovery.closeGraph({ graph_handle: recovered.graph_handle });
   await afterRecovery.deleteGraph(afterGraph);
   afterRecovery.terminate();
@@ -303,10 +371,22 @@ export async function runIndexedDbFaultCorpus() {
   const corruptRecovery = new TestCoreWorker();
   await corruptRecovery.corruptUpdate(corruptGraph, 1);
   const recoveredCorrupt = await corruptRecovery.openGraph(openRequest(corruptGraph, 232));
-  assert(recoveredCorrupt.recovery.quarantined_records[0] === "update-1", "corrupt update was not quarantined");
-  assert((recoveredCorrupt.summary as Snapshot).pages.length === 0, "corrupt update was silently coerced");
-  assert(await corruptRecovery.quarantineCount(corruptGraph) === 1, "quarantine payload/export handle missing");
-  assert((await corruptRecovery.exportQuarantine(corruptGraph, "update-1")).byteLength > 0, "transferable quarantine export is empty");
+  assert(
+    recoveredCorrupt.recovery.quarantined_records[0] === "update-1",
+    "corrupt update was not quarantined",
+  );
+  assert(
+    (recoveredCorrupt.summary as Snapshot).pages.length === 0,
+    "corrupt update was silently coerced",
+  );
+  assert(
+    (await corruptRecovery.quarantineCount(corruptGraph)) === 1,
+    "quarantine payload/export handle missing",
+  );
+  assert(
+    (await corruptRecovery.exportQuarantine(corruptGraph, "update-1")).byteLength > 0,
+    "transferable quarantine export is empty",
+  );
   await corruptRecovery.execute({
     graph_handle: recoveredCorrupt.graph_handle,
     command: ensurePage(corruptGraph, "usable", "usable"),
@@ -317,9 +397,18 @@ export async function runIndexedDbFaultCorpus() {
 
   const repairedTail = new TestCoreWorker();
   const reopenedTail = await repairedTail.openGraph(openRequest(corruptGraph, 233));
-  assert(reopenedTail.recovery.quarantined_records.length === 0, "repaired Tail was quarantined again");
-  assert((reopenedTail.summary as Snapshot).pages.length === 1, "post-repair edit did not survive restart");
-  assert(await repairedTail.quarantineCount(corruptGraph) === 1, "repair discarded quarantine evidence");
+  assert(
+    reopenedTail.recovery.quarantined_records.length === 0,
+    "repaired Tail was quarantined again",
+  );
+  assert(
+    (reopenedTail.summary as Snapshot).pages.length === 1,
+    "post-repair edit did not survive restart",
+  );
+  assert(
+    (await repairedTail.quarantineCount(corruptGraph)) === 1,
+    "repair discarded quarantine evidence",
+  );
   await repairedTail.closeGraph({ graph_handle: reopenedTail.graph_handle });
   await repairedTail.deleteGraph(corruptGraph);
   repairedTail.terminate();
@@ -328,12 +417,18 @@ export async function runIndexedDbFaultCorpus() {
   const abortWorker = new TestCoreWorker();
   const abortOpen = await abortWorker.openGraph(openRequest(abortGraph, 241));
   await abortWorker.injectFault(abortOpen.graph_handle, "quota");
-  await expectCode(abortWorker.execute({
-    graph_handle: abortOpen.graph_handle,
-    command: ensurePage(abortGraph, "quota", "quota"),
-    timeout_ms: 1_000,
-  }), "storage_full");
-  await expectCode(abortWorker.closeGraph({ graph_handle: abortOpen.graph_handle }), "dirty_unsaved");
+  await expectCode(
+    abortWorker.execute({
+      graph_handle: abortOpen.graph_handle,
+      command: ensurePage(abortGraph, "quota", "quota"),
+      timeout_ms: 1_000,
+    }),
+    "storage_full",
+  );
+  await expectCode(
+    abortWorker.closeGraph({ graph_handle: abortOpen.graph_handle }),
+    "dirty_unsaved",
+  );
   await abortWorker.retryPending(abortOpen.graph_handle);
   await abortWorker.closeGraph({ graph_handle: abortOpen.graph_handle });
   await abortWorker.deleteGraph(abortGraph);
@@ -343,11 +438,14 @@ export async function runIndexedDbFaultCorpus() {
   const transactionWorker = new TestCoreWorker();
   const transactionOpen = await transactionWorker.openGraph(openRequest(transactionGraph, 245));
   await transactionWorker.injectFault(transactionOpen.graph_handle, "abort");
-  await expectCode(transactionWorker.execute({
-    graph_handle: transactionOpen.graph_handle,
-    command: ensurePage(transactionGraph, "abort", "abort"),
-    timeout_ms: 1_000,
-  }), "dirty_unsaved");
+  await expectCode(
+    transactionWorker.execute({
+      graph_handle: transactionOpen.graph_handle,
+      command: ensurePage(transactionGraph, "abort", "abort"),
+      timeout_ms: 1_000,
+    }),
+    "dirty_unsaved",
+  );
   await transactionWorker.retryPending(transactionOpen.graph_handle);
   await transactionWorker.closeGraph({ graph_handle: transactionOpen.graph_handle });
   await transactionWorker.deleteGraph(transactionGraph);
@@ -362,9 +460,15 @@ export async function runIndexedDbFaultCorpus() {
     timeout_ms: 1_000,
   });
   await checkpoint.injectFault(checkpointOpen.graph_handle, "checkpoint_before");
-  await expectCode(checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle }), "internal");
+  await expectCode(
+    checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle }),
+    "internal",
+  );
   await checkpoint.injectFault(checkpointOpen.graph_handle, "checkpoint_after");
-  await expectCode(checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle }), "internal");
+  await expectCode(
+    checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle }),
+    "internal",
+  );
   await checkpoint.closeGraph({ graph_handle: checkpointOpen.graph_handle });
   await checkpoint.deleteGraph(checkpointGraph);
   checkpoint.terminate();
@@ -387,14 +491,20 @@ export async function runIndexedDbFaultCorpus() {
   );
   const migrated = await migration.openGraph(openRequest(legacyFixture.graph_id, 263));
   assert((migrated.summary as Snapshot).schema_version === 6, "schema v1 fixture was not migrated");
-  assert((migrated.summary as Snapshot).pages.length === 1, "schema migration changed fixture entities");
   assert(
-    await migration.schemaVersion(legacyFixture.graph_id) === SCHEMA_VERSION,
+    (migrated.summary as Snapshot).pages.length === 1,
+    "schema migration changed fixture entities",
+  );
+  assert(
+    (await migration.schemaVersion(legacyFixture.graph_id)) === SCHEMA_VERSION,
     "migrated Base was not persisted",
   );
   await migration.closeGraph({ graph_handle: migrated.graph_handle });
   const migratedAgain = await migration.openGraph(openRequest(legacyFixture.graph_id, 264));
-  assert(migratedAgain.recovery.quarantined_records.length === 0, "persisted migration failed on reopen");
+  assert(
+    migratedAgain.recovery.quarantined_records.length === 0,
+    "persisted migration failed on reopen",
+  );
   await migration.closeGraph({ graph_handle: migratedAgain.graph_handle });
   await migration.deleteGraph(legacyFixture.graph_id);
 
@@ -411,16 +521,27 @@ export async function runIndexedDbFaultCorpus() {
     "tag-outline migration changed fixture entities",
   );
   assert(
-    await migration.schemaVersion(legacyTagFixture.graph_id) === SCHEMA_VERSION,
+    (await migration.schemaVersion(legacyTagFixture.graph_id)) === SCHEMA_VERSION,
     "schema v2 migration was not persisted",
   );
   await migration.closeGraph({ graph_handle: migratedTag.graph_handle });
   const migratedTagAgain = await migration.openGraph(openRequest(legacyTagFixture.graph_id, 266));
-  assert(migratedTagAgain.recovery.quarantined_records.length === 0, "persisted tag migration failed on reopen");
+  assert(
+    migratedTagAgain.recovery.quarantined_records.length === 0,
+    "persisted tag migration failed on reopen",
+  );
   await migration.closeGraph({ graph_handle: migratedTagAgain.graph_handle });
   await migration.deleteGraph(legacyTagFixture.graph_id);
   migration.terminate();
-  return { append_after_recovered: true, corrupt_quarantined: true, quota_typed: true, transaction_abort: true, checkpoint_phases: true, unsupported_schema: true, schema_migrated: true };
+  return {
+    append_after_recovered: true,
+    corrupt_quarantined: true,
+    quota_typed: true,
+    transaction_abort: true,
+    checkpoint_phases: true,
+    unsupported_schema: true,
+    schema_migrated: true,
+  };
 }
 
 export async function runRemoteOutboxCorpus() {
@@ -435,7 +556,10 @@ export async function runRemoteOutboxCorpus() {
     ensurePage(graph, "server-page", "server-page"),
   );
   await writer.configureSync(opened.graph_handle);
-  assert((await writer.syncState(opened.graph_handle)).pending === 1, "replica bootstrap was not queued");
+  assert(
+    (await writer.syncState(opened.graph_handle)).pending === 1,
+    "replica bootstrap was not queued",
+  );
   const bootstrap = await writer.nextOutbox(opened.graph_handle);
   assert(bootstrap?.local_sequence === 0, "replica bootstrap must lead the durable outbox");
   await writer.acknowledgeOutbox(opened.graph_handle, bootstrap.message_id);
@@ -458,7 +582,7 @@ export async function runRemoteOutboxCorpus() {
       bytes: queued.bytes,
     },
   });
-  const decoded = await writer.decodeSyncMessage(encoded) as { Update?: { message_id?: string } };
+  const decoded = (await writer.decodeSyncMessage(encoded)) as { Update?: { message_id?: string } };
   assert(decoded.Update?.message_id === queued.message_id, "browser protocol codec drifted");
   await writer.replaceRemote(
     opened.graph_handle,
@@ -478,7 +602,10 @@ export async function runRemoteOutboxCorpus() {
     },
     timeout_ms: 1_000,
   });
-  assert(!(rebaseUndo.result as { changed: boolean }).changed, "history replacement exposed replayed intent as undoable");
+  assert(
+    !(rebaseUndo.result as { changed: boolean }).changed,
+    "history replacement exposed replayed intent as undoable",
+  );
   const rebased = await writer.nextOutbox(opened.graph_handle);
   assert(rebased?.history_epoch === 1, "rebased outbox retained a stale epoch");
   const replacedStats = await writer.storageStats(graph);
@@ -486,19 +613,34 @@ export async function runRemoteOutboxCorpus() {
   assert(replacedStats.outbox_bytes === 0, "rebased outbox duplicated its tail payload");
   await writer.importRemote(opened.graph_handle, serverTail);
   const resynced = await writer.read({ graph_handle: opened.graph_handle });
-  assert((resynced.summary as Snapshot).pages.length === 2, "checkpoint plus server Tail did not converge");
+  assert(
+    (resynced.summary as Snapshot).pages.length === 2,
+    "checkpoint plus server Tail did not converge",
+  );
   writer.terminate();
 
   const restarted = new TestCoreWorker();
   const reopened = await restarted.openGraph(openRequest(graph, 272));
   await restarted.configureSync(reopened.graph_handle);
-  assert((reopened.summary as Snapshot).pages.length === 2, "checkpoint plus Tail resync did not survive restart");
-  assert((await restarted.syncState(reopened.graph_handle)).pending === 1, "restart lost unacknowledged outbox update");
+  assert(
+    (reopened.summary as Snapshot).pages.length === 2,
+    "checkpoint plus Tail resync did not survive restart",
+  );
+  assert(
+    (await restarted.syncState(reopened.graph_handle)).pending === 1,
+    "restart lost unacknowledged outbox update",
+  );
   await restarted.acknowledgeOutbox(reopened.graph_handle, rebased.message_id);
   const acknowledged = await restarted.syncState(reopened.graph_handle);
   assert(acknowledged.pending === 0, "acknowledgement did not remove the outbox update");
   await restarted.closeGraph({ graph_handle: reopened.graph_handle });
   await restarted.deleteGraph(graph);
   restarted.terminate();
-  return { durable_retry: true, protocol_codec: true, epoch_rebased: true, checkpoint_tail_resync: true, acknowledged: true };
+  return {
+    durable_retry: true,
+    protocol_codec: true,
+    epoch_rebased: true,
+    checkpoint_tail_resync: true,
+    acknowledged: true,
+  };
 }

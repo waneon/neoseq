@@ -70,9 +70,15 @@ export function TagChips({
           const icon = tag ? tagIcon(tag) : null;
           const name = (
             <>
-              {icon
-                ? <span className="chip-icon" aria-hidden>{icon}</span>
-                : <span className="hash" aria-hidden>#</span>}
+              {icon ? (
+                <span className="chip-icon" aria-hidden>
+                  {icon}
+                </span>
+              ) : (
+                <span className="hash" aria-hidden>
+                  #
+                </span>
+              )}
               {label}
             </>
           );

@@ -8,10 +8,7 @@ import { useNavigate, useParams } from "react-router";
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/ui/shadcn/button";
 import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
-import {
-  addDays,
-  todayLocalDate,
-} from "../../entities/journal";
+import { addDays, todayLocalDate } from "../../entities/journal";
 import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/properties";
 import { useNotify } from "../notify/context";
@@ -25,11 +22,12 @@ export function JournalView() {
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
-    (left, right) => left.snapshot === right.snapshot
-      && left.status === right.status
-      && left.hydratedOutlines === right.hydratedOutlines
-      && left.mode === right.mode
-      && left.live === right.live,
+    (left, right) =>
+      left.snapshot === right.snapshot &&
+      left.status === right.status &&
+      left.hydratedOutlines === right.hydratedOutlines &&
+      left.mode === right.mode &&
+      left.live === right.live,
   );
   const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
@@ -66,10 +64,11 @@ export function JournalView() {
 
   useEffect(() => {
     if (
-      !page
-      || state.status !== "ready"
-      || state.hydratedOutlines.has(outlineOwnerKey({ kind: "page", id: page.id }))
-    ) return;
+      !page ||
+      state.status !== "ready" ||
+      state.hydratedOutlines.has(outlineOwnerKey({ kind: "page", id: page.id }))
+    )
+      return;
     void session.hydratePage(page.id).catch((error: unknown) => {
       notify.failure(message("failure.loadJournal"), error);
     });

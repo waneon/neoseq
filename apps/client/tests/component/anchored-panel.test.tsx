@@ -25,7 +25,9 @@ function Panel() {
   const anchor = useRef<HTMLButtonElement>(null);
   return (
     <>
-      <button ref={anchor} type="button">order</button>
+      <button ref={anchor} type="button">
+        order
+      </button>
       <AnchoredPanel
         anchor={elementAnchor(anchor.current)}
         className="query-sort-panel"

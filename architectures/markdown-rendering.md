@@ -29,7 +29,7 @@ Deactivation is therefore the same fact as the outline releasing its focused blo
 ID, and the editor owns that decision because the row cannot make it: a `blur`
 reports only that the textarea lost focus, never where focus went. The outline
 answers on the next frame by asking where focus actually is, and treats two
-destinations as *not* leaving — elsewhere inside the same row, and any floating
+destinations as _not_ leaving — elsewhere inside the same row, and any floating
 overlay, both of which hand the caret straight back. Without this, focus leaving the
 outline entirely left the block on its raw source until the next reload.
 

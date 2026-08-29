@@ -64,18 +64,20 @@ describe("query and task projections", () => {
     port.queryResult = {
       kind: "select",
       variables: ["block", "status"],
-      rows: [{
-        block: {
-          kind: "iri",
-          value: "urn:neoseq:entity:test-graph:block:b-1",
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      rows: [
+        {
+          block: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:block:b-1",
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+          },
+          status: {
+            kind: "literal",
+            value: "todo",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
         },
-        status: {
-          kind: "literal",
-          value: "todo",
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
-      }],
+      ],
       revision: 3,
       frontier: "fake-3",
     };
@@ -91,8 +93,7 @@ describe("query and task projections", () => {
     // no control offering one.
     // Re-read each attempt: a first run with nothing to fold is a static caption,
     // and the answer's arrival replaces it with the disclosure.
-    await waitFor(() =>
-      expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
+    await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
     expect(screen.queryByTestId("query-title")).not.toBeInTheDocument();
     expect(screen.queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
@@ -101,9 +102,9 @@ describe("query and task projections", () => {
     expect(screen.getByTestId("query-block")).toHaveAttribute("data-revision", "3");
     // Result values do not imply a write target: source-mode SPARQL has no
     // builder provenance, even when a term happens to identify a real block.
-    expect(screen.getByTestId("query-block").querySelector(
-      '[data-testid^="query-edit-"]',
-    )).toBeNull();
+    expect(
+      screen.getByTestId("query-block").querySelector('[data-testid^="query-edit-"]'),
+    ).toBeNull();
 
     const user = userEvent.setup();
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
@@ -212,7 +213,9 @@ describe("query and task projections", () => {
 
     // Both dates belong to the same completed occurrence, so undo restores
     // them together instead of exposing an impossible half-advanced task.
-    await act(async () => { await session.execute({ type: "undo" }); });
+    await act(async () => {
+      await session.execute({ type: "undo" });
+    });
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];
       expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");

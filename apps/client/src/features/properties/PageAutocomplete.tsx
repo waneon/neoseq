@@ -75,20 +75,19 @@ export function PageAutocomplete({
 
   const options = useMemo<Option[]>(() => {
     const canonical = canonicalEntityName(query);
-    const entities = kind === "tag"
-      ? state.snapshot.tags.map((tag) => ({ id: tag.id, label: tag.name }))
-      : state.snapshot.pages
-        .filter((page) => !isDeleted(page))
-        .map((page) => ({ id: page.id, label: pageTitle(page), kind: pageKind(page) }));
+    const entities =
+      kind === "tag"
+        ? state.snapshot.tags.map((tag) => ({ id: tag.id, label: tag.name }))
+        : state.snapshot.pages
+            .filter((page) => !isDeleted(page))
+            .map((page) => ({ id: page.id, label: pageTitle(page), kind: pageKind(page) }));
     const matches = entities
-      .filter((entity) =>
-        canonical.length === 0 || canonicalEntityName(entity.label).includes(canonical)
+      .filter(
+        (entity) => canonical.length === 0 || canonicalEntityName(entity.label).includes(canonical),
       )
       .sort((left, right) => compare(left.label, right.label))
       .slice(0, 8);
-    const exact = entities.some(
-      (entity) => canonicalEntityName(entity.label) === canonical,
-    );
+    const exact = entities.some((entity) => canonicalEntityName(entity.label) === canonical);
     const result: Option[] = matches.map(({ id, label }) => ({ id, label }));
     if (allowCreate && canonical.length > 0 && !exact) {
       result.push({ id: "", label: query.trim(), create: true });
@@ -100,13 +99,15 @@ export function PageAutocomplete({
     try {
       if (option.create) {
         const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
-        const ensure = kind === "tag"
-          ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
-          : { type: "ensure_page" as const, page_id: id, title: option.label };
+        const ensure =
+          kind === "tag"
+            ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
+            : { type: "ensure_page" as const, page_id: id, title: option.label };
         const attached = onCreate?.(id);
-        const commands = attached === undefined
-          ? [ensure]
-          : [ensure, ...(Array.isArray(attached) ? attached : [attached])];
+        const commands =
+          attached === undefined
+            ? [ensure]
+            : [ensure, ...(Array.isArray(attached) ? attached : [attached])];
         await session.execute({ type: "batch", commands });
         await onCreated?.(id);
       } else {
@@ -201,48 +202,48 @@ export function PageAutocomplete({
           preserveAnchorFocus
           onClose={() => setOpen(false)}
         >
-            {options.length === 0 ? (
-              <div role="status" className="ac-hint">
-                {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
-              </div>
-            ) : (
-              <ul role="presentation" className="m-0 list-none p-0">
-                {options.map((option, index) => (
-                  <li key={option.create ? "__create" : option.id} role="presentation">
-                    <button
-                      id={optionId(index)}
-                      role="option"
-                      aria-selected={index === active}
-                      data-active={index === active}
-                      className="property-picker-option"
-                      tabIndex={-1}
-                      onPointerMove={() => setActive(index)}
-                      onPointerDown={(event) => {
-                        // Keep the field focused until the complete pointer
-                        // gesture selects this row. Starting `pick` here can
-                        // reconcile and close the portal before mouseup/click,
-                        // leaving the browser to finish a gesture on a node
-                        // that no longer exists.
-                        event.preventDefault();
-                        cancelBlur();
-                      }}
-                      onClick={() => void pick(option)}
-                    >
-                      <span className="property-picker-candidate">
-                        <span>
-                          {option.create
-                            ? message("properties.createEntity", {
-                                kind: message(kind === "tag" ? "common.tag" : "common.page"),
-                                name: option.label,
-                              })
-                            : option.label}
-                        </span>
+          {options.length === 0 ? (
+            <div role="status" className="ac-hint">
+              {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
+            </div>
+          ) : (
+            <ul role="presentation" className="m-0 list-none p-0">
+              {options.map((option, index) => (
+                <li key={option.create ? "__create" : option.id} role="presentation">
+                  <button
+                    id={optionId(index)}
+                    role="option"
+                    aria-selected={index === active}
+                    data-active={index === active}
+                    className="property-picker-option"
+                    tabIndex={-1}
+                    onPointerMove={() => setActive(index)}
+                    onPointerDown={(event) => {
+                      // Keep the field focused until the complete pointer
+                      // gesture selects this row. Starting `pick` here can
+                      // reconcile and close the portal before mouseup/click,
+                      // leaving the browser to finish a gesture on a node
+                      // that no longer exists.
+                      event.preventDefault();
+                      cancelBlur();
+                    }}
+                    onClick={() => void pick(option)}
+                  >
+                    <span className="property-picker-candidate">
+                      <span>
+                        {option.create
+                          ? message("properties.createEntity", {
+                              kind: message(kind === "tag" ? "common.tag" : "common.page"),
+                              name: option.label,
+                            })
+                          : option.label}
                       </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </AnchoredPanel>
       )}
     </div>

@@ -1,11 +1,5 @@
-import type {
-  OutlineFragment,
-  OutlineFragmentItem,
-} from "../../core-port/fragment";
-import {
-  OUTLINE_FRAGMENT_KIND,
-  OUTLINE_FRAGMENT_VERSION,
-} from "../../core-port/fragment";
+import type { OutlineFragment, OutlineFragmentItem } from "../../core-port/fragment";
+import { OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION } from "../../core-port/fragment";
 import type {
   BlockSnapshot,
   GraphSnapshot,
@@ -74,9 +68,7 @@ export function createOutlineFragment(
   const pageIds = new Set<string>();
 
   const append = (block: BlockSnapshot, depth: number) => {
-    const properties = block.properties
-      .filter(isPortableField)
-      .map(cloneField);
+    const properties = block.properties.filter(isPortableField).map(cloneField);
     for (const field of properties) {
       for (const value of field.values) {
         if (value.type === "page") pageIds.add(value.value);
@@ -116,11 +108,13 @@ export function createOutlineFragment(
     const entry = directory.get(id);
     const title = candidate?.title ?? entry?.title;
     if (title === undefined) return [];
-    return [{
-      id,
-      title,
-      journal_date: candidate ? journalDate(candidate) ?? null : entry?.journal_date ?? null,
-    }];
+    return [
+      {
+        id,
+        title,
+        journal_date: candidate ? (journalDate(candidate) ?? null) : (entry?.journal_date ?? null),
+      },
+    ];
   });
 
   return {
@@ -134,10 +128,12 @@ export function createOutlineFragment(
 }
 
 export function isPlainEmptyBlock(block: BlockSnapshot, markdown = block.markdown): boolean {
-  return markdown.length === 0
-    && block.tags.length === 0
-    && block.children.length === 0
-    && block.properties.every((field) => propertyCopyPolicy(field.key) !== "portable");
+  return (
+    markdown.length === 0 &&
+    block.tags.length === 0 &&
+    block.children.length === 0 &&
+    block.properties.every((field) => propertyCopyPolicy(field.key) !== "portable")
+  );
 }
 
 export function buildClipboardBundle(fragment: OutlineFragment): OutlineClipboardBundle {
@@ -187,7 +183,9 @@ export async function writeClipboardBundle(bundle: OutlineClipboardBundle): Prom
   await writeText(bundle.plain);
 }
 
-export function readOutlineFragment(clipboard: Pick<DataTransfer, "getData">): OutlineFragment | null {
+export function readOutlineFragment(
+  clipboard: Pick<DataTransfer, "getData">,
+): OutlineFragment | null {
   for (const type of [NEOSEQ_OUTLINE_MIME, NEOSEQ_OUTLINE_WEB_MIME]) {
     const parsed = parseOutlineFragment(clipboard.getData(type));
     if (parsed) return parsed;
@@ -195,8 +193,8 @@ export function readOutlineFragment(clipboard: Pick<DataTransfer, "getData">): O
   const html = clipboard.getData("text/html");
   if (!html || typeof DOMParser === "undefined") return null;
   const document = new DOMParser().parseFromString(html, "text/html");
-  const encoded = document.querySelector<HTMLElement>("[data-neoseq-outline]")
-    ?.dataset.neoseqOutline;
+  const encoded =
+    document.querySelector<HTMLElement>("[data-neoseq-outline]")?.dataset.neoseqOutline;
   return parseOutlineFragment(encoded ?? "");
 }
 
@@ -218,10 +216,9 @@ export function decodeOutlineClipboard(
 
 export function serializeOutlineFragmentPlain(fragment: OutlineFragment): string {
   const tagNames = new Map(fragment.tags.map((tag) => [tag.id, tag.name]));
-  const pageNames = new Map(fragment.pages.map((page) => [
-    page.id,
-    page.journal_date ?? page.title,
-  ]));
+  const pageNames = new Map(
+    fragment.pages.map((page) => [page.id, page.journal_date ?? page.title]),
+  );
   return fragment.items
     .flatMap((item) => {
       const indent = "  ".repeat(item.depth);
@@ -234,9 +231,10 @@ export function serializeOutlineFragmentPlain(fragment: OutlineFragment): string
         .map(formatTag);
       if (tags.length > 0) output.push(`${indent}  Tags: ${tags.join(" ")}`);
       for (const field of item.properties) {
-        const value = field.values.length === 0
-          ? ""
-          : field.values.map((entry) => formatPropertyValue(entry, pageNames)).join(", ");
+        const value =
+          field.values.length === 0
+            ? ""
+            : field.values.map((entry) => formatPropertyValue(entry, pageNames)).join(", ");
         const valueLines = value.split("\n");
         output.push(`${indent}  ${field.key}::${valueLines[0] ? ` ${valueLines[0]}` : ""}`);
         output.push(...valueLines.slice(1).map((line) => `${indent}    ${line}`));
@@ -248,40 +246,44 @@ export function serializeOutlineFragmentPlain(fragment: OutlineFragment): string
 
 export function serializeOutlineFragmentHtml(fragment: OutlineFragment): string {
   const tagNames = new Map(fragment.tags.map((tag) => [tag.id, tag.name]));
-  const pageNames = new Map(fragment.pages.map((page) => [
-    page.id,
-    page.journal_date ?? page.title,
-  ]));
+  const pageNames = new Map(
+    fragment.pages.map((page) => [page.id, page.journal_date ?? page.title]),
+  );
   const roots = outlineTree(fragment.items);
   const render = (nodes: readonly OutlineTreeNode[]): string => {
     if (nodes.length === 0) return "";
-    const items = nodes.map((node) => {
-      const content = escapeHtml(node.item.markdown).replaceAll("\n", "<br>");
-      const tags = node.item.tags
-        .map((id) => tagNames.get(id))
-        .filter((name): name is string => name !== undefined)
-        .map((name) => escapeHtml(formatTag(name)));
-      const metadata = [
-        tags.length > 0 ? `<div><strong>Tags:</strong> ${tags.join(" ")}</div>` : "",
-        ...node.item.properties.map((field) => {
-          const value = field.values.length === 0
-            ? ""
-            : field.values.map((entry) => formatPropertyValue(entry, pageNames)).join(", ");
-          const label = `<strong>${escapeHtml(field.key)}:</strong>`;
-          return `<div>${label}${value ? ` ${escapeHtml(value)}` : ""}</div>`;
-        }),
-      ].join("");
-      const metadataHtml = metadata ? `<small data-neoseq-metadata>${metadata}</small>` : "";
-      return `<li><div data-neoseq-block-content>${content}</div>${metadataHtml}${render(node.children)}</li>`;
-    }).join("");
+    const items = nodes
+      .map((node) => {
+        const content = escapeHtml(node.item.markdown).replaceAll("\n", "<br>");
+        const tags = node.item.tags
+          .map((id) => tagNames.get(id))
+          .filter((name): name is string => name !== undefined)
+          .map((name) => escapeHtml(formatTag(name)));
+        const metadata = [
+          tags.length > 0 ? `<div><strong>Tags:</strong> ${tags.join(" ")}</div>` : "",
+          ...node.item.properties.map((field) => {
+            const value =
+              field.values.length === 0
+                ? ""
+                : field.values.map((entry) => formatPropertyValue(entry, pageNames)).join(", ");
+            const label = `<strong>${escapeHtml(field.key)}:</strong>`;
+            return `<div>${label}${value ? ` ${escapeHtml(value)}` : ""}</div>`;
+          }),
+        ].join("");
+        const metadataHtml = metadata ? `<small data-neoseq-metadata>${metadata}</small>` : "";
+        return `<li><div data-neoseq-block-content>${content}</div>${metadataHtml}${render(node.children)}</li>`;
+      })
+      .join("");
     return `<ul>${items}</ul>`;
   };
   return `<div data-neoseq-outline="${escapeHtml(JSON.stringify(fragment))}">${render(roots)}</div>`;
 }
 
 function isPortableField(field: PropertyField): boolean {
-  return propertyCopyPolicy(field.key) === "portable"
-    && field.values.every((value) => value.type !== "unsupported_document");
+  return (
+    propertyCopyPolicy(field.key) === "portable" &&
+    field.values.every((value) => value.type !== "unsupported_document")
+  );
 }
 
 function cloneField(field: PropertyField): PropertyField {
@@ -316,24 +318,28 @@ function parseOutlineFragment(source: string): OutlineFragment | null {
   if (!source || source.length > 4 * 1_048_576) return null;
   try {
     const value: unknown = JSON.parse(source);
-    if (!isRecord(value)
-      || value.kind !== OUTLINE_FRAGMENT_KIND
-      || (value.version !== 1 && value.version !== OUTLINE_FRAGMENT_VERSION)
-      || typeof value.source_graph_id !== "string"
-      || !Array.isArray(value.items)
-      || !Array.isArray(value.tags)
-      || !Array.isArray(value.pages)
-      || value.items.length === 0
-    ) return null;
+    if (
+      !isRecord(value) ||
+      value.kind !== OUTLINE_FRAGMENT_KIND ||
+      (value.version !== 1 && value.version !== OUTLINE_FRAGMENT_VERSION) ||
+      typeof value.source_graph_id !== "string" ||
+      !Array.isArray(value.items) ||
+      !Array.isArray(value.tags) ||
+      !Array.isArray(value.pages) ||
+      value.items.length === 0
+    )
+      return null;
     for (const item of value.items) {
-      if (!isRecord(item)
-        || !Number.isSafeInteger(item.depth)
-        || (item.depth as number) < 0
-        || typeof item.markdown !== "string"
-        || (value.version === OUTLINE_FRAGMENT_VERSION && !Array.isArray(item.page_references))
-        || !Array.isArray(item.properties)
-        || !Array.isArray(item.tags)
-      ) return null;
+      if (
+        !isRecord(item) ||
+        !Number.isSafeInteger(item.depth) ||
+        (item.depth as number) < 0 ||
+        typeof item.markdown !== "string" ||
+        (value.version === OUTLINE_FRAGMENT_VERSION && !Array.isArray(item.page_references)) ||
+        !Array.isArray(item.properties) ||
+        !Array.isArray(item.tags)
+      )
+        return null;
     }
     if (value.version === 1) {
       return {
@@ -361,15 +367,20 @@ function formatTag(name: string): string {
 
 function formatPropertyValue(value: PropertyValue, pages: ReadonlyMap<string, string>): string {
   switch (value.type) {
-    case "page": return `[[${pages.get(value.value) ?? value.value}]]`;
-    case "checkbox": return value.value ? "true" : "false";
+    case "page":
+      return `[[${pages.get(value.value) ?? value.value}]]`;
+    case "checkbox":
+      return value.value ? "true" : "false";
     case "document": {
-      const view = value.value.views.find((item) => item.id === value.value.default_view_id)
-        ?? value.value.views[0];
+      const view =
+        value.value.views.find((item) => item.id === value.value.default_view_id) ??
+        value.value.views[0];
       return view?.definition.source ?? "";
     }
-    case "unsupported_document": return `[${value.value.schema} v${value.value.version}]`;
-    default: return String(value.value);
+    case "unsupported_document":
+      return `[${value.value.schema} v${value.value.version}]`;
+    default:
+      return String(value.value);
   }
 }
 
@@ -412,11 +423,8 @@ interface ParsedMarker {
  * depth. Application wrappers and attributes are deliberately irrelevant.
  */
 export function parseHtmlOutline(source: string): OutlineClipboardItem[] | null {
-  if (
-    !source
-    || source.length > MAX_CLIPBOARD_SOURCE_LENGTH
-    || typeof DOMParser === "undefined"
-  ) return null;
+  if (!source || source.length > MAX_CLIPBOARD_SOURCE_LENGTH || typeof DOMParser === "undefined")
+    return null;
 
   const document = new DOMParser().parseFromString(source, "text/html");
   if (!document.querySelector("ul li, ol li")) return null;
@@ -426,11 +434,7 @@ export function parseHtmlOutline(source: string): OutlineClipboardItem[] | null 
   return items.length > 0 ? items : null;
 }
 
-function appendHtmlFlow(
-  parent: Element,
-  depth: number,
-  items: OutlineClipboardItem[],
-): boolean {
+function appendHtmlFlow(parent: Element, depth: number, items: OutlineClipboardItem[]): boolean {
   const inline: Node[] = [];
   const flushInline = () => {
     const markdown = normalizeHtmlMarkdown(inline.map(renderHtmlContent).join(""));
@@ -483,11 +487,7 @@ function appendHtmlMarkdown(
   return true;
 }
 
-function appendHtmlList(
-  list: Element,
-  depth: number,
-  items: OutlineClipboardItem[],
-): boolean {
+function appendHtmlList(list: Element, depth: number, items: OutlineClipboardItem[]): boolean {
   const pending = ownedHtmlListItems(list)
     .map((item) => ({ item, depth }))
     .reverse();
@@ -498,8 +498,7 @@ function appendHtmlList(
       depth: current.depth,
       markdown: htmlListItemMarkdown(current.item),
     });
-    const children = ownedHtmlChildLists(current.item)
-      .flatMap((list) => ownedHtmlListItems(list));
+    const children = ownedHtmlChildLists(current.item).flatMap((list) => ownedHtmlListItems(list));
     for (let index = children.length - 1; index >= 0; index -= 1) {
       pending.push({ item: children[index], depth: current.depth + 1 });
     }
@@ -631,8 +630,7 @@ function parseMarker(line: string): ParsedMarker | null {
   while ([" ", "\t", "\u00a0"].includes(line[contentStart])) contentStart += 1;
   return {
     indent,
-    contentIndent:
-      indent + match[2].length + leadingColumns(line.slice(markerEnd, contentStart)),
+    contentIndent: indent + match[2].length + leadingColumns(line.slice(markerEnd, contentStart)),
     markdown: match[3] ?? "",
   };
 }

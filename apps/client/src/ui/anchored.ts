@@ -32,9 +32,7 @@ function hasArea(rect: DOMRectReadOnly | null): rect is DOMRectReadOnly {
 }
 
 export function elementAnchor(element: HTMLElement | null): Anchor {
-  return element === null
-    ? null
-    : { geometry: { kind: "element", element }, owner: element };
+  return element === null ? null : { geometry: { kind: "element", element }, owner: element };
 }
 
 export function caretAnchor(textarea: HTMLTextAreaElement, offset: number): OverlayAnchor {
@@ -49,10 +47,7 @@ export function pointAnchor(
   return { geometry: { kind: "point", clientX, clientY }, owner };
 }
 
-export function rectAnchor(
-  rect: DOMRectReadOnly,
-  owner: HTMLElement | null = null,
-): OverlayAnchor {
+export function rectAnchor(rect: DOMRectReadOnly, owner: HTMLElement | null = null): OverlayAnchor {
   return { geometry: { kind: "rect", rect }, owner };
 }
 

@@ -84,11 +84,13 @@ describe("outline interaction state", () => {
       active: 2,
     };
 
-    expect(overlayReducer(pending, {
-      type: "replace-pending-block",
-      pendingId: "pending-1",
-      blockId: "block-1",
-    })).toEqual({
+    expect(
+      overlayReducer(pending, {
+        type: "replace-pending-block",
+        pendingId: "pending-1",
+        blockId: "block-1",
+      }),
+    ).toEqual({
       kind: "hash",
       request: {
         blockId: "block-1",

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { textareaCaretRect } from "../../src/ui/textarea-caret";
 
 afterEach(() => {
-  document.querySelector('[data-textarea-caret-mirror]')?.remove();
+  document.querySelector("[data-textarea-caret-mirror]")?.remove();
   vi.restoreAllMocks();
 });
 

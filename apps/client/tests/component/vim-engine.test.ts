@@ -17,22 +17,14 @@ const bare = (key: string, shift = false): VimKey => ({
   meta: false,
 });
 
-const snapshot = (
-  value: string,
-  selectionStart = 0,
-  editable = true,
-): VimSnapshot => ({
+const snapshot = (value: string, selectionStart = 0, editable = true): VimSnapshot => ({
   value,
   selectionStart,
   selectionEnd: selectionStart,
   editable,
 });
 
-function press(
-  state: VimState,
-  value: VimSnapshot,
-  ...keys: string[]
-) {
+function press(state: VimState, value: VimSnapshot, ...keys: string[]) {
   let current = state;
   let last = interpretVimKey(current, value, bare(keys[0]));
   current = last.state;
@@ -91,19 +83,19 @@ describe("Vim key interpreter", () => {
     });
     expect(pending.effects).toEqual([]);
 
-    expect(press(initialVimState(), snapshot("one  two three", 1), "d", "i", "w").effects)
-      .toEqual([
-        {
-          kind: "edit",
-          from: 0,
-          to: 3,
-          insert: "",
-          selectionStart: 0,
-          selectionEnd: 0,
-        },
-      ]);
-    expect(press(initialVimState(), snapshot("one  two three", 1), "d", "a", "w").effects[0])
-      .toMatchObject({ kind: "edit", from: 0, to: 5 });
+    expect(press(initialVimState(), snapshot("one  two three", 1), "d", "i", "w").effects).toEqual([
+      {
+        kind: "edit",
+        from: 0,
+        to: 3,
+        insert: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      },
+    ]);
+    expect(
+      press(initialVimState(), snapshot("one  two three", 1), "d", "a", "w").effects[0],
+    ).toMatchObject({ kind: "edit", from: 0, to: 5 });
 
     const changing = press(initialVimState(), snapshot("one  two three", 6), "c", "i", "w");
     expect(changing.state.mode).toBe("insert");
@@ -116,18 +108,22 @@ describe("Vim key interpreter", () => {
   });
 
   it("matches Vim word-object whitespace and count semantics", () => {
-    expect(press(initialVimState(), snapshot("one  two three", 3), "d", "i", "w").effects[0])
-      .toMatchObject({ kind: "edit", from: 3, to: 5 });
-    expect(press(initialVimState(), snapshot("one  two three", 3), "d", "a", "w").effects[0])
-      .toMatchObject({ kind: "edit", from: 3, to: 8 });
-    expect(press(initialVimState(), snapshot("one  two three", 0), "2", "d", "i", "w").effects[0])
-      .toMatchObject({ kind: "edit", from: 0, to: 5 });
-    expect(press(initialVimState(), snapshot("one  two three", 0), "d", "2", "a", "w").effects[0])
-      .toMatchObject({ kind: "edit", from: 0, to: 9 });
-    expect(press(initialVimState(), snapshot("one  ", 3), "d", "a", "w").effects)
-      .toEqual([]);
-    expect(press(initialVimState(), snapshot("one two", 0), "3", "d", "a", "w").effects)
-      .toEqual([]);
+    expect(
+      press(initialVimState(), snapshot("one  two three", 3), "d", "i", "w").effects[0],
+    ).toMatchObject({ kind: "edit", from: 3, to: 5 });
+    expect(
+      press(initialVimState(), snapshot("one  two three", 3), "d", "a", "w").effects[0],
+    ).toMatchObject({ kind: "edit", from: 3, to: 8 });
+    expect(
+      press(initialVimState(), snapshot("one  two three", 0), "2", "d", "i", "w").effects[0],
+    ).toMatchObject({ kind: "edit", from: 0, to: 5 });
+    expect(
+      press(initialVimState(), snapshot("one  two three", 0), "d", "2", "a", "w").effects[0],
+    ).toMatchObject({ kind: "edit", from: 0, to: 9 });
+    expect(press(initialVimState(), snapshot("one  ", 3), "d", "a", "w").effects).toEqual([]);
+    expect(press(initialVimState(), snapshot("one two", 0), "3", "d", "a", "w").effects).toEqual(
+      [],
+    );
   });
 
   it("delegates outline word motions and operators to one structural text stream", () => {
@@ -157,18 +153,29 @@ describe("Vim key interpreter", () => {
       },
     ]);
     expect(press(initialVimState(), outline, "c", "w").state.mode).toBe("insert");
-    expect(press(initialVimState(), outline, "d", "i", "w").effects[0])
-      .toMatchObject({ kind: "edit", from: 0, to: 3 });
+    expect(press(initialVimState(), outline, "d", "i", "w").effects[0]).toMatchObject({
+      kind: "edit",
+      from: 0,
+      to: 3,
+    });
 
     const values = ["one tail", "next words", "last"];
-    expect(wordMotionAcrossUnits(values, { unit: 0, offset: 4 }, "w", 2))
-      .toEqual({ unit: 1, offset: 5 });
-    expect(wordMotionAcrossUnits(values, { unit: 1, offset: 0 }, "b", 1))
-      .toEqual({ unit: 0, offset: 4 });
-    expect(wordMotionAcrossUnits(values, { unit: 0, offset: 7 }, "e", 1))
-      .toEqual({ unit: 1, offset: 3 });
-    expect(wordMotionAcrossUnits([" a b"], { unit: 0, offset: 0 }, "e", 1))
-      .toEqual({ unit: 0, offset: 1 });
+    expect(wordMotionAcrossUnits(values, { unit: 0, offset: 4 }, "w", 2)).toEqual({
+      unit: 1,
+      offset: 5,
+    });
+    expect(wordMotionAcrossUnits(values, { unit: 1, offset: 0 }, "b", 1)).toEqual({
+      unit: 0,
+      offset: 4,
+    });
+    expect(wordMotionAcrossUnits(values, { unit: 0, offset: 7 }, "e", 1)).toEqual({
+      unit: 1,
+      offset: 3,
+    });
+    expect(wordMotionAcrossUnits([" a b"], { unit: 0, offset: 0 }, "e", 1)).toEqual({
+      unit: 0,
+      offset: 1,
+    });
     expect(wordEditsAcrossUnits(values, { unit: 0, offset: 4 }, "w", 2)).toEqual({
       caret: { unit: 0, offset: 4 },
       edits: [
@@ -183,11 +190,7 @@ describe("Vim key interpreter", () => {
   });
 
   it("keeps vertical motion inside multiline text and emits an intent at a boundary", () => {
-    const inside = interpretVimKey(
-      initialVimState(),
-      snapshot("abcd\nxy", 3),
-      bare("j"),
-    );
+    const inside = interpretVimKey(initialVimState(), snapshot("abcd\nxy", 3), bare("j"));
     expect(inside.effects).toEqual([{ kind: "selection", start: 6, end: 6 }]);
     expect(inside.state.desiredColumn).toBe(3);
 
@@ -207,8 +210,9 @@ describe("Vim key interpreter", () => {
     expect(press(initialVimState(), snapshot("one"), ">", ">").effects).toEqual([
       { kind: "surface", command: { type: "indent", count: 1 } },
     ]);
-    expect(interpretVimKey(initialVimState(), snapshot("one"), bare("O")).effects)
-      .toEqual([{ kind: "surface", command: { type: "open", side: "before" } }]);
+    expect(interpretVimKey(initialVimState(), snapshot("one"), bare("O")).effects).toEqual([
+      { kind: "surface", command: { type: "open", side: "before" } },
+    ]);
   });
 
   it("keeps Visual Line structural and capability-gated", () => {
@@ -266,11 +270,10 @@ describe("Vim key interpreter", () => {
       ...bare("r"),
       ctrl: true,
     });
-    expect(redo.effects).toEqual([
-      { kind: "surface", command: { type: "history", redo: true } },
-    ]);
+    expect(redo.effects).toEqual([{ kind: "surface", command: { type: "history", redo: true } }]);
 
-    expect(interpretVimKey(initialVimState(), snapshot("one"), bare("F10", true)).handled)
-      .toBe(false);
+    expect(interpretVimKey(initialVimState(), snapshot("one"), bare("F10", true)).handled).toBe(
+      false,
+    );
   });
 });

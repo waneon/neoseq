@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import type { CommandResult, EntityRef } from "../../core-port/commands";
 import type { QueryEntityRef } from "../../generated/core-port";
@@ -77,7 +70,11 @@ export function HistoryProvider({
     const registration = { owner, handler };
     revealer.current = registration;
     const request = pending.current;
-    if (request && outlineOwnerKey(request.owner) === outlineOwnerKey(owner) && handler(request.request)) {
+    if (
+      request &&
+      outlineOwnerKey(request.owner) === outlineOwnerKey(owner) &&
+      handler(request.request)
+    ) {
       pending.current = null;
     }
     return () => {
@@ -85,58 +82,74 @@ export function HistoryProvider({
     };
   }, []);
 
-  const routeForOwner = useCallback((owner: OutlineOwner) => {
-    if (owner.kind === "tag") {
-      return `/g/${graphId}/t/${encodeURIComponent(owner.id)}`;
-    }
-    const page = findPage(session.getState().snapshot, owner.id);
-    const date = page && pageKind(page) === "journal" ? journalDate(page) : undefined;
-    return date
-      ? `/g/${graphId}/journal/${date}`
-      : `/g/${graphId}/p/${encodeURIComponent(owner.id)}`;
-  }, [graphId, session]);
-
-  const reveal = useCallback((target: EntityRef, focus = false) => {
-    const owner: OutlineOwner = target.kind === "page"
-      ? { kind: "page", id: target.id }
-      : target.owner;
-    const current = revealer.current;
-    if (target.kind === "page") {
-      if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner)) {
-        navigate(routeForOwner(owner));
+  const routeForOwner = useCallback(
+    (owner: OutlineOwner) => {
+      if (owner.kind === "tag") {
+        return `/g/${graphId}/t/${encodeURIComponent(owner.id)}`;
       }
-      return;
-    }
-    const request: HistoryRevealRequest = {
-      token: crypto.randomUUID(),
-      blockId: target.id,
-      focus,
-    };
-    if (current && outlineOwnerKey(current.owner) === outlineOwnerKey(owner) && current.handler(request)) return;
-    pending.current = { owner, request };
-    if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner)) navigate(routeForOwner(owner));
-  }, [navigate, routeForOwner]);
+      const page = findPage(session.getState().snapshot, owner.id);
+      const date = page && pageKind(page) === "journal" ? journalDate(page) : undefined;
+      return date
+        ? `/g/${graphId}/journal/${date}`
+        : `/g/${graphId}/p/${encodeURIComponent(owner.id)}`;
+    },
+    [graphId, session],
+  );
 
-  const open = useCallback((target: QueryEntityRef) => {
-    if (target.kind === "tag") {
-      navigate(`/g/${graphId}/t/${encodeURIComponent(target.id)}`);
-      return;
-    }
-    reveal(target.kind === "page"
-      ? { kind: "page", id: target.id }
-      : { kind: "block", owner: target.owner, id: target.id });
-  }, [graphId, navigate, reveal]);
+  const reveal = useCallback(
+    (target: EntityRef, focus = false) => {
+      const owner: OutlineOwner =
+        target.kind === "page" ? { kind: "page", id: target.id } : target.owner;
+      const current = revealer.current;
+      if (target.kind === "page") {
+        if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner)) {
+          navigate(routeForOwner(owner));
+        }
+        return;
+      }
+      const request: HistoryRevealRequest = {
+        token: crypto.randomUUID(),
+        blockId: target.id,
+        focus,
+      };
+      if (
+        current &&
+        outlineOwnerKey(current.owner) === outlineOwnerKey(owner) &&
+        current.handler(request)
+      )
+        return;
+      pending.current = { owner, request };
+      if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner))
+        navigate(routeForOwner(owner));
+    },
+    [navigate, routeForOwner],
+  );
 
-  const run = useCallback(async (
-    direction: "undo" | "redo",
-    invocation: HistoryInvocation,
-  ): Promise<CommandResult> => {
-    const result = await session.execute({ type: direction });
-    const effect = result.history_effect;
-    if (!effect || effect.scope === "graph" || !effect.reveal) return result;
-    reveal(effect.reveal, invocation.kind === "outline");
-    return result;
-  }, [reveal, session]);
+  const open = useCallback(
+    (target: QueryEntityRef) => {
+      if (target.kind === "tag") {
+        navigate(`/g/${graphId}/t/${encodeURIComponent(target.id)}`);
+        return;
+      }
+      reveal(
+        target.kind === "page"
+          ? { kind: "page", id: target.id }
+          : { kind: "block", owner: target.owner, id: target.id },
+      );
+    },
+    [graphId, navigate, reveal],
+  );
+
+  const run = useCallback(
+    async (direction: "undo" | "redo", invocation: HistoryInvocation): Promise<CommandResult> => {
+      const result = await session.execute({ type: direction });
+      const effect = result.history_effect;
+      if (!effect || effect.scope === "graph" || !effect.reveal) return result;
+      reveal(effect.reveal, invocation.kind === "outline");
+      return result;
+    },
+    [reveal, session],
+  );
 
   const actions = useMemo<HistoryActions>(
     () => ({ run, registerRevealer, reveal, open }),

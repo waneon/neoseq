@@ -14,11 +14,7 @@
 // physical position — which is the behaviour a user who chose that layout expects.
 
 import { useMemo, useSyncExternalStore } from "react";
-import {
-  appSettings,
-  subscribeAppSettings,
-  updateAppSettings,
-} from "../../entities/settings";
+import { appSettings, subscribeAppSettings, updateAppSettings } from "../../entities/settings";
 import type { MessageKey } from "../../i18n";
 import { APPLE, MOD, isComposing } from "./keys";
 
@@ -96,9 +92,7 @@ export function parseBinding(value: unknown): Binding | null {
   return { key, shift: parts.includes("shift"), alt: parts.includes("alt") };
 }
 
-function applyOverrides(
-  stored: Record<string, string> | undefined,
-): Record<ShortcutId, Binding> {
+function applyOverrides(stored: Record<string, string> | undefined): Record<ShortcutId, Binding> {
   const resolved = { ...DEFAULT_BINDINGS };
   for (const id of SHORTCUT_IDS) {
     const override = parseBinding(stored?.[id]);
@@ -266,9 +260,9 @@ const GLYPHS: Record<string, string> = {
  * punctuation, which `<Kbd>` styles accordingly) rather than a join.
  */
 export function formatBindingParts(binding: Binding): string[] {
-  const key = GLYPHS[binding.key] ?? (binding.key.length === 1
-    ? binding.key.toUpperCase()
-    : binding.key.replace(/^f(\d+)$/, "F$1"));
+  const key =
+    GLYPHS[binding.key] ??
+    (binding.key.length === 1 ? binding.key.toUpperCase() : binding.key.replace(/^f(\d+)$/, "F$1"));
   const keys = [
     MOD,
     ...(binding.alt ? [APPLE ? "⌥" : "Alt"] : []),

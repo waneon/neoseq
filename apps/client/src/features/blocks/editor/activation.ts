@@ -3,16 +3,9 @@ import type { EditorKeymap } from "../../../entities/settings";
 import type { VimMode } from "./vim/engine";
 
 /** Why an editor is receiving the caret. The reason determines modal intent. */
-export type BlockActivationMethod =
-  | "pointer"
-  | "keyboard"
-  | "programmatic"
-  | "context_menu";
+export type BlockActivationMethod = "pointer" | "keyboard" | "programmatic" | "context_menu";
 
-export type MarkdownActivationMethod = Extract<
-  BlockActivationMethod,
-  "pointer" | "keyboard"
->;
+export type MarkdownActivationMethod = Extract<BlockActivationMethod, "pointer" | "keyboard">;
 
 /** Pointer and context-menu entrances mean “write here” in every writable host. */
 export function vimModeForActivation(
@@ -20,11 +13,7 @@ export function vimModeForActivation(
   readonly: boolean,
   method: BlockActivationMethod,
 ): VimMode | null {
-  if (
-    keymap === "vim"
-    && !readonly
-    && (method === "pointer" || method === "context_menu")
-  ) {
+  if (keymap === "vim" && !readonly && (method === "pointer" || method === "context_menu")) {
     return "insert";
   }
   return null;

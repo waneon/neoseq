@@ -22,10 +22,7 @@ import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { Settings2Icon } from "lucide-react";
 import { DropdownMenuItem } from "@/ui/shadcn/dropdown-menu";
-import {
-  defaultQueryDocument,
-  defaultQueryKey,
-} from "../../entities/default-queries";
+import { defaultQueryDocument, defaultQueryKey } from "../../entities/default-queries";
 import { QueryPanel } from "../query/QueryPanel";
 import { SETTINGS_PARAM } from "../settings/SettingsDialog";
 import { useSessionSelector } from "../shell/session-context";
@@ -72,10 +69,7 @@ export function JournalQueries() {
           title={query.title || undefined}
           label={query.title || message("settings.defaultQueries")}
           actions={
-            <DropdownMenuItem
-              data-testid="journal-query-settings"
-              onSelect={openSettings}
-            >
+            <DropdownMenuItem data-testid="journal-query-settings" onSelect={openSettings}>
               <Settings2Icon aria-hidden />
               {message("settings.editDefaultQueries")}
             </DropdownMenuItem>

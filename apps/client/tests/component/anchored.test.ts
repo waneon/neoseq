@@ -30,7 +30,9 @@ describe("snapshotAnchor", () => {
     const owner = document.createElement("button");
     const anchor = pointAnchor(320, 240, owner);
 
-    expect(measureAnchor(anchor)).toEqual(DOMRect.fromRect({ x: 320, y: 240, width: 1, height: 1 }));
+    expect(measureAnchor(anchor)).toEqual(
+      DOMRect.fromRect({ x: 320, y: 240, width: 1, height: 1 }),
+    );
     expect(anchor.owner).toBe(owner);
   });
 });

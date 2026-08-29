@@ -100,7 +100,9 @@ describe("query plan compilation", () => {
     const { source, parameters } = compilePlan(plan);
     expect(source).not.toContain("DROP ALL");
     expect(source).toContain("neo:matchesText(?q_v1, ?q_p0)");
-    expect(parameters).toEqual([{ name: "q_p0", value: { type: "text", value: '") } DROP ALL #' } }]);
+    expect(parameters).toEqual([
+      { name: "q_p0", value: { type: "text", value: '") } DROP ALL #' } },
+    ]);
   });
 
   it("resolves a relative date against the reader's today on every run", () => {
@@ -160,7 +162,11 @@ describe("query plan compilation", () => {
       ...emptyGroup("any"),
       id: "g-any",
       children: [
-        condition({ field: { kind: "tag" }, op: "equals", value: { type: "tag", value: "project" } }),
+        condition({
+          field: { kind: "tag" },
+          op: "equals",
+          value: { type: "tag", value: "project" },
+        }),
         condition({
           field: { kind: "property", key: "builtin.task-priority" },
           op: "equals",
@@ -186,7 +192,11 @@ describe("query plan compilation", () => {
       ...emptyGroup("none"),
       id: "g-none",
       children: [
-        condition({ field: { kind: "tag" }, op: "equals", value: { type: "tag", value: "project" } }),
+        condition({
+          field: { kind: "tag" },
+          op: "equals",
+          value: { type: "tag", value: "project" },
+        }),
       ],
     };
     const { source } = compilePlan(
@@ -269,20 +279,25 @@ describe("query plan compilation", () => {
   });
 
   it("compiles an entity projection without table columns or their aggregates", () => {
-    const plan = withWhere({
-      ...defaultPlan("block"),
-      columns: [
-        { id: "text", source: { kind: "content" } },
-        { id: "tags", source: { kind: "tags" }, aggregate: "list" },
-      ],
-    }, {
-      ...emptyGroup("all"),
-      children: [condition({
-        field: { kind: "property", key: "builtin.task-status" },
-        op: "equals",
-        value: { type: "text", value: "todo" },
-      })],
-    });
+    const plan = withWhere(
+      {
+        ...defaultPlan("block"),
+        columns: [
+          { id: "text", source: { kind: "content" } },
+          { id: "tags", source: { kind: "tags" }, aggregate: "list" },
+        ],
+      },
+      {
+        ...emptyGroup("all"),
+        children: [
+          condition({
+            field: { kind: "property", key: "builtin.task-status" },
+            op: "equals",
+            value: { type: "text", value: "todo" },
+          }),
+        ],
+      },
+    );
 
     const { source, variables, subjectVariable, parameters } = compileEntityProjection(plan);
     expect(subjectVariable).toBe("q_subject");
@@ -292,17 +307,23 @@ describe("query plan compilation", () => {
     expect(source).not.toContain("neo:content ?text");
     expect(source).not.toContain("GROUP_CONCAT");
     expect(source).not.toContain("GROUP BY");
-    expect(parameters).toEqual([{
-      name: "q_p0",
-      value: { type: "text", value: "todo" },
-    }]);
+    expect(parameters).toEqual([
+      {
+        name: "q_p0",
+        value: { type: "text", value: "todo" },
+      },
+    ]);
   });
 
   it("names entities by stable IRI, and inlines them when the builder is left", () => {
     const plan = withWhere(defaultPlan("block"), {
       ...emptyGroup("all"),
       children: [
-        condition({ field: { kind: "tag" }, op: "equals", value: { type: "tag", value: "project" } }),
+        condition({
+          field: { kind: "tag" },
+          op: "equals",
+          value: { type: "tag", value: "project" },
+        }),
       ],
     });
     const iri = entityIri("test-graph", "tag", "project");

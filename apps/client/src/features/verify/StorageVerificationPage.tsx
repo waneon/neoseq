@@ -27,9 +27,10 @@ export function StorageVerificationPage() {
   const [state, setState] = useState<State>({ status: "running" });
   const [searchParams] = useSearchParams();
   const requested = searchParams.get("corpus");
-  const corpus: Corpus = requested === "core-port" || requested === "recovery" || requested === "sync"
-    ? requested
-    : "persistence";
+  const corpus: Corpus =
+    requested === "core-port" || requested === "recovery" || requested === "sync"
+      ? requested
+      : "persistence";
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +58,9 @@ export function StorageVerificationPage() {
       <div className="picker-inner">
         <p className="eyebrow">Neoseq · Local Persistence</p>
         <h1>Durable locally, identical everywhere.</h1>
-        <p className="lede">SQLite and IndexedDB implement one recovery and CorePort v3 contract.</p>
+        <p className="lede">
+          SQLite and IndexedDB implement one recovery and CorePort v3 contract.
+        </p>
         <section
           aria-live="polite"
           data-testid="result"

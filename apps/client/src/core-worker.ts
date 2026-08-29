@@ -211,11 +211,13 @@ export class CoreWorker implements CorePort {
         if (event.data.id !== id) return;
         cleanup();
         if (!event.data.ok) {
-          const error = new CorePortFailure(event.data.error ?? {
-            code: "internal",
-            message: "worker request failed",
-            retryable: false,
-          });
+          const error = new CorePortFailure(
+            event.data.error ?? {
+              code: "internal",
+              message: "worker request failed",
+              retryable: false,
+            },
+          );
           reject(error);
           return;
         }

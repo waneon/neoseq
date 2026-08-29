@@ -19,10 +19,12 @@ test("RTL and expanded copy keep navigation inside the viewport", async ({ page 
   await expect(toggle).toBeVisible();
   await openSidebar(page);
   const sidebar = page.getByTestId("sidebar");
-  await expect.poll(async () => {
-    const settled = await sidebar.boundingBox();
-    return settled ? settled.x + settled.width : Number.NaN;
-  }).toBeCloseTo(page.viewportSize()!.width, 0);
+  await expect
+    .poll(async () => {
+      const settled = await sidebar.boundingBox();
+      return settled ? settled.x + settled.width : Number.NaN;
+    })
+    .toBeCloseTo(page.viewportSize()!.width, 0);
   const box = await sidebar.boundingBox();
   expect(box).not.toBeNull();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

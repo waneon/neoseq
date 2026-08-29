@@ -92,8 +92,16 @@ export class FakeCorePort implements SessionPort {
   private pages: PageSnapshot[] = [];
   private tags: TagSnapshot[] = [];
   private defaultQueries: DefaultQuerySnapshot[] = [];
-  private history: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] }> = [];
-  private future: Array<{ pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] }> = [];
+  private history: Array<{
+    pages: PageSnapshot[];
+    tags: TagSnapshot[];
+    defaultQueries: DefaultQuerySnapshot[];
+  }> = [];
+  private future: Array<{
+    pages: PageSnapshot[];
+    tags: TagSnapshot[];
+    defaultQueries: DefaultQuerySnapshot[];
+  }> = [];
   private historyEntries: FakeHistoryEntry[] = [];
   private futureEntries: FakeHistoryEntry[] = [];
   private events: GraphEventRecord[] = [];
@@ -138,9 +146,8 @@ export class FakeCorePort implements SessionPort {
       history_effect: null as HistoryEffect | null,
     };
     const timestamp = `t${this.sequence + 1}`;
-    const historyEntry = command.type === "undo" || command.type === "redo"
-      ? null
-      : this.planHistory(command);
+    const historyEntry =
+      command.type === "undo" || command.type === "redo" ? null : this.planHistory(command);
     try {
       this.apply(command, result, timestamp);
       if (command.type !== "undo" && command.type !== "redo" && result.changed) {
@@ -231,9 +238,7 @@ export class FakeCorePort implements SessionPort {
 
   private snapshot(): GraphSnapshot {
     const liveTags = new Set(
-      this.tags
-        .filter((tag) => !hasKey(tag.properties, "builtin.deleted-at"))
-        .map((tag) => tag.id),
+      this.tags.filter((tag) => !hasKey(tag.properties, "builtin.deleted-at")).map((tag) => tag.id),
     );
     return clone({
       schema_version: 6,
@@ -435,7 +440,8 @@ export class FakeCorePort implements SessionPort {
 
         if (command.replace) {
           const target = this.requireBlock(command.owner, command.replace);
-          if (target.block.markdown !== "") fail("internal", "outline replacement block is not empty");
+          if (target.block.markdown !== "")
+            fail("internal", "outline replacement block is not empty");
           baseSiblings = target.siblings;
           baseIndex = target.siblings.indexOf(target.block);
           rootOffset = 1;
@@ -487,11 +493,12 @@ export class FakeCorePort implements SessionPort {
 
         const tagMap = new Map<string, string>();
         for (const reference of fragment.tags) {
-          let target = fragment.source_graph_id === this.graphId
-            ? this.tags.find((tag) => tag.id === reference.id)
-            : undefined;
-          target ??= this.tags.find((tag) =>
-            canonicalEntityName(tag.name) === canonicalEntityName(reference.name)
+          let target =
+            fragment.source_graph_id === this.graphId
+              ? this.tags.find((tag) => tag.id === reference.id)
+              : undefined;
+          target ??= this.tags.find(
+            (tag) => canonicalEntityName(tag.name) === canonicalEntityName(reference.name),
           );
           if (!target) {
             let id = `t-paste-${this.tags.length + 1}`;
@@ -510,17 +517,21 @@ export class FakeCorePort implements SessionPort {
 
         const pageMap = new Map<string, string>();
         for (const reference of fragment.pages) {
-          let target = fragment.source_graph_id === this.graphId
-            ? this.pages.find((page) => page.id === reference.id)
-            : undefined;
+          let target =
+            fragment.source_graph_id === this.graphId
+              ? this.pages.find((page) => page.id === reference.id)
+              : undefined;
           target ??= reference.journal_date
-            ? this.pages.find((page) => page.properties.some((entry) =>
-                entry.key === "builtin.journal-date"
-                && entry.values[0]?.type === "date"
-                && entry.values[0].value === reference.journal_date
-              ))
-            : this.pages.find((page) =>
-                canonicalEntityName(page.title) === canonicalEntityName(reference.title)
+            ? this.pages.find((page) =>
+                page.properties.some(
+                  (entry) =>
+                    entry.key === "builtin.journal-date" &&
+                    entry.values[0]?.type === "date" &&
+                    entry.values[0].value === reference.journal_date,
+                ),
+              )
+            : this.pages.find(
+                (page) => canonicalEntityName(page.title) === canonicalEntityName(reference.title),
               );
           if (!target) {
             let id = `p-paste-${this.pages.length + 1}`;
@@ -546,14 +557,16 @@ export class FakeCorePort implements SessionPort {
         let rootOffset = 0;
         if (command.replace) {
           const target = this.requireBlock(command.owner, command.replace);
-          const portable = target.block.properties.filter((entry) =>
-            entry.key !== "builtin.created-at" && entry.key !== "builtin.updated-at"
+          const portable = target.block.properties.filter(
+            (entry) => entry.key !== "builtin.created-at" && entry.key !== "builtin.updated-at",
           );
-          if (target.block.markdown !== ""
-            || portable.length > 0
-            || target.block.tags.length > 0
-            || target.block.children.length > 0
-          ) fail("internal", "outline replacement block contains content or metadata");
+          if (
+            target.block.markdown !== "" ||
+            portable.length > 0 ||
+            target.block.tags.length > 0 ||
+            target.block.children.length > 0
+          )
+            fail("internal", "outline replacement block contains content or metadata");
           baseSiblings = target.siblings;
           baseIndex = target.siblings.indexOf(target.block);
           rootOffset = 1;
@@ -586,12 +599,16 @@ export class FakeCorePort implements SessionPort {
             page_id: pageMap.get(reference.page_id) ?? reference.page_id,
           }));
           this.materializeBlockContent(block, this.canonicalBlockContent(block));
-          block.properties.push(...clone(item.properties).map((entry: PropertyField) => ({
-            ...entry,
-            values: entry.values.map((value) => value.type === "page"
-              ? { ...value, value: pageMap.get(value.value) ?? value.value }
-              : value),
-          })));
+          block.properties.push(
+            ...clone(item.properties).map((entry: PropertyField) => ({
+              ...entry,
+              values: entry.values.map((value) =>
+                value.type === "page"
+                  ? { ...value, value: pageMap.get(value.value) ?? value.value }
+                  : value,
+              ),
+            })),
+          );
           block.tags = item.tags
             .map((id) => tagMap.get(id))
             .filter((id): id is string => id !== undefined);
@@ -608,21 +625,29 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "splice_markdown":
-        this.applyBlockContentSplice(command.owner, {
-          block_id: command.block_id,
-          index: command.index,
-          delete: command.delete,
-          insert: command.insert ? [{ type: "markdown", value: command.insert }] : [],
-        }, command.block_id);
+        this.applyBlockContentSplice(
+          command.owner,
+          {
+            block_id: command.block_id,
+            index: command.index,
+            delete: command.delete,
+            insert: command.insert ? [{ type: "markdown", value: command.insert }] : [],
+          },
+          command.block_id,
+        );
         break;
       case "splice_markdowns":
         for (const splice of command.splices) {
-          this.applyBlockContentSplice(command.owner, {
-            block_id: splice.block_id,
-            index: splice.index,
-            delete: splice.delete,
-            insert: splice.insert ? [{ type: "markdown", value: splice.insert }] : [],
-          }, splice.block_id);
+          this.applyBlockContentSplice(
+            command.owner,
+            {
+              block_id: splice.block_id,
+              index: splice.index,
+              delete: splice.delete,
+              insert: splice.insert ? [{ type: "markdown", value: splice.insert }] : [],
+            },
+            splice.block_id,
+          );
         }
         break;
       case "splice_block_content":
@@ -639,9 +664,10 @@ export class FakeCorePort implements SessionPort {
         const target = command.parent
           ? this.requireBlock(command.owner, command.parent).block.children
           : this.requireOutline(command.owner).blocks;
-        let anchor = command.after === null
-          ? null
-          : target.find((block) => block.id === command.after) ?? null;
+        let anchor =
+          command.after === null
+            ? null
+            : (target.find((block) => block.id === command.after) ?? null);
         if (command.after !== null && (!anchor || rootSet.has(anchor.id))) {
           fail("internal", "move anchor is not a stationary target sibling");
         }
@@ -691,8 +717,9 @@ export class FakeCorePort implements SessionPort {
       case "ensure_property": {
         const target = propertyOwnerTarget(command.owner);
         const cardinality = command.cardinality === "set" ? "repeated" : "single";
-        const issue = validateWriteTarget(command.key, target)
-          ?? validateFieldShape(command.key, command.value_type, cardinality);
+        const issue =
+          validateWriteTarget(command.key, target) ??
+          validateFieldShape(command.key, command.value_type, cardinality);
         if (issue) fail("internal", issue.message);
         ensureField(
           this.propertyOwnerBag(command.owner),
@@ -704,8 +731,9 @@ export class FakeCorePort implements SessionPort {
       }
       case "set_property": {
         const target = propertyOwnerTarget(command.owner);
-        const issue = validateWriteTarget(command.key, target)
-          ?? validateValue(command.key, command.value, "single");
+        const issue =
+          validateWriteTarget(command.key, target) ??
+          validateValue(command.key, command.value, "single");
         if (issue) fail("internal", issue.message);
         setSingle(this.propertyOwnerBag(command.owner), command.key, command.value);
         break;
@@ -719,8 +747,9 @@ export class FakeCorePort implements SessionPort {
         for (const change of command.changes) {
           if (keys.has(change.key)) fail("internal", `duplicate property key: ${change.key}`);
           keys.add(change.key);
-          const issue = validateWriteTarget(change.key, target)
-            ?? (change.value === null ? null : validateValue(change.key, change.value, "single"));
+          const issue =
+            validateWriteTarget(change.key, target) ??
+            (change.value === null ? null : validateValue(change.key, change.value, "single"));
           if (issue) fail("internal", issue.message);
         }
         const bag = this.propertyOwnerBag(command.owner);
@@ -745,8 +774,9 @@ export class FakeCorePort implements SessionPort {
         break;
       }
       case "add_repeated_property": {
-        const issue = validateWriteTarget(command.key, propertyOwnerTarget(command.owner))
-          ?? validateValue(command.key, command.value, "repeated");
+        const issue =
+          validateWriteTarget(command.key, propertyOwnerTarget(command.owner)) ??
+          validateValue(command.key, command.value, "repeated");
         if (issue) fail("internal", issue.message);
         const bag = this.propertyOwnerBag(command.owner);
         const field = ensureField(bag, command.key, propertyValueType(command.value), "set");
@@ -784,18 +814,26 @@ export class FakeCorePort implements SessionPort {
         if (command.index < 0 || command.index >= this.defaultQueries.length) {
           fail("internal", "default query move is out of bounds");
         }
-        const from = this.defaultQueries.findIndex((query) => query.id === command.default_query_id);
+        const from = this.defaultQueries.findIndex(
+          (query) => query.id === command.default_query_id,
+        );
         if (from < 0) fail("internal", "default query does not exist");
         const [moved] = this.defaultQueries.splice(from, 1);
         this.defaultQueries.splice(command.index, 0, moved);
-        this.defaultQueries.forEach((query, position) => { query.position = position; });
+        this.defaultQueries.forEach((query, position) => {
+          query.position = position;
+        });
         break;
       }
       case "delete_default_query": {
-        const index = this.defaultQueries.findIndex((query) => query.id === command.default_query_id);
+        const index = this.defaultQueries.findIndex(
+          (query) => query.id === command.default_query_id,
+        );
         if (index < 0) fail("internal", "default query does not exist");
         this.defaultQueries.splice(index, 1);
-        this.defaultQueries.forEach((query, position) => { query.position = position; });
+        this.defaultQueries.forEach((query, position) => {
+          query.position = position;
+        });
         break;
       }
       case "set_query_source": {
@@ -884,9 +922,10 @@ export class FakeCorePort implements SessionPort {
         if (index >= 0) {
           const definition = document.views[index].definition;
           document.views[index] = { ...clone(command.view), definition };
-        }
-        else document.views.push(clone(command.view));
-        document.views.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+        } else document.views.push(clone(command.view));
+        document.views.sort(
+          (left, right) => left.position - right.position || left.id.localeCompare(right.id),
+        );
         break;
       }
       case "remove_query_view": {
@@ -978,7 +1017,9 @@ export class FakeCorePort implements SessionPort {
     }
   }
 
-  private planHistory(command: Exclude<Command, { type: "undo" } | { type: "redo" }>): FakeHistoryEntry {
+  private planHistory(
+    command: Exclude<Command, { type: "undo" } | { type: "redo" }>,
+  ): FakeHistoryEntry {
     const page = (id: string): EntityRef => ({ kind: "page", id });
     const block = (owner: OutlineOwner, id: string): EntityRef => ({ kind: "block", owner, id });
     const outlineTarget = (owner: OutlineOwner): EntityRef[] =>
@@ -1048,7 +1089,9 @@ export class FakeCorePort implements SessionPort {
           ...this.tags
             .filter((candidate) => outlineHasTag(candidate, command.tag_id))
             .map((candidate) => ({ kind: "tag", id: candidate.id }) as const),
-        ].sort((left, right) => `${left.kind}:${left.id}`.localeCompare(`${right.kind}:${right.id}`));
+        ].sort((left, right) =>
+          `${left.kind}:${left.id}`.localeCompare(`${right.kind}:${right.id}`),
+        );
         return {
           scope: "graph",
           affectedOutlines,
@@ -1118,8 +1161,9 @@ export class FakeCorePort implements SessionPort {
       case "move_blocks":
       case "indent_blocks":
       case "outdent_blocks": {
-        const candidates = this.structuralRoots(command.owner, command.block_ids)
-          .map((id) => block(command.owner, id));
+        const candidates = this.structuralRoots(command.owner, command.block_ids).map((id) =>
+          block(command.owner, id),
+        );
         candidates.push(...outlineTarget(command.owner));
         return outlineEntry(command.owner, candidates, clone(candidates));
       }
@@ -1130,7 +1174,8 @@ export class FakeCorePort implements SessionPort {
         const first = this.requireBlock(command.owner, roots[0]);
         const position = first.siblings.indexOf(first.block);
         const redoCandidates: EntityRef[] = [];
-        if (position > 0) redoCandidates.push(block(command.owner, first.siblings[position - 1].id));
+        if (position > 0)
+          redoCandidates.push(block(command.owner, first.siblings[position - 1].id));
         if (first.parent) redoCandidates.push(block(command.owner, first.parent.id));
         redoCandidates.push(...outlineTarget(command.owner));
         return outlineEntry(command.owner, undoCandidates, redoCandidates);
@@ -1163,11 +1208,15 @@ export class FakeCorePort implements SessionPort {
         const affectedOutlines = command.commands
           .filter((step) => step.type !== "undo" && step.type !== "redo")
           .flatMap((step) => this.planHistory(step).affectedOutlines)
-          .filter((owner, index, all) =>
-            all.findIndex((candidate) =>
-              candidate.kind === owner.kind && candidate.id === owner.id) === index)
+          .filter(
+            (owner, index, all) =>
+              all.findIndex(
+                (candidate) => candidate.kind === owner.kind && candidate.id === owner.id,
+              ) === index,
+          )
           .sort((left, right) =>
-            `${left.kind}:${left.id}`.localeCompare(`${right.kind}:${right.id}`));
+            `${left.kind}:${left.id}`.localeCompare(`${right.kind}:${right.id}`),
+          );
         return {
           scope: "graph",
           affectedOutlines,
@@ -1210,23 +1259,23 @@ export class FakeCorePort implements SessionPort {
       const page = this.rawPage(entity.id);
       return Boolean(page && !hasKey(page.properties, "builtin.deleted-at"));
     }
-    const outline = entity.owner.kind === "page"
-      ? this.rawPage(entity.owner.id)
-      : this.rawTag(entity.owner.id);
+    const outline =
+      entity.owner.kind === "page" ? this.rawPage(entity.owner.id) : this.rawTag(entity.owner.id);
     return Boolean(
-      outline
-      && !hasKey(outline.properties, "builtin.deleted-at")
-      && findIn(outline.blocks, null, entity.id) !== null,
+      outline &&
+      !hasKey(outline.properties, "builtin.deleted-at") &&
+      findIn(outline.blocks, null, entity.id) !== null,
     );
   }
 
   private assertPageNameAvailable(name: string, exceptId: string): void {
     const canonical = canonicalEntityName(name);
     if (!canonical) fail("invalid_request", "page name must not be empty");
-    const existing = this.pages.find((page) =>
-      page.id !== exceptId
-      && !hasKey(page.properties, "builtin.deleted-at")
-      && canonicalEntityName(page.title) === canonical
+    const existing = this.pages.find(
+      (page) =>
+        page.id !== exceptId &&
+        !hasKey(page.properties, "builtin.deleted-at") &&
+        canonicalEntityName(page.title) === canonical,
     );
     if (existing) {
       fail("invalid_request", `page name already exists: ${name} (page ${existing.id})`);
@@ -1236,10 +1285,11 @@ export class FakeCorePort implements SessionPort {
   private assertTagNameAvailable(name: string, exceptId: string): void {
     const canonical = canonicalEntityName(name);
     if (!canonical) fail("invalid_request", "tag name must not be empty");
-    const existing = this.tags.find((tag) =>
-      tag.id !== exceptId
-      && !hasKey(tag.properties, "builtin.deleted-at")
-      && canonicalEntityName(tag.name) === canonical
+    const existing = this.tags.find(
+      (tag) =>
+        tag.id !== exceptId &&
+        !hasKey(tag.properties, "builtin.deleted-at") &&
+        canonicalEntityName(tag.name) === canonical,
     );
     if (existing) {
       fail("invalid_request", `tag name already exists: ${name} (tag ${existing.id})`);
@@ -1252,8 +1302,9 @@ export class FakeCorePort implements SessionPort {
 
   private canonicalBlockContent(block: BlockSnapshot): InlineContent[] {
     const points = Array.from(block.markdown);
-    const references = [...(block.page_references ?? [])]
-      .sort((left, right) => left.start - right.start);
+    const references = [...(block.page_references ?? [])].sort(
+      (left, right) => left.start - right.start,
+    );
     const content: InlineContent[] = [];
     let position = 0;
     let referenceIndex = 0;
@@ -1314,10 +1365,12 @@ export class FakeCorePort implements SessionPort {
     const inserted: InlineContent[] = [];
     for (const item of splice.insert) {
       if (item.type === "markdown") {
-        inserted.push(...Array.from(item.value).map((value) => ({
-          type: "markdown" as const,
-          value,
-        })));
+        inserted.push(
+          ...Array.from(item.value).map((value) => ({
+            type: "markdown" as const,
+            value,
+          })),
+        );
       } else {
         inserted.push(item);
       }
@@ -1340,7 +1393,11 @@ export class FakeCorePort implements SessionPort {
 
   private touchCommand(
     command: Command,
-    result: { created_page: string | null; created_block: string | null; created_tag: string | null },
+    result: {
+      created_page: string | null;
+      created_block: string | null;
+      created_tag: string | null;
+    },
     timestamp: string,
   ): void {
     switch (command.type) {
@@ -1377,11 +1434,13 @@ export class FakeCorePort implements SessionPort {
         this.touchOutline(command.owner, timestamp);
         break;
       case "splice_markdowns":
-        for (const splice of command.splices) this.touchBlock(command.owner, splice.block_id, timestamp);
+        for (const splice of command.splices)
+          this.touchBlock(command.owner, splice.block_id, timestamp);
         this.touchOutline(command.owner, timestamp);
         break;
       case "splice_block_contents":
-        for (const splice of command.splices) this.touchBlock(command.owner, splice.block_id, timestamp);
+        for (const splice of command.splices)
+          this.touchBlock(command.owner, splice.block_id, timestamp);
         this.touchOutline(command.owner, timestamp);
         break;
       case "move_blocks":
@@ -1437,10 +1496,7 @@ export class FakeCorePort implements SessionPort {
     }
   }
 
-  private touchEntity(
-    entity: EntityRef,
-    timestamp: string,
-  ): void {
+  private touchEntity(entity: EntityRef, timestamp: string): void {
     if (entity.kind === "page") {
       this.touchPage(entity.id, timestamp);
     } else {
@@ -1578,7 +1634,10 @@ export class FakeCorePort implements SessionPort {
     return owner.kind === "page" ? this.requirePage(owner.id) : this.requireTag(owner.id);
   }
 
-  private requireBlock(owner: OutlineOwner, id: string): {
+  private requireBlock(
+    owner: OutlineOwner,
+    id: string,
+  ): {
     block: BlockSnapshot;
     siblings: BlockSnapshot[];
     parent: BlockSnapshot | null;
@@ -1602,7 +1661,8 @@ export class FakeCorePort implements SessionPort {
       }
     };
     visit(this.requireOutline(owner).blocks, false);
-    if (found.size !== requested.size) fail("internal", "structural command targets a missing block");
+    if (found.size !== requested.size)
+      fail("internal", "structural command targets a missing block");
     return roots;
   }
 
@@ -1629,11 +1689,19 @@ export class FakeCorePort implements SessionPort {
       : this.requireBlock(entity.owner, entity.id).block.tags;
   }
 
-  private capture(): { pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] } {
+  private capture(): {
+    pages: PageSnapshot[];
+    tags: TagSnapshot[];
+    defaultQueries: DefaultQuerySnapshot[];
+  } {
     return clone({ pages: this.pages, tags: this.tags, defaultQueries: this.defaultQueries });
   }
 
-  private restore(state: { pages: PageSnapshot[]; tags: TagSnapshot[]; defaultQueries: DefaultQuerySnapshot[] }): void {
+  private restore(state: {
+    pages: PageSnapshot[];
+    tags: TagSnapshot[];
+    defaultQueries: DefaultQuerySnapshot[];
+  }): void {
     this.pages = clone(state.pages);
     this.tags = clone(state.tags);
     this.defaultQueries = clone(state.defaultQueries);
@@ -1654,11 +1722,12 @@ function findIn(
 }
 
 function projectLiveTags(page: PageSnapshot, liveTags: ReadonlySet<string>): PageSnapshot {
-  const projectBlocks = (blocks: BlockSnapshot[]): BlockSnapshot[] => blocks.map((block) => ({
-    ...block,
-    tags: block.tags.filter((tag) => liveTags.has(tag)),
-    children: projectBlocks(block.children),
-  }));
+  const projectBlocks = (blocks: BlockSnapshot[]): BlockSnapshot[] =>
+    blocks.map((block) => ({
+      ...block,
+      tags: block.tags.filter((tag) => liveTags.has(tag)),
+      children: projectBlocks(block.children),
+    }));
   return {
     ...page,
     tags: page.tags.filter((tag) => liveTags.has(tag)),
@@ -1667,11 +1736,12 @@ function projectLiveTags(page: PageSnapshot, liveTags: ReadonlySet<string>): Pag
 }
 
 function projectLiveTagRefs(tag: TagSnapshot, liveTags: ReadonlySet<string>): TagSnapshot {
-  const projectBlocks = (blocks: BlockSnapshot[]): BlockSnapshot[] => blocks.map((block) => ({
-    ...block,
-    tags: block.tags.filter((id) => liveTags.has(id)),
-    children: projectBlocks(block.children),
-  }));
+  const projectBlocks = (blocks: BlockSnapshot[]): BlockSnapshot[] =>
+    blocks.map((block) => ({
+      ...block,
+      tags: block.tags.filter((id) => liveTags.has(id)),
+      children: projectBlocks(block.children),
+    }));
   return { ...tag, blocks: projectBlocks(tag.blocks) };
 }
 
@@ -1697,7 +1767,9 @@ function newPage(
     ...lifecycle(timestamp),
   ];
   if (date !== null) {
-    properties.push(field("builtin.journal-date", "date", "single", [{ type: "date", value: date }]));
+    properties.push(
+      field("builtin.journal-date", "date", "single", [{ type: "date", value: date }]),
+    );
   }
   properties.sort((a, b) => a.key.localeCompare(b.key));
   return { id, title: title ?? "", properties, tags: [], blocks: [] };

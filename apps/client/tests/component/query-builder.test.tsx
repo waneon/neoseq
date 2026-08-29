@@ -3,7 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactElement } from "react";
 import { CorePortFailure } from "../../src/core-worker";
-import { findBlock, findPage, queryDocument, stringValue, type PropertyDocument } from "../../src/core-port/snapshot";
+import {
+  findBlock,
+  findPage,
+  queryDocument,
+  stringValue,
+  type PropertyDocument,
+} from "../../src/core-port/snapshot";
 import { compilePlan, momentTimeVariable } from "../../src/entities/query-compile";
 import { decodePlan, tagPlan } from "../../src/entities/query-plan";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
@@ -37,8 +43,10 @@ function storedQuery(harness: Harness): PropertyDocument | undefined {
 }
 
 function activeDefinition(document: PropertyDocument) {
-  return document.views.find((view) => view.id === document.default_view_id)?.definition
-    ?? document.views[0].definition;
+  return (
+    document.views.find((view) => view.id === document.default_view_id)?.definition ??
+    document.views[0].definition
+  );
 }
 
 function storedDefinition(harness: Harness) {
@@ -55,8 +63,12 @@ function commandBridge(): CommandBridge {
     openShortcuts: () => {},
     openSettings: () => {},
     registerBlockProperties: (handler) => blocks.register(handler),
-    setPageProperties: (handler) => { pageProperties = handler; },
-    setPageActions: (actions) => { pageActions = actions; },
+    setPageProperties: (handler) => {
+      pageProperties = handler;
+    },
+    setPageActions: (actions) => {
+      pageActions = actions;
+    },
     requestProperties: (key) => {
       const handler = blocks.current() ?? pageProperties;
       if (!handler) return false;
@@ -72,7 +84,9 @@ function SeededQuerySwitcher() {
   const [tagId, setTagId] = useState("tag-a");
   return (
     <>
-      <button type="button" onClick={() => setTagId("tag-b")}>Switch tag</button>
+      <button type="button" onClick={() => setTagId("tag-b")}>
+        Switch tag
+      </button>
       <QueryPanel
         binding={{
           kind: "managed",
@@ -114,7 +128,8 @@ describe("the query builder", () => {
       expect(screen.getByTestId("query-conditions-trigger")).toHaveAttribute(
         "title",
         "Blocks · Tag is #Beta",
-      ));
+      ),
+    );
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("query-conditions-trigger"));
     await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Beta"));
@@ -149,7 +164,9 @@ describe("the query builder", () => {
     await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
 
     await waitFor(() => {
-      expect(storedDefinition(harness)?.source).toContain("?q_subject prop:builtin.task-status ?q_p0 .");
+      expect(storedDefinition(harness)?.source).toContain(
+        "?q_subject prop:builtin.task-status ?q_p0 .",
+      );
     });
     const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
     expect(plan?.where.children).toHaveLength(1);
@@ -245,10 +262,10 @@ describe("the query builder", () => {
     await user.click(within(panel).getByTestId("query-column-toggle-tags"));
     await waitFor(() => {
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
-      expect(plan?.columns.find((column) => column.source.kind === "tags")?.aggregate)
-        .toBe("list");
-      expect(plan?.columns.find((column) => column.source.kind === "content")?.aggregate)
-        .toBeUndefined();
+      expect(plan?.columns.find((column) => column.source.kind === "tags")?.aggregate).toBe("list");
+      expect(
+        plan?.columns.find((column) => column.source.kind === "content")?.aggregate,
+      ).toBeUndefined();
     });
   });
 
@@ -309,18 +326,20 @@ describe("the query builder", () => {
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text"],
-      rows: [{
-        q_subject: {
-          kind: "iri",
-          value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      rows: [
+        {
+          q_subject: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:block:b-2",
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+          },
+          text: {
+            kind: "literal",
+            value: "Ship the builder",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
         },
-        text: {
-          kind: "literal",
-          value: "Ship the builder",
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
-      }],
+      ],
       revision: 7,
       frontier: "fake-7",
     };
@@ -339,11 +358,9 @@ describe("the query builder", () => {
 
     // Word for word the builder's own vocabulary, and it tracks the plan in hand
     // rather than the one last written to the document.
-    await waitFor(() =>
-      expect(conditions).toHaveAttribute("title", "Blocks · Status is Doing"));
+    await waitFor(() => expect(conditions).toHaveAttribute("title", "Blocks · Status is Doing"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
+    await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
 
     await user.click(conditions);
     expect(conditions).toHaveAttribute("aria-expanded", "false");
@@ -388,7 +405,10 @@ describe("the query builder", () => {
 });
 
 describe("query result views", () => {
-  async function withResult(markdown = "Ship the builder", custom?: ReactElement): Promise<Harness> {
+  async function withResult(
+    markdown = "Ship the builder",
+    custom?: ReactElement,
+  ): Promise<Harness> {
     const harness = await mountPage(custom);
     await createQuery(harness);
     harness.port.queryResult = {
@@ -498,14 +518,18 @@ describe("query result views", () => {
     await withResult();
     const table = await screen.findByTestId("query-table");
     // Row identity is carried, never shown: there is no column of block ids.
-    expect(within(table).queryByRole("columnheader", { name: /q_subject/ })).not.toBeInTheDocument();
+    expect(
+      within(table).queryByRole("columnheader", { name: /q_subject/ }),
+    ).not.toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: /Text/ })).toBeInTheDocument();
     // Editable text is already the block input surface; opening the block is a
     // separate route. A page cell reads as the page's name, not as its IRI.
-    expect(within(table).getByRole("textbox", { name: "Block text" }))
-      .toHaveValue("Ship the builder");
-    expect(within(table).getByRole("button", { name: "Open “Ship the builder”" }))
-      .toBeInTheDocument();
+    expect(within(table).getByRole("textbox", { name: "Block text" })).toHaveValue(
+      "Ship the builder",
+    );
+    expect(
+      within(table).getByRole("button", { name: "Open “Ship the builder”" }),
+    ).toBeInTheDocument();
     expect(within(table).getByRole("button", { name: "Home" })).toBeInTheDocument();
   });
 
@@ -549,15 +573,17 @@ describe("query result views", () => {
     await user.click(screen.getByTestId("query-col-menu-page"));
     await user.click(await screen.findByRole("menuitem", { name: "Hide column" }));
     await waitFor(() =>
-      expect(screen.queryByRole("columnheader", { name: /Page/ })).not.toBeInTheDocument());
+      expect(screen.queryByRole("columnheader", { name: /Page/ })).not.toBeInTheDocument(),
+    );
 
     // A list draws the canonical block rather than the table's result cells.
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
     expect(within(list).queryByText("Page")).not.toBeInTheDocument();
     expect(screen.queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
-    expect(storedQuery(harness)?.views[0]?.columns
-      .find((column) => column.variable === "page")?.hidden).toBe(true);
+    expect(
+      storedQuery(harness)?.views[0]?.columns.find((column) => column.variable === "page")?.hidden,
+    ).toBe(true);
   });
 
   it("changes one view's query without changing a sibling view", async () => {
@@ -596,9 +622,10 @@ describe("query result views", () => {
   it("reorders columns by dragging a heading, and says where the column will land", async () => {
     const harness = await withResult();
     const table = await screen.findByTestId("query-table");
-    const headings = () => within(table)
-      .getAllByRole("columnheader")
-      .map((heading) => heading.textContent?.replace(/Resize.*/, "").trim());
+    const headings = () =>
+      within(table)
+        .getAllByRole("columnheader")
+        .map((heading) => heading.textContent?.replace(/Resize.*/, "").trim());
     expect(headings()).toEqual(["Text", "Page"]);
 
     const transfer = { setData: () => {}, getData: () => "", dropEffect: "", effectAllowed: "" };
@@ -608,22 +635,25 @@ describe("query result views", () => {
     // The seam runs the height of the column it will land beside, and nothing
     // moves until it is dropped.
     expect(cells[1]).toHaveAttribute("data-seam", "after");
-    expect(within(table).getAllByTestId("query-row")[0].children[1])
-      .toHaveAttribute("data-seam", "after");
+    expect(within(table).getAllByTestId("query-row")[0].children[1]).toHaveAttribute(
+      "data-seam",
+      "after",
+    );
     expect(headings()).toEqual(["Text", "Page"]);
 
     fireEvent.drop(cells[1], { dataTransfer: transfer });
     await waitFor(() => expect(headings()).toEqual(["Page", "Text"]));
     // A running order the view now owns, with every column's own record intact.
-    expect(storedQuery(harness)?.views[0]?.columns.map((column) => column.variable))
-      .toEqual(["page", "text"]);
+    expect(storedQuery(harness)?.views[0]?.columns.map((column) => column.variable)).toEqual([
+      "page",
+      "text",
+    ]);
   });
 
   it("keeps a header sort in the saved view, so the order survives a reload", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
-    const savedSort = () =>
-      storedQuery(harness)?.views[0]?.options.sort;
+    const savedSort = () => storedQuery(harness)?.views[0]?.options.sort;
 
     const table = await screen.findByTestId("query-table");
     // The heading *is* the sort control, so its name is the column's name.
@@ -634,8 +664,10 @@ describe("query result views", () => {
     // The header states the order it is in, so the saved fact and the announced
     // one cannot disagree.
     await waitFor(() =>
-      expect(within(table).getByRole("columnheader", { name: /Text/ }))
-        .toHaveAttribute("aria-sort", "ascending"),
+      expect(within(table).getByRole("columnheader", { name: /Text/ })).toHaveAttribute(
+        "aria-sort",
+        "ascending",
+      ),
     );
 
     // A press cycles the column it is on: ascending, descending, then out.
@@ -654,10 +686,12 @@ describe("query result views", () => {
     )!;
     const nextPlan = {
       ...plan,
-      columns: [{
-        id: "priority",
-        source: { kind: "property" as const, key: "builtin.task-priority" },
-      }],
+      columns: [
+        {
+          id: "priority",
+          source: { kind: "property" as const, key: "builtin.task-priority" },
+        },
+      ],
     };
     harness.port.queryResult = {
       kind: "select",
@@ -668,13 +702,15 @@ describe("query result views", () => {
           value: "urn:neoseq:entity:test-graph:block:b-2",
           entity: { kind: "block" as const, owner: { kind: "page", id: "home" }, id: "b-2" },
         },
-        ...(priority ? {
-          priority: {
-            kind: "literal" as const,
-            value: priority,
-            datatype: "http://www.w3.org/2001/XMLSchema#string",
-          },
-        } : {}),
+        ...(priority
+          ? {
+              priority: {
+                kind: "literal" as const,
+                value: priority,
+                datatype: "http://www.w3.org/2001/XMLSchema#string",
+              },
+            }
+          : {}),
       })),
       revision: 5,
       frontier: "fake-5",
@@ -692,8 +728,10 @@ describe("query result views", () => {
       name: "Priority",
       exact: true,
     });
-    const rowLabels = () => within(table).getAllByTestId("query-row")
-      .map((row) => row.textContent);
+    const rowLabels = () =>
+      within(table)
+        .getAllByTestId("query-row")
+        .map((row) => row.textContent);
     await user.click(heading);
     await waitFor(() => {
       expect(rowLabels()).toEqual(["—", "Low", "Medium", "High"]);
@@ -770,14 +808,17 @@ describe("query result views", () => {
     await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("2 results"));
     const table = await screen.findByTestId("query-table");
     await user.click(within(table).getByRole("button", { name: "Text", exact: true }));
-    await waitFor(() => expect(storedQuery(harness)?.views[0]?.options.sort).toEqual([
-      { variable: "text", descending: false },
-    ]));
+    await waitFor(() =>
+      expect(storedQuery(harness)?.views[0]?.options.sort).toEqual([
+        { variable: "text", descending: false },
+      ]),
+    );
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
     const list = await screen.findByTestId("query-list");
-    const values = () => within(list)
-      .getAllByRole<HTMLTextAreaElement>("textbox", { name: "Block text" })
-      .map((field) => field.value);
+    const values = () =>
+      within(list)
+        .getAllByRole<HTMLTextAreaElement>("textbox", { name: "Block text" })
+        .map((field) => field.value);
     expect(values()).toEqual(["Zulu", "Alpha"]);
 
     await user.click(screen.getByTestId("query-sort-trigger"));
@@ -791,9 +832,11 @@ describe("query result views", () => {
     expect(screen.queryByRole("option", { name: "Query" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "owner" }));
 
-    await waitFor(() => expect(storedQuery(harness)?.views[0]?.options.list_sort).toEqual([
-      { field: "property:user.owner", descending: false },
-    ]));
+    await waitFor(() =>
+      expect(storedQuery(harness)?.views[0]?.options.list_sort).toEqual([
+        { field: "property:user.owner", descending: false },
+      ]),
+    );
     expect(storedQuery(harness)?.views[0]?.options.sort).toEqual([
       { variable: "text", descending: false },
     ]);
@@ -812,16 +855,17 @@ describe("query result views", () => {
   it("accumulates an order across headings and lets the panel reorder it", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
-    const savedSort = () =>
-      storedQuery(harness)?.views[0]?.options.sort;
+    const savedSort = () => storedQuery(harness)?.views[0]?.options.sort;
 
     const table = await screen.findByTestId("query-table");
     await user.click(within(table).getByRole("button", { name: "Text", exact: true }));
     await user.click(within(table).getByRole("button", { name: "Page", exact: true }));
-    await waitFor(() => expect(savedSort()).toEqual([
-      { variable: "text", descending: false },
-      { variable: "page", descending: false },
-    ]));
+    await waitFor(() =>
+      expect(savedSort()).toEqual([
+        { variable: "text", descending: false },
+        { variable: "page", descending: false },
+      ]),
+    );
     // Rank appears exactly when there is a second term for it to precede.
     const heading = (name: RegExp) => within(table).getByRole("columnheader", { name });
     expect(heading(/Text/)).toHaveTextContent("Text1");
@@ -830,10 +874,12 @@ describe("query result views", () => {
     await user.click(screen.getByTestId("query-sort-trigger"));
     const panel = await screen.findByTestId("query-sort-panel");
     await user.click(within(panel).getByRole("button", { name: "Move Page earlier" }));
-    await waitFor(() => expect(savedSort()).toEqual([
-      { variable: "page", descending: false },
-      { variable: "text", descending: false },
-    ]));
+    await waitFor(() =>
+      expect(savedSort()).toEqual([
+        { variable: "page", descending: false },
+        { variable: "text", descending: false },
+      ]),
+    );
 
     await user.click(within(panel).getByRole("button", { name: "Stop sorting by Text" }));
     await waitFor(() => expect(savedSort()).toEqual([{ variable: "page", descending: false }]));
@@ -853,8 +899,8 @@ describe("query result views", () => {
     const harness = await withResult();
     const table = await screen.findByTestId("query-table");
     const handle = within(table).getByRole("separator", { name: "Resize Text" });
-    const savedWidth = (variable: string) => storedQuery(harness)?.views[0]?.columns
-      .find((column) => column.variable === variable)?.width;
+    const savedWidth = (variable: string) =>
+      storedQuery(harness)?.views[0]?.columns.find((column) => column.variable === variable)?.width;
 
     // Until the reader takes the widths over, the table declares none and fills
     // its block; the first drag is what hands the layout to them. It starts from
@@ -886,7 +932,8 @@ describe("query result views", () => {
       view: {
         ...current,
         columns: current.columns.map((column) =>
-          column.variable === "text" ? { ...column, width: 224 } : column),
+          column.variable === "text" ? { ...column, width: 224 } : column,
+        ),
       },
     });
     await waitFor(() => expect(firstColumnWidth(table)).toBe("224px"));
@@ -906,15 +953,10 @@ describe("query result views", () => {
     };
 
     layOutHeadings(table, 400);
-    dragColumn(
-      within(table).getByRole("separator", { name: "Resize Text" }),
-      400,
-      480,
-    );
+    dragColumn(within(table).getByRole("separator", { name: "Resize Text" }), 400, 480);
 
     await waitFor(() => expect(firstColumnWidth(table)).toBe(""));
-    expect(storedQuery(harness)?.views[0]?.columns)
-      .toEqual([]);
+    expect(storedQuery(harness)?.views[0]?.columns).toEqual([]);
   });
 
   it("renders the list view as outline rows", async () => {
@@ -927,7 +969,9 @@ describe("query result views", () => {
     const row = within(list).getByTestId("query-list-row");
     // The outline's own grammar: a treeitem with a bullet that opens the block.
     expect(row).toHaveAttribute("role", "treeitem");
-    expect(within(row).getByRole("button", { name: /Open “Ship the builder”/ })).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: /Open “Ship the builder”/ }),
+    ).toBeInTheDocument();
     expect(row).toHaveTextContent("Ship the builder");
   });
 
@@ -997,7 +1041,9 @@ describe("query result views", () => {
       expect(executed).toContain("SELECT ?q_subject WHERE");
       expect(executed).not.toContain("GROUP_CONCAT");
     });
-    const row = within(await within(hostQuery).findByTestId("query-list")).getByTestId("query-list-row");
+    const row = within(await within(hostQuery).findByTestId("query-list")).getByTestId(
+      "query-list-row",
+    );
     expect(row).toHaveClass("block-row");
     expect(row.querySelector(".block-body")).not.toBeNull();
     expect(row.querySelector(".query-block-content .outline-markdown")).not.toBeNull();
@@ -1029,7 +1075,9 @@ describe("query result views", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship the editable result"));
-    await waitFor(() => expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument(),
+    );
   });
 
   it("uses the shared Vim text grammar without exposing outline structure", async () => {
@@ -1049,7 +1097,7 @@ describe("query result views", () => {
         attributeOldValue: true,
       });
       await user.click(settled);
-      const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+      const editor = (await screen.findByTestId("query-markdown-editor")) as HTMLTextAreaElement;
       await Promise.resolve();
       modeChanges.disconnect();
 
@@ -1108,7 +1156,7 @@ describe("query result views", () => {
     const table = await screen.findByTestId("query-table");
 
     await user.click(within(table).getByTestId("query-edit-text"));
-    const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+    const editor = (await screen.findByTestId("query-markdown-editor")) as HTMLTextAreaElement;
     await user.keyboard("(");
 
     expect(editor).toHaveValue("()");
@@ -1124,7 +1172,7 @@ describe("query result views", () => {
     const settled = within(list).getByTitle("Edit Text");
     expect(settled.tagName).toBe("TEXTAREA");
     await user.click(settled);
-    const editor = await screen.findByTestId("query-markdown-editor") as HTMLTextAreaElement;
+    const editor = (await screen.findByTestId("query-markdown-editor")) as HTMLTextAreaElement;
     expect(editor).toBe(settled);
     await user.keyboard("[[");
 
@@ -1140,23 +1188,27 @@ describe("query result views", () => {
     await user.click(within(table).getByTestId("query-edit-text"));
     const editor = await screen.findByTestId("query-markdown-editor");
     const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
-    harness.port.beforeExecute = async (command) => { commands.push(command); };
+    harness.port.beforeExecute = async (command) => {
+      commands.push(command);
+    };
     await user.type(editor, " /done");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
     await user.keyboard("{Enter}");
 
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
     await waitFor(() => {
-      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"))
-        .toBe("done");
+      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe(
+        "done",
+      );
     });
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
     expect(commands).toEqual([expect.objectContaining({ type: "set_property" })]);
 
     await user.keyboard("{Meta>}z{/Meta}");
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
-    expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"))
-      .toBeUndefined();
+    expect(
+      stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"),
+    ).toBeUndefined();
   });
 
   it("keeps result completions attached when the surrounding document scrolls", async () => {
@@ -1186,7 +1238,9 @@ describe("query result views", () => {
     await user.click(within(table).getByTestId("query-edit-text"));
     const editor = await screen.findByTestId("query-markdown-editor");
     const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
-    harness.port.beforeExecute = async (command) => { commands.push(command); };
+    harness.port.beforeExecute = async (command) => {
+      commands.push(command);
+    };
     await user.type(editor, " #pro");
     expect(await screen.findByTestId("tag-menu")).toBeVisible();
     await user.keyboard("{Enter}");
@@ -1221,7 +1275,9 @@ describe("query result views", () => {
     const bridge = commandBridge();
     const harness = await withResult(
       "Ship it",
-      <CommandContext.Provider value={bridge}><PageView /></CommandContext.Provider>,
+      <CommandContext.Provider value={bridge}>
+        <PageView />
+      </CommandContext.Provider>,
     );
     const user = userEvent.setup();
     const table = await screen.findByTestId("query-table");
@@ -1237,8 +1293,9 @@ describe("query result views", () => {
     await user.click(within(picker).getByRole("option", { name: "Done" }));
 
     await waitFor(() => {
-      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"))
-        .toBe("done");
+      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe(
+        "done",
+      );
     });
     const page = findPage(harness.session.getState().snapshot, "home");
     expect(stringValue(page?.properties ?? [], "builtin.task-status")).toBeUndefined();
@@ -1264,28 +1321,30 @@ describe("query result views", () => {
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text", "page", "scheduled", momentTimeVariable("scheduled")],
-      rows: [{
-        q_subject: {
-          kind: "iri",
-          value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      rows: [
+        {
+          q_subject: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:block:b-2",
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+          },
+          text: {
+            kind: "literal",
+            value: "Ship the builder",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+          scheduled: {
+            kind: "literal",
+            value: "2026-08-21",
+            datatype: "http://www.w3.org/2001/XMLSchema#date",
+          },
+          [momentTimeVariable("scheduled")]: {
+            kind: "literal",
+            value: "21:30",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
         },
-        text: {
-          kind: "literal",
-          value: "Ship the builder",
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
-        scheduled: {
-          kind: "literal",
-          value: "2026-08-21",
-          datatype: "http://www.w3.org/2001/XMLSchema#date",
-        },
-        [momentTimeVariable("scheduled")]: {
-          kind: "literal",
-          value: "21:30",
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
-      }],
+      ],
       revision: 6,
       frontier: "fake-6",
     };
@@ -1310,8 +1369,11 @@ describe("query result views", () => {
     expect(pill).toHaveAttribute("data-palette", "danger");
     // The time rode along in the compiler's own namespace, so it is part of the
     // moment and never a column of its own.
-    expect(within(table).queryAllByRole("columnheader").map((cell) => cell.textContent))
-      .toEqual(["Text", "Page", "Scheduled"]);
+    expect(
+      within(table)
+        .queryAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Text", "Page", "Scheduled"]);
   });
 
   it("uses only the canonical task field in a block list", async () => {
@@ -1331,23 +1393,25 @@ describe("query result views", () => {
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text", "page", "status"],
-      rows: [{
-        q_subject: {
-          kind: "iri",
-          value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      rows: [
+        {
+          q_subject: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:block:b-2",
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+          },
+          text: {
+            kind: "literal",
+            value: "Ship the builder",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+          page: {
+            kind: "iri",
+            value: "urn:neoseq:entity:test-graph:page:home",
+            entity: { kind: "page", id: "home" },
+          },
         },
-        text: {
-          kind: "literal",
-          value: "Ship the builder",
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
-        page: {
-          kind: "iri",
-          value: "urn:neoseq:entity:test-graph:page:home",
-          entity: { kind: "page", id: "home" },
-        },
-      }],
+      ],
       revision: 5,
       frontier: "fake-5",
     };
@@ -1388,22 +1452,27 @@ describe("query result views", () => {
     expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
     // The four radio rows and the explicit removal row — the outline's menu,
     // not a key/value stage.
-    expect(within(menu).getAllByRole("menuitemradio").map((row) => row.textContent))
-      .toEqual(["To-do", "Doing", "Done", "Cancelled"]);
+    expect(
+      within(menu)
+        .getAllByRole("menuitemradio")
+        .map((row) => row.textContent),
+    ).toEqual(["To-do", "Doing", "Done", "Cancelled"]);
     expect(within(menu).getByRole("menuitem", { name: "Remove status" })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitemradio", { name: "Done" }));
 
     await waitFor(() => {
-      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe("done");
+      expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe(
+        "done",
+      );
     });
   });
 
   it("pins an active row when its edit makes it leave the result", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
-    await user.click((await screen.findByTestId("query-table")).querySelector(
-      '[data-testid="query-edit-text"]',
-    )!);
+    await user.click(
+      (await screen.findByTestId("query-table")).querySelector('[data-testid="query-edit-text"]')!,
+    );
     await screen.findByTestId("query-markdown-editor");
 
     harness.port.queryResult = {
@@ -1420,7 +1489,9 @@ describe("query result views", () => {
       value: { type: "string", value: "changed" },
     });
 
-    await waitFor(() => expect(screen.getByText("No longer matches this query")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("No longer matches this query")).toBeInTheDocument(),
+    );
     expect(screen.getByTestId("query-row")).toHaveAttribute("data-pinned", "true");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.getByText("No results")).toBeInTheDocument());

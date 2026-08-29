@@ -7,9 +7,7 @@ import { hasMarkdownSyntax } from "../../src/features/markdown/profile";
 
 describe("block Markdown projection", () => {
   it("renders CommonMark with headings nested below the page title", () => {
-    render(
-      <BlockMarkdown markdown={"# Heading\n\nRead **strong** and *emphasis*."} />,
-    );
+    render(<BlockMarkdown markdown={"# Heading\n\nRead **strong** and *emphasis*."} />);
 
     expect(screen.getByRole("heading", { level: 2, name: "Heading" })).toBeInTheDocument();
     expect(screen.getByText("strong").tagName).toBe("STRONG");
@@ -18,9 +16,7 @@ describe("block Markdown projection", () => {
 
   it("allows safe destinations and neutralizes executable URLs", () => {
     const { container } = render(
-      <BlockMarkdown
-        markdown={"[safe](https://example.com) [unsafe](javascript:alert(1))"}
-      />,
+      <BlockMarkdown markdown={"[safe](https://example.com) [unsafe](javascript:alert(1))"} />,
     );
 
     expect(screen.getByRole("link", { name: "safe" })).toHaveAttribute(
@@ -37,7 +33,9 @@ describe("block Markdown projection", () => {
 
   it("does not interpret raw HTML or fetch Markdown images", () => {
     const { container } = render(
-      <BlockMarkdown markdown={'<script>alert("x")</script>\n\n![diagram](https://example.com/a.png)'} />,
+      <BlockMarkdown
+        markdown={'<script>alert("x")</script>\n\n![diagram](https://example.com/a.png)'}
+      />,
     );
 
     expect(container.querySelector("script")).toBeNull();
@@ -127,10 +125,7 @@ describe("block Markdown projection", () => {
   it("flattens a compact table and its line breaks into one cell of text", () => {
     const { container } = render(
       <button type="button">
-        <BlockMarkdown
-          markdown={"| A |\n| --- |\n| 1 |\n\nnext\nline"}
-          variant="compact"
-        />
+        <BlockMarkdown markdown={"| A |\n| --- |\n| 1 |\n\nnext\nline"} variant="compact" />
       </button>,
     );
 

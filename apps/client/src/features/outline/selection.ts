@@ -32,18 +32,12 @@ export function selectionRoots(
 }
 
 /** Every row covered by the selection, roots and passengers alike. */
-export function selectionSize(
-  rows: readonly OutlineRow[],
-  selected: ReadonlySet<string>,
-): number {
+export function selectionSize(rows: readonly OutlineRow[], selected: ReadonlySet<string>): number {
   return coveredMask(rows, selected).reduce((total, covered) => total + (covered ? 1 : 0), 0);
 }
 
 /** `true` at every row that is a selected root or lives inside one. */
-export function coveredMask(
-  rows: readonly OutlineRow[],
-  ids: ReadonlySet<string>,
-): boolean[] {
+export function coveredMask(rows: readonly OutlineRow[], ids: ReadonlySet<string>): boolean[] {
   const mask = rows.map(() => false);
   let inside = -1;
   rows.forEach((row, index) => {
@@ -68,20 +62,13 @@ export function coveredMask(
  * undo, redo, or a remote move; the blocks the user saw selected must not
  * silently change with that later hierarchy.
  */
-export function coveredIds(
-  rows: readonly OutlineRow[],
-  ids: ReadonlySet<string>,
-): Set<string> {
+export function coveredIds(rows: readonly OutlineRow[], ids: ReadonlySet<string>): Set<string> {
   const mask = coveredMask(rows, ids);
   return new Set(rows.filter((_row, index) => mask[index]).map((row) => row.block.id));
 }
 
 /** The ids in the inclusive row range `[from, to]`, in either drag direction. */
-export function idsInRange(
-  rows: readonly OutlineRow[],
-  from: number,
-  to: number,
-): Set<string> {
+export function idsInRange(rows: readonly OutlineRow[], from: number, to: number): Set<string> {
   const start = Math.max(0, Math.min(from, to));
   const end = Math.min(rows.length - 1, Math.max(from, to));
   const ids = new Set<string>();
@@ -138,7 +125,12 @@ export function dropTarget(
   const depth = Math.max(minDepth, Math.min(maxDepth, desiredDepth));
 
   if (depth === 0) {
-    return { parentId: null, afterId: lastSibling(rows, mask, 0, 0, beforeIndex), depth, gap: clampedGap };
+    return {
+      parentId: null,
+      afterId: lastSibling(rows, mask, 0, 0, beforeIndex),
+      depth,
+      gap: clampedGap,
+    };
   }
 
   // The parent is the nearest row above the gap that sits one level shallower.

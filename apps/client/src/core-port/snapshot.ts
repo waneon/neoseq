@@ -128,9 +128,7 @@ export interface PageDirectoryEntry {
   deleted: boolean;
 }
 
-export type OutlineOwner =
-  | { kind: "page"; id: string }
-  | { kind: "tag"; id: string };
+export type OutlineOwner = { kind: "page"; id: string } | { kind: "tag"; id: string };
 
 export interface OutlineSnapshot {
   owner: OutlineOwner;
@@ -192,10 +190,11 @@ export const EMPTY_SNAPSHOT: GraphSnapshot = {
   quarantined: [],
 };
 
-export function mergeSummary(summary: GraphSummary, current: GraphSnapshot = EMPTY_SNAPSHOT): GraphSnapshot {
-  const directory = new Map(
-    (summary.page_directory ?? []).map((page) => [page.id, page]),
-  );
+export function mergeSummary(
+  summary: GraphSummary,
+  current: GraphSnapshot = EMPTY_SNAPSHOT,
+): GraphSnapshot {
+  const directory = new Map((summary.page_directory ?? []).map((page) => [page.id, page]));
   const hydrate = (blocks: readonly BlockSnapshot[]) =>
     blocks.map((block) => rematerializeBlock(block, directory));
   const hydratedPages = new Map(current.pages.map((page) => [page.id, hydrate(page.blocks)]));
@@ -255,19 +254,18 @@ function rematerializeBlock(
   if (references.length === 0) {
     return childrenChanged ? { ...block, children } : block;
   }
-  const projection = materializePageReferences(
-    block.markdown,
-    references,
-    directory,
-  );
-  const referencesChanged = projection.pageReferences.length !== references.length
-    || projection.pageReferences.some((reference, index) => {
+  const projection = materializePageReferences(block.markdown, references, directory);
+  const referencesChanged =
+    projection.pageReferences.length !== references.length ||
+    projection.pageReferences.some((reference, index) => {
       const current = references[index];
-      return current === undefined
-        || reference.start !== current.start
-        || reference.end !== current.end
-        || reference.index !== current.index
-        || reference.page_id !== current.page_id;
+      return (
+        current === undefined ||
+        reference.start !== current.start ||
+        reference.end !== current.end ||
+        reference.index !== current.index ||
+        reference.page_id !== current.page_id
+      );
     });
   if (!childrenChanged && projection.markdown === block.markdown && !referencesChanged) {
     return block;
@@ -371,18 +369,17 @@ export function findOutline(
   snapshot: GraphSnapshot,
   owner: OutlineOwner,
 ): PageSnapshot | TagSnapshot | undefined {
-  return owner.kind === "page"
-    ? findPage(snapshot, owner.id)
-    : findTag(snapshot, owner.id);
+  return owner.kind === "page" ? findPage(snapshot, owner.id) : findTag(snapshot, owner.id);
 }
 
 export function findJournalPage(snapshot: GraphSnapshot, date: string): PageSnapshot | undefined {
-  return snapshot.pages.find(
-    (page) => pageKind(page) === "journal" && journalDate(page) === date,
-  );
+  return snapshot.pages.find((page) => pageKind(page) === "journal" && journalDate(page) === date);
 }
 
-export function findBlock(outline: { blocks: BlockSnapshot[] }, blockId: string): BlockSnapshot | undefined {
+export function findBlock(
+  outline: { blocks: BlockSnapshot[] },
+  blockId: string,
+): BlockSnapshot | undefined {
   const stack = [...outline.blocks];
   while (stack.length > 0) {
     const block = stack.pop()!;

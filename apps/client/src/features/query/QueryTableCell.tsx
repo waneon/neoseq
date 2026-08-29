@@ -16,10 +16,7 @@ export function QueryTableCellFrame({
   action?: ReactNode;
 }) {
   return (
-    <div
-      className="query-cell-frame"
-      data-has-action={action ? true : undefined}
-    >
+    <div className="query-cell-frame" data-has-action={action ? true : undefined}>
       {children}
       {action}
     </div>

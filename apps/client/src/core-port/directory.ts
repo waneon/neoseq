@@ -69,11 +69,7 @@ export function registerGraph(name: string): GraphSummary {
   return { id, name: name.trim(), created_at, kind: "local" };
 }
 
-export function registerRemoteGraph(
-  id: string,
-  name: string,
-  serverUrl: string,
-): GraphSummary {
+export function registerRemoteGraph(id: string, name: string, serverUrl: string): GraphSummary {
   const entries = readEntries();
   const created_at = new Date().toISOString();
   entries[id] = {
@@ -137,7 +133,6 @@ export async function listGraphs(): Promise<GraphSummary[]> {
     worker.terminate();
   }
 }
-
 
 function normalizeServerUrl(value: string): string {
   const url = new URL(value || window.location.origin, window.location.origin);

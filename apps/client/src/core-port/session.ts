@@ -277,15 +277,17 @@ export class GraphSession {
     this.patch({ status: "closed" });
   }
 
-  publishPresence(
-    presence: Omit<PeerPresence, "session_id" | "principal" | "expires_at">,
-  ): void {
+  publishPresence(presence: Omit<PeerPresence, "session_id" | "principal" | "expires_at">): void {
     void this.syncAgent?.publishPresence(presence);
   }
 
   private async executeNow(command: Command): Promise<CommandResult> {
     if (this.state.status !== "ready") {
-      const error = new CorePortFailure({ code: "graph_not_open", message: "graph is not open", retryable: false });
+      const error = new CorePortFailure({
+        code: "graph_not_open",
+        message: "graph is not open",
+        retryable: false,
+      });
       throw error;
     }
     if (this.state.mode === "readonly") {
@@ -306,15 +308,21 @@ export class GraphSession {
       const save: SaveState =
         response.save_status.status === "saved_locally"
           ? { kind: "saved", sequence: response.save_status.local_sequence }
-          : { kind: "unsaved", code: "dirty_unsaved", message: "the last change is not durable yet", retryable: true };
+          : {
+              kind: "unsaved",
+              code: "dirty_unsaved",
+              message: "the last change is not durable yet",
+              retryable: true,
+            };
       const result = response.result as CommandResult;
       const content = contentSplices(command);
-      const patched = content && result.changed
-        ? applyAcknowledgedContentSplices(this.state.snapshot, content.owner, content.splices)
-        : content
-          ? this.state.snapshot
-          : null;
-      if (patched && await this.consumeLocalEvents()) {
+      const patched =
+        content && result.changed
+          ? applyAcknowledgedContentSplices(this.state.snapshot, content.owner, content.splices)
+          : content
+            ? this.state.snapshot
+            : null;
+      if (patched && (await this.consumeLocalEvents())) {
         this.patch({
           snapshot: patched,
           save,
@@ -322,11 +330,7 @@ export class GraphSession {
           canonicalRevision: this.state.canonicalRevision + Number(result.changed),
         });
       } else {
-        await this.reconcile(
-          save,
-          commandReconcileScope(command, result),
-          result.changed,
-        );
+        await this.reconcile(save, commandReconcileScope(command, result), result.changed);
       }
       await this.syncAgent?.wake();
       return result;
@@ -364,7 +368,12 @@ export class GraphSession {
     } catch (error) {
       const detail = toPortError(error);
       this.patch({
-        save: { kind: "unsaved", code: detail.code, message: detail.message, retryable: detail.retryable },
+        save: {
+          kind: "unsaved",
+          code: detail.code,
+          message: detail.message,
+          retryable: detail.retryable,
+        },
       });
     }
   }
@@ -416,9 +425,10 @@ export class GraphSession {
 
   private async hydrateOutlinesNow(owners: readonly OutlineOwner[]): Promise<void> {
     if (this.state.status !== "ready") return;
-    const missing = owners.filter((owner) =>
-      outlineExists(this.state.snapshot, owner)
-      && !this.state.hydratedOutlines.has(outlineOwnerKey(owner)),
+    const missing = owners.filter(
+      (owner) =>
+        outlineExists(this.state.snapshot, owner) &&
+        !this.state.hydratedOutlines.has(outlineOwnerKey(owner)),
     );
     if (missing.length === 0) return;
 
@@ -449,20 +459,23 @@ export class GraphSession {
     }
     const read = await this.port.read({ graph_handle: this.handle });
     let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
-    const ownersToRead = scope.kind === "all-hydrated-outlines"
-      ? [...this.state.hydratedOutlines].map(parseOutlineKey)
-      : scope.kind === "outlines"
-        ? scope.owners.filter((owner) => this.state.hydratedOutlines.has(outlineOwnerKey(owner)))
-      : scope.kind === "outline"
-        ? [scope.owner]
-        : [];
+    const ownersToRead =
+      scope.kind === "all-hydrated-outlines"
+        ? [...this.state.hydratedOutlines].map(parseOutlineKey)
+        : scope.kind === "outlines"
+          ? scope.owners.filter((owner) => this.state.hydratedOutlines.has(outlineOwnerKey(owner)))
+          : scope.kind === "outline"
+            ? [scope.owner]
+            : [];
     for (const owner of ownersToRead) {
       if (!outlineExists(snapshot, owner)) continue;
       const response = await this.port.readOutline({ graph_handle: this.handle, owner });
       snapshot = mergeOutline(snapshot, response.outline as OutlineSnapshot);
     }
     const hydratedOutlines = new Set(
-      [...this.state.hydratedOutlines].filter((key) => outlineExists(snapshot, parseOutlineKey(key))),
+      [...this.state.hydratedOutlines].filter((key) =>
+        outlineExists(snapshot, parseOutlineKey(key)),
+      ),
     );
     for (const owner of ownersToRead) {
       if (outlineExists(snapshot, owner)) hydratedOutlines.add(outlineOwnerKey(owner));
@@ -485,11 +498,16 @@ export class GraphSession {
         graph_handle: this.handle,
         after_cursor: this.cursor,
       });
-      if (batch.resync_required || batch.events.some((event) =>
-        typeof event === "object"
-        && event !== null
-        && "source" in event
-        && event.source === "remote")) {
+      if (
+        batch.resync_required ||
+        batch.events.some(
+          (event) =>
+            typeof event === "object" &&
+            event !== null &&
+            "source" in event &&
+            event.source === "remote",
+        )
+      ) {
         return false;
       }
       this.cursor = batch.next_cursor;
@@ -554,9 +572,10 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "remove_tag":
       return {
         kind: "outline",
-        owner: command.entity.kind === "block"
-          ? command.entity.owner
-          : { kind: "page", id: command.entity.id },
+        owner:
+          command.entity.kind === "block"
+            ? command.entity.owner
+            : { kind: "page", id: command.entity.id },
       };
     case "ensure_property":
     case "set_property":
@@ -569,9 +588,10 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
         ? { kind: "summary" }
         : {
             kind: "outline",
-            owner: command.owner.kind === "block"
-              ? command.owner.owner
-              : { kind: "page", id: command.owner.id },
+            owner:
+              command.owner.kind === "block"
+                ? command.owner.owner
+                : { kind: "page", id: command.owner.id },
           };
     case "set_query_source":
     case "splice_query_source":
@@ -584,9 +604,10 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
         ? { kind: "summary" }
         : {
             kind: "outline",
-            owner: command.owner.kind === "block"
-              ? command.owner.owner
-              : { kind: "page", id: command.owner.id },
+            owner:
+              command.owner.kind === "block"
+                ? command.owner.owner
+                : { kind: "page", id: command.owner.id },
           };
     case "create_default_query":
     case "rename_default_query":
@@ -634,7 +655,7 @@ function randomPeerId(): number {
   // A 53-bit bootstrap suggestion. The repository persists the first value for
   // this graph and ignores later runtime suggestions.
   const words = crypto.getRandomValues(new Uint32Array(2));
-  return ((words[0] & 0x1fffff) * 0x1_0000_0000 + words[1]) || 1;
+  return (words[0] & 0x1fffff) * 0x1_0000_0000 + words[1] || 1;
 }
 
 const TAB_ID_KEY = "neoseq.tab-id.v1";
@@ -647,16 +668,17 @@ function tabId(): string {
   return value;
 }
 
-type RequiredSyncPort = SessionPort & SyncAgentPort & {
-  configureSync(graphHandle: string): Promise<void>;
-  importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
-  replaceRemote(
-    graphHandle: string,
-    checkpoint: number[],
-    historyEpoch: number,
-    serverVersionVector: number[],
-  ): Promise<void>;
-};
+type RequiredSyncPort = SessionPort &
+  SyncAgentPort & {
+    configureSync(graphHandle: string): Promise<void>;
+    importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+    replaceRemote(
+      graphHandle: string,
+      checkpoint: number[],
+      historyEpoch: number,
+      serverVersionVector: number[],
+    ): Promise<void>;
+  };
 
 function requireSyncPort(port: SessionPort): RequiredSyncPort {
   const methods = [

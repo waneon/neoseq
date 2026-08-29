@@ -18,13 +18,7 @@ const SAVING_DELAY_MS = 600;
  * The element stays mounted with its `data-save` attribute in every state,
  * because durability is also the thing the rest of the app waits on.
  */
-export function SaveStatus({
-  save,
-  onRetry,
-}: {
-  save: SaveState;
-  onRetry: () => void;
-}) {
+export function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void }) {
   const { message } = useI18n();
   const [showSaving, setShowSaving] = useState(false);
 
@@ -54,9 +48,7 @@ export function SaveStatus({
         data-testid="save-status"
         aria-live={save.kind === "unsaved" ? "assertive" : "off"}
       >
-        {save.kind === "saved" && (
-          <span className="sr-only">{message("save.saved")}</span>
-        )}
+        {save.kind === "saved" && <span className="sr-only">{message("save.saved")}</span>}
         {save.kind === "saving" && showSaving && (
           <>
             <span className="save-dot" aria-hidden />

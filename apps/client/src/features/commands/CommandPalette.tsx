@@ -112,8 +112,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     saved.element.focus();
     if (
       saved.start !== null &&
-      (saved.element instanceof HTMLTextAreaElement ||
-        saved.element instanceof HTMLInputElement)
+      (saved.element instanceof HTMLTextAreaElement || saved.element instanceof HTMLInputElement)
     ) {
       saved.element.setSelectionRange(saved.start, saved.end ?? saved.start);
     }
@@ -267,108 +266,108 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
           if (event.target === event.currentTarget) close(true);
         }}
       >
-      <div
-        className="cmdk enter-rise"
-        role="dialog"
-        aria-modal="true"
-        aria-label={message("commands.palette")}
-        onKeyDown={onKeyDown}
-      >
-        <div className="cmdk-input-row">
-          <SearchIcon aria-hidden />
-          <input
-            ref={inputRef}
-            className="cmdk-input"
-            type="text"
-            role="combobox"
-            aria-expanded={flat.length > 0}
-            aria-controls="cmdk-results"
-            aria-activedescendant={activeId}
-            aria-autocomplete="list"
-            aria-label={message("commands.searchLabel")}
-            placeholder={message("commands.searchPlaceholder")}
-            data-testid="command-input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-        <ul
-          ref={listRef}
-          id="cmdk-results"
-          className="cmdk-results"
-          role="listbox"
-          aria-label={message("commands.results")}
+        <div
+          className="cmdk enter-rise"
+          role="dialog"
+          aria-modal="true"
+          aria-label={message("commands.palette")}
+          onKeyDown={onKeyDown}
         >
-          {flat.length === 0 && (
-            <li className="cmdk-empty" role="status">
-              {message("commands.searchResultsEmpty", { query: query.trim() })}
-            </li>
-          )}
-          {groups.map(({ group, rows }, groupIndex) => (
-            <li key={`${group}-${groupIndex}`} role="presentation">
-              <div className="cmdk-group-title" role="presentation">
-                {message(GROUP_MESSAGE[group])}
-              </div>
-              <ul
-                role="group"
-                aria-label={message(GROUP_MESSAGE[group])}
-                className="m-0 list-none p-0"
-              >
-                {rows.map(({ command }) => {
-                  index += 1;
-                  const position = index;
-                  return (
-                    <li key={command.id} role="presentation">
-                      <div
-                        id={`cmdk-opt-${command.id}`}
-                        role="option"
-                        aria-selected={position === active}
-                        aria-disabled={command.disabledReason ? true : undefined}
-                        className="cmdk-row"
-                        data-active={position === active}
-                        data-disabled={command.disabledReason ? true : undefined}
-                        data-testid={`cmd-${command.id}`}
-                        onMouseMove={() => setActive(position)}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          runRow({ command, score: 0 });
-                        }}
-                      >
-                        {command.icon}
-                        <span className="label">{command.label}</span>
-                        <span className="hint">
-                          {command.disabledReason ?? command.hint ?? ""}
-                        </span>
-                        {command.binding && <Kbd parts={command.binding} />}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </li>
-          ))}
-        </ul>
-        {/* The keys the palette answers to, stated where the palette is. It is
+          <div className="cmdk-input-row">
+            <SearchIcon aria-hidden />
+            <input
+              ref={inputRef}
+              className="cmdk-input"
+              type="text"
+              role="combobox"
+              aria-expanded={flat.length > 0}
+              aria-controls="cmdk-results"
+              aria-activedescendant={activeId}
+              aria-autocomplete="list"
+              aria-label={message("commands.searchLabel")}
+              placeholder={message("commands.searchPlaceholder")}
+              data-testid="command-input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <ul
+            ref={listRef}
+            id="cmdk-results"
+            className="cmdk-results"
+            role="listbox"
+            aria-label={message("commands.results")}
+          >
+            {flat.length === 0 && (
+              <li className="cmdk-empty" role="status">
+                {message("commands.searchResultsEmpty", { query: query.trim() })}
+              </li>
+            )}
+            {groups.map(({ group, rows }, groupIndex) => (
+              <li key={`${group}-${groupIndex}`} role="presentation">
+                <div className="cmdk-group-title" role="presentation">
+                  {message(GROUP_MESSAGE[group])}
+                </div>
+                <ul
+                  role="group"
+                  aria-label={message(GROUP_MESSAGE[group])}
+                  className="m-0 list-none p-0"
+                >
+                  {rows.map(({ command }) => {
+                    index += 1;
+                    const position = index;
+                    return (
+                      <li key={command.id} role="presentation">
+                        <div
+                          id={`cmdk-opt-${command.id}`}
+                          role="option"
+                          aria-selected={position === active}
+                          aria-disabled={command.disabledReason ? true : undefined}
+                          className="cmdk-row"
+                          data-active={position === active}
+                          data-disabled={command.disabledReason ? true : undefined}
+                          data-testid={`cmd-${command.id}`}
+                          onMouseMove={() => setActive(position)}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            runRow({ command, score: 0 });
+                          }}
+                        >
+                          {command.icon}
+                          <span className="label">{command.label}</span>
+                          <span className="hint">
+                            {command.disabledReason ?? command.hint ?? ""}
+                          </span>
+                          {command.binding && <Kbd parts={command.binding} />}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          {/* The keys the palette answers to, stated where the palette is. It is
             the one overlay a reader is expected to drive entirely from the
             keyboard, and three eleven-pixel pairs at the foot of it is what
             every application this one competes with uses to teach that — and
             what closes the panel visually, so the last row no longer runs off a
             rounded edge into nothing. */}
-        <div className="cmdk-footer" aria-hidden>
-          <span className="cmdk-hint">
-            <Kbd parts={["↑", "↓"]} />
-            {message("commands.hintKeysNavigate")}
-          </span>
-          <span className="cmdk-hint">
-            <Kbd parts={["⏎"]} />
-            {message("commands.hintKeysSelect")}
-          </span>
-          <span className="cmdk-hint">
-            <Kbd parts={["esc"]} />
-            {message("commands.hintKeysClose")}
-          </span>
+          <div className="cmdk-footer" aria-hidden>
+            <span className="cmdk-hint">
+              <Kbd parts={["↑", "↓"]} />
+              {message("commands.hintKeysNavigate")}
+            </span>
+            <span className="cmdk-hint">
+              <Kbd parts={["⏎"]} />
+              {message("commands.hintKeysSelect")}
+            </span>
+            <span className="cmdk-hint">
+              <Kbd parts={["esc"]} />
+              {message("commands.hintKeysClose")}
+            </span>
+          </div>
         </div>
-      </div>
       </div>
     </>,
     document.body,

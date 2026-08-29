@@ -92,14 +92,18 @@ describe("block selection", () => {
 
     await session.execute({ type: "undo" });
     expect(
-      session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks
-        .map((block) => block.markdown),
+      session
+        .getState()
+        .snapshot.pages.find((entry) => entry.id === "home")
+        ?.blocks.map((block) => block.markdown),
     ).toEqual(["one", "two", "three"]);
 
     await session.execute({ type: "redo" });
     expect(
-      session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks
-        .map((block) => block.markdown),
+      session
+        .getState()
+        .snapshot.pages.find((entry) => entry.id === "home")
+        ?.blocks.map((block) => block.markdown),
     ).toEqual(["three"]);
   });
 
@@ -240,10 +244,7 @@ describe("block selection", () => {
 
     const setData = vi.fn();
     fireEvent.copy(screen.getByRole("tree"), { clipboardData: { setData } });
-    expect(setData).toHaveBeenCalledWith(
-      "text/plain",
-      "- parent\n  - child\n    continuation",
-    );
+    expect(setData).toHaveBeenCalledWith("text/plain", "- parent\n  - child\n    continuation");
   });
 
   it("pastes a Markdown list as one undoable outline command", async () => {
@@ -293,11 +294,7 @@ describe("block selection", () => {
 
     await waitFor(() => {
       const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
-      expect(page?.blocks.map((block) => block.markdown)).toEqual([
-        "Question?",
-        "one",
-        "three",
-      ]);
+      expect(page?.blocks.map((block) => block.markdown)).toEqual(["Question?", "one", "three"]);
       expect(page?.blocks[1].children.map((block) => block.markdown)).toEqual(["two"]);
     });
     expect(commands).toEqual(["insert_outline"]);
@@ -329,14 +326,18 @@ describe("block selection", () => {
     const values = new Map<string, string>();
     fireEvent.copy(screen.getByRole("tree"), {
       clipboardData: {
-        setData: (type: string, value: string) => { values.set(type, value); },
+        setData: (type: string, value: string) => {
+          values.set(type, value);
+        },
       },
     });
     expect(values.get("text/plain")).toContain("Tags: #Project");
     expect(values.get("text/html")).toContain("data-neoseq-outline=");
 
     const commands: string[] = [];
-    port.beforeExecute = async (command) => { commands.push(command.type); };
+    port.beforeExecute = async (command) => {
+      commands.push(command.type);
+    };
     fireEvent.paste(screen.getAllByLabelText("Block text")[1], {
       clipboardData: { getData: (type: string) => values.get(type) ?? "" },
     });
@@ -345,12 +346,14 @@ describe("block selection", () => {
       const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
       expect(page?.blocks.map((block) => block.markdown)).toEqual(["source", "source"]);
       expect(page?.blocks[1].tags).toEqual(["project"]);
-      expect(page?.blocks[1].properties).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          key: "builtin.task-status",
-          values: [{ type: "string", value: "doing" }],
-        }),
-      ]));
+      expect(page?.blocks[1].properties).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: "builtin.task-status",
+            values: [{ type: "string", value: "doing" }],
+          }),
+        ]),
+      );
     });
     expect(commands).toEqual(["paste_outline"]);
   });

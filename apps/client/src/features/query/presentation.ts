@@ -103,11 +103,7 @@ export function queryResultsAreOpen(graphId: string, owner: string): boolean {
   return !foldedResults.has(graphId, owner);
 }
 
-export function rememberQueryResultsOpen(
-  graphId: string,
-  owner: string,
-  open: boolean,
-): void {
+export function rememberQueryResultsOpen(graphId: string, owner: string, open: boolean): void {
   foldedResults.set(graphId, owner, !open);
 }
 
@@ -117,19 +113,11 @@ export function rememberQueryResultsOpen(
  * caption — a query with no conditions has nothing to say in one, so the builder
  * is its only honest first screen, and that stays true however often it is met.
  */
-export function queryEditorIsOpen(
-  graphId: string,
-  owner: string,
-  whenUnasked: boolean,
-): boolean {
+export function queryEditorIsOpen(graphId: string, owner: string, whenUnasked: boolean): boolean {
   return openEditors.has(graphId, owner) || whenUnasked;
 }
 
-export function rememberQueryEditorOpen(
-  graphId: string,
-  owner: string,
-  open: boolean,
-): void {
+export function rememberQueryEditorOpen(graphId: string, owner: string, open: boolean): void {
   openEditors.set(graphId, owner, open);
 }
 

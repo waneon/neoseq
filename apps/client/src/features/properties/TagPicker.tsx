@@ -37,7 +37,9 @@ export function TagPicker({
       surfaceRef={panelRef}
       dismissOnExternalScroll
       trapFocus
-      initialFocus={() => panelRef.current?.querySelector<HTMLElement>('[data-testid="tag-autocomplete"]') ?? null}
+      initialFocus={() =>
+        panelRef.current?.querySelector<HTMLElement>('[data-testid="tag-autocomplete"]') ?? null
+      }
       testId="tag-picker"
       onClose={onClose}
     >

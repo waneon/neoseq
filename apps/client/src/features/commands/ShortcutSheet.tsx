@@ -137,9 +137,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
                   <dt>{entry.label}</dt>
                   <dd>
                     {entry.keys
-                      ? entry.keys.map((parts) => (
-                          <Kbd key={parts.join("")} parts={parts} />
-                        ))
+                      ? entry.keys.map((parts) => <Kbd key={parts.join("")} parts={parts} />)
                       : entry.route}
                   </dd>
                 </Fragment>

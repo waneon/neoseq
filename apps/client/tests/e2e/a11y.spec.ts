@@ -16,12 +16,9 @@ async function audit(page: Page, include?: string): Promise<string[]> {
   let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]);
   if (include) builder = builder.include(include);
   const results = await builder.analyze();
-  return results.violations
-    .flatMap((violation) =>
-      violation.nodes.map(
-        (node) => `${violation.id}: ${violation.help} (${node.target.join(" ")})`,
-      ),
-    );
+  return results.violations.flatMap((violation) =>
+    violation.nodes.map((node) => `${violation.id}: ${violation.help} (${node.target.join(" ")})`),
+  );
 }
 
 test("graph picker passes the basic accessibility audit", async ({ page }) => {
@@ -159,7 +156,8 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   let picker = page.getByTestId("property-picker");
   await picker.getByRole("option", { name: "Priority", exact: true }).click();
   await mutateAndAwaitSaved(page, () =>
-    picker.getByRole("option", { name: "Medium", exact: true }).click());
+    picker.getByRole("option", { name: "Medium", exact: true }).click(),
+  );
   await expect(picker).toHaveCount(0);
 
   // One block per tone would be six blocks; one block whose tone moves is the
@@ -170,8 +168,7 @@ test("a task's marks and its tinted moments pass the basic audit", async ({ page
   await picker.getByLabel("Date, time, or repeat").fill("today");
   await expect(picker.getByTestId("moment-search-result")).toBeVisible();
   expect(await audit(page, '[data-testid="moment-search-result"]')).toEqual([]);
-  await mutateAndAwaitSaved(page, () =>
-    picker.getByLabel("Date, time, or repeat").press("Enter"));
+  await mutateAndAwaitSaved(page, () => picker.getByLabel("Date, time, or repeat").press("Enter"));
   await expect(picker).toHaveCount(0);
   await expect(page.getByTestId("task-chip-deadline")).toBeVisible();
 
@@ -264,20 +261,22 @@ test("settings passes the basic audit", async ({ page }) => {
   // tab takes the product's one roving highlight — the wash plus the 2px
   // accent rule at the left edge — never a drawn outline, which would be
   // outside designs/foundations.md § Geometry, Depth, and Shape.
-  await expect.poll(() => appearanceTab.evaluate((element) => {
-    const styles = getComputedStyle(element);
-    const rule = getComputedStyle(element, "::before");
-    const probe = document.createElement("span");
-    probe.style.color = "var(--accent)";
-    document.body.append(probe);
-    const accent = getComputedStyle(probe).color;
-    probe.remove();
-    return (
-      styles.outlineStyle === "none" &&
-      rule.width === "2px" &&
-      rule.backgroundColor === accent
-    );
-  })).toBe(true);
+  await expect
+    .poll(() =>
+      appearanceTab.evaluate((element) => {
+        const styles = getComputedStyle(element);
+        const rule = getComputedStyle(element, "::before");
+        const probe = document.createElement("span");
+        probe.style.color = "var(--accent)";
+        document.body.append(probe);
+        const accent = getComputedStyle(probe).color;
+        probe.remove();
+        return (
+          styles.outlineStyle === "none" && rule.width === "2px" && rule.backgroundColor === accent
+        );
+      }),
+    )
+    .toBe(true);
   expect(await audit(page)).toEqual([]);
   await page.getByTestId("settings-accent-custom").click();
   await expect(page.getByTestId("settings-accent-picker")).toBeVisible();

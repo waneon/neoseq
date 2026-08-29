@@ -24,9 +24,7 @@ type PropertyValueSpec =
   | "date"
   | { string: StringSpec }
   | { document: { schema: string; version: number } };
-type PropertyShape =
-  | { single: PropertyValueSpec }
-  | { set: PropertyValueSpec };
+type PropertyShape = { single: PropertyValueSpec } | { set: PropertyValueSpec };
 
 export type PropertyOrdering = { kind: "choice_order" };
 
@@ -176,12 +174,14 @@ export interface ValidationIssue {
 export function validateKey(key: string): ValidationIssue | null {
   const trimmed = key.trim();
   if (trimmed.length === 0) return { code: "empty_key", message: "Property key cannot be empty." };
-  if (trimmed !== key) return { code: "whitespace_key", message: "Property key cannot have surrounding whitespace." };
+  if (trimmed !== key)
+    return { code: "whitespace_key", message: "Property key cannot have surrounding whitespace." };
   if (new TextEncoder().encode(key).length > 128) {
     return { code: "key_length", message: "Property key exceeds 128 bytes." };
   }
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(key)) return { code: "control_character", message: "Property key contains a control character." };
+  if (/[\u0000-\u001f\u007f]/.test(key))
+    return { code: "control_character", message: "Property key contains a control character." };
   if (!PROPERTY_KEY_PATTERN.test(key)) {
     return {
       code: "key_format",
@@ -202,10 +202,18 @@ export function validateKey(key: string): ValidationIssue | null {
 export function validateWriteTarget(key: string, target: WritableTarget): ValidationIssue | null {
   if (canUserWrite(key, target)) return null;
   if (target === "tag_default") {
-    return { code: "default_forbidden", message: `“${key}” cannot be a tag default.`, values: { key } };
+    return {
+      code: "default_forbidden",
+      message: `“${key}” cannot be a tag default.`,
+      values: { key },
+    };
   }
   if (target === "tag_metadata") {
-    return { code: "property_target", message: `“${key}” cannot be written on a tag.`, values: { key, target } };
+    return {
+      code: "property_target",
+      message: `“${key}” cannot be written on a tag.`,
+      values: { key, target },
+    };
   }
   const spec = definition(key);
   if (spec?.placements[target] === "core" || key.startsWith("builtin.")) {
@@ -246,23 +254,35 @@ export function validateValue(
   if (!spec) return null;
   const expectedType = specValueType(spec);
   if (expectedType !== value.type) {
-    return { code: "property_type", message: `“${key}” expects a ${expectedType} value.`, values: { key, type: expectedType } };
+    return {
+      code: "property_type",
+      message: `“${key}” expects a ${expectedType} value.`,
+      values: { key, type: expectedType },
+    };
   }
   const expectedCardinality = "set" in spec.shape ? "repeated" : "single";
   if (expectedCardinality !== cardinality) {
-    return { code: "property_cardinality", message: `“${key}” is a ${expectedCardinality} property.`, values: { key, cardinality: expectedCardinality } };
+    return {
+      code: "property_cardinality",
+      message: `“${key}” is a ${expectedCardinality} property.`,
+      values: { key, cardinality: expectedCardinality },
+    };
   }
   const valueSpec = shapeValue(spec.shape);
   if (
-    typeof valueSpec !== "string"
-    && "string" in valueSpec
-    && typeof valueSpec.string !== "string"
-    && "one_of" in valueSpec.string
-    && value.type === "string"
-    && !valueSpec.string.one_of.includes(value.value)
+    typeof valueSpec !== "string" &&
+    "string" in valueSpec &&
+    typeof valueSpec.string !== "string" &&
+    "one_of" in valueSpec.string &&
+    value.type === "string" &&
+    !valueSpec.string.one_of.includes(value.value)
   ) {
     const allowed = valueSpec.string.one_of;
-    return { code: "property_strings", message: `“${key}” allows: ${allowed.join(", ")}.`, values: { key, values: allowed.join(", ") } };
+    return {
+      code: "property_strings",
+      message: `“${key}” allows: ${allowed.join(", ")}.`,
+      values: { key, values: allowed.join(", ") },
+    };
   }
   return null;
 }
@@ -276,11 +296,19 @@ export function validateFieldShape(
   if (!spec) return null;
   const expectedType = specValueType(spec);
   if (expectedType !== valueType) {
-    return { code: "property_type", message: `“${key}” expects a ${expectedType} value.`, values: { key, type: expectedType } };
+    return {
+      code: "property_type",
+      message: `“${key}” expects a ${expectedType} value.`,
+      values: { key, type: expectedType },
+    };
   }
   const expectedCardinality = "set" in spec.shape ? "repeated" : "single";
   if (expectedCardinality !== cardinality) {
-    return { code: "property_cardinality", message: `“${key}” is a ${expectedCardinality} property.`, values: { key, cardinality: expectedCardinality } };
+    return {
+      code: "property_cardinality",
+      message: `“${key}” is a ${expectedCardinality} property.`,
+      values: { key, cardinality: expectedCardinality },
+    };
   }
   return null;
 }
@@ -334,16 +362,18 @@ export function formatValue(value: PropertyValue): string {
 
 export function sameValue(left: PropertyValue, right: PropertyValue): boolean {
   if (
-    left.type === "document"
-    || right.type === "document"
-    || left.type === "unsupported_document"
-    || right.type === "unsupported_document"
+    left.type === "document" ||
+    right.type === "document" ||
+    left.type === "unsupported_document" ||
+    right.type === "unsupported_document"
   ) {
     return left.type === right.type && JSON.stringify(left.value) === JSON.stringify(right.value);
   }
   return left.type === right.type && left.value === right.value;
 }
 
-export function defaultQueryDocument(source = ""): Extract<PropertyValue, { type: "document" }>["value"] {
+export function defaultQueryDocument(
+  source = "",
+): Extract<PropertyValue, { type: "document" }>["value"] {
   return newQueryDocument(source);
 }

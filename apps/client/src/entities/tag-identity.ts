@@ -29,29 +29,14 @@
 
 import type { TagSnapshot } from "../core-port/snapshot";
 import { numberValue, stringValue } from "../core-port/snapshot";
-import {
-  moveWrites,
-  nextOrder,
-  place,
-  runWrites,
-  type Placed,
-  type Placement,
-} from "./ordering";
+import { moveWrites, nextOrder, place, runWrites, type Placed, type Placement } from "./ordering";
 
 export const TAG_GROUP_KEY = "builtin.tag-group";
 export const TAG_ORDER_KEY = "builtin.tag-order";
 export const TAG_COLOR_KEY = "builtin.tag-color";
 export const TAG_ICON_KEY = "builtin.tag-icon";
 
-export type TagColor =
-  | "red"
-  | "orange"
-  | "green"
-  | "teal"
-  | "blue"
-  | "iris"
-  | "violet"
-  | "rose";
+export type TagColor = "red" | "orange" | "green" | "teal" | "blue" | "iris" | "violet" | "rose";
 
 /** The order they are offered in: around the circle, starting warm. */
 export const TAG_COLORS: TagColor[] = [
@@ -146,7 +131,10 @@ export function orderWrites(ordered: TagSnapshot[], movedId: string): Placement[
  * dragged far less often than a tag.
  */
 export function groupOrderWrites(groups: TagGroupView[], movedIndex: number): Placement[] {
-  return runWrites(groups.map((group) => group.tags.map(placed)), movedIndex);
+  return runWrites(
+    groups.map((group) => group.tags.map(placed)),
+    movedIndex,
+  );
 }
 
 export interface TagGroupView {
@@ -187,8 +175,10 @@ export function groupedTags(
   };
   const ordered: TagGroupView[] = [...groups.entries()]
     .map(([name, members]) => ({ name, tags: [...members].sort(byOrder) }))
-    .sort((left, right) =>
-      place(rank(left.tags), rank(right.tags)) || compare(left.name ?? "", right.name ?? ""));
+    .sort(
+      (left, right) =>
+        place(rank(left.tags), rank(right.tags)) || compare(left.name ?? "", right.name ?? ""),
+    );
   if (ungrouped.length > 0) ordered.push({ name: null, tags: [...ungrouped].sort(byOrder) });
   return ordered;
 }

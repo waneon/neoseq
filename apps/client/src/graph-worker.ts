@@ -24,17 +24,18 @@ import {
   validChecksum,
   type QuarantineRecord,
 } from "./persistence";
-import {
-  TestIndexedDbGraphRepository,
-  type FaultPoint,
-} from "./testing/test-persistence";
+import { TestIndexedDbGraphRepository, type FaultPoint } from "./testing/test-persistence";
 
 interface Message {
   id: number;
   operation: string;
   payload: unknown;
 }
-interface EventRecord { cursor: number; source: "local" | "remote"; kind: Record<string, unknown>; }
+interface EventRecord {
+  cursor: number;
+  source: "local" | "remote";
+  kind: Record<string, unknown>;
+}
 interface PendingWrite {
   payload: ArrayBuffer;
   semantic: string;
@@ -76,38 +77,101 @@ self.onmessage = async (event: MessageEvent<Message>) => {
       value = await testControl(payload as Record<string, unknown>);
     } else {
       switch (operation) {
-        case "open_graph": await ensureWasm(); value = await openGraph(payload as OpenGraphRequest); break;
-        case "execute": await ensureWasm(); value = await execute(payload as ExecuteRequest); break;
-        case "read": await ensureWasm(); value = read(payload as ReadRequest); break;
-        case "read_outline": await ensureWasm(); value = readOutline(payload as ReadOutlineRequest); break;
-        case "query": await ensureWasm(); value = query(payload as QueryRequest); break;
-        case "subscribe": await ensureWasm(); value = subscribe(payload as SubscribeRequest); break;
-        case "close_graph": await ensureWasm(); value = await closeGraph(payload as CloseGraphRequest); break;
-        case "retry_pending": await ensureWasm(); value = await retryPending(payload as { graph_handle: string }); break;
-        case "list_graphs": value = await createRepository().allMetadata(); break;
-        case "delete_graph": value = await deleteGraph(payload as { graph_id: string }); break;
-        case "export_archive": await ensureWasm(); value = exportArchive(payload as {
-          graph_handle: string;
-          suggested_name: string;
-        }); break;
-        case "import_archive": await ensureWasm(); value = await importArchive(payload as {
-          bytes: ArrayBuffer | Uint8Array;
-        }); break;
-        case "storage_capabilities": value = await storageCapabilities(payload as { graph_handle: string }); break;
-        case "sync_configure": value = await configureSync(payload as { graph_handle: string }); break;
-        case "sync_state": value = await syncState(payload as { graph_handle: string }); break;
-        case "sync_next": value = await syncNext(payload as { graph_handle: string }); break;
-        case "sync_ack": value = await syncAck(payload as { graph_handle: string; message_id: string }); break;
-        case "sync_import": value = await syncImport(payload as { graph_handle: string; bytes: ArrayBuffer | Uint8Array }); break;
-        case "sync_replace": value = await syncReplace(payload as {
-          graph_handle: string;
-          checkpoint: ArrayBuffer | Uint8Array;
-          history_epoch: number;
-          server_version_vector: ArrayBuffer | Uint8Array;
-        }); break;
-        case "sync_encode": await ensureWasm(); value = syncEncode(payload); break;
-        case "sync_decode": await ensureWasm(); value = syncDecode(payload as { frame: ArrayBuffer | Uint8Array }); break;
-        default: throw failure("invalid_request", `unknown operation: ${operation}`, false);
+        case "open_graph":
+          await ensureWasm();
+          value = await openGraph(payload as OpenGraphRequest);
+          break;
+        case "execute":
+          await ensureWasm();
+          value = await execute(payload as ExecuteRequest);
+          break;
+        case "read":
+          await ensureWasm();
+          value = read(payload as ReadRequest);
+          break;
+        case "read_outline":
+          await ensureWasm();
+          value = readOutline(payload as ReadOutlineRequest);
+          break;
+        case "query":
+          await ensureWasm();
+          value = query(payload as QueryRequest);
+          break;
+        case "subscribe":
+          await ensureWasm();
+          value = subscribe(payload as SubscribeRequest);
+          break;
+        case "close_graph":
+          await ensureWasm();
+          value = await closeGraph(payload as CloseGraphRequest);
+          break;
+        case "retry_pending":
+          await ensureWasm();
+          value = await retryPending(payload as { graph_handle: string });
+          break;
+        case "list_graphs":
+          value = await createRepository().allMetadata();
+          break;
+        case "delete_graph":
+          value = await deleteGraph(payload as { graph_id: string });
+          break;
+        case "export_archive":
+          await ensureWasm();
+          value = exportArchive(
+            payload as {
+              graph_handle: string;
+              suggested_name: string;
+            },
+          );
+          break;
+        case "import_archive":
+          await ensureWasm();
+          value = await importArchive(
+            payload as {
+              bytes: ArrayBuffer | Uint8Array;
+            },
+          );
+          break;
+        case "storage_capabilities":
+          value = await storageCapabilities(payload as { graph_handle: string });
+          break;
+        case "sync_configure":
+          value = await configureSync(payload as { graph_handle: string });
+          break;
+        case "sync_state":
+          value = await syncState(payload as { graph_handle: string });
+          break;
+        case "sync_next":
+          value = await syncNext(payload as { graph_handle: string });
+          break;
+        case "sync_ack":
+          value = await syncAck(payload as { graph_handle: string; message_id: string });
+          break;
+        case "sync_import":
+          value = await syncImport(
+            payload as { graph_handle: string; bytes: ArrayBuffer | Uint8Array },
+          );
+          break;
+        case "sync_replace":
+          value = await syncReplace(
+            payload as {
+              graph_handle: string;
+              checkpoint: ArrayBuffer | Uint8Array;
+              history_epoch: number;
+              server_version_vector: ArrayBuffer | Uint8Array;
+            },
+          );
+          break;
+        case "sync_encode":
+          await ensureWasm();
+          value = syncEncode(payload);
+          break;
+        case "sync_decode":
+          await ensureWasm();
+          value = syncDecode(payload as { frame: ArrayBuffer | Uint8Array });
+          break;
+        default:
+          throw failure("invalid_request", `unknown operation: ${operation}`, false);
       }
     }
     if (value instanceof ArrayBuffer) {
@@ -133,10 +197,14 @@ async function openGraph(request: OpenGraphRequest) {
   const repository = createRepository();
   const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
   if (
-    metadata.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION
-    || metadata.schema_version > SCHEMA_VERSION
+    metadata.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION ||
+    metadata.schema_version > SCHEMA_VERSION
   ) {
-    throw failure("unsupported_schema", `unsupported schema version ${metadata.schema_version}`, false);
+    throw failure(
+      "unsupported_schema",
+      `unsupported schema version ${metadata.schema_version}`,
+      false,
+    );
   }
   const recovery = await recover(repository, request.locator.graph_id, metadata);
   const state: OpenState = {
@@ -162,19 +230,23 @@ async function recover(
   metadata: { replica_id: number; schema_version: number; next_sequence: number },
 ) {
   const quarantinedRecords: string[] = [];
-  let selected: {
-    core: WasmGraphCore;
-    payload: ArrayBuffer;
-    sequence: number;
-  } | undefined;
+  let selected:
+    | {
+        core: WasmGraphCore;
+        payload: ArrayBuffer;
+        sequence: number;
+      }
+    | undefined;
   const checkpoints = await repository.checkpointsDescending(graphId);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
     if (
-      checkpoint.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION
-      || checkpoint.schema_version > SCHEMA_VERSION
-    ) reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
-    else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload))) reason = "checkpoint-checksum-mismatch";
+      checkpoint.schema_version < MIN_MIGRATABLE_SCHEMA_VERSION ||
+      checkpoint.schema_version > SCHEMA_VERSION
+    )
+      reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
+    else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload)))
+      reason = "checkpoint-checksum-mismatch";
     else {
       try {
         selected = {
@@ -192,7 +264,12 @@ async function recover(
       }
     }
     const exportHandle = `checkpoint-${checkpoint.local_sequence}`;
-    await repository.quarantine({ ...checkpoint, export_handle: exportHandle, record_kind: "checkpoint", reason: reason ?? "invalid-checkpoint" });
+    await repository.quarantine({
+      ...checkpoint,
+      export_handle: exportHandle,
+      record_kind: "checkpoint",
+      reason: reason ?? "invalid-checkpoint",
+    });
     quarantinedRecords.push(exportHandle);
   }
   if (!selected && checkpoints.length > 0) {
@@ -201,13 +278,7 @@ async function recover(
   if (!selected) {
     const core = new WasmGraphCore(graphId, BigInt(metadata.replica_id), now());
     const snapshot = ownedBuffer(core.exportGcCheckpoint());
-    await repository.installCheckpoint(
-      graphId,
-      snapshot,
-      0,
-      SCHEMA_VERSION,
-      now(),
-    );
+    await repository.installCheckpoint(graphId, snapshot, 0, SCHEMA_VERSION, now());
     selected = { core, payload: snapshot, sequence: 0 };
   }
   const base = selected;
@@ -216,11 +287,12 @@ async function recover(
   const checksums = await Promise.all(
     updates.map((update) => validChecksum(update.checksum, update.payload)),
   );
-  const createBase = () => WasmGraphCore.fromRecoverySnapshot(
-    graphId,
-    BigInt(metadata.replica_id),
-    new Uint8Array(base.payload),
-  );
+  const createBase = () =>
+    WasmGraphCore.fromRecoverySnapshot(
+      graphId,
+      BigInt(metadata.replica_id),
+      new Uint8Array(base.payload),
+    );
 
   let core = base.core;
   let replayedUpdates = 0;
@@ -309,9 +381,11 @@ async function recover(
 }
 
 async function execute(request: ExecuteRequest) {
-  if (request.timeout_ms === 0) throw failure("command_timeout", "command deadline elapsed before dispatch", true);
+  if (request.timeout_ms === 0)
+    throw failure("command_timeout", "command deadline elapsed before dispatch", true);
   const state = requireState(request.graph_handle);
-  if (state.pending) throw failure("dirty_unsaved", "retry pending update before another mutation", true);
+  if (state.pending)
+    throw failure("dirty_unsaved", "retry pending update before another mutation", true);
   const baseVersionVector = ownedBuffer(state.core.versionVector());
   const raw = state.core.executeJson(JSON.stringify(request.command), now());
   const execution = JSON.parse(raw) as {
@@ -324,7 +398,11 @@ async function execute(request: ExecuteRequest) {
     const metadata = await state.repository.metadata(state.graphId);
     return {
       result: execution.result,
-      save_status: { status: "saved_locally", local_sequence: metadata.next_sequence - 1, checksum: "" },
+      save_status: {
+        status: "saved_locally",
+        local_sequence: metadata.next_sequence - 1,
+        checksum: "",
+      },
     };
   }
   const command = request.command as { command_id?: string };
@@ -386,9 +464,9 @@ async function maybeCompact(state: OpenState, force = false): Promise<void> {
     0,
   );
   if (
-    !force
-    && uncompacted.length < COMPACT_TAIL_UPDATES
-    && uncompactedBytes < COMPACT_TAIL_BYTES
+    !force &&
+    uncompacted.length < COMPACT_TAIL_UPDATES &&
+    uncompactedBytes < COMPACT_TAIL_BYTES
   ) {
     return;
   }
@@ -448,7 +526,8 @@ function subscribe(request: SubscribeRequest) {
 
 async function closeGraph(request: CloseGraphRequest) {
   const state = requireState(request.graph_handle);
-  if (state.pending) throw failure("dirty_unsaved", "close rejected while an update is not durable", true);
+  if (state.pending)
+    throw failure("dirty_unsaved", "close rejected while an update is not durable", true);
   if (state.remote) {
     // Remote history is retained until the server publishes a GC epoch.
     const metadata = await state.repository.metadata(state.graphId);
@@ -489,13 +568,15 @@ function exportArchive(payload: { graph_handle: string; suggested_name: string }
     throw failure("dirty_unsaved", "save the pending update before exporting", true);
   }
   try {
-    return ownedBuffer(encodeGraphArchive(
-      state.core.exportSnapshot(),
-      state.graphId,
-      `archive-${crypto.randomUUID()}`,
-      now(),
-      payload.suggested_name,
-    ));
+    return ownedBuffer(
+      encodeGraphArchive(
+        state.core.exportSnapshot(),
+        state.graphId,
+        `archive-${crypto.randomUUID()}`,
+        now(),
+        payload.suggested_name,
+      ),
+    );
   } catch (error) {
     throw archiveFailure(error);
   }
@@ -510,8 +591,8 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
         suggested_name?: string;
       };
       if (
-        manifest.source.document_schema < MIN_MIGRATABLE_SCHEMA_VERSION
-        || manifest.source.document_schema > SCHEMA_VERSION
+        manifest.source.document_schema < MIN_MIGRATABLE_SCHEMA_VERSION ||
+        manifest.source.document_schema > SCHEMA_VERSION
       ) {
         throw failure(
           "unsupported_schema",
@@ -613,21 +694,14 @@ async function syncAck(payload: { graph_handle: string; message_id: string }) {
   return null;
 }
 
-async function syncImport(payload: {
-  graph_handle: string;
-  bytes: ArrayBuffer | Uint8Array;
-}) {
+async function syncImport(payload: { graph_handle: string; bytes: ArrayBuffer | Uint8Array }) {
   const state = requireState(payload.graph_handle);
   if (state.pending) {
     throw failure("dirty_unsaved", "save the local update before importing remote state", true);
   }
   const bytes = asUint8Array(payload.bytes);
   state.core.validateUpdate(bytes);
-  const receipt = await state.repository.appendUpdate(
-    state.graphId,
-    ownedBuffer(bytes),
-    now(),
-  );
+  const receipt = await state.repository.appendUpdate(state.graphId, ownedBuffer(bytes), now());
   state.core.importUpdate(bytes);
   push(state, "remote", { type: "semantic", name: "remote_import" });
   push(state, "remote", { type: "saved_locally", ...receipt });
@@ -692,23 +766,34 @@ async function testControl(payload: Record<string, unknown>) {
       (state.repository as TestIndexedDbGraphRepository).injectOnce(payload.fault as FaultPoint);
       return null;
     }
-    case "corrupt_update": return repository.corruptUpdate(String(payload.graph_id), Number(payload.sequence)).then(() => null);
-    case "quarantine_count": return repository.quarantineCount(String(payload.graph_id));
-    case "export_quarantine": return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
-    case "storage_stats": return repository.storageStats(String(payload.graph_id));
+    case "corrupt_update":
+      return repository
+        .corruptUpdate(String(payload.graph_id), Number(payload.sequence))
+        .then(() => null);
+    case "quarantine_count":
+      return repository.quarantineCount(String(payload.graph_id));
+    case "export_quarantine":
+      return repository.exportQuarantine(String(payload.graph_id), String(payload.export_handle));
+    case "storage_stats":
+      return repository.storageStats(String(payload.graph_id));
     case "recovery_read_stats": {
       const state = requireState(String(payload.graph_handle));
       return state.repository instanceof TestIndexedDbGraphRepository
         ? state.repository.recoveryReadStats()
         : null;
     }
-    case "replica_id": return repository.metadata(String(payload.graph_id)).then((value) => value.replica_id);
-    case "schema_version": return repository.metadata(String(payload.graph_id)).then((value) => value.schema_version);
-    case "install_legacy_fixture": return repository.installLegacyFixture(
-      String(payload.graph_id),
-      Number(payload.schema_version),
-      ownedBuffer(asUint8Array(payload.snapshot as ArrayBuffer | Uint8Array)),
-    ).then(() => null);
+    case "replica_id":
+      return repository.metadata(String(payload.graph_id)).then((value) => value.replica_id);
+    case "schema_version":
+      return repository.metadata(String(payload.graph_id)).then((value) => value.schema_version);
+    case "install_legacy_fixture":
+      return repository
+        .installLegacyFixture(
+          String(payload.graph_id),
+          Number(payload.schema_version),
+          ownedBuffer(asUint8Array(payload.snapshot as ArrayBuffer | Uint8Array)),
+        )
+        .then(() => null);
     case "gc_checkpoint": {
       const state = requireState(String(payload.graph_handle));
       return {
@@ -716,9 +801,8 @@ async function testControl(payload: Record<string, unknown>) {
         version_vector: [...state.core.versionVector()],
       };
     }
-    case "query_index_ready": return requireState(
-      String(payload.graph_handle),
-    ).core.queryIndexReady();
+    case "query_index_ready":
+      return requireState(String(payload.graph_handle)).core.queryIndexReady();
     case "fixture_update": {
       const core = WasmGraphCore.fromSnapshot(
         String(payload.graph_id),
@@ -728,8 +812,12 @@ async function testControl(payload: Record<string, unknown>) {
       core.executeJson(JSON.stringify(payload.command), now());
       return [...core.takeUpdate()];
     }
-    case "set_schema": return repository.setSchemaVersion(String(payload.graph_id), Number(payload.schema_version)).then(() => null);
-    default: throw failure("invalid_request", "unknown test control action", false);
+    case "set_schema":
+      return repository
+        .setSchemaVersion(String(payload.graph_id), Number(payload.schema_version))
+        .then(() => null);
+    default:
+      throw failure("invalid_request", "unknown test control action", false);
   }
 }
 
@@ -755,13 +843,20 @@ function failure(code: CorePortError["code"], message: string, retryable: boolea
 }
 
 function normalizeError(error: unknown): CorePortError {
-  if (error instanceof StorageError) return { code: error.code, message: error.message, retryable: error.retryable };
+  if (error instanceof StorageError)
+    return { code: error.code, message: error.message, retryable: error.retryable };
   if (isCorePortError(error)) return error;
   return failure("internal", error instanceof Error ? error.message : String(error), false);
 }
 
 function isCorePortError(error: unknown): error is CorePortError {
-  return typeof error === "object" && error !== null && "code" in error && "message" in error && "retryable" in error;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "message" in error &&
+    "retryable" in error
+  );
 }
 
 function archiveFailure(error: unknown): CorePortError {

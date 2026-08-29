@@ -1,19 +1,10 @@
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
-import type {
-  PropertyValue,
-  QueryViewFieldSort,
-  QueryViewSort,
-} from "../../core-port/snapshot";
+import type { PropertyValue, QueryViewFieldSort, QueryViewSort } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
 import type { PlanField } from "../../entities/query-plan";
 import { flattenOutline, type OutlineRow } from "../../entities/outline";
 import { findOutline, outlineOwnerKey } from "../../core-port/snapshot";
-import {
-  entityName,
-  type CellContext,
-  type ResultColumn,
-  type ResultViewRow,
-} from "./cells";
+import { entityName, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
 
 function fixedBucket(comparison: number, descending: boolean): number {
   // TanStack reverses the comparator for descending order. Bucket placement is
@@ -75,7 +66,7 @@ export function compareResultTerms(
     }
   }
   if (semantics.kind === "boolean") {
-    const rank = (value: string) => value === "true" || value === "1" ? 1 : 0;
+    const rank = (value: string) => (value === "true" || value === "1" ? 1 : 0);
     return rank(left.value) - rank(right.value);
   }
 
@@ -84,10 +75,7 @@ export function compareResultTerms(
   if (semantics.kind === "date") {
     return left.value === right.value ? 0 : left.value < right.value ? -1 : 1;
   }
-  return context.compare(
-    textOf(left, semantics, context),
-    textOf(right, semantics, context),
-  );
+  return context.compare(textOf(left, semantics, context), textOf(right, semantics, context));
 }
 
 /**
@@ -171,7 +159,9 @@ function fieldTerms(
       return row.block.tags.map((id) => entityTerm({ kind: "tag", id }));
     case "page":
     case "ancestor":
-      return entity.owner.kind === "page" ? [entityTerm({ kind: "page", id: entity.owner.id })] : [];
+      return entity.owner.kind === "page"
+        ? [entityTerm({ kind: "page", id: entity.owner.id })]
+        : [];
     case "sibling_index":
       return [literalTerm(String(row.index), "integer")];
   }
@@ -187,8 +177,7 @@ function compareTermLists(
   if (left.length === 0 || right.length === 0) {
     return compareResultTerms(left[0], right[0], semantics, context, descending);
   }
-  const compare = (a: RdfTerm, b: RdfTerm) =>
-    compareResultTerms(a, b, semantics, context, false);
+  const compare = (a: RdfTerm, b: RdfTerm) => compareResultTerms(a, b, semantics, context, false);
   const leftValues = [...left].sort(compare);
   const rightValues = [...right].sort(compare);
   const shared = Math.min(leftValues.length, rightValues.length);

@@ -98,21 +98,13 @@ function contiguousEdit(
   }
 
   let start = 0;
-  while (
-    start < before.length &&
-    start < after.length &&
-    before[start] === after[start]
-  ) {
+  while (start < before.length && start < after.length && before[start] === after[start]) {
     start += 1;
   }
 
   let oldEnd = before.length;
   let newEnd = after.length;
-  while (
-    oldEnd > start &&
-    newEnd > start &&
-    before[oldEnd - 1] === after[newEnd - 1]
-  ) {
+  while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) {
     oldEnd -= 1;
     newEnd -= 1;
   }
@@ -133,16 +125,12 @@ export function transformAutoClosers(
 ): AutoCloserMarker[] {
   if (before === after) {
     return markers.filter(
-      (marker) => after.slice(marker.offset, marker.offset + marker.closer.length) === marker.closer,
+      (marker) =>
+        after.slice(marker.offset, marker.offset + marker.closer.length) === marker.closer,
     );
   }
 
-  const { start, oldEnd, newEnd } = contiguousEdit(
-    before,
-    after,
-    preferredStart,
-    preferredEnd,
-  );
+  const { start, oldEnd, newEnd } = contiguousEdit(before, after, preferredStart, preferredEnd);
   const delta = newEnd - oldEnd;
   const transformed: AutoCloserMarker[] = [];
 
@@ -181,13 +169,7 @@ export function planAutoPairInputRepair(
   const inserted = after.slice(edit.start, edit.newEnd);
   if (inserted.length === 0) return null;
 
-  const transformed = transformAutoClosers(
-    before,
-    after,
-    markers,
-    preferredStart,
-    preferredEnd,
-  );
+  const transformed = transformAutoClosers(before, after, markers, preferredStart, preferredEnd);
   for (const marker of transformed) {
     const insertedCloserStart = edit.newEnd - marker.closer.length;
     if (

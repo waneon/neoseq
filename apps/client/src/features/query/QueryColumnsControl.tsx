@@ -67,10 +67,10 @@ export function columnChoices(
   const selected = new Map(columns.map((column) => [columnSourceKey(column.source), column]));
   const offered = new Set(sources.map(columnSourceKey));
   const orphans = columns
-    .filter((column) => (
-      isDisplayColumnSource(column.source)
-      && !offered.has(columnSourceKey(column.source))
-    ))
+    .filter(
+      (column) =>
+        isDisplayColumnSource(column.source) && !offered.has(columnSourceKey(column.source)),
+    )
     .map((column) => column.source);
   return [...sources, ...orphans].map((source) => {
     const key = columnSourceKey(source);
@@ -183,10 +183,7 @@ function ColumnRow({
   onToggle: (choice: ColumnChoice, shown: boolean) => void;
 }) {
   return (
-    <li
-      className="query-columns-row"
-      data-shown={choice.shown || undefined}
-    >
+    <li className="query-columns-row" data-shown={choice.shown || undefined}>
       <label className="query-columns-toggle">
         <input
           type="checkbox"

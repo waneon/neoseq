@@ -44,7 +44,9 @@ self.addEventListener("fetch", (event) => {
           void caches.open(CACHE).then((cache) => cache.put("/", copy));
           return response;
         })
-        .catch(() => caches.match("/", { ignoreVary: true }).then((hit) => hit ?? Response.error())),
+        .catch(() =>
+          caches.match("/", { ignoreVary: true }).then((hit) => hit ?? Response.error()),
+        ),
     );
     return;
   }

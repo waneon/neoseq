@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { GraphSession } from "../../core-port/session";
-import type {
-  SparqlQueryRequest,
-  SparqlQueryResult,
-} from "../../generated/core-port";
+import type { SparqlQueryRequest, SparqlQueryResult } from "../../generated/core-port";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -75,11 +72,7 @@ export class QueryExecutionStore {
     };
   }
 
-  snapshot(
-    owner: string,
-    signature: string,
-    canonicalRevision: number,
-  ): QueryExecutionSnapshot {
+  snapshot(owner: string, signature: string, canonicalRevision: number): QueryExecutionSnapshot {
     const entry = this.entries.get(owner);
     if (!entry) return { result: null, error: null, loading: false };
     const matches = (tagged: { signature: string; canonicalRevision: number }) =>
@@ -115,10 +108,10 @@ export class QueryExecutionStore {
 
     if (entry.pending && same(entry.pending)) return entry.pending.promise;
     if (
-      !options.force
-      && entry.result
-      && same(entry.result)
-      && !(entry.error && same(entry.error))
+      !options.force &&
+      entry.result &&
+      same(entry.result) &&
+      !(entry.error && same(entry.error))
     ) {
       // Returning to a cached identity supersedes work for an identity the
       // component no longer wants. The Promise cannot be cancelled, but its
@@ -163,8 +156,9 @@ export class QueryExecutionStore {
   /** Resolves after every query that is currently owned by this store settles. */
   async whenIdle(): Promise<void> {
     while (true) {
-      const pending = [...this.entries.values()]
-        .flatMap((entry) => entry.pending ? [entry.pending.promise] : []);
+      const pending = [...this.entries.values()].flatMap((entry) =>
+        entry.pending ? [entry.pending.promise] : [],
+      );
       if (pending.length === 0) return;
       await Promise.allSettled(pending);
     }
@@ -192,8 +186,9 @@ export class QueryExecutionStore {
 
   private trim(): void {
     while (this.entries.size > MAX_CACHED_QUERIES) {
-      const disposable = [...this.entries].find(([owner, entry]) =>
-        !entry.pending && !this.listeners.has(owner));
+      const disposable = [...this.entries].find(
+        ([owner, entry]) => !entry.pending && !this.listeners.has(owner),
+      );
       if (!disposable) return;
       this.entries.delete(disposable[0]);
       this.versions.delete(disposable[0]);
@@ -270,13 +265,16 @@ export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryA
   const executable = request.source.trim().length > 0;
 
   const snapshot = useQueryExecution(store, key, signature, revision);
-  const run = useCallback((force = false) => {
-    if (!executable) {
-      store.clear(key);
-      return;
-    }
-    void store.run(key, signature, revision, request, { force });
-  }, [executable, key, request, revision, signature, store]);
+  const run = useCallback(
+    (force = false) => {
+      if (!executable) {
+        store.clear(key);
+        return;
+      }
+      void store.run(key, signature, revision, request, { force });
+    },
+    [executable, key, request, revision, signature, store],
+  );
 
   const previous = useRef<{ key: string; identity: string } | null>(null);
   useEffect(() => {
@@ -304,9 +302,7 @@ export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryA
 
   return {
     result: executable ? snapshot.result : null,
-    error: executable && snapshot.error !== null
-      ? failureReason(snapshot.error, message)
-      : null,
+    error: executable && snapshot.error !== null ? failureReason(snapshot.error, message) : null,
     loading: executable && snapshot.loading,
     run,
   };

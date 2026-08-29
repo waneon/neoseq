@@ -22,10 +22,7 @@ export function VisualVerificationPage() {
   return (
     <main className="visual-verification">
       <section aria-label="Focused controls" className="visual-verification-section">
-        <div
-          className="property-picker visual-property-picker"
-          data-testid="visual-focus-picker"
-        >
+        <div className="property-picker visual-property-picker" data-testid="visual-focus-picker">
           <header className="property-picker-head">
             <div>
               <strong>Scheduled</strong>
@@ -71,7 +68,10 @@ export function VisualVerificationPage() {
         </article>
         <article>
           <h2>Markdown · table</h2>
-          <BlockMarkdown markdown={"## Shared meaning — **compact** projection"} variant="compact" />
+          <BlockMarkdown
+            markdown={"## Shared meaning — **compact** projection"}
+            variant="compact"
+          />
         </article>
         <article className="visual-query-contract">
           <h2>Query table · geometry contract</h2>
@@ -83,13 +83,13 @@ export function VisualVerificationPage() {
           >
             <thead>
               <tr>
-                {["Status", "Scheduled", "Text", "Markdown", "Tags", "Check"].map(
-                  (label) => (
-                    <th key={label} scope="col">
-                      <div className="query-th"><span>{label}</span></div>
-                    </th>
-                  ),
-                )}
+                {["Status", "Scheduled", "Text", "Markdown", "Tags", "Check"].map((label) => (
+                  <th key={label} scope="col">
+                    <div className="query-th">
+                      <span>{label}</span>
+                    </div>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>

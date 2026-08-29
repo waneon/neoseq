@@ -7,10 +7,9 @@ const keyOf = (value: number) => String(value);
 describe("progressive query rows", () => {
   it("grows in bounded windows and resets immediately for a new answer", () => {
     const first = Array.from({ length: 250 }, (_, index) => index);
-    const { result, rerender } = renderHook(
-      ({ rows }) => useProgressiveRows(rows, keyOf),
-      { initialProps: { rows: first } },
-    );
+    const { result, rerender } = renderHook(({ rows }) => useProgressiveRows(rows, keyOf), {
+      initialProps: { rows: first },
+    });
     expect(result.current.rows).toHaveLength(100);
     expect(result.current.remaining).toBe(150);
 

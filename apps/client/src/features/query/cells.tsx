@@ -33,10 +33,7 @@ import type { MessageFunction } from "../../i18n";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 import { TaskMoment } from "../tasks/TaskMoment";
-import {
-  presentTaskMoment,
-  type TaskMomentDuePresentation,
-} from "../tasks/moment-presentation";
+import { presentTaskMoment, type TaskMomentDuePresentation } from "../tasks/moment-presentation";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 
@@ -222,7 +219,7 @@ function EntityLink({
 export function rowSubject(row: ResultRow, context: CellContext): QueryEntityRef | undefined {
   if (!context.subjectVariable) return undefined;
   const term = row[context.subjectVariable];
-  return term?.kind === "iri" ? term.entity ?? undefined : undefined;
+  return term?.kind === "iri" ? (term.entity ?? undefined) : undefined;
 }
 
 /** A cell, rendered by what its column asked the graph for. */
@@ -249,9 +246,11 @@ export function CellValue({
   // nothing written in it still needs an accessible name of its own.
   if (column.source?.kind === "content" && subject && term?.kind === "literal") {
     const empty = term.value.trim().length === 0;
-    const content = hasMarkdownSyntax(term.value)
-      ? <BlockMarkdown markdown={term.value} variant="compact" />
-      : term.value;
+    const content = hasMarkdownSyntax(term.value) ? (
+      <BlockMarkdown markdown={term.value} variant="compact" />
+    ) : (
+      term.value
+    );
     return (
       <EntityLink
         entity={subject}
@@ -273,7 +272,9 @@ export function CellValue({
       return (
         <span className="query-tags">
           {members.map((name) => (
-            <span key={name} className="query-tag-chip">{name}</span>
+            <span key={name} className="query-tag-chip">
+              {name}
+            </span>
           ))}
         </span>
       );
@@ -305,15 +306,7 @@ export function CellValue({
   // The exact date and optional time remain written in full, so the tone is not
   // the only record of the fact. No glyph: the heading already names the moment.
   if (key && isTaskDateKey(key) && term.kind === "literal" && term.datatype === XSD_DATE) {
-    return (
-      <DueValue
-        taskKey={key}
-        date={term.value}
-        column={column}
-        context={context}
-        row={row}
-      />
-    );
+    return <DueValue taskKey={key} date={term.value} column={column} context={context} row={row} />;
   }
   if (key && valueTypeOf(key) === "checkbox" && term.kind === "literal") {
     const checked = term.value === "true";
@@ -360,14 +353,13 @@ function DueValue({
   const companion = row?.[momentTimeVariable(column.variable)];
   // A stored time that is not one is the reader's own string: it does not
   // refine the day and it does not get drawn as if it did.
-  const time = companion?.kind === "literal" && isTimeOfDay(companion.value)
-    ? companion.value
-    : undefined;
+  const time =
+    companion?.kind === "literal" && isTimeOfDay(companion.value) ? companion.value : undefined;
   const value = presentTaskMoment({
     key: taskKey,
     date,
     time,
-    due: row ? context.momentDue?.(date, time, row) ?? null : null,
+    due: row ? (context.momentDue?.(date, time, row) ?? null) : null,
     repeating: false,
     message: context.message,
     formatDate: context.formatDate,

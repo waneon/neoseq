@@ -50,8 +50,8 @@ export function overlayReducer(state: OutlineOverlay, action: OverlayAction): Ou
         : state;
     case "replace-pending-block":
       if (
-        (state.kind !== "slash" && state.kind !== "hash" && state.kind !== "page")
-        || state.request.blockId !== action.pendingId
+        (state.kind !== "slash" && state.kind !== "hash" && state.kind !== "page") ||
+        state.request.blockId !== action.pendingId
       ) {
         return state;
       }

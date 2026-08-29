@@ -1,7 +1,4 @@
-{
-  lib,
-  runCommandLocal,
-}:
+{ lib, runCommandLocal }:
 
 {
   name,

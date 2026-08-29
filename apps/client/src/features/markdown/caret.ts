@@ -69,9 +69,9 @@ export function alignSourceOffset(source: string, rendered: string, index: numbe
   const next = rendered[index];
   if (next !== undefined) {
     while (
-      read < source.length
-      && source[read] !== next
-      && !(isWhitespace(source[read]) && isWhitespace(next))
+      read < source.length &&
+      source[read] !== next &&
+      !(isWhitespace(source[read]) && isWhitespace(next))
     ) {
       read += 1;
     }

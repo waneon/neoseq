@@ -157,9 +157,8 @@ export function TaskStatusMenu({
   // value: it stays listed with its own (dashed) glyph. The *absence* of one is
   // not — a query result's status column is empty on any row that has no status,
   // and listing "" would offer a blank row above the four real answers.
-  const options = !status || TASK_STATUSES.includes(status)
-    ? TASK_STATUSES
-    : [status, ...TASK_STATUSES];
+  const options =
+    !status || TASK_STATUSES.includes(status) ? TASK_STATUSES : [status, ...TASK_STATUSES];
 
   return (
     <DropdownMenuContent align="start" aria-label={message("task.statusLabel")}>
@@ -169,11 +168,7 @@ export function TaskStatusMenu({
           sitting at `done` — silently did nothing. */}
       <DropdownMenuRadioGroup value={status}>
         {options.map((option) => (
-          <DropdownMenuRadioItem
-            key={option}
-            value={option}
-            onSelect={() => choose(option)}
-          >
+          <DropdownMenuRadioItem key={option} value={option} onSelect={() => choose(option)}>
             <TaskStatusGlyph status={option} />
             {option === "done" && recurs
               ? message("task.completeOccurrence")

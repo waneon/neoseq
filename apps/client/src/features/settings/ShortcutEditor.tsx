@@ -134,56 +134,56 @@ export function ShortcutEditor() {
         <h2>{message("settings.globalShortcuts")}</h2>
         <p>{message("settings.shortcutsDescription", { mod: MOD })}</p>
         <div className="shortcut-list" data-testid="shortcut-editor">
-        {SHORTCUT_IDS.map((id) => {
-          const binding = bindings[id];
-          const action = message(SHORTCUT_MESSAGE[id]);
-          const isDefault = isDefaultBinding(id, binding);
-          return (
-            <div className="shortcut-row" key={id}>
-              <span className="label">{action}</span>
-              <button
-                type="button"
-                ref={(node) => {
-                  buttons.current.set(id, node);
-                }}
-                className="shortcut-key"
-                data-recording={recording === id || undefined}
-                data-testid={`shortcut-${id}`}
-                aria-label={message("settings.shortcutChange", { action })}
-                aria-keyshortcuts={formatBinding(binding)}
-                onClick={() => {
-                  setNote(null);
-                  setRecording((current) => (current === id ? null : id));
-                }}
-                onBlur={() => setRecording((current) => (current === id ? null : current))}
-                onKeyDown={(event) => {
-                  if (recording !== id) return;
-                  capture(id, event);
-                }}
-              >
-                {recording === id ? (
-                  message("settings.shortcutRecording")
-                ) : (
-                  <Shortcut binding={binding} plain />
-                )}
-              </button>
-              <Button
-                size="icon"
-                className="shortcut-reset"
-                data-default={isDefault || undefined}
-                data-testid={`shortcut-reset-${id}`}
-                aria-label={message("settings.shortcutReset", { action })}
-                disabled={isDefault}
-                onClick={() => {
-                  resetBinding(id);
-                  setNote(null);
-                }}
-              >
-                <RotateCcwIcon aria-hidden />
-              </Button>
-            </div>
-          );
-        })}
+          {SHORTCUT_IDS.map((id) => {
+            const binding = bindings[id];
+            const action = message(SHORTCUT_MESSAGE[id]);
+            const isDefault = isDefaultBinding(id, binding);
+            return (
+              <div className="shortcut-row" key={id}>
+                <span className="label">{action}</span>
+                <button
+                  type="button"
+                  ref={(node) => {
+                    buttons.current.set(id, node);
+                  }}
+                  className="shortcut-key"
+                  data-recording={recording === id || undefined}
+                  data-testid={`shortcut-${id}`}
+                  aria-label={message("settings.shortcutChange", { action })}
+                  aria-keyshortcuts={formatBinding(binding)}
+                  onClick={() => {
+                    setNote(null);
+                    setRecording((current) => (current === id ? null : id));
+                  }}
+                  onBlur={() => setRecording((current) => (current === id ? null : current))}
+                  onKeyDown={(event) => {
+                    if (recording !== id) return;
+                    capture(id, event);
+                  }}
+                >
+                  {recording === id ? (
+                    message("settings.shortcutRecording")
+                  ) : (
+                    <Shortcut binding={binding} plain />
+                  )}
+                </button>
+                <Button
+                  size="icon"
+                  className="shortcut-reset"
+                  data-default={isDefault || undefined}
+                  data-testid={`shortcut-reset-${id}`}
+                  aria-label={message("settings.shortcutReset", { action })}
+                  disabled={isDefault}
+                  onClick={() => {
+                    resetBinding(id);
+                    setNote(null);
+                  }}
+                >
+                  <RotateCcwIcon aria-hidden />
+                </Button>
+              </div>
+            );
+          })}
         </div>
         {note ? (
           <p className="shortcut-note" data-tone={note.tone} role="alert">

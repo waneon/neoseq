@@ -197,7 +197,7 @@ specialized controls without becoming a schema authority:
 - `builtin.query` provides the query builder, a SPARQL escape hatch, and
   schema-owned saved result views. One surface serves both grounds it appears on:
   embedded in the outline its views stay in a menu, and on a routed tag page —
-  where the query *is* the body — they become a permanent tab strip the reader
+  where the query _is_ the body — they become a permanent tab strip the reader
   names, drags into order, and deletes. Result columns are dragged into order the
   same way, and a table declares no column widths until the reader sizes one. It is authored only through `/` on a block or a
   page: the generic property route never offers it, so a query is never
@@ -323,7 +323,7 @@ default-query field remains only as a one-way import bridge. Graph display names
 belong to the browser graph directory; graph content, settings, and metadata
 belong to the core.
 
-A colour preference stores the *name* of a tone declared in `ui/app.css`, never a
+A colour preference stores the _name_ of a tone declared in `ui/app.css`, never a
 colour. The surface carries that name as a `data-palette` attribute and CSS resolves
 it, which keeps every preference inside the committed palette and its measured
 contrast in both modes; no presentation preference reaches CorePort or the graph.

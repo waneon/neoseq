@@ -49,9 +49,7 @@ function recognizeDate(input: string): TemporalRecognition<TemporalDateIntent> {
   }
 
   const relative =
-    /^(?:in\s+)?(\d{1,4})\s*(day|days|week|weeks|month|months)(?:\s+(ago|from now))?$/.exec(
-      input,
-    );
+    /^(?:in\s+)?(\d{1,4})\s*(day|days|week|weeks|month|months)(?:\s+(ago|from now))?$/.exec(input);
   if (relative) {
     const unit = relative[2].startsWith("week")
       ? "week"
@@ -81,9 +79,7 @@ function recognizeDate(input: string): TemporalRecognition<TemporalDateIntent> {
   let day: number | undefined;
   let year: number | undefined;
   for (const word of words) {
-    const monthIndex = MONTHS.findIndex(
-      (name) => word.length >= 3 && name.startsWith(word),
-    );
+    const monthIndex = MONTHS.findIndex((name) => word.length >= 3 && name.startsWith(word));
     if (monthIndex >= 0 && month === undefined) {
       month = monthIndex + 1;
     } else if (/^\d{4}$/.test(word) && year === undefined) {
@@ -103,9 +99,7 @@ function extractEnglishTime(input: string): ExtractedTime | null {
   const match = /(?:^|\s)(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/.exec(input);
   if (!match) return null;
   const rawHour = Number(match[1]);
-  const hour = rawHour < 1 || rawHour > 12
-    ? 24
-    : (rawHour % 12) + (match[3] === "pm" ? 12 : 0);
+  const hour = rawHour < 1 || rawHour > 12 ? 24 : (rawHour % 12) + (match[3] === "pm" ? 12 : 0);
   return {
     rest: input.slice(0, match.index).trim(),
     time: { hour, minute: Number(match[2] ?? 0) },
@@ -115,21 +109,21 @@ function extractEnglishTime(input: string): ExtractedTime | null {
 function extractEnglishRecurrence(input: string): ExtractedRecurrence | null {
   const shorthand = /(?:^|\s)(daily|weekly|monthly|yearly|annually)$/.exec(input);
   if (shorthand) {
-    const unit = shorthand[1] === "daily"
-      ? "day"
-      : shorthand[1] === "weekly"
-        ? "week"
-        : shorthand[1] === "monthly"
-          ? "month"
-          : "year";
+    const unit =
+      shorthand[1] === "daily"
+        ? "day"
+        : shorthand[1] === "weekly"
+          ? "week"
+          : shorthand[1] === "monthly"
+            ? "month"
+            : "year";
     return {
       rest: input.slice(0, shorthand.index).trim(),
       recurrence: { count: 1, unit },
     };
   }
-  const every = /(?:^|\s)every\s+(?:(\d{1,3})\s+)?(day|days|week|weeks|month|months|year|years)$/.exec(
-    input,
-  );
+  const every =
+    /(?:^|\s)every\s+(?:(\d{1,3})\s+)?(day|days|week|weeks|month|months|year|years)$/.exec(input);
   if (!every) return null;
   const unit = every[2].startsWith("week")
     ? "week"

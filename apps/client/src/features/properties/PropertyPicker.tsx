@@ -119,20 +119,22 @@ export function PropertyPicker({
   const listId = useId();
   const key = stage.kind === "property" ? null : stage.key;
 
-  const owner: PropertyOwnerRef = target.kind === "page"
-    ? { kind: "page", id: target.id }
-    : target.kind === "block"
-      ? { kind: "block", owner: target.owner, id: target.id }
-      : { kind: "tag_default", tag_id: target.id };
+  const owner: PropertyOwnerRef =
+    target.kind === "page"
+      ? { kind: "page", id: target.id }
+      : target.kind === "block"
+        ? { kind: "block", owner: target.owner, id: target.id }
+        : { kind: "tag_default", tag_id: target.id };
   // Placement checks speak the registry's language: a tag target writes the
   // `tag_default` placement, never a bag of its own.
   const writeTarget = target.kind === "tag" ? "tag_default" : target.kind;
-  const selectedUnsupported = key !== null && target.bag
-    .find((field) => field.key === key)
-    ?.values.some((value) => value.type === "unsupported_document");
-  const writeDisabled = readonly
-    || selectedUnsupported
-    || (key !== null && !canUserWrite(key, writeTarget));
+  const selectedUnsupported =
+    key !== null &&
+    target.bag
+      .find((field) => field.key === key)
+      ?.values.some((value) => value.type === "unsupported_document");
+  const writeDisabled =
+    readonly || selectedUnsupported || (key !== null && !canUserWrite(key, writeTarget));
 
   const resetStage = useCallback(() => {
     setStage({ kind: "property" });
@@ -140,9 +142,7 @@ export function PropertyPicker({
   }, []);
 
   useEffect(() => {
-    const invokingElement = anchor?.geometry.kind === "element"
-      ? anchor.geometry.element
-      : null;
+    const invokingElement = anchor?.geometry.kind === "element" ? anchor.geometry.element : null;
     if (!invokingElement) return;
     const reopenAtAnchor = () => {
       setStage(initialStage(initial, target.bag));
@@ -166,9 +166,11 @@ export function PropertyPicker({
       // Choice-only value editors (checkboxes and enums) have no autofocus
       // input. Keep keyboard focus inside the dialog so Escape and Tab remain
       // available after moving between stages.
-      panelRef.current?.querySelector<HTMLElement>(
-        '.property-picker-list [role="option"]:not([disabled]), .property-picker-value input:not([disabled]), .property-picker-value button:not([disabled])',
-      )?.focus({ preventScroll: true });
+      panelRef.current
+        ?.querySelector<HTMLElement>(
+          '.property-picker-list [role="option"]:not([disabled]), .property-picker-value input:not([disabled]), .property-picker-value button:not([disabled])',
+        )
+        ?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [stage.kind]);
@@ -180,20 +182,25 @@ export function PropertyPicker({
   const candidates = useMemo<Candidate[]>(() => {
     const normalized = query.trim().toLocaleLowerCase();
     const present = new Set(visibleEntries.map((entry) => entry.key));
-    const known = Object.keys(REGISTRY)
-      .filter((key) => isGenericProperty(key) && canUserWrite(key, writeTarget));
+    const known = Object.keys(REGISTRY).filter(
+      (key) => isGenericProperty(key) && canUserWrite(key, writeTarget),
+    );
     // A query reaches a key through its storage name OR the name it goes by on
     // screen, so "예정" finds builtin.task-scheduled and "effort" finds
     // user.effort alike.
     const keys = [...new Set([...visibleEntries.map((entry) => entry.key), ...known])]
-      .filter((item) =>
-        !normalized ||
-        item.toLocaleLowerCase().includes(normalized) ||
-        propertyDisplayName(item, message).toLocaleLowerCase().includes(normalized))
+      .filter(
+        (item) =>
+          !normalized ||
+          item.toLocaleLowerCase().includes(normalized) ||
+          propertyDisplayName(item, message).toLocaleLowerCase().includes(normalized),
+      )
       .sort((left, right) => {
         const existing = Number(present.has(right)) - Number(present.has(left));
-        return existing
-          || compare(propertyDisplayName(left, message), propertyDisplayName(right, message));
+        return (
+          existing ||
+          compare(propertyDisplayName(left, message), propertyDisplayName(right, message))
+        );
       });
     const result = keys.map((item) => ({ key: item, existing: present.has(item), create: false }));
     // A bare name is a user property waiting to exist: typing `effort` offers
@@ -201,7 +208,12 @@ export function PropertyPicker({
     // user should have to type or read.
     const storageKey = storageKeyForQuery(query);
     const exact = keys.some((item) => item === storageKey);
-    if (normalized && !exact && !validateKey(storageKey) && !validateWriteTarget(storageKey, writeTarget)) {
+    if (
+      normalized &&
+      !exact &&
+      !validateKey(storageKey) &&
+      !validateWriteTarget(storageKey, writeTarget)
+    ) {
       result.push({ key: storageKey, existing: false, create: true });
     }
     return result.slice(0, 12);
@@ -213,9 +225,7 @@ export function PropertyPicker({
     setRequest({ status: "busy" });
     try {
       const prefix = prefixPending.current;
-      await session.execute(prefix
-        ? { type: "batch", commands: [prefix, command] }
-        : command);
+      await session.execute(prefix ? { type: "batch", commands: [prefix, command] } : command);
       prefixPending.current = undefined;
       setRequest({ status: "idle" });
       return true;
@@ -269,17 +279,18 @@ export function PropertyPicker({
     const keyIssue = validateKey(key);
     const existing = target.bag.find((field) => field.key === key);
     const cardinality = existing?.cardinality === "set" ? "repeated" : cardinalityOf(key);
-    const issue = keyIssue
-      ?? validateWriteTarget(key, writeTarget)
-      ?? validateValue(key, value, cardinality);
+    const issue =
+      keyIssue ?? validateWriteTarget(key, writeTarget) ?? validateValue(key, value, cardinality);
     if (issue) {
       setRequest({ status: "failed", message: validationMessage(issue, message) });
       return;
     }
     const repeated = cardinality === "repeated";
-    const saved = await run(repeated
-      ? { type: "add_repeated_property", owner, key, value }
-      : { type: "set_property", owner, key, value });
+    const saved = await run(
+      repeated
+        ? { type: "add_repeated_property", owner, key, value }
+        : { type: "set_property", owner, key, value },
+    );
     if (!saved) return;
     close();
   };
@@ -327,18 +338,20 @@ export function PropertyPicker({
     if (stage.kind !== "value" || !isTaskDateKey(stage.key) || writeDisabled) return;
     const timeKey = timeKeyFor(stage.key);
     const dateValue = { type: "date", value: date } as const;
-    const timeValue = time === null ? null : { type: "string", value: time } as const;
-    const repeatValue = repeat === null
-      ? null
-      : repeat === undefined
-        ? undefined
-        : { type: "string", value: repeat } as const;
-    const issue = validateWriteTarget(stage.key, writeTarget)
-      ?? validateValue(stage.key, dateValue, "single")
-      ?? (timeValue ? validateValue(timeKey, timeValue, "single") : null)
-      ?? validateWriteTarget(timeKey, writeTarget)
-      ?? (repeatValue === undefined ? null : validateWriteTarget(TASK_REPEAT_KEY, writeTarget))
-      ?? (repeatValue ? validateValue(TASK_REPEAT_KEY, repeatValue, "single") : null);
+    const timeValue = time === null ? null : ({ type: "string", value: time } as const);
+    const repeatValue =
+      repeat === null
+        ? null
+        : repeat === undefined
+          ? undefined
+          : ({ type: "string", value: repeat } as const);
+    const issue =
+      validateWriteTarget(stage.key, writeTarget) ??
+      validateValue(stage.key, dateValue, "single") ??
+      (timeValue ? validateValue(timeKey, timeValue, "single") : null) ??
+      validateWriteTarget(timeKey, writeTarget) ??
+      (repeatValue === undefined ? null : validateWriteTarget(TASK_REPEAT_KEY, writeTarget)) ??
+      (repeatValue ? validateValue(TASK_REPEAT_KEY, repeatValue, "single") : null);
     if (issue) {
       setRequest({ status: "failed", message: validationMessage(issue, message) });
       return;
@@ -391,17 +404,20 @@ export function PropertyPicker({
   const selectedField = key ? visibleEntries.find((field) => field.key === key) : undefined;
   const selectedValues = selectedField?.values ?? [];
   const choices = key ? offeredChoices(key, stringChoicesOf(key)) : [];
-  const selectedCardinality = key === null
-    ? "single"
-    : selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single");
-  const taskMoment = stage.kind === "value" && isTaskDateKey(stage.key)
-    ? { key: stage.key, draft: stage.draft }
-    : null;
+  const selectedCardinality =
+    key === null
+      ? "single"
+      : (selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single"));
+  const taskMoment =
+    stage.kind === "value" && isTaskDateKey(stage.key)
+      ? { key: stage.key, draft: stage.draft }
+      : null;
   // Report a bad key only when it is a dead end — while matches are still on
   // screen the query is a search, not a mistake.
-  const queryIssue = stage.kind === "property" && query.trim() && candidates.length === 0
-    ? validateKey(storageKeyForQuery(query))
-    : null;
+  const queryIssue =
+    stage.kind === "property" && query.trim() && candidates.length === 0
+      ? validateKey(storageKeyForQuery(query))
+      : null;
   const describeValue = (value: PropertyValue): string => {
     if (value.type === "document") {
       const view = value.value.views.find((item) => item.id === value.value.default_view_id);
@@ -410,9 +426,8 @@ export function PropertyPicker({
     if (value.type === "unsupported_document") {
       return `${value.value.schema} v${value.value.version}`;
     }
-    if (value.type === "checkbox") return value.value
-      ? message("properties.checked")
-      : message("properties.unchecked");
+    if (value.type === "checkbox")
+      return value.value ? message("properties.checked") : message("properties.unchecked");
     if (value.type === "page") {
       const page = findPage(state.snapshot, value.value);
       if (!page) return value.value;
@@ -422,9 +437,10 @@ export function PropertyPicker({
     }
     return String(value.value);
   };
-  const describeField = (field: PropertyField): string => field.values.length === 0
-    ? message("properties.noValue")
-    : field.values.map(describeValue).join(", ");
+  const describeField = (field: PropertyField): string =>
+    field.values.length === 0
+      ? message("properties.noValue")
+      : field.values.map(describeValue).join(", ");
 
   return (
     <AnchoredPanel
@@ -487,9 +503,7 @@ export function PropertyPicker({
               : propertyDisplayName(stage.key, message)}
           </strong>
           {stage.kind === "value" && !taskMoment && (
-            <span>
-              {message(`properties.type.${stage.valueType}`)}
-            </span>
+            <span>{message(`properties.type.${stage.valueType}`)}</span>
           )}
         </div>
       </div>
@@ -525,13 +539,15 @@ export function PropertyPicker({
                 onClick={() => chooseKey(candidate)}
                 title={candidate.key}
               >
-                {candidate.create
-                  ? <TypeGlyph type={undefined} />
-                  : propertyGlyph(
-                      candidate.key,
-                      valueTypeOf(candidate.key)
-                        ?? target.bag.find((field) => field.key === candidate.key)?.value_type,
-                    )}
+                {candidate.create ? (
+                  <TypeGlyph type={undefined} />
+                ) : (
+                  propertyGlyph(
+                    candidate.key,
+                    valueTypeOf(candidate.key) ??
+                      target.bag.find((field) => field.key === candidate.key)?.value_type,
+                  )
+                )}
                 <span className="property-picker-candidate">
                   <span className={candidate.key.startsWith("builtin.") ? undefined : "mono"}>
                     {candidate.create
@@ -541,7 +557,9 @@ export function PropertyPicker({
                       : propertyDisplayName(candidate.key, message)}
                   </span>
                   {candidate.existing && (
-                    <small>{describeField(visibleEntries.find((field) => field.key === candidate.key)!)}</small>
+                    <small>
+                      {describeField(visibleEntries.find((field) => field.key === candidate.key)!)}
+                    </small>
                   )}
                 </span>
                 {candidate.existing && <CheckIcon data-icon aria-hidden />}
@@ -612,103 +630,101 @@ export function PropertyPicker({
           {!taskMoment && selectedField && selectedValues.length === 0 && (
             <p className="property-current-value">{message("properties.noValue")}</p>
           )}
-          {taskMoment
-            ? (
-                <TaskMomentPicker
-                  date={taskMoment.draft.type === "date"
-                    ? taskMoment.draft.value
-                    : todayLocalDate()}
-                  time={singleString(target.bag, timeKeyFor(taskMoment.key))}
-                  repeat={singleString(target.bag, TASK_REPEAT_KEY)}
-                  hasValue={selectedValues.some((value) => value.type === "date")}
-                  readonly={writeDisabled}
-                  busy={committing}
-                  clearLabel={message(taskMoment.key === TASK_SCHEDULED_KEY
-                    ? "task.clearScheduled"
-                    : "task.clearDeadline")}
-                  onApply={(date, time, repeat) => void commitMoment(date, time, repeat)}
-                  onClear={() => void clearMoment()}
-                  onCancel={close}
-                />
-              )
-            : (
-                <ValueInput
-                  entryKey={stage.key}
-                  type={stage.valueType}
-                  value={stage.draft}
-                  allowed={choices}
-                  readonly={writeDisabled || committing}
-                  onChange={(draft) => {
-                    setStage((current) =>
-                      current.kind === "value" ? { ...current, draft } : current);
-                  }}
-                  onCommit={(value) => void commit(value)}
-                  onCreatePage={(id) => {
-                    const command: Command = selectedCardinality === "set"
-                      ? {
+          {taskMoment ? (
+            <TaskMomentPicker
+              date={taskMoment.draft.type === "date" ? taskMoment.draft.value : todayLocalDate()}
+              time={singleString(target.bag, timeKeyFor(taskMoment.key))}
+              repeat={singleString(target.bag, TASK_REPEAT_KEY)}
+              hasValue={selectedValues.some((value) => value.type === "date")}
+              readonly={writeDisabled}
+              busy={committing}
+              clearLabel={message(
+                taskMoment.key === TASK_SCHEDULED_KEY
+                  ? "task.clearScheduled"
+                  : "task.clearDeadline",
+              )}
+              onApply={(date, time, repeat) => void commitMoment(date, time, repeat)}
+              onClear={() => void clearMoment()}
+              onCancel={close}
+            />
+          ) : (
+            <ValueInput
+              entryKey={stage.key}
+              type={stage.valueType}
+              value={stage.draft}
+              allowed={choices}
+              readonly={writeDisabled || committing}
+              onChange={(draft) => {
+                setStage((current) => (current.kind === "value" ? { ...current, draft } : current));
+              }}
+              onCommit={(value) => void commit(value)}
+              onCreatePage={(id) => {
+                const command: Command =
+                  selectedCardinality === "set"
+                    ? {
                         type: "add_repeated_property",
                         owner,
                         key: stage.key,
                         value: { type: "page", value: id },
                       }
-                      : {
+                    : {
                         type: "set_property",
                         owner,
                         key: stage.key,
                         value: { type: "page", value: id },
                       };
-                    return prefixPending.current
-                      ? [prefixPending.current, command]
-                      : command;
-                  }}
-                  onPageCreated={() => {
-                    prefixPending.current = undefined;
-                    close();
-                  }}
-                />
+                return prefixPending.current ? [prefixPending.current, command] : command;
+              }}
+              onPageCreated={() => {
+                prefixPending.current = undefined;
+                close();
+              }}
+            />
+          )}
+          {!taskMoment && (
+            <div className="property-picker-actions">
+              {!selectedField && (
+                <Button
+                  variant="secondary"
+                  onClick={() => void ensureEmpty()}
+                  disabled={writeDisabled || committing}
+                >
+                  {message("properties.addEmpty")}
+                </Button>
               )}
-          {!taskMoment && <div className="property-picker-actions">
-            {!selectedField && (
-              <Button
-                variant="secondary"
-                onClick={() => void ensureEmpty()}
-                disabled={writeDisabled || committing}
-              >
-                {message("properties.addEmpty")}
-              </Button>
-            )}
-            {selectedField && selectedValues.length > 0 && stage.valueType !== "document" && (
-              <Button
-                variant="secondary"
-                onClick={() => void clearValues()}
-                disabled={writeDisabled || committing}
-              >
-                {message("properties.clear")}
-              </Button>
-            )}
-            {selectedField && (
-              <Button
-                variant="destructive"
-                onClick={() => void removeField()}
-                disabled={writeDisabled || committing}
-              >
-                <Trash2Icon data-icon aria-hidden />
-                {message("properties.removeProperty")}
-              </Button>
-            )}
-            {stage.valueType !== "page"
-              && stage.valueType !== "date"
-              && stage.key !== TASK_REPEAT_KEY
-              && choices.length === 0 && (
-              <Button
-                onClick={() => void commit(stage.draft)}
-                disabled={writeDisabled || committing}
-                data-testid="property-set"
-              >
-                {message("properties.set")}
-              </Button>
-            )}
-          </div>}
+              {selectedField && selectedValues.length > 0 && stage.valueType !== "document" && (
+                <Button
+                  variant="secondary"
+                  onClick={() => void clearValues()}
+                  disabled={writeDisabled || committing}
+                >
+                  {message("properties.clear")}
+                </Button>
+              )}
+              {selectedField && (
+                <Button
+                  variant="destructive"
+                  onClick={() => void removeField()}
+                  disabled={writeDisabled || committing}
+                >
+                  <Trash2Icon data-icon aria-hidden />
+                  {message("properties.removeProperty")}
+                </Button>
+              )}
+              {stage.valueType !== "page" &&
+                stage.valueType !== "date" &&
+                stage.key !== TASK_REPEAT_KEY &&
+                choices.length === 0 && (
+                  <Button
+                    onClick={() => void commit(stage.draft)}
+                    disabled={writeDisabled || committing}
+                    data-testid="property-set"
+                  >
+                    {message("properties.set")}
+                  </Button>
+                )}
+            </div>
+          )}
         </div>
       )}
 
@@ -724,9 +740,8 @@ export function PropertyPicker({
 function initialStage(key: string | null, bag: PropertyField[]): PickerStage {
   if (!key) return { kind: "property" };
   const existing = bag.find((field) => field.key === key)?.values[0];
-  const valueType = valueTypeOf(key)
-    ?? bag.find((field) => field.key === key)?.value_type
-    ?? "string";
+  const valueType =
+    valueTypeOf(key) ?? bag.find((field) => field.key === key)?.value_type ?? "string";
   return {
     kind: "value",
     key,
@@ -783,11 +798,11 @@ function ValueInput({
     const current = value.type === "string" ? value.value : "";
     const options = !current || allowed.includes(current) ? allowed : [current, ...allowed];
     const glyphFor = (option: string) =>
-      entryKey === TASK_STATUS_KEY
-        ? <TaskStatusGlyph status={option} />
-        : entryKey === TASK_PRIORITY_KEY
-          ? <PriorityGlyph priority={option} />
-          : null;
+      entryKey === TASK_STATUS_KEY ? (
+        <TaskStatusGlyph status={option} />
+      ) : entryKey === TASK_PRIORITY_KEY ? (
+        <PriorityGlyph priority={option} />
+      ) : null;
     const labelFor = (option: string) =>
       entryKey === TASK_STATUS_KEY
         ? statusLabel(option, message)
@@ -810,7 +825,9 @@ function ValueInput({
             <span className="property-picker-candidate">
               <span>{labelFor(option)}</span>
             </span>
-            {value.type === "string" && value.value === option && <CheckIcon data-icon aria-hidden />}
+            {value.type === "string" && value.value === option && (
+              <CheckIcon data-icon aria-hidden />
+            )}
           </button>
         ))}
       </div>
@@ -858,9 +875,11 @@ function ValueInput({
       readOnly={readonly}
       onChange={(event) => {
         const next = event.target.value;
-        onChange(type === "number"
-          ? { type: "number", value: Number(next) }
-          : { type: "string", value: next });
+        onChange(
+          type === "number"
+            ? { type: "number", value: Number(next) }
+            : { type: "string", value: next },
+        );
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing) onCommit(value);
@@ -907,9 +926,12 @@ function DateValueInput({
   ];
   // What the keyboard walks: the parsed day while there is text, else the
   // quick answers. Same combobox contract as the property search above it.
-  const rows: { id: string; date: string }[] = text.trim().length > 0
-    ? (parsed ? [{ id: "parsed", date: parsed }] : [])
-    : quick.map(({ id, date }) => ({ id, date }));
+  const rows: { id: string; date: string }[] =
+    text.trim().length > 0
+      ? parsed
+        ? [{ id: "parsed", date: parsed }]
+        : []
+      : quick.map(({ id, date }) => ({ id, date }));
   const activeRow = Math.min(active, Math.max(rows.length - 1, 0));
 
   return (
@@ -944,48 +966,50 @@ function DateValueInput({
         }}
       />
       <div id={listId} className="property-picker-list" role="listbox" aria-label={label}>
-        {text.trim().length > 0
-          ? parsed
-            ? (
-                <button
-                  id={`${listId}-parsed`}
-                  role="option"
-                  aria-selected
-                  className="property-picker-option"
-                  data-active="true"
-                  data-testid="date-parsed"
-                  disabled={readonly}
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => commitDate(parsed)}
-                >
-                  <CalendarIcon data-type-glyph aria-hidden />
-                  <span className="property-picker-candidate">
-                    <span>{message("properties.dateOn", { date: formatJournalDate(parsed) })}</span>
-                    <small>{parsed}</small>
-                  </span>
-                </button>
-              )
-            : <p className="ac-hint">{message("properties.noKeys")}</p>
-          : quick.map((option, index) => (
-              <button
-                id={`${listId}-${option.id}`}
-                key={option.id}
-                role="option"
-                aria-selected={value.type === "date" && value.value === option.date}
-                data-active={index === activeRow}
-                className="property-picker-option"
-                disabled={readonly}
-                onPointerMove={() => setActive(index)}
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => commitDate(option.date)}
-              >
-                <CalendarIcon data-type-glyph aria-hidden />
-                <span className="property-picker-candidate">
-                  <span>{option.label}</span>
-                  <small>{formatJournalDate(option.date)}</small>
-                </span>
-              </button>
-            ))}
+        {text.trim().length > 0 ? (
+          parsed ? (
+            <button
+              id={`${listId}-parsed`}
+              role="option"
+              aria-selected
+              className="property-picker-option"
+              data-active="true"
+              data-testid="date-parsed"
+              disabled={readonly}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => commitDate(parsed)}
+            >
+              <CalendarIcon data-type-glyph aria-hidden />
+              <span className="property-picker-candidate">
+                <span>{message("properties.dateOn", { date: formatJournalDate(parsed) })}</span>
+                <small>{parsed}</small>
+              </span>
+            </button>
+          ) : (
+            <p className="ac-hint">{message("properties.noKeys")}</p>
+          )
+        ) : (
+          quick.map((option, index) => (
+            <button
+              id={`${listId}-${option.id}`}
+              key={option.id}
+              role="option"
+              aria-selected={value.type === "date" && value.value === option.date}
+              data-active={index === activeRow}
+              className="property-picker-option"
+              disabled={readonly}
+              onPointerMove={() => setActive(index)}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => commitDate(option.date)}
+            >
+              <CalendarIcon data-type-glyph aria-hidden />
+              <span className="property-picker-candidate">
+                <span>{option.label}</span>
+                <small>{formatJournalDate(option.date)}</small>
+              </span>
+            </button>
+          ))
+        )}
       </div>
       <div className="property-date-native">
         <Input
@@ -1023,8 +1047,7 @@ function RepeatValueInput({
   const { message } = useI18n();
   const stored = value.type === "string" ? parseRepeat(value.value) : null;
   const [interval, setInterval] = useState(stored ?? DEFAULT_REPEAT);
-  const commit = (next: typeof interval) =>
-    onCommit({ type: "string", value: formatRepeat(next) });
+  const commit = (next: typeof interval) => onCommit({ type: "string", value: formatRepeat(next) });
 
   return (
     <div className="property-repeat-editor">
@@ -1058,11 +1081,7 @@ function RepeatValueInput({
         }))}
         onValueChange={(next) => setInterval({ ...interval, unit: next as RepeatUnit })}
       />
-      <Button
-        disabled={readonly}
-        data-testid="repeat-set"
-        onClick={() => commit(interval)}
-      >
+      <Button disabled={readonly} data-testid="repeat-set" onClick={() => commit(interval)}>
         {message("properties.set")}
       </Button>
       {/* The interval in words, so the choice is confirmed by reading it rather

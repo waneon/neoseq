@@ -15,9 +15,7 @@ export function moveOptionFocus(container: HTMLElement, key: string): boolean {
   if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") {
     return false;
   }
-  const options = [
-    ...container.querySelectorAll<HTMLElement>('[role="option"]:not(:disabled)'),
-  ];
+  const options = [...container.querySelectorAll<HTMLElement>('[role="option"]:not(:disabled)')];
   if (options.length === 0) return false;
   const current = options.indexOf(document.activeElement as HTMLElement);
   const next =

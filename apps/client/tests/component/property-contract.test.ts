@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  canUserWrite,
-  validateKey,
-  visibilityOf,
-} from "../../src/entities/properties";
+import { canUserWrite, validateKey, visibilityOf } from "../../src/entities/properties";
 
 describe("property key namespaces", () => {
   it("accepts two-level user keys and rejects other shapes", () => {

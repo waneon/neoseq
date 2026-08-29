@@ -34,22 +34,26 @@ export function PageProperties({
   const openedFromHere = useRef(false);
   const [initialKey, setInitialKey] = useState<string | undefined>();
 
-  const show = useCallback((key?: string, anchor?: HTMLElement) => {
-    openedFromHere.current = true;
-    setInitialKey(key);
-    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const invokedFromPalette = Boolean(active?.closest('[data-testid="command-palette"]'));
-    restoreFocus.current = anchor
-      ?? (!invokedFromPalette ? active : null)
-      ?? document.querySelector<HTMLElement>('[data-testid="page-title"]');
-    // The command palette disappears before this picker measures. The page strip
-    // is the durable owner of this surface; a palette input is only the route that
-    // summoned it, never a geometry source that may survive the transition.
-    pickerAnchor.current = anchor
-      ? elementAnchor(anchor)
-      : snapshotAnchor(elementAnchor(anchorRef.current));
-    onOpenChange(true);
-  }, [onOpenChange]);
+  const show = useCallback(
+    (key?: string, anchor?: HTMLElement) => {
+      openedFromHere.current = true;
+      setInitialKey(key);
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const invokedFromPalette = Boolean(active?.closest('[data-testid="command-palette"]'));
+      restoreFocus.current =
+        anchor ??
+        (!invokedFromPalette ? active : null) ??
+        document.querySelector<HTMLElement>('[data-testid="page-title"]');
+      // The command palette disappears before this picker measures. The page strip
+      // is the durable owner of this surface; a palette input is only the route that
+      // summoned it, never a geometry source that may survive the transition.
+      pickerAnchor.current = anchor
+        ? elementAnchor(anchor)
+        : snapshotAnchor(elementAnchor(anchorRef.current));
+      onOpenChange(true);
+    },
+    [onOpenChange],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -100,9 +104,14 @@ export function PageProperties({
               </button>
             ))}
           {page.properties.filter((entry) => isGenericProperty(entry.key)).length > STRIP_LIMIT && (
-            <button className="prop-strip-chip" onClick={(event) => show(undefined, event.currentTarget)}>
+            <button
+              className="prop-strip-chip"
+              onClick={(event) => show(undefined, event.currentTarget)}
+            >
               {message("properties.more", {
-                count: page.properties.filter((entry) => isGenericProperty(entry.key)).length - STRIP_LIMIT,
+                count:
+                  page.properties.filter((entry) => isGenericProperty(entry.key)).length -
+                  STRIP_LIMIT,
               })}
             </button>
           )}

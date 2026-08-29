@@ -78,9 +78,7 @@ export class ToastStore {
   show = (input: ToastInput): string => {
     const tone = input.tone ?? "info";
     const duration = input.duration ?? DEFAULT_DURATION[tone];
-    const existing = input.key
-      ? this.toasts.find((toast) => toast.key === input.key)
-      : undefined;
+    const existing = input.key ? this.toasts.find((toast) => toast.key === input.key) : undefined;
 
     if (existing) {
       // A repeat raises the counter where the toast already sits. Re-queueing it

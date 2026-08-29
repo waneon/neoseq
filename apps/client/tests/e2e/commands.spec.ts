@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { createGraph, openSidebar } from "./helpers";
 
-test("contextual commands explain why they are unavailable instead of no-oping", async ({ page }) => {
+test("contextual commands explain why they are unavailable instead of no-oping", async ({
+  page,
+}) => {
   await createGraph(page, "Command Context Graph");
   await openSidebar(page);
   await page.getByTestId("nav-tags").click();
@@ -12,7 +14,8 @@ test("contextual commands explain why they are unavailable instead of no-oping",
   for (const id of ["properties", "set-status", "set-priority", "page-info", "delete-page"]) {
     await expect(palette.getByTestId(`cmd-${id}`)).toHaveAttribute("aria-disabled", "true");
   }
-  await expect(palette.getByTestId("cmd-properties"))
-    .toContainText("Open a page or focus one block");
+  await expect(palette.getByTestId("cmd-properties")).toContainText(
+    "Open a page or focus one block",
+  );
   await expect(palette).toBeVisible();
 });

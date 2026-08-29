@@ -7,7 +7,12 @@
 // quietly losing a capability.
 
 import { describe, expect, it } from "vitest";
-import { GROUP_ORDER, fuzzyScore, matchCommand, type Command } from "../../src/features/commands/registry";
+import {
+  GROUP_ORDER,
+  fuzzyScore,
+  matchCommand,
+  type Command,
+} from "../../src/features/commands/registry";
 import { isComposing } from "../../src/features/commands/keys";
 import {
   DEFAULT_BINDINGS,

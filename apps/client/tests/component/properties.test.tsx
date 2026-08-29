@@ -34,7 +34,9 @@ async function createCustomProperty(
   await user.click(within(picker).getByRole("option", { name: `Create property “${name}”` }));
   await user.click(within(picker).getByRole("option", { name: type }));
   if (type === "checkbox") {
-    await user.click(within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }));
+    await user.click(
+      within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }),
+    );
   } else if (type === "page") {
     const input = within(picker).getByTestId("page-autocomplete");
     await user.type(input, value);
@@ -61,11 +63,36 @@ describe("property picker", () => {
     const { session, port } = await mountPage();
     const user = userEvent.setup();
     const owner = { kind: "page", id: "home" } as const;
-    await session.execute({ type: "set_property", owner, key: "user.text", value: { type: "string", value: "hello" } });
-    await session.execute({ type: "set_property", owner, key: "user.count", value: { type: "number", value: 4 } });
-    await session.execute({ type: "set_property", owner, key: "user.flag", value: { type: "checkbox", value: false } });
-    await session.execute({ type: "set_property", owner, key: "user.when", value: { type: "date", value: "2026-08-03" } });
-    await session.execute({ type: "set_property", owner, key: "user.link", value: { type: "page", value: "home" } });
+    await session.execute({
+      type: "set_property",
+      owner,
+      key: "user.text",
+      value: { type: "string", value: "hello" },
+    });
+    await session.execute({
+      type: "set_property",
+      owner,
+      key: "user.count",
+      value: { type: "number", value: 4 },
+    });
+    await session.execute({
+      type: "set_property",
+      owner,
+      key: "user.flag",
+      value: { type: "checkbox", value: false },
+    });
+    await session.execute({
+      type: "set_property",
+      owner,
+      key: "user.when",
+      value: { type: "date", value: "2026-08-03" },
+    });
+    await session.execute({
+      type: "set_property",
+      owner,
+      key: "user.link",
+      value: { type: "page", value: "home" },
+    });
 
     await user.click(await screen.findByTestId("prop-user.text"));
     let picker = await screen.findByTestId("property-picker");
@@ -89,8 +116,9 @@ describe("property picker", () => {
     await waitFor(() => expect(screen.getByTestId("prop-user.count")).toHaveTextContent("7"));
 
     await user.click(screen.getByTestId("prop-user.when"));
-    expect(within(await screen.findByTestId("property-picker")).getByLabelText("Pick a date"))
-      .toHaveValue("2026-08-03");
+    expect(
+      within(await screen.findByTestId("property-picker")).getByLabelText("Pick a date"),
+    ).toHaveValue("2026-08-03");
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: /link/ }));
@@ -169,7 +197,9 @@ describe("property picker", () => {
 
     await user.type(within(picker).getByLabelText("Type a date"), "2026-12-24");
     await user.click(await within(picker).findByTestId("date-parsed"));
-    await waitFor(() => expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"));
+    await waitFor(() =>
+      expect(screen.getByTestId("prop-user.when")).toHaveTextContent("2026-12-24"),
+    );
   });
 
   it("proposes and immediately applies a natural task moment with recurrence", async () => {
@@ -322,12 +352,14 @@ describe("property picker", () => {
       "reserved and cannot be edited as a property",
     );
 
-    await expect(session.execute({
-      type: "set_property",
-      owner: { kind: "page", id: "home" },
-      key: "builtin.page-kind",
-      value: { type: "string", value: "journal" },
-    })).rejects.toThrow("managed by the core");
+    await expect(
+      session.execute({
+        type: "set_property",
+        owner: { kind: "page", id: "home" },
+        key: "builtin.page-kind",
+        value: { type: "string", value: "journal" },
+      }),
+    ).rejects.toThrow("managed by the core");
   });
 
   it("opens from slash and removes the slash token before applying a value", async () => {
@@ -342,7 +374,9 @@ describe("property picker", () => {
     });
     const textarea = await screen.findByLabelText("Block text");
     const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
-    port.beforeExecute = async (command) => { commands.push(command); };
+    port.beforeExecute = async (command) => {
+      commands.push(command);
+    };
     await user.click(textarea);
     await user.type(textarea, "/prop");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
@@ -377,7 +411,9 @@ describe("property picker", () => {
     });
     const textarea = await screen.findByLabelText("Block text");
     const commands: Array<{ type: string; commands?: Array<{ type: string }> }> = [];
-    port.beforeExecute = async (command) => { commands.push(command); };
+    port.beforeExecute = async (command) => {
+      commands.push(command);
+    };
     await user.click(textarea);
     await user.type(textarea, "/done");
     const menu = await screen.findByTestId("slash-menu");
@@ -392,13 +428,15 @@ describe("property picker", () => {
     );
     // Settled text reads as settled.
     expect(textarea.closest(".outline-text")).toHaveAttribute("data-task-status", "done");
-    expect(commands).toContainEqual(expect.objectContaining({
-      type: "batch",
-      commands: expect.arrayContaining([
-        expect.objectContaining({ type: "splice_block_content" }),
-        expect.objectContaining({ type: "set_property" }),
-      ]),
-    }));
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        type: "batch",
+        commands: expect.arrayContaining([
+          expect.objectContaining({ type: "splice_block_content" }),
+          expect.objectContaining({ type: "set_property" }),
+        ]),
+      }),
+    );
 
     await user.keyboard("{Meta>}z{/Meta}");
     await waitFor(() => {
@@ -489,15 +527,19 @@ describe("property picker", () => {
     const documentScroll = document.querySelector<HTMLElement>(".page-scroll");
     expect(documentScroll).not.toBeNull();
     fireEvent.scroll(documentScroll!);
-    await waitFor(() =>
-      expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument());
   });
 
   it("changes and removes a status from the inline control's own menu", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    await session.execute({ type: "insert_block", owner: { kind: "page", id: "home" }, parent: null, index: 0, markdown: "task" });
+    await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "task",
+    });
     await session.execute({
       type: "set_property",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
@@ -513,8 +555,6 @@ describe("property picker", () => {
     // Removing the status is an explicit menu row, and it takes the control with it.
     await user.click(screen.getByTestId("task-status-toggle"));
     await user.click(await screen.findByTestId("remove-status"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("task-status-toggle")).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByTestId("task-status-toggle")).not.toBeInTheDocument());
   });
 });

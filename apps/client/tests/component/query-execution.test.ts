@@ -1,13 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphSession } from "../../src/core-port/session";
-import type {
-  SparqlQueryRequest,
-  SparqlQueryResult,
-} from "../../src/generated/core-port";
-import {
-  QueryExecutionStore,
-  queryExecutionSignature,
-} from "../../src/features/query/execution";
+import type { SparqlQueryRequest, SparqlQueryResult } from "../../src/generated/core-port";
+import { QueryExecutionStore, queryExecutionSignature } from "../../src/features/query/execution";
 import {
   queryEditorIsOpen,
   queryResultsAreOpen,
@@ -66,9 +60,8 @@ describe("query execution store", () => {
   it("does not let superseded work replace a cache hit", async () => {
     const pendingB = deferred<SparqlQueryResult>();
     const query = vi.fn((request: SparqlQueryRequest) =>
-      request.source === REQUEST_A.source
-        ? Promise.resolve(RESULT_TRUE)
-        : pendingB.promise);
+      request.source === REQUEST_A.source ? Promise.resolve(RESULT_TRUE) : pendingB.promise,
+    );
     const store = new QueryExecutionStore({ query } as unknown as GraphSession);
     const signatureA = queryExecutionSignature(REQUEST_A);
     const signatureB = queryExecutionSignature(REQUEST_B);
@@ -86,7 +79,8 @@ describe("query execution store", () => {
     const first = deferred<SparqlQueryResult>();
     const second = deferred<SparqlQueryResult>();
     const query = vi.fn((request: SparqlQueryRequest) =>
-      request.source === REQUEST_A.source ? first.promise : second.promise);
+      request.source === REQUEST_A.source ? first.promise : second.promise,
+    );
     const store = new QueryExecutionStore({ query } as unknown as GraphSession);
     const signatureA = queryExecutionSignature(REQUEST_A);
     const signatureB = queryExecutionSignature(REQUEST_B);

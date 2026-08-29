@@ -43,7 +43,7 @@ test("mobile navigation and editing remain reachable through the drawer", async 
   expect(tagBox).not.toBeNull();
   expect(tagBox!.x).toBeCloseTo(0, 0);
   expect(tagBox!.x + tagBox!.width).toBeCloseTo(page.viewportSize()!.width, 0);
-  await expect.poll(() =>
-    page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-  ).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
 });

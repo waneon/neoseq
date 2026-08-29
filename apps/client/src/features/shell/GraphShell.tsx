@@ -28,11 +28,7 @@ import {
   SearchIcon,
   SettingsIcon,
 } from "lucide-react";
-import {
-  clearTestHook,
-  createCoreWorker,
-  injectStorageFault,
-} from "virtual:neoseq-worker-factory";
+import { clearTestHook, createCoreWorker, injectStorageFault } from "virtual:neoseq-worker-factory";
 import { GraphSession } from "../../core-port/session";
 import type { Command as CoreCommand } from "../../core-port/commands";
 import {
@@ -41,12 +37,7 @@ import {
   renameGraph,
   subscribeGraphDirectory,
 } from "../../core-port/directory";
-import {
-  findTag,
-  isDeleted,
-  pageKind,
-  pageTitle,
-} from "../../core-port/snapshot";
+import { findTag, isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import {
   FAVOURITE_ORDER_KEY,
   favouriteKey,
@@ -107,10 +98,7 @@ import { CollaborationStatus } from "./CollaborationStatus";
 import { RemoteMembersDialog } from "../sync/RemoteMembersDialog";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { useProgressiveItems } from "../../lib/progressive";
-import {
-  HistoryProvider,
-  useHistoryActions,
-} from "../history/context";
+import { HistoryProvider, useHistoryActions } from "../history/context";
 
 declare global {
   interface Window {
@@ -146,15 +134,14 @@ export function GraphShell() {
       const faultInjector = injectStorageFault;
       if (faultInjector) {
         window.__neoseqTest = {
-          injectStorageFault: (fault: string) =>
-            faultInjector(worker, `local:${graphId}`, fault),
+          injectStorageFault: (fault: string) => faultInjector(worker, `local:${graphId}`, fault),
         };
       }
     })();
     return () => {
       cancelled = true;
       clearTestHook();
-      setCreatedSession((current) => current === created ? null : current);
+      setCreatedSession((current) => (current === created ? null : current));
       void created?.close();
     };
   }, [graphId]);
@@ -196,10 +183,11 @@ function ShellBody({
 }) {
   const state = useSessionSelector(
     (current) => current,
-    (left, right) => left.status === right.status
-      && left.mode === right.mode
-      && left.snapshot === right.snapshot
-      && left.recovery === right.recovery,
+    (left, right) =>
+      left.status === right.status &&
+      left.mode === right.mode &&
+      left.snapshot === right.snapshot &&
+      left.recovery === right.recovery,
   );
   const navigate = useNavigate();
   const location = useLocation();
@@ -225,10 +213,7 @@ function ShellBody({
     }
   });
   const [scrolled, setScrolled] = useState(false);
-  const [, refreshCommandContext] = useReducer(
-    (revision: number) => revision + 1,
-    0,
-  );
+  const [, refreshCommandContext] = useReducer((revision: number) => revision + 1, 0);
   const blockProperties = useRef(createContextualHandlerRegistry<(key?: string) => void>());
   const pageProperties = useRef<((key?: string) => void) | null>(null);
   const pageActions = useRef<PageActions | null>(null);
@@ -271,27 +256,20 @@ function ShellBody({
         .sort((left, right) => compare(pageTitle(left), pageTitle(right))),
     [compare, state.snapshot],
   );
-  const pageWindow = useProgressiveItems(
-    pages,
-    (page) => page.id,
-    100,
-    currentPage,
-  );
+  const pageWindow = useProgressiveItems(pages, (page) => page.id, 100, currentPage);
 
   const tags = useMemo(
     () => [...state.snapshot.tags].sort((left, right) => compare(left.name, right.name)),
     [compare, state.snapshot],
   );
 
-  const starred = useMemo(
-    () => favourites(state.snapshot, compare),
-    [compare, state.snapshot],
-  );
+  const starred = useMemo(() => favourites(state.snapshot, compare), [compare, state.snapshot]);
 
   const createPage = useCallback(
     async (title?: string) => {
       const pageId = `p-${crypto.randomUUID()}`;
-      const pageName = title ?? nextAvailableEntityName(message("page.untitled"), pages.map(pageTitle));
+      const pageName =
+        title ?? nextAvailableEntityName(message("page.untitled"), pages.map(pageTitle));
       try {
         await session.execute({ type: "ensure_page", page_id: pageId, title: pageName });
       } catch (error) {
@@ -337,7 +315,8 @@ function ShellBody({
         refreshCommandContext();
       },
       availability: () => ({
-        properties: blockProperties.current.current() !== undefined || pageProperties.current !== null,
+        properties:
+          blockProperties.current.current() !== undefined || pageProperties.current !== null,
         pageInfo: pageActions.current !== null,
         pageDelete: pageActions.current?.remove !== undefined,
       }),
@@ -374,13 +353,8 @@ function ShellBody({
   // focus, so the global layer stands down instead of racing it.
   const overlayOpen = settingsSection !== null || overlay !== null;
   useEffect(() => {
-    const undo = (redo: boolean) => void runHistory(
-      history,
-      notify,
-      message,
-      redo,
-      { kind: "global-shortcut" },
-    );
+    const undo = (redo: boolean) =>
+      void runHistory(history, notify, message, redo, { kind: "global-shortcut" });
     const handlers: ShortcutHandler[] = [
       { binding: bindings.palette, run: () => setOverlay("palette") },
       { binding: bindings.shortcuts, run: () => setOverlay("shortcuts") },
@@ -566,15 +540,17 @@ SELECT ?entity ?content WHERE {
         const content = literalText(row.content);
         if (entity?.kind !== "iri" || !entity.entity) return [];
         const isBlock = entity.entity.kind === "block";
-        return [{
-          id: `search-${index}-${entity.value}`,
-          group: "Search" as const,
-          label: content || entity.entity.id,
-          hint: isBlock ? message("commands.blockHint") : message("commands.hintPage"),
-          icon: <SearchIcon aria-hidden />,
-          pointerRoute: message("shell.search"),
-          run: () => history.open(entity.entity!),
-        }];
+        return [
+          {
+            id: `search-${index}-${entity.value}`,
+            group: "Search" as const,
+            label: content || entity.entity.id,
+            hint: isBlock ? message("commands.blockHint") : message("commands.hintPage"),
+            icon: <SearchIcon aria-hidden />,
+            pointerRoute: message("shell.search"),
+            run: () => history.open(entity.entity!),
+          },
+        ];
       });
     },
     [history, message, session],
@@ -593,9 +569,7 @@ SELECT ?entity ?content WHERE {
             <p>{message("error.internal")}</p>
             <div className="actions">
               <Button asChild variant="secondary">
-                <Link to="/">
-                  {message("graph.backToGraphs")}
-                </Link>
+                <Link to="/">{message("graph.backToGraphs")}</Link>
               </Button>
             </div>
           </div>
@@ -607,9 +581,9 @@ SELECT ?entity ?content WHERE {
   const contextTitle = currentDate
     ? formatJournalDate(currentDate)
     : currentPage
-      ? (pages.find((page) => page.id === currentPage)
-          ? pageTitle(pages.find((page) => page.id === currentPage)!)
-          : message("common.page"))
+      ? pages.find((page) => page.id === currentPage)
+        ? pageTitle(pages.find((page) => page.id === currentPage)!)
+        : message("common.page")
       : currentTag
         ? `#${findTag(state.snapshot, decodeURIComponent(currentTag))?.name ?? currentTag}`
         : location.pathname.endsWith("/tags")
@@ -925,23 +899,26 @@ function FavouriteRail({
     // A row dropped back where it already was is not an edit. Dropping the
     // filter here rather than at every call site is also what keeps a respace
     // from rewriting the positions it would not have changed.
-    const writes = moveFavourite(starred, moved, before)
-      .filter((write) => write.order !== write.entry.order);
+    const writes = moveFavourite(starred, moved, before).filter(
+      (write) => write.order !== write.entry.order,
+    );
     if (writes.length === 0) return;
     // Reordering is one gesture. Every affected position commits and undoes as
     // one graph transaction, so the rail never exposes an intermediate order.
     const commands: CoreCommand[] = writes.map((write) => ({
       type: "set_property",
-      owner: write.entry.kind === "page"
-        ? { kind: "page", id: write.entry.id }
-        : { kind: "tag", tag_id: write.entry.id },
+      owner:
+        write.entry.kind === "page"
+          ? { kind: "page", id: write.entry.id }
+          : { kind: "tag", tag_id: write.entry.id },
       key: FAVOURITE_ORDER_KEY,
       value: { type: "number", value: write.order },
     }));
-    void session.execute(commands.length === 1
-      ? commands[0]
-      : { type: "batch", commands }).catch((cause: unknown) =>
-      notify.failure(message("failure.moveFavourite", { name: moved.name }), cause));
+    void session
+      .execute(commands.length === 1 ? commands[0] : { type: "batch", commands })
+      .catch((cause: unknown) =>
+        notify.failure(message("failure.moveFavourite", { name: moved.name }), cause),
+      );
   };
 
   const drop = () => {
@@ -978,9 +955,9 @@ function FavouriteRail({
           <NavLink
             key={key}
             className="shell-nav-item"
-            to={entry.kind === "page"
-              ? `/g/${graphId}/p/${entry.id}`
-              : `/g/${graphId}/t/${entry.id}`}
+            to={
+              entry.kind === "page" ? `/g/${graphId}/p/${entry.id}` : `/g/${graphId}/t/${entry.id}`
+            }
             title={entry.name}
             data-testid="favourite-item"
             data-dragging={drag?.carried === key || undefined}
@@ -1024,9 +1001,7 @@ function FavouriteRail({
             {/* A tag keeps its own mark here, in its own colour, so the list
                 reads as the things themselves rather than as rows that happen
                 to point at them. */}
-            {entry.kind === "page"
-              ? <FileTextIcon aria-hidden />
-              : <TagMark tag={entry.tag} />}
+            {entry.kind === "page" ? <FileTextIcon aria-hidden /> : <TagMark tag={entry.tag} />}
             <span className="nav-label">{entry.name}</span>
           </NavLink>
         );
@@ -1079,11 +1054,7 @@ function OverflowMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          size="icon"
-          aria-label={message("shell.moreActions")}
-          data-testid="overflow-menu"
-        >
+        <Button size="icon" aria-label={message("shell.moreActions")} data-testid="overflow-menu">
           <MoreHorizontalIcon aria-hidden />
         </Button>
       </DropdownMenuTrigger>
@@ -1227,12 +1198,12 @@ function ShellLoading() {
 
   return (
     <div className="shell-loading" role="status" aria-busy="true">
-        {show && (
-          <>
+      {show && (
+        <>
           <Loader2Icon className="spinner" aria-hidden />
           <p>{message("graph.loading")}</p>
-          </>
-        )}
+        </>
+      )}
     </div>
   );
 }

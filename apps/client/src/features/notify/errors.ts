@@ -16,10 +16,7 @@ import type { ToastInput } from "./store";
  * which the top bar is already stating with a dot, a reason, and Retry —
  * so the toast layer stays quiet rather than reporting one failure twice.
  */
-const SAVE_SLOT_OWNS: ReadonlySet<CorePortErrorCode> = new Set([
-  "dirty_unsaved",
-  "storage_full",
-]);
+const SAVE_SLOT_OWNS: ReadonlySet<CorePortErrorCode> = new Set(["dirty_unsaved", "storage_full"]);
 const DEFAULT_MESSAGE = createLocaleRuntime("en").message;
 
 /** Used only when the core sends a code with no message of its own. */
@@ -78,10 +75,7 @@ export function failureToast(
  * a failure whose consequence (dropped rows, lost keystrokes) needs saying
  * before the cause does.
  */
-export function failureReason(
-  error: unknown,
-  message: MessageFunction = DEFAULT_MESSAGE,
-): string {
+export function failureReason(error: unknown, message: MessageFunction = DEFAULT_MESSAGE): string {
   return reasonFor(portError(error), message);
 }
 

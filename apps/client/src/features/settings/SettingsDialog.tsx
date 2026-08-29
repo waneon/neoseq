@@ -96,14 +96,7 @@ const DUE_DAYS_FIELD = {
 export const SETTINGS_PARAM = "settings";
 
 /** The two scopes, in the order the dialog lists them. Sections come from here. */
-const APP_SECTIONS = [
-  "appearance",
-  "language",
-  "journal",
-  "tasks",
-  "keyboard",
-  "storage",
-] as const;
+const APP_SECTIONS = ["appearance", "language", "journal", "tasks", "keyboard", "storage"] as const;
 const GRAPH_SECTIONS = ["graph", "queries", "danger"] as const;
 
 const SETTINGS_SECTIONS = [...APP_SECTIONS, ...GRAPH_SECTIONS];
@@ -146,23 +139,13 @@ export function SettingsDialog({
           <div className="settings-group">
             <h3>{message("settings.scopeApp")}</h3>
             {APP_SECTIONS.map((entry) => (
-              <SectionTab
-                key={entry}
-                section={entry}
-                current={section}
-                onSelect={onSection}
-              />
+              <SectionTab key={entry} section={entry} current={section} onSelect={onSection} />
             ))}
           </div>
           <div className="settings-group">
             <h3>{message("settings.scopeGraph")}</h3>
             {GRAPH_SECTIONS.map((entry) => (
-              <SectionTab
-                key={entry}
-                section={entry}
-                current={section}
-                onSelect={onSection}
-              />
+              <SectionTab key={entry} section={entry} current={section} onSelect={onSection} />
             ))}
           </div>
         </nav>
@@ -453,9 +436,7 @@ function StorageSection() {
   const state = useSessionState();
   const notify = useNotify();
   const { message, formatBytes } = useI18n();
-  const [persisted, setPersisted] = useState<boolean | null>(
-    state.capabilities?.persisted ?? null,
-  );
+  const [persisted, setPersisted] = useState<boolean | null>(state.capabilities?.persisted ?? null);
 
   useEffect(() => {
     let cancelled = false;
@@ -650,7 +631,8 @@ function DangerSection({ graphId }: { graphId: string }) {
             await deleteGraph(graphId);
           }}
           onConfirmError={(cause) =>
-            notify.failure(message("failure.deleteGraph", { name: graphName(graphId) }), cause)}
+            notify.failure(message("failure.deleteGraph", { name: graphName(graphId) }), cause)
+          }
         >
           {message("graph.deleteConfirm", { name: graphName(graphId) })}
         </ConfirmDialog>

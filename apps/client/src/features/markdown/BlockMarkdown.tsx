@@ -98,22 +98,34 @@ function SafeLink({
 
 const blockComponents: Components = {
   h1: ({ children }) => (
-    <h2 className="markdown-heading" data-level="1">{children}</h2>
+    <h2 className="markdown-heading" data-level="1">
+      {children}
+    </h2>
   ),
   h2: ({ children }) => (
-    <h3 className="markdown-heading" data-level="2">{children}</h3>
+    <h3 className="markdown-heading" data-level="2">
+      {children}
+    </h3>
   ),
   h3: ({ children }) => (
-    <h4 className="markdown-heading" data-level="3">{children}</h4>
+    <h4 className="markdown-heading" data-level="3">
+      {children}
+    </h4>
   ),
   h4: ({ children }) => (
-    <h5 className="markdown-heading" data-level="4">{children}</h5>
+    <h5 className="markdown-heading" data-level="4">
+      {children}
+    </h5>
   ),
   h5: ({ children }) => (
-    <h6 className="markdown-heading" data-level="5">{children}</h6>
+    <h6 className="markdown-heading" data-level="5">
+      {children}
+    </h6>
   ),
   h6: ({ children }) => (
-    <h6 className="markdown-heading" data-level="6">{children}</h6>
+    <h6 className="markdown-heading" data-level="6">
+      {children}
+    </h6>
   ),
   // A table is the one construct that can outgrow the measure, so it scrolls
   // inside the block instead of widening the outline.
@@ -139,14 +151,16 @@ const compactComponents: Components = {
   h4: ({ children }) => <strong className="markdown-compact-heading">{children}</strong>,
   h5: ({ children }) => <strong className="markdown-compact-heading">{children}</strong>,
   h6: ({ children }) => <strong className="markdown-compact-heading">{children}</strong>,
-  blockquote: ({ children }) => (
-    <span className="markdown-compact-quote">{children}</span>
-  ),
+  blockquote: ({ children }) => <span className="markdown-compact-quote">{children}</span>,
   ul: ({ children }) => (
-    <span className="markdown-compact-list" data-kind="unordered">{children}</span>
+    <span className="markdown-compact-list" data-kind="unordered">
+      {children}
+    </span>
   ),
   ol: ({ children }) => (
-    <span className="markdown-compact-list" data-kind="ordered">{children}</span>
+    <span className="markdown-compact-list" data-kind="ordered">
+      {children}
+    </span>
   ),
   li: ({ children }) => <span className="markdown-compact-list-item">{children}</span>,
   pre: ({ children }) => <span className="markdown-compact-pre">{children}</span>,
@@ -156,7 +170,12 @@ const compactComponents: Components = {
   tr: ({ children }) => <span className="markdown-compact-row">{children}</span>,
   th: ({ children }) => <span className="markdown-compact-cell">{children}</span>,
   td: ({ children }) => <span className="markdown-compact-cell">{children}</span>,
-  hr: () => <span className="markdown-compact-break" aria-hidden> · · · </span>,
+  hr: () => (
+    <span className="markdown-compact-break" aria-hidden>
+      {" "}
+      · · ·{" "}
+    </span>
+  ),
   br: () => <span> </span>,
   input: ({ checked }) => (
     <span className="markdown-compact-task" data-checked={checked ?? false} />
@@ -203,9 +222,8 @@ function BlockMarkdownView({
     const origin = pressOrigin.current;
     pressOrigin.current = null;
     if (
-      origin
-      && Math.abs(event.clientX - origin.x) + Math.abs(event.clientY - origin.y)
-        >= DRAG_THRESHOLD_PX
+      origin &&
+      Math.abs(event.clientX - origin.x) + Math.abs(event.clientY - origin.y) >= DRAG_THRESHOLD_PX
     ) {
       return;
     }
@@ -242,11 +260,7 @@ function BlockMarkdownView({
     : {
         ...blockComponents,
         a: ({ href, children }) => (
-          <SafeLink
-            href={href}
-            graphId={graphId}
-            pageReferencePrefix={pageReferencePrefix}
-          >
+          <SafeLink href={href} graphId={graphId} pageReferencePrefix={pageReferencePrefix}>
             {children}
           </SafeLink>
         ),

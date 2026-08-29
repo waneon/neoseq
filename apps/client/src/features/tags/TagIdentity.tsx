@@ -50,10 +50,34 @@ import { useSession, useSessionSelector } from "../shell/session-context";
  * from having to be complete.
  */
 const QUICK_MARKS = [
-  "📌", "🎯", "💡", "🔥", "⭐️", "❤️", "✅",
-  "📚", "✍️", "🎨", "🧪", "🔧", "🌱", "🌍",
-  "🏃", "🍳", "🎵", "🎬", "💰", "🏠", "✈️",
-  "🗓", "📈", "🧠", "☕️", "🐛", "🚀", "🔒",
+  "📌",
+  "🎯",
+  "💡",
+  "🔥",
+  "⭐️",
+  "❤️",
+  "✅",
+  "📚",
+  "✍️",
+  "🎨",
+  "🧪",
+  "🔧",
+  "🌱",
+  "🌍",
+  "🏃",
+  "🍳",
+  "🎵",
+  "🎬",
+  "💰",
+  "🏠",
+  "✈️",
+  "🗓",
+  "📈",
+  "🧠",
+  "☕️",
+  "🐛",
+  "🚀",
+  "🔒",
 ];
 
 const COLOR_MESSAGE = {
@@ -135,9 +159,10 @@ export function TagIdentityPicker({
 
   const write = (key: string, value: string | null) => {
     const owner = { kind: "tag", tag_id: tag.id } as const;
-    const command = value === null
-      ? { type: "remove_property" as const, owner, key }
-      : { type: "set_property" as const, owner, key, value: { type: "string" as const, value } };
+    const command =
+      value === null
+        ? { type: "remove_property" as const, owner, key }
+        : { type: "set_property" as const, owner, key, value: { type: "string" as const, value } };
     void session.execute(command).catch((cause: unknown) => {
       // The panel keeps showing the authoritative value, so a silent failure
       // reads as a press that never registered.
@@ -154,7 +179,9 @@ export function TagIdentityPicker({
       surfaceRef={panelRef}
       dismissOnExternalScroll
       trapFocus
-      initialFocus={() => panelRef.current?.querySelector<HTMLElement>('[data-testid="tag-mark-field"]') ?? null}
+      initialFocus={() =>
+        panelRef.current?.querySelector<HTMLElement>('[data-testid="tag-mark-field"]') ?? null
+      }
       testId="tag-identity"
       onClose={onClose}
     >
@@ -294,8 +321,9 @@ function GroupField({
 
   const options = useMemo(() => {
     const typed = canonicalEntityName(draft);
-    const names = tagGroupNames(state.snapshot.tags, compare)
-      .filter((name) => typed.length === 0 || canonicalEntityName(name).includes(typed));
+    const names = tagGroupNames(state.snapshot.tags, compare).filter(
+      (name) => typed.length === 0 || canonicalEntityName(name).includes(typed),
+    );
     const exact = names.some((name) => canonicalEntityName(name) === typed);
     return { names: names.slice(0, 8), create: typed.length > 0 && !exact };
   }, [state.snapshot.tags, draft, compare]);
@@ -377,36 +405,36 @@ function GroupField({
           onClose={() => setOpen(false)}
         >
           {rows.length === 0 ? (
-            <div role="status" className="ac-hint">{message("tags.noGroups")}</div>
+            <div role="status" className="ac-hint">
+              {message("tags.noGroups")}
+            </div>
           ) : (
-          <ul role="presentation" className="m-0 list-none p-0">
-            {rows.map((row, index) => (
-              <li key={row.create ? "__create" : row.label} role="presentation">
-                <button
-                  id={optionId(index)}
-                  role="option"
-                  aria-selected={index === active}
-                  data-active={index === active}
-                  className="property-picker-option"
-                  tabIndex={-1}
-                  onPointerMove={() => setActive(index)}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    cancelBlur();
-                  }}
-                  onClick={() => commit(row.label)}
-                >
-                  <span className="property-picker-candidate">
-                    <span>
-                      {row.create
-                        ? message("tags.groupCreate", { name: row.label })
-                        : row.label}
+            <ul role="presentation" className="m-0 list-none p-0">
+              {rows.map((row, index) => (
+                <li key={row.create ? "__create" : row.label} role="presentation">
+                  <button
+                    id={optionId(index)}
+                    role="option"
+                    aria-selected={index === active}
+                    data-active={index === active}
+                    className="property-picker-option"
+                    tabIndex={-1}
+                    onPointerMove={() => setActive(index)}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      cancelBlur();
+                    }}
+                    onClick={() => commit(row.label)}
+                  >
+                    <span className="property-picker-candidate">
+                      <span>
+                        {row.create ? message("tags.groupCreate", { name: row.label }) : row.label}
+                      </span>
                     </span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </AnchoredPanel>
       )}

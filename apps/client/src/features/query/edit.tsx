@@ -29,16 +29,8 @@ import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { useImmediateState } from "../../lib/react";
 import { cn } from "../../lib/utils";
-import {
-  caretAnchor,
-  elementAnchor,
-  snapshotAnchor,
-  type Anchor,
-} from "@/ui/anchored";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-} from "@/ui/shadcn/dropdown-menu";
+import { caretAnchor, elementAnchor, snapshotAnchor, type Anchor } from "@/ui/anchored";
+import { DropdownMenu, DropdownMenuTrigger } from "@/ui/shadcn/dropdown-menu";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { useCommands } from "../commands/context";
 import { bindingMatches, useShortcutBindings } from "../commands/shortcuts";
@@ -50,10 +42,7 @@ import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
 import { createQueryCommand } from "./commands";
-import {
-  transformAutoClosers,
-  type AutoCloserMarker,
-} from "../blocks/editor/auto-pair";
+import { transformAutoClosers, type AutoCloserMarker } from "../blocks/editor/auto-pair";
 import { BlockTextArea, type BlockTextEdit } from "../blocks/editor/BlockTextArea";
 import type { EditorKeymap } from "../../entities/settings";
 import { useEditorKeymap } from "../settings/preferences";
@@ -83,23 +72,12 @@ import {
   type BlockTagOption,
 } from "../blocks/editor/BlockCompletions";
 import { planInlineEdit, planPageReference } from "../blocks/editor/inline-content";
-import {
-  buildSlashItems,
-  filterSlashItems,
-  type SlashItem,
-} from "../blocks/editor/slash-commands";
-import {
-  BlockMarkdown,
-} from "../markdown/BlockMarkdown";
+import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
+import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 import { useSessionSelector } from "../shell/session-context";
-import {
-  CellValue,
-  type CellContext,
-  type ResultColumn,
-  type ResultViewRow,
-} from "./cells";
+import { CellValue, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
 
 const EDIT_DEBOUNCE_MS = 400;
 
@@ -225,8 +203,9 @@ export function useQueryResultEditor({
   const request = useRef(0);
   const preserveOnNextBlur = useRef(false);
   const pageDirectory = useMemo(
-    () => state.snapshot.page_directory
-      ?? state.snapshot.pages.map((page) => ({
+    () =>
+      state.snapshot.page_directory ??
+      state.snapshot.pages.map((page) => ({
         id: page.id,
         title: page.title,
         journal_date: null,
@@ -269,10 +248,11 @@ export function useQueryResultEditor({
       if (!column.source) return null;
       if (column.aggregate && column.aggregate !== "list") return null;
       if (
-        column.source.kind !== "content"
-        && column.source.kind !== "property"
-        && column.source.kind !== "tags"
-      ) return null;
+        column.source.kind !== "content" &&
+        column.source.kind !== "property" &&
+        column.source.kind !== "tags"
+      )
+        return null;
       return bindingForDirect(subject, column.source);
     },
     [bindingForDirect],
@@ -353,9 +333,9 @@ export function useQueryResultEditor({
       if (current.composing) return false;
       if (current.saving) {
         if (close) {
-          setActive((latest) => latest?.phase === "markdown"
-            ? { ...latest, closeAfterSave: true }
-            : latest);
+          setActive((latest) =>
+            latest?.phase === "markdown" ? { ...latest, closeAfterSave: true } : latest,
+          );
         }
         return false;
       }
@@ -397,9 +377,7 @@ export function useQueryResultEditor({
           });
         }
         if (action) commands.push(action);
-        await session.execute(commands.length === 1
-          ? commands[0]
-          : { type: "batch", commands });
+        await session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands });
         const canonicalBlock = blockFrom(session.getState(), current.binding.block);
         const canonical = canonicalBlock?.markdown ?? expected;
         setActive((latest) => {
@@ -420,8 +398,8 @@ export function useQueryResultEditor({
         });
         return true;
       } catch (cause) {
-        const canonical = blockFrom(session.getState(), current.binding.block)?.markdown
-          ?? previousBaseline;
+        const canonical =
+          blockFrom(session.getState(), current.binding.block)?.markdown ?? previousBaseline;
         setActive((latest) => {
           if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
             return latest;
@@ -442,14 +420,15 @@ export function useQueryResultEditor({
 
   useEffect(() => {
     if (
-      !active
-      || active.phase !== "markdown"
-      || active.composing
-      || active.completing
-      || active.saving
-      || active.error
-      || active.draft === active.baseline
-    ) return;
+      !active ||
+      active.phase !== "markdown" ||
+      active.composing ||
+      active.completing ||
+      active.saving ||
+      active.error ||
+      active.draft === active.baseline
+    )
+      return;
     const timer = window.setTimeout(() => void commit(false), EDIT_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [active, commit]);
@@ -464,12 +443,13 @@ export function useQueryResultEditor({
   useEffect(() => {
     setActive((current) => {
       if (
-        !current
-        || current.phase !== "markdown"
-        || current.saving
-        || current.composing
-        || current.completing
-      ) return current;
+        !current ||
+        current.phase !== "markdown" ||
+        current.saving ||
+        current.composing ||
+        current.completing
+      )
+        return current;
       if (current.draft !== current.baseline) {
         const pending = planInlineEdit(
           current.binding.block.id,
@@ -513,207 +493,235 @@ export function useQueryResultEditor({
     });
   }, [activeCompleting, activeComposing, pageDirectory, setActive, state]);
 
-  const setDraft = useCallback((value: string, edit?: BlockTextEdit) => {
-    setActive((current) => {
-      if (current?.phase !== "markdown") return current;
-      let autoClosers = transformAutoClosers(
-        current.draft,
-        value,
-        current.autoClosers,
-        edit?.preferredStart,
-        edit?.preferredEnd,
+  const setDraft = useCallback(
+    (value: string, edit?: BlockTextEdit) => {
+      setActive((current) => {
+        if (current?.phase !== "markdown") return current;
+        let autoClosers = transformAutoClosers(
+          current.draft,
+          value,
+          current.autoClosers,
+          edit?.preferredStart,
+          edit?.preferredEnd,
+        );
+        if (edit?.autoCloser) {
+          autoClosers = [
+            ...autoClosers.filter(
+              (marker) =>
+                marker.offset !== edit.autoCloser?.offset ||
+                marker.closer !== edit.autoCloser.closer,
+            ),
+            edit.autoCloser,
+          ];
+        }
+        return { ...current, draft: value, autoClosers, error: null };
+      });
+    },
+    [setActive],
+  );
+
+  const setComposing = useCallback(
+    (composing: boolean) => {
+      setActive((current) => (current?.phase === "markdown" ? { ...current, composing } : current));
+    },
+    [setActive],
+  );
+
+  const setCompleting = useCallback(
+    (completing: boolean) => {
+      setActive((current) =>
+        current?.phase === "markdown" ? { ...current, completing } : current,
       );
-      if (edit?.autoCloser) {
-        autoClosers = [
-          ...autoClosers.filter((marker) =>
-            marker.offset !== edit.autoCloser?.offset
-            || marker.closer !== edit.autoCloser.closer),
-          edit.autoCloser,
-        ];
-      }
-      return { ...current, draft: value, autoClosers, error: null };
-    });
-  }, [setActive]);
+    },
+    [setActive],
+  );
 
-  const setComposing = useCallback((composing: boolean) => {
-    setActive((current) => current?.phase === "markdown"
-      ? { ...current, composing }
-      : current);
-  }, [setActive]);
+  const acceptSlash = useCallback(
+    (completion: BlockCompletionRequest, item: SlashItem) => {
+      const current = activeRef.current;
+      if (!current || current.phase !== "markdown") return;
+      const next = removeCompletionToken(current.draft, completion).value;
+      setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
 
-  const setCompleting = useCallback((completing: boolean) => {
-    setActive((current) => current?.phase === "markdown"
-      ? { ...current, completing }
-      : current);
-  }, [setActive]);
-
-  const acceptSlash = useCallback((completion: BlockCompletionRequest, item: SlashItem) => {
-    const current = activeRef.current;
-    if (!current || current.phase !== "markdown") return;
-    const next = removeCompletionToken(current.draft, completion).value;
-    setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
-
-    void (async () => {
-      const owner = {
-        kind: "block",
-        owner: current.binding.block.owner,
-        id: current.binding.block.id,
-      } as const;
-      if (item.action.kind === "set") {
-        await commit(false, next, {
+      void (async () => {
+        const owner = {
+          kind: "block",
+          owner: current.binding.block.owner,
+          id: current.binding.block.id,
+        } as const;
+        if (item.action.kind === "set") {
+          await commit(false, next, {
             type: "set_property",
             owner,
             key: item.action.key,
             value: item.action.value,
           });
-        return;
-      }
-      if (item.action.kind === "query") {
-        await commit(false, next, createQueryCommand(owner));
-        return;
-      }
-      const plan = planInlineEdit(
-        current.binding.block.id,
+          return;
+        }
+        if (item.action.kind === "query") {
+          await commit(false, next, createQueryCommand(owner));
+          return;
+        }
+        const plan = planInlineEdit(
+          current.binding.block.id,
+          current.baseline,
+          current.references,
+          next,
+        );
+        setActive({
+          phase: "picker",
+          binding: {
+            kind: "property",
+            block: current.binding.block,
+            key: item.action.key ?? "",
+          },
+          origin: current.origin,
+          anchor: snapshotAnchor(completionAnchor(completion)),
+          taskMenu: false,
+          commandPrefix: plan
+            ? {
+                type: "splice_block_content",
+                owner: current.binding.block.owner,
+                ...plan.splice,
+              }
+            : undefined,
+        });
+      })();
+    },
+    [commit, setActive],
+  );
+
+  const acceptTag = useCallback(
+    (completion: BlockCompletionRequest, option: BlockTagOption) => {
+      const current = activeRef.current;
+      if (!current || current.phase !== "markdown") return;
+      const next = removeCompletionToken(current.draft, completion).value;
+      setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
+      void (async () => {
+        await commit(
+          false,
+          next,
+          option.present
+            ? undefined
+            : {
+                type: "add_tag",
+                entity: {
+                  kind: "block",
+                  owner: current.binding.block.owner,
+                  id: current.binding.block.id,
+                },
+                tag_id: option.id,
+              },
+        );
+      })();
+    },
+    [commit, setActive],
+  );
+
+  const acceptPage = useCallback(
+    (completion: BlockCompletionRequest, option: BlockPageOption): number | null => {
+      const current = activeRef.current;
+      if (!current || current.phase !== "markdown" || current.saving) return null;
+      const blockId = current.binding.block.id;
+      const pendingText = planInlineEdit(
+        blockId,
         current.baseline,
         current.references,
-        next,
+        current.draft,
       );
+      const pageId = option.create ? `p-${crypto.randomUUID()}` : option.id;
+      const replacement = planPageReference(
+        blockId,
+        current.draft,
+        pendingText?.references ?? current.references,
+        completion.start,
+        completion.end,
+        pageId,
+        option.title,
+      );
+      const targetKey = bindingKey(current.binding);
       setActive({
-        phase: "picker",
-        binding: {
-          kind: "property",
-          block: current.binding.block,
-          key: item.action.key ?? "",
-        },
-        origin: current.origin,
-        anchor: snapshotAnchor(completionAnchor(completion)),
-        taskMenu: false,
-        commandPrefix: plan
-          ? {
-              type: "splice_block_content",
-              owner: current.binding.block.owner,
-              ...plan.splice,
-            }
-          : undefined,
+        ...current,
+        baseline: replacement.value,
+        draft: replacement.value,
+        references: replacement.plan.references,
+        autoClosers: [],
+        completing: false,
+        saving: true,
+        error: null,
       });
-    })();
-  }, [commit, setActive]);
 
-  const acceptTag = useCallback((completion: BlockCompletionRequest, option: BlockTagOption) => {
-    const current = activeRef.current;
-    if (!current || current.phase !== "markdown") return;
-    const next = removeCompletionToken(current.draft, completion).value;
-    setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
-    void (async () => {
-      await commit(false, next, option.present
-        ? undefined
-        : {
-            type: "add_tag",
-            entity: {
-              kind: "block",
-              owner: current.binding.block.owner,
-              id: current.binding.block.id,
-            },
-            tag_id: option.id,
-          });
-    })();
-  }, [commit, setActive]);
-
-  const acceptPage = useCallback((
-    completion: BlockCompletionRequest,
-    option: BlockPageOption,
-  ): number | null => {
-    const current = activeRef.current;
-    if (!current || current.phase !== "markdown" || current.saving) return null;
-    const blockId = current.binding.block.id;
-    const pendingText = planInlineEdit(
-      blockId,
-      current.baseline,
-      current.references,
-      current.draft,
-    );
-    const pageId = option.create ? `p-${crypto.randomUUID()}` : option.id;
-    const replacement = planPageReference(
-      blockId,
-      current.draft,
-      pendingText?.references ?? current.references,
-      completion.start,
-      completion.end,
-      pageId,
-      option.title,
-    );
-    const targetKey = bindingKey(current.binding);
-    setActive({
-      ...current,
-      baseline: replacement.value,
-      draft: replacement.value,
-      references: replacement.plan.references,
-      autoClosers: [],
-      completing: false,
-      saving: true,
-      error: null,
-    });
-
-    const commands: Command[] = [];
-    if (option.create) {
-      commands.push({ type: "ensure_page", page_id: pageId, title: option.title });
-    }
-    if (pendingText) {
+      const commands: Command[] = [];
+      if (option.create) {
+        commands.push({ type: "ensure_page", page_id: pageId, title: option.title });
+      }
+      if (pendingText) {
+        commands.push({
+          type: "splice_block_content",
+          owner: current.binding.block.owner,
+          ...pendingText.splice,
+        });
+      }
       commands.push({
         type: "splice_block_content",
         owner: current.binding.block.owner,
-        ...pendingText.splice,
+        ...replacement.plan.splice,
       });
-    }
-    commands.push({
-      type: "splice_block_content",
-      owner: current.binding.block.owner,
-      ...replacement.plan.splice,
-    });
-    void session.execute(commands.length === 1
-      ? commands[0]
-      : { type: "batch", commands }).then(
-      () => {
-        const canonical = blockFrom(session.getState(), current.binding.block);
-        setActive((latest) => {
-          if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
-            return latest;
-          }
-          return {
-            ...latest,
-            baseline: canonical?.markdown ?? replacement.value,
-            draft: canonical?.markdown ?? replacement.value,
-            references: canonical?.page_references ?? replacement.plan.references,
-            saving: false,
-          };
-        });
-      },
-      (cause: unknown) => {
-        const canonical = blockFrom(session.getState(), current.binding.block);
-        setActive((latest) => {
-          if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
-            return latest;
-          }
-          return {
-            ...latest,
-            baseline: canonical?.markdown ?? current.baseline,
-            draft: canonical?.markdown ?? current.baseline,
-            references: canonical?.page_references ?? current.references,
-            saving: false,
-            error: failureReason(cause, message),
-          };
-        });
-      },
-    );
-    return replacement.caret;
-  }, [message, session, setActive]);
+      void session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands }).then(
+        () => {
+          const canonical = blockFrom(session.getState(), current.binding.block);
+          setActive((latest) => {
+            if (
+              !latest ||
+              latest.phase !== "markdown" ||
+              bindingKey(latest.binding) !== targetKey
+            ) {
+              return latest;
+            }
+            return {
+              ...latest,
+              baseline: canonical?.markdown ?? replacement.value,
+              draft: canonical?.markdown ?? replacement.value,
+              references: canonical?.page_references ?? replacement.plan.references,
+              saving: false,
+            };
+          });
+        },
+        (cause: unknown) => {
+          const canonical = blockFrom(session.getState(), current.binding.block);
+          setActive((latest) => {
+            if (
+              !latest ||
+              latest.phase !== "markdown" ||
+              bindingKey(latest.binding) !== targetKey
+            ) {
+              return latest;
+            }
+            return {
+              ...latest,
+              baseline: canonical?.markdown ?? current.baseline,
+              draft: canonical?.markdown ?? current.baseline,
+              references: canonical?.page_references ?? current.references,
+              saving: false,
+              error: failureReason(cause, message),
+            };
+          });
+        },
+      );
+      return replacement.caret;
+    },
+    [message, session, setActive],
+  );
 
-  const runHistory = useCallback((redo: boolean) => {
-    void (async () => {
-      if (!(await commit(false))) return;
-      await history.run(redo ? "redo" : "undo", { kind: "global-shortcut" });
-    })();
-  }, [commit, history]);
+  const runHistory = useCallback(
+    (redo: boolean) => {
+      void (async () => {
+        if (!(await commit(false))) return;
+        await history.run(redo ? "redo" : "undo", { kind: "global-shortcut" });
+      })();
+    },
+    [commit, history],
+  );
 
   const preserveDraftForPresentationChange = useCallback(() => {
     preserveOnNextBlur.current = true;
@@ -740,26 +748,24 @@ export function useQueryResultEditor({
     }
   }, [begin, commit]);
 
-  const isActive = useCallback(
-    (binding: QueryEditBinding, row: ResultViewRow) => {
-      const current = activeRef.current;
-      return Boolean(
-        current
-        && bindingKey(current.binding) === bindingKey(binding)
-        && current.origin.row.key === row.key,
-      );
-    },
-    [],
-  );
+  const isActive = useCallback((binding: QueryEditBinding, row: ResultViewRow) => {
+    const current = activeRef.current;
+    return Boolean(
+      current &&
+      bindingKey(current.binding) === bindingKey(binding) &&
+      current.origin.row.key === row.key,
+    );
+  }, []);
 
   const activeBlock = useMemo(
-    () => active ? blockFrom(state, active.binding.block) : undefined,
+    () => (active ? blockFrom(state, active.binding.block) : undefined),
     [active, state],
   );
 
-  const activeBlockKey = activeBlock && active
-    ? `${outlineOwnerKey(active.binding.block.owner)}:${active.binding.block.id}`
-    : null;
+  const activeBlockKey =
+    activeBlock && active
+      ? `${outlineOwnerKey(active.binding.block.owner)}:${active.binding.block.id}`
+      : null;
   useEffect(() => {
     if (!activeBlockKey) return;
     return commands.registerBlockProperties((key?: string) => {
@@ -767,11 +773,12 @@ export function useQueryResultEditor({
       if (!current) return;
       if (current.phase === "markdown") void commit(false);
       const focused = document.activeElement;
-      const focusedAnchor = focused instanceof HTMLTextAreaElement
-        ? caretAnchor(focused, focused.selectionStart)
-        : focused instanceof HTMLElement
-          ? elementAnchor(focused)
-          : current.anchor;
+      const focusedAnchor =
+        focused instanceof HTMLTextAreaElement
+          ? caretAnchor(focused, focused.selectionStart)
+          : focused instanceof HTMLElement
+            ? elementAnchor(focused)
+            : current.anchor;
       setActive({
         phase: "picker",
         binding: { kind: "property", block: current.binding.block, key: key ?? "" },
@@ -882,10 +889,7 @@ function QueryMarkdownField({
   );
   const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
-  const [completion, dispatchCompletion] = useReducer(
-    blockCompletionReducer,
-    NO_BLOCK_COMPLETION,
-  );
+  const [completion, dispatchCompletion] = useReducer(blockCompletionReducer, NO_BLOCK_COMPLETION);
   const closeCompletion = useCallback(() => {
     dispatchCompletion({ type: "set", completion: null });
     editor.setCompleting(false);
@@ -901,23 +905,25 @@ function QueryMarkdownField({
   /** Whether the box is hiding part of the value rather than scrolling it. */
   const [clipped, setClipped] = useState(false);
   const slashResults = useMemo(
-    () => slashRequest ? filterSlashItems(slashItems, slashRequest.query) : [],
+    () => (slashRequest ? filterSlashItems(slashItems, slashRequest.query) : []),
     [slashItems, slashRequest],
   );
   const hashResults = useMemo(
-    () => hashRequest
-      ? filterTagOptions(
-        state.snapshot.tags,
-        hashRequest.query,
-        new Set(block?.tags ?? []),
-        compare,
-      )
-      : [],
+    () =>
+      hashRequest
+        ? filterTagOptions(
+            state.snapshot.tags,
+            hashRequest.query,
+            new Set(block?.tags ?? []),
+            compare,
+          )
+        : [],
     [block?.tags, compare, hashRequest, state.snapshot.tags],
   );
   const pageDirectory = useMemo(
-    () => state.snapshot.page_directory
-      ?? state.snapshot.pages.map((page) => ({
+    () =>
+      state.snapshot.page_directory ??
+      state.snapshot.pages.map((page) => ({
         id: page.id,
         title: page.title,
         journal_date: null,
@@ -926,7 +932,7 @@ function QueryMarkdownField({
     [state.snapshot.page_directory, state.snapshot.pages],
   );
   const pageResults = useMemo(
-    () => pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : [],
+    () => (pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : []),
     [compare, pageDirectory, pageRequest],
   );
   const slashIndex = Math.min(
@@ -942,55 +948,49 @@ function QueryMarkdownField({
     Math.max(pageResults.length - 1, 0),
   );
 
-  const updateCompletions = useCallback((value: string, element: HTMLTextAreaElement) => {
-    const page = detectPage(value, element.selectionStart, element.selectionEnd);
-    if (page) {
-      const available = filterPageOptions(pageDirectory, page.query, compare).length > 0;
-      dispatchCompletion({
-        type: "set",
-        completion: available
-          ? { kind: "page", request: { blockId, ...page, anchor: element }, active: 0 }
-          : null,
-      });
-      editor.setCompleting(available);
-      return;
-    }
-    const slash = detectSlash(value, element.selectionStart, element.selectionEnd);
-    if (slash) {
-      const available = filterSlashItems(slashItems, slash.query).length > 0;
-      dispatchCompletion({
-        type: "set",
-        completion: available
-          ? { kind: "slash", request: { blockId, ...slash, anchor: element }, active: 0 }
-          : null,
-      });
-      editor.setCompleting(available);
-      return;
-    }
+  const updateCompletions = useCallback(
+    (value: string, element: HTMLTextAreaElement) => {
+      const page = detectPage(value, element.selectionStart, element.selectionEnd);
+      if (page) {
+        const available = filterPageOptions(pageDirectory, page.query, compare).length > 0;
+        dispatchCompletion({
+          type: "set",
+          completion: available
+            ? { kind: "page", request: { blockId, ...page, anchor: element }, active: 0 }
+            : null,
+        });
+        editor.setCompleting(available);
+        return;
+      }
+      const slash = detectSlash(value, element.selectionStart, element.selectionEnd);
+      if (slash) {
+        const available = filterSlashItems(slashItems, slash.query).length > 0;
+        dispatchCompletion({
+          type: "set",
+          completion: available
+            ? { kind: "slash", request: { blockId, ...slash, anchor: element }, active: 0 }
+            : null,
+        });
+        editor.setCompleting(available);
+        return;
+      }
 
-    const hash = detectHash(value, element.selectionStart, element.selectionEnd);
-    const available = hash && filterTagOptions(
-      state.snapshot.tags,
-      hash.query,
-      new Set(block?.tags ?? []),
-      compare,
-    ).length > 0;
-    dispatchCompletion({
-      type: "set",
-      completion: hash && available
-        ? { kind: "hash", request: { blockId, ...hash, anchor: element }, active: 0 }
-        : null,
-    });
-    editor.setCompleting(Boolean(available));
-  }, [
-    block?.tags,
-    blockId,
-    compare,
-    editor,
-    pageDirectory,
-    slashItems,
-    state.snapshot.tags,
-  ]);
+      const hash = detectHash(value, element.selectionStart, element.selectionEnd);
+      const available =
+        hash &&
+        filterTagOptions(state.snapshot.tags, hash.query, new Set(block?.tags ?? []), compare)
+          .length > 0;
+      dispatchCompletion({
+        type: "set",
+        completion:
+          hash && available
+            ? { kind: "hash", request: { blockId, ...hash, anchor: element }, active: 0 }
+            : null,
+      });
+      editor.setCompleting(Boolean(available));
+    },
+    [block?.tags, blockId, compare, editor, pageDirectory, slashItems, state.snapshot.tags],
+  );
 
   useEffect(() => {
     if (completion.kind === "none") return;
@@ -1021,8 +1021,8 @@ function QueryMarkdownField({
       // that never reaches the text inside a textarea.
       const style = getComputedStyle(element);
       setClipped(
-        (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth)
-        || (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
+        (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth) ||
+          (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
       );
     };
     measure();
@@ -1066,13 +1066,9 @@ function QueryMarkdownField({
         dir="auto"
         spellCheck={false}
         readOnly={!markdown}
-        acceptsTextInput={
-          editor.keymap !== "vim" || editor.vim.state.mode === "insert"
-        }
+        acceptsTextInput={editor.keymap !== "vim" || editor.vim.state.mode === "insert"}
         aria-readonly={!markdown ? true : undefined}
-        data-vim-mode={
-          markdown && editor.keymap === "vim" ? editor.vim.state.mode : undefined
-        }
+        data-vim-mode={markdown && editor.keymap === "vim" ? editor.vim.state.mode : undefined}
         hidden={previewMarkdown}
         tabIndex={previewMarkdown ? -1 : undefined}
         aria-label={label}
@@ -1096,7 +1092,9 @@ function QueryMarkdownField({
                 ? `page-reference-opt-${pageIndex}`
                 : undefined
         }
-        data-testid={markdown ? "query-markdown-editor" : `query-edit-${column?.variable ?? "text"}`}
+        data-testid={
+          markdown ? "query-markdown-editor" : `query-edit-${column?.variable ?? "text"}`
+        }
         title={editor.message("query.editResult", { column: editLabel ?? column?.label ?? label })}
         onPointerDown={activationEntrance.beginPointer}
         onPointerUp={activationEntrance.completePointer}
@@ -1130,9 +1128,10 @@ function QueryMarkdownField({
           // query-level draft alive so the other renderer adopts it. Radix
           // may focus the menu item directly, so the toolbar marks the intent
           // on pointer down before this blur runs.
-          const changingPresentation = editor.consumePresentationChangeIntent()
-            || (event.relatedTarget instanceof Element
-              && event.relatedTarget.closest('[data-testid="query-view-trigger"]') !== null);
+          const changingPresentation =
+            editor.consumePresentationChangeIntent() ||
+            (event.relatedTarget instanceof Element &&
+              event.relatedTarget.closest('[data-testid="query-view-trigger"]') !== null);
           if (changingPresentation) return;
           if (markdown) void editor.commit(true);
           else if (current) editor.cancel();
@@ -1162,9 +1161,10 @@ function QueryMarkdownField({
               dispatchCompletion({
                 type: "activate",
                 kind: "slash",
-                index: event.key === "ArrowDown"
-                  ? Math.min(slashIndex + 1, slashResults.length - 1)
-                  : Math.max(slashIndex - 1, 0),
+                index:
+                  event.key === "ArrowDown"
+                    ? Math.min(slashIndex + 1, slashResults.length - 1)
+                    : Math.max(slashIndex - 1, 0),
               });
               return;
             }
@@ -1191,9 +1191,10 @@ function QueryMarkdownField({
               dispatchCompletion({
                 type: "activate",
                 kind: "hash",
-                index: event.key === "ArrowDown"
-                  ? Math.min(hashIndex + 1, hashResults.length - 1)
-                  : Math.max(hashIndex - 1, 0),
+                index:
+                  event.key === "ArrowDown"
+                    ? Math.min(hashIndex + 1, hashResults.length - 1)
+                    : Math.max(hashIndex - 1, 0),
               });
               return;
             }
@@ -1221,9 +1222,10 @@ function QueryMarkdownField({
               dispatchCompletion({
                 type: "activate",
                 kind: "page",
-                index: event.key === "ArrowDown"
-                  ? Math.min(pageIndex + 1, pageResults.length - 1)
-                  : Math.max(pageIndex - 1, 0),
+                index:
+                  event.key === "ArrowDown"
+                    ? Math.min(pageIndex + 1, pageResults.length - 1)
+                    : Math.max(pageIndex - 1, 0),
               });
               return;
             }
@@ -1273,11 +1275,7 @@ function QueryMarkdownField({
             event.preventDefault();
             editor.cancel();
             event.currentTarget.blur();
-          } else if (
-            event.key === "Enter"
-            && !event.shiftKey
-            && policy.enter === "commit"
-          ) {
+          } else if (event.key === "Enter" && !event.shiftKey && policy.enter === "commit") {
             event.preventDefault();
             void editor.commit(true).then((saved) => {
               if (saved) textarea.current?.blur();
@@ -1370,10 +1368,18 @@ function QueryMarkdownField({
       {error && (
         <span className="query-result-edit-error" role="alert">
           <span>{error}</span>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={editor.retry}>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={editor.retry}
+          >
             {editor.message("common.retryShort")}
           </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={editor.cancel}>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={editor.cancel}
+          >
             {editor.message("common.cancel")}
           </button>
         </span>
@@ -1541,7 +1547,9 @@ export function EditableBlockContent({
       className="block-line outline-markdown query-block-content"
     />
   ) : (
-    <span className="block-line query-block-content" dir="auto">{markdown}</span>
+    <span className="block-line query-block-content" dir="auto">
+      {markdown}
+    </span>
   );
 
   if (current?.phase !== "error") return content;
@@ -1549,8 +1557,12 @@ export function EditableBlockContent({
     <span className="query-result-edit-problem query-block-content-problem">
       {content}
       <span role="alert">{current.error}</span>
-      <button type="button" onClick={editor.retry}>{context.message("common.retryShort")}</button>
-      <button type="button" onClick={editor.cancel}>{context.message("common.cancel")}</button>
+      <button type="button" onClick={editor.retry}>
+        {context.message("common.retryShort")}
+      </button>
+      <button type="button" onClick={editor.cancel}>
+        {context.message("common.cancel")}
+      </button>
     </span>
   );
 }
@@ -1583,12 +1595,12 @@ export function EditableBlockTaskMark({
     width: null,
   };
   const binding = editor.bindingForDirect(row.subject, { kind: "property", key });
-  const glyph = kind === "status"
-    ? <TaskStatusGlyph status={value} />
-    : <PriorityGlyph priority={value} />;
-  const label = kind === "status"
-    ? context.message("task.statusIs", { status: statusLabel(value, context.message) })
-    : context.message("task.priorityIs", { priority: priorityLabel(value, context.message) });
+  const glyph =
+    kind === "status" ? <TaskStatusGlyph status={value} /> : <PriorityGlyph priority={value} />;
+  const label =
+    kind === "status"
+      ? context.message("task.statusIs", { status: statusLabel(value, context.message) })
+      : context.message("task.priorityIs", { priority: priorityLabel(value, context.message) });
   if (!binding) {
     return (
       <span
@@ -1663,8 +1675,12 @@ export function EditableCellValue({
       <span className={cn("query-result-edit-problem", className)}>
         {value}
         <span role="alert">{current.error}</span>
-        <button type="button" onClick={editor.retry}>{context.message("common.retryShort")}</button>
-        <button type="button" onClick={editor.cancel}>{context.message("common.cancel")}</button>
+        <button type="button" onClick={editor.retry}>
+          {context.message("common.retryShort")}
+        </button>
+        <button type="button" onClick={editor.cancel}>
+          {context.message("common.cancel")}
+        </button>
       </span>
     );
   }
@@ -1726,7 +1742,11 @@ export function EditableStatusValue({
   if (term?.kind !== "literal" && !binding) return null;
   const status = term?.kind === "literal" ? term.value : "";
   if (!binding) {
-    return <span className="query-list-status"><TaskStatusGlyph status={status} /></span>;
+    return (
+      <span className="query-list-status">
+        <TaskStatusGlyph status={status} />
+      </span>
+    );
   }
   const current = editor.isActive(binding, row) ? editor.active : null;
   // The same menu the outline's own mark opens — a list result is a row of

@@ -7,7 +7,11 @@ declare module "virtual:neoseq-test-routes" {
 declare module "virtual:neoseq-worker-factory" {
   export function createCoreWorker(): import("./core-worker").CoreWorker;
   export const injectStorageFault:
-    | ((worker: import("./core-worker").CoreWorker, graphHandle: string, fault: string) => Promise<void>)
+    | ((
+        worker: import("./core-worker").CoreWorker,
+        graphHandle: string,
+        fault: string,
+      ) => Promise<void>)
     | undefined;
   export function clearTestHook(): void;
 }

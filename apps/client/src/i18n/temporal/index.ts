@@ -4,11 +4,7 @@ import {
   type TemporalContext,
 } from "../../entities/temporal";
 import { LOCALE_DEFINITIONS, type SupportedLocale } from "../generated/messages";
-import {
-  normalizeTemporalInput,
-  recognizeInvariantDate,
-  recognizeInvariantMoment,
-} from "./shared";
+import { normalizeTemporalInput, recognizeInvariantDate, recognizeInvariantMoment } from "./shared";
 import {
   NO_TEMPORAL_MATCH,
   mapTemporalRecognition,
@@ -68,19 +64,14 @@ export function createTemporalParser(locale: SupportedLocale): TemporalParser {
       const normalized = normalizeTemporalInput(input, locale);
       if (!normalized) return NO_TEMPORAL_MATCH;
       const invariant = recognizeInvariantMoment(normalized);
-      const localized = invariant.kind === "none"
-        ? pack.recognizeMoment(normalized)
-        : invariant;
-      const recognition = localized.kind === "none"
-        ? mapTemporalRecognition(recognizeDate(normalized), (date) => ({ date }))
-        : localized;
+      const localized = invariant.kind === "none" ? pack.recognizeMoment(normalized) : invariant;
+      const recognition =
+        localized.kind === "none"
+          ? mapTemporalRecognition(recognizeDate(normalized), (date) => ({ date }))
+          : localized;
       return resolveRecognition(recognition, (intent) => resolveMomentIntent(intent, context));
     },
   };
 }
 
-export type {
-  TemporalLanguagePack,
-  TemporalParser,
-  TemporalRecognition,
-} from "./types";
+export type { TemporalLanguagePack, TemporalParser, TemporalRecognition } from "./types";

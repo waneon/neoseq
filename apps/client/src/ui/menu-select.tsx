@@ -24,13 +24,7 @@
 // The trigger keeps the shape of a field, because it is standing in for one. Only
 // the popup changed.
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./shadcn/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./shadcn/select";
 
 export interface MenuSelectOption {
   value: string;

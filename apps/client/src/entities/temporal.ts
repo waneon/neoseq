@@ -102,9 +102,12 @@ export function resolveDateIntent(
         intent.direction === "future"
           ? (intent.weekday - current + 7) % 7
           : -((current - intent.weekday + 7) % 7);
-      const delta = distance === 0 && !intent.includeToday
-        ? intent.direction === "future" ? 7 : -7
-        : distance;
+      const delta =
+        distance === 0 && !intent.includeToday
+          ? intent.direction === "future"
+            ? 7
+            : -7
+          : distance;
       return addDays(context.today, delta);
     }
   }
@@ -114,10 +117,7 @@ export function resolveMomentIntent(
   intent: TemporalMomentIntent,
   context: TemporalContext,
 ): ResolvedMoment | null {
-  if (
-    !isCalendarDate(context.today) ||
-    (!intent.date && !intent.time && !intent.recurrence)
-  ) {
+  if (!isCalendarDate(context.today) || (!intent.date && !intent.time && !intent.recurrence)) {
     return null;
   }
   const date = intent.date ? resolveDateIntent(intent.date, context) : context.today;

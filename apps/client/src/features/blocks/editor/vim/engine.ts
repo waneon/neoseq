@@ -335,10 +335,10 @@ function wordEnd(value: string, position: number, count: number): number {
       index += 1;
     }
     if (
-      !crossedSpace
-      && index < items.length
-      && items[index].kind !== "space"
-      && items[index + 1]?.kind !== items[index].kind
+      !crossedSpace &&
+      index < items.length &&
+      items[index].kind !== "space" &&
+      items[index + 1]?.kind !== items[index].kind
     ) {
       index += 1;
       while (index < items.length && items[index].kind === "space") index += 1;
@@ -438,9 +438,10 @@ export function wordEditsAcrossUnits(
   const origin = joined.starts[unit] + local;
   const target = globalWordMotion(joined.value, origin, motion, Math.max(1, count));
   const from = Math.min(origin, target);
-  const to = target >= origin && motion === "e"
-    ? nextBoundary(joined.value, target)
-    : Math.max(origin, target);
+  const to =
+    target >= origin && motion === "e"
+      ? nextBoundary(joined.value, target)
+      : Math.max(origin, target);
   const edits: VimWordEdit[] = [];
   values.forEach((value, index) => {
     const unitStart = joined.starts[index];
@@ -471,11 +472,7 @@ function clampNormalColumn(value: string, start: number, column: number): number
   return target === end && end > start ? previousBoundary(value, end) : target;
 }
 
-export function caretForVerticalEntry(
-  value: string,
-  direction: -1 | 1,
-  column: number,
-): number {
+export function caretForVerticalEntry(value: string, direction: -1 | 1, column: number): number {
   const start = direction > 0 ? 0 : lineStart(value, value.length);
   return clampNormalColumn(value, start, column);
 }
@@ -535,30 +532,32 @@ function motionFor(
 ): Motion | null {
   const { value } = snapshot;
   const position = Math.min(snapshot.selectionStart, value.length);
-  const mapped = key === "ArrowLeft"
-    ? "h"
-    : key === "ArrowDown" || key === "Enter"
-      ? "j"
-      : key === "ArrowUp"
-        ? "k"
-        : key === "ArrowRight"
-          ? "l"
-          : key === "Home"
-            ? "0"
-            : key === "End"
-              ? "$"
-              : key === "Backspace"
-                ? "h"
-                : key;
+  const mapped =
+    key === "ArrowLeft"
+      ? "h"
+      : key === "ArrowDown" || key === "Enter"
+        ? "j"
+        : key === "ArrowUp"
+          ? "k"
+          : key === "ArrowRight"
+            ? "l"
+            : key === "Home"
+              ? "0"
+              : key === "End"
+                ? "$"
+                : key === "Backspace"
+                  ? "h"
+                  : key;
   if (mapped === "j" || mapped === "k") {
     return verticalMotion(value, position, mapped === "j" ? 1 : -1, count, desiredColumn);
   }
   if (mapped === "h" || mapped === "l") {
     let cursor = position;
     for (let step = 0; step < count; step += 1) {
-      cursor = mapped === "h"
-        ? Math.max(lineStart(value, cursor), previousBoundary(value, cursor))
-        : Math.min(normalLineEnd(value, cursor), nextBoundary(value, cursor));
+      cursor =
+        mapped === "h"
+          ? Math.max(lineStart(value, cursor), previousBoundary(value, cursor))
+          : Math.min(normalLineEnd(value, cursor), nextBoundary(value, cursor));
     }
     return { kind: "text", position: cursor, inclusive: false, desiredColumn: null };
   }
@@ -660,11 +659,7 @@ function isWordMotion(key: string): key is VimWordMotion {
   return key === "w" || key === "b" || key === "e";
 }
 
-function interpretOperator(
-  state: VimState,
-  snapshot: VimSnapshot,
-  key: VimKey,
-): VimInterpretation {
+function interpretOperator(state: VimState, snapshot: VimSnapshot, key: VimKey): VimInterpretation {
   if (/^[1-9]$/.test(key.key) || (key.key === "0" && state.count.length > 0)) {
     return result(appendCount(state, key.key));
   }
@@ -691,28 +686,28 @@ function interpretOperator(
     ]);
   }
   if (
-    (state.operator === "delete" && key.key === "d")
-    || (state.operator === "change" && key.key === "c")
+    (state.operator === "delete" && key.key === "d") ||
+    (state.operator === "change" && key.key === "c")
   ) {
     if (!snapshot.editable) return result(normalState());
     if (state.operator === "delete") {
-      return result(normalState(), [
-        { kind: "surface", command: { type: "delete-unit", count } },
-      ]);
+      return result(normalState(), [{ kind: "surface", command: { type: "delete-unit", count } }]);
     }
     return result(initialVimState("insert"), [
       editEffect(snapshot, 0, snapshot.value.length, "", true),
     ]);
   }
   if (state.operator === "indent" && key.key === ">") {
-    return result(normalState(), snapshot.editable
-      ? [{ kind: "surface", command: { type: "indent", count } }]
-      : []);
+    return result(
+      normalState(),
+      snapshot.editable ? [{ kind: "surface", command: { type: "indent", count } }] : [],
+    );
   }
   if (state.operator === "outdent" && key.key === "<") {
-    return result(normalState(), snapshot.editable
-      ? [{ kind: "surface", command: { type: "outdent", count } }]
-      : []);
+    return result(
+      normalState(),
+      snapshot.editable ? [{ kind: "surface", command: { type: "outdent", count } }] : [],
+    );
   }
   if (state.operator !== "delete" && state.operator !== "change") {
     return result(normalState());
@@ -744,22 +739,18 @@ function interpretOperator(
   ]);
 }
 
-function enterInsert(
-  snapshot: VimSnapshot,
-  key: "i" | "a" | "I" | "A",
-): VimInterpretation {
+function enterInsert(snapshot: VimSnapshot, key: "i" | "a" | "I" | "A"): VimInterpretation {
   if (!snapshot.editable) return result(normalState());
   const position = snapshot.selectionStart;
-  const caret = key === "i"
-    ? position
-    : key === "a"
-      ? Math.min(lineEnd(snapshot.value, position), nextBoundary(snapshot.value, position))
-      : key === "I"
-        ? firstNonBlank(snapshot.value, position)
-        : lineEnd(snapshot.value, position);
-  return result(initialVimState("insert"), [
-    { kind: "selection", start: caret, end: caret },
-  ]);
+  const caret =
+    key === "i"
+      ? position
+      : key === "a"
+        ? Math.min(lineEnd(snapshot.value, position), nextBoundary(snapshot.value, position))
+        : key === "I"
+          ? firstNonBlank(snapshot.value, position)
+          : lineEnd(snapshot.value, position);
+  return result(initialVimState("insert"), [{ kind: "selection", start: caret, end: caret }]);
 }
 
 function deleteCharacters(snapshot: VimSnapshot, count: number): VimEffect | null {
@@ -832,11 +823,7 @@ function interpretVisualLine(state: VimState, key: VimKey): VimInterpretation {
   return result(initialVimState("visual-line"));
 }
 
-function interpretNormal(
-  state: VimState,
-  snapshot: VimSnapshot,
-  key: VimKey,
-): VimInterpretation {
+function interpretNormal(state: VimState, snapshot: VimSnapshot, key: VimKey): VimInterpretation {
   if (key.key === "Escape") return result(normalState());
   if (state.prefix === "g") {
     if (key.key === "g") {
@@ -873,13 +860,14 @@ function interpretNormal(
     ]);
   }
   if (key.key === "d" || key.key === "c" || key.key === ">" || key.key === "<") {
-    const operator: VimOperator = key.key === "d"
-      ? "delete"
-      : key.key === "c"
-        ? "change"
-        : key.key === ">"
-          ? "indent"
-          : "outdent";
+    const operator: VimOperator =
+      key.key === "d"
+        ? "delete"
+        : key.key === "c"
+          ? "change"
+          : key.key === ">"
+            ? "indent"
+            : "outdent";
     return result({
       ...initialVimState("operator-pending"),
       operator,
@@ -896,17 +884,23 @@ function interpretNormal(
     ]);
   }
   if (key.key === "u") {
-    return result(normalState(), snapshot.editable
-      ? [{ kind: "surface", command: { type: "history", redo: false } }]
-      : []);
+    return result(
+      normalState(),
+      snapshot.editable ? [{ kind: "surface", command: { type: "history", redo: false } }] : [],
+    );
   }
   if (key.key === "Tab") {
-    return result(normalState(), snapshot.editable
-      ? [{
-          kind: "surface",
-          command: { type: key.shift ? "outdent" : "indent", count },
-        }]
-      : []);
+    return result(
+      normalState(),
+      snapshot.editable
+        ? [
+            {
+              kind: "surface",
+              command: { type: key.shift ? "outdent" : "indent", count },
+            },
+          ]
+        : [],
+    );
   }
   if (key.key === "x" || key.key === "Delete") {
     const effect = deleteCharacters(snapshot, count);
@@ -917,9 +911,10 @@ function interpretNormal(
     const from = snapshot.selectionStart;
     const to = lineEnd(snapshot.value, from);
     const changing = key.key === "C";
-    return result(changing ? initialVimState("insert") : normalState(), to > from
-      ? [editEffect(snapshot, from, to, "", changing)]
-      : []);
+    return result(
+      changing ? initialVimState("insert") : normalState(),
+      to > from ? [editEffect(snapshot, from, to, "", changing)] : [],
+    );
   }
   if (snapshot.supportsCrossBlockWords && isWordMotion(key.key)) {
     return result(normalState(), [
@@ -962,16 +957,15 @@ export function interpretVimKey(
     const position = snapshot.selectionStart;
     const start = lineStart(snapshot.value, position);
     const caret = position > start ? previousBoundary(snapshot.value, position) : position;
-    return result(normalState(), [
-      { kind: "selection", start: caret, end: caret },
-    ]);
+    return result(normalState(), [{ kind: "selection", start: caret, end: caret }]);
   }
   if (state.mode === "visual-line") return interpretVisualLine(state, key);
   if (escape) return result(normalState());
   if (key.ctrl && !key.meta && !key.alt && key.key.toLowerCase() === "r") {
-    return result(normalState(), snapshot.editable
-      ? [{ kind: "surface", command: { type: "history", redo: true } }]
-      : []);
+    return result(
+      normalState(),
+      snapshot.editable ? [{ kind: "surface", command: { type: "history", redo: true } }] : [],
+    );
   }
   if (key.key === "ContextMenu" || (key.shift && key.key === "F10")) {
     return pass(state);

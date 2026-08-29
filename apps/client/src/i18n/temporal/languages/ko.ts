@@ -25,11 +25,12 @@ function recognizeDate(input: string): TemporalRecognition<TemporalDateIntent> {
 
   const relative = /^(\d{1,4})\s*(일|주|주일|개월|달)\s*(전|후|뒤)$/.exec(input);
   if (relative) {
-    const unit = relative[2] === "주" || relative[2] === "주일"
-      ? "week"
-      : relative[2] === "개월" || relative[2] === "달"
-        ? "month"
-        : "day";
+    const unit =
+      relative[2] === "주" || relative[2] === "주일"
+        ? "week"
+        : relative[2] === "개월" || relative[2] === "달"
+          ? "month"
+          : "day";
     const amount = Number(relative[1]) * (relative[3] === "전" ? -1 : 1);
     return temporalMatch({ kind: "relative", unit, amount });
   }
@@ -61,9 +62,7 @@ function extractKoreanTime(input: string): ExtractedTime | null {
     return {
       rest: input.slice(0, period.index).trim(),
       time: {
-        hour: rawHour < 1 || rawHour > 12
-          ? 24
-          : (rawHour % 12) + (period[1] === "오후" ? 12 : 0),
+        hour: rawHour < 1 || rawHour > 12 ? 24 : (rawHour % 12) + (period[1] === "오후" ? 12 : 0),
         minute: Number(period[3] ?? 0),
       },
     };
@@ -80,28 +79,31 @@ function extractKoreanTime(input: string): ExtractedTime | null {
 function extractKoreanRecurrence(input: string): ExtractedRecurrence | null {
   const shorthand = /(?:^|\s)(매일|매주|매월|매년)$/.exec(input);
   if (shorthand) {
-    const unit = shorthand[1] === "매일"
-      ? "day"
-      : shorthand[1] === "매주"
-        ? "week"
-        : shorthand[1] === "매월"
-          ? "month"
-          : "year";
+    const unit =
+      shorthand[1] === "매일"
+        ? "day"
+        : shorthand[1] === "매주"
+          ? "week"
+          : shorthand[1] === "매월"
+            ? "month"
+            : "year";
     return {
       rest: input.slice(0, shorthand.index).trim(),
       recurrence: { count: 1, unit },
     };
   }
-  const interval = /(?:^|\s)(\d{1,3})\s*(일|주|주일|개월|달|년)마다$/.exec(input)
-    ?? /(?:^|\s)매\s*(\d{1,3})\s*(일|주|주일|개월|달|년)(?:마다)?$/.exec(input);
+  const interval =
+    /(?:^|\s)(\d{1,3})\s*(일|주|주일|개월|달|년)마다$/.exec(input) ??
+    /(?:^|\s)매\s*(\d{1,3})\s*(일|주|주일|개월|달|년)(?:마다)?$/.exec(input);
   if (!interval) return null;
-  const unit = interval[2] === "주" || interval[2] === "주일"
-    ? "week"
-    : interval[2] === "개월" || interval[2] === "달"
-      ? "month"
-      : interval[2] === "년"
-        ? "year"
-        : "day";
+  const unit =
+    interval[2] === "주" || interval[2] === "주일"
+      ? "week"
+      : interval[2] === "개월" || interval[2] === "달"
+        ? "month"
+        : interval[2] === "년"
+          ? "year"
+          : "day";
   return {
     rest: input.slice(0, interval.index).trim(),
     recurrence: { count: Number(interval[1]), unit },

@@ -57,8 +57,7 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   );
 
   await openBlockProperties(page);
-  await mutateAndAwaitSaved(page, () =>
-    setKnownProperty(page, "builtin.task-status", "To-do"));
+  await mutateAndAwaitSaved(page, () => setKnownProperty(page, "builtin.task-status", "To-do"));
 
   const status = page.getByTestId("task-status-toggle");
   await expect(status).toHaveAccessibleName("Task status: To-do");
@@ -107,7 +106,9 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   // the splice command has reconciled, whether debounce or Enter committed it.
   await listEditor.press("Enter");
   await expect(page.locator(".outline-input").first()).toHaveValue("Ship editable query results");
-  await expect(query.getByTestId("query-list-row").first()).toContainText("Ship editable query results");
+  await expect(query.getByTestId("query-list-row").first()).toContainText(
+    "Ship editable query results",
+  );
   await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
 
   // The compiled source is available, and it is what ran.
@@ -122,7 +123,8 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await chooseFromMenu(page, query.getByTestId("query-view-trigger"), "Table");
   await query.getByTestId("query-col-menu-page").click();
   await mutateAndAwaitSaved(page, () =>
-    page.getByRole("menuitem", { name: "Hide column" }).click());
+    page.getByRole("menuitem", { name: "Hide column" }).click(),
+  );
   await page.reload();
   const reloaded = page.getByTestId("query-block");
   await expect(reloaded.getByTestId("query-table")).toBeVisible();
@@ -160,23 +162,23 @@ test("a result's order accumulates across headings and survives a reload", async
   await line.press("Enter");
   const query = page.getByTestId("query-block");
   const table = query.getByTestId("query-table");
-  await insertQueryBlock(
-    page,
-    page.getByLabel("Block text").last(),
-    table,
-  );
+  await insertQueryBlock(page, page.getByLabel("Block text").last(), table);
 
   // One press orders by that column; the next adds a tie-breaker rather than
   // replacing the first choice.
   await mutateAndAwaitSaved(page, () =>
-    table.getByRole("button", { name: "Text", exact: true }).click());
+    table.getByRole("button", { name: "Text", exact: true }).click(),
+  );
   await mutateAndAwaitSaved(page, () =>
-    table.getByRole("button", { name: "Page", exact: true }).click());
+    table.getByRole("button", { name: "Page", exact: true }).click(),
+  );
   await expect(table.getByRole("columnheader", { name: /Text/ })).toHaveAttribute(
-    "aria-sort", "ascending",
+    "aria-sort",
+    "ascending",
   );
   await expect(table.getByRole("columnheader", { name: /Page/ })).toHaveAttribute(
-    "aria-sort", "ascending",
+    "aria-sort",
+    "ascending",
   );
   // Precedence is stated, because two arrows cannot say which column wins.
   await expect(table.getByRole("columnheader", { name: /Text/ })).toContainText("1");
@@ -187,7 +189,8 @@ test("a result's order accumulates across headings and survives a reload", async
   await query.getByTestId("query-sort-trigger").click();
   const panel = page.getByTestId("query-sort-panel");
   await mutateAndAwaitSaved(page, () =>
-    panel.getByRole("button", { name: "Move Page earlier" }).click());
+    panel.getByRole("button", { name: "Move Page earlier" }).click(),
+  );
   await expect(table.getByRole("columnheader", { name: /Page/ })).toContainText("1");
   await page.keyboard.press("Escape");
 
@@ -208,11 +211,7 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
   await first.press("Enter");
   const query = page.getByTestId("query-block");
   const table = query.getByTestId("query-table");
-  await insertQueryBlock(
-    page,
-    page.getByLabel("Block text").last(),
-    table,
-  );
+  await insertQueryBlock(page, page.getByLabel("Block text").last(), table);
 
   const cell = table.locator("tbody td").first();
   const heading = table.locator("thead th").first();
@@ -239,23 +238,27 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
   await expect(heading).toBeVisible();
   await expect(block).toBeVisible();
 
-  const shellContract = await table.locator("tbody tr").first().evaluate((row) => {
-    const cells = [...row.querySelectorAll<HTMLElement>("td:not(.query-cell-filler)")];
-    return cells.map((cell) => {
-      const frame = cell.querySelector<HTMLElement>(":scope > .query-cell-frame");
-      const control = frame?.querySelector<HTMLElement>(":scope > .query-cell-control");
-      const style = control ? getComputedStyle(control) : null;
-      return {
-        frame: frame !== null,
-        control: control !== null,
-        fontSize: style?.fontSize,
-        lineHeight: style?.lineHeight,
-      };
+  const shellContract = await table
+    .locator("tbody tr")
+    .first()
+    .evaluate((row) => {
+      const cells = [...row.querySelectorAll<HTMLElement>("td:not(.query-cell-filler)")];
+      return cells.map((cell) => {
+        const frame = cell.querySelector<HTMLElement>(":scope > .query-cell-frame");
+        const control = frame?.querySelector<HTMLElement>(":scope > .query-cell-control");
+        const style = control ? getComputedStyle(control) : null;
+        return {
+          frame: frame !== null,
+          control: control !== null,
+          fontSize: style?.fontSize,
+          lineHeight: style?.lineHeight,
+        };
+      });
     });
-  });
   expect(shellContract.every((cell) => cell.frame && cell.control)).toBe(true);
-  expect(new Set(shellContract.map((cell) => `${cell.fontSize}/${cell.lineHeight}`)))
-    .toEqual(new Set(["14px/20px"]));
+  expect(new Set(shellContract.map((cell) => `${cell.fontSize}/${cell.lineHeight}`))).toEqual(
+    new Set(["14px/20px"]),
+  );
 
   // Whatever the cell's own content is, it is vertically centred in the cell:
   // a filled editable trigger claims the whole height, so the centring has to be
@@ -277,40 +280,44 @@ test("a result cell reads as the writing it quotes, centred on its row", async (
   // and the table still without one baseline. A compact row is the same defect
   // with more of it: there the cell states its height, so the surface fills the
   // row and hung its line from the ceiling four pixels up.
-  const lineOffsets = () => table.locator("tbody tr").first().evaluate((row) => {
-    const box = row.getBoundingClientRect();
-    const centre = box.top + box.height / 2;
-    const lines: number[] = [];
-    for (const cell of row.querySelectorAll("td")) {
-      // A textarea's lines are not in the document, so they are counted rather
-      // than measured: they start at the top of its content box, one
-      // `line-height` each, and where the box is taller than they are the slack
-      // is what this is about.
-      const writing = cell.querySelector("textarea:not([hidden])");
-      if (writing) {
-        const area = writing.getBoundingClientRect();
-        const style = getComputedStyle(writing);
-        const inset = parseFloat(style.paddingTop);
-        const leading = parseFloat(style.lineHeight);
-        const content = area.height - inset - parseFloat(style.paddingBottom);
-        const written = Math.max(1, Math.round(content / leading)) * leading;
-        lines.push(area.top + inset + written / 2 - centre);
-        continue;
-      }
-      // A rendered value states its own line through a range: the box around it
-      // may claim the whole cell, and it is the ink that has to be on the centre.
-      const value = cell.querySelector(".query-link, .query-markdown-preview");
-      if (!value) continue;
-      const range = document.createRange();
-      range.selectNodeContents(value);
-      const rects = [...range.getClientRects()];
-      if (rects.length === 0) continue;
-      const top = Math.min(...rects.map((rect) => rect.top));
-      const bottom = Math.max(...rects.map((rect) => rect.bottom));
-      lines.push((top + bottom) / 2 - centre);
-    }
-    return lines;
-  });
+  const lineOffsets = () =>
+    table
+      .locator("tbody tr")
+      .first()
+      .evaluate((row) => {
+        const box = row.getBoundingClientRect();
+        const centre = box.top + box.height / 2;
+        const lines: number[] = [];
+        for (const cell of row.querySelectorAll("td")) {
+          // A textarea's lines are not in the document, so they are counted rather
+          // than measured: they start at the top of its content box, one
+          // `line-height` each, and where the box is taller than they are the slack
+          // is what this is about.
+          const writing = cell.querySelector("textarea:not([hidden])");
+          if (writing) {
+            const area = writing.getBoundingClientRect();
+            const style = getComputedStyle(writing);
+            const inset = parseFloat(style.paddingTop);
+            const leading = parseFloat(style.lineHeight);
+            const content = area.height - inset - parseFloat(style.paddingBottom);
+            const written = Math.max(1, Math.round(content / leading)) * leading;
+            lines.push(area.top + inset + written / 2 - centre);
+            continue;
+          }
+          // A rendered value states its own line through a range: the box around it
+          // may claim the whole cell, and it is the ink that has to be on the centre.
+          const value = cell.querySelector(".query-link, .query-markdown-preview");
+          if (!value) continue;
+          const range = document.createRange();
+          range.selectNodeContents(value);
+          const rects = [...range.getClientRects()];
+          if (rects.length === 0) continue;
+          const top = Math.min(...rects.map((rect) => rect.top));
+          const bottom = Math.max(...rects.map((rect) => rect.bottom));
+          lines.push((top + bottom) / 2 - centre);
+        }
+        return lines;
+      });
   // The written cell and the page it names, at least — one line each, both on the
   // row's centre.
   const roomy = await lineOffsets();

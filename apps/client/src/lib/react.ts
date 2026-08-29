@@ -12,9 +12,8 @@ export function useImmediateState<T>(initial: T | (() => T)) {
   const [value, setValue] = useState(initial);
   const current = useRef(value);
   const set = useCallback((update: SetStateAction<T>) => {
-    const next = typeof update === "function"
-      ? (update as (previous: T) => T)(current.current)
-      : update;
+    const next =
+      typeof update === "function" ? (update as (previous: T) => T)(current.current) : update;
     current.current = next;
     setValue(next);
   }, []);

@@ -96,10 +96,11 @@ export function textareaCaretRect(
 
   const scaleX = textarea.offsetWidth > 0 ? textareaBox.width / textarea.offsetWidth : 1;
   const scaleY = textarea.offsetHeight > 0 ? textareaBox.height / textarea.offsetHeight : 1;
-  const lineHeight = number(computed.lineHeight)
-    || marker.getBoundingClientRect().height
-    || number(computed.fontSize)
-    || 1;
+  const lineHeight =
+    number(computed.lineHeight) ||
+    marker.getBoundingClientRect().height ||
+    number(computed.fontSize) ||
+    1;
   const x = textareaBox.left + (marker.offsetLeft - textarea.scrollLeft) * scaleX;
   const y = textareaBox.top + (marker.offsetTop - textarea.scrollTop) * scaleY;
   mirror.replaceChildren();

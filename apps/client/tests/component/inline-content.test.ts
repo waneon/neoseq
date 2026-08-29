@@ -55,11 +55,7 @@ describe("inline content projection", () => {
 
   it("re-bases reference coordinates when projecting the two sides of a split", () => {
     const beforeReference = canonicalContentBoundary("A [[Page]] Z", [reference], 2);
-    expect(splitInlineContentProjection(
-      "A [[Page]] Z",
-      [reference],
-      beforeReference,
-    )).toEqual({
+    expect(splitInlineContentProjection("A [[Page]] Z", [reference], beforeReference)).toEqual({
       head: { markdown: "A ", pageReferences: [] },
       tail: {
         markdown: "[[Page]] Z",
@@ -68,42 +64,29 @@ describe("inline content projection", () => {
     });
 
     const afterReference = canonicalContentBoundary("A [[Page]] Z", [reference], 10);
-    expect(splitInlineContentProjection(
-      "A [[Page]] Z",
-      [reference],
-      afterReference,
-    )).toEqual({
+    expect(splitInlineContentProjection("A [[Page]] Z", [reference], afterReference)).toEqual({
       head: { markdown: "A [[Page]]", pageReferences: [reference] },
       tail: { markdown: " Z", pageReferences: [] },
     });
   });
 
   it("re-bases the tail references when deleting a block boundary", () => {
-    expect(joinInlineContentProjections(
-      { markdown: "A [[Page]] ", pageReferences: [reference] },
-      {
-        markdown: "[[Other]] Z",
-        pageReferences: [{ start: 0, end: 9, index: 0, page_id: "page-2" }],
-      },
-    )).toEqual({
+    expect(
+      joinInlineContentProjections(
+        { markdown: "A [[Page]] ", pageReferences: [reference] },
+        {
+          markdown: "[[Other]] Z",
+          pageReferences: [{ start: 0, end: 9, index: 0, page_id: "page-2" }],
+        },
+      ),
+    ).toEqual({
       markdown: "A [[Page]] [[Other]] Z",
-      pageReferences: [
-        reference,
-        { start: 11, end: 20, index: 4, page_id: "page-2" },
-      ],
+      pageReferences: [reference, { start: 11, end: 20, index: 4, page_id: "page-2" }],
     });
   });
 
   it("replaces a literal completion token with one PageId atom", () => {
-    const replacement = planPageReference(
-      "block",
-      "See [[]] next",
-      [],
-      4,
-      8,
-      "roadmap",
-      "Roadmap",
-    );
+    const replacement = planPageReference("block", "See [[]] next", [], 4, 8, "roadmap", "Roadmap");
     expect(replacement.value).toBe("See [[Roadmap]] next");
     expect(replacement.plan.splice).toEqual({
       block_id: "block",
@@ -111,12 +94,14 @@ describe("inline content projection", () => {
       delete: 4,
       insert: [{ type: "page_reference", page_id: "roadmap" }],
     });
-    expect(replacement.plan.references).toEqual([{
-      start: 4,
-      end: 15,
-      index: 4,
-      page_id: "roadmap",
-    }]);
+    expect(replacement.plan.references).toEqual([
+      {
+        start: 4,
+        end: 15,
+        index: 4,
+        page_id: "roadmap",
+      },
+    ]);
     expect(replacement.caret).toBe(15);
   });
 });

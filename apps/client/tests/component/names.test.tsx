@@ -37,8 +37,7 @@ describe("unique page and tag names", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    port.beforeExecute = (command) =>
-      command.type === "rename_page" ? held : Promise.resolve();
+    port.beforeExecute = (command) => (command.type === "rename_page" ? held : Promise.resolve());
 
     await user.clear(title);
     await user.type(title, "Reading list");
@@ -52,8 +51,6 @@ describe("unique page and tag names", () => {
   });
 
   it("allocates a stable unique default page name", () => {
-    expect(nextAvailableEntityName("Untitled", ["untitled", "Untitled 2"])).toBe(
-      "Untitled 3",
-    );
+    expect(nextAvailableEntityName("Untitled", ["untitled", "Untitled 2"])).toBe("Untitled 3");
   });
 });

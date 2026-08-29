@@ -1,10 +1,5 @@
 import { useState, type ReactNode } from "react";
-import {
-  Dialog as DialogRoot,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/ui/shadcn/dialog";
+import { Dialog as DialogRoot, DialogContent, DialogHeader, DialogTitle } from "@/ui/shadcn/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
