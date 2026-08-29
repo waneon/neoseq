@@ -918,13 +918,16 @@ test("a summoned panel opens toward the middle of the window", async ({ page }) 
   await typeInFocusedBlock(page, "a line with a tag at its end");
 
   const line = page.getByLabel("Block text").first();
-  // A field is the exception: the panel stands in for it, so it keeps its left
-  // edge however far right the field sits. The block tag picker is a durable
-  // field panel, so this geometry check does not also race completion debounce.
+  // A durable picker inherits the gesture that summoned its menu. The bullet is
+  // on the left half of the viewport, so the panel begins at that invocation
+  // point and grows inward instead of returning to the outline's old fixed edge.
+  const bullet = page.getByTestId("block-bullet").first();
+  const bulletBox = (await bullet.boundingBox())!;
+  const pointerX = bulletBox.x + bulletBox.width / 2;
   await openBlockTags(page);
   const tagPicker = page.getByTestId("tag-picker");
-  const [lineBox, tagPickerBox] = [(await line.boundingBox())!, (await tagPicker.boundingBox())!];
-  expect(Math.abs(tagPickerBox.x - lineBox.x)).toBeLessThan(2);
+  const tagPickerBox = (await tagPicker.boundingBox())!;
+  expect(Math.abs(tagPickerBox.x - pointerX)).toBeLessThan(2);
   await page.keyboard.press("Escape");
   await expect(tagPicker).toHaveCount(0);
 
