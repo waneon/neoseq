@@ -428,6 +428,7 @@ export interface MessageArgumentMap {
   "query.rows": undefined;
   "query.running": undefined;
   "query.section": undefined;
+  "query.showMoreResults": { readonly "count": string | number };
   "query.showSource": undefined;
   "query.slashQuery": undefined;
   "query.slashQueryHint": undefined;
@@ -558,6 +559,7 @@ export interface MessageArgumentMap {
   "shell.recoveryTitle": undefined;
   "shell.search": undefined;
   "shell.settings": undefined;
+  "shell.showMorePages": { readonly "count": string | number };
   "shell.showSidebar": undefined;
   "shell.skipContent": undefined;
   "shell.tags": undefined;
@@ -667,6 +669,7 @@ export interface MessageArgumentMap {
   "tags.queryFor": { readonly "name": string | number };
   "tags.renameGroup": undefined;
   "tags.restore": undefined;
+  "tags.showMore": { readonly "count": string | number };
   "tags.tagId": undefined;
   "tags.title": undefined;
   "tags.ungroupAll": undefined;

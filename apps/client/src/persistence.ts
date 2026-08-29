@@ -350,7 +350,7 @@ export class IndexedDbGraphRepository {
     );
     await complete(transaction);
     database.close();
-    this.hooks?.afterRecoveryRead(
+    this.hooks?.afterRecoveryRead?.(
       "tail",
       values.length,
       values.reduce((total, value) => total + value.payload.byteLength, 0),
@@ -360,7 +360,7 @@ export class IndexedDbGraphRepository {
 
   async checkpointsDescending(graphId: string): Promise<CheckpointRecord[]> {
     const values = await allByGraph<CheckpointRecord>(STORES.checkpoints, graphId);
-    this.hooks?.afterRecoveryRead(
+    this.hooks?.afterRecoveryRead?.(
       "checkpoint",
       values.length,
       values.reduce((total, value) => total + value.payload.byteLength, 0),

@@ -1191,9 +1191,11 @@ export function Outliner({
       .execute(command)
       .then(async (result) => {
         const realId = result.created_block;
-        const structural = draftStateRef.current.pendingOperations
-          .find((operation) => operation.kind !== "merge" && operation.tempId === head.tempId)
-          ?.structural ?? head.structural;
+        const pendingCreation = draftStateRef.current.pendingOperations
+          .find((operation) => operation.kind !== "merge" && operation.tempId === head.tempId);
+        const structural = pendingCreation && pendingCreation.kind !== "merge"
+          ? pendingCreation.structural
+          : head.structural;
         const typed = draftStateRef.current.drafts.get(head.tempId)
           ?? head.created.markdown;
         const wasFocused = focusedRef.current === head.tempId;

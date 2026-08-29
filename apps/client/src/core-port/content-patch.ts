@@ -30,9 +30,15 @@ function canonicalUnits(block: BlockSnapshot): CanonicalUnit[] {
 }
 
 function insertedUnits(content: readonly InlineContent[]): CanonicalUnit[] {
-  return content.flatMap((item) => item.type === "markdown"
-    ? Array.from(item.value).map((value) => ({ type: "markdown" as const, value }))
-    : [{ type: "page_reference" as const, page_id: item.page_id }]);
+  const units: CanonicalUnit[] = [];
+  for (const item of content) {
+    if (item.type === "markdown") {
+      for (const value of item.value) units.push({ type: "markdown", value });
+    } else {
+      units.push({ type: "page_reference", page_id: item.page_id });
+    }
+  }
+  return units;
 }
 
 function materialize(

@@ -213,9 +213,9 @@ export function materializePageReferences(
   pages: readonly PageDirectoryEntry[] | ReadonlyMap<string, PageDirectoryEntry>,
 ): { markdown: string; pageReferences: PageReferenceSpan[] } {
   if (referencesInput.length === 0) return { markdown, pageReferences: [] };
-  const directory = Array.isArray(pages)
-    ? new Map(pages.map((page) => [page.id, page]))
-    : pages;
+  const directory: ReadonlyMap<string, PageDirectoryEntry> = isPageDirectoryMap(pages)
+    ? pages
+    : new Map(pages.map((page) => [page.id, page]));
   const references = [...referencesInput].sort((left, right) => left.start - right.start);
   const source = Array.from(markdown);
   let cursor = 0;
@@ -237,6 +237,12 @@ export function materializePageReferences(
   }
   projectedMarkdown += source.slice(cursor).join("");
   return { markdown: projectedMarkdown, pageReferences: projected };
+}
+
+function isPageDirectoryMap(
+  pages: readonly PageDirectoryEntry[] | ReadonlyMap<string, PageDirectoryEntry>,
+): pages is ReadonlyMap<string, PageDirectoryEntry> {
+  return !Array.isArray(pages);
 }
 
 function rematerializeBlock(
