@@ -13,7 +13,7 @@ pub use auth::{
 pub use metrics::Metrics;
 pub use room::{RoomConfig, RoomConnection, RoomError, RoomManager};
 pub use store::{
-    CommitOutcome, FaultPoint, GraphAdmin, GraphBackup, GraphListing, GraphLoad, GraphRole,
-    GraphStore, Membership, MembershipListing, MemoryStore, PgStore, StoreError,
+    CommitOutcome, GraphAdmin, GraphListing, GraphLoad, GraphRole, GraphStore, Membership,
+    MembershipListing, PgStore, StoreError,
 };
 pub use web::{AppState, router};

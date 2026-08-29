@@ -4,13 +4,9 @@ use crate::{
 };
 use domain::GraphId;
 use graph_core::{GraphCore, MIN_MIGRATABLE_SCHEMA_VERSION, SCHEMA_VERSION};
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{collections::HashMap, sync::Arc};
 use sync_protocol::{
     Ack, ErrorCode, ErrorMessage, Limits, Message, Presence, ResyncRequired, Update, Welcome,
 };
@@ -111,6 +107,7 @@ pub struct RoomManager<S: GraphStore> {
     config: RoomConfig,
     metrics: Arc<Metrics>,
     rooms: Mutex<HashMap<String, Arc<RoomSlot>>>,
+    #[cfg(debug_assertions)]
     fail_live_apply_once: AtomicBool,
 }
 
@@ -121,6 +118,7 @@ impl<S: GraphStore> RoomManager<S> {
             config,
             metrics,
             rooms: Mutex::new(HashMap::new()),
+            #[cfg(debug_assertions)]
             fail_live_apply_once: AtomicBool::new(false),
         }
     }
@@ -133,8 +131,8 @@ impl<S: GraphStore> RoomManager<S> {
         self.config.limits
     }
 
-    /// Fault-test hook for the commit/live-import boundary. It is intentionally
-    /// not exposed through the HTTP server.
+    #[cfg(debug_assertions)]
+    /// Debug-build fault hook for the commit/live-import boundary.
     pub fn inject_live_apply_failure_once(&self) {
         self.fail_live_apply_once.store(true, Ordering::SeqCst);
     }
@@ -427,7 +425,10 @@ impl<S: GraphStore> RoomManager<S> {
         };
 
         if outcome.inserted {
+            #[cfg(debug_assertions)]
             let injected = self.fail_live_apply_once.swap(false, Ordering::SeqCst);
+            #[cfg(not(debug_assertions))]
+            let injected = false;
             if injected || room.core.import_remote(&update.bytes).is_err() {
                 invalidate_room(&mut room, ErrorCode::Internal);
                 drop(room);
@@ -624,18 +625,6 @@ impl<S: GraphStore> RoomManager<S> {
         if slot.as_ref().is_some_and(|slot| slot.room.initialized()) {
             self.metrics.room_closed();
         }
-    }
-
-    pub async fn durable_fingerprint(&self, graph_id: &str) -> Result<String, RoomError> {
-        self.evict(graph_id).await;
-        let room = self.room_for(graph_id).await?;
-        let fingerprint = room
-            .lock()
-            .await
-            .core
-            .fingerprint()
-            .map_err(|_| StoreError::Corrupt("rehydrated graph is invalid"))?;
-        Ok(fingerprint)
     }
 }
 

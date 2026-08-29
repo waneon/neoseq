@@ -1,8 +1,9 @@
 mod support;
 
+use support::memory_store::FaultPoint;
 use support::*;
 use sync_protocol::{Limits, Message};
-use sync_server::{FaultPoint, RoomConfig, RoomError, StoreError};
+use sync_server::{RoomConfig, RoomError, StoreError};
 
 #[tokio::test]
 async fn no_ack_or_fanout_before_commit_and_retry_converges() {
@@ -48,7 +49,7 @@ async fn no_ack_or_fanout_before_commit_and_retry_converges() {
     assert_ack(&mut retry_rx, "message-a").await;
     assert_eq!(fixture.store.update_count(GRAPH), 1);
     assert_eq!(
-        fixture.manager.durable_fingerprint(GRAPH).await.unwrap(),
+        room_fingerprint(&fixture.manager, GRAPH, OWNER).await,
         client.fingerprint().unwrap()
     );
 }
@@ -87,7 +88,7 @@ async fn ambiguous_post_commit_failure_is_durable_but_never_acknowledged_early()
     assert_ack(&mut retry_rx, "message-a").await;
     assert_eq!(fixture.store.update_count(GRAPH), 1);
     assert_eq!(
-        fixture.manager.durable_fingerprint(GRAPH).await.unwrap(),
+        room_fingerprint(&fixture.manager, GRAPH, OWNER).await,
         client.fingerprint().unwrap()
     );
 }
@@ -112,7 +113,7 @@ async fn failed_live_import_discards_and_rehydrates_before_reconnect() {
     assert_eq!(fixture.store.update_count(GRAPH), 1);
     assert_no_ack_or_update(&mut receiver).await;
     assert_eq!(
-        fixture.manager.durable_fingerprint(GRAPH).await.unwrap(),
+        room_fingerprint(&fixture.manager, GRAPH, OWNER).await,
         client.fingerprint().unwrap()
     );
 }
@@ -306,39 +307,6 @@ async fn reused_message_id_with_different_bytes_is_rejected() {
 }
 
 #[tokio::test]
-async fn logical_backup_restore_rehydrates_the_same_graph() {
-    let fixture = fixture(RoomConfig::default());
-    let (client, update) =
-        client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
-    let mut opened = fixture
-        .manager
-        .open(GRAPH, "owner", OWNER, &fixture.base_version)
-        .await
-        .unwrap()
-        .connection;
-    let mut receiver = opened.take_outbound();
-    fixture
-        .manager
-        .submit_update(&opened, update)
-        .await
-        .unwrap();
-    assert_ack(&mut receiver, "message-a").await;
-
-    let backup = fixture.store.backup_graph(GRAPH).unwrap();
-    let restored = std::sync::Arc::new(sync_server::MemoryStore::new());
-    restored.restore_graph(backup).unwrap();
-    let manager = sync_server::RoomManager::new(
-        restored,
-        RoomConfig::default(),
-        std::sync::Arc::new(sync_server::Metrics::default()),
-    );
-    assert_eq!(
-        manager.durable_fingerprint(GRAPH).await.unwrap(),
-        client.fingerprint().unwrap()
-    );
-}
-
-#[tokio::test]
 async fn new_server_manager_reconstructs_all_acknowledged_updates() {
     let fixture = fixture(RoomConfig::default());
     let (client, update) =
@@ -363,7 +331,7 @@ async fn new_server_manager_reconstructs_all_acknowledged_updates() {
         std::sync::Arc::new(sync_server::Metrics::default()),
     );
     assert_eq!(
-        restarted.durable_fingerprint(GRAPH).await.unwrap(),
+        room_fingerprint(&restarted, GRAPH, OWNER).await,
         client.fingerprint().unwrap()
     );
 }

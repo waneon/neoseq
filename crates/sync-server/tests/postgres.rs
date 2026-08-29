@@ -18,7 +18,7 @@ use tokio_tungstenite::{
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL; run with devenv tasks run sync-server:postgres-test"]
-async fn postgres_migration_idempotency_authz_backup_and_restore() {
+async fn postgres_migration_idempotency_and_authorization() {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be provided by the PostgreSQL integration test fixture");
     let store = PgStore::connect(&database_url, 4).await.unwrap();
@@ -305,7 +305,7 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
     let compacted_duplicate = store
         .commit_update(
             &graph_id,
-            "postgres-editor",
+            &editor.account_id,
             &update.message_id,
             &update.bytes,
         )
@@ -313,34 +313,6 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .unwrap();
     assert!(!compacted_duplicate.inserted);
     assert_eq!(compacted_duplicate.cursor, durable_cursor);
-
-    let expected = client.fingerprint().unwrap();
-    let backup = store.backup_graph(&graph_id).await.unwrap();
-    let manager = RoomManager::new(
-        Arc::new(store.clone()),
-        RoomConfig::default(),
-        Arc::new(Metrics::default()),
-    );
-    assert_eq!(
-        manager.durable_fingerprint(&graph_id).await.unwrap(),
-        expected
-    );
-
-    sqlx::query("DELETE FROM graph WHERE graph_id = $1")
-        .bind(&graph_id)
-        .execute(store.pool())
-        .await
-        .unwrap();
-    store.restore_graph(&backup).await.unwrap();
-    let restored = RoomManager::new(
-        Arc::new(store.clone()),
-        RoomConfig::default(),
-        Arc::new(Metrics::default()),
-    );
-    assert_eq!(
-        restored.durable_fingerprint(&graph_id).await.unwrap(),
-        expected
-    );
 
     store
         .revoke_membership(&graph_id, &editor.account_id)

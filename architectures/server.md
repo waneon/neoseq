@@ -209,7 +209,7 @@ rejected frames, slow consumers, and room reconstruction count.
   update/live-import boundary, then verify acknowledgement semantics.
 - Envelope tests cover malformed/version/size failures, and Loro import tests
   cover malformed and reconstructed-size limits.
-- Restore tests build rooms from logical backups, checkpoints, and update tails.
+- Reconstruction tests build rooms from durable checkpoints and update tails.
 - Epoch tests verify one-generation checkpoint/Tail retention and reclamation,
   replacement checkpoints, stale update rejection, and duplicate
   acknowledgement from compact receipts.

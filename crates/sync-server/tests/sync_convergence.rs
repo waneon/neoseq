@@ -3,7 +3,7 @@ mod support;
 use std::sync::Arc;
 use support::*;
 use sync_protocol::Limits;
-use sync_server::{GraphStore, MemoryStore, Metrics, RoomConfig, RoomManager};
+use sync_server::{GraphStore, Metrics, RoomConfig, RoomManager};
 
 #[tokio::test]
 async fn schema_v1_fixture_migrates_before_the_room_accepts_writes() {
@@ -151,7 +151,7 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
     fixture.manager.evict(GRAPH).await;
     assert_eq!(
         expected,
-        fixture.manager.durable_fingerprint(GRAPH).await.unwrap()
+        room_fingerprint(&fixture.manager, GRAPH, OWNER).await
     );
 }
 

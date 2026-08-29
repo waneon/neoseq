@@ -135,8 +135,8 @@ must not order test actions.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
-runs the explicitly ignored migration, authorization, idempotency, fault, and
-restore integration test against its own database.
+runs the explicitly ignored migration, authorization, idempotency, and fault
+integration test against its own database.
 Portable checks attach directly to the test entry point. The browser profile
 adds its browser task to that same entry point. Browser build prerequisites and
 component tests finish before Playwright runs; the managed preview and

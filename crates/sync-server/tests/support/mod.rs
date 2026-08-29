@@ -1,18 +1,25 @@
 #![allow(dead_code)]
 
+pub mod memory_store;
+
 use async_trait::async_trait;
 use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use graph_core::{GraphCore, SCHEMA_VERSION};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use sync_protocol::{Message, Update};
 use sync_server::{
-    AccountPatch, AccountStatus, AccountView, AuthError, GraphRole, IdentityService, LoginSession,
-    MemoryStore, Metrics, Principal, RoomConfig, RoomManager, ServerRole, SessionPurpose,
+    AccountPatch, AccountStatus, AccountView, AuthError, GraphRole, GraphStore, IdentityService,
+    LoginSession, Metrics, Principal, RoomConfig, RoomManager, ServerRole, SessionPurpose,
 };
 use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
 };
+
+pub use memory_store::MemoryStore;
 
 pub const GRAPH: &str = "sync-test-graph";
 pub const OWNER: &str = "acct-owner";
@@ -252,4 +259,34 @@ pub async fn assert_no_ack_or_update(receiver: &mut mpsc::Receiver<Message>) {
             "commit failure leaked an ack or update: {message:?}"
         );
     }
+}
+
+pub async fn room_fingerprint<S: GraphStore>(
+    manager: &RoomManager<S>,
+    graph_id: &str,
+    account_id: &str,
+) -> String {
+    static SESSION: AtomicU64 = AtomicU64::new(1);
+    let suffix = SESSION.fetch_add(1, Ordering::Relaxed);
+    manager.evict(graph_id).await;
+    let opened = manager
+        .open_replica(
+            graph_id,
+            &format!("fingerprint-{suffix}"),
+            account_id,
+            1,
+            u64::MAX,
+            &graph_core::empty_version_vector(),
+        )
+        .await
+        .unwrap();
+    assert!(opened.welcome.replace_checkpoint);
+    let core = GraphCore::from_snapshot(
+        GraphId::new(graph_id).unwrap(),
+        u64::MAX - 10,
+        &opened.welcome.checkpoint,
+    )
+    .unwrap();
+    manager.disconnect(&opened.connection).await;
+    core.fingerprint().unwrap()
 }
