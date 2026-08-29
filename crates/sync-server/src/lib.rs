@@ -6,7 +6,10 @@ pub mod room;
 pub mod store;
 pub mod web;
 
-pub use auth::{Principal, TestIssuer, TokenVerifier};
+pub use auth::{
+    AccountPatch, AccountStatus, AccountView, AuthError, IdentityService, LoginSession, PgIdentity,
+    Principal, ServerRole, SessionPurpose, TestIssuer, TokenVerifier,
+};
 pub use metrics::Metrics;
 pub use room::{RoomConfig, RoomConnection, RoomError, RoomManager};
 pub use store::{

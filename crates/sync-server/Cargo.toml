@@ -7,13 +7,16 @@ license.workspace = true
 publish = false
 
 [dependencies]
+argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "ws"] }
 base64 = "0.22"
 domain = { path = "../domain" }
 futures-util = "0.3"
+getrandom = "0.3"
 graph-core = { path = "../graph-core" }
 hmac = "0.12"
+rpassword = "7.4"
 serde.workspace = true
 sha2.workspace = true
 sqlx = { version = "=0.8.6", default-features = false, features = [

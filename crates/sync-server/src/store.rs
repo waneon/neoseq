@@ -8,7 +8,7 @@ use std::{
 use sync_protocol::GraphStatus;
 use thiserror::Error;
 
-pub const DATABASE_SCHEMA_VERSION: i32 = 2;
+pub const DATABASE_SCHEMA_VERSION: i32 = 3;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -505,11 +505,19 @@ async fn migrate(pool: &PgPool) -> Result<(), StoreError> {
                 .execute(&mut *transaction)
                 .await?;
         }
+        if found < 3 {
+            sqlx::raw_sql(include_str!("../migrations/0003_accounts.sql"))
+                .execute(&mut *transaction)
+                .await?;
+        }
     } else {
         sqlx::raw_sql(include_str!("../migrations/0001_sync.sql"))
             .execute(&mut *transaction)
             .await?;
         sqlx::raw_sql(include_str!("../migrations/0002_history_epoch.sql"))
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::raw_sql(include_str!("../migrations/0003_accounts.sql"))
             .execute(&mut *transaction)
             .await?;
     }

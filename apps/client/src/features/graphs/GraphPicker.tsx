@@ -13,7 +13,7 @@ import {
   type GraphSummary,
 } from "../../core-port/directory";
 import { createRemoteGraph, listRemoteGraphs } from "../sync/api";
-import { writeAuthSession } from "../sync/auth";
+import { signIn } from "../sync/auth";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
 import { useNotify } from "../notify/context";
@@ -325,18 +325,15 @@ function RemoteCreateDialog({
   const { message } = useI18n();
   const [name, setName] = useState(initialName);
   const [serverUrl, setServerUrl] = useState(window.location.origin);
-  const [principal, setPrincipal] = useState("");
-  const [token, setToken] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
   const busy = request.status === "busy";
 
-  const auth = () => ({ principal: principal.trim(), token: token.trim() });
-  const remember = () => writeAuthSession(serverUrl, auth());
-
-  const connectAvailable = () => {
+  const connectAvailable = async () => {
     setRequest({ status: "busy" });
-    remember();
-    listRemoteGraphs(serverUrl, auth())
+    signIn(serverUrl, username, password)
+      .then((auth) => listRemoteGraphs(serverUrl, auth))
       .then(({ graphs }) => {
         if (graphs.length === 0) {
           setRequest({ status: "failed", message: message("graph.noRemoteGraphs") });
@@ -366,11 +363,11 @@ function RemoteCreateDialog({
       {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
       <form
         className="remote-form"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
           setRequest({ status: "busy" });
-          remember();
-          createRemoteGraph(serverUrl, auth())
+          signIn(serverUrl, username, password)
+            .then((auth) => createRemoteGraph(serverUrl, auth))
             .then(({ graph_id }) => {
               onCreated(registerRemoteGraph(graph_id, name.trim(), serverUrl));
             })
@@ -396,40 +393,38 @@ function RemoteCreateDialog({
           value={serverUrl}
           onChange={(event) => setServerUrl(event.target.value)}
         />
-        <label className="field-label" htmlFor="remote-principal">
-          {message("graph.principal")}
+        <label className="field-label" htmlFor="remote-username">
+          {message("graph.username")}
         </label>
         <Input
-          id="remote-principal"
+          id="remote-username"
           autoComplete="username"
-          value={principal}
-          onChange={(event) => setPrincipal(event.target.value)}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
         />
-        <label className="field-label" htmlFor="remote-token">
-          {message("graph.token")}
+        <label className="field-label" htmlFor="remote-password">
+          {message("graph.password")}
         </label>
         <Input
-          id="remote-token"
+          id="remote-password"
           type="password"
           autoComplete="current-password"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
         />
         <div className="dialog-actions">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {message("common.cancel")}
           </Button>
           <Button
+            type="button"
             variant="secondary"
             onClick={connectAvailable}
-            disabled={busy || !principal.trim() || !token.trim()}
+            disabled={busy || !username.trim() || !password}
           >
             {message("graph.connectRemote")}
           </Button>
-          <Button
-            type="submit"
-            disabled={busy || !name.trim() || !principal.trim() || !token.trim()}
-          >
+          <Button type="submit" disabled={busy || !name.trim() || !username.trim() || !password}>
             {message("graph.createRemote")}
           </Button>
         </div>

@@ -11,7 +11,7 @@ import {
   revokeMembership,
   type RemoteGraphMembership,
 } from "./api";
-import { readAuthSession, writeAuthSession } from "./auth";
+import { readAuthSession, signIn } from "./auth";
 import type { AsyncRequestState } from "../../lib/async";
 
 export function RemoteMembersDialog({
@@ -25,8 +25,8 @@ export function RemoteMembersDialog({
 }) {
   const { message } = useI18n();
   const stored = readAuthSession(connection.server_url);
-  const [principal, setPrincipal] = useState(stored?.principal ?? "");
-  const [token, setToken] = useState(stored?.token ?? "");
+  const [username, setUsername] = useState(stored?.username ?? "");
+  const [password, setPassword] = useState("");
   const [members, setMembers] = useState<RemoteGraphMembership[]>([]);
   const [invite, setInvite] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("editor");
@@ -55,9 +55,12 @@ export function RemoteMembersDialog({
 
   const saveAccount = (event: FormEvent) => {
     event.preventDefault();
-    const auth = { principal: principal.trim(), token: token.trim() };
-    writeAuthSession(connection.server_url, auth);
-    void refresh(auth);
+    setRequest({ status: "busy" });
+    void signIn(connection.server_url, username, password)
+      .then((auth) => refresh(auth))
+      .catch(() => {
+        setRequest({ status: "failed", message: message("graph.signInFailed") });
+      });
   };
 
   const inviteMember = (event: FormEvent) => {
@@ -84,30 +87,30 @@ export function RemoteMembersDialog({
       <p className="dialog-lede">{message("graph.membersDetail")}</p>
       {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
       <form className="remote-account-form" onSubmit={saveAccount}>
-        <label className="field-label" htmlFor="member-account-principal">
-          {message("graph.principal")}
+        <label className="field-label" htmlFor="member-account-username">
+          {message("graph.username")}
         </label>
         <Input
-          id="member-account-principal"
+          id="member-account-username"
           autoComplete="username"
-          value={principal}
-          onChange={(event) => setPrincipal(event.target.value)}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
         />
-        <label className="field-label" htmlFor="member-account-token">
-          {message("graph.token")}
+        <label className="field-label" htmlFor="member-account-password">
+          {message("graph.password")}
         </label>
         <div className="remote-account-row">
           <Input
-            id="member-account-token"
+            id="member-account-password"
             type="password"
             autoComplete="current-password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
           />
           <Button
             variant="secondary"
             type="submit"
-            disabled={!principal.trim() || !token.trim() || busy}
+            disabled={!username.trim() || !password || busy}
           >
             {message("graph.signIn")}
           </Button>

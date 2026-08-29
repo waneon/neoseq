@@ -52,8 +52,8 @@ async function createRemote(page: Page, name: string, principal: string, token: 
   await page.goto("/");
   await page.getByTestId("new-graph-name").fill(name);
   await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Account ID").fill(principal);
-  await page.getByLabel("Access token").fill(token);
+  await page.getByLabel("Username").fill(principal);
+  await page.getByLabel("Password").fill(token);
   await page.getByRole("button", { name: "Create remote graph", exact: true }).last().click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {
@@ -65,8 +65,8 @@ async function connectRemote(page: Page, name: string, principal: string, token:
   await page.goto("/");
   await page.getByTestId("new-graph-name").fill(name);
   await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Account ID").fill(principal);
-  await page.getByLabel("Access token").fill(token);
+  await page.getByLabel("Username").fill(principal);
+  await page.getByLabel("Password").fill(token);
   await page.getByRole("button", { name: "Connect available graphs", exact: true }).click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {
@@ -78,8 +78,8 @@ async function invite(page: Page, principal: string) {
   await page.getByTestId("graph-switcher").click();
   await page.getByRole("menuitem", { name: "Manage members" }).click();
   // The invite field carries a visible label like its sibling fields; the
-  // sign-in form above uses the same "Account ID" label, so scope to the row.
-  await page.locator(".member-invite").getByLabel("Account ID").fill(principal);
+  // sign-in form above uses the same "Username" label, so scope to the row.
+  await page.locator(".member-invite").getByLabel("Username").fill(principal);
   await page.getByRole("button", { name: "Invite", exact: true }).click();
   await expect(page.locator(".member-list li", { hasText: principal })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();

@@ -2,7 +2,7 @@ use domain::GraphId;
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use std::{env, io, net::SocketAddr, sync::Arc, time::Duration};
 use sync_server::{
-    AppState, GraphRole, Metrics, PgStore, RoomConfig, RoomManager, TestIssuer, router,
+    AppState, GraphRole, Metrics, PgIdentity, PgStore, RoomConfig, RoomManager, TestIssuer, router,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -72,12 +72,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("revoked membership for {principal}");
             Ok(())
         }
+        "bootstrap-admin" => {
+            let username = arguments.next().ok_or_else(usage)?;
+            require_no_more(arguments)?;
+            let password = rpassword::prompt_password("Password: ")?;
+            let confirmation = rpassword::prompt_password("Confirm password: ")?;
+            if password != confirmation {
+                return Err(io::Error::other("passwords do not match").into());
+            }
+            let identity = PgIdentity::new(store.pool().clone(), optional_test_issuer()?)?;
+            let account = identity.bootstrap_admin(&username, &password).await?;
+            println!("created administrator {}", account.username);
+            Ok(())
+        }
         _ => Err(usage().into()),
     }
 }
 
 async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
-    let issuer = Arc::new(test_issuer()?);
+    let identity = Arc::new(PgIdentity::new(
+        store.pool().clone(),
+        optional_test_issuer()?,
+    )?);
     let bind = env::var("NEOSEQ_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let address: SocketAddr = bind.parse()?;
     let metrics = Arc::new(Metrics::default());
@@ -86,7 +102,14 @@ async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
         RoomConfig::default(),
         metrics.clone(),
     ));
-    let state = AppState::new(rooms, issuer, metrics, 4_096, Duration::from_secs(5));
+    let state = AppState::new(
+        rooms,
+        identity.clone(),
+        metrics,
+        4_096,
+        Duration::from_secs(5),
+    )
+    .with_identity(identity);
     let shutdown = state.shutdown_handle();
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "sync server listening");
@@ -99,10 +122,18 @@ async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
 fn test_issuer() -> Result<TestIssuer, Box<dyn std::error::Error>> {
     let secret = env::var("NEOSEQ_TEST_AUTH_SECRET").map_err(|_| {
         io::Error::other(
-            "NEOSEQ_TEST_AUTH_SECRET is required until a production TokenVerifier adapter is configured",
+            "NEOSEQ_TEST_AUTH_SECRET is required by the development issue-token command",
         )
     })?;
     Ok(TestIssuer::new(secret)?)
+}
+
+fn optional_test_issuer() -> Result<Option<TestIssuer>, Box<dyn std::error::Error>> {
+    env::var("NEOSEQ_TEST_AUTH_SECRET")
+        .ok()
+        .map(TestIssuer::new)
+        .transpose()
+        .map_err(Into::into)
 }
 
 fn parse_role(value: &str) -> Result<GraphRole, io::Error> {
@@ -124,7 +155,7 @@ fn require_no_more(mut arguments: impl Iterator<Item = String>) -> Result<(), io
 
 fn usage() -> io::Error {
     io::Error::other(
-        "usage: sync-server [serve | create-graph <graph> <owner> [byte-quota] | grant <graph> <principal> <owner|editor|viewer> | revoke <graph> <principal> | issue-token <principal>]",
+        "usage: sync-server [serve | bootstrap-admin <username> | create-graph <graph> <owner> [byte-quota] | grant <graph> <principal> <owner|editor|viewer> | revoke <graph> <principal> | issue-token <principal>]",
     )
 }
 

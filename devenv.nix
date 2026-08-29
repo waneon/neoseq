@@ -7,8 +7,10 @@
 
 let
   client = "pnpm --filter @neoseq/client exec";
+  admin = "pnpm --filter @neoseq/admin exec";
   ports = {
     web = config.processes.web.ports.http.value;
+    admin = config.processes.admin.ports.http.value;
     sync = config.processes.sync-server.ports.http.value;
   };
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString config.env.PGPORT}";
@@ -102,6 +104,18 @@ in
   };
 
   processes = {
+    admin = {
+      ports.http.allocate = 4174;
+      env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.sync}";
+      exec = "exec pnpm --filter @neoseq/admin exec vite --port ${toString ports.admin}";
+      ready.http.get = {
+        port = ports.admin;
+        path = "/";
+      };
+      restart.on = "never";
+      start.enable = !config.devenv.isTesting;
+    };
+
     web = {
       ports.http.allocate = 4173;
       env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.sync}";
@@ -210,7 +224,10 @@ in
 
     "frontend:check" = {
       description = "Check TypeScript";
-      exec = "${client} tsc -b --pretty false";
+      exec = ''
+        ${client} tsc -b --pretty false
+        ${admin} tsc -p tsconfig.json --pretty false
+      '';
       after = [
         "contracts:check"
         "i18n:check"
@@ -229,10 +246,11 @@ in
     "nix:hash-check" = {
       description = "Check fixed-output dependency hashes";
       exec = ''
-        devenv build \
-          outputs.web.cargoDeps \
-          outputs.web.pnpmDeps \
-          outputs.sync-server.cargoDeps
+          devenv build \
+        outputs.web.cargoDeps \
+        outputs.web.pnpmDeps \
+        outputs.admin.pnpmDeps \
+        outputs.sync-server.cargoDeps
       '';
     };
 
@@ -250,6 +268,11 @@ in
   };
 
   outputs = {
+    admin = pkgs.callPackage ./nix/outputs/admin.nix {
+      inherit mkSource;
+      nodejs = config.languages.javascript.package;
+      pnpm = config.languages.javascript.pnpm.package;
+    };
     web = pkgs.callPackage ./nix/outputs/web.nix {
       inherit mkSource;
       rustToolchain = config.languages.rust.toolchainPackage;

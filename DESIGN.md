@@ -15,9 +15,11 @@ implementation records in [`apps/client/src/ui/app.css`](apps/client/src/ui/app.
 not a second design specification.
 
 The current boundary is the browser client across light and dark modes, desktop
-and touch layouts, keyboard and pointer input, and supported locales. Native
-shells should preserve these contracts unless their platform conventions provide
-a materially more accessible interaction.
+and touch layouts, keyboard and pointer input, and supported locales. The
+separate server-administration app shares the accessibility and interaction
+baseline but has its own operational information hierarchy; it never borrows
+the writing surface as decoration. Native shells should preserve these contracts
+unless their platform conventions provide a materially more accessible interaction.
 
 ## Drivers
 
@@ -159,13 +161,19 @@ an architecture change; visual convenience alone is insufficient.
   direct manipulation, and feedback.
 - [Accessibility](designs/accessibility.md): perception, focus, input,
   semantics, localization, and verification.
+- [Server administration](designs/server-administration.md): operator login,
+  account status, global privilege, credential reset, and session revocation.
 
 ## Implementation Boundary
 
-`apps/client` implements this architecture with React, Tailwind CSS, and
+`apps/client` implements the writing product with React, Tailwind CSS, and
 shadcn/Radix primitives. Behavior primitives may supply focus management,
 selection models, or positioning, but they do not supply Neoseq's appearance or
 override its interaction contracts.
+
+`apps/admin` is a separately built React application. It shares no client state,
+graph runtime, or component implementation with `apps/client`; only semantic
+foundation and accessibility intent cross that boundary.
 
 Semantic roles have one implementation owner. `app.css` owns the design tokens
 and shared visual mechanisms; feature code consumes them and owns only the

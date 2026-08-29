@@ -63,9 +63,11 @@ directory publishes its suggested display name. See
 [`graph-archive.md`](graph-archive.md).
 
 Graph display names, local/remote kind, and remote server origin are
-browser-directory metadata in localStorage. Credentials are scoped to the
-server origin in sessionStorage and are never stored in graph data, localStorage,
-or URLs. Canonical note data remains in the Loro repository. A Web Lock grants
+browser-directory metadata in localStorage. A username and password are
+exchanged once for an opaque server session; that session is scoped to the
+server origin in sessionStorage and is never stored in graph data, localStorage,
+or URLs. The user never enters or manages a transport token. Canonical note data
+remains in the Loro repository. A Web Lock grants
 one tab a writable lease per graph; a competing tab is read-only. The Loro peer
 ID is generated once and persisted with graph metadata; only the transport
 session ID is fresh for each connection.

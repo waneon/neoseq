@@ -7,8 +7,9 @@ use std::{
 };
 use sync_protocol::{Hello, Message, PROTOCOL_VERSION, VersionRange, decode, encode};
 use sync_server::{
-    AppState, GraphAdmin, GraphRole, GraphStore, Metrics, PgStore, RoomConfig, RoomManager,
-    StoreError, TestIssuer, router,
+    AccountPatch, AccountStatus, AppState, GraphAdmin, GraphRole, GraphStore, IdentityService,
+    Metrics, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole, SessionPurpose, StoreError,
+    TestIssuer, TokenVerifier, router,
 };
 use tokio_tungstenite::{
     connect_async,
@@ -25,6 +26,79 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let identity = PgIdentity::new(store.pool().clone(), None).unwrap();
+    let admin_username = format!("admin-{suffix}");
+    let admin_password = "a deliberately long admin passphrase";
+    let admin = identity
+        .bootstrap_admin(&admin_username, admin_password)
+        .await
+        .unwrap();
+    assert_eq!(admin.server_role, ServerRole::Admin);
+    assert!(
+        identity
+            .login(
+                &admin_username,
+                "wrong password long enough",
+                SessionPurpose::Admin,
+            )
+            .await
+            .is_err()
+    );
+    let admin_session = identity
+        .login(&admin_username, admin_password, SessionPurpose::Admin)
+        .await
+        .unwrap();
+    let admin_principal = identity.verify(&admin_session.access_token).await.unwrap();
+    assert!(admin_principal.is_admin);
+
+    let user_username = format!("member-{suffix}");
+    let first_password = "a first sufficiently long password";
+    let user = identity
+        .create_account(
+            &admin_principal,
+            &user_username,
+            first_password,
+            ServerRole::User,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        identity.resolve_username(&user_username).await.unwrap(),
+        user.account_id
+    );
+    let user_session = identity
+        .login(&user_username, first_password, SessionPurpose::Client)
+        .await
+        .unwrap();
+    assert_eq!(
+        identity
+            .verify(&user_session.access_token)
+            .await
+            .unwrap()
+            .id,
+        user.account_id
+    );
+    identity
+        .reset_password(
+            &admin_principal,
+            &user.account_id,
+            "a replacement password that is long",
+        )
+        .await
+        .unwrap();
+    assert!(identity.verify(&user_session.access_token).await.is_err());
+    identity
+        .update_account(
+            &admin_principal,
+            &user.account_id,
+            AccountPatch {
+                status: Some(AccountStatus::Disabled),
+                server_role: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(identity.resolve_username(&user_username).await.is_err());
     let graph_id = format!("postgres-sync-{suffix}");
     let graph = GraphId::new(&graph_id).unwrap();
     let base = GraphCore::new(graph.clone(), 1, "base").unwrap();
@@ -222,18 +296,18 @@ async fn postgres_migration_idempotency_authz_backup_and_restore() {
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();
-    sqlx::query("UPDATE neoseq_schema_version SET version = 3 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 4 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
     assert!(matches!(
         PgStore::from_pool(store.pool().clone()).await,
         Err(StoreError::SchemaTooNew {
-            found: 3,
-            supported: 2
+            found: 4,
+            supported: 3
         })
     ));
-    sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 3 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();

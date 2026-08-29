@@ -1,5 +1,8 @@
 use crate::{
-    auth::TokenVerifier,
+    auth::{
+        AccountPatch, AccountStatus, AccountView, AuthError, IdentityService, Principal,
+        ServerRole, SessionPurpose, TokenVerifier,
+    },
     metrics::Metrics,
     room::{RoomConnection, RoomError, RoomManager},
     store::{GraphAdmin, GraphRole, GraphStore, StoreError},
@@ -13,7 +16,7 @@ use axum::{
     },
     http::{HeaderMap, HeaderValue, Response, StatusCode, header},
     response::IntoResponse,
-    routing::{get, put},
+    routing::{delete, get, patch, post, put},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
@@ -35,6 +38,7 @@ use tokio::time::{interval, timeout};
 pub struct AppState<S: GraphStore, V: TokenVerifier> {
     pub rooms: Arc<RoomManager<S>>,
     pub verifier: Arc<V>,
+    identity: Option<Arc<dyn IdentityService>>,
     pub metrics: Arc<Metrics>,
     connections: Arc<AtomicUsize>,
     max_connections: usize,
@@ -47,6 +51,7 @@ impl<S: GraphStore, V: TokenVerifier> Clone for AppState<S, V> {
         Self {
             rooms: self.rooms.clone(),
             verifier: self.verifier.clone(),
+            identity: self.identity.clone(),
             metrics: self.metrics.clone(),
             connections: self.connections.clone(),
             max_connections: self.max_connections,
@@ -67,6 +72,7 @@ impl<S: GraphStore, V: TokenVerifier> AppState<S, V> {
         Self {
             rooms,
             verifier,
+            identity: None,
             metrics,
             connections: Arc::new(AtomicUsize::new(0)),
             max_connections,
@@ -78,6 +84,11 @@ impl<S: GraphStore, V: TokenVerifier> AppState<S, V> {
     pub fn shutdown_handle(&self) -> watch::Sender<bool> {
         self.shutdown.clone()
     }
+
+    pub fn with_identity(mut self, identity: Arc<dyn IdentityService>) -> Self {
+        self.identity = Some(identity);
+        self
+    }
 }
 
 pub fn router<S: GraphAdmin, V: TokenVerifier>(state: AppState<S, V>) -> Router {
@@ -85,6 +96,26 @@ pub fn router<S: GraphAdmin, V: TokenVerifier>(state: AppState<S, V>) -> Router 
         .route("/livez", get(liveness))
         .route("/readyz", get(readiness::<S, V>))
         .route("/metrics", get(metrics::<S, V>))
+        .route("/v1/auth/login", post(login::<S, V>))
+        .route("/v1/auth/logout", post(logout::<S, V>))
+        .route("/v1/auth/me", get(current_account::<S, V>))
+        .route("/v1/auth/password", put(change_password::<S, V>))
+        .route(
+            "/v1/admin/accounts",
+            get(list_accounts::<S, V>).post(create_account::<S, V>),
+        )
+        .route(
+            "/v1/admin/accounts/{account_id}",
+            patch(update_account::<S, V>),
+        )
+        .route(
+            "/v1/admin/accounts/{account_id}/password",
+            put(reset_account_password::<S, V>),
+        )
+        .route(
+            "/v1/admin/accounts/{account_id}/sessions",
+            delete(revoke_account_sessions::<S, V>),
+        )
         .route("/v1/sync", get(sync_upgrade::<S, V>))
         .route(
             "/v1/graphs",
@@ -141,11 +172,276 @@ struct GrantRequest {
     role: String,
 }
 
+#[derive(Deserialize)]
+struct LoginRequest {
+    username: String,
+    password: String,
+    #[serde(default = "client_purpose")]
+    purpose: String,
+}
+
+fn client_purpose() -> String {
+    "client".into()
+}
+
+#[derive(Serialize)]
+struct LoginResponse {
+    access_token: String,
+    account: AccountView,
+}
+
+#[derive(Serialize)]
+struct CurrentAccountResponse {
+    account_id: String,
+    username: String,
+    server_role: &'static str,
+    purpose: &'static str,
+}
+
+#[derive(Deserialize)]
+struct ChangePasswordRequest {
+    current_password: String,
+    new_password: String,
+}
+
+#[derive(Serialize)]
+struct AccountsResponse {
+    accounts: Vec<AccountView>,
+}
+
+#[derive(Deserialize)]
+struct CreateAccountRequest {
+    username: String,
+    password: String,
+    #[serde(default = "user_role")]
+    server_role: String,
+}
+
+fn user_role() -> String {
+    "user".into()
+}
+
+#[derive(Deserialize)]
+struct UpdateAccountRequest {
+    status: Option<String>,
+    server_role: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ResetPasswordRequest {
+    password: String,
+}
+
+async fn login<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    Json(request): Json<LoginRequest>,
+) -> Response<Body> {
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let purpose = match request.purpose.as_str() {
+        "client" => SessionPurpose::Client,
+        "admin" => SessionPurpose::Admin,
+        _ => return (StatusCode::BAD_REQUEST, "invalid session purpose\n").into_response(),
+    };
+    match identity
+        .login(&request.username, &request.password, purpose)
+        .await
+    {
+        Ok(session) => Json(LoginResponse {
+            access_token: session.access_token,
+            account: session.account,
+        })
+        .into_response(),
+        Err(AuthError::Invalid | AuthError::Forbidden) => {
+            (StatusCode::UNAUTHORIZED, "invalid username or password\n").into_response()
+        }
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn logout<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    let Some(token) = bearer_token(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity.logout(token).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn current_account<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    match authenticated_principal(&state, &headers, None).await {
+        Ok(principal) => Json(CurrentAccountResponse {
+            account_id: principal.id,
+            username: principal.username,
+            server_role: if principal.is_admin { "admin" } else { "user" },
+            purpose: principal.purpose.as_str(),
+        })
+        .into_response(),
+        Err(response) => *response,
+    }
+}
+
+async fn change_password<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Json(request): Json<ChangePasswordRequest>,
+) -> Response<Body> {
+    let principal = match authenticated_principal(&state, &headers, None).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity
+        .change_password(&principal, &request.current_password, &request.new_password)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn list_accounts<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    let actor = match admin_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity.list_accounts(&actor).await {
+        Ok(accounts) => Json(AccountsResponse { accounts }).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn create_account<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Json(request): Json<CreateAccountRequest>,
+) -> Response<Body> {
+    let actor = match admin_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let role = match parse_server_role(&request.server_role) {
+        Ok(role) => role,
+        Err(error) => return auth_error_response(error),
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity
+        .create_account(&actor, &request.username, &request.password, role)
+        .await
+    {
+        Ok(account) => (StatusCode::CREATED, Json(account)).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn update_account<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Path(account_id): Path<String>,
+    Json(request): Json<UpdateAccountRequest>,
+) -> Response<Body> {
+    let actor = match admin_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let status = match request.status.as_deref() {
+        None => None,
+        Some("active") => Some(AccountStatus::Active),
+        Some("disabled") => Some(AccountStatus::Disabled),
+        Some(_) => return (StatusCode::BAD_REQUEST, "invalid account status\n").into_response(),
+    };
+    let server_role = match request.server_role.as_deref() {
+        None => None,
+        Some(role) => match parse_server_role(role) {
+            Ok(role) => Some(role),
+            Err(error) => return auth_error_response(error),
+        },
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity
+        .update_account(
+            &actor,
+            &account_id,
+            AccountPatch {
+                status,
+                server_role,
+            },
+        )
+        .await
+    {
+        Ok(account) => Json(account).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn reset_account_password<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Path(account_id): Path<String>,
+    Json(request): Json<ResetPasswordRequest>,
+) -> Response<Body> {
+    let actor = match admin_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity
+        .reset_password(&actor, &account_id, &request.password)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn revoke_account_sessions<S: GraphStore, V: TokenVerifier>(
+    State(state): State<AppState<S, V>>,
+    headers: HeaderMap,
+    Path(account_id): Path<String>,
+) -> Response<Body> {
+    let actor = match admin_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let Some(identity) = state.identity.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match identity.revoke_sessions(&actor, &account_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
 async fn list_graphs<S: GraphAdmin, V: TokenVerifier>(
     State(state): State<AppState<S, V>>,
     headers: HeaderMap,
 ) -> Response<Body> {
-    let principal = match api_principal(&state, &headers) {
+    let principal = match api_principal(&state, &headers).await {
         Ok(principal) => principal,
         Err(response) => return *response,
     };
@@ -174,7 +470,7 @@ async fn create_graph<S: GraphAdmin, V: TokenVerifier>(
     headers: HeaderMap,
     Json(request): Json<CreateGraphRequest>,
 ) -> Response<Body> {
-    let principal = match api_principal(&state, &headers) {
+    let principal = match api_principal(&state, &headers).await {
         Ok(principal) => principal,
         Err(response) => return *response,
     };
@@ -219,23 +515,32 @@ async fn list_memberships<S: GraphAdmin, V: TokenVerifier>(
     headers: HeaderMap,
     Path(graph_id): Path<String>,
 ) -> Response<Body> {
-    let principal = match require_owner(&state, &headers, &graph_id).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    let _ = principal;
+    if let Err(response) = require_owner(&state, &headers, &graph_id).await {
+        return *response;
+    }
     match state.rooms.store().list_memberships(&graph_id).await {
-        Ok(memberships) => Json(MembershipsResponse {
-            memberships: memberships
-                .into_iter()
-                .map(|membership| MembershipResponse {
-                    principal_id: membership.principal_id,
+        Ok(memberships) => {
+            let mut response = Vec::with_capacity(memberships.len());
+            for membership in memberships {
+                let principal_id = if let Some(identity) = &state.identity {
+                    match identity.username_for(&membership.principal_id).await {
+                        Ok(Some(username)) => username,
+                        Ok(None) | Err(_) => membership.principal_id,
+                    }
+                } else {
+                    membership.principal_id
+                };
+                response.push(MembershipResponse {
+                    principal_id,
                     role: role_name(membership.role),
                     version: membership.version,
-                })
-                .collect(),
-        })
-        .into_response(),
+                });
+            }
+            Json(MembershipsResponse {
+                memberships: response,
+            })
+            .into_response()
+        }
         Err(error) => api_store_error(error),
     }
 }
@@ -253,6 +558,10 @@ async fn grant_membership<S: GraphAdmin, V: TokenVerifier>(
         "editor" => GraphRole::Editor,
         "viewer" => GraphRole::Viewer,
         _ => return (StatusCode::BAD_REQUEST, "role must be editor or viewer\n").into_response(),
+    };
+    let principal_id = match membership_principal(&state, &principal_id).await {
+        Ok(principal_id) => principal_id,
+        Err(response) => return response,
     };
     match state
         .rooms
@@ -274,6 +583,10 @@ async fn revoke_membership<S: GraphAdmin, V: TokenVerifier>(
         Ok(owner) => owner,
         Err(response) => return *response,
     };
+    let principal_id = match membership_principal(&state, &principal_id).await {
+        Ok(principal_id) => principal_id,
+        Err(response) => return response,
+    };
     if owner == principal_id {
         return (
             StatusCode::BAD_REQUEST,
@@ -292,17 +605,13 @@ async fn revoke_membership<S: GraphAdmin, V: TokenVerifier>(
     }
 }
 
-fn api_principal<S: GraphStore, V: TokenVerifier>(
+async fn api_principal<S: GraphStore, V: TokenVerifier>(
     state: &AppState<S, V>,
     headers: &HeaderMap,
 ) -> Result<String, Box<Response<Body>>> {
-    let token =
-        bearer_token(headers).ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
-    state
-        .verifier
-        .verify(token)
+    authenticated_principal(state, headers, Some(SessionPurpose::Client))
+        .await
         .map(|principal| principal.id)
-        .map_err(|_| Box::new(StatusCode::UNAUTHORIZED.into_response()))
 }
 
 async fn require_owner<S: GraphStore, V: TokenVerifier>(
@@ -310,13 +619,79 @@ async fn require_owner<S: GraphStore, V: TokenVerifier>(
     headers: &HeaderMap,
     graph_id: &str,
 ) -> Result<String, Box<Response<Body>>> {
-    let principal = api_principal(state, headers)?;
+    let principal = api_principal(state, headers).await?;
     match state.rooms.store().authorize(graph_id, &principal).await {
         Ok(membership) if membership.role == GraphRole::Owner => Ok(principal),
         Ok(_) | Err(StoreError::AccessDenied) => {
             Err(Box::new(StatusCode::FORBIDDEN.into_response()))
         }
         Err(error) => Err(Box::new(api_store_error(error))),
+    }
+}
+
+async fn authenticated_principal<S: GraphStore, V: TokenVerifier>(
+    state: &AppState<S, V>,
+    headers: &HeaderMap,
+    expected_purpose: Option<SessionPurpose>,
+) -> Result<Principal, Box<Response<Body>>> {
+    let token =
+        bearer_token(headers).ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
+    let principal = state
+        .verifier
+        .verify(token)
+        .await
+        .map_err(|_| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
+    if expected_purpose.is_some_and(|purpose| purpose != principal.purpose) {
+        return Err(Box::new(StatusCode::FORBIDDEN.into_response()));
+    }
+    Ok(principal)
+}
+
+async fn admin_principal<S: GraphStore, V: TokenVerifier>(
+    state: &AppState<S, V>,
+    headers: &HeaderMap,
+) -> Result<Principal, Box<Response<Body>>> {
+    let principal = authenticated_principal(state, headers, Some(SessionPurpose::Admin)).await?;
+    if principal.is_admin {
+        Ok(principal)
+    } else {
+        Err(Box::new(StatusCode::FORBIDDEN.into_response()))
+    }
+}
+
+async fn membership_principal<S: GraphStore, V: TokenVerifier>(
+    state: &AppState<S, V>,
+    username: &str,
+) -> Result<String, Response<Body>> {
+    let Some(identity) = state.identity.as_ref() else {
+        return Ok(username.to_owned());
+    };
+    identity
+        .resolve_username(username)
+        .await
+        .map_err(auth_error_response)
+}
+
+fn parse_server_role(value: &str) -> Result<ServerRole, AuthError> {
+    match value {
+        "user" => Ok(ServerRole::User),
+        "admin" => Ok(ServerRole::Admin),
+        _ => Err(AuthError::InvalidInput("invalid server role")),
+    }
+}
+
+fn auth_error_response(error: AuthError) -> Response<Body> {
+    match error {
+        AuthError::Invalid => StatusCode::UNAUTHORIZED.into_response(),
+        AuthError::Forbidden => StatusCode::FORBIDDEN.into_response(),
+        AuthError::Conflict => (StatusCode::CONFLICT, "account already exists\n").into_response(),
+        AuthError::InvalidInput(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+        AuthError::LastAdmin => (
+            StatusCode::CONFLICT,
+            "the last active administrator cannot be changed\n",
+        )
+            .into_response(),
+        AuthError::Unavailable => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
@@ -384,7 +759,10 @@ async fn sync_upgrade<S: GraphStore, V: TokenVerifier>(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     // Verify before upgrade, but never log or retain the credential.
-    if state.verifier.verify(&token).is_err() {
+    let Ok(principal) = state.verifier.verify(&token).await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    if principal.purpose != SessionPurpose::Client {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let Some(permit) = ConnectionPermit::acquire(state.connections.clone(), state.max_connections)
@@ -448,9 +826,12 @@ async fn session<S: GraphStore, V: TokenVerifier>(
     token: String,
     _permit: ConnectionPermit,
 ) {
-    let Some(principal) = state.verifier.verify(&token).ok() else {
+    let Some(principal) = state.verifier.verify(&token).await.ok() else {
         return;
     };
+    if principal.purpose != SessionPurpose::Client {
+        return;
+    }
     let hello = match timeout(Duration::from_secs(10), receive_hello(&mut socket, &state)).await {
         Ok(Ok(hello)) => hello,
         Ok(Err(message)) => {
@@ -527,7 +908,7 @@ async fn session<S: GraphStore, V: TokenVerifier>(
         return;
     }
 
-    run_session(socket, state, opened.connection).await;
+    run_session(socket, state, opened.connection, token).await;
 }
 
 async fn receive_hello<S: GraphStore, V: TokenVerifier>(
@@ -567,6 +948,7 @@ async fn run_session<S: GraphStore, V: TokenVerifier>(
     socket: WebSocket,
     state: AppState<S, V>,
     mut connection: RoomConnection,
+    token: String,
 ) {
     let mut outbound = connection.take_outbound();
     let (mut sink, mut stream) = socket.split();
@@ -656,6 +1038,9 @@ async fn run_session<S: GraphStore, V: TokenVerifier>(
                 }
             }
             _ = membership_tick.tick() => {
+                if state.verifier.verify(&token).await.is_err() {
+                    break;
+                }
                 if let Err(error) = state.rooms.recheck(&connection).await {
                     let message = room_error_message(&error);
                     let _ = send_sink(&mut sink, &state, &message).await;

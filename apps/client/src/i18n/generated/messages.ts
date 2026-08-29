@@ -200,7 +200,7 @@ export interface MessageArgumentMap {
   "graph.newName": undefined;
   "graph.noRemoteGraphs": undefined;
   "graph.owner": undefined;
-  "graph.principal": undefined;
+  "graph.password": undefined;
   "graph.remote": undefined;
   "graph.remoteCreateDetail": undefined;
   "graph.remoteCreateTitle": undefined;
@@ -210,7 +210,8 @@ export interface MessageArgumentMap {
   "graph.serverUrl": undefined;
   "graph.settings": undefined;
   "graph.signIn": undefined;
-  "graph.token": undefined;
+  "graph.signInFailed": undefined;
+  "graph.username": undefined;
   "graph.viewer": undefined;
   "graph.yourGraphs": undefined;
   "journal.calendarOpen": undefined;

@@ -51,6 +51,8 @@ flowchart LR
     Agent <--> Sync[Sync server]
     Sync --> Postgres[(PostgreSQL epoch checkpoint + tail)]
 
+    Admin[Admin Web app] --> Sync
+
     Native[Headless native adapter] --> Core
     Native --> SQLite[(SQLite update log)]
 ```
@@ -76,6 +78,8 @@ persistence test boundary, not a shipped application shell.
 - `apps/client` owns interaction, navigation, browser-local preferences,
   localization, error presentation, responsive UI, and the query builder that
   authors SPARQL for the profile `query` executes.
+- `apps/admin` is a separately built operational Web app for server account and
+  session administration. It does not load the graph core or graph data.
 - `sync-protocol` owns the versioned, size-bounded binary envelope shared by
   sync replicas and the service.
 - `sync-server` owns authentication and membership seams, durable update relay,
@@ -200,6 +204,9 @@ into one referenced Tail/outbox record.
   safe messages.
 - Remote endpoints require TLS, authenticated membership, and limits on
   untrusted CRDT frames before acceptance.
+- People authenticate with a username and password once. The server stores only
+  Argon2id verifiers and exchanges a successful login for a bounded, revocable,
+  purpose-specific opaque session; passwords never enter graph or sync data.
 - The v2 remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 
@@ -215,6 +222,7 @@ crates/platform-native/    headless SQLite/CorePort adapter
 crates/sync-protocol/      versioned binary synchronization messages
 crates/sync-server/        PostgreSQL-backed WebSocket synchronization service
 apps/client/               React UI, Worker, IndexedDB, and browser tests
+apps/admin/                standalone sync-server administration Web app
 contracts/                 current source contracts
 fixtures/                  current cross-adapter corpus
 architectures/             component architecture documents

@@ -3,9 +3,11 @@
 ## Status and Responsibilities
 
 The `sync-protocol` and `sync-server` crates provide the durable synchronization
-service, and the Web client consumes both its graph-management HTTP API
-and WebSocket protocol. Production identity remains behind the `TokenVerifier`
-adapter; local development uses the explicit test issuer.
+service. The Web client consumes its account login, graph-management HTTP API,
+and WebSocket protocol; the separate Admin Web app consumes its account
+administration API. Production identity is the PostgreSQL-backed account and
+opaque-session authority behind `TokenVerifier`; local development may also
+enable the explicit test issuer.
 
 The server makes a remote graph available to authorized replicas. It owns:
 
@@ -26,9 +28,14 @@ except for disposable in-memory graph rooms. PostgreSQL is the durable system of
 record, storing memberships, graph metadata, binary update
 chunks, checkpoints, and acknowledgement/audit data.
 
+Production ingress serves the static Admin app on a private TLS origin and
+routes that origin's `/v1` path to this service. Admin credentials therefore
+remain same-origin and no direct browser-to-database path exists.
+
 ```text
-admin CLI / authenticated HTTP ----------> PostgreSQL
-Web client -- WSS ---> sync session --> graph room --> PostgreSQL
+Admin Web app -- authenticated HTTP -----> account/session authority
+                                                 |
+Web client -- login / WSS --> sync session --> PostgreSQL
                                       |
                                       +--> other authorized sessions
 ```
@@ -43,8 +50,13 @@ single-flight room reconstruction, installed as a new checkpoint/history epoch,
 and reopened from that checkpoint before the room accepts writes. Other schema
 versions are rejected.
 
-The authenticated HTTP surface creates and lists graphs and lets an owner list,
-grant, or revoke memberships. Browser WebSockets carry the bearer credential in
+People submit a username and password only to the login endpoint. A successful
+login returns a bounded opaque session credential whose digest, purpose, expiry,
+and revocation state are durable. Client sessions authorize graph HTTP and WSS;
+shorter Admin sessions authorize only the account-management surface. The
+authenticated graph HTTP surface creates and lists graphs and lets an owner
+list, grant, or revoke memberships by username while membership rows retain the
+account's immutable ID. Browser WebSockets carry the session credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
 `Authorization` header; the server selects only the stable `neoseq.v2`
 application subprotocol. Credentials are never accepted in a URL.
@@ -96,6 +108,10 @@ closes revoked sessions.
 
 The logical PostgreSQL records are:
 
+- account: immutable ID, unique username, Argon2id verifier, active state, and
+  server-wide user/admin role;
+- account session: credential digest, client/admin purpose, expiry, and
+  revocation state;
 - graph metadata: ID, owner, status, schema version, byte quota, history epoch,
   and checkpoint pointer;
 - membership: graph ID, principal ID, role, revocation/version metadata;
@@ -106,6 +122,12 @@ The logical PostgreSQL records are:
 - compact receipt: graph/message ID, checksum, and original cursor for
   idempotent retries after covered update rows are reclaimed;
 - audit event: principal, graph, security/administrative action, timestamp.
+
+Server administration and graph ownership are independent authorities. A
+server administrator may create, disable, reset, or change the global role of
+an account but does not thereby become a graph owner. Disabling an account,
+changing its password or role, or explicitly revoking its sessions invalidates
+all existing credentials; periodic WebSocket verification closes live sessions.
 
 Uniqueness on `(graph_id, message_id)` across the live Tail and compact receipt
 set makes recent client retry idempotent; reuse with different bytes is rejected.
@@ -138,6 +160,13 @@ Loro operation identity keeps their content import idempotent.
   HTTP behind that boundary); bearer/session credentials are never accepted in
   URL query strings or stored in graph updates.
 - Authorization is checked outside the CRDT for every graph operation.
+- Usernames are normalized, bounded identifiers but never relational identity;
+  graph membership and audit records use the immutable account ID.
+- Password verification runs on the blocking pool with Argon2id, login failures
+  are throttled, and errors do not reveal whether an account exists.
+- The first administrator is an explicit one-time bootstrap operation. Routine
+  account management occurs only through the Admin Web app; deterministic token
+  issuance remains development-only.
 - Connection, session, frame, message, update-rate, graph-byte, presence, and
   reconstructed-document limits are enforced at their owning boundaries.
 - CRDT import is treated as untrusted parsing: malformed updates fail
