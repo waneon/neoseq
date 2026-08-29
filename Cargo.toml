@@ -9,7 +9,7 @@ members = [
   "crates/platform-web",
   "crates/query",
   "crates/sync-protocol",
-  "crates/sync-server",
+  "crates/neoseq-server",
 ]
 
 [workspace.package]

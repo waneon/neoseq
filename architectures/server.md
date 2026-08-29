@@ -2,7 +2,7 @@
 
 ## Status and Responsibilities
 
-The `sync-protocol` and `sync-server` crates provide the durable synchronization
+The `sync-protocol` and `neoseq-server` crates provide the durable synchronization
 service. The Web client consumes its account login, graph-management HTTP API,
 and WebSocket protocol; the separate Admin Web app consumes its account
 administration API. Identity is the PostgreSQL-backed account and opaque-session
@@ -27,15 +27,15 @@ except for disposable in-memory graph rooms. PostgreSQL is the durable system of
 record, storing memberships, graph metadata, binary update
 chunks, checkpoints, and acknowledgement/audit data.
 
-Production ingress serves the static Admin app on a private TLS origin and
-routes that origin's `/v1` path to this service. Admin credentials therefore
+Production ingress serves the static Neoseq dashboard on a private TLS origin
+and routes that origin's `/v1` path to this service. Admin credentials therefore
 remain same-origin and no direct browser-to-database path exists.
 
 ```text
-Admin Web app -- authenticated HTTP -----> account/session authority
-                                                 |
-Web client -- login / WSS --> sync session --> PostgreSQL
-                                      |
+Neoseq dashboard -- authenticated HTTP -----> account/session authority
+                                                     |
+Neoseq client -- login / WSS --> sync session --> PostgreSQL
+                                          |
                                       +--> other authorized sessions
 ```
 

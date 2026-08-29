@@ -9,9 +9,9 @@ const targets = {
     output: resolve(root, "apps/client/src/i18n/generated/messages.ts"),
     temporalDir: resolve(root, "apps/client/src/i18n/temporal/languages"),
   },
-  admin: {
-    localeDir: resolve(root, "apps/admin/src/i18n/locales"),
-    output: resolve(root, "apps/admin/src/i18n/generated/messages.ts"),
+  dashboard: {
+    localeDir: resolve(root, "apps/dashboard/src/i18n/locales"),
+    output: resolve(root, "apps/dashboard/src/i18n/generated/messages.ts"),
   },
 };
 
@@ -23,7 +23,7 @@ if (
   requestedTargets.length > 1 ||
   (requestedTargets[0] && !(requestedTargets[0] in targets))
 ) {
-  throw new Error("usage: generate-i18n.mjs [--check] [client|admin]");
+  throw new Error("usage: generate-i18n.mjs [--check] [client|dashboard]");
 }
 const selectedTargets = requestedTargets[0]
   ? [[requestedTargets[0], targets[requestedTargets[0]]]]

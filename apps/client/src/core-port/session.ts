@@ -97,7 +97,7 @@ export class GraphSession {
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
   private syncAgent: SyncAgent | null = null;
-  private readonly sessionId = `web:${tabId()}:${crypto.randomUUID()}`;
+  private readonly sessionId = `neoseq-client:${tabId()}:${crypto.randomUUID()}`;
 
   constructor(
     public readonly graphId: string,

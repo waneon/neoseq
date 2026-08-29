@@ -7,14 +7,14 @@
 
 let
   client = "pnpm --filter @neoseq/client exec";
-  admin = "pnpm --filter @neoseq/admin exec";
+  dashboard = "pnpm --filter @neoseq/dashboard exec";
   ports = {
-    web = config.processes.web.ports.http.value;
-    admin = config.processes.admin.ports.http.value;
-    sync = config.processes.sync-server.ports.http.value;
+    client = config.processes.neoseq-client.ports.http.value;
+    dashboard = config.processes.neoseq-dashboard.ports.http.value;
+    server = config.processes.neoseq-server.ports.http.value;
   };
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString config.env.PGPORT}";
-  databaseTest = "with-test-database cargo test -p sync-server --test postgres -- --ignored --nocapture";
+  databaseTest = "with-test-database cargo test -p neoseq-server --test postgres -- --ignored --nocapture";
   mkSource = pkgs.callPackage ./nix/libs/mk-source.nix { };
 in
 {
@@ -69,7 +69,7 @@ in
           "*.yml"
         ];
         excludes = [
-          "apps/admin/src/i18n/generated/**"
+          "apps/dashboard/src/i18n/generated/**"
           "apps/client/src/generated/**"
           "apps/client/src/i18n/generated/**"
           "pnpm-lock.yaml"
@@ -105,43 +105,43 @@ in
   };
 
   processes = {
-    admin = {
+    neoseq-dashboard = {
       ports.http.allocate = 4174;
-      env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.sync}";
-      exec = "exec pnpm --filter @neoseq/admin exec vite --port ${toString ports.admin}";
+      env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.server}";
+      exec = "exec pnpm --filter @neoseq/dashboard exec vite --port ${toString ports.dashboard}";
       ready.http.get = {
-        port = ports.admin;
+        port = ports.dashboard;
         path = "/";
       };
       restart.on = "never";
       start.enable = !config.devenv.isTesting;
     };
 
-    web = {
+    neoseq-client = {
       ports.http.allocate = 4173;
-      env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.sync}";
-      exec = "exec pnpm --filter @neoseq/client exec vite --port ${toString ports.web}";
+      env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.server}";
+      exec = "exec pnpm --filter @neoseq/client exec vite --port ${toString ports.client}";
       after = [ "wasm:build-dev" ];
       ready.http.get = {
-        port = ports.web;
+        port = ports.client;
         path = "/";
       };
       restart.on = "never";
       start.enable = !config.devenv.isTesting;
     };
 
-    sync-server = {
+    neoseq-server = {
       ports.http.allocate = 8787;
       env = {
         DATABASE_URL = databaseUrl;
-        NEOSEQ_BIND = "127.0.0.1:${toString ports.sync}";
+        NEOSEQ_BIND = "127.0.0.1:${toString ports.server}";
         NEOSEQ_BOOTSTRAP_ADMIN_USERNAME = "admin";
         NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD = "change-me-later";
       };
-      exec = "exec cargo run --locked -p sync-server";
+      exec = "exec cargo run --locked -p neoseq-server";
       after = [ "devenv:processes:postgres" ];
       ready.http.get = {
-        port = ports.sync;
+        port = ports.server;
         path = "/readyz";
       };
       restart.on = "never";
@@ -218,7 +218,7 @@ in
       exec = "node scripts/check-node-licenses.mjs";
     };
 
-    "sync-server:postgres-test" = {
+    "neoseq-server:postgres-test" = {
       description = "Run PostgreSQL schema, persistence, and authorization tests";
       exec = databaseTest;
       after = [ "devenv:processes:postgres" ];
@@ -228,7 +228,7 @@ in
       description = "Check TypeScript";
       exec = ''
         ${client} tsc -b --pretty false
-        ${admin} tsc -p tsconfig.json --pretty false
+        ${dashboard} tsc -p tsconfig.json --pretty false
       '';
       after = [
         "contracts:check"
@@ -240,7 +240,7 @@ in
       description = "Run component tests";
       exec = ''
         ${client} vitest run
-        ${admin} vitest run
+        ${dashboard} vitest run
       '';
       after = [
         "contracts:check"
@@ -252,10 +252,10 @@ in
       description = "Check fixed-output dependency hashes";
       exec = ''
           devenv build \
-        outputs.web.cargoDeps \
-        outputs.web.pnpmDeps \
-        outputs.admin.pnpmDeps \
-        outputs.sync-server.cargoDeps
+        outputs.neoseq-client.cargoDeps \
+        outputs.neoseq-client.pnpmDeps \
+        outputs.neoseq-dashboard.pnpmDeps \
+        outputs.neoseq-server.cargoDeps
       '';
     };
 
@@ -268,23 +268,23 @@ in
       "rust:clippy"
       "rust:deny"
       "rust:test"
-      "sync-server:postgres-test"
+      "neoseq-server:postgres-test"
     ];
   };
 
   outputs = {
-    admin = pkgs.callPackage ./nix/outputs/admin.nix {
+    neoseq-dashboard = pkgs.callPackage ./nix/outputs/neoseq-dashboard.nix {
       inherit mkSource;
       nodejs = config.languages.javascript.package;
       pnpm = config.languages.javascript.pnpm.package;
     };
-    web = pkgs.callPackage ./nix/outputs/web.nix {
+    neoseq-client = pkgs.callPackage ./nix/outputs/neoseq-client.nix {
       inherit mkSource;
       rustToolchain = config.languages.rust.toolchainPackage;
       nodejs = config.languages.javascript.package;
       pnpm = config.languages.javascript.pnpm.package;
     };
-    sync-server = pkgs.callPackage ./nix/outputs/sync-server.nix {
+    neoseq-server = pkgs.callPackage ./nix/outputs/neoseq-server.nix {
       inherit mkSource;
       rustToolchain = config.languages.rust.toolchainPackage;
     };

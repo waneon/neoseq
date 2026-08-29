@@ -3,7 +3,7 @@
 /result-*
 **/node_modules
 /apps/client/dist/
-/apps/admin/dist/
+/apps/dashboard/dist/
 /apps/client/.vite/
 /apps/client/src/wasm/
 /apps/client/test-results/

@@ -171,7 +171,7 @@ shadcn/Radix primitives. Behavior primitives may supply focus management,
 selection models, or positioning, but they do not supply Neoseq's appearance or
 override its interaction contracts.
 
-`apps/admin` is a separately built React application. It shares no client state,
+`apps/dashboard` is a separately built React application. It shares no client state,
 graph runtime, or component implementation with `apps/client`; only semantic
 foundation and accessibility intent cross that boundary.
 

@@ -78,11 +78,11 @@ persistence test boundary, not a shipped application shell.
 - `apps/client` owns interaction, navigation, browser-local preferences,
   localization, error presentation, responsive UI, and the query builder that
   authors SPARQL for the profile `query` executes.
-- `apps/admin` is a separately built operational Web app for server account and
+- `apps/dashboard` is a separately built operational Web app for server account and
   session administration. It does not load the graph core or graph data.
 - `sync-protocol` owns the versioned, size-bounded binary envelope shared by
   sync replicas and the service.
-- `sync-server` owns authentication and membership seams, durable update relay,
+- `neoseq-server` owns authentication and membership seams, durable update relay,
   disposable graph rooms, presence, and operational endpoints. It does not
   own graph semantics or a relational graph projection; see
   [server architecture](architectures/server.md).
@@ -220,9 +220,9 @@ crates/query/              RDF projection and SPARQL execution
 crates/platform-web/       Wasm bindings
 crates/platform-native/    headless SQLite/CorePort adapter
 crates/sync-protocol/      versioned binary synchronization messages
-crates/sync-server/        PostgreSQL-backed WebSocket synchronization service
+crates/neoseq-server/      PostgreSQL-backed WebSocket synchronization service
 apps/client/               React UI, Worker, IndexedDB, and browser tests
-apps/admin/                standalone sync-server administration Web app
+apps/dashboard/            standalone neoseq-server administration Web app
 contracts/                 current source contracts
 fixtures/                  current cross-adapter corpus
 architectures/             component architecture documents

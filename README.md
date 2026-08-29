@@ -16,8 +16,8 @@ devenv up
 This starts the following services:
 
 - `neoseq-client`: the Neoseq client application on port `4173`
-- `neoseq-server`: the Neoseq synchronization server on port `8787`
-- `neoseq-admin-panel`: the Web-based Neoseq account administration panel on port `4174`. By
+- `neoseq-server`: the Neoseq synchronization server
+- `neoseq-dashboard`: the Web-based Neoseq account administration dashboard on port `4174`. By
   default, an `admin` account is created with the password `change-me-later`.
 
 If a port is already in use, devenv automatically selects the next available
@@ -49,15 +49,6 @@ devenv up
 
 # In another development shell, rebuild Wasm after changing Rust code.
 devenv tasks run wasm:build-dev
-```
-
-Build the reproducible production artifacts independently for the static Web
-applications and the Rust synchronization service.
-
-```sh
-devenv build outputs.web          # Rust/Wasm core and static Web client
-devenv build outputs.admin        # Static sync-server Admin Web app
-devenv build outputs.sync-server  # PostgreSQL-backed sync server binary
 ```
 
 Run the portable verification gate directly. The `browser` profile adds pinned

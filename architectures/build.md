@@ -20,13 +20,14 @@ The browser profile adds Playwright and its isolated collaboration processes.
 Database tests use the shared PostgreSQL service but own a temporary database
 per suite.
 
-`outputs.web` and `outputs.sync-server` own the deployable artifacts. They build
-from Git-tracked sources inside the Nix sandbox with dependencies fetched from
-the lockfiles. Fixed-output dependency names include their lockfile digest, so a
-lockfile change cannot reuse a previously validated store path. Devenv does not
-serve those outputs; its processes own the source-based development runtime,
-while tasks own checks and ephemeral database or browser setup. Package scripts
-do not define repository-wide build or verification flow.
+`outputs.neoseq-client`, `outputs.neoseq-server`, and `outputs.neoseq-dashboard`
+own the deployable artifacts. They build from Git-tracked sources inside the Nix
+sandbox with dependencies fetched from the lockfiles. Fixed-output dependency
+names include their lockfile digest, so a lockfile change cannot reuse a
+previously validated store path. Devenv does not serve those outputs; its
+processes own the source-based development runtime, while tasks own checks and
+ephemeral database or browser setup. Package scripts do not define
+repository-wide build or verification flow.
 
 ## Build flow
 
@@ -35,14 +36,17 @@ domain ──> query ──> graph-core ──> platform-web ──> Wasm bindin
    │                      │
    └──────────────────────┴──> platform-native / SQLite verification
 
-sync-protocol ──> sync-server ──> PostgreSQL / WebSocket verification
+sync-protocol ──> neoseq-server ──> PostgreSQL / WebSocket verification
 ```
 
-The `web` output compiles `platform-web`, generates Wasm bindings, checks the
+The `neoseq-client` output compiles `platform-web`, generates Wasm bindings, checks the
 client, and installs the static site as one Nix store artifact. Production Wasm
 uses the `wasm-release` profile with size optimization, LTO, one codegen unit,
 aborting panics, and stripped symbols. Development and browser test builds use
 the regular release profile for a faster loop.
+
+The `neoseq-dashboard` output checks the independent account administration app
+and installs its static site as a separate Nix store artifact.
 
 One generator turns `contracts/` into the Rust and TypeScript sources that must
 agree: the CorePort DTOs and error codes, the graph document-schema version, and
@@ -55,7 +59,7 @@ storage contract page, deterministic time, and injected persistence faults.
 Development and test-mode bindings remain checkout-local ignored artifacts;
 the production artifact exists only as a Nix output.
 
-The `sync-server` output builds the release service binary and installs it as a
+The `neoseq-server` output builds the release service binary and installs it as a
 single Nix store artifact. The current PostgreSQL schema baseline is embedded in
 the binary.
 For local development, the supervised sync server waits for the persistent
@@ -67,7 +71,7 @@ named database.
 
 `devenv test` runs the portable gate:
 
-- fixed-output Cargo and pnpm dependency hashes for both production outputs;
+- fixed-output Cargo and pnpm dependency hashes for all production outputs;
 - repository-wide formatting, strict Clippy, Rust workspace and PostgreSQL
   integration tests, and dependency policy;
 - generated contract and locale drift checks;
@@ -80,9 +84,10 @@ by their package managers. Running
 `treefmt` formats maintained files; the portable gate runs the same formatter
 set in CI mode and rejects drift.
 
-`devenv build outputs.web` and `devenv build outputs.sync-server` realize the
-production artifacts. Keeping artifact construction separate from tasks makes
-it reproducible and cacheable.
+`devenv build outputs.neoseq-client`, `devenv build outputs.neoseq-server`, and
+`devenv build outputs.neoseq-dashboard` realize the production artifacts.
+Keeping artifact construction separate from tasks makes it reproducible and
+cacheable.
 
 `devenv --profile browser test` extends the portable gate with pinned
 Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and
@@ -92,7 +97,7 @@ schedules every browser project against it.
 The gate previews a test-mode artifact built in the same task graph. A direct
 Playwright invocation builds that artifact itself, so neither route may reuse a
 stale checkout-local site.
-The scenario uses a test-only sync-server process with an allocated port and an
+The scenario uses a test-only neoseq-server process with an allocated port and an
 isolated database on the managed PostgreSQL service. The profile adds this task
 to the shared verification graph and keeps the browser runtime out of the
 normal shell. CI runs the extended graph once and uploads checkout-local

@@ -2,8 +2,8 @@
 
 let
   client = "pnpm --filter @neoseq/client exec";
-  syncPort = config.processes.e2e-sync-server.ports.http.value;
-  previewPort = config.processes.e2e-web.ports.http.value;
+  syncPort = config.processes.e2e-neoseq-server.ports.http.value;
+  previewPort = config.processes.e2e-neoseq-client.ports.http.value;
   adminPassword = "browser admin password";
   ownerPassword = "browser owner password";
   peerPassword = "browser peer password";
@@ -16,8 +16,8 @@ in
   };
 
   processes = {
-    e2e-sync-server = {
-      exec = "with-test-database cargo run --quiet --locked -p sync-server";
+    e2e-neoseq-server = {
+      exec = "with-test-database cargo run --quiet --locked -p neoseq-server";
       env = {
         NEOSEQ_BIND = "127.0.0.1:${toString syncPort}";
         NEOSEQ_BOOTSTRAP_ADMIN_USERNAME = "e2e-admin";
@@ -34,11 +34,11 @@ in
       start.enable = config.devenv.isTesting;
     };
 
-    e2e-web = {
+    e2e-neoseq-client = {
       exec = "${client} vite preview --host 127.0.0.1 --port ${toString previewPort}";
       env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString syncPort}";
       ports.http.allocate = 4173;
-      after = [ "web:build-test" ];
+      after = [ "neoseq-client:build-test" ];
       ready.http.get = {
         port = previewPort;
         path = "/";
@@ -50,7 +50,7 @@ in
   };
 
   tasks = {
-    "web:build-test" = {
+    "neoseq-client:build-test" = {
       description = "Build the Web client with browser test routes";
       exec = "${client} vite build --mode test";
       after = [
@@ -73,8 +73,8 @@ in
       '';
       after = [
         "frontend:test"
-        "devenv:processes:e2e-sync-server"
-        "devenv:processes:e2e-web"
+        "devenv:processes:e2e-neoseq-server"
+        "devenv:processes:e2e-neoseq-client"
       ];
     };
 
