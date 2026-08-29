@@ -13,8 +13,14 @@ command:
 devenv up
 ```
 
-This serves the development app at an allocated port starting from
-`http://127.0.0.1:4173`.
+This starts the following services:
+
+- `neoseq-client`: the Neoseq client application on port `4173`
+- `neoseq-server`: the Neoseq synchronization server on port `8787`
+- `neoseq-admin-panel`: the Web-based Neoseq account administration panel on port `4174`
+
+If a port is already in use, devenv automatically selects the next available
+port.
 
 ## Development
 
@@ -72,40 +78,6 @@ index construction and refreshes, and representative shapes over 100,
 # Run both benchmark suites.
 cargo bench -p neoseq-benchmarks
 ```
-
-## Sync server
-
-`devenv up` starts PostgreSQL and bootstraps the local development administrator
-as `admin` with password `change-me-later`. It then serves the Admin Web app at
-`http://127.0.0.1:4174` and the Neoseq client at `http://127.0.0.1:4173`.
-Further accounts are created and managed in the Admin Web app; users sign in to
-the client with their username and password.
-
-```sh
-devenv up
-```
-
-Production deployments should provide the password through a mounted secret
-file instead:
-
-```sh
-set -x NEOSEQ_BOOTSTRAP_ADMIN_USERNAME admin
-set -x NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD_FILE /run/secrets/neoseq-admin-password
-sync-server
-```
-
-The bootstrap configuration is required until an active server administrator
-exists. Later starts ignore it and never reset an existing password. Configure
-exactly one of `NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD` and
-`NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD_FILE`; a single trailing line ending in a
-password file is not part of the password. Incomplete or ambiguous bootstrap
-configuration, or an empty identity store without bootstrap configuration,
-stops the server before it listens. Routine account and graph administration
-uses the authenticated Web interfaces; the service binary has no administrative
-or test-authentication commands.
-Deploy `outputs.admin` on a private TLS-protected origin and route that origin's
-`/v1` requests to the sync server; the browser never needs direct database
-access.
 
 ## License
 
