@@ -1,0 +1,45 @@
+/* Tailwind v4 + shadcn entry.
+   `app.css` owns every design token and every bespoke class; this file only maps
+   those tokens onto shadcn's semantic variable names so the Radix primitives
+   inherit the Neoseq look. It declares no values of its own — a token name that
+   means two different things depending on which file you read is worse than no
+   token at all.
+
+   The layer order is explicit and `app.css` is imported INTO a layer, so a
+   Tailwind utility can still override a bespoke class. Imported unlayered it
+   would outrank every utility unconditionally, and the primitives would have to
+   fight their own classes with inline styles. */
+
+@layer theme, base, neoseq, components, utilities;
+
+@import "pretendard/dist/web/variable/pretendardvariable.css";
+@import "tailwindcss";
+@import "./app.css" layer(neoseq);
+
+@theme inline {
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-popover: var(--overlay);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--on-accent);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--ink-2);
+  /* shadcn's "accent" is its hover/highlight wash, not an action colour. */
+  --color-accent: var(--surface-2);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--on-accent);
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--ink-3);
+
+  --radius-sm: var(--r-1);
+  --radius-md: var(--r-2);
+  --radius-lg: var(--r-3);
+  --radius-xl: var(--r-4);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-weight-medium: var(--weight-medium);
+}

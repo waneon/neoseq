@@ -19,6 +19,7 @@ let
     ../../pnpm-workspace.yaml
     ../../apps/admin/index.html
     ../../apps/admin/package.json
+    ../../apps/admin/public
     ../../apps/admin/src
     ../../apps/admin/tsconfig.json
     ../../apps/admin/vite.config.ts
@@ -38,7 +39,7 @@ stdenv.mkDerivation {
     inherit version src pnpm;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
-    hash = "sha256-owXvAUJruCirb01fa+MmDBRb+3JMnuWtiNF+7nBcZLg=";
+    hash = "sha256-G+YdxD9GKFUv9SaSwtW+AcW9KPwR2LUirhumF2EFXsA=";
   };
 
   nativeBuildInputs = [

@@ -1,13 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { App } from "../src/App";
-import {
-  LocaleProvider,
-  createLocaleRuntime,
-  resolveLocale,
-  storedLocalePreference,
-} from "../src/i18n";
+import { App } from "@/app/App";
+import { LocaleProvider, createLocaleRuntime, resolveLocale, storedLocalePreference } from "@/i18n";
 
 describe("admin internationalization", () => {
   beforeEach(() => localStorage.clear());
@@ -37,7 +32,9 @@ describe("admin internationalization", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Administrator sign in" })).toBeVisible();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Language" }), "ko");
+
+    await user.click(screen.getByRole("combobox", { name: "Language" }));
+    await user.click(await screen.findByRole("option", { name: "한국어" }));
 
     expect(screen.getByRole("heading", { name: "관리자 로그인" })).toBeVisible();
     expect(document.documentElement).toHaveAttribute("lang", "ko");

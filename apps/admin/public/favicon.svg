@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Neoseq">
+  <!-- A filled tile rather than a bare stroke: at 16px in a browser tab the mark
+       has to hold its own against both a light and a dark tab strip, and one
+       ink-indigo tile does that in either without a media query. -->
+  <rect width="32" height="32" rx="8" fill="#3d5abd" />
+  <path
+    d="M10.5 23.5V9.5l11 14v-14"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

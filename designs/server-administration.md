@@ -6,8 +6,10 @@ The Admin Web app is the private operational surface for one sync server. It
 manages who may authenticate and which sessions remain valid. It does not read
 notes, edit graphs, or confer graph ownership.
 
-The app is built and deployed independently from the Neoseq writing client. It
-shares the product's restraint, semantic status, keyboard reachability, and
+The app is built and deployed independently from the Neoseq writing client, and
+implements the shared visual foundation itself rather than importing the
+client's. It shares the product's restraint, its semantic colour, type, depth and
+motion roles across light and dark modes, its keyboard reachability, and its
 plain-language feedback, but its subject is an account directory rather than a
 document.
 
@@ -23,10 +25,16 @@ document.
   or revoking sessions states its consequence before committing.
 - Passwords are write-only. A reset replaces the verifier, is never displayed
   afterward, and ends existing sessions.
-- The last active administrator cannot be disabled or demoted.
+- The last active administrator cannot be disabled or demoted. The directory
+  withholds those two verbs from that account and says why, rather than offering
+  them and then refusing; the server remains the authority.
 - An Admin session is short and memory-only. Reloading or closing the app returns
   the operator to login rather than persisting administrative authority in Web
   storage.
+- Appearance mode and language are browser-local presentation preferences. They
+  are reachable before authentication, because an operator who cannot read the
+  login form must not have to sign in to fix that, and they never reach the
+  server.
 
 ## Information and Interaction
 
@@ -42,6 +50,11 @@ refresh from the server after commit rather than maintaining a durable optimisti
 copy.
 
 Healthy state is quiet. Authentication, validation, concurrency protection, and
-last-administrator failures are reported in the surface that initiated them.
+last-administrator failures are reported in the surface that initiated them: the
+login form, the creation panel, the row that committed a change, or the
+confirmation that asked the question. A conflict is named by the surface that
+raised it, because the same status carries different meanings to a creation and
+to an amendment.
+
 Desktop density may collapse into wrapped actions on narrow screens, but account
 identity, state, and every verb remain available without hover.
