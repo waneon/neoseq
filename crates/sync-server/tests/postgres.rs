@@ -16,7 +16,7 @@ use tokio_tungstenite::{
 };
 
 #[tokio::test]
-#[ignore = "requires PostgreSQL; run with devenv tasks run sync-server:test"]
+#[ignore = "requires PostgreSQL; run with devenv tasks run sync-server:postgres-test"]
 async fn postgres_migration_idempotency_authz_backup_and_restore() {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be provided by the PostgreSQL integration test fixture");

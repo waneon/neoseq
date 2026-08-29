@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
-const syncOrigin = process.env.NEOSEQ_SYNC_ORIGIN ?? "http://127.0.0.1:8788";
+const syncOrigin = process.env.NEOSEQ_SYNC_ORIGIN ?? "http://127.0.0.1:8787";
 
 // Generates the application-shell Service Worker with the built asset list
 // precached, so an offline reload can boot the full shell (including the
@@ -93,7 +93,7 @@ export default defineConfig(({ mode }) => ({
   clearScreen: false,
   server: {
     host: "127.0.0.1",
-    port: 4174,
+    port: 4173,
     strictPort: true,
     proxy: {
       "/v1": {

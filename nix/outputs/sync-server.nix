@@ -9,19 +9,19 @@
 
 let
   pname = "neoseq-sync-server";
-  manifest = builtins.fromTOML (builtins.readFile ../Cargo.toml);
+  manifest = builtins.fromTOML (builtins.readFile ../../Cargo.toml);
   version = manifest.workspace.package.version;
-  cargoLockDigest = builtins.hashFile "sha256" ../Cargo.lock;
+  cargoLockDigest = builtins.hashFile "sha256" ../../Cargo.lock;
   applicationFiles = lib.fileset.unions [
-    ../Cargo.lock
-    ../Cargo.toml
-    ../contracts
-    ../crates
-    ../fixtures
+    ../../Cargo.lock
+    ../../Cargo.toml
+    ../../contracts
+    ../../crates
+    ../../fixtures
   ];
   src = mkSource {
     name = "${pname}-source";
-    root = ../.;
+    root = ../../.;
     fileset = applicationFiles;
   };
 in

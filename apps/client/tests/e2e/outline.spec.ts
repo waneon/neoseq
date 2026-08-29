@@ -90,14 +90,18 @@ test("splits a block at the caret and merges an empty block backward", async ({ 
   await textarea.evaluate((element) => {
     (element as HTMLTextAreaElement).setSelectionRange(4, 4);
   });
-  await page.keyboard.press("Enter");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Enter"));
   await expect.poll(() => blockTexts(page)).toEqual(["head", "tail"]);
 
   // Backspace at the empty block's leading boundary merges it backward.
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.keyboard.press("Backspace");
+  const tail = page.locator('[data-testid="outline-row"] textarea').nth(1);
+  await expect(tail).toBeFocused();
+  await mutateAndAwaitSaved(page, async () => {
+    await tail.selectText();
+    await tail.press("Backspace");
+  });
   await expect.poll(() => blockTexts(page)).toEqual(["head", ""]);
-  await page.keyboard.press("Backspace");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Backspace"));
   await expect.poll(() => blockTexts(page)).toEqual(["head"]);
   await expect(page.locator('[data-testid="outline-row"] textarea').first()).toBeFocused();
 });

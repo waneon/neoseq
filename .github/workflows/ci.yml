@@ -29,10 +29,7 @@ jobs:
           devenv_installable="$(jq -r '.nodes.nixpkgs.locked | "github:\(.owner)/\(.repo)/\(.rev)#devenv"' devenv.lock)"
           nix profile add "$devenv_installable"
 
-      - name: Run portable verification
-        run: devenv test
-
-      - name: Run browser verification
+      - name: Run verification
         run: devenv --profile browser test
 
       - name: Upload playwright failure artifacts

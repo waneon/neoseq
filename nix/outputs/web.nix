@@ -13,38 +13,38 @@
 
 let
   pname = "neoseq-web";
-  version = (builtins.fromJSON (builtins.readFile ../apps/client/package.json)).version;
-  cargoLockDigest = builtins.hashFile "sha256" ../Cargo.lock;
-  pnpmLockDigest = builtins.hashFile "sha256" ../pnpm-lock.yaml;
+  version = (builtins.fromJSON (builtins.readFile ../../apps/client/package.json)).version;
+  cargoLockDigest = builtins.hashFile "sha256" ../../Cargo.lock;
+  pnpmLockDigest = builtins.hashFile "sha256" ../../pnpm-lock.yaml;
   applicationFiles = lib.fileset.unions [
-    ../Cargo.lock
-    ../Cargo.toml
-    ../contracts
-    ../crates
-    ../fixtures
-    ../package.json
-    ../patches
-    ../pnpm-lock.yaml
-    ../pnpm-workspace.yaml
-    ../apps/client/index.html
-    ../apps/client/package.json
-    ../apps/client/playwright.config.ts
-    ../apps/client/public
-    ../apps/client/src
-    ../apps/client/sw-template.js
-    ../apps/client/tsconfig.app.json
-    ../apps/client/tsconfig.json
-    ../apps/client/tsconfig.node.json
-    ../apps/client/vite.config.ts
-    ../apps/client/vitest.config.ts
-    ../scripts/generate-contracts.mjs
-    ../scripts/generate-i18n.mjs
+    ../../Cargo.lock
+    ../../Cargo.toml
+    ../../contracts
+    ../../crates
+    ../../fixtures
+    ../../package.json
+    ../../patches
+    ../../pnpm-lock.yaml
+    ../../pnpm-workspace.yaml
+    ../../apps/client/index.html
+    ../../apps/client/package.json
+    ../../apps/client/playwright.config.ts
+    ../../apps/client/public
+    ../../apps/client/src
+    ../../apps/client/sw-template.js
+    ../../apps/client/tsconfig.app.json
+    ../../apps/client/tsconfig.json
+    ../../apps/client/tsconfig.node.json
+    ../../apps/client/vite.config.ts
+    ../../apps/client/vitest.config.ts
+    ../../scripts/generate-contracts.mjs
+    ../../scripts/generate-i18n.mjs
   ];
   src = mkSource {
     name = "${pname}-source";
-    root = ../.;
+    root = ../../.;
     fileset = lib.fileset.difference applicationFiles (
-      lib.fileset.maybeMissing ../apps/client/src/wasm
+      lib.fileset.maybeMissing ../../apps/client/src/wasm
     );
   };
 in

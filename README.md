@@ -10,10 +10,11 @@ can start the Web client, PostgreSQL, and synchronization server with a single
 command:
 
 ```sh
-devenv --profile release-serve up
+devenv up
 ```
 
-This serves the Neoseq app at `http://127.0.0.1:4173`.
+This serves the development app at an allocated port starting from
+`http://127.0.0.1:4173`.
 
 ## Development
 
@@ -25,7 +26,7 @@ devenv shell
 ```
 
 Start the development Web client with Hot Module Replacement (HMR), then open
-`http://127.0.0.1:4174`. Frontend changes are applied automatically. After
+`http://127.0.0.1:4173`. Frontend changes are applied automatically. After
 changing Rust code, rebuild the development Wasm bindings to trigger HMR.
 
 ```sh
@@ -44,13 +45,13 @@ devenv build outputs.web          # Rust/Wasm core and static Web client
 devenv build outputs.sync-server  # PostgreSQL-backed sync server binary
 ```
 
-Run the portable verification gate independently from the browser suite. The
-`browser` profile supplies pinned Chromium and the isolated collaboration
-service, then builds and runs only the browser prerequisites.
+Run the portable verification gate directly. The `browser` profile adds pinned
+Chromium and the isolated collaboration service, extending the same gate with
+browser-backed tests.
 
 ```sh
 devenv test                    # portable verification gate
-devenv --profile browser test  # browser-backed tests only
+devenv --profile browser test  # portable gate plus browser-backed tests
 ```
 
 ## Performance benchmarks

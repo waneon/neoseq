@@ -11,23 +11,20 @@ provenance enter only in the stages that implement them.
 The devenv configuration is composed around three developer-facing concerns:
 
 - a shared Rust, Node, pnpm, PostgreSQL, and artifact foundation;
-- one supervised runtime with development and release modes;
+- one supervised development runtime; and
 - one verification graph, extended by the optional browser profile.
 
-The release mode serves the reproducible Web and sync-server outputs, while the
-browser profile adds Playwright and its isolated collaboration process. Database
-tests use the shared PostgreSQL service but own a temporary database per suite.
+The browser profile adds Playwright and its isolated collaboration processes.
+Database tests use the shared PostgreSQL service but own a temporary database
+per suite.
 
 `outputs.web` and `outputs.sync-server` own the deployable artifacts. They build
 from Git-tracked sources inside the Nix sandbox with dependencies fetched from
 the lockfiles. Fixed-output dependency names include their lockfile digest, so a
-lockfile change cannot reuse a previously validated store path. The
-`release-serve` profile runs those artifacts behind one Web origin with a
-profile-local managed PostgreSQL instance. Its process ports and persistent
-state are isolated from the base development runtime, so both environments can
-run concurrently. Base processes and services own the development runtime;
-tasks own checks and ephemeral database or browser setup. Package scripts do
-not define repository-wide build or verification flow.
+lockfile change cannot reuse a previously validated store path. Devenv does not
+serve those outputs; its processes own the source-based development runtime,
+while tasks own checks and ephemeral database or browser setup. Package scripts
+do not define repository-wide build or verification flow.
 
 ## Build flow
 
@@ -77,20 +74,19 @@ named database.
 production artifacts. Keeping artifact construction separate from tasks makes
 it reproducible and cacheable.
 
-`devenv --profile browser test` runs the browser gate independently: pinned
+`devenv --profile browser test` extends the portable gate with pinned
 Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and
-dark-mode coverage, and a real two-profile collaboration scenario. One
-Playwright run owns the preview server on a port allocated by the browser
-profile, overridable with `NEOSEQ_PREVIEW_PORT`, and schedules every browser
-project.
+dark-mode coverage, and a real two-profile collaboration scenario. One managed
+preview process owns the profile-allocated Web port, and one Playwright run
+schedules every browser project against it.
 The gate previews a test-mode artifact built in the same task graph. A direct
 Playwright invocation builds that artifact itself, so neither route may reuse a
 stale checkout-local site.
 The scenario uses a test-only sync-server process with an allocated port and an
-isolated database on the managed PostgreSQL service. The profile selects this
-gate and keeps the browser runtime out of the normal shell. CI runs the portable
-and browser gates explicitly and uploads checkout-local Playwright failure
-artifacts.
+isolated database on the managed PostgreSQL service. The profile adds this task
+to the shared verification graph and keeps the browser runtime out of the
+normal shell. CI runs the extended graph once and uploads checkout-local
+Playwright failure artifacts.
 
 ## Asynchronous verification
 
@@ -132,9 +128,11 @@ Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored migration, authorization, idempotency, fault, and
 restore integration test against its own database.
-Portable checks run in the task-backed test phase. Browser build prerequisites
-finish before devenv starts the managed collaboration process; Playwright runs
-after process readiness, so each dependency starts only once.
+Portable checks attach directly to the test entry point. The browser profile
+adds its browser task to that same entry point. Browser build prerequisites and
+component tests finish before Playwright runs; the managed preview and
+collaboration processes both reach readiness first, so browser load cannot
+starve component tests.
 
 The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab
