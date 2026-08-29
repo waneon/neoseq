@@ -69,6 +69,7 @@ in
           "*.yml"
         ];
         excludes = [
+          "apps/admin/src/i18n/generated/**"
           "apps/client/src/generated/**"
           "apps/client/src/i18n/generated/**"
           "pnpm-lock.yaml"
@@ -236,7 +237,10 @@ in
     };
     "frontend:test" = {
       description = "Run component tests";
-      exec = "${client} vitest run";
+      exec = ''
+        ${client} vitest run
+        ${admin} vitest run
+      '';
       after = [
         "contracts:check"
         "i18n:check"

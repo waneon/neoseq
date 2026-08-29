@@ -95,6 +95,13 @@ h2 {
   box-shadow: 0 24px 80px rgb(35 39 34 / 8%);
 }
 
+.login-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
 .login-copy {
   margin: 54px 0 30px;
 }
@@ -117,6 +124,21 @@ h2 {
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.025em;
+}
+
+.language-control {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.language-control select {
+  width: auto;
+  max-width: 170px;
+  height: 34px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .brand-mark {
@@ -185,7 +207,7 @@ h2 {
 }
 
 .notice {
-  border-left: 3px solid var(--danger);
+  border-inline-start: 3px solid var(--danger);
   background: #fff2ef;
   color: #7d3028;
   margin-bottom: 22px;
@@ -212,7 +234,7 @@ h2 {
 
 .admin-session > span {
   display: grid;
-  text-align: right;
+  text-align: end;
 }
 
 .admin-session strong {
@@ -250,8 +272,8 @@ h2 {
 
 .summary > div {
   min-width: 86px;
-  border-left: 1px solid var(--line);
-  padding-left: 17px;
+  border-inline-start: 1px solid var(--line);
+  padding-inline-start: 17px;
 }
 
 .summary dt {
@@ -457,7 +479,7 @@ h2 {
   .row-actions {
     grid-column: 1 / -1;
     flex-wrap: wrap;
-    padding-left: 49px;
+    padding-inline-start: 49px;
   }
 }
 
@@ -481,8 +503,8 @@ h2 {
   }
 
   .summary > div:first-child {
-    border-left: 0;
-    padding-left: 0;
+    border-inline-start: 0;
+    padding-inline-start: 0;
   }
 
   .create-form {
@@ -494,11 +516,11 @@ h2 {
   }
 
   .badges {
-    padding-left: 49px;
+    padding-inline-start: 49px;
   }
 
   .row-actions {
-    padding-left: 0;
+    padding-inline-start: 0;
   }
 
   .search-field {

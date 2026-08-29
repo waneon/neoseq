@@ -1,0 +1,12 @@
+[
+  {
+    "tag": "en",
+    "direction": "ltr",
+    "labelKey": "language.english"
+  },
+  {
+    "tag": "ko",
+    "direction": "ltr",
+    "labelKey": "language.korean"
+  }
+]

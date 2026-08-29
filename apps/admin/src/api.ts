@@ -34,7 +34,7 @@ async function request<T>(path: string, token?: string, init?: RequestInit): Pro
   });
   if (!response.ok) {
     const message = (await response.text()).trim();
-    throw new ApiError(response.status, message || `요청에 실패했습니다 (${response.status})`);
+    throw new ApiError(response.status, message || `request failed (${response.status})`);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

@@ -757,4 +757,3 @@ export type MessageFunction = <K extends MessageKey>(
     ? []
     : [values: MessageArgumentMap[K]]
 ) => string;
-

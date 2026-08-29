@@ -2,74 +2,32 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parse, TYPE } from "@formatjs/icu-messageformat-parser";
 
-const args = process.argv.slice(2);
-if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
-  throw new Error("usage: generate-i18n.mjs [--check]");
-}
-const check = args[0] === "--check";
-
 const root = resolve(import.meta.dirname, "..");
-const localeDir = resolve(root, "apps/client/src/i18n/locales");
-const output = resolve(root, "apps/client/src/i18n/generated/messages.ts");
-const localeDefinitions = JSON.parse(await readFile(resolve(localeDir, "manifest.json"), "utf8"));
+const targets = {
+  client: {
+    localeDir: resolve(root, "apps/client/src/i18n/locales"),
+    output: resolve(root, "apps/client/src/i18n/generated/messages.ts"),
+    temporalDir: resolve(root, "apps/client/src/i18n/temporal/languages"),
+  },
+  admin: {
+    localeDir: resolve(root, "apps/admin/src/i18n/locales"),
+    output: resolve(root, "apps/admin/src/i18n/generated/messages.ts"),
+  },
+};
 
-if (!Array.isArray(localeDefinitions) || localeDefinitions.length === 0) {
-  throw new Error("locale manifest must contain at least one locale");
+const args = process.argv.slice(2);
+const check = args.includes("--check");
+const requestedTargets = args.filter((arg) => arg !== "--check");
+if (
+  args.length !== requestedTargets.length + Number(check) ||
+  requestedTargets.length > 1 ||
+  (requestedTargets[0] && !(requestedTargets[0] in targets))
+) {
+  throw new Error("usage: generate-i18n.mjs [--check] [client|admin]");
 }
-const localeFiles = localeDefinitions.map(({ tag }) => tag);
-if (localeFiles[0] !== "en" || new Set(localeFiles).size !== localeFiles.length) {
-  throw new Error("locale manifest must start with en and contain unique tags");
-}
-for (const definition of localeDefinitions) {
-  let canonicalTag = null;
-  try {
-    canonicalTag = Intl.getCanonicalLocales(definition.tag)[0] ?? null;
-  } catch {
-    // The common validation error below includes the complete manifest entry.
-  }
-  if (
-    typeof definition.tag !== "string" ||
-    canonicalTag !== definition.tag ||
-    !["ltr", "rtl"].includes(definition.direction) ||
-    typeof definition.labelKey !== "string" ||
-    typeof definition.temporal !== "string" ||
-    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(definition.temporal)
-  ) {
-    throw new Error(`invalid locale definition: ${JSON.stringify(definition)}`);
-  }
-  await readFile(
-    resolve(root, `apps/client/src/i18n/temporal/languages/${definition.temporal}.ts`),
-    "utf8",
-  ).catch(() => {
-    throw new Error(`${definition.tag} temporal pack is missing: ${definition.temporal}`);
-  });
-}
-
-const catalogs = Object.fromEntries(
-  await Promise.all(
-    localeFiles.map(async (locale) => [
-      locale,
-      JSON.parse(await readFile(resolve(localeDir, `${locale}.json`), "utf8")),
-    ]),
-  ),
-);
-
-const baseKeys = Object.keys(catalogs.en).sort();
-for (const definition of localeDefinitions) {
-  if (!baseKeys.includes(definition.labelKey)) {
-    throw new Error(`${definition.tag} label key is missing: ${definition.labelKey}`);
-  }
-}
-for (const locale of localeFiles) {
-  const keys = Object.keys(catalogs[locale]).sort();
-  const missing = baseKeys.filter((key) => !keys.includes(key));
-  const extra = keys.filter((key) => !baseKeys.includes(key));
-  if (missing.length || extra.length) {
-    throw new Error(
-      `${locale} catalog mismatch\nmissing: ${missing.join(", ")}\nextra: ${extra.join(", ")}`,
-    );
-  }
-}
+const selectedTargets = requestedTargets[0]
+  ? [[requestedTargets[0], targets[requestedTargets[0]]]]
+  : Object.entries(targets);
 
 function mergeType(previous, next) {
   if (!previous || previous === next) return next;
@@ -111,67 +69,154 @@ function collectArguments(elements, argumentsByName) {
   }
 }
 
-const argumentMaps = new Map();
-for (const key of baseKeys) {
-  const baseArguments = new Map();
+async function generateTarget(name, target) {
+  const localeDefinitions = JSON.parse(
+    await readFile(resolve(target.localeDir, "manifest.json"), "utf8"),
+  );
+  if (!Array.isArray(localeDefinitions) || localeDefinitions.length === 0) {
+    throw new Error(`${name} locale manifest must contain at least one locale`);
+  }
+
+  const localeFiles = localeDefinitions.map(({ tag }) => tag);
+  if (localeFiles[0] !== "en" || new Set(localeFiles).size !== localeFiles.length) {
+    throw new Error(`${name} locale manifest must start with en and contain unique tags`);
+  }
+  for (const definition of localeDefinitions) {
+    let canonicalTag = null;
+    try {
+      canonicalTag = Intl.getCanonicalLocales(definition.tag)[0] ?? null;
+    } catch {
+      // The common validation error below includes the complete manifest entry.
+    }
+    const invalidTemporal = target.temporalDir
+      ? typeof definition.temporal !== "string" ||
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(definition.temporal)
+      : "temporal" in definition;
+    if (
+      typeof definition.tag !== "string" ||
+      canonicalTag !== definition.tag ||
+      !["ltr", "rtl"].includes(definition.direction) ||
+      typeof definition.labelKey !== "string" ||
+      invalidTemporal
+    ) {
+      throw new Error(`invalid ${name} locale definition: ${JSON.stringify(definition)}`);
+    }
+    if (target.temporalDir) {
+      await readFile(resolve(target.temporalDir, `${definition.temporal}.ts`), "utf8").catch(() => {
+        throw new Error(`${definition.tag} temporal pack is missing: ${definition.temporal}`);
+      });
+    }
+  }
+
+  const catalogs = Object.fromEntries(
+    await Promise.all(
+      localeFiles.map(async (locale) => [
+        locale,
+        JSON.parse(await readFile(resolve(target.localeDir, `${locale}.json`), "utf8")),
+      ]),
+    ),
+  );
+  const baseKeys = Object.keys(catalogs.en).sort();
+  for (const definition of localeDefinitions) {
+    if (!baseKeys.includes(definition.labelKey)) {
+      throw new Error(`${name}:${definition.tag} label key is missing: ${definition.labelKey}`);
+    }
+  }
   for (const locale of localeFiles) {
-    const argumentsForLocale = new Map();
-    collectArguments(parse(catalogs[locale][key]), argumentsForLocale);
-    if (locale === "en") {
-      for (const entry of argumentsForLocale) baseArguments.set(...entry);
+    const keys = Object.keys(catalogs[locale]).sort();
+    const missing = baseKeys.filter((key) => !keys.includes(key));
+    const extra = keys.filter((key) => !baseKeys.includes(key));
+    if (missing.length || extra.length) {
+      throw new Error(
+        `${name}:${locale} catalog mismatch\nmissing: ${missing.join(", ")}\nextra: ${extra.join(", ")}`,
+      );
+    }
+  }
+
+  const argumentMaps = new Map();
+  for (const key of baseKeys) {
+    const baseArguments = new Map();
+    for (const locale of localeFiles) {
+      const argumentsForLocale = new Map();
+      collectArguments(parse(catalogs[locale][key]), argumentsForLocale);
+      if (locale === "en") {
+        for (const entry of argumentsForLocale) baseArguments.set(...entry);
+        continue;
+      }
+      const baseShape = JSON.stringify([...baseArguments.entries()].sort());
+      const localeShape = JSON.stringify([...argumentsForLocale.entries()].sort());
+      if (baseShape !== localeShape) {
+        throw new Error(`${name}:${locale}:${key} arguments differ from en`);
+      }
+    }
+    argumentMaps.set(key, baseArguments);
+  }
+
+  const lines = [
+    "// Generated by scripts/generate-i18n.mjs. Do not edit by hand.",
+    "",
+    `export const LOCALE_DEFINITIONS = ${JSON.stringify(localeDefinitions, null, 2)} as const;`,
+    'export type SupportedLocale = (typeof LOCALE_DEFINITIONS)[number]["tag"];',
+    'export type TextDirection = (typeof LOCALE_DEFINITIONS)[number]["direction"];',
+    "export const SUPPORTED_LOCALES = LOCALE_DEFINITIONS.map(({ tag }) => tag);",
+    "",
+    "export interface MessageArgumentMap {",
+  ];
+  for (const key of baseKeys) {
+    const messageArguments = argumentMaps.get(key);
+    if (messageArguments.size === 0) {
+      lines.push(`  ${JSON.stringify(key)}: undefined;`);
       continue;
     }
-    const baseShape = JSON.stringify([...baseArguments.entries()].sort());
-    const localeShape = JSON.stringify([...argumentsForLocale.entries()].sort());
-    if (baseShape !== localeShape) {
-      throw new Error(`${locale}:${key} arguments differ from en`);
+    const fields = [...messageArguments.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([argumentName, type]) => `readonly ${JSON.stringify(argumentName)}: ${type}`)
+      .join("; ");
+    lines.push(`  ${JSON.stringify(key)}: { ${fields} };`);
+  }
+  lines.push(
+    "}",
+    "",
+    "export type MessageKey = keyof MessageArgumentMap;",
+    "export type MessageFunction = <K extends MessageKey>(",
+    "  key: K,",
+    "  ...args: MessageArgumentMap[K] extends undefined",
+    "    ? []",
+    "    : [values: MessageArgumentMap[K]]",
+    ") => string;",
+  );
+
+  const generated = `${lines.join("\n")}\n`;
+  const current = await readFile(target.output, "utf8").catch(() => "");
+  return { name, target, generated, stale: current !== generated, localeDefinitions };
+}
+
+const results = [];
+for (const [name, target] of selectedTargets) results.push(await generateTarget(name, target));
+
+if (results.length > 1) {
+  const localeShape = (definitions) =>
+    definitions.map(({ tag, direction }) => ({ tag, direction }));
+  const [base, ...rest] = results;
+  for (const result of rest) {
+    if (
+      JSON.stringify(localeShape(base.localeDefinitions)) !==
+      JSON.stringify(localeShape(result.localeDefinitions))
+    ) {
+      throw new Error(`${result.name} supported locales differ from ${base.name}`);
     }
   }
-  argumentMaps.set(key, baseArguments);
 }
 
-const lines = [
-  "// Generated by scripts/generate-i18n.mjs. Do not edit by hand.",
-  "",
-  `export const LOCALE_DEFINITIONS = ${JSON.stringify(localeDefinitions, null, 2)} as const;`,
-  'export type SupportedLocale = (typeof LOCALE_DEFINITIONS)[number]["tag"];',
-  'export type TextDirection = (typeof LOCALE_DEFINITIONS)[number]["direction"];',
-  "export const SUPPORTED_LOCALES = LOCALE_DEFINITIONS.map(({ tag }) => tag);",
-  "",
-  "export interface MessageArgumentMap {",
-];
-for (const key of baseKeys) {
-  const args = argumentMaps.get(key);
-  if (args.size === 0) {
-    lines.push(`  ${JSON.stringify(key)}: undefined;`);
-    continue;
+const stale = results.filter((result) => result.stale);
+if (check && stale.length > 0) {
+  throw new Error(
+    `generated i18n types are stale for ${stale.map(({ name }) => name).join(", ")}; run devenv tasks run i18n:generate`,
+  );
+}
+if (!check) {
+  for (const result of stale) {
+    await mkdir(resolve(result.target.output, ".."), { recursive: true });
+    await writeFile(result.target.output, result.generated);
   }
-  const fields = [...args.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, type]) => `readonly ${JSON.stringify(name)}: ${type}`)
-    .join("; ");
-  lines.push(`  ${JSON.stringify(key)}: { ${fields} };`);
-}
-lines.push(
-  "}",
-  "",
-  "export type MessageKey = keyof MessageArgumentMap;",
-  "export type MessageFunction = <K extends MessageKey>(",
-  "  key: K,",
-  "  ...args: MessageArgumentMap[K] extends undefined",
-  "    ? []",
-  "    : [values: MessageArgumentMap[K]]",
-  ") => string;",
-  "",
-);
-
-const generated = `${lines.join("\n")}\n`;
-const current = await readFile(output, "utf8").catch(() => "");
-const stale = current !== generated;
-if (check && stale) {
-  throw new Error("generated i18n types are stale; run devenv tasks run i18n:generate");
-}
-if (!check && stale) {
-  await mkdir(resolve(output, ".."), { recursive: true });
-  await writeFile(output, generated);
 }

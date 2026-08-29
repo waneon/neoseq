@@ -22,6 +22,7 @@ let
     ../../apps/admin/src
     ../../apps/admin/tsconfig.json
     ../../apps/admin/vite.config.ts
+    ../../scripts/generate-i18n.mjs
   ];
   src = mkSource {
     name = "${pname}-source";
@@ -37,7 +38,7 @@ stdenv.mkDerivation {
     inherit version src pnpm;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
-    hash = "sha256-uIOyGzwRfe3eIHGgAEV34MEKbcH4SAbC9K3t+GfJQE4=";
+    hash = "sha256-owXvAUJruCirb01fa+MmDBRb+3JMnuWtiNF+7nBcZLg=";
   };
 
   nativeBuildInputs = [
@@ -49,6 +50,7 @@ stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
 
+    node scripts/generate-i18n.mjs --check admin
     pnpm --filter @neoseq/admin exec tsc -p tsconfig.json --pretty false
     pnpm --filter @neoseq/admin exec vite build
 

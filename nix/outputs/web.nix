@@ -77,7 +77,7 @@ stdenv.mkDerivation {
     runHook preBuild
 
     node scripts/generate-contracts.mjs --check
-    node scripts/generate-i18n.mjs --check
+    node scripts/generate-i18n.mjs --check client
     cargo build --offline --frozen --profile wasm-release --target wasm32-unknown-unknown -p platform-web
     wasm-bindgen \
       --target web \

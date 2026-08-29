@@ -11,6 +11,9 @@ import {
   type Account,
   type ServerRole,
 } from "./api";
+import { LOCALE_DEFINITIONS, useI18n, type LocalePreference, type MessageFunction } from "./i18n";
+
+type AdminErrorKey = "error.conflict" | "error.generic" | "error.invalidInput";
 
 interface Session {
   token: string;
@@ -27,20 +30,21 @@ export function App() {
 }
 
 function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
+  const { message } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [invalidCredentials, setInvalidCredentials] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError("");
+    setInvalidCredentials(false);
     try {
       const result = await login(username, password);
       onSignedIn({ token: result.access_token, username: result.account.username });
     } catch {
-      setError("관리자 ID 또는 비밀번호를 확인해 주세요.");
+      setInvalidCredentials(true);
     } finally {
       setBusy(false);
     }
@@ -49,15 +53,18 @@ function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
   return (
     <main className="login-shell">
       <section className="login-card" aria-labelledby="login-title">
-        <Brand />
-        <div className="login-copy">
-          <p className="eyebrow">Sync server</p>
-          <h1 id="login-title">관리자 로그인</h1>
-          <p>사용자 계정과 접속 세션을 관리합니다.</p>
+        <div className="login-card-header">
+          <Brand />
+          <LanguageControl />
         </div>
-        {error && <Notice>{error}</Notice>}
+        <div className="login-copy">
+          <p className="eyebrow">{message("login.eyebrow")}</p>
+          <h1 id="login-title">{message("login.title")}</h1>
+          <p>{message("login.description")}</p>
+        </div>
+        {invalidCredentials && <Notice>{message("login.error")}</Notice>}
         <form onSubmit={submit} className="stack">
-          <Field label="사용자 ID" htmlFor="username">
+          <Field label={message("login.username")} htmlFor="username">
             <input
               id="username"
               autoComplete="username"
@@ -66,7 +73,7 @@ function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
               onChange={(event) => setUsername(event.target.value)}
             />
           </Field>
-          <Field label="비밀번호" htmlFor="password">
+          <Field label={message("login.password")} htmlFor="password">
             <input
               id="password"
               type="password"
@@ -76,7 +83,7 @@ function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
             />
           </Field>
           <button className="primary" disabled={busy || !username.trim() || !password}>
-            {busy ? "확인하는 중…" : "로그인"}
+            {busy ? message("login.checking") : message("login.action")}
           </button>
         </form>
       </section>
@@ -85,10 +92,11 @@ function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
 }
 
 function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: () => void }) {
+  const { formatNumber, locale, message } = useI18n();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<AdminErrorKey | null>(null);
   const [resetTarget, setResetTarget] = useState<Account | null>(null);
   const resetTrigger = useRef<HTMLButtonElement | null>(null);
 
@@ -97,7 +105,7 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
       if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
         onSignedOut();
       } else {
-        setError(messageFor(cause));
+        setError(messageKeyFor(cause));
       }
     },
     [onSignedOut],
@@ -106,7 +114,7 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
   const refresh = useCallback(async () => {
     try {
       setAccounts(await listAccounts(session.token));
-      setError("");
+      setError(null);
     } catch (cause) {
       handleError(cause);
     }
@@ -118,7 +126,7 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
 
   const mutate = async (accountId: string, operation: () => Promise<unknown>) => {
     setBusyId(accountId);
-    setError("");
+    setError(null);
     try {
       await operation();
       await refresh();
@@ -130,9 +138,9 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
   };
 
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = query.trim().toLocaleLowerCase(locale);
     return needle ? accounts.filter((account) => account.username.includes(needle)) : accounts;
-  }, [accounts, query]);
+  }, [accounts, locale, query]);
 
   const active = accounts.filter((account) => account.status === "active").length;
   const admins = accounts.filter((account) => account.server_role === "admin").length;
@@ -142,9 +150,10 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
       <header className="topbar" inert={resetTarget ? true : undefined}>
         <Brand />
         <div className="admin-session">
+          <LanguageControl />
           <span>
-            <strong>{session.username}</strong>
-            <small>서버 관리자</small>
+            <strong dir="auto">{session.username}</strong>
+            <small>{message("session.role")}</small>
           </span>
           <button
             className="quiet"
@@ -152,7 +161,7 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
               void logout(session.token).finally(onSignedOut);
             }}
           >
-            로그아웃
+            {message("session.logout")}
           </button>
         </div>
       </header>
@@ -160,46 +169,46 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
       <main className="workspace" inert={resetTarget ? true : undefined}>
         <section className="page-heading">
           <div>
-            <p className="eyebrow">Accounts</p>
-            <h1>사용자 계정</h1>
-            <p>로그인 자격과 서버 접근 상태를 관리합니다.</p>
+            <p className="eyebrow">{message("accounts.eyebrow")}</p>
+            <h1>{message("accounts.title")}</h1>
+            <p>{message("accounts.description")}</p>
           </div>
-          <dl className="summary" aria-label="계정 요약">
+          <dl className="summary" aria-label={message("accounts.summary.label")}>
             <div>
-              <dt>전체</dt>
-              <dd>{accounts.length}</dd>
+              <dt>{message("accounts.summary.total")}</dt>
+              <dd>{formatNumber(accounts.length)}</dd>
             </div>
             <div>
-              <dt>활성</dt>
-              <dd>{active}</dd>
+              <dt>{message("accounts.summary.active")}</dt>
+              <dd>{formatNumber(active)}</dd>
             </div>
             <div>
-              <dt>관리자</dt>
-              <dd>{admins}</dd>
+              <dt>{message("accounts.summary.admins")}</dt>
+              <dd>{formatNumber(admins)}</dd>
             </div>
           </dl>
         </section>
 
-        {error && <Notice>{error}</Notice>}
+        {error && <Notice>{message(error)}</Notice>}
 
         <section className="panel create-panel" aria-labelledby="create-title">
           <div>
-            <h2 id="create-title">새 계정</h2>
-            <p>비밀번호는 15자 이상이어야 합니다.</p>
+            <h2 id="create-title">{message("create.title")}</h2>
+            <p>{message("create.passwordHint")}</p>
           </div>
           <CreateAccountForm token={session.token} onCreated={refresh} onError={handleError} />
         </section>
 
         <section className="accounts-section" aria-labelledby="accounts-title">
           <div className="list-heading">
-            <h2 id="accounts-title">계정 목록</h2>
+            <h2 id="accounts-title">{message("accounts.list.title")}</h2>
             <label className="search-field">
-              <span className="sr-only">사용자 ID 검색</span>
+              <span className="sr-only">{message("accounts.search.label")}</span>
               <input
                 type="search"
-                placeholder="사용자 ID 검색"
+                placeholder={message("accounts.search.placeholder")}
                 value={query}
-                onChange={(event) => setQuery(event.target.value.toLowerCase())}
+                onChange={(event) => setQuery(event.target.value.toLocaleLowerCase(locale))}
               />
             </label>
           </div>
@@ -211,12 +220,14 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
                     {account.username.slice(0, 1).toUpperCase()}
                   </span>
                   <span>
-                    <strong>{account.username}</strong>
+                    <strong dir="auto">{account.username}</strong>
                   </span>
                 </div>
                 <div className="badges">
-                  <span className={`badge ${account.status}`}>{statusLabel(account)}</span>
-                  {account.server_role === "admin" && <span className="badge admin">관리자</span>}
+                  <span className={`badge ${account.status}`}>{statusLabel(account, message)}</span>
+                  {account.server_role === "admin" && (
+                    <span className="badge admin">{message("accounts.badge.admin")}</span>
+                  )}
                 </div>
                 <div className="row-actions">
                   <button
@@ -227,20 +238,26 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
                       setResetTarget(account);
                     }}
                   >
-                    비밀번호 재설정
+                    {message("accounts.action.resetPassword")}
                   </button>
                   <button
                     className="quiet"
                     disabled={busyId === account.account_id}
                     onClick={() => {
-                      if (!window.confirm(`${account.username}의 모든 로그인 세션을 종료할까요?`))
+                      if (
+                        !window.confirm(
+                          message("accounts.confirm.revokeSessions", {
+                            username: account.username,
+                          }),
+                        )
+                      )
                         return;
                       void mutate(account.account_id, () =>
                         revokeSessions(session.token, account.account_id),
                       );
                     }}
                   >
-                    세션 종료
+                    {message("accounts.action.revokeSessions")}
                   </button>
                   <button
                     className="quiet"
@@ -248,7 +265,9 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
                     onClick={() => {
                       if (
                         account.server_role === "admin" &&
-                        !window.confirm(`${account.username}의 서버 관리자 권한을 해제할까요?`)
+                        !window.confirm(
+                          message("accounts.confirm.demote", { username: account.username }),
+                        )
                       )
                         return;
                       void mutate(account.account_id, () =>
@@ -258,7 +277,9 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
                       );
                     }}
                   >
-                    {account.server_role === "admin" ? "관리자 해제" : "관리자로 지정"}
+                    {account.server_role === "admin"
+                      ? message("accounts.action.demote")
+                      : message("accounts.action.promote")}
                   </button>
                   <button
                     className={account.status === "active" ? "danger" : "quiet"}
@@ -267,7 +288,7 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
                       if (
                         account.status === "active" &&
                         !window.confirm(
-                          `${account.username}을 비활성화하고 모든 로그인 세션을 종료할까요?`,
+                          message("accounts.confirm.disable", { username: account.username }),
                         )
                       )
                         return;
@@ -278,12 +299,14 @@ function Dashboard({ session, onSignedOut }: { session: Session; onSignedOut: ()
                       );
                     }}
                   >
-                    {account.status === "active" ? "비활성화" : "활성화"}
+                    {account.status === "active"
+                      ? message("accounts.action.disable")
+                      : message("accounts.action.activate")}
                   </button>
                 </div>
               </article>
             ))}
-            {visible.length === 0 && <p className="empty">조건에 맞는 계정이 없습니다.</p>}
+            {visible.length === 0 && <p className="empty">{message("accounts.empty")}</p>}
           </div>
         </section>
       </main>
@@ -313,6 +336,7 @@ function CreateAccountForm({
   onCreated: () => Promise<void>;
   onError: (cause: unknown) => void;
 }) {
+  const { message } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<ServerRole>("user");
@@ -336,7 +360,7 @@ function CreateAccountForm({
 
   return (
     <form className="create-form" onSubmit={submit}>
-      <Field label="사용자 ID" htmlFor="new-username">
+      <Field label={message("login.username")} htmlFor="new-username">
         <input
           id="new-username"
           autoComplete="off"
@@ -345,7 +369,7 @@ function CreateAccountForm({
           onChange={(event) => setUsername(event.target.value.toLowerCase())}
         />
       </Field>
-      <Field label="초기 비밀번호" htmlFor="new-password">
+      <Field label={message("create.initialPassword")} htmlFor="new-password">
         <input
           id="new-password"
           type="password"
@@ -354,21 +378,21 @@ function CreateAccountForm({
           onChange={(event) => setPassword(event.target.value)}
         />
       </Field>
-      <Field label="서버 권한" htmlFor="new-role">
+      <Field label={message("create.role")} htmlFor="new-role">
         <select
           id="new-role"
           value={role}
           onChange={(event) => setRole(event.target.value as ServerRole)}
         >
-          <option value="user">사용자</option>
-          <option value="admin">관리자</option>
+          <option value="user">{message("role.user")}</option>
+          <option value="admin">{message("role.admin")}</option>
         </select>
       </Field>
       <button
         className="primary compact"
         disabled={busy || !username || characterCount(password) < 15}
       >
-        {busy ? "추가하는 중…" : "계정 추가"}
+        {busy ? message("create.adding") : message("create.action")}
       </button>
     </form>
   );
@@ -387,6 +411,7 @@ function ResetPasswordDialog({
   onReset: () => Promise<void>;
   onError: (cause: unknown) => void;
 }) {
+  const { message } = useI18n();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLElement>(null);
@@ -428,9 +453,9 @@ function ResetPasswordDialog({
         aria-describedby="reset-detail"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <p className="eyebrow">Credential reset</p>
-        <h2 id="reset-title">{account.username} 비밀번호 재설정</h2>
-        <p id="reset-detail">변경 즉시 이 계정의 모든 로그인 세션이 종료됩니다.</p>
+        <p className="eyebrow">{message("reset.eyebrow")}</p>
+        <h2 id="reset-title">{message("reset.title", { username: account.username })}</h2>
+        <p id="reset-detail">{message("reset.description")}</p>
         <form
           className="stack"
           onSubmit={async (event) => {
@@ -446,7 +471,7 @@ function ResetPasswordDialog({
             }
           }}
         >
-          <Field label="새 비밀번호" htmlFor="reset-password">
+          <Field label={message("reset.newPassword")} htmlFor="reset-password">
             <input
               id="reset-password"
               type="password"
@@ -458,10 +483,10 @@ function ResetPasswordDialog({
           </Field>
           <div className="modal-actions">
             <button type="button" className="quiet" onClick={onClose} disabled={busy}>
-              취소
+              {message("reset.cancel")}
             </button>
             <button className="primary" disabled={busy || characterCount(password) < 15}>
-              재설정
+              {message("reset.action")}
             </button>
           </div>
         </form>
@@ -498,6 +523,27 @@ function Brand() {
   );
 }
 
+function LanguageControl() {
+  const { message, preference, setPreference } = useI18n();
+  return (
+    <label className="language-control">
+      <span className="sr-only">{message("language.control")}</span>
+      <select
+        aria-label={message("language.control")}
+        value={preference}
+        onChange={(event) => setPreference(event.target.value as LocalePreference)}
+      >
+        <option value="system">{message("language.system")}</option>
+        {LOCALE_DEFINITIONS.map((definition) => (
+          <option key={definition.tag} value={definition.tag}>
+            {message(definition.labelKey)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function Notice({ children }: { children: React.ReactNode }) {
   return (
     <p className="notice" role="alert">
@@ -506,18 +552,19 @@ function Notice({ children }: { children: React.ReactNode }) {
   );
 }
 
-function statusLabel(account: Account) {
-  return account.status === "active" ? "활성" : "비활성";
+function statusLabel(account: Account, message: MessageFunction) {
+  return account.status === "active"
+    ? message("accounts.badge.active")
+    : message("accounts.badge.disabled");
 }
 
 function characterCount(value: string) {
   return Array.from(value).length;
 }
 
-function messageFor(cause: unknown): string {
-  if (!(cause instanceof ApiError)) return "요청을 완료하지 못했습니다.";
-  if (cause.status === 409) return "마지막 활성 관리자는 변경할 수 없습니다.";
-  if (cause.status === 400) return cause.message || "입력값을 확인해 주세요.";
-  if (cause.status === 401) return "관리자 세션이 만료되었습니다. 다시 로그인해 주세요.";
-  return cause.message || "요청을 완료하지 못했습니다.";
+function messageKeyFor(cause: unknown): AdminErrorKey {
+  if (!(cause instanceof ApiError)) return "error.generic";
+  if (cause.status === 409) return "error.conflict";
+  if (cause.status === 400) return "error.invalidInput";
+  return "error.generic";
 }
