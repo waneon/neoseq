@@ -10,6 +10,7 @@ import {
 } from "../../src/features/outline/clipboard";
 import type { OutlineFragment } from "../../src/core-port/fragment";
 import type { GraphSnapshot, PageSnapshot } from "../../src/core-port/snapshot";
+import { SCHEMA_VERSION } from "../../src/generated/graph-schema";
 
 function fragment(items: readonly { depth: number; markdown: string }[]): OutlineFragment {
   return {
@@ -32,7 +33,6 @@ describe("outline clipboard codecs", () => {
     );
     expect(bundle.plain).toBe("- parent\n  - child\n    continuation");
   });
-
   it("parses unordered and ordered items while preserving multiline content", () => {
     expect(parseMarkdownOutline("- one\n  1. two\n     more\n  * three\n- four")).toEqual([
       { depth: 0, markdown: "one" },
@@ -125,24 +125,6 @@ describe("outline clipboard codecs", () => {
     expect(parseMarkdownOutline("- one\ntwo")).toBeNull();
   });
 
-  it("upgrades v1 rich fragments without discarding their metadata", () => {
-    const legacy = JSON.stringify({
-      kind: "neoseq.outline",
-      version: 1,
-      source_graph_id: "graph",
-      items: [{ depth: 0, markdown: "legacy", properties: [], tags: ["project"] }],
-      tags: [{ id: "project", name: "Project" }],
-      pages: [],
-    });
-    const fragment = readOutlineFragment({
-      getData: (type: string) => (type === "application/vnd.neoseq.outline+json" ? legacy : ""),
-    });
-
-    expect(fragment?.version).toBe(2);
-    expect(fragment?.items[0].page_references).toEqual([]);
-    expect(fragment?.items[0].tags).toEqual(["project"]);
-  });
-
   it("builds a lossless fragment and readable standard representations", () => {
     const page: PageSnapshot = {
       id: "home",
@@ -187,7 +169,7 @@ describe("outline clipboard codecs", () => {
       ],
     };
     const snapshot: GraphSnapshot = {
-      schema_version: 1,
+      schema_version: SCHEMA_VERSION,
       graph_id: "graph",
       pages: [page],
       tags: [{ id: "project", name: "Project", properties: [], defaults: [] }],

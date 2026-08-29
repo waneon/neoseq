@@ -1,4 +1,6 @@
-use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
+#[cfg(debug_assertions)]
+use crate::FaultPoint;
+use crate::{SqliteGraphRepository, SqliteRepositoryError};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CommandEnvelope, CorePortError,
     CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, OpenGraphRequest,
@@ -271,6 +273,7 @@ impl NativeCorePort {
         Ok(CloseGraphResponse { closed: true })
     }
 
+    #[cfg(debug_assertions)]
     pub fn inject_fault(
         &mut self,
         graph_handle: &str,
@@ -359,9 +362,9 @@ fn map_storage_error(error: SqliteRepositoryError) -> CorePortError {
         SqliteRepositoryError::DiskFull => (CorePortErrorCode::StorageFull, true),
         SqliteRepositoryError::Corrupt(_) => (CorePortErrorCode::StorageCorrupt, false),
         SqliteRepositoryError::NotFound => (CorePortErrorCode::GraphNotOpen, false),
-        SqliteRepositoryError::Injected(_) | SqliteRepositoryError::Sqlite(_) => {
-            (CorePortErrorCode::Internal, true)
-        }
+        #[cfg(debug_assertions)]
+        SqliteRepositoryError::Injected(_) => (CorePortErrorCode::Internal, true),
+        SqliteRepositoryError::Sqlite(_) => (CorePortErrorCode::Internal, true),
     };
     port_error(code, &error.to_string(), retryable)
 }

@@ -38,9 +38,8 @@ does not mutate or compact the source graph.
 Import is staged entirely in the Worker:
 
 1. Decode and bound the container, then verify the manifest and checksum.
-2. Open the source snapshot through `GraphCore`; prepare and apply the registered
-   document migrations on a staging graph, then validate current-schema
-   invariants before publishing the migrated graph.
+2. Require the current document schema and validate the source snapshot through
+   `GraphCore` before creating the target graph.
 3. Generate the target graph and replica IDs locally and create a shallow clone
    baseline with the rewritten graph identity.
 4. Reopen the clone under its target identity and validate it again.
@@ -59,7 +58,6 @@ manifest contract. A future reader may add an explicitly supported archive or
 payload version, but it must preserve the copy-only identity rule and validate
 the complete staged graph before installation. Export and import remain adapter
 operations outside CorePort because they package and install platform storage.
-Archive v1 remains unchanged as the document schema evolves; its manifest names
-the payload schema, and the graph reader owns document migration. Truncation and
-deterministic mutation corpora run in unit tests, and
+The current reader requires the manifest payload schema to match its graph
+schema exactly. Truncation and deterministic mutation corpora run in unit tests, and
 `crates/graph-archive/fuzz` provides the untrusted decoder fuzz target.

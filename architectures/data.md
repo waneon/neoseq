@@ -9,8 +9,6 @@ synchronization unit. The current document schema is v6 and has four roots:
 meta: Map
   graph_id: string
   schema_version: 6
-  minimum_writer_schema: 6
-  applied_migrations: Map<MigrationId, TargetSchema>
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
 graph_settings: Map
@@ -23,21 +21,10 @@ canonical representation. RDF triples, text caches, query plans, and session UI
 state are disposable projections. Shared query documents are canonical graph
 data whether an entity property or graph setting owns them.
 
-Schemas v1 through v5 are migratable predecessors. Recovery replays Base and
-Tail, then applies each missing migration as a normal CRDT commit before
-persisting a current checkpoint or accepting writes. `0001-lifecycle-metadata`
-advances v1 to v2; `0002-tag-outlines` materializes every tag-owned tree and
-advances v2 to v3; `0003-graph-settings` adds shared graph configuration and
-advances v3 to v4; `0004-independent-query-views` moves each shared query
-definition into its stable view and advances v4 to v5; and
-`0005-inline-page-references` reserves the semantic inline atom and advances v5
-to v6 without interpreting existing Markdown. A contiguous migration
-registry selects the next step from the stored version; orchestration has no
-version-specific branches. Each step prepares a complete plan by reading only
-the source structure it consumes, then applies that plan to a staging document.
-The staging document replaces the recovered graph only after the complete chain
-and strict current-schema validation succeed. Reopening v6 is a no-op, and
-schemas outside `[1, 6]` are rejected without downgrade or coercion.
+This pre-release build accepts schema v6 exactly. Recovery validates the Base
+and complete Tail against current invariants before exposing the graph. There is
+no older-schema reader, migration registry, minimum-writer marker, or lazy
+repair path.
 
 ## Graph Settings
 
@@ -77,10 +64,8 @@ lowercasing. Stable IDs, not names, are identity.
 
 Each tag record likewise owns metadata, defaults, and a direct
 `outline: MovableTree<NodeData>`. The tag is the owner; there is no backing page,
-and placing a block in that tree does not add the tag to the block.
-Schema-v2 tag records written before tag outlines existed may omit `outline`.
-The v3 migration materializes each missing tree after durable Tail replay. An
-existing non-tree value remains invalid rather than being silently replaced.
+and placing a block in that tree does not add the tag to the block. A missing or
+non-tree outline is invalid rather than silently repaired.
 
 Every outline node is a block. Its Loro tree ID is the external `BlockId`, and
 the containing page or tag tree determines ownership. Indent, outdent, reorder,
@@ -182,8 +167,8 @@ Only after commit does it publish semantic and saved events.
 
 Open chooses the newest supported checkpoint with a valid checksum and reads
 only Tail records whose compound key follows that Base. The normal path stages
-the checksummed Tail in sequence order, then migrates and validates the completed
-document once. A failed stage or final validation discards that document and
+the checksummed Tail in sequence order, then validates the completed document
+once. A failed stage or final validation discards that document and
 replays from the same Base through the record-validating path, preserving the
 exact last valid frontier. Invalid checkpoints are quarantined and the next
 older checkpoint is considered. Once an update is invalid or has unresolved
@@ -220,7 +205,7 @@ export their opaque bytes by handle without treating them as graph data.
 
 ## IndexedDB Adapter
 
-The browser uses database `neoseq-local`, version 3, with six stores:
+The browser uses database `neoseq-local-v1`, version 1, with six stores:
 
 ```text
 metadata      key graph_id
@@ -233,9 +218,9 @@ sync-state    key graph_id
 
 The Worker owns database access. The first open persists a random 53-bit
 `replica_id`; later opens reuse it so version vectors do not accumulate a peer
-for every browser runtime. Current metadata accounting is trusted on open;
-payloads are scanned only once to backfill a metadata record that predates those
-fields. Recovery selects Tail rows with the `[graph_id, local_sequence]` primary
+for every browser runtime. Metadata uses the current complete shape; there is no
+upgrade or backfill path. Recovery selects Tail rows with the
+`[graph_id, local_sequence]` primary
 key range after the chosen Base rather than loading graph history and filtering
 it in memory. Each graph append updates metadata and inserts the update in one
 transaction. For a remote graph, that transaction also inserts an outbox message
@@ -259,7 +244,7 @@ opens read-only.
 
 ## SQLite Adapter
 
-The headless native adapter uses one WAL-mode profile database. Schema version 2
+The headless native adapter uses one WAL-mode profile database. Schema version 1
 contains graph metadata, update, checkpoint, and quarantine tables with the same
 stable replica identity, byte accounting, transaction, and checksum behavior as
 IndexedDB. Its purpose is native parity,
@@ -273,18 +258,11 @@ records whether a locally persisted replica is local-only or attached to a
 remote server. Transport credentials and presence are not canonical state. The
 RDF index is rebuilt on open and has no persisted cache.
 
-Any change to the canonical Loro container layout or invariants that would make
-an existing supported document fail validation is a document-schema change. It
-must increment the schema version in `contracts/graph-schema.json` — the one
-declaration the core, the sync boundary, and the browser adapter are generated
-from — and ship explicit migration code; readers, commands, and projections must
-not repair legacy or missing structure lazily.
-
-Every future document-schema change must define its supported input range,
-identity-preserving CRDT migration, deployed-data fixture, minimum-writer policy,
-and checkpoint rollback boundary here. Its source reader remains private to the
-migration step rather than becoming an alternate runtime reader. Compatibility
-is explicit rather than inferred from a current decoder accepting legacy bytes.
+Before the first supported release, a canonical layout change replaces the
+current contract and all adapters reject the previous one. After release, a
+schema change must define its supported input, identity-preserving transition,
+deployed-data fixture, writer gate, and checkpoint rollback boundary here.
+Readers, commands, and projections never repair missing structure lazily.
 
 ## Verification
 
@@ -296,8 +274,6 @@ is explicit rather than inferred from a current decoder accepting legacy bytes.
   Tail resync, restart, protocol encoding, and acknowledgement;
 - compaction tests cross the periodic threshold and reopen from the retained
   current/prior checkpoints and remaining Tail;
-- the checked-in v1 lifecycle and v2 tag-outline fixtures migrate in core,
-  browser, native, and server paths and are stable under a second open;
-- a v4 graph archive with graph-owned default queries migrates, clones, and
-  reopens under a fresh graph identity;
+- graph documents, archives, and sync sessions reject non-current schemas at
+  their boundaries;
 - generated contracts are synchronized before tests and checked by production builds.

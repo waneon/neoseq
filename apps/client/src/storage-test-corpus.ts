@@ -472,7 +472,6 @@ export async function runIndexedDbFaultCorpus() {
   await schemaWriter.deleteGraph(schemaGraph);
   schemaWriter.terminate();
 
-
   return {
     append_after_recovered: true,
     corrupt_quarantined: true,

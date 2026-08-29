@@ -7,8 +7,9 @@ use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use std::path::Path;
 use thiserror::Error;
 
-pub const SQLITE_SCHEMA_VERSION: i64 = 2;
+pub const SQLITE_SCHEMA_VERSION: i64 = 1;
 
+#[cfg(debug_assertions)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FaultPoint {
     AppendBeforeCommit,
@@ -29,6 +30,7 @@ pub enum SqliteRepositoryError {
     Corrupt(String),
     #[error("graph is not present in local storage")]
     NotFound,
+    #[cfg(debug_assertions)]
     #[error("injected failure at {0}")]
     Injected(&'static str),
     #[error("SQLite operation failed: {0}")]
@@ -58,6 +60,7 @@ fn sqlite_code(error: &rusqlite::Error) -> Option<ErrorCode> {
 pub struct SqliteGraphRepository {
     connection: Connection,
     locator: GraphLocator,
+    #[cfg(debug_assertions)]
     fault: Option<FaultPoint>,
 }
 
@@ -80,7 +83,7 @@ impl SqliteGraphRepository {
                 "WAL journal mode was not enabled".to_owned(),
             ));
         }
-        migrate(&mut connection)?;
+        initialize_schema(&mut connection)?;
         connection
             .execute(
                 "INSERT INTO graph_metadata(
@@ -107,10 +110,12 @@ impl SqliteGraphRepository {
         Ok(Self {
             connection,
             locator,
+            #[cfg(debug_assertions)]
             fault: None,
         })
     }
 
+    #[cfg(debug_assertions)]
     pub fn inject_once(&mut self, fault: FaultPoint) {
         self.fault = Some(fault);
     }
@@ -179,6 +184,7 @@ impl SqliteGraphRepository {
         Ok(())
     }
 
+    #[cfg(debug_assertions)]
     fn take_fault(&mut self, expected: FaultPoint) -> bool {
         if self.fault == Some(expected) {
             self.fault = None;
@@ -188,6 +194,7 @@ impl SqliteGraphRepository {
         }
     }
 
+    #[cfg(debug_assertions)]
     fn injected_storage_fault(&mut self) -> Result<(), SqliteRepositoryError> {
         if self.take_fault(FaultPoint::Busy) {
             Err(SqliteRepositoryError::Busy)
@@ -207,9 +214,12 @@ impl GraphRepository for SqliteGraphRepository {
         update: &[u8],
         created_at: &str,
     ) -> Result<AppendReceipt, Self::Error> {
-        self.injected_storage_fault()?;
-        if self.take_fault(FaultPoint::AppendBeforeCommit) {
-            return Err(SqliteRepositoryError::Injected("append-before-commit"));
+        #[cfg(debug_assertions)]
+        {
+            self.injected_storage_fault()?;
+            if self.take_fault(FaultPoint::AppendBeforeCommit) {
+                return Err(SqliteRepositoryError::Injected("append-before-commit"));
+            }
         }
         let digest = checksum(update);
         if let Some(sequence) = existing_sequence(&self.connection, &self.locator, &digest)? {
@@ -247,6 +257,7 @@ impl GraphRepository for SqliteGraphRepository {
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction.commit().map_err(SqliteRepositoryError::from)?;
+        #[cfg(debug_assertions)]
         if self.take_fault(FaultPoint::AppendAfterCommit) {
             return Err(SqliteRepositoryError::Injected("append-after-commit"));
         }
@@ -358,9 +369,12 @@ impl LocalGraphRepository for SqliteGraphRepository {
         local_sequence: u64,
         created_at: &str,
     ) -> Result<String, Self::Error> {
-        self.injected_storage_fault()?;
-        if self.take_fault(FaultPoint::CheckpointBeforeCommit) {
-            return Err(SqliteRepositoryError::Injected("checkpoint-before-commit"));
+        #[cfg(debug_assertions)]
+        {
+            self.injected_storage_fault()?;
+            if self.take_fault(FaultPoint::CheckpointBeforeCommit) {
+                return Err(SqliteRepositoryError::Injected("checkpoint-before-commit"));
+            }
         }
         let digest = checksum(checkpoint);
         let transaction = self
@@ -462,6 +476,7 @@ impl LocalGraphRepository for SqliteGraphRepository {
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction.commit().map_err(SqliteRepositoryError::from)?;
+        #[cfg(debug_assertions)]
         if self.take_fault(FaultPoint::CheckpointAfterCommit) {
             return Err(SqliteRepositoryError::Injected("checkpoint-after-commit"));
         }
@@ -652,11 +667,11 @@ impl LocalGraphRepository for SqliteGraphRepository {
     }
 }
 
-fn migrate(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
+fn initialize_schema(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(SqliteRepositoryError::from)?;
-    if version > SQLITE_SCHEMA_VERSION {
+    if version != 0 && version != SQLITE_SCHEMA_VERSION {
         return Err(SqliteRepositoryError::Corrupt(format!(
             "unsupported SQLite schema version {version}"
         )));
@@ -711,36 +726,6 @@ fn migrate(connection: &mut Connection) -> Result<(), SqliteRepositoryError> {
                     created_at TEXT NOT NULL,
                     PRIMARY KEY(graph_id, export_handle)
                  );",
-            )
-            .map_err(SqliteRepositoryError::from)?;
-        transaction
-            .pragma_update(None, "user_version", SQLITE_SCHEMA_VERSION)
-            .map_err(SqliteRepositoryError::from)?;
-        transaction.commit().map_err(SqliteRepositoryError::from)?;
-    } else if version == 1 {
-        let transaction = connection
-            .transaction()
-            .map_err(SqliteRepositoryError::from)?;
-        transaction
-            .execute_batch(
-                "ALTER TABLE graph_metadata ADD COLUMN replica_id INTEGER NOT NULL DEFAULT 0;
-                 ALTER TABLE graph_metadata ADD COLUMN history_epoch INTEGER NOT NULL DEFAULT 0;
-                 ALTER TABLE graph_metadata ADD COLUMN checkpoint_bytes INTEGER NOT NULL DEFAULT 0;
-                 ALTER TABLE graph_metadata ADD COLUMN tail_bytes INTEGER NOT NULL DEFAULT 0;
-                 ALTER TABLE graph_metadata ADD COLUMN tail_count INTEGER NOT NULL DEFAULT 0;
-                 UPDATE graph_metadata
-                 SET checkpoint_bytes = COALESCE((
-                         SELECT SUM(LENGTH(payload)) FROM graph_checkpoint
-                         WHERE graph_checkpoint.graph_id = graph_metadata.graph_id
-                     ), 0),
-                     tail_bytes = COALESCE((
-                         SELECT SUM(LENGTH(payload)) FROM graph_update
-                         WHERE graph_update.graph_id = graph_metadata.graph_id
-                     ), 0),
-                     tail_count = COALESCE((
-                         SELECT COUNT(*) FROM graph_update
-                         WHERE graph_update.graph_id = graph_metadata.graph_id
-                     ), 0);",
             )
             .map_err(SqliteRepositoryError::from)?;
         transaction

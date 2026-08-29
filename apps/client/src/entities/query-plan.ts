@@ -350,7 +350,7 @@ export function columnKindsFor(subject: PlanSubject): PlanColumnSource["kind"][]
   return ["content", "property"];
 }
 
-/** Whether the columns panel may offer or retain this source. */
+/** Whether the columns panel may offer this source. */
 export function isDisplayColumnSource(source: PlanColumnSource): boolean {
   if (source.kind === "subject" || source.kind === "parent" || source.kind === "sibling_index") {
     return false;
@@ -577,25 +577,11 @@ export function decodePlan(payload: string, version: number): QueryPlan | null {
     return null;
   }
   if (!validPlan(parsed)) return null;
-  // Stated field by field rather than spread, so a key this build no longer
-  // knows is read once and then gone instead of riding along in every save.
-  // Column modes used to be a reader choice. They now follow cardinality: a
-  // repeated value is folded into one cell and every other value stays plain.
-  const columns = parsed.columns
-    .filter((column) => isDisplayColumnSource(column.source))
-    .map((column) => {
-      const aggregate = defaultAggregateFor(column.source);
-      if (aggregate) return { ...column, aggregate };
-      const { aggregate: _legacyAggregate, ...plain } = column;
-      return plain;
-    });
   return {
     version: QUERY_PLAN_VERSION,
     subject: parsed.subject,
     where: parsed.where,
-    // An old plan may have contained only a structural or summary column. Text
-    // is the one useful field every subject has, so it is the safe replacement.
-    columns: columns.length > 0 ? columns : [{ id: "text", source: { kind: "content" } }],
+    columns: parsed.columns,
     limit: parsed.limit,
     distinct: parsed.distinct === true,
   };

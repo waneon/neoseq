@@ -73,7 +73,7 @@ struct Room {
 }
 
 struct SessionState {
-    principal_id: String,
+    account_id: String,
     membership_version: u64,
     outbound: mpsc::Sender<Message>,
 }
@@ -81,7 +81,7 @@ struct SessionState {
 pub struct RoomConnection {
     pub graph_id: String,
     pub session_id: String,
-    pub principal_id: String,
+    pub account_id: String,
     pub membership_version: u64,
     room: Arc<Mutex<Room>>,
     outbound: Option<mpsc::Receiver<Message>>,
@@ -139,14 +139,14 @@ impl<S: GraphStore> RoomManager<S> {
         &self,
         graph_id: &str,
         session_id: &str,
-        principal_id: &str,
+        account_id: &str,
         client_history_epoch: u64,
         client_version_vector: &[u8],
     ) -> Result<OpenedRoom, RoomError> {
         if session_id.is_empty() || session_id.len() > 128 {
             return Err(RoomError::InvalidSession);
         }
-        let membership = self.store.authorize(graph_id, principal_id).await?;
+        let membership = self.store.authorize(graph_id, account_id).await?;
         if membership.schema_version != SCHEMA_VERSION {
             return Err(RoomError::UnsupportedSchema);
         }
@@ -186,7 +186,7 @@ impl<S: GraphStore> RoomManager<S> {
         guard.sessions.insert(
             session_id.to_owned(),
             SessionState {
-                principal_id: principal_id.to_owned(),
+                account_id: account_id.to_owned(),
                 membership_version: membership.version,
                 outbound,
             },
@@ -201,11 +201,11 @@ impl<S: GraphStore> RoomManager<S> {
         self.metrics.session_opened();
         let graph_log_id = telemetry_id(graph_id);
         let session_log_id = telemetry_id(session_id);
-        let principal_log_id = telemetry_id(principal_id);
+        let account_log_id = telemetry_id(account_id);
         tracing::info!(
             graph_id = graph_log_id,
             session_id = session_log_id,
-            principal_id = principal_log_id,
+            account_id = account_log_id,
             cursor = guard.cursor,
             "sync session opened"
         );
@@ -214,7 +214,7 @@ impl<S: GraphStore> RoomManager<S> {
             connection: RoomConnection {
                 graph_id: graph_id.to_owned(),
                 session_id: session_id.to_owned(),
-                principal_id: principal_id.to_owned(),
+                account_id: account_id.to_owned(),
                 membership_version: membership.version,
                 room,
                 outbound: Some(receiver),
@@ -314,7 +314,7 @@ impl<S: GraphStore> RoomManager<S> {
         }
         let membership = self
             .store
-            .authorize(&connection.graph_id, &connection.principal_id)
+            .authorize(&connection.graph_id, &connection.account_id)
             .await?;
         require_same_membership(connection, &membership)?;
 
@@ -329,7 +329,7 @@ impl<S: GraphStore> RoomManager<S> {
             .sessions
             .get(&connection.session_id)
             .ok_or(RoomError::InvalidSession)?;
-        if session.principal_id != connection.principal_id
+        if session.account_id != connection.account_id
             || session.membership_version != membership.version
         {
             return Err(RoomError::InvalidSession);
@@ -359,7 +359,7 @@ impl<S: GraphStore> RoomManager<S> {
             .store
             .commit_update(
                 &connection.graph_id,
-                &connection.principal_id,
+                &connection.account_id,
                 &update.message_id,
                 &update.bytes,
             )
@@ -506,7 +506,7 @@ impl<S: GraphStore> RoomManager<S> {
         }
         let membership = self
             .store
-            .authorize(&connection.graph_id, &connection.principal_id)
+            .authorize(&connection.graph_id, &connection.account_id)
             .await?;
         require_same_membership(connection, &membership)?;
         let mut room = connection.room.lock().await;
@@ -536,7 +536,7 @@ impl<S: GraphStore> RoomManager<S> {
     pub async fn recheck(&self, connection: &RoomConnection) -> Result<(), RoomError> {
         match self
             .store
-            .authorize(&connection.graph_id, &connection.principal_id)
+            .authorize(&connection.graph_id, &connection.account_id)
             .await
         {
             Ok(membership) if membership.version == connection.membership_version => Ok(()),
@@ -561,11 +561,11 @@ impl<S: GraphStore> RoomManager<S> {
         self.metrics.session_closed();
         let graph_log_id = telemetry_id(&connection.graph_id);
         let session_log_id = telemetry_id(&connection.session_id);
-        let principal_log_id = telemetry_id(&connection.principal_id);
+        let account_log_id = telemetry_id(&connection.account_id);
         tracing::info!(
             graph_id = graph_log_id,
             session_id = session_log_id,
-            principal_id = principal_log_id,
+            account_id = account_log_id,
             "sync session closed"
         );
     }

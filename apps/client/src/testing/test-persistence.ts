@@ -8,8 +8,8 @@ import {
   type UpdateRecord,
 } from "../persistence";
 
-const DATABASE = "neoseq-local";
-const VERSION = 3;
+const DATABASE = "neoseq-local-v1";
+const VERSION = 1;
 
 export type FaultPoint =
   | "append_before"

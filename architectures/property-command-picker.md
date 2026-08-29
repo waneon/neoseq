@@ -229,7 +229,7 @@ preferences read through `features/settings/preferences.ts`; neither reaches a
 command or the graph.
 The default tones progress from danger through attention and caution to
 information and neutral; the success tone is not used as a time distance.
-Stored tones are backward-compatible named presets or bounded OKLCH hue/chroma
+Stored tones are named presets or bounded OKLCH hue/chroma
 pairs. The settings surface exposes one color well per tier and previews custom
 choices in both modes; CSS owns mode-specific lightness, and all task chips and
 query cells consume the same resolved presentation.

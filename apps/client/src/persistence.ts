@@ -3,9 +3,10 @@ import type {
   GraphLocatorDto,
   StorageCapabilitiesDto,
 } from "./generated/core-port";
+import { SCHEMA_VERSION } from "./generated/graph-schema";
 
-const DATABASE = "neoseq-local";
-const VERSION = 3;
+const DATABASE = "neoseq-local-v1";
+const VERSION = 1;
 const STORES = {
   metadata: "metadata",
   updates: "updates",
@@ -118,14 +119,14 @@ export class IndexedDbGraphRepository {
     if (existing) {
       await complete(transaction);
       database.close();
-      return hasStorageAccounting(existing) ? existing : backfillStorageAccounting(existing);
+      return existing;
     }
     const metadata: MetadataRecord = {
       graph_id: locator.graph_id,
       locator,
       replica_id: suggestedReplicaId,
       history_epoch: 0,
-      schema_version: 3,
+      schema_version: SCHEMA_VERSION,
       next_sequence: 1,
       compacted_through: 0,
       checkpoint_bytes: 0,
@@ -722,77 +723,30 @@ export class IndexedDbGraphRepository {
   }
 }
 
-function hasStorageAccounting(metadata: MetadataRecord): boolean {
-  return (
-    Number.isFinite(metadata.compacted_through) &&
-    Number.isFinite(metadata.checkpoint_bytes) &&
-    Number.isFinite(metadata.tail_bytes) &&
-    Number.isFinite(metadata.tail_count)
-  );
-}
-
-/** One cold compatibility path for metadata written before storage accounting. */
-async function backfillStorageAccounting(metadata: MetadataRecord): Promise<MetadataRecord> {
-  const [updates, checkpoints] = await Promise.all([
-    allByGraph<UpdateRecord>(STORES.updates, metadata.graph_id),
-    allByGraph<CheckpointRecord>(STORES.checkpoints, metadata.graph_id),
-  ]);
-  const repaired: MetadataRecord = {
-    ...metadata,
-    compacted_through: metadata.compacted_through ?? 0,
-    checkpoint_bytes: checkpoints.reduce((total, value) => total + value.payload.byteLength, 0),
-    tail_bytes: updates.reduce((total, value) => total + value.payload.byteLength, 0),
-    tail_count: updates.length,
-  };
-  const database = await openDatabase();
-  const transaction = database.transaction(STORES.metadata, "readwrite");
-  transaction.objectStore(STORES.metadata).put(repaired);
-  await complete(transaction);
-  database.close();
-  return repaired;
-}
-
 async function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open(DATABASE, VERSION);
     open.onupgradeneeded = () => {
       const database = open.result;
-      if (!database.objectStoreNames.contains(STORES.metadata)) {
-        database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
-      }
+      database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
       for (const name of [STORES.updates, STORES.checkpoints]) {
-        const store = database.objectStoreNames.contains(name)
-          ? open.transaction!.objectStore(name)
-          : database.createObjectStore(name, {
-              keyPath: ["graph_id", "local_sequence"],
-            });
-        if (!store.indexNames.contains("by_graph")) {
-          store.createIndex("by_graph", "graph_id", { unique: false });
-        }
+        const store = database.createObjectStore(name, {
+          keyPath: ["graph_id", "local_sequence"],
+        });
+        store.createIndex("by_graph", "graph_id", { unique: false });
       }
-      const quarantine = database.objectStoreNames.contains(STORES.quarantine)
-        ? open.transaction!.objectStore(STORES.quarantine)
-        : database.createObjectStore(STORES.quarantine, {
-            keyPath: ["graph_id", "export_handle"],
-          });
-      if (!quarantine.indexNames.contains("by_graph")) {
-        quarantine.createIndex("by_graph", "graph_id", { unique: false });
-      }
-      const outbox = database.objectStoreNames.contains(STORES.outbox)
-        ? open.transaction!.objectStore(STORES.outbox)
-        : database.createObjectStore(STORES.outbox, {
-            keyPath: ["graph_id", "message_id"],
-          });
-      if (!outbox.indexNames.contains("by_graph")) {
-        outbox.createIndex("by_graph", "graph_id", { unique: false });
-      }
-      if (!database.objectStoreNames.contains(STORES.syncState)) {
-        database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
-      }
-      const updates = open.transaction!.objectStore(STORES.updates);
-      if (!updates.indexNames.contains("by_checksum")) {
-        updates.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
-      }
+      const quarantine = database.createObjectStore(STORES.quarantine, {
+        keyPath: ["graph_id", "export_handle"],
+      });
+      quarantine.createIndex("by_graph", "graph_id", { unique: false });
+      const outbox = database.createObjectStore(STORES.outbox, {
+        keyPath: ["graph_id", "message_id"],
+      });
+      outbox.createIndex("by_graph", "graph_id", { unique: false });
+      database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
+      open
+        .transaction!.objectStore(STORES.updates)
+        .createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
     };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(mapDomError(open.error));

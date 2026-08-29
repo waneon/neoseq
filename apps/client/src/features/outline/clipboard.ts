@@ -321,7 +321,7 @@ function parseOutlineFragment(source: string): OutlineFragment | null {
     if (
       !isRecord(value) ||
       value.kind !== OUTLINE_FRAGMENT_KIND ||
-      (value.version !== 1 && value.version !== OUTLINE_FRAGMENT_VERSION) ||
+      value.version !== OUTLINE_FRAGMENT_VERSION ||
       typeof value.source_graph_id !== "string" ||
       !Array.isArray(value.items) ||
       !Array.isArray(value.tags) ||
@@ -335,21 +335,11 @@ function parseOutlineFragment(source: string): OutlineFragment | null {
         !Number.isSafeInteger(item.depth) ||
         (item.depth as number) < 0 ||
         typeof item.markdown !== "string" ||
-        (value.version === OUTLINE_FRAGMENT_VERSION && !Array.isArray(item.page_references)) ||
+        !Array.isArray(item.page_references) ||
         !Array.isArray(item.properties) ||
         !Array.isArray(item.tags)
       )
         return null;
-    }
-    if (value.version === 1) {
-      return {
-        ...value,
-        version: OUTLINE_FRAGMENT_VERSION,
-        items: value.items.map((item) => ({
-          ...(item as Record<string, unknown>),
-          page_references: [],
-        })),
-      } as unknown as OutlineFragment;
     }
     return value as unknown as OutlineFragment;
   } catch {

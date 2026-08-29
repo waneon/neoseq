@@ -44,10 +44,9 @@ It is created single-flight on demand from the current checkpoint plus its
 update tail and can be discarded at any time. V1 is a single-process,
 single-region service; horizontal fan-out has no broker yet.
 
-The server writes document schema v5. A stored v1 through v4 graph is migrated during
-single-flight room reconstruction, installed as a new checkpoint/history epoch,
-and reopened from that checkpoint before the room accepts writes. Other schema
-versions are rejected.
+The server accepts and writes document schema v6. Room reconstruction rejects
+every other schema version; this pre-release baseline has no document migration
+path.
 
 People submit a username and password only to the login endpoint. A successful
 login returns a bounded opaque session credential whose digest, purpose, expiry,
@@ -68,10 +67,10 @@ The binary protocol is versioned independently from the CRDT schema.
 client alike, so a bump cannot leave one side advertising the other's version.
 Messages are length-delimited envelopes:
 
-- `Hello`: protocol/schema range, graph ID, session ID, stable replica ID,
-  history epoch, and Loro version vector;
-- `Welcome`: selected protocol, graph status, limits, history epoch, server
-  version vector, and either a missing update or replacement checkpoint;
+- `Hello`: exact protocol/schema versions, graph ID, session ID, history epoch,
+  and Loro version vector;
+- `Welcome`: history epoch, server version vector, and either a missing update
+  or replacement checkpoint;
 - `Update`: history epoch, client message ID, base version vector, and Loro bytes;
 - `Ack`: history epoch, client message ID, and durable server receipt cursor;
 - `Presence`: ephemeral cursor/selection state with expiry;
@@ -84,7 +83,7 @@ client keeps an outbox item until its message ID is acknowledged.
 ## Session Flow
 
 1. Authenticate the connection and authorize current graph membership.
-2. Negotiate protocol and compatible document-schema ranges.
+2. Require the current protocol and document-schema versions exactly.
 3. Compare history epochs and Loro version vectors. Export missing operations
    within one epoch, or send a replacement shallow checkpoint across epochs.
 4. For every client update, enforce limits and import into a temporary fork of
@@ -111,16 +110,17 @@ The logical PostgreSQL records are:
   server-wide user/admin role;
 - account session: credential digest, client/admin purpose, expiry, and
   revocation state;
-- graph metadata: ID, owner, status, schema version, byte quota, history epoch,
-  and checkpoint pointer;
-- membership: graph ID, principal ID, role, revocation/version metadata;
-- update: graph ID, server cursor, message ID, checksum, bytes, size, received
-  time;
+- graph metadata: ID, status, schema version, byte quota, history epoch, and
+  checkpoint pointer;
+- membership: graph ID, account ID, role, revocation/version metadata; the
+  owner membership is the canonical ownership record;
+- update: graph ID, server cursor, message ID, account ID, checksum, bytes,
+  size, received time;
 - checkpoint: graph ID, history epoch, included cursor, shallow Loro
   snapshot/version vector, checksum, and size;
 - compact receipt: graph/message ID, checksum, and original cursor for
   idempotent retries after covered update rows are reclaimed;
-- audit event: principal, graph, security/administrative action, timestamp.
+- audit event: account, graph, security/administrative action, timestamp.
 
 Server administration and graph ownership are independent authorities. A
 server administrator may create, disable, reset, or change the global role of
@@ -192,7 +192,7 @@ closes sessions; clients reconcile on reconnect regardless.
 
 ## Observability
 
-Structured logs carry request/session IDs, opaque graph/principal IDs, cursor,
+Structured logs carry request/session IDs, opaque graph/account IDs, cursor,
 sizes, and result codes, but never note text, property values, tokens, message
 IDs, or raw update bytes. Metrics cover active sessions/rooms, accepted updates,
 rejected frames, slow consumers, and room reconstruction count.

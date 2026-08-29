@@ -17,7 +17,6 @@ import {
   resolveRelativeDate,
 } from "../../src/entities/query-compile";
 import {
-  decodePlan,
   defaultPlan,
   emptyGroup,
   type PlanCondition,
@@ -36,25 +35,6 @@ function withWhere(plan: QueryPlan, where: PlanGroup): QueryPlan {
 }
 
 describe("query plan compilation", () => {
-  it("normalizes legacy display modes and display-only bookkeeping", () => {
-    const legacy: QueryPlan = {
-      ...defaultPlan("block"),
-      columns: [
-        { id: "text", source: { kind: "content" }, aggregate: "count" },
-        { id: "tags", source: { kind: "tags" }, aggregate: "count" },
-        { id: "parent", source: { kind: "parent" } },
-        { id: "order", source: { kind: "sibling_index" } },
-        { id: "favourite", source: { kind: "property", key: "builtin.favorite-order" } },
-        { id: "total", source: { kind: "subject" }, aggregate: "count" },
-      ],
-    };
-
-    expect(decodePlan(JSON.stringify(legacy), 1)?.columns).toEqual([
-      { id: "text", source: { kind: "content" } },
-      { id: "tags", source: { kind: "tags" }, aggregate: "list" },
-    ]);
-  });
-
   it("selects a subject, its text, and its page for the starting plan", () => {
     const { source, parameters, variables, subjectVariable } = compilePlan(defaultPlan("block"));
     expect(parameters).toEqual([]);

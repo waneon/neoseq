@@ -41,7 +41,7 @@ release candidate가 공개된 benchmark/security/accessibility/operations gate�
 
 - outline tree semantics, focus/selection, keyboard navigation, screen reader
   label, contrast, touch target, reduced motion을 검증한다.
-- loading/offline/unsaved/auth expired/resync/migration/quarantine 상태에
+- loading/offline/unsaved/auth expired/resync/schema mismatch/quarantine 상태에
   recovery action을 제공한다.
 - IME, very long Markdown, deep outline, dynamic query result에서 focus loss와
   input latency를 검증한다.
@@ -51,7 +51,7 @@ release candidate가 공개된 benchmark/security/accessibility/operations gate�
 - server SLI/SLO 후보, dashboard, alert, runbook을 만든다.
 - deploy, graceful shutdown, DB unavailable, slow consumer, backup restore,
   credential rotation, membership incident drill을 수행한다.
-- Web/server compatibility window와 server-first rollout/rollback을 staging에서
+- Web/server exact-version 거부와 matched-artifact rollout/rollback을 staging에서
   검증한다.
 
 ## 목표 budget
@@ -84,7 +84,7 @@ release candidate가 공개된 benchmark/security/accessibility/operations gate�
 - [ ] 핵심 workflow의 accessibility gate와 수동 보조기술 검증이 통과한다.
 - [ ] 장애가 unbounded queue, silent loss, ack 의미 위반으로 이어지지 않는다.
 - [ ] dashboard/alert/runbook/restore drill이 staging에서 실제 동작한다.
-- [ ] release compatibility/rollback이 이전 지원 client와 검증된다.
+- [ ] matched release artifact의 rollout/rollback이 staging에서 검증된다.
 
 ## 이 단계에서 하지 않는 것
 

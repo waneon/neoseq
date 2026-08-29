@@ -1015,32 +1015,6 @@ mod tests {
         assert!(document.validate().is_err());
     }
 
-    /// A reader who had ordered a table before the order became a list keeps
-    /// that order: the single object earlier builds wrote still deserializes.
-    #[test]
-    fn query_view_sort_reads_the_single_form_earlier_builds_wrote() {
-        let legacy = serde_json::json!({
-            "compact": true,
-            "wrap": false,
-            "sort": { "variable": "status", "descending": true },
-        });
-        let options: crate::QueryViewOptions = serde_json::from_value(legacy).unwrap();
-        assert_eq!(options.sort.len(), 1);
-        assert_eq!(options.sort[0].variable, "status");
-        assert!(options.sort[0].descending);
-
-        let list = serde_json::json!({
-            "sort": [{ "variable": "a" }, { "variable": "b", "descending": true }],
-        });
-        let options: crate::QueryViewOptions = serde_json::from_value(list).unwrap();
-        assert_eq!(options.sort.len(), 2);
-        assert!(options.sort[1].descending);
-
-        let absent: crate::QueryViewOptions = serde_json::from_value(json_object()).unwrap();
-        assert!(absent.sort.is_empty());
-        assert!(absent.list_sort.is_empty());
-    }
-
     #[test]
     fn query_list_sort_is_a_bounded_list_of_distinct_fields() {
         let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
@@ -1064,10 +1038,6 @@ mod tests {
             })
             .collect();
         assert!(document.validate().is_err());
-    }
-
-    fn json_object() -> serde_json::Value {
-        serde_json::json!({})
     }
 
     #[test]

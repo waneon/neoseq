@@ -18,7 +18,7 @@ use tokio_tungstenite::{
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL; run with devenv tasks run sync-server:postgres-test"]
-async fn postgres_migration_idempotency_and_authorization() {
+async fn postgres_schema_persistence_and_authorization() {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be provided by the PostgreSQL integration test fixture");
     let store = PgStore::connect(&database_url, 4).await.unwrap();
@@ -336,18 +336,18 @@ async fn postgres_migration_idempotency_and_authorization() {
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();
-    sqlx::query("UPDATE neoseq_schema_version SET version = 4 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
     assert!(matches!(
         PgStore::from_pool(store.pool().clone()).await,
-        Err(StoreError::SchemaTooNew {
-            found: 4,
-            supported: 3
+        Err(StoreError::SchemaMismatch {
+            found: 2,
+            required: 1
         })
     ));
-    sqlx::query("UPDATE neoseq_schema_version SET version = 3 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 1 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();

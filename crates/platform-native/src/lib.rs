@@ -4,9 +4,9 @@ pub mod core_port;
 pub mod repository;
 
 pub use core_port::NativeCorePort;
-pub use repository::{
-    FaultPoint, SQLITE_SCHEMA_VERSION, SqliteGraphRepository, SqliteRepositoryError,
-};
+#[cfg(debug_assertions)]
+pub use repository::FaultPoint;
+pub use repository::{SQLITE_SCHEMA_VERSION, SqliteGraphRepository, SqliteRepositoryError};
 
 #[cfg(test)]
 mod core_port_tests;

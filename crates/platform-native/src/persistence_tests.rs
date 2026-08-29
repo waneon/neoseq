@@ -1,4 +1,4 @@
-use crate::{FaultPoint, SqliteGraphRepository, SqliteRepositoryError};
+use crate::{FaultPoint, SQLITE_SCHEMA_VERSION, SqliteGraphRepository, SqliteRepositoryError};
 use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use graph_core::{
     GraphCore, GraphLocator, GraphRepository, GraphRuntime, InMemoryClock, LocalGraphRepository,
@@ -120,7 +120,10 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
         .unwrap();
     let expected = runtime.core().fingerprint().unwrap();
     assert_eq!(runtime.repository().journal_mode().unwrap(), "wal");
-    assert_eq!(runtime.repository().schema_version().unwrap(), 2);
+    assert_eq!(
+        runtime.repository().schema_version().unwrap(),
+        SQLITE_SCHEMA_VERSION
+    );
     drop(runtime);
 
     let (mut restored, report) = open(database.path(), &graph, 32);

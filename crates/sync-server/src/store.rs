@@ -3,7 +3,7 @@ use graph_core::checksum;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 
-pub const DATABASE_SCHEMA_VERSION: i32 = 3;
+pub const DATABASE_SCHEMA_VERSION: i32 = 1;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +44,6 @@ impl GraphRole {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Membership {
-    pub principal_id: String,
     pub role: GraphRole,
     pub version: u64,
     pub schema_version: u32,
@@ -69,7 +68,6 @@ pub struct MembershipListing {
 pub struct StoredUpdate {
     pub cursor: u64,
     pub message_id: String,
-    pub principal_id: String,
     pub checksum: String,
     pub bytes: Vec<u8>,
 }
@@ -85,11 +83,7 @@ pub struct StoredCheckpoint {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphLoad {
-    pub graph_id: String,
-    pub owner_principal_id: String,
-    pub status: GraphStatus,
     pub schema_version: u32,
-    pub byte_quota: u64,
     pub history_epoch: u64,
     pub checkpoint: StoredCheckpoint,
     pub updates: Vec<StoredUpdate>,
@@ -125,8 +119,8 @@ pub enum StoreError {
     MessageConflict,
     #[error("history epoch changed while checkpoint was being installed")]
     StaleHistory,
-    #[error("database schema {found} is newer than supported schema {supported}")]
-    SchemaTooNew { found: i32, supported: i32 },
+    #[error("database schema {found} does not match required schema {required}")]
+    SchemaMismatch { found: i32, required: i32 },
     #[error("durable graph data is corrupt: {0}")]
     Corrupt(&'static str),
     #[error("storage is unavailable: {0}")]
@@ -145,15 +139,14 @@ impl From<sqlx::Error> for StoreError {
 pub trait GraphStore: Send + Sync + 'static {
     async fn ready(&self) -> Result<(), StoreError>;
 
-    async fn authorize(&self, graph_id: &str, principal_id: &str)
-    -> Result<Membership, StoreError>;
+    async fn authorize(&self, graph_id: &str, account_id: &str) -> Result<Membership, StoreError>;
 
     async fn load_graph(&self, graph_id: &str) -> Result<GraphLoad, StoreError>;
 
     async fn commit_update(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         message_id: &str,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError>;
@@ -174,29 +167,25 @@ pub trait GraphAdmin: GraphStore {
     async fn create_graph(
         &self,
         graph_id: &str,
-        owner_principal_id: &str,
+        owner_account_id: &str,
         schema_version: u32,
         byte_quota: u64,
         snapshot: &[u8],
         version_vector: &[u8],
     ) -> Result<(), StoreError>;
 
-    async fn list_graphs(&self, principal_id: &str) -> Result<Vec<GraphListing>, StoreError>;
+    async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError>;
 
     async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError>;
 
     async fn grant_membership(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError>;
 
-    async fn revoke_membership(
-        &self,
-        graph_id: &str,
-        principal_id: &str,
-    ) -> Result<u64, StoreError>;
+    async fn revoke_membership(&self, graph_id: &str, account_id: &str) -> Result<u64, StoreError>;
 }
 
 #[derive(Clone)]
@@ -214,7 +203,7 @@ impl PgStore {
     }
 
     pub async fn from_pool(pool: PgPool) -> Result<Self, StoreError> {
-        migrate(&pool).await?;
+        initialize_schema(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -225,7 +214,7 @@ impl PgStore {
     async fn insert_graph(
         &self,
         graph_id: &str,
-        owner_principal_id: &str,
+        owner_account_id: &str,
         schema_version: u32,
         byte_quota: u64,
         snapshot: &[u8],
@@ -233,23 +222,21 @@ impl PgStore {
     ) -> Result<(), StoreError> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query(
-            "INSERT INTO graph(
-                graph_id, owner_principal_id, schema_version, byte_quota, used_bytes
-             ) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO graph(graph_id, schema_version, byte_quota, used_bytes)
+             VALUES ($1, $2, $3, $4)",
         )
         .bind(graph_id)
-        .bind(owner_principal_id)
         .bind(i32::try_from(schema_version).map_err(|_| StoreError::Corrupt("schema overflow"))?)
         .bind(as_i64(byte_quota)?)
         .bind(as_i64(snapshot.len() as u64)?)
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
-            "INSERT INTO graph_membership(graph_id, principal_id, role, version)
+            "INSERT INTO graph_membership(graph_id, account_id, role, version)
              VALUES ($1, $2, 'owner', 1)",
         )
         .bind(graph_id)
-        .bind(owner_principal_id)
+        .bind(owner_account_id)
         .execute(&mut *transaction)
         .await?;
         let checkpoint_id: i64 = sqlx::query_scalar(
@@ -273,7 +260,7 @@ impl PgStore {
         audit(
             &mut transaction,
             graph_id,
-            owner_principal_id,
+            owner_account_id,
             "graph.create",
             "ok",
         )
@@ -285,7 +272,7 @@ impl PgStore {
     async fn upsert_membership(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
         if role == GraphRole::Owner {
@@ -294,13 +281,13 @@ impl PgStore {
         let mut transaction = self.pool.begin().await?;
         let version = bump_membership_version(&mut transaction, graph_id).await?;
         sqlx::query(
-            "INSERT INTO graph_membership(graph_id, principal_id, role, version, revoked_at)
+            "INSERT INTO graph_membership(graph_id, account_id, role, version, revoked_at)
              VALUES ($1, $2, $3, $4, NULL)
-             ON CONFLICT(graph_id, principal_id) DO UPDATE
+             ON CONFLICT(graph_id, account_id) DO UPDATE
              SET role = EXCLUDED.role, version = EXCLUDED.version, revoked_at = NULL",
         )
         .bind(graph_id)
-        .bind(principal_id)
+        .bind(account_id)
         .bind(role.as_str())
         .bind(as_i64(version)?)
         .execute(&mut *transaction)
@@ -308,7 +295,7 @@ impl PgStore {
         audit(
             &mut transaction,
             graph_id,
-            principal_id,
+            account_id,
             "membership.grant",
             "ok",
         )
@@ -320,17 +307,17 @@ impl PgStore {
     async fn revoke_membership_row(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
     ) -> Result<u64, StoreError> {
         let mut transaction = self.pool.begin().await?;
         let version = bump_membership_version(&mut transaction, graph_id).await?;
         let affected = sqlx::query(
             "UPDATE graph_membership
              SET revoked_at = NOW(), version = $3
-             WHERE graph_id = $1 AND principal_id = $2 AND revoked_at IS NULL",
+             WHERE graph_id = $1 AND account_id = $2 AND revoked_at IS NULL",
         )
         .bind(graph_id)
-        .bind(principal_id)
+        .bind(account_id)
         .bind(as_i64(version)?)
         .execute(&mut *transaction)
         .await?
@@ -341,7 +328,7 @@ impl PgStore {
         audit(
             &mut transaction,
             graph_id,
-            principal_id,
+            account_id,
             "membership.revoke",
             "ok",
         )
@@ -351,9 +338,9 @@ impl PgStore {
     }
 }
 
-async fn migrate(pool: &PgPool) -> Result<(), StoreError> {
+async fn initialize_schema(pool: &PgPool) -> Result<(), StoreError> {
     let mut transaction = pool.begin().await?;
-    // Serializes first-start migration across otherwise stateless instances.
+    // Serializes first-start schema initialization across stateless instances.
     sqlx::query("SELECT pg_advisory_xact_lock(715887124)")
         .execute(&mut *transaction)
         .await?;
@@ -366,30 +353,14 @@ async fn migrate(pool: &PgPool) -> Result<(), StoreError> {
             sqlx::query_scalar("SELECT version FROM neoseq_schema_version WHERE singleton = TRUE")
                 .fetch_one(&mut *transaction)
                 .await?;
-        if found > DATABASE_SCHEMA_VERSION {
-            return Err(StoreError::SchemaTooNew {
+        if found != DATABASE_SCHEMA_VERSION {
+            return Err(StoreError::SchemaMismatch {
                 found,
-                supported: DATABASE_SCHEMA_VERSION,
+                required: DATABASE_SCHEMA_VERSION,
             });
         }
-        if found < 2 {
-            sqlx::raw_sql(include_str!("../migrations/0002_history_epoch.sql"))
-                .execute(&mut *transaction)
-                .await?;
-        }
-        if found < 3 {
-            sqlx::raw_sql(include_str!("../migrations/0003_accounts.sql"))
-                .execute(&mut *transaction)
-                .await?;
-        }
     } else {
-        sqlx::raw_sql(include_str!("../migrations/0001_sync.sql"))
-            .execute(&mut *transaction)
-            .await?;
-        sqlx::raw_sql(include_str!("../migrations/0002_history_epoch.sql"))
-            .execute(&mut *transaction)
-            .await?;
-        sqlx::raw_sql(include_str!("../migrations/0003_accounts.sql"))
+        sqlx::raw_sql(include_str!("../schema.sql"))
             .execute(&mut *transaction)
             .await?;
     }
@@ -415,16 +386,16 @@ async fn bump_membership_version(
 async fn audit(
     transaction: &mut Transaction<'_, Postgres>,
     graph_id: &str,
-    principal_id: &str,
+    account_id: &str,
     action: &str,
     result: &str,
 ) -> Result<(), StoreError> {
     sqlx::query(
-        "INSERT INTO graph_audit_event(graph_id, principal_id, action, result_code)
+        "INSERT INTO graph_audit_event(graph_id, account_id, action, result_code)
          VALUES ($1, $2, $3, $4)",
     )
     .bind(graph_id)
-    .bind(principal_id)
+    .bind(account_id)
     .bind(action)
     .bind(result)
     .execute(&mut **transaction)
@@ -439,24 +410,19 @@ impl GraphStore for PgStore {
         Ok(())
     }
 
-    async fn authorize(
-        &self,
-        graph_id: &str,
-        principal_id: &str,
-    ) -> Result<Membership, StoreError> {
+    async fn authorize(&self, graph_id: &str, account_id: &str) -> Result<Membership, StoreError> {
         let row = sqlx::query(
             "SELECT m.role, m.version, g.schema_version
              FROM graph_membership m
              JOIN graph g ON g.graph_id = m.graph_id
-             WHERE m.graph_id = $1 AND m.principal_id = $2 AND m.revoked_at IS NULL",
+             WHERE m.graph_id = $1 AND m.account_id = $2 AND m.revoked_at IS NULL",
         )
         .bind(graph_id)
-        .bind(principal_id)
+        .bind(account_id)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::AccessDenied)?;
         Ok(Membership {
-            principal_id: principal_id.to_owned(),
             role: GraphRole::parse(row.try_get("role")?)?,
             version: as_u64(row.try_get("version")?)?,
             schema_version: as_u32(row.try_get("schema_version")?)?,
@@ -465,8 +431,7 @@ impl GraphStore for PgStore {
 
     async fn load_graph(&self, graph_id: &str) -> Result<GraphLoad, StoreError> {
         let row = sqlx::query(
-            "SELECT g.owner_principal_id, g.status, g.schema_version, g.byte_quota,
-                    g.history_epoch, c.history_epoch AS checkpoint_epoch,
+            "SELECT g.schema_version, g.history_epoch, c.history_epoch AS checkpoint_epoch,
                     c.included_cursor, c.snapshot, c.version_vector, c.checksum
              FROM graph g
              JOIN graph_checkpoint c ON c.checkpoint_id = g.checkpoint_id
@@ -487,7 +452,7 @@ impl GraphStore for PgStore {
             return Err(StoreError::Corrupt("checkpoint history epoch mismatch"));
         }
         let update_rows = sqlx::query(
-            "SELECT cursor, message_id, principal_id, checksum, payload
+            "SELECT cursor, message_id, checksum, payload
              FROM graph_update
              WHERE graph_id = $1 AND cursor > $2 ORDER BY cursor",
         )
@@ -505,17 +470,12 @@ impl GraphStore for PgStore {
             updates.push(StoredUpdate {
                 cursor: as_u64(update.try_get("cursor")?)?,
                 message_id: update.try_get("message_id")?,
-                principal_id: update.try_get("principal_id")?,
                 checksum: expected,
                 bytes,
             });
         }
         Ok(GraphLoad {
-            graph_id: graph_id.to_owned(),
-            owner_principal_id: row.try_get("owner_principal_id")?,
-            status: parse_status(row.try_get("status")?)?,
             schema_version: as_u32(row.try_get("schema_version")?)?,
-            byte_quota: as_u64(row.try_get("byte_quota")?)?,
             history_epoch,
             checkpoint: StoredCheckpoint {
                 history_epoch,
@@ -531,7 +491,7 @@ impl GraphStore for PgStore {
     async fn commit_update(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         message_id: &str,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError> {
@@ -542,11 +502,11 @@ impl GraphStore for PgStore {
             "SELECT m.role, g.status, g.byte_quota, g.used_bytes
              FROM graph g
              JOIN graph_membership m ON m.graph_id = g.graph_id
-             WHERE g.graph_id = $1 AND m.principal_id = $2 AND m.revoked_at IS NULL
+             WHERE g.graph_id = $1 AND m.account_id = $2 AND m.revoked_at IS NULL
              FOR UPDATE OF g",
         )
         .bind(graph_id)
-        .bind(principal_id)
+        .bind(account_id)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(StoreError::AccessDenied)?;
@@ -587,13 +547,13 @@ impl GraphStore for PgStore {
         }
         let cursor: i64 = sqlx::query_scalar(
             "INSERT INTO graph_update(
-                graph_id, message_id, principal_id, checksum, payload, size_bytes
+                graph_id, message_id, account_id, checksum, payload, size_bytes
              ) VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING cursor",
         )
         .bind(graph_id)
         .bind(message_id)
-        .bind(principal_id)
+        .bind(account_id)
         .bind(&digest)
         .bind(bytes)
         .bind(as_i64(bytes.len() as u64)?)
@@ -607,7 +567,7 @@ impl GraphStore for PgStore {
         audit(
             &mut transaction,
             graph_id,
-            principal_id,
+            account_id,
             "update.commit",
             "ok",
         )
@@ -747,7 +707,7 @@ impl GraphAdmin for PgStore {
     async fn create_graph(
         &self,
         graph_id: &str,
-        owner_principal_id: &str,
+        owner_account_id: &str,
         schema_version: u32,
         byte_quota: u64,
         snapshot: &[u8],
@@ -755,7 +715,7 @@ impl GraphAdmin for PgStore {
     ) -> Result<(), StoreError> {
         self.insert_graph(
             graph_id,
-            owner_principal_id,
+            owner_account_id,
             schema_version,
             byte_quota,
             snapshot,
@@ -764,15 +724,15 @@ impl GraphAdmin for PgStore {
         .await
     }
 
-    async fn list_graphs(&self, principal_id: &str) -> Result<Vec<GraphListing>, StoreError> {
+    async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError> {
         let rows = sqlx::query(
             "SELECT g.graph_id, m.role, g.status, g.membership_version
              FROM graph g
              JOIN graph_membership m ON m.graph_id = g.graph_id
-             WHERE m.principal_id = $1 AND m.revoked_at IS NULL
+             WHERE m.account_id = $1 AND m.revoked_at IS NULL
              ORDER BY g.created_at, g.graph_id",
         )
-        .bind(principal_id)
+        .bind(account_id)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
@@ -789,10 +749,10 @@ impl GraphAdmin for PgStore {
 
     async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError> {
         let rows = sqlx::query(
-            "SELECT principal_id, role, version
+            "SELECT account_id, role, version
              FROM graph_membership
              WHERE graph_id = $1 AND revoked_at IS NULL
-             ORDER BY principal_id",
+             ORDER BY account_id",
         )
         .bind(graph_id)
         .fetch_all(&self.pool)
@@ -800,7 +760,7 @@ impl GraphAdmin for PgStore {
         rows.into_iter()
             .map(|row| {
                 Ok(MembershipListing {
-                    account_id: row.try_get("principal_id")?,
+                    account_id: row.try_get("account_id")?,
                     role: GraphRole::parse(row.try_get("role")?)?,
                     version: as_u64(row.try_get("version")?)?,
                 })
@@ -811,18 +771,14 @@ impl GraphAdmin for PgStore {
     async fn grant_membership(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
-        self.upsert_membership(graph_id, principal_id, role).await
+        self.upsert_membership(graph_id, account_id, role).await
     }
 
-    async fn revoke_membership(
-        &self,
-        graph_id: &str,
-        principal_id: &str,
-    ) -> Result<u64, StoreError> {
-        self.revoke_membership_row(graph_id, principal_id).await
+    async fn revoke_membership(&self, graph_id: &str, account_id: &str) -> Result<u64, StoreError> {
+        self.revoke_membership_row(graph_id, account_id).await
     }
 }
 

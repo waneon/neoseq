@@ -217,7 +217,7 @@ in
     };
 
     "sync-server:postgres-test" = {
-      description = "Run PostgreSQL migration, persistence, and restore tests";
+      description = "Run PostgreSQL schema, persistence, and authorization tests";
       exec = databaseTest;
       after = [ "devenv:processes:postgres" ];
     };

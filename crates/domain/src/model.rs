@@ -334,29 +334,6 @@ pub struct QueryViewFieldSort {
     pub descending: bool,
 }
 
-/// Accepts the single sort earlier builds wrote as well as the list this one
-/// does, so a reader who had ordered a table keeps that order across the
-/// upgrade instead of watching it silently vanish.
-fn query_view_sorts<'de, D>(deserializer: D) -> Result<Vec<QueryViewSort>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    // Declaration order is the order serde tries: a list must be matched as a
-    // list before the single-object form is considered.
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum OneOrMany {
-        Many(Vec<QueryViewSort>),
-        One(QueryViewSort),
-    }
-
-    Ok(match Option::<OneOrMany>::deserialize(deserializer)? {
-        None => Vec::new(),
-        Some(OneOrMany::Many(sorts)) => sorts,
-        Some(OneOrMany::One(sort)) => vec![sort],
-    })
-}
-
 /// Presentation switches that belong to one saved view rather than to the
 /// query. They never change which rows or values the query returns.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -369,11 +346,7 @@ pub struct QueryViewOptions {
     pub wrap: bool,
     /// How a table orders its projected cells, most significant term first.
     /// Empty means the order the query returned.
-    #[serde(
-        default,
-        deserialize_with = "query_view_sorts",
-        skip_serializing_if = "Vec::is_empty"
-    )]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sort: Vec<QueryViewSort>,
     /// How a list orders canonical entity fields, most significant term first.
     /// Empty means the order the query returned.

@@ -141,8 +141,7 @@ JSON object carrying its own version; the authoring grammar belongs to the
 client, and a version a reader does not understand simply leaves that block on
 its source. Setting a plan writes it and its compiled source in one transaction,
 and writing source by hand clears the plan, so a stored plan always describes
-what runs in that view. Version 1 documents migrate by copying their single
-definition into every existing view; subsequent writes are independent.
+what runs in that view. Query documents require the current v2 shape.
 
 `columns` is a table-only per-view ordered list of `{variable, hidden, width}`
 records. `options` carries common density, table wrapping, a table `sort` of

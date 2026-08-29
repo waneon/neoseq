@@ -31,7 +31,6 @@ struct MemoryState {
 }
 
 struct MemoryGraph {
-    owner_principal_id: String,
     status: GraphStatus,
     schema_version: u32,
     byte_quota: u64,
@@ -61,7 +60,7 @@ impl MemoryStore {
     pub fn seed_graph(
         &self,
         graph_id: &str,
-        owner_principal_id: &str,
+        owner_account_id: &str,
         schema_version: u32,
         byte_quota: u64,
         snapshot: Vec<u8>,
@@ -69,7 +68,7 @@ impl MemoryStore {
     ) {
         let mut memberships = HashMap::new();
         memberships.insert(
-            owner_principal_id.to_owned(),
+            owner_account_id.to_owned(),
             MemoryMembership {
                 role: GraphRole::Owner,
                 version: 1,
@@ -83,7 +82,6 @@ impl MemoryStore {
             .insert(
                 graph_id.to_owned(),
                 MemoryGraph {
-                    owner_principal_id: owner_principal_id.to_owned(),
                     status: GraphStatus::Active,
                     schema_version,
                     byte_quota,
@@ -105,12 +103,12 @@ impl MemoryStore {
             );
     }
 
-    pub fn grant(&self, graph_id: &str, principal_id: &str, role: GraphRole) {
+    pub fn grant(&self, graph_id: &str, account_id: &str, role: GraphRole) {
         let mut state = self.inner.lock().expect("memory store mutex");
         let graph = state.graphs.get_mut(graph_id).expect("seeded graph");
         graph.membership_version += 1;
         graph.memberships.insert(
-            principal_id.to_owned(),
+            account_id.to_owned(),
             MemoryMembership {
                 role,
                 version: graph.membership_version,
@@ -119,13 +117,13 @@ impl MemoryStore {
         );
     }
 
-    pub fn revoke(&self, graph_id: &str, principal_id: &str) {
+    pub fn revoke(&self, graph_id: &str, account_id: &str) {
         let mut state = self.inner.lock().expect("memory store mutex");
         let graph = state.graphs.get_mut(graph_id).expect("seeded graph");
         graph.membership_version += 1;
         let membership = graph
             .memberships
-            .get_mut(principal_id)
+            .get_mut(account_id)
             .expect("granted principal");
         membership.version = graph.membership_version;
         membership.revoked = true;
@@ -158,13 +156,9 @@ impl MemoryStore {
     }
 }
 
-fn memory_load(graph_id: &str, graph: &MemoryGraph) -> GraphLoad {
+fn memory_load(graph: &MemoryGraph) -> GraphLoad {
     GraphLoad {
-        graph_id: graph_id.to_owned(),
-        owner_principal_id: graph.owner_principal_id.clone(),
-        status: graph.status,
         schema_version: graph.schema_version,
-        byte_quota: graph.byte_quota,
         history_epoch: graph.history_epoch,
         checkpoint: graph.checkpoint.clone(),
         // Covered rows remain physically available for the prior checkpoint,
@@ -188,11 +182,7 @@ impl GraphStore for MemoryStore {
         }
     }
 
-    async fn authorize(
-        &self,
-        graph_id: &str,
-        principal_id: &str,
-    ) -> Result<Membership, StoreError> {
+    async fn authorize(&self, graph_id: &str, account_id: &str) -> Result<Membership, StoreError> {
         let state = self.inner.lock().expect("memory store mutex");
         if !state.available {
             return Err(StoreError::Unavailable("injected outage"));
@@ -200,11 +190,10 @@ impl GraphStore for MemoryStore {
         let graph = state.graphs.get(graph_id).ok_or(StoreError::AccessDenied)?;
         let member = graph
             .memberships
-            .get(principal_id)
+            .get(account_id)
             .filter(|member| !member.revoked)
             .ok_or(StoreError::AccessDenied)?;
         Ok(Membership {
-            principal_id: principal_id.to_owned(),
             role: member.role,
             version: member.version,
             schema_version: graph.schema_version,
@@ -219,14 +208,14 @@ impl GraphStore for MemoryStore {
         state
             .graphs
             .get(graph_id)
-            .map(|graph| memory_load(graph_id, graph))
+            .map(memory_load)
             .ok_or(StoreError::AccessDenied)
     }
 
     async fn commit_update(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         message_id: &str,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError> {
@@ -245,7 +234,7 @@ impl GraphStore for MemoryStore {
             .ok_or(StoreError::AccessDenied)?;
         let member = graph
             .memberships
-            .get(principal_id)
+            .get(account_id)
             .filter(|member| !member.revoked)
             .ok_or(StoreError::AccessDenied)?;
         if !member.role.can_write() || graph.status == GraphStatus::ReadOnly {
@@ -283,7 +272,6 @@ impl GraphStore for MemoryStore {
         graph.updates.push(StoredUpdate {
             cursor: next_cursor,
             message_id: message_id.to_owned(),
-            principal_id: principal_id.to_owned(),
             checksum: checksum(bytes),
             bytes: bytes.to_vec(),
         });
@@ -382,7 +370,7 @@ impl GraphAdmin for MemoryStore {
     async fn create_graph(
         &self,
         graph_id: &str,
-        owner_principal_id: &str,
+        owner_account_id: &str,
         schema_version: u32,
         byte_quota: u64,
         snapshot: &[u8],
@@ -394,7 +382,7 @@ impl GraphAdmin for MemoryStore {
         }
         let mut memberships = HashMap::new();
         memberships.insert(
-            owner_principal_id.to_owned(),
+            owner_account_id.to_owned(),
             MemoryMembership {
                 role: GraphRole::Owner,
                 version: 1,
@@ -404,7 +392,6 @@ impl GraphAdmin for MemoryStore {
         state.graphs.insert(
             graph_id.to_owned(),
             MemoryGraph {
-                owner_principal_id: owner_principal_id.to_owned(),
                 status: GraphStatus::Active,
                 schema_version,
                 byte_quota,
@@ -427,13 +414,13 @@ impl GraphAdmin for MemoryStore {
         Ok(())
     }
 
-    async fn list_graphs(&self, principal_id: &str) -> Result<Vec<GraphListing>, StoreError> {
+    async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError> {
         let state = self.inner.lock().expect("memory store mutex");
         let mut graphs = state
             .graphs
             .iter()
             .filter_map(|(graph_id, graph)| {
-                let member = graph.memberships.get(principal_id)?;
+                let member = graph.memberships.get(account_id)?;
                 (!member.revoked).then_some(GraphListing {
                     graph_id: graph_id.clone(),
                     role: member.role,
@@ -452,9 +439,9 @@ impl GraphAdmin for MemoryStore {
         let mut memberships = graph
             .memberships
             .iter()
-            .filter_map(|(principal_id, membership)| {
+            .filter_map(|(account_id, membership)| {
                 (!membership.revoked).then_some(MembershipListing {
-                    account_id: principal_id.clone(),
+                    account_id: account_id.clone(),
                     role: membership.role,
                     version: membership.version,
                 })
@@ -467,29 +454,25 @@ impl GraphAdmin for MemoryStore {
     async fn grant_membership(
         &self,
         graph_id: &str,
-        principal_id: &str,
+        account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
         if role == GraphRole::Owner {
             return Err(StoreError::InvalidMembershipRole);
         }
-        self.grant(graph_id, principal_id, role);
-        self.authorize(graph_id, principal_id)
+        self.grant(graph_id, account_id, role);
+        self.authorize(graph_id, account_id)
             .await
             .map(|membership| membership.version)
     }
 
-    async fn revoke_membership(
-        &self,
-        graph_id: &str,
-        principal_id: &str,
-    ) -> Result<u64, StoreError> {
-        self.revoke(graph_id, principal_id);
+    async fn revoke_membership(&self, graph_id: &str, account_id: &str) -> Result<u64, StoreError> {
+        self.revoke(graph_id, account_id);
         let state = self.inner.lock().expect("memory store mutex");
         state
             .graphs
             .get(graph_id)
-            .and_then(|graph| graph.memberships.get(principal_id))
+            .and_then(|graph| graph.memberships.get(account_id))
             .map(|membership| membership.version)
             .ok_or(StoreError::AccessDenied)
     }

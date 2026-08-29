@@ -45,7 +45,7 @@ aborting panics, and stripped symbols. Development and browser test builds use
 the regular release profile for a faster loop.
 
 One generator turns `contracts/` into the Rust and TypeScript sources that must
-agree: the CorePort DTOs and error codes, the graph document-schema window, and
+agree: the CorePort DTOs and error codes, the graph document-schema version, and
 the sync protocol version with its WebSocket subprotocol name. The drift check
 runs before every other check, so a version bumped in only one language fails
 the build instead of the running system.
@@ -56,7 +56,8 @@ Development and test-mode bindings remain checkout-local ignored artifacts;
 the production artifact exists only as a Nix output.
 
 The `sync-server` output builds the release service binary and installs it as a
-single Nix store artifact. Database migrations are embedded in the binary.
+single Nix store artifact. The current PostgreSQL schema baseline is embedded in
+the binary.
 For local development, the supervised sync server waits for the persistent
 PostgreSQL service and exposes an HTTP readiness probe. Database-backed tests
 share the devenv-managed PostgreSQL service while each suite owns a uniquely
@@ -74,8 +75,8 @@ named database.
 
 Treefmt is the single formatting boundary. It delegates Rust, Nix, Web and
 document formats, TOML, and shell scripts to pinned language-native formatters.
-Generated sources remain owned by their generators, lockfiles remain owned by
-their package managers, and applied SQL migrations remain byte-stable. Running
+Generated sources remain owned by their generators, and lockfiles remain owned
+by their package managers. Running
 `treefmt` formats maintained files; the portable gate runs the same formatter
 set in CI mode and rejects drift.
 
@@ -135,7 +136,7 @@ must not order test actions.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
-runs the explicitly ignored migration, authorization, idempotency, and fault
+runs the explicitly ignored schema, authorization, idempotency, and fault
 integration test against its own database.
 Portable checks attach directly to the test entry point. The browser profile
 adds its browser task to that same entry point. Browser build prerequisites and
