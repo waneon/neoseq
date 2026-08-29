@@ -75,15 +75,13 @@ cargo bench -p neoseq-benchmarks
 
 ## Sync server
 
-Start PostgreSQL and provide the first server administrator to the `serve`
-process. `devenv up` then serves the Admin Web app at
+`devenv up` starts PostgreSQL and bootstraps the local development administrator
+as `admin` with password `change-me-later`. It then serves the Admin Web app at
 `http://127.0.0.1:4174` and the Neoseq client at `http://127.0.0.1:4173`.
 Further accounts are created and managed in the Admin Web app; users sign in to
 the client with their username and password.
 
 ```sh
-set -x NEOSEQ_BOOTSTRAP_ADMIN_USERNAME admin
-set -x NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD "a development password of your choice"
 devenv up
 ```
 

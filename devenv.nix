@@ -135,6 +135,8 @@ in
       env = {
         DATABASE_URL = databaseUrl;
         NEOSEQ_BIND = "127.0.0.1:${toString ports.sync}";
+        NEOSEQ_BOOTSTRAP_ADMIN_USERNAME = "admin";
+        NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD = "change-me-later";
       };
       exec = "exec cargo run --locked -p sync-server";
       after = [ "devenv:processes:postgres" ];
