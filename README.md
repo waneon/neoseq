@@ -1,7 +1,7 @@
 # Neoseq
 
 Neoseq is a local-first outliner inspired by Logseq. It aims to be lightweight,
-fast, and bug-free.
+fast, and hassle-free.
 
 ## Quick start
 
@@ -17,7 +17,8 @@ This starts the following services:
 
 - `neoseq-client`: the Neoseq client application on port `4173`
 - `neoseq-server`: the Neoseq synchronization server on port `8787`
-- `neoseq-admin-panel`: the Web-based Neoseq account administration panel on port `4174`
+- `neoseq-admin-panel`: the Web-based Neoseq account administration panel on port `4174`. By
+  default, an `admin` account is created with the password `change-me-later`.
 
 If a port is already in use, devenv automatically selects the next available
 port.
