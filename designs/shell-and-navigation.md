@@ -91,6 +91,14 @@ impression rather than sustained work. It uses a narrow, centered composition,
 bounded graph cards, and a restrained accent atmosphere. Once a graph is open,
 decoration yields to structure and authored content.
 
+Repositories form one horizontal index above the graph list. Local is the
+stable first tab; each remote tab represents exactly one server account, and an
+adjacent `+` opens the connection dialog. Selecting a tab changes the scope of
+listing, creation, and archive import together. The active tab uses a single
+accent underline rather than a filled pill, keeping the graph cards as the
+screen's primary objects. Tabs may scroll horizontally without wrapping or
+moving the add control.
+
 ## Responsive Contract
 
 Responsive changes preserve capability and hierarchy:

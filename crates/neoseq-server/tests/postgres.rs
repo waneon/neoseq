@@ -3,8 +3,8 @@ use futures_util::{SinkExt, StreamExt};
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use neoseq_server::{
     AccountPatch, AccountStatus, AppState, GraphAdmin, GraphRole, GraphStore, IdentityService,
-    Metrics, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole, SessionPurpose, StoreError,
-    router,
+    Metrics, NewGraph, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole, SessionPurpose,
+    StoreError, router,
 };
 use std::{
     sync::Arc,
@@ -164,15 +164,17 @@ async fn postgres_schema_persistence_and_authorization() {
     let graph = GraphId::new(&graph_id).unwrap();
     let base = GraphCore::new(graph.clone(), 1, "base").unwrap();
     let snapshot = base.export_snapshot().unwrap();
+    let version_vector = base.version_vector();
     store
-        .create_graph(
-            &graph_id,
-            &owner.account_id,
-            SCHEMA_VERSION,
-            8 * 1024 * 1024,
-            &snapshot,
-            &base.version_vector(),
-        )
+        .create_graph(NewGraph {
+            graph_id: &graph_id,
+            display_name: "Postgres graph",
+            owner_account_id: &owner.account_id,
+            schema_version: SCHEMA_VERSION,
+            byte_quota: 8 * 1024 * 1024,
+            snapshot: &snapshot,
+            version_vector: &version_vector,
+        })
         .await
         .unwrap();
     store
@@ -339,18 +341,18 @@ async fn postgres_schema_persistence_and_authorization() {
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();
-    sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 3 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
     assert!(matches!(
         PgStore::from_pool(store.pool().clone()).await,
         Err(StoreError::SchemaMismatch {
-            found: 2,
-            required: 1
+            found: 3,
+            required: 2
         })
     ));
-    sqlx::query("UPDATE neoseq_schema_version SET version = 1 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();

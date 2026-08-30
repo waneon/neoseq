@@ -5,7 +5,7 @@ use crate::{
     },
     metrics::Metrics,
     room::{RoomConnection, RoomError, RoomManager},
-    store::{GraphAdmin, GraphRole, GraphStatus, GraphStore, StoreError},
+    store::{GraphAdmin, GraphRole, GraphStatus, GraphStore, NewGraph, StoreError},
 };
 use axum::{
     Json, Router,
@@ -14,7 +14,7 @@ use axum::{
         Path, State, WebSocketUpgrade,
         ws::{Message as WsMessage, WebSocket},
     },
-    http::{HeaderMap, HeaderValue, Response, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, Response, StatusCode, header},
     response::IntoResponse,
     routing::{delete, get, patch, post, put},
 };
@@ -34,6 +34,7 @@ use sync_protocol::{
 };
 use tokio::sync::watch;
 use tokio::time::{interval, timeout};
+use tower_http::cors::{Any, CorsLayer};
 
 pub struct AppState<S: GraphStore> {
     pub rooms: Arc<RoomManager<S>>,
@@ -115,12 +116,30 @@ pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
             "/v1/graphs/{graph_id}/members/{username}",
             put(grant_membership::<S>).delete(revoke_membership::<S>),
         )
+        // The client can deliberately connect to repositories on other HTTPS
+        // origins. API authentication is bearer-only (never ambient cookies),
+        // so allowing browser origins does not confer account authority.
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::PATCH,
+                    Method::DELETE,
+                ])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+        )
         .with_state(state)
 }
 
 #[derive(Serialize)]
 struct GraphResponse {
     graph_id: String,
+    display_name: String,
+    created_at: String,
+    updated_at: String,
     role: &'static str,
     status: &'static str,
     membership_version: u64,
@@ -134,6 +153,12 @@ struct GraphsResponse {
 #[derive(Deserialize)]
 struct CreateGraphRequest {
     graph_id: String,
+    #[serde(default = "default_graph_name")]
+    name: String,
+}
+
+fn default_graph_name() -> String {
+    "Untitled".to_owned()
 }
 
 #[derive(Serialize)]
@@ -419,6 +444,9 @@ async fn list_graphs<S: GraphAdmin>(
                 .into_iter()
                 .map(|graph| GraphResponse {
                     graph_id: graph.graph_id,
+                    display_name: graph.display_name,
+                    created_at: graph.created_at,
+                    updated_at: graph.updated_at,
                     role: role_name(graph.role),
                     status: match graph.status {
                         GraphStatus::Active => "active",
@@ -446,6 +474,13 @@ async fn create_graph<S: GraphAdmin>(
         Ok(graph_id) => graph_id,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
     };
+    let display_name = request.name.trim();
+    if display_name.is_empty()
+        || display_name.chars().count() > 160
+        || display_name.chars().any(char::is_control)
+    {
+        return (StatusCode::BAD_REQUEST, "invalid graph name\n").into_response();
+    }
     let core = match graph_core::GraphCore::new(graph_id, u64::MAX - 2, "server:create") {
         Ok(core) => core,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
@@ -454,17 +489,19 @@ async fn create_graph<S: GraphAdmin>(
         Ok(snapshot) => snapshot,
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
+    let version_vector = core.version_vector();
     match state
         .rooms
         .store()
-        .create_graph(
-            &request.graph_id,
-            &principal,
-            graph_core::SCHEMA_VERSION,
-            64 * 1024 * 1024,
-            &snapshot,
-            &core.version_vector(),
-        )
+        .create_graph(NewGraph {
+            graph_id: &request.graph_id,
+            display_name,
+            owner_account_id: &principal,
+            schema_version: graph_core::SCHEMA_VERSION,
+            byte_quota: 64 * 1024 * 1024,
+            snapshot: &snapshot,
+            version_vector: &version_vector,
+        })
         .await
     {
         Ok(()) => (

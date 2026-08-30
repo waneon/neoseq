@@ -25,6 +25,7 @@ import { addDays } from "../../entities/journal";
 import type { MessageFunction } from "../../i18n";
 import { nextTheme, type Theme } from "../../ui/theme";
 import type { HistoryActions, HistoryInvocation } from "../history/context";
+import { graphPath } from "../graphs/routing";
 import type { Notifier } from "../notify/context";
 import type { CommandBridge } from "./context";
 import type { Command } from "./registry";
@@ -33,6 +34,7 @@ import { formatBindingParts, type Binding, type ShortcutId } from "./shortcuts";
 export interface CommandInputs {
   pages: PageSnapshot[];
   tags: TagSnapshot[];
+  repositoryId: string;
   graphId: string;
   today: string;
   currentDate: string | null;
@@ -84,6 +86,7 @@ export function buildCommands(input: CommandInputs): Command[] {
   const {
     pages,
     tags,
+    repositoryId,
     graphId,
     today,
     currentDate,
@@ -124,7 +127,7 @@ export function buildCommands(input: CommandInputs): Command[] {
       hint: message("commands.hintPage"),
       icon: <FileTextIcon aria-hidden />,
       pointerRoute: message("shell.pages"),
-      run: () => navigate(`/g/${graphId}/p/${page.id}`),
+      run: () => navigate(graphPath(repositoryId, graphId, `p/${page.id}`)),
     });
   }
 
@@ -137,7 +140,7 @@ export function buildCommands(input: CommandInputs): Command[] {
       hint: message("commands.hintTag"),
       icon: <HashIcon aria-hidden />,
       pointerRoute: message("shell.tags"),
-      run: () => navigate(`/g/${graphId}/t/${tag.id}`),
+      run: () => navigate(graphPath(repositoryId, graphId, `t/${tag.id}`)),
     });
   }
 
@@ -187,7 +190,7 @@ export function buildCommands(input: CommandInputs): Command[] {
     hint: formatJournalDate(today),
     icon: <CalendarDaysIcon aria-hidden />,
     pointerRoute: message("shell.journal"),
-    run: () => navigate(`/g/${graphId}/journal`),
+    run: () => navigate(graphPath(repositoryId, graphId, "journal")),
   });
 
   if (currentDate) {
@@ -198,7 +201,8 @@ export function buildCommands(input: CommandInputs): Command[] {
         label: message("commands.label.previousDay"),
         icon: <CalendarDaysIcon aria-hidden />,
         pointerRoute: message("shortcuts.nextPrevDayRoute"),
-        run: () => navigate(`/g/${graphId}/journal/${addDays(currentDate, -1)}`),
+        run: () =>
+          navigate(graphPath(repositoryId, graphId, `journal/${addDays(currentDate, -1)}`)),
       },
       {
         id: "journal-next",
@@ -206,7 +210,7 @@ export function buildCommands(input: CommandInputs): Command[] {
         label: message("commands.label.nextDay"),
         icon: <CalendarDaysIcon aria-hidden />,
         pointerRoute: message("shortcuts.nextPrevDayRoute"),
-        run: () => navigate(`/g/${graphId}/journal/${addDays(currentDate, 1)}`),
+        run: () => navigate(graphPath(repositoryId, graphId, `journal/${addDays(currentDate, 1)}`)),
       },
     );
   }
@@ -312,7 +316,7 @@ export function buildCommands(input: CommandInputs): Command[] {
     hint: message("commands.tagsHint"),
     icon: <HashIcon aria-hidden />,
     pointerRoute: message("shell.tags"),
-    run: () => navigate(`/g/${graphId}/tags`),
+    run: () => navigate(graphPath(repositoryId, graphId, "tags")),
   });
 
   commands.push(

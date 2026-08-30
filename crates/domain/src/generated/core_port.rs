@@ -2,10 +2,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CORE_PORT_VERSION: u32 = 1;
+pub const CORE_PORT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphLocatorDto {
+    pub repository_id: String,
     pub graph_id: String,
 }
 

@@ -19,7 +19,7 @@ function graphId(prefix: string): string {
 function openRequest(graph: string, peer: number): OpenGraphRequest {
   return {
     contract_version: CORE_PORT_VERSION,
-    locator: { graph_id: graph },
+    locator: { repository_id: "local", graph_id: graph },
     peer_id: peer,
   };
 }

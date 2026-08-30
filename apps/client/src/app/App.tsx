@@ -26,6 +26,18 @@ const router = createHashRouter([
       { path: "p/:pageId", element: <PageView /> },
     ],
   },
+  {
+    path: "/r/:repositoryId/g/:graphId",
+    element: <GraphShell />,
+    children: [
+      { index: true, element: <Navigate to="journal" replace /> },
+      { path: "journal", element: <JournalView /> },
+      { path: "journal/:date", element: <JournalView /> },
+      { path: "tags", element: <TagsView /> },
+      { path: "t/:tagId", element: <TagView /> },
+      { path: "p/:pageId", element: <PageView /> },
+    ],
+  },
   { path: "*", element: <Navigate to="/" replace /> },
 ]);
 

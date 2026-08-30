@@ -35,6 +35,7 @@ import type { GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot } from 
 import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
 import { applyAcknowledgedContentSplices } from "./content-patch";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
+import { LOCAL_REPOSITORY_ID } from "../features/repositories/directory";
 
 const COMMAND_TIMEOUT_MS = 10_000;
 
@@ -103,6 +104,7 @@ export class GraphSession {
     public readonly graphId: string,
     private readonly port: SessionPort,
     private readonly remote: RemoteGraphConnection | null = null,
+    public readonly repositoryId: string = LOCAL_REPOSITORY_ID,
   ) {
     this.state = {
       status: "opening",
@@ -135,18 +137,19 @@ export class GraphSession {
 
   private async openNow(): Promise<void> {
     try {
-      this.lease = await acquireLease(this.graphId);
+      this.lease = await acquireLease(`${this.repositoryId}:${this.graphId}`);
       if (this.closeRequested) return;
       const opened = await this.port.openGraph({
         contract_version: CORE_PORT_VERSION,
-        locator: { graph_id: this.graphId },
+        locator: { repository_id: this.repositoryId, graph_id: this.graphId },
         peer_id: randomPeerId(),
       });
       this.handle = opened.graph_handle;
       if (this.closeRequested) return;
+      const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
       this.patch({
         status: "ready",
-        mode: this.lease.mode,
+        mode: remoteReadonly ? "readonly" : this.lease.mode,
         snapshot: mergeSummary(opened.summary as GraphSummary),
         capabilities: opened.capabilities ?? null,
         recovery: opened.recovery,

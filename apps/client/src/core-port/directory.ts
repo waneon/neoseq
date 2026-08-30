@@ -1,34 +1,82 @@
-// Local graph directory. Canonical note data lives in the core-owned
-// repository; the directory only keeps app-level bookkeeping (display
-// names) plus the list of locally stored graphs reported by the Worker.
+// The graph directory owns client-local catalog metadata and the mapping from a
+// repository-qualified graph reference to its durable browser replica. Canonical
+// note data remains in the Worker-owned repository.
 
 import { CoreWorker } from "../core-worker";
-import { CORE_PORT_VERSION } from "../generated/core-port";
+import { CORE_PORT_VERSION, type GraphLocatorDto } from "../generated/core-port";
+import { LOCAL_REPOSITORY_ID, findRepository } from "../features/repositories/directory";
+
+export interface GraphRef {
+  repository_id: string;
+  graph_id: string;
+}
 
 export interface GraphSummary {
   id: string;
+  repository_id: string;
   name: string;
   created_at: string;
   kind: "local" | "remote";
+  cached?: boolean;
+  role?: "owner" | "editor" | "viewer";
+  status?: "active" | "read_only";
 }
 
 export interface RemoteGraphConnection {
+  repository_id: string;
   server_url: string;
+  account_id: string;
+  username: string;
+  role?: "owner" | "editor" | "viewer";
+  status?: "active" | "read_only";
 }
 
 interface DirectoryEntry {
+  repository_id: string;
+  graph_id: string;
   name: string;
   created_at: string;
-  kind?: "local" | "remote";
-  remote?: RemoteGraphConnection;
+  role?: "owner" | "editor" | "viewer";
+  status?: "active" | "read_only";
 }
 
-const DIRECTORY_KEY = "neoseq.graph-directory.v1";
+const DIRECTORY_KEY = "neoseq.graph-directory.v2";
+const LEGACY_DIRECTORY_KEY = "neoseq.graph-directory.v1";
+
+function entryKey(ref: GraphRef): string {
+  return JSON.stringify([ref.repository_id, ref.graph_id]);
+}
+
+function locator(ref: GraphRef): GraphLocatorDto {
+  return { repository_id: ref.repository_id, graph_id: ref.graph_id };
+}
 
 function readEntries(): Record<string, DirectoryEntry> {
   try {
     const raw = localStorage.getItem(DIRECTORY_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, DirectoryEntry>) : {};
+    if (raw) return JSON.parse(raw) as Record<string, DirectoryEntry>;
+    const legacyRaw = localStorage.getItem(LEGACY_DIRECTORY_KEY);
+    if (!legacyRaw) return {};
+    const legacy = JSON.parse(legacyRaw) as Record<
+      string,
+      { name: string; created_at: string; kind?: "local" | "remote" }
+    >;
+    const migrated: Record<string, DirectoryEntry> = {};
+    for (const [graphId, entry] of Object.entries(legacy)) {
+      // Old remote connections were origin-scoped and cannot be assigned to a
+      // repository account safely. Their durable replicas remain discoverable
+      // from Worker metadata; only trustworthy local display names migrate.
+      if (entry.kind === "remote") continue;
+      const next: DirectoryEntry = {
+        repository_id: LOCAL_REPOSITORY_ID,
+        graph_id: graphId,
+        name: entry.name,
+        created_at: entry.created_at,
+      };
+      migrated[entryKey(next)] = next;
+    }
+    localStorage.setItem(DIRECTORY_KEY, JSON.stringify(migrated));
+    return migrated;
   } catch {
     return {};
   }
@@ -39,18 +87,11 @@ function writeEntries(entries: Record<string, DirectoryEntry>): void {
   for (const listener of listeners) listener();
 }
 
-/**
- * The directory is read in two places at once — the rail and the settings dialog
- * that renames from — so a rename has to publish. Without this the rail kept the
- * old name until the next remount, with the new one visible beside it.
- */
 const listeners = new Set<() => void>();
 
 export function subscribeGraphDirectory(listener: () => void): () => void {
   listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return () => listeners.delete(listener);
 }
 
 if (typeof window !== "undefined") {
@@ -61,70 +102,144 @@ if (typeof window !== "undefined") {
 }
 
 export function registerGraph(name: string): GraphSummary {
-  const entries = readEntries();
   const id = `g-${crypto.randomUUID()}`;
-  const created_at = new Date().toISOString();
-  entries[id] = { name: name.trim(), created_at };
-  writeEntries(entries);
-  return { id, name: name.trim(), created_at, kind: "local" };
+  return registerGraphEntry(LOCAL_REPOSITORY_ID, id, name, new Date().toISOString());
 }
 
-export function registerRemoteGraph(id: string, name: string, serverUrl: string): GraphSummary {
+export function registerRemoteGraph(
+  repositoryId: string,
+  id: string,
+  name: string,
+  createdAt = new Date().toISOString(),
+  access?: Pick<GraphSummary, "role" | "status">,
+): GraphSummary {
+  return registerGraphEntry(repositoryId, id, name, createdAt, access);
+}
+
+export function registerRemoteCatalog(
+  repositoryId: string,
+  graphs: ReadonlyArray<Pick<GraphSummary, "id" | "name" | "created_at" | "role" | "status">>,
+): void {
   const entries = readEntries();
-  const created_at = new Date().toISOString();
-  entries[id] = {
+  for (const graph of graphs) {
+    const ref = { repository_id: repositoryId, graph_id: graph.id };
+    entries[entryKey(ref)] = {
+      ...ref,
+      name: graph.name.trim(),
+      created_at: graph.created_at,
+      role: graph.role,
+      status: graph.status,
+    };
+  }
+  writeEntries(entries);
+}
+
+function registerGraphEntry(
+  repositoryId: string,
+  id: string,
+  name: string,
+  createdAt: string,
+  access?: Pick<GraphSummary, "role" | "status">,
+): GraphSummary {
+  const entries = readEntries();
+  const ref = { repository_id: repositoryId, graph_id: id };
+  entries[entryKey(ref)] = {
+    ...ref,
     name: name.trim(),
-    created_at,
-    kind: "remote",
-    remote: { server_url: normalizeServerUrl(serverUrl) },
+    created_at: createdAt,
+    ...access,
   };
   writeEntries(entries);
-  return { id, name: name.trim(), created_at, kind: "remote" };
+  return {
+    id,
+    repository_id: repositoryId,
+    name: name.trim(),
+    created_at: createdAt,
+    kind: repositoryId === LOCAL_REPOSITORY_ID ? "local" : "remote",
+    ...access,
+  };
 }
 
-export function renameGraph(id: string, name: string): void {
+export function renameGraph(id: string, name: string): void;
+export function renameGraph(repositoryId: string, id: string, name: string): void;
+export function renameGraph(first: string, second: string, third?: string): void {
+  const repositoryId = third === undefined ? LOCAL_REPOSITORY_ID : first;
+  const id = third === undefined ? first : second;
+  const name = third === undefined ? second : third;
   const entries = readEntries();
-  entries[id] = {
-    ...entries[id],
+  const ref = { repository_id: repositoryId, graph_id: id };
+  const key = entryKey(ref);
+  entries[key] = {
+    ...entries[key],
+    ...ref,
     name: name.trim(),
-    created_at: entries[id]?.created_at ?? new Date().toISOString(),
+    created_at: entries[key]?.created_at ?? new Date().toISOString(),
   };
   writeEntries(entries);
 }
 
-export function graphName(id: string): string {
-  return readEntries()[id]?.name ?? id;
+export function graphName(id: string): string;
+export function graphName(repositoryId: string, id: string): string;
+export function graphName(first: string, second?: string): string {
+  const ref = {
+    repository_id: second === undefined ? LOCAL_REPOSITORY_ID : first,
+    graph_id: second === undefined ? first : second,
+  };
+  return readEntries()[entryKey(ref)]?.name ?? ref.graph_id;
 }
 
-export function graphConnection(id: string): RemoteGraphConnection | null {
-  const entry = readEntries()[id];
-  return entry?.kind === "remote" && entry.remote ? entry.remote : null;
+export function graphConnection(
+  repositoryId: string,
+  graphId: string,
+): RemoteGraphConnection | null {
+  const repository = findRepository(repositoryId);
+  if (repository?.kind !== "remote") return null;
+  const entry = readEntries()[entryKey({ repository_id: repositoryId, graph_id: graphId })];
+  return {
+    repository_id: repository.id,
+    server_url: repository.origin,
+    account_id: repository.account_id,
+    username: repository.username,
+    role: entry?.role,
+    status: entry?.status,
+  };
 }
 
-/** Union of stored graphs (Worker metadata) and registered names. */
-export async function listGraphs(): Promise<GraphSummary[]> {
+export async function listGraphs(repositoryId = LOCAL_REPOSITORY_ID): Promise<GraphSummary[]> {
   const entries = readEntries();
   const worker = new CoreWorker();
   try {
     const stored = await worker.listGraphs();
     const summaries = new Map<string, GraphSummary>();
     for (const metadata of stored) {
-      summaries.set(metadata.graph_id, {
-        id: metadata.graph_id,
-        name: entries[metadata.graph_id]?.name ?? metadata.graph_id,
-        created_at: entries[metadata.graph_id]?.created_at ?? metadata.created_at,
-        kind: entries[metadata.graph_id]?.kind ?? "local",
+      const storedRepositoryId = metadata.locator.repository_id || LOCAL_REPOSITORY_ID;
+      if (storedRepositoryId !== repositoryId) continue;
+      const id = metadata.locator.graph_id;
+      const ref = { repository_id: storedRepositoryId, graph_id: id };
+      const entry = entries[entryKey(ref)];
+      summaries.set(id, {
+        id,
+        repository_id: storedRepositoryId,
+        name: entry?.name ?? id,
+        created_at: entry?.created_at ?? metadata.created_at,
+        kind: storedRepositoryId === LOCAL_REPOSITORY_ID ? "local" : "remote",
+        cached: true,
+        role: entry?.role,
+        status: entry?.status,
       });
     }
-    for (const [id, entry] of Object.entries(entries)) {
-      if (!summaries.has(id)) {
-        summaries.set(id, {
-          id,
-          name: entry.name,
-          created_at: entry.created_at,
-          kind: entry.kind ?? "local",
-        });
-      }
+    for (const entry of Object.values(entries)) {
+      if (entry.repository_id !== repositoryId || summaries.has(entry.graph_id)) continue;
+      summaries.set(entry.graph_id, {
+        id: entry.graph_id,
+        repository_id: entry.repository_id,
+        name: entry.name,
+        created_at: entry.created_at,
+        kind: entry.repository_id === LOCAL_REPOSITORY_ID ? "local" : "remote",
+        cached: false,
+        role: entry.role,
+        status: entry.status,
+      });
     }
     return [...summaries.values()].sort((left, right) =>
       left.created_at.localeCompare(right.created_at),
@@ -134,79 +249,79 @@ export async function listGraphs(): Promise<GraphSummary[]> {
   }
 }
 
-function normalizeServerUrl(value: string): string {
-  const url = new URL(value || window.location.origin, window.location.origin);
-  return url.toString().replace(/\/$/, "");
-}
-
-export async function deleteGraph(id: string): Promise<void> {
-  // Wait for the graph lease so an open session finishes its clean close
-  // (checkpoint + compaction) before the stored data is removed.
-  await withGraphLease(id, async () => {
+export async function deleteGraph(id: string): Promise<void>;
+export async function deleteGraph(repositoryId: string, id: string): Promise<void>;
+export async function deleteGraph(first: string, second?: string): Promise<void> {
+  const ref = {
+    repository_id: second === undefined ? LOCAL_REPOSITORY_ID : first,
+    graph_id: second === undefined ? first : second,
+  };
+  await withGraphLease(ref, async () => {
     const worker = new CoreWorker();
     try {
-      await worker.deleteGraph(id);
+      await worker.deleteGraph(locator(ref));
     } finally {
       worker.terminate();
     }
   });
   const entries = readEntries();
-  delete entries[id];
+  delete entries[entryKey(ref)];
   writeEntries(entries);
 }
 
-/** Exports the latest durable local replica without attaching remote transport
- * or compacting its history as a local-only graph. */
-export async function exportGraphArchive(id: string, name: string): Promise<ArrayBuffer> {
-  return withGraphLease(id, async () => {
+export async function exportGraphArchive(
+  repositoryId: string,
+  id: string,
+  name: string,
+): Promise<ArrayBuffer>;
+export async function exportGraphArchive(id: string, name: string): Promise<ArrayBuffer>;
+export async function exportGraphArchive(
+  first: string,
+  second: string,
+  third?: string,
+): Promise<ArrayBuffer> {
+  const ref = {
+    repository_id: third === undefined ? LOCAL_REPOSITORY_ID : first,
+    graph_id: third === undefined ? first : second,
+  };
+  const name = third === undefined ? second : third;
+  return withGraphLease(ref, async () => {
     const worker = new CoreWorker();
     try {
       const opened = await worker.openGraph({
         contract_version: CORE_PORT_VERSION,
-        locator: { graph_id: id },
+        locator: locator(ref),
         peer_id: randomPeerId(),
       });
       return await worker.exportArchive(opened.graph_handle, name);
     } finally {
-      // Export is read-only. Terminating avoids running close-time local
-      // compaction on a replica whose remote/local kind lives in the directory.
       worker.terminate();
     }
   });
 }
 
-/** Validates an archive and installs its content under a fresh local graph ID. */
 export async function importGraphArchive(
   bytes: ArrayBuffer,
   fallbackName: string,
+  repositoryId = LOCAL_REPOSITORY_ID,
+  graphId = `g-${crypto.randomUUID()}`,
 ): Promise<GraphSummary> {
   const worker = new CoreWorker();
   try {
-    const imported = await worker.importArchive(bytes);
-    const entries = readEntries();
+    const imported = await worker.importArchive(bytes, {
+      repository_id: repositoryId,
+      graph_id: graphId,
+    });
     const name = imported.suggested_name?.trim() || fallbackName.trim();
-    entries[imported.graph_id] = {
-      name,
-      created_at: imported.created_at,
-      kind: "local",
-    };
-    writeEntries(entries);
-    return {
-      id: imported.graph_id,
-      name,
-      created_at: imported.created_at,
-      kind: "local",
-    };
+    return registerGraphEntry(repositoryId, imported.graph_id, name, imported.created_at);
   } finally {
     worker.terminate();
   }
 }
 
-async function withGraphLease<T>(id: string, action: () => Promise<T>): Promise<T> {
-  if (typeof navigator === "undefined" || !navigator.locks) {
-    return action();
-  }
-  return navigator.locks.request(`neoseq:graph:${id}`, action);
+async function withGraphLease<T>(ref: GraphRef, action: () => Promise<T>): Promise<T> {
+  if (typeof navigator === "undefined" || !navigator.locks) return action();
+  return navigator.locks.request(`neoseq:graph:${ref.repository_id}:${ref.graph_id}`, action);
 }
 
 function randomPeerId(): number {
@@ -214,16 +329,22 @@ function randomPeerId(): number {
   return (words[0] & 0x1f_ffff) * 0x1_0000_0000 + words[1];
 }
 
-const PENDING_DELETE_KEY = "neoseq.pending-delete.v1";
+const PENDING_DELETE_KEY = "neoseq.pending-delete.v2";
 
-/** Records a deletion to run once the owning session has closed. */
-export function schedulePendingDelete(id: string): void {
-  sessionStorage.setItem(PENDING_DELETE_KEY, id);
+export function schedulePendingDelete(id: string): void;
+export function schedulePendingDelete(repositoryId: string, id: string): void;
+export function schedulePendingDelete(first: string, second?: string): void {
+  const ref = {
+    repository_id: second === undefined ? LOCAL_REPOSITORY_ID : first,
+    graph_id: second === undefined ? first : second,
+  };
+  sessionStorage.setItem(PENDING_DELETE_KEY, JSON.stringify(ref));
 }
 
 export async function processPendingDelete(): Promise<void> {
-  const id = sessionStorage.getItem(PENDING_DELETE_KEY);
-  if (!id) return;
+  const raw = sessionStorage.getItem(PENDING_DELETE_KEY);
+  if (!raw) return;
   sessionStorage.removeItem(PENDING_DELETE_KEY);
-  await deleteGraph(id);
+  const ref = JSON.parse(raw) as GraphRef;
+  await deleteGraph(ref.repository_id, ref.graph_id);
 }

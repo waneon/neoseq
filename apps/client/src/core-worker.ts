@@ -5,6 +5,7 @@ import type {
   CorePortError,
   ExecuteRequest,
   ExecuteResponse,
+  GraphLocatorDto,
   OpenGraphRequest,
   OpenGraphResponse,
   QueryRequest,
@@ -21,7 +22,7 @@ import type { MetadataRecord } from "./persistence";
 
 export type GraphMetadata = Pick<
   MetadataRecord,
-  "graph_id" | "schema_version" | "created_at" | "updated_at"
+  "graph_id" | "locator" | "schema_version" | "created_at" | "updated_at"
 >;
 
 export interface SavedReceipt {
@@ -130,8 +131,11 @@ export class CoreWorker implements CorePort {
     return this.request("list_graphs", {});
   }
 
-  deleteGraph(graphId: string): Promise<void> {
-    return this.request("delete_graph", { graph_id: graphId });
+  deleteGraph(locator: GraphLocatorDto | string): Promise<void> {
+    return this.request("delete_graph", {
+      locator:
+        typeof locator === "string" ? { repository_id: "local", graph_id: locator } : locator,
+    });
   }
 
   exportArchive(graphHandle: string, suggestedName: string): Promise<ArrayBuffer> {
@@ -141,8 +145,14 @@ export class CoreWorker implements CorePort {
     });
   }
 
-  importArchive(bytes: ArrayBuffer): Promise<ImportedGraphArchive> {
-    return this.request("import_archive", { bytes }, [bytes]);
+  importArchive(
+    bytes: ArrayBuffer,
+    locator: GraphLocatorDto = {
+      repository_id: "local",
+      graph_id: `g-${crypto.randomUUID()}`,
+    },
+  ): Promise<ImportedGraphArchive> {
+    return this.request("import_archive", { bytes, locator }, [bytes]);
   }
 
   storageCapabilities(graphHandle: string): Promise<StorageCapabilitiesDto> {

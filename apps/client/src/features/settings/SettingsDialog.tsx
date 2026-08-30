@@ -120,11 +120,13 @@ const SECTION_MESSAGE = {
 } as const satisfies Record<SettingsSection, MessageKey>;
 
 export function SettingsDialog({
+  repositoryId = "local",
   graphId,
   section,
   onSection,
   onClose,
 }: {
+  repositoryId?: string;
   graphId: string;
   section: SettingsSection;
   onSection: (section: SettingsSection) => void;
@@ -164,8 +166,8 @@ export function SettingsDialog({
           {section === "tasks" && <TasksSection />}
           {section === "keyboard" && <ShortcutEditor />}
           {section === "storage" && <StorageSection />}
-          {section === "graph" && <GraphSection graphId={graphId} />}
-          {section === "danger" && <DangerSection graphId={graphId} />}
+          {section === "graph" && <GraphSection repositoryId={repositoryId} graphId={graphId} />}
+          {section === "danger" && <DangerSection repositoryId={repositoryId} graphId={graphId} />}
         </div>
       </div>
     </Dialog>
@@ -506,14 +508,14 @@ function StorageSection() {
   );
 }
 
-function GraphSection({ graphId }: { graphId: string }) {
+function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId: string }) {
   const state = useSessionState();
   const notify = useNotify();
   const { message } = useI18n();
   const authoritativeName = useSyncExternalStore(
     subscribeGraphDirectory,
-    () => graphName(graphId),
-    () => graphName(graphId),
+    () => graphName(repositoryId, graphId),
+    () => graphName(repositoryId, graphId),
   );
   const [draftName, setDraftName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -548,11 +550,12 @@ function GraphSection({ graphId }: { graphId: string }) {
         <Input
           aria-label={message("graph.graphName")}
           value={draftName ?? authoritativeName}
+          disabled={repositoryId !== "local"}
           data-testid="settings-graph-name"
           onChange={(event) => setDraftName(event.target.value)}
           onBlur={() => {
             const next = draftName?.trim();
-            if (next) renameGraph(graphId, next);
+            if (next) renameGraph(repositoryId, graphId, next);
             setDraftName(null);
           }}
         />
@@ -584,7 +587,7 @@ function GraphSection({ graphId }: { graphId: string }) {
   );
 }
 
-function DangerSection({ graphId }: { graphId: string }) {
+function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphId: string }) {
   const navigate = useNavigate();
   const session = useSession();
   const { message } = useI18n();
@@ -628,13 +631,16 @@ function DangerSection({ graphId }: { graphId: string }) {
             // durable deletion used by the graph picker. ConfirmDialog stays
             // pending across both operations and closes only after success.
             await session.close();
-            await deleteGraph(graphId);
+            await deleteGraph(repositoryId, graphId);
           }}
           onConfirmError={(cause) =>
-            notify.failure(message("failure.deleteGraph", { name: graphName(graphId) }), cause)
+            notify.failure(
+              message("failure.deleteGraph", { name: graphName(repositoryId, graphId) }),
+              cause,
+            )
           }
         >
-          {message("graph.deleteConfirm", { name: graphName(graphId) })}
+          {message("graph.deleteConfirm", { name: graphName(repositoryId, graphId) })}
         </ConfirmDialog>
       )}
     </section>

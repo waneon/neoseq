@@ -50,6 +50,8 @@ import { Wordmark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { Kbd } from "@/ui/kbd";
+import { graphPath } from "../graphs/routing";
+import { findRepository, LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
   DropdownMenu,
@@ -113,13 +115,17 @@ const RAIL_KEY = "neoseq.rail";
 type ShellOverlay = "palette" | "shortcuts" | "members" | null;
 
 export function GraphShell() {
-  const { graphId = "" } = useParams();
+  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [createdSession, setCreatedSession] = useState<GraphSession | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
+    if (!findRepository(repositoryId)) {
+      navigate("/", { replace: true });
+      return;
+    }
     let cancelled = false;
     let created: GraphSession | undefined;
     void (async () => {
@@ -128,13 +134,25 @@ export function GraphShell() {
         worker.terminate();
         return;
       }
-      created = new GraphSession(graphId, worker, graphConnection(graphId));
+      created = new GraphSession(
+        graphId,
+        worker,
+        graphConnection(repositoryId, graphId),
+        repositoryId,
+      );
       setCreatedSession(created);
       void created.open();
       const faultInjector = injectStorageFault;
       if (faultInjector) {
         window.__neoseqTest = {
-          injectStorageFault: (fault: string) => faultInjector(worker, `local:${graphId}`, fault),
+          injectStorageFault: (fault: string) =>
+            faultInjector(
+              worker,
+              repositoryId === LOCAL_REPOSITORY_ID
+                ? `local:${graphId}`
+                : `local:repository:${JSON.stringify([repositoryId, graphId])}`,
+              fault,
+            ),
         };
       }
     })();
@@ -144,20 +162,24 @@ export function GraphShell() {
       setCreatedSession((current) => (current === created ? null : current));
       void created?.close();
     };
-  }, [graphId]);
+  }, [graphId, navigate, repositoryId]);
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [location]);
 
-  const session = createdSession?.graphId === graphId ? createdSession : null;
+  const session =
+    createdSession?.graphId === graphId && createdSession.repositoryId === repositoryId
+      ? createdSession
+      : null;
   if (!session) return <ShellLoading />;
   return (
     <SessionContext.Provider value={session}>
       <HistoryProvider session={session} graphId={graphId}>
         <ShellBody
-          key={graphId}
+          key={`${repositoryId}:${graphId}`}
           session={session}
+          repositoryId={repositoryId}
           graphId={graphId}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
@@ -170,12 +192,14 @@ export function GraphShell() {
 
 function ShellBody({
   session,
+  repositoryId,
   graphId,
   sidebarOpen,
   onToggleSidebar,
   onExit,
 }: {
   session: GraphSession;
+  repositoryId: string;
   graphId: string;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -200,8 +224,8 @@ function ShellBody({
   // to say the same thing while they are on screen together.
   const name = useSyncExternalStore(
     subscribeGraphDirectory,
-    () => graphName(graphId),
-    () => graphName(graphId),
+    () => graphName(repositoryId, graphId),
+    () => graphName(repositoryId, graphId),
   );
   const [overlay, setOverlay] = useState<ShellOverlay>(null);
   const [theme, setThemeState] = useState<Theme>(storedTheme);
@@ -221,7 +245,7 @@ function ShellBody({
   const recoveryAnnounced = useRef(false);
 
   const readonly = state.mode === "readonly";
-  const remote = graphConnection(graphId);
+  const remote = graphConnection(repositoryId, graphId);
 
   // The open settings section lives in the URL, so the browser's own Back closes
   // the dialog and a link can point straight at one section.
@@ -276,9 +300,9 @@ function ShellBody({
         notify.failure(message("failure.createPage", { name: pageName }), error);
         return;
       }
-      navigate(`/g/${graphId}/p/${pageId}`);
+      navigate(graphPath(repositoryId, graphId, `p/${pageId}`));
     },
-    [graphId, message, navigate, notify, pages, session],
+    [graphId, message, navigate, notify, pages, repositoryId, session],
   );
 
   const toggleRail = useCallback(() => {
@@ -494,7 +518,7 @@ function ShellBody({
           hint: date === today ? message("commands.hintToday") : message("commands.hintJournal"),
           icon: <CalendarDaysIcon aria-hidden />,
           pointerRoute: message("shortcuts.nextPrevDayRoute"),
-          run: () => navigate(`/g/${graphId}/journal/${date}`),
+          run: () => navigate(graphPath(repositoryId, graphId, `journal/${date}`)),
         });
       }
       const exists = pages.some(
@@ -512,7 +536,18 @@ function ShellBody({
       }
       return rows;
     },
-    [createPage, formatJournalDate, graphId, message, navigate, pages, readonly, temporal, today],
+    [
+      createPage,
+      formatJournalDate,
+      graphId,
+      message,
+      navigate,
+      pages,
+      readonly,
+      repositoryId,
+      temporal,
+      today,
+    ],
   );
 
   const searchGraph = useCallback(
@@ -593,6 +628,7 @@ SELECT ?entity ?content WHERE {
   const commands = buildCommands({
     pages,
     tags,
+    repositoryId,
     graphId,
     today,
     currentDate,
@@ -641,9 +677,11 @@ SELECT ?entity ?content WHERE {
               <Wordmark name={message("app.title")} />
             </p>
             <GraphSwitcher
+              repositoryId={repositoryId}
               graphId={graphId}
               name={name}
               remote={remote !== null}
+              canManageMembers={remote?.role === "owner"}
               onManageMembers={() => setOverlay("members")}
               onExit={onExit}
             />
@@ -664,13 +702,17 @@ SELECT ?entity ?content WHERE {
             <Shortcut binding={bindings.palette} />
           </button>
           <div className="shell-nav">
-            <NavLink className="shell-nav-item" to={`/g/${graphId}/journal`} end>
+            <NavLink
+              className="shell-nav-item"
+              to={graphPath(repositoryId, graphId, "journal")}
+              end
+            >
               <CalendarDaysIcon aria-hidden />
               <span className="nav-label">{message("shell.journal")}</span>
             </NavLink>
             <NavLink
               className="shell-nav-item"
-              to={`/g/${graphId}/tags`}
+              to={graphPath(repositoryId, graphId, "tags")}
               end
               data-testid="nav-tags"
             >
@@ -687,6 +729,7 @@ SELECT ?entity ?content WHERE {
                 <h2>{message("shell.favourites")}</h2>
               </div>
               <FavouriteRail
+                repositoryId={repositoryId}
                 graphId={graphId}
                 starred={starred}
                 readonly={readonly}
@@ -721,7 +764,7 @@ SELECT ?entity ?content WHERE {
               <NavLink
                 key={page.id}
                 className="shell-nav-item"
-                to={`/g/${graphId}/p/${page.id}`}
+                to={graphPath(repositoryId, graphId, `p/${page.id}`)}
                 title={pageTitle(page)}
               >
                 <FileTextIcon aria-hidden />
@@ -827,6 +870,7 @@ SELECT ?entity ?content WHERE {
       )}
       {settingsSection && (
         <SettingsDialog
+          repositoryId={repositoryId}
           graphId={graphId}
           section={settingsSection}
           onSection={openSettings}
@@ -873,6 +917,7 @@ function literalText(term: RdfTerm | undefined): string {
  * without a mouse is a reorder half the readers do not have.
  */
 function FavouriteRail({
+  repositoryId,
   graphId,
   starred,
   readonly,
@@ -880,6 +925,7 @@ function FavouriteRail({
   notify,
   message,
 }: {
+  repositoryId: string;
   graphId: string;
   starred: Favourite[];
   readonly: boolean;
@@ -956,7 +1002,9 @@ function FavouriteRail({
             key={key}
             className="shell-nav-item"
             to={
-              entry.kind === "page" ? `/g/${graphId}/p/${entry.id}` : `/g/${graphId}/t/${entry.id}`
+              entry.kind === "page"
+                ? graphPath(repositoryId, graphId, `p/${entry.id}`)
+                : graphPath(repositoryId, graphId, `t/${entry.id}`)
             }
             title={entry.name}
             data-testid="favourite-item"
@@ -1097,15 +1145,19 @@ function OverflowMenu({
 }
 
 function GraphSwitcher({
+  repositoryId,
   graphId,
   name,
   remote,
+  canManageMembers,
   onManageMembers,
   onExit,
 }: {
+  repositoryId: string;
   graphId: string;
   name: string;
   remote: boolean;
+  canManageMembers: boolean;
   onManageMembers: () => void;
   onExit: () => void;
 }) {
@@ -1121,7 +1173,7 @@ function GraphSwitcher({
         className="px-1 py-0.5"
         onSubmit={(event) => {
           event.preventDefault();
-          if (draft.trim()) renameGraph(graphId, draft.trim());
+          if (draft.trim()) renameGraph(repositoryId, graphId, draft.trim());
           setRenaming(false);
         }}
       >
@@ -1131,7 +1183,7 @@ function GraphSwitcher({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={() => {
-            if (draft.trim()) renameGraph(graphId, draft.trim());
+            if (draft.trim()) renameGraph(repositoryId, graphId, draft.trim());
             setRenaming(false);
           }}
           onKeyDown={(event) => {
@@ -1157,21 +1209,23 @@ function GraphSwitcher({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuItem
-          onSelect={() => {
-            setDraft(name);
-            setRenaming(true);
-          }}
-        >
-          {message("graph.rename")}
-        </DropdownMenuItem>
+        {!remote && (
+          <DropdownMenuItem
+            onSelect={() => {
+              setDraft(name);
+              setRenaming(true);
+            }}
+          >
+            {message("graph.rename")}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={() => bridge.openSettings("graph")}>
           {message("graph.settings")}
           <DropdownMenuShortcut>
             <Shortcut binding={bindings.settings} plain />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
-        {remote && (
+        {canManageMembers && (
           <DropdownMenuItem onSelect={onManageMembers}>
             {message("graph.manageMembers")}
           </DropdownMenuItem>

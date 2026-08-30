@@ -12,6 +12,7 @@ import type {
   CloseGraphRequest,
   CorePortError,
   ExecuteRequest,
+  GraphLocatorDto,
   OpenGraphRequest,
   QueryRequest,
   ReadOutlineRequest,
@@ -21,6 +22,7 @@ import type {
 import {
   IndexedDbGraphRepository,
   StorageError,
+  graphStorageKey,
   validChecksum,
   type QuarantineRecord,
 } from "./persistence";
@@ -47,6 +49,7 @@ interface PendingWrite {
 }
 interface OpenState {
   graphId: string;
+  storageKey: string;
   replicaId: number;
   core: WasmGraphCore;
   repository: IndexedDbGraphRepository;
@@ -113,7 +116,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
           value = await createRepository().allMetadata();
           break;
         case "delete_graph":
-          value = await deleteGraph(payload as { graph_id: string });
+          value = await deleteGraph(payload as { locator: GraphLocatorDto });
           break;
         case "export_archive":
           await ensureWasm();
@@ -129,6 +132,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
           value = await importArchive(
             payload as {
               bytes: ArrayBuffer | Uint8Array;
+              locator: GraphLocatorDto;
             },
           );
           break;
@@ -192,7 +196,8 @@ async function openGraph(request: OpenGraphRequest) {
   if (request.contract_version !== CORE_PORT_VERSION) {
     throw failure("unsupported_contract", "unsupported CorePort contract version", false);
   }
-  const handle = `local:${request.locator.graph_id}`;
+  const storageKey = graphStorageKey(request.locator);
+  const handle = `local:${storageKey}`;
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = createRepository();
   const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
@@ -203,9 +208,10 @@ async function openGraph(request: OpenGraphRequest) {
       false,
     );
   }
-  const recovery = await recover(repository, request.locator.graph_id, metadata);
+  const recovery = await recover(repository, storageKey, request.locator.graph_id, metadata);
   const state: OpenState = {
     graphId: request.locator.graph_id,
+    storageKey,
     replicaId: metadata.replica_id,
     core: recovery.core,
     repository,
@@ -223,6 +229,7 @@ async function openGraph(request: OpenGraphRequest) {
 
 async function recover(
   repository: IndexedDbGraphRepository,
+  storageKey: string,
   graphId: string,
   metadata: { replica_id: number; schema_version: number; next_sequence: number },
 ) {
@@ -234,7 +241,7 @@ async function recover(
         sequence: number;
       }
     | undefined;
-  const checkpoints = await repository.checkpointsDescending(graphId);
+  const checkpoints = await repository.checkpointsDescending(storageKey);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
     if (checkpoint.schema_version !== SCHEMA_VERSION)
@@ -272,12 +279,12 @@ async function recover(
   if (!selected) {
     const core = new WasmGraphCore(graphId, BigInt(metadata.replica_id), now());
     const snapshot = ownedBuffer(core.exportGcCheckpoint());
-    await repository.installCheckpoint(graphId, snapshot, 0, SCHEMA_VERSION, now());
+    await repository.installCheckpoint(storageKey, snapshot, 0, SCHEMA_VERSION, now());
     selected = { core, payload: snapshot, sequence: 0 };
   }
   const base = selected;
   const checkpointSequence = base.sequence;
-  const updates = await repository.updatesAfter(graphId, checkpointSequence);
+  const updates = await repository.updatesAfter(storageKey, checkpointSequence);
   const checksums = await Promise.all(
     updates.map((update) => validChecksum(update.checksum, update.payload)),
   );
@@ -344,7 +351,7 @@ async function recover(
   }
   if (corruptTail.length > 0) {
     await repository.repairCorruptTail(
-      graphId,
+      storageKey,
       ownedBuffer(core.exportGcCheckpoint()),
       validThrough,
       SCHEMA_VERSION,
@@ -353,7 +360,7 @@ async function recover(
     );
   } else if (metadata.schema_version < SCHEMA_VERSION) {
     await repository.installCheckpoint(
-      graphId,
+      storageKey,
       ownedBuffer(core.exportGcCheckpoint()),
       validThrough,
       SCHEMA_VERSION,
@@ -389,7 +396,7 @@ async function execute(request: ExecuteRequest) {
   };
   const update = ownedBuffer(state.core.takeUpdate());
   if (execution.duplicate || update.byteLength === 0) {
-    const metadata = await state.repository.metadata(state.graphId);
+    const metadata = await state.repository.metadata(state.storageKey);
     return {
       result: execution.result,
       save_status: {
@@ -423,7 +430,7 @@ async function persistPending(state: OpenState) {
   const pending = state.pending;
   if (!pending) return { local_sequence: 0, checksum: "" };
   const receipt = await state.repository.appendUpdate(
-    state.graphId,
+    state.storageKey,
     pending.payload,
     pending.createdAt,
     state.remote
@@ -448,9 +455,9 @@ async function persistPending(state: OpenState) {
 
 async function maybeCompact(state: OpenState, force = false): Promise<void> {
   if (state.pending || state.remote) return;
-  const metadata = await state.repository.metadata(state.graphId);
+  const metadata = await state.repository.metadata(state.storageKey);
   const uncompacted = await state.repository.updatesAfter(
-    state.graphId,
+    state.storageKey,
     metadata.compacted_through,
   );
   const uncompactedBytes = uncompacted.reduce(
@@ -470,7 +477,7 @@ async function maybeCompact(state: OpenState, force = false): Promise<void> {
   // has to discover that a maintenance checkpoint was malformed.
   WasmGraphCore.fromSnapshot(state.graphId, BigInt(state.replicaId), new Uint8Array(checkpoint));
   await state.repository.installCheckpoint(
-    state.graphId,
+    state.storageKey,
     checkpoint,
     through,
     SCHEMA_VERSION,
@@ -524,11 +531,11 @@ async function closeGraph(request: CloseGraphRequest) {
     throw failure("dirty_unsaved", "close rejected while an update is not durable", true);
   if (state.remote) {
     // Remote history is retained until the server publishes a GC epoch.
-    const metadata = await state.repository.metadata(state.graphId);
+    const metadata = await state.repository.metadata(state.storageKey);
     const through = metadata.next_sequence - 1;
     const snapshot = ownedBuffer(state.core.exportSnapshot());
     await state.repository.installCheckpoint(
-      state.graphId,
+      state.storageKey,
       snapshot,
       through,
       SCHEMA_VERSION,
@@ -546,13 +553,14 @@ async function retryPending(payload: { graph_handle: string }) {
   return { status: "saved_locally", ...receipt };
 }
 
-async function deleteGraph(payload: { graph_id: string }) {
+async function deleteGraph(payload: { locator: GraphLocatorDto }) {
+  const storageKey = graphStorageKey(payload.locator);
   for (const state of states.values()) {
-    if (state.graphId === payload.graph_id) {
+    if (state.storageKey === storageKey) {
       throw failure("invalid_request", "close the graph before deleting it", false);
     }
   }
-  await createRepository().deleteLocal(payload.graph_id);
+  await createRepository().deleteLocal(storageKey);
   return { deleted: true };
 }
 
@@ -576,7 +584,10 @@ function exportArchive(payload: { graph_handle: string; suggested_name: string }
   }
 }
 
-async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
+async function importArchive(payload: {
+  bytes: ArrayBuffer | Uint8Array;
+  locator: GraphLocatorDto;
+}) {
   try {
     const decoded = decodeGraphArchive(asUint8Array(payload.bytes));
     try {
@@ -591,7 +602,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
           false,
         );
       }
-      const graphId = `g-${crypto.randomUUID()}`;
+      const graphId = payload.locator.graph_id;
       const replicaId = randomReplicaId();
       const source = WasmGraphCore.fromSnapshot(
         manifest.source.graph_id,
@@ -614,7 +625,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
       validated.free();
       const createdAt = now();
       await createRepository().installImportedGraph(
-        { graph_id: graphId },
+        payload.locator,
         replicaId,
         SCHEMA_VERSION,
         checkpoint,
@@ -636,7 +647,7 @@ async function importArchive(payload: { bytes: ArrayBuffer | Uint8Array }) {
 
 async function storageCapabilities(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
-  return state.repository.capabilities(state.graphId);
+  return state.repository.capabilities(state.storageKey);
 }
 
 async function configureSync(payload: { graph_handle: string }) {
@@ -644,7 +655,7 @@ async function configureSync(payload: { graph_handle: string }) {
   state.remote = true;
   const history = ownedBuffer(state.core.exportAll());
   await state.repository.initializeSync(
-    state.graphId,
+    state.storageKey,
     crypto.randomUUID(),
     ownedBuffer(emptyVersionVector()),
     history,
@@ -655,8 +666,8 @@ async function configureSync(payload: { graph_handle: string }) {
 
 async function syncState(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
-  const outbox = await state.repository.outbox(state.graphId);
-  const metadata = await state.repository.metadata(state.graphId);
+  const outbox = await state.repository.outbox(state.storageKey);
+  const metadata = await state.repository.metadata(state.storageKey);
   return {
     version_vector: [...state.core.versionVector()],
     pending: outbox.length,
@@ -667,9 +678,9 @@ async function syncState(payload: { graph_handle: string }) {
 
 async function syncNext(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
-  const next = (await state.repository.outbox(state.graphId))[0];
+  const next = (await state.repository.outbox(state.storageKey))[0];
   if (!next) return null;
-  const metadata = await state.repository.metadata(state.graphId);
+  const metadata = await state.repository.metadata(state.storageKey);
   return {
     message_id: next.message_id,
     local_sequence: next.local_sequence,
@@ -681,7 +692,7 @@ async function syncNext(payload: { graph_handle: string }) {
 
 async function syncAck(payload: { graph_handle: string; message_id: string }) {
   const state = requireState(payload.graph_handle);
-  await state.repository.acknowledge(state.graphId, payload.message_id);
+  await state.repository.acknowledge(state.storageKey, payload.message_id);
   return null;
 }
 
@@ -692,7 +703,7 @@ async function syncImport(payload: { graph_handle: string; bytes: ArrayBuffer | 
   }
   const bytes = asUint8Array(payload.bytes);
   state.core.validateUpdate(bytes);
-  const receipt = await state.repository.appendUpdate(state.graphId, ownedBuffer(bytes), now());
+  const receipt = await state.repository.appendUpdate(state.storageKey, ownedBuffer(bytes), now());
   state.core.importUpdate(bytes);
   push(state, "remote", { type: "semantic", name: "remote_import" });
   push(state, "remote", { type: "saved_locally", ...receipt });
@@ -719,7 +730,7 @@ async function syncReplace(payload: {
   // Replay only durable, unacknowledged intent onto the new Base. If any old
   // update cannot be rebased, canonical state remains untouched and reconnect
   // can be retried or surfaced as recovery-required.
-  for (const record of await state.repository.outbox(state.graphId)) {
+  for (const record of await state.repository.outbox(state.storageKey)) {
     candidate.importUpdate(new Uint8Array(record.payload));
   }
   candidate.resetLocalHistory();
@@ -727,7 +738,7 @@ async function syncReplace(payload: {
     candidate.exportUpdatesSince(new Uint8Array(serverVersionVector)),
   );
   await state.repository.replaceHistory(
-    state.graphId,
+    state.storageKey,
     checkpoint,
     payload.history_epoch,
     serverVersionVector,

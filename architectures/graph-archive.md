@@ -4,8 +4,9 @@
 
 A `.neoseq` archive is a portable copy, never a graph identity backup or a
 merge package. Every export receives a new `archive_id`. Every import creates a
-new local-only graph with a new `graph_id` and replica ID, even when the same
-file is imported repeatedly or its source graph already exists.
+new graph with a new `graph_id` and replica ID in the repository selected by the
+user, even when the same file is imported repeatedly or its source graph already
+exists.
 
 The source graph ID is provenance only. Page, block, tag, and journal IDs remain
 stable inside the copied content so references and unknown forward-compatible
@@ -43,13 +44,18 @@ Import is staged entirely in the Worker:
 3. Generate the target graph and replica IDs locally and create a shallow clone
    baseline with the rewritten graph identity.
 4. Reopen the clone under its target identity and validate it again.
-5. Atomically install it in IndexedDB as sequence-zero Base plus metadata, then
-   add its local display-name entry and navigate to the new graph.
+5. Atomically install it in the selected repository's IndexedDB partition as a
+   sequence-zero Base plus metadata.
+6. For a remote repository, create the same new graph ID in the server catalog;
+   opening the clone initializes its outbox with the complete imported history.
+7. Publish the display-name entry and navigate to the new graph.
 
-No archive-supplied value selects an existing repository row. A failed import
-leaves no partially installed graph. The imported shallow Base starts a new
-history and undo boundary and has no remote origin, credentials, outbox, or sync
-membership. Attaching or merging graphs is outside this contract.
+No archive-supplied value selects a repository or existing row. A failed local
+validation publishes no graph; a failed remote catalog creation removes the
+staged browser clone. The imported shallow Base starts a new history and undo
+boundary. In a remote repository its initial sync bootstrap is the complete new
+history, never a merge with the archive's source graph. Attaching or merging
+graphs is outside this contract.
 
 ## Evolution
 

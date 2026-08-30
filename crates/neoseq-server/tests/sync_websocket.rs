@@ -112,16 +112,44 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
         32,
         Duration::from_millis(50),
     ));
+    let preflight = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("OPTIONS")
+                .uri("/v1/graphs")
+                .header("origin", "https://notes.example")
+                .header("access-control-request-method", "GET")
+                .header("access-control-request-headers", "authorization")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), 200);
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-origin")
+            .unwrap(),
+        "*"
+    );
     let graph_id = "remote-api-graph";
     let response = authorized_request(
         &app,
         "POST",
         "/v1/graphs",
         token,
-        &format!(r#"{{"graph_id":"{graph_id}"}}"#),
+        &format!(r#"{{"graph_id":"{graph_id}","name":"Remote notes"}}"#),
     )
     .await;
     assert_eq!(response.0, 201, "{}", response.1);
+
+    let graphs = authorized_request(&app, "GET", "/v1/graphs", token, "").await;
+    assert_eq!(graphs.0, 200, "{}", graphs.1);
+    assert!(graphs.1.contains("Remote notes"));
+    assert!(graphs.1.contains("created_at"));
+    assert!(graphs.1.contains("updated_at"));
 
     let members = authorized_request(
         &app,

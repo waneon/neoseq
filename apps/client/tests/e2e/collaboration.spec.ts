@@ -77,11 +77,9 @@ async function provisionAccounts(request: APIRequestContext) {
 
 async function createRemote(page: Page, name: string, username: string, password: string) {
   await page.goto("/");
+  await addRepository(page, username, password);
   await page.getByTestId("new-graph-name").fill(name);
-  await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create remote graph", exact: true }).last().click();
+  await page.getByTestId("create-graph").click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {
     timeout: 15_000,
@@ -90,15 +88,20 @@ async function createRemote(page: Page, name: string, username: string, password
 
 async function connectRemote(page: Page, name: string, username: string, password: string) {
   await page.goto("/");
-  await page.getByTestId("new-graph-name").fill(name);
-  await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Connect available graphs", exact: true }).click();
+  await addRepository(page, username, password);
+  await page.getByTestId(`open-graph-${name}`).click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {
     timeout: 15_000,
   });
+}
+
+async function addRepository(page: Page, username: string, password: string) {
+  await page.getByTestId("add-repository").click();
+  await page.getByLabel("Server URL").fill(syncOrigin!);
+  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }
 
 async function invite(page: Page, principal: string) {

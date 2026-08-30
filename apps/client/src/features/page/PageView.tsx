@@ -32,6 +32,8 @@ import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
+import { graphPath } from "../graphs/routing";
+import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 
 /** Where a context menu was summoned, in viewport coordinates. */
 interface MenuPoint {
@@ -443,6 +445,7 @@ export function Tombstone({
   actions?: ReactNode;
 }) {
   const { message } = useI18n();
+  const { repositoryId = LOCAL_REPOSITORY_ID } = useParams();
   return (
     <div className="page-scroll">
       {/* A failure keeps the shell: the rail and top bar stay put so a mistyped
@@ -453,7 +456,9 @@ export function Tombstone({
           <p>{detail}</p>
           <div className="actions">
             <Button asChild variant="secondary">
-              <Link to={`/g/${graphId}/journal`}>{message("page.goToJournal")}</Link>
+              <Link to={graphPath(repositoryId, graphId, "journal")}>
+                {message("page.goToJournal")}
+              </Link>
             </Button>
             {actions}
           </div>

@@ -1,24 +1,45 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
-import { CloudIcon, DownloadIcon, MoreHorizontalIcon, UploadIcon } from "lucide-react";
+import {
+  CloudIcon,
+  DownloadIcon,
+  HardDriveIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  UploadIcon,
+} from "lucide-react";
+import { neoseqUrl } from "@/app/runtime-config";
 import {
   deleteGraph,
   exportGraphArchive,
   importGraphArchive,
-  listGraphs,
   processPendingDelete,
   registerGraph,
   registerRemoteGraph,
   renameGraph,
   type GraphSummary,
 } from "../../core-port/directory";
+import {
+  createRepositoryId,
+  listRepositories,
+  normalizeServerOrigin,
+  registerRemoteRepository,
+  repositoryLabel,
+  subscribeRepositoryDirectory,
+  LOCAL_REPOSITORY_ID,
+  type RemoteRepository,
+  type Repository,
+} from "../repositories/directory";
 import { createRemoteGraph, listRemoteGraphs } from "../sync/api";
-import { signIn } from "../sync/auth";
+import { clearAuthSession, readAuthSession, signIn, writeAuthSession } from "../sync/auth";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
 import { useNotify } from "../notify/context";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/ui/shadcn/field";
+import { Skeleton } from "@/ui/shadcn/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/shadcn/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,63 +51,145 @@ import {
 import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
 import type { AsyncRequestState } from "../../lib/async";
-
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; graphs: GraphSummary[] }
-  | { status: "failed"; message: string };
+import { graphPath } from "./routing";
+import { repositoryCatalog, useRepositoryCatalogs } from "./useRepositoryCatalogs";
 
 type GraphDialog =
   | { kind: "rename"; graph: GraphSummary }
   | { kind: "delete"; graph: GraphSummary }
-  | { kind: "remote-create" }
+  | { kind: "repository"; repository?: RemoteRepository }
   | null;
 
 const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
+const SELECTED_REPOSITORY_KEY = "neoseq.selected-repository.v1";
 
-/**
- * The first screen. It carries no entrance animation on purpose: this container
- * is audited by axe the instant it mounts, and a surface fading in at partial
- * alpha composites its text against the background and fails contrast for every
- * child (designs/foundations.md § Motion).
- *
- * The empty state *is* the action — one sentence above the create form, not a
- * dashed box holding an instruction that points at a form below it.
- */
 export function GraphPicker() {
   const { message, formatInstant } = useI18n();
   const notify = useNotify();
   const navigate = useNavigate();
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [repositories, setRepositories] = useState<Repository[]>(listRepositories);
+  const [selectedId, setSelectedId] = useState(
+    () => localStorage.getItem(SELECTED_REPOSITORY_KEY) ?? LOCAL_REPOSITORY_ID,
+  );
+  const [directoryReady, setDirectoryReady] = useState(false);
   const [newName, setNewName] = useState("");
   const [dialog, setDialog] = useState<GraphDialog>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const archiveInput = useRef<HTMLInputElement>(null);
+  const [creating, setCreating] = useState(false);
+  const archiveInputs = useRef(new Map<string, HTMLInputElement>());
+  const selected =
+    repositories.find((repository) => repository.id === selectedId) ?? repositories[0];
+  const { catalogs, refreshSelected } = useRepositoryCatalogs(selected, directoryReady);
 
-  const refresh = useCallback(async () => {
-    try {
-      await processPendingDelete();
-      setState({ status: "ready", graphs: await listGraphs() });
-    } catch (error) {
-      setState({
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, []);
+  useEffect(
+    () =>
+      subscribeRepositoryDirectory(() => {
+        setRepositories(listRepositories());
+      }),
+    [],
+  );
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (repositories.some((repository) => repository.id === selectedId)) return;
+    setSelectedId(LOCAL_REPOSITORY_ID);
+  }, [repositories, selectedId]);
 
-  const create = (event: FormEvent) => {
-    event.preventDefault();
-    if (importing) return;
-    const name = newName.trim() || message("graph.defaultName");
-    const graph = registerGraph(name);
-    navigate(`/g/${graph.id}`);
+  useEffect(() => {
+    let active = true;
+    void processPendingDelete().then(
+      () => {
+        if (active) setDirectoryReady(true);
+      },
+      () => {
+        if (active) setDirectoryReady(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const chooseRepository = (repositoryId: string) => {
+    localStorage.setItem(SELECTED_REPOSITORY_KEY, repositoryId);
+    setSelectedId(repositoryId);
   };
+
+  const openGraph = (graph: GraphSummary) => {
+    if (graph.kind === "remote") {
+      registerRemoteGraph(graph.repository_id, graph.id, graph.name, graph.created_at, {
+        role: graph.role,
+        status: graph.status,
+      });
+    }
+    navigate(graphPath(graph.repository_id, graph.id));
+  };
+
+  const create = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected || importing || creating) return;
+    const name = newName.trim() || message("graph.defaultName");
+    if (selected.kind === "local") {
+      openGraph(registerGraph(name));
+      return;
+    }
+    const auth = readAuthSession(selected.id);
+    if (!auth) {
+      setDialog({ kind: "repository", repository: selected });
+      return;
+    }
+    setCreating(true);
+    try {
+      const { graph_id } = await createRemoteGraph(selected.origin, auth, name);
+      openGraph(
+        registerRemoteGraph(selected.id, graph_id, name, new Date().toISOString(), {
+          role: "owner",
+          status: "active",
+        }),
+      );
+    } catch (cause) {
+      notify.failure(message("graph.createRemoteFailed"), cause);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const importArchive = async (file: File) => {
+    if (!selected) return;
+    setImporting(true);
+    const graphId = `g-${crypto.randomUUID()}`;
+    try {
+      const bytes = await file.arrayBuffer();
+      const imported = await importGraphArchive(
+        bytes,
+        message("graph.importedName"),
+        selected.id,
+        graphId,
+      );
+      let ready = imported;
+      if (selected.kind === "remote") {
+        const auth = readAuthSession(selected.id);
+        if (!auth) throw new Error("remote authentication required");
+        try {
+          await createRemoteGraph(selected.origin, auth, imported.name, graphId);
+          ready = registerRemoteGraph(selected.id, graphId, imported.name, imported.created_at, {
+            role: "owner",
+            status: "active",
+          });
+        } catch (error) {
+          await deleteGraph(selected.id, graphId);
+          throw error;
+        }
+      }
+      openGraph(ready);
+    } catch (cause) {
+      notify.failure(message("failure.importGraph"), cause);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const remote = selected?.kind === "remote" ? selected : null;
 
   return (
     <main className="picker">
@@ -95,168 +198,158 @@ export function GraphPicker() {
           <Wordmark name={message("app.title")} />
         </p>
         <h1>{message("graph.yourGraphs")}</h1>
-        <p className="picker-lede">{message("graph.lede")}</p>
-        {state.status === "failed" && (
-          <Callout tone="danger">
-            {message("graph.listFailed", { detail: message("error.internal") })}
-          </Callout>
-        )}
-        {state.status === "ready" && state.graphs.length === 0 && (
-          <p className="picker-empty" data-testid="picker-empty">
-            {message("graph.empty")}
-          </p>
-        )}
-        {state.status === "ready" && state.graphs.length > 0 && (
-          <ul className="graph-list" data-testid="graph-list">
-            {state.graphs.map((graph) => (
-              <li key={graph.id} className="graph-card">
-                <button
-                  className="graph-card-open"
-                  onClick={() => navigate(`/g/${graph.id}`)}
-                  data-testid={`open-graph-${graph.name}`}
-                >
-                  <span className="graph-card-avatar" aria-hidden>
-                    {[...graph.name.trim()][0] ?? "·"}
-                  </span>
-                  <span className="graph-card-text">
-                    <span className="name">{graph.name}</span>
-                    <span className="meta">
-                      {graph.kind === "remote" && (
-                        <>
-                          <span className="graph-remote-label">
-                            <CloudIcon aria-hidden />
-                            {message("graph.remote")}
-                          </span>
-                          {" · "}
-                        </>
-                      )}
-                      {message("graph.created", {
-                        date: formatInstant(graph.created_at, configuredTimezone(), CREATED),
-                      })}
-                    </span>
-                  </span>
-                </button>
-                {/* Maintenance verbs live behind one named menu, so a destructive
-                    action is never a pixel away from the open target. The class
-                    reveals it on hover and on :focus-within. */}
-                <div className="graph-actions">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="icon"
-                        aria-label={message("graph.actionsFor", { name: graph.name })}
-                        data-graph-actions={graph.id}
-                      >
-                        <MoreHorizontalIcon aria-hidden />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem onSelect={() => setDialog({ kind: "rename", graph })}>
-                          {message("graph.rename")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={exporting !== null}
-                          onSelect={() => {
-                            setExporting(graph.id);
-                            void exportGraphArchive(graph.id, graph.name)
-                              .then((bytes) => downloadArchive(bytes, graph.name))
-                              .catch((cause: unknown) => {
-                                notify.failure(
-                                  message("failure.exportGraph", { name: graph.name }),
-                                  cause,
-                                );
-                              })
-                              .finally(() => setExporting(null));
-                          }}
-                          data-testid={`export-graph-${graph.name}`}
-                        >
-                          <DownloadIcon aria-hidden />
-                          {exporting === graph.id
-                            ? message("graph.exporting")
-                            : message("graph.export")}
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onSelect={() => setDialog({ kind: "delete", graph })}
-                        >
-                          {message("graph.delete")}
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* Name it, then make it: the field and the verb it answers to sit on
-            one line, so the primary path through this screen is a single
-            gesture. The remote graph is the second path and reads as one —
-            below, quiet, and behind a rule. */}
-        <form className="picker-new" onSubmit={create}>
-          <div className="picker-new-row">
-            <Input
-              placeholder={message("graph.newName")}
-              aria-label={message("graph.newName")}
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              data-testid="new-graph-name"
-            />
-            <Button type="submit" disabled={importing} data-testid="create-graph">
-              {message("graph.createLocal")}
+        <p className="picker-lede">
+          {remote
+            ? message("repository.remoteLede", { account: remote.username })
+            : message("graph.lede")}
+        </p>
+
+        <Tabs value={selected?.id} onValueChange={chooseRepository}>
+          <div className="repository-tabs-row">
+            <TabsList aria-label={message("repository.tabsLabel")}>
+              {repositories.map((repository) => (
+                <TabsTrigger key={repository.id} value={repository.id}>
+                  {repository.kind === "local" ? (
+                    <HardDriveIcon aria-hidden />
+                  ) : (
+                    <CloudIcon aria-hidden />
+                  )}
+                  <span>{repositoryLabel(repository, message("repository.local"))}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={message("repository.add")}
+              data-testid="add-repository"
+              onClick={() => setDialog({ kind: "repository" })}
+            >
+              <PlusIcon aria-hidden />
             </Button>
           </div>
-          <div className="picker-new-actions">
-            <Button
-              variant="ghost"
-              disabled={importing}
-              onClick={() => archiveInput.current?.click()}
-              data-testid="import-graph"
-            >
-              <UploadIcon data-icon="inline-start" aria-hidden />
-              {importing ? message("graph.importing") : message("graph.import")}
-            </Button>
-            <input
-              ref={archiveInput}
-              className="sr-only"
-              type="file"
-              accept=".neoseq,application/vnd.neoseq.graph+zip"
-              tabIndex={-1}
-              aria-hidden
-              data-testid="import-graph-file"
-              onChange={(event) => {
-                const input = event.currentTarget;
-                const file = input.files?.[0];
-                if (!file) return;
-                setImporting(true);
-                void file
-                  .arrayBuffer()
-                  .then((bytes) => importGraphArchive(bytes, message("graph.importedName")))
-                  .then((graph) => navigate(`/g/${graph.id}`))
-                  .catch((cause: unknown) => {
-                    notify.failure(message("failure.importGraph"), cause);
-                  })
-                  .finally(() => {
-                    input.value = "";
-                    setImporting(false);
-                  });
-              }}
-            />
-            <Button
-              variant="ghost"
-              disabled={importing}
-              onClick={() => setDialog({ kind: "remote-create" })}
-              data-testid="create-remote-graph"
-            >
-              <CloudIcon aria-hidden />
-              {message("graph.createRemote")}
-            </Button>
-          </div>
-        </form>
+
+          {repositories.map((repository) => {
+            const catalog = repositoryCatalog(catalogs, repository.id);
+            const repositoryRemote = repository.kind === "remote" ? repository : null;
+            const initialLoading = catalog.status === "idle" || catalog.status === "loading";
+            const busy = initialLoading || catalog.refreshing;
+            return (
+              <TabsContent
+                key={repository.id}
+                className="repository-panel"
+                value={repository.id}
+                aria-busy={busy}
+              >
+                {catalog.status === "failed" && (
+                  <Callout tone="danger">
+                    {message("repository.listFailed", { detail: message("error.internal") })}
+                  </Callout>
+                )}
+                {catalog.status === "auth" && repositoryRemote && (
+                  <div className="repository-auth-required">
+                    <Callout>{message("repository.signInRequired")}</Callout>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        setDialog({ kind: "repository", repository: repositoryRemote })
+                      }
+                    >
+                      {message("graph.signIn")}
+                    </Button>
+                  </div>
+                )}
+                {catalog.status === "ready" && catalog.stale && (
+                  <Callout>{message("repository.cachedOnly")}</Callout>
+                )}
+                {initialLoading && catalog.graphs.length === 0 && (
+                  <GraphListSkeleton label={message("repository.loading")} />
+                )}
+                {catalog.status === "ready" && catalog.graphs.length === 0 && (
+                  <p className="picker-empty" data-testid="picker-empty">
+                    {repositoryRemote ? message("repository.remoteEmpty") : message("graph.empty")}
+                  </p>
+                )}
+                {catalog.graphs.length > 0 && (
+                  <GraphList
+                    graphs={catalog.graphs}
+                    exporting={exporting}
+                    formatDate={(date) => formatInstant(date, configuredTimezone(), CREATED)}
+                    onOpen={openGraph}
+                    onExport={(graph) => {
+                      setExporting(graph.id);
+                      void exportGraphArchive(graph.repository_id, graph.id, graph.name)
+                        .then((bytes) => downloadArchive(bytes, graph.name))
+                        .catch((cause: unknown) => {
+                          notify.failure(
+                            message("failure.exportGraph", { name: graph.name }),
+                            cause,
+                          );
+                        })
+                        .finally(() => setExporting(null));
+                    }}
+                    onRename={(graph) => setDialog({ kind: "rename", graph })}
+                    onDelete={(graph) => setDialog({ kind: "delete", graph })}
+                  />
+                )}
+
+                <form className="picker-new" onSubmit={(event) => void create(event)}>
+                  <div className="picker-new-row">
+                    <Input
+                      placeholder={message("graph.newName")}
+                      aria-label={message("graph.newName")}
+                      value={newName}
+                      onChange={(event) => setNewName(event.target.value)}
+                      data-testid="new-graph-name"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={importing || creating || catalog.status === "auth"}
+                      data-testid="create-graph"
+                    >
+                      {creating
+                        ? message("repository.creating")
+                        : repositoryRemote
+                          ? message("graph.createRemote")
+                          : message("graph.createLocal")}
+                    </Button>
+                  </div>
+                  <div className="picker-new-actions">
+                    <Button
+                      variant="ghost"
+                      disabled={importing || creating || catalog.status === "auth"}
+                      onClick={() => archiveInputs.current.get(repository.id)?.click()}
+                      data-testid="import-graph"
+                    >
+                      <UploadIcon data-icon="inline-start" aria-hidden />
+                      {importing ? message("graph.importing") : message("graph.import")}
+                    </Button>
+                    <input
+                      ref={(input) => {
+                        if (input) archiveInputs.current.set(repository.id, input);
+                        else archiveInputs.current.delete(repository.id);
+                      }}
+                      className="sr-only"
+                      type="file"
+                      accept=".neoseq,application/vnd.neoseq.graph+zip"
+                      tabIndex={-1}
+                      aria-hidden
+                      data-testid="import-graph-file"
+                      onChange={(event) => {
+                        const input = event.currentTarget;
+                        const file = input.files?.[0];
+                        if (!file) return;
+                        void importArchive(file).finally(() => {
+                          input.value = "";
+                        });
+                      }}
+                    />
+                  </div>
+                </form>
+              </TabsContent>
+            );
+          })}
+        </Tabs>
       </div>
 
       {dialog?.kind === "rename" && (
@@ -265,7 +358,7 @@ export function GraphPicker() {
           onClose={() => setDialog(null)}
           onRenamed={() => {
             setDialog(null);
-            void refresh();
+            refreshSelected();
           }}
         />
       )}
@@ -280,152 +373,221 @@ export function GraphPicker() {
           onClose={() => setDialog(null)}
           onDeleted={() => {
             setDialog(null);
-            void refresh();
+            refreshSelected();
           }}
         />
       )}
-      {dialog?.kind === "remote-create" && (
-        <RemoteCreateDialog
-          initialName={newName.trim() || message("graph.defaultName")}
+      {dialog?.kind === "repository" && (
+        <RepositoryDialog
+          repository={dialog.repository}
           onClose={() => setDialog(null)}
-          onCreated={(graph) => navigate(`/g/${graph.id}`)}
+          onConnected={(repository) => {
+            setDialog(null);
+            chooseRepository(repository.id);
+            setRepositories(listRepositories());
+          }}
         />
       )}
     </main>
   );
 }
 
-function downloadArchive(bytes: ArrayBuffer, graphName: string): void {
-  const blob = new Blob([bytes], { type: "application/vnd.neoseq.graph+zip" });
-  const href = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = href;
-  anchor.download = `${safeFilename(graphName)}.neoseq`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+function GraphListSkeleton({ label }: { label: string }) {
+  return (
+    <div
+      className="graph-list graph-list-loading"
+      role="status"
+      aria-label={label}
+      data-testid="graph-list-loading"
+    >
+      {[0, 1, 2, 3].map((row) => (
+        <Skeleton key={row} className="graph-card-placeholder" aria-hidden />
+      ))}
+    </div>
+  );
 }
 
-function safeFilename(value: string): string {
-  const cleaned = value
-    .trim()
-    .replace(/[\\/:*?"<>|]+/gu, "-")
-    .replace(/\s+/gu, " ");
-  return cleaned || "graph";
-}
-
-function RemoteCreateDialog({
-  initialName,
-  onClose,
-  onCreated,
+function GraphList({
+  graphs,
+  exporting,
+  formatDate,
+  onOpen,
+  onExport,
+  onRename,
+  onDelete,
 }: {
-  initialName: string;
-  onClose: () => void;
-  onCreated: (graph: GraphSummary) => void;
+  graphs: GraphSummary[];
+  exporting: string | null;
+  formatDate: (date: string) => string;
+  onOpen: (graph: GraphSummary) => void;
+  onExport: (graph: GraphSummary) => void;
+  onRename: (graph: GraphSummary) => void;
+  onDelete: (graph: GraphSummary) => void;
 }) {
   const { message } = useI18n();
-  const [name, setName] = useState(initialName);
-  const [serverUrl, setServerUrl] = useState(window.location.origin);
-  const [username, setUsername] = useState("");
+  return (
+    <ul className="graph-list" data-testid="graph-list">
+      {graphs.map((graph) => {
+        const actions = graph.kind === "local" || graph.cached;
+        return (
+          <li key={`${graph.repository_id}:${graph.id}`} className="graph-card">
+            <button
+              className="graph-card-open"
+              onClick={() => onOpen(graph)}
+              data-testid={`open-graph-${graph.name}`}
+            >
+              <span className="graph-card-avatar" aria-hidden>
+                {[...graph.name.trim()][0] ?? "·"}
+              </span>
+              <span className="graph-card-text">
+                <span className="name">{graph.name}</span>
+                <span className="meta">
+                  {graph.role && <>{message(`graph.${graph.role}`)} · </>}
+                  {message("graph.created", { date: formatDate(graph.created_at) })}
+                  {graph.kind === "remote" && graph.cached && (
+                    <> · {message("repository.availableOffline")}</>
+                  )}
+                </span>
+              </span>
+            </button>
+            {actions && (
+              <div className="graph-actions">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon"
+                      aria-label={message("graph.actionsFor", { name: graph.name })}
+                      data-graph-actions={graph.id}
+                    >
+                      <MoreHorizontalIcon aria-hidden />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuGroup>
+                      {graph.kind === "local" && (
+                        <DropdownMenuItem onSelect={() => onRename(graph)}>
+                          {message("graph.rename")}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        disabled={exporting !== null}
+                        onSelect={() => onExport(graph)}
+                        data-testid={`export-graph-${graph.name}`}
+                      >
+                        <DownloadIcon aria-hidden />
+                        {exporting === graph.id
+                          ? message("graph.exporting")
+                          : message("graph.export")}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    {graph.kind === "local" && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem variant="destructive" onSelect={() => onDelete(graph)}>
+                            {message("graph.delete")}
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function RepositoryDialog({
+  repository,
+  onClose,
+  onConnected,
+}: {
+  repository?: RemoteRepository;
+  onClose: () => void;
+  onConnected: (repository: RemoteRepository) => void;
+}) {
+  const { message } = useI18n();
+  const [serverUrl, setServerUrl] = useState(repository?.origin ?? neoseqUrl());
+  const [username, setUsername] = useState(repository?.username ?? "");
   const [password, setPassword] = useState("");
   const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
   const busy = request.status === "busy";
 
-  const connectAvailable = async () => {
+  const connect = async (event: FormEvent) => {
+    event.preventDefault();
     setRequest({ status: "busy" });
-    signIn(serverUrl, username, password)
-      .then((auth) => listRemoteGraphs(serverUrl, auth))
-      .then(({ graphs }) => {
-        if (graphs.length === 0) {
-          setRequest({ status: "failed", message: message("graph.noRemoteGraphs") });
-          return;
-        }
-        // The server knows ids, not names — the typed name goes to the first
-        // graph, and the rest take a readable numbered variant of it rather
-        // than an opaque id as their card title.
-        const base = name.trim() || message("graph.defaultName");
-        const registered = graphs.map((graph, index) =>
-          registerRemoteGraph(
-            graph.graph_id,
-            index === 0 ? base : `${base} (${index + 1})`,
-            serverUrl,
-          ),
-        );
-        onCreated(registered[0]);
-      })
-      .catch(() => {
-        setRequest({ status: "failed", message: message("graph.connectRemoteFailed") });
-      });
+    const repositoryId = repository?.id ?? createRepositoryId();
+    try {
+      const origin = normalizeServerOrigin(serverUrl);
+      const auth = await signIn(repositoryId, origin, username, password);
+      if (repository && auth.principal !== repository.account_id) {
+        clearAuthSession(repositoryId);
+        throw new Error("repository account changed");
+      }
+      await listRemoteGraphs(origin, auth);
+      const connected = repository ?? registerRemoteRepository(repositoryId, origin, auth);
+      if (connected.id !== repositoryId) {
+        writeAuthSession(connected.id, auth);
+        clearAuthSession(repositoryId);
+      }
+      onConnected(connected);
+    } catch {
+      setRequest({ status: "failed", message: message("graph.signInFailed") });
+    }
   };
 
   return (
-    <Dialog title={message("graph.remoteCreateTitle")} onClose={onClose}>
-      <p className="dialog-lede">{message("graph.remoteCreateDetail")}</p>
+    <Dialog
+      title={message(repository ? "repository.reconnectTitle" : "repository.addTitle")}
+      onClose={onClose}
+    >
+      <p className="dialog-lede">{message("repository.addDetail")}</p>
       {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
-      <form
-        className="remote-form"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setRequest({ status: "busy" });
-          signIn(serverUrl, username, password)
-            .then((auth) => createRemoteGraph(serverUrl, auth))
-            .then(({ graph_id }) => {
-              onCreated(registerRemoteGraph(graph_id, name.trim(), serverUrl));
-            })
-            .catch(() => {
-              setRequest({ status: "failed", message: message("graph.createRemoteFailed") });
-            });
-        }}
-      >
-        <label className="field-label" htmlFor="remote-graph-name">
-          {message("graph.graphName")}
-        </label>
-        <Input
-          id="remote-graph-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <label className="field-label" htmlFor="remote-server-url">
-          {message("graph.serverUrl")}
-        </label>
-        <Input
-          id="remote-server-url"
-          type="url"
-          value={serverUrl}
-          onChange={(event) => setServerUrl(event.target.value)}
-        />
-        <label className="field-label" htmlFor="remote-username">
-          {message("graph.username")}
-        </label>
-        <Input
-          id="remote-username"
-          autoComplete="username"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-        />
-        <label className="field-label" htmlFor="remote-password">
-          {message("graph.password")}
-        </label>
-        <Input
-          id="remote-password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
+      <form onSubmit={(event) => void connect(event)}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="repository-server-url">{message("graph.serverUrl")}</FieldLabel>
+            <Input
+              id="repository-server-url"
+              type="url"
+              value={serverUrl}
+              disabled={Boolean(repository)}
+              onChange={(event) => setServerUrl(event.target.value)}
+            />
+            <FieldDescription>{message("repository.urlDetail")}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="repository-username">{message("graph.username")}</FieldLabel>
+            <Input
+              id="repository-username"
+              autoComplete="username"
+              value={username}
+              disabled={Boolean(repository)}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="repository-password">{message("graph.password")}</FieldLabel>
+            <Input
+              id="repository-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <FieldDescription>{message("repository.passwordDetail")}</FieldDescription>
+          </Field>
+        </FieldGroup>
         <div className="dialog-actions">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {message("common.cancel")}
           </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={connectAvailable}
-            disabled={busy || !username.trim() || !password}
-          >
-            {message("graph.connectRemote")}
-          </Button>
-          <Button type="submit" disabled={busy || !name.trim() || !username.trim() || !password}>
-            {message("graph.createRemote")}
+          <Button type="submit" disabled={busy || !username.trim() || !password}>
+            {message("graph.signIn")}
           </Button>
         </div>
       </form>
@@ -450,20 +612,22 @@ function RenameDialog({
         onSubmit={(event) => {
           event.preventDefault();
           if (name.trim()) {
-            renameGraph(graph.id, name);
+            renameGraph(graph.repository_id, graph.id, name);
             onRenamed();
           }
         }}
       >
-        <label className="field-label" htmlFor="rename-graph-input">
-          {message("graph.graphName")}
-        </label>
-        <Input
-          id="rename-graph-input"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          data-testid="rename-graph-name"
-        />
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="rename-graph-input">{message("graph.graphName")}</FieldLabel>
+            <Input
+              id="rename-graph-input"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              data-testid="rename-graph-name"
+            />
+          </Field>
+        </FieldGroup>
         <div className="dialog-actions">
           <Button variant="secondary" onClick={onClose}>
             {message("common.cancel")}
@@ -499,7 +663,7 @@ function DeleteDialog({
       returnFocus={returnFocus}
       onClose={onClose}
       onConfirm={async () => {
-        await deleteGraph(graph.id);
+        await deleteGraph(graph.repository_id, graph.id);
         onDeleted();
       }}
       onConfirmError={(cause) =>
@@ -509,4 +673,22 @@ function DeleteDialog({
       {message("graph.deleteConfirm", { name: graph.name })}
     </ConfirmDialog>
   );
+}
+
+function downloadArchive(bytes: ArrayBuffer, graphName: string): void {
+  const blob = new Blob([bytes], { type: "application/vnd.neoseq.graph+zip" });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `${safeFilename(graphName)}.neoseq`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
+function safeFilename(value: string): string {
+  const cleaned = value
+    .trim()
+    .replace(/[\\/:*?"<>|]+/gu, "-")
+    .replace(/\s+/gu, " ");
+  return cleaned || "graph";
 }

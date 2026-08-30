@@ -26,8 +26,9 @@ focused design boundaries under [`designs/`](designs/).
 - Rust owns domain rules, CRDT mutation, indexing, and query semantics.
 - Platform code implements storage and binding concerns without domain policy.
 - Canonical graph data remains portable Loro state; every index is disposable.
-- Graph archives are copy-only: every import creates an independent local graph
-  identity and never overwrites or merges an existing graph.
+- Graph archives are copy-only: every import creates an independent graph
+  identity in the selected repository and never overwrites or merges an
+  existing graph.
 - User queries cannot access the filesystem, network, processes, or another graph.
 - Presentation preferences and localization never mutate graph semantics.
 - devenv provides reproducible development, build, and verification environments.
@@ -39,7 +40,8 @@ focused design boundaries under [`designs/`](designs/).
 ```mermaid
 flowchart LR
     UI[React UI] --> Session[GraphSession]
-    Session --> Port[CorePort v1]
+    UI --> Directory[Repository + graph directory]
+    Session --> Port[CorePort v2]
     Session --> Agent[SyncAgent]
     Port --> Worker[Web Worker adapter]
     Worker --> Core[Rust/Wasm graph core]
@@ -99,6 +101,7 @@ Detailed contracts:
 - [Property fields](architectures/properties.md)
 - [Query and derived index](architectures/query.md)
 - [Client application](architectures/clients.md)
+- [Repository-qualified graphs](architectures/repositories.md)
 - [Block Markdown rendering](architectures/markdown-rendering.md)
 - [Inline page references](architectures/page-references.md)
 - [Outline clipboard](architectures/clipboard.md)
@@ -111,7 +114,9 @@ Detailed contracts:
 
 ## CorePort
 
-The asynchronous CorePort v1 contract has seven operations:
+The asynchronous CorePort v2 contract has seven operations. Every graph locator
+contains a client repository ID and the graph ID assigned within that
+repository:
 
 ```text
 open_graph(locator) -> graph_handle + graph_summary

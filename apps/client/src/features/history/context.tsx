@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import type { CommandResult, EntityRef } from "../../core-port/commands";
 import type { QueryEntityRef } from "../../generated/core-port";
 import type { GraphSession } from "../../core-port/session";
+import { graphPath } from "../graphs/routing";
 import {
   findPage,
   journalDate,
@@ -85,13 +86,13 @@ export function HistoryProvider({
   const routeForOwner = useCallback(
     (owner: OutlineOwner) => {
       if (owner.kind === "tag") {
-        return `/g/${graphId}/t/${encodeURIComponent(owner.id)}`;
+        return graphPath(session.repositoryId, graphId, `t/${owner.id}`);
       }
       const page = findPage(session.getState().snapshot, owner.id);
       const date = page && pageKind(page) === "journal" ? journalDate(page) : undefined;
       return date
-        ? `/g/${graphId}/journal/${date}`
-        : `/g/${graphId}/p/${encodeURIComponent(owner.id)}`;
+        ? graphPath(session.repositoryId, graphId, `journal/${date}`)
+        : graphPath(session.repositoryId, graphId, `p/${owner.id}`);
     },
     [graphId, session],
   );
@@ -128,7 +129,7 @@ export function HistoryProvider({
   const open = useCallback(
     (target: QueryEntityRef) => {
       if (target.kind === "tag") {
-        navigate(`/g/${graphId}/t/${encodeURIComponent(target.id)}`);
+        navigate(graphPath(session.repositoryId, graphId, `t/${target.id}`));
         return;
       }
       reveal(
@@ -137,7 +138,7 @@ export function HistoryProvider({
           : { kind: "block", owner: target.owner, id: target.id },
       );
     },
-    [graphId, navigate, reveal],
+    [graphId, navigate, reveal, session.repositoryId],
   );
 
   const run = useCallback(

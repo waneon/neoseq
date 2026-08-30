@@ -11,7 +11,7 @@ import {
   revokeMembership,
   type RemoteGraphMembership,
 } from "./api";
-import { readAuthSession, signIn } from "./auth";
+import { clearAuthSession, readAuthSession, signIn } from "./auth";
 import type { AsyncRequestState } from "../../lib/async";
 
 export function RemoteMembersDialog({
@@ -24,8 +24,7 @@ export function RemoteMembersDialog({
   onClose: () => void;
 }) {
   const { message } = useI18n();
-  const stored = readAuthSession(connection.server_url);
-  const [username, setUsername] = useState(stored?.username ?? "");
+  const username = connection.username;
   const [password, setPassword] = useState("");
   const [members, setMembers] = useState<RemoteGraphMembership[]>([]);
   const [invite, setInvite] = useState("");
@@ -34,7 +33,7 @@ export function RemoteMembersDialog({
   const busy = request.status === "busy";
 
   const refresh = useCallback(
-    async (auth = readAuthSession(connection.server_url)) => {
+    async (auth = readAuthSession(connection.repository_id)) => {
       if (!auth) return;
       setRequest({ status: "busy" });
       try {
@@ -46,7 +45,7 @@ export function RemoteMembersDialog({
         setRequest({ status: "failed", message: message("graph.membersLoadFailed") });
       }
     },
-    [connection.server_url, graphId, message],
+    [connection.repository_id, connection.server_url, graphId, message],
   );
 
   useEffect(() => {
@@ -56,8 +55,14 @@ export function RemoteMembersDialog({
   const saveAccount = (event: FormEvent) => {
     event.preventDefault();
     setRequest({ status: "busy" });
-    void signIn(connection.server_url, username, password)
-      .then((auth) => refresh(auth))
+    void signIn(connection.repository_id, connection.server_url, username, password)
+      .then((auth) => {
+        if (auth.principal !== connection.account_id) {
+          clearAuthSession(connection.repository_id);
+          throw new Error("repository account changed");
+        }
+        return refresh(auth);
+      })
       .catch(() => {
         setRequest({ status: "failed", message: message("graph.signInFailed") });
       });
@@ -65,7 +70,7 @@ export function RemoteMembersDialog({
 
   const inviteMember = (event: FormEvent) => {
     event.preventDefault();
-    const auth = readAuthSession(connection.server_url);
+    const auth = readAuthSession(connection.repository_id);
     if (!auth || !invite.trim()) return;
     const account = invite.trim();
     setRequest({ status: "busy" });
@@ -90,12 +95,7 @@ export function RemoteMembersDialog({
         <label className="field-label" htmlFor="member-account-username">
           {message("graph.username")}
         </label>
-        <Input
-          id="member-account-username"
-          autoComplete="username"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-        />
+        <Input id="member-account-username" autoComplete="username" value={username} disabled />
         <label className="field-label" htmlFor="member-account-password">
           {message("graph.password")}
         </label>
@@ -128,7 +128,7 @@ export function RemoteMembersDialog({
                 variant="destructive"
                 disabled={busy}
                 onClick={() => {
-                  const auth = readAuthSession(connection.server_url);
+                  const auth = readAuthSession(connection.repository_id);
                   if (!auth) return;
                   setRequest({ status: "busy" });
                   void revokeMembership(connection.server_url, auth, graphId, member.username)

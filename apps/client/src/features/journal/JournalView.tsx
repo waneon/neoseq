@@ -15,6 +15,7 @@ import { useNotify } from "../notify/context";
 import { PageBody, Tombstone } from "../page/PageView";
 import { JournalQueries } from "./JournalQueries";
 import { useSession, useSessionSelector } from "../shell/session-context";
+import { graphPath } from "../graphs/routing";
 
 export function JournalView() {
   const { graphId = "", date: routeDate } = useParams();
@@ -84,7 +85,8 @@ export function JournalView() {
     );
   }
 
-  const go = (target: string) => navigate(`/g/${graphId}/journal/${target}`);
+  const go = (target: string) =>
+    navigate(graphPath(session.repositoryId, graphId, `journal/${target}`));
 
   // Standing questions belong to the day they are standing in: their relative
   // operands resolve against the reader's real today, so asked from last March

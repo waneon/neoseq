@@ -3,7 +3,10 @@ use graph_core::checksum;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 
-const DATABASE_MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
+const DATABASE_MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_initial.sql"),
+    include_str!("../migrations/0002_graph_catalog.sql"),
+];
 pub const DATABASE_SCHEMA_VERSION: i32 = DATABASE_MIGRATIONS.len() as i32;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
@@ -53,9 +56,22 @@ pub struct Membership {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphListing {
     pub graph_id: String,
+    pub display_name: String,
+    pub created_at: String,
+    pub updated_at: String,
     pub role: GraphRole,
     pub status: GraphStatus,
     pub membership_version: u64,
+}
+
+pub struct NewGraph<'a> {
+    pub graph_id: &'a str,
+    pub display_name: &'a str,
+    pub owner_account_id: &'a str,
+    pub schema_version: u32,
+    pub byte_quota: u64,
+    pub snapshot: &'a [u8],
+    pub version_vector: &'a [u8],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,15 +181,7 @@ pub trait GraphStore: Send + Sync + 'static {
 
 #[async_trait]
 pub trait GraphAdmin: GraphStore {
-    async fn create_graph(
-        &self,
-        graph_id: &str,
-        owner_account_id: &str,
-        schema_version: u32,
-        byte_quota: u64,
-        snapshot: &[u8],
-        version_vector: &[u8],
-    ) -> Result<(), StoreError>;
+    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError>;
 
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError>;
 
@@ -212,32 +220,29 @@ impl PgStore {
         &self.pool
     }
 
-    async fn insert_graph(
-        &self,
-        graph_id: &str,
-        owner_account_id: &str,
-        schema_version: u32,
-        byte_quota: u64,
-        snapshot: &[u8],
-        version_vector: &[u8],
-    ) -> Result<(), StoreError> {
+    async fn insert_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query(
-            "INSERT INTO graph(graph_id, schema_version, byte_quota, used_bytes)
-             VALUES ($1, $2, $3, $4)",
+            "INSERT INTO graph(
+                graph_id, display_name, schema_version, byte_quota, used_bytes
+             ) VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(graph_id)
-        .bind(i32::try_from(schema_version).map_err(|_| StoreError::Corrupt("schema overflow"))?)
-        .bind(as_i64(byte_quota)?)
-        .bind(as_i64(snapshot.len() as u64)?)
+        .bind(graph.graph_id)
+        .bind(graph.display_name)
+        .bind(
+            i32::try_from(graph.schema_version)
+                .map_err(|_| StoreError::Corrupt("schema overflow"))?,
+        )
+        .bind(as_i64(graph.byte_quota)?)
+        .bind(as_i64(graph.snapshot.len() as u64)?)
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
             "INSERT INTO graph_membership(graph_id, account_id, role, version)
              VALUES ($1, $2, 'owner', 1)",
         )
-        .bind(graph_id)
-        .bind(owner_account_id)
+        .bind(graph.graph_id)
+        .bind(graph.owner_account_id)
         .execute(&mut *transaction)
         .await?;
         let checkpoint_id: i64 = sqlx::query_scalar(
@@ -246,22 +251,22 @@ impl PgStore {
              ) VALUES ($1, 0, $2, $3, $4, $5)
              RETURNING checkpoint_id",
         )
-        .bind(graph_id)
-        .bind(snapshot)
-        .bind(version_vector)
-        .bind(checksum(snapshot))
-        .bind(as_i64(snapshot.len() as u64)?)
+        .bind(graph.graph_id)
+        .bind(graph.snapshot)
+        .bind(graph.version_vector)
+        .bind(checksum(graph.snapshot))
+        .bind(as_i64(graph.snapshot.len() as u64)?)
         .fetch_one(&mut *transaction)
         .await?;
         sqlx::query("UPDATE graph SET checkpoint_id = $2 WHERE graph_id = $1")
-            .bind(graph_id)
+            .bind(graph.graph_id)
             .bind(checkpoint_id)
             .execute(&mut *transaction)
             .await?;
         audit(
             &mut transaction,
-            graph_id,
-            owner_account_id,
+            graph.graph_id,
+            graph.owner_account_id,
             "graph.create",
             "ok",
         )
@@ -575,11 +580,14 @@ impl GraphStore for PgStore {
         .bind(as_i64(bytes.len() as u64)?)
         .fetch_one(&mut *transaction)
         .await?;
-        sqlx::query("UPDATE graph SET used_bytes = $2 WHERE graph_id = $1")
-            .bind(graph_id)
-            .bind(as_i64(next_used)?)
-            .execute(&mut *transaction)
-            .await?;
+        sqlx::query(
+            "UPDATE graph SET used_bytes = $2, updated_at = NOW()
+             WHERE graph_id = $1",
+        )
+        .bind(graph_id)
+        .bind(as_i64(next_used)?)
+        .execute(&mut *transaction)
+        .await?;
         audit(
             &mut transaction,
             graph_id,
@@ -694,7 +702,8 @@ impl GraphStore for PgStore {
             .await?;
         sqlx::query(
             "UPDATE graph SET checkpoint_id = $2, history_epoch = $3,
-                              schema_version = $4, used_bytes = $5
+                              schema_version = $4, used_bytes = $5,
+                              updated_at = NOW()
              WHERE graph_id = $1",
         )
         .bind(graph_id)
@@ -720,29 +729,16 @@ impl GraphStore for PgStore {
 
 #[async_trait]
 impl GraphAdmin for PgStore {
-    async fn create_graph(
-        &self,
-        graph_id: &str,
-        owner_account_id: &str,
-        schema_version: u32,
-        byte_quota: u64,
-        snapshot: &[u8],
-        version_vector: &[u8],
-    ) -> Result<(), StoreError> {
-        self.insert_graph(
-            graph_id,
-            owner_account_id,
-            schema_version,
-            byte_quota,
-            snapshot,
-            version_vector,
-        )
-        .await
+    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError> {
+        self.insert_graph(graph).await
     }
 
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError> {
         let rows = sqlx::query(
-            "SELECT g.graph_id, m.role, g.status, g.membership_version
+            "SELECT g.graph_id, g.display_name,
+                    g.created_at::TEXT AS created_at,
+                    g.updated_at::TEXT AS updated_at,
+                    m.role, g.status, g.membership_version
              FROM graph g
              JOIN graph_membership m ON m.graph_id = g.graph_id
              WHERE m.account_id = $1 AND m.revoked_at IS NULL
@@ -755,6 +751,9 @@ impl GraphAdmin for PgStore {
             .map(|row| {
                 Ok(GraphListing {
                     graph_id: row.try_get("graph_id")?,
+                    display_name: row.try_get("display_name")?,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
                     role: GraphRole::parse(row.try_get("role")?)?,
                     status: parse_status(row.try_get("status")?)?,
                     membership_version: as_u64(row.try_get("membership_version")?)?,

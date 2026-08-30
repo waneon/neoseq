@@ -118,7 +118,7 @@ export class SyncAgent {
     value: Omit<PeerPresence, "session_id" | "principal" | "expires_at">,
   ): Promise<void> {
     const socket = this.socket;
-    const auth = readAuthSession(this.connection.server_url);
+    const auth = readAuthSession(this.connection.repository_id);
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.welcomed || !auth) return;
     const payload = new TextEncoder().encode(
       JSON.stringify({
@@ -142,7 +142,7 @@ export class SyncAgent {
       this.scheduleReconnect();
       return;
     }
-    const auth = readAuthSession(this.connection.server_url);
+    const auth = readAuthSession(this.connection.repository_id);
     if (!auth) {
       this.patch({ sync: { kind: "paused", reason: "auth" }, live: "paused" });
       return;

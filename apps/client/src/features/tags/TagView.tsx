@@ -28,6 +28,8 @@ import { tagPlan } from "../../entities/query-plan";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
+import { graphPath } from "../graphs/routing";
+import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { elementAnchor } from "@/ui/anchored";
@@ -277,6 +279,7 @@ function TagMenu({
   /** The same panel the mark opens; this is its keyboard route. */
   onCustomize: () => void;
 }) {
+  const { repositoryId = LOCAL_REPOSITORY_ID } = useParams();
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
@@ -380,7 +383,7 @@ function TagMenu({
           onClose={() => setDialog(null)}
           onConfirm={async () => {
             await session.execute({ type: "delete_tag", tag_id: tag.id });
-            navigate(`/g/${graphId}/tags`);
+            navigate(graphPath(repositoryId, graphId, "tags"));
           }}
           onConfirmError={(error) =>
             notify.failure(message("failure.deleteTag", { name: tag.name }), error)

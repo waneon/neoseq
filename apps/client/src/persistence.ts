@@ -16,6 +16,28 @@ const STORES = {
   syncState: "sync-state",
 } as const;
 
+const LOCAL_REPOSITORY_ID = "local";
+
+/** IndexedDB v1 used the canonical graph id as every store's partition key.
+ * Local records keep that key for continuity; remote replicas use a
+ * repository-qualified partition without changing the persisted store shape. */
+export function graphStorageKey(locator: GraphLocatorDto): string {
+  const repositoryId = locator.repository_id || LOCAL_REPOSITORY_ID;
+  return repositoryId === LOCAL_REPOSITORY_ID
+    ? locator.graph_id
+    : `repository:${JSON.stringify([repositoryId, locator.graph_id])}`;
+}
+
+function normalizeLocator(
+  locator: Partial<GraphLocatorDto> | undefined,
+  fallbackGraphId = "",
+): GraphLocatorDto {
+  return {
+    repository_id: locator?.repository_id || LOCAL_REPOSITORY_ID,
+    graph_id: locator?.graph_id ?? fallbackGraphId,
+  };
+}
+
 export interface MetadataRecord {
   graph_id: string;
   locator: GraphLocatorDto;
@@ -112,18 +134,23 @@ export class IndexedDbGraphRepository {
     now: string,
     suggestedReplicaId: number,
   ): Promise<MetadataRecord> {
+    const normalizedLocator = normalizeLocator(locator);
+    const storageKey = graphStorageKey(normalizedLocator);
     const database = await openDatabase();
     const transaction = database.transaction(STORES.metadata, "readwrite");
     const store = transaction.objectStore(STORES.metadata);
-    const existing = await request<MetadataRecord | undefined>(store.get(locator.graph_id));
+    const existing = await request<MetadataRecord | undefined>(store.get(storageKey));
     if (existing) {
       await complete(transaction);
       database.close();
-      return existing;
+      return {
+        ...existing,
+        locator: normalizeLocator(existing.locator, normalizedLocator.graph_id),
+      };
     }
     const metadata: MetadataRecord = {
-      graph_id: locator.graph_id,
-      locator,
+      graph_id: storageKey,
+      locator: normalizedLocator,
       replica_id: suggestedReplicaId,
       history_epoch: 0,
       schema_version: SCHEMA_VERSION,
@@ -149,7 +176,12 @@ export class IndexedDbGraphRepository {
     );
     await complete(transaction);
     database.close();
-    return values.sort((left, right) => left.created_at.localeCompare(right.created_at));
+    return values
+      .map((value) => ({
+        ...value,
+        locator: normalizeLocator(value.locator, value.graph_id),
+      }))
+      .sort((left, right) => left.created_at.localeCompare(right.created_at));
   }
 
   async metadata(graphId: string): Promise<MetadataRecord> {
@@ -376,11 +408,13 @@ export class IndexedDbGraphRepository {
     checkpoint: ArrayBuffer,
     now: string,
   ): Promise<MetadataRecord> {
+    const normalizedLocator = normalizeLocator(locator);
+    const storageKey = graphStorageKey(normalizedLocator);
     const digest = await checksum(checkpoint);
     const database = await openDatabase();
     const transaction = database.transaction([STORES.metadata, STORES.checkpoints], "readwrite");
     const metadataStore = transaction.objectStore(STORES.metadata);
-    const existing = await request<MetadataRecord | undefined>(metadataStore.get(locator.graph_id));
+    const existing = await request<MetadataRecord | undefined>(metadataStore.get(storageKey));
     if (existing) {
       transaction.abort();
       database.close();
@@ -391,8 +425,8 @@ export class IndexedDbGraphRepository {
       );
     }
     const metadata: MetadataRecord = {
-      graph_id: locator.graph_id,
-      locator,
+      graph_id: storageKey,
+      locator: normalizedLocator,
       replica_id: replicaId,
       history_epoch: 0,
       schema_version: schemaVersion,
@@ -406,7 +440,7 @@ export class IndexedDbGraphRepository {
     };
     metadataStore.put(metadata);
     transaction.objectStore(STORES.checkpoints).put({
-      graph_id: locator.graph_id,
+      graph_id: storageKey,
       local_sequence: 0,
       schema_version: schemaVersion,
       checksum: digest,

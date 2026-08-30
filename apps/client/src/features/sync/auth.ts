@@ -7,16 +7,16 @@ export interface AuthSession {
 
 const AUTH_PREFIX = "neoseq.remote-auth.v1:";
 
-function key(serverUrl: string): string {
-  return `${AUTH_PREFIX}${new URL(serverUrl, window.location.origin).origin}`;
+function key(repositoryId: string): string {
+  return `${AUTH_PREFIX}${repositoryId}`;
 }
 
 /** Credentials deliberately live in sessionStorage: reload survives, but a
  * copied URL, local directory export, and a later browser session do not carry
  * the bearer token. */
-export function readAuthSession(serverUrl: string): AuthSession | null {
+export function readAuthSession(repositoryId: string): AuthSession | null {
   try {
-    const raw = sessionStorage.getItem(key(serverUrl));
+    const raw = sessionStorage.getItem(key(repositoryId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AuthSession>;
     return parsed.principal && parsed.username && parsed.token
@@ -27,9 +27,14 @@ export function readAuthSession(serverUrl: string): AuthSession | null {
   }
 }
 
-export function writeAuthSession(serverUrl: string, session: AuthSession): void {
-  sessionStorage.setItem(key(serverUrl), JSON.stringify(session));
-  window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: serverUrl }));
+export function writeAuthSession(repositoryId: string, session: AuthSession): void {
+  sessionStorage.setItem(key(repositoryId), JSON.stringify(session));
+  window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: repositoryId }));
+}
+
+export function clearAuthSession(repositoryId: string): void {
+  sessionStorage.removeItem(key(repositoryId));
+  window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: repositoryId }));
 }
 
 interface LoginResponse {
@@ -43,6 +48,7 @@ interface LoginResponse {
 /** A password is exchanged once; only the opaque server session reaches the
  * graph API and WebSocket protocol. */
 export async function signIn(
+  repositoryId: string,
   serverUrl: string,
   username: string,
   password: string,
@@ -59,6 +65,6 @@ export async function signIn(
     username: body.account.username,
     token: body.access_token,
   };
-  writeAuthSession(serverUrl, session);
+  writeAuthSession(repositoryId, session);
   return session;
 }

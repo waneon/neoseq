@@ -70,6 +70,8 @@ import { Input } from "@/ui/shadcn/input";
 import { ConfirmDialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { useI18n } from "../../i18n";
+import { graphPath } from "../graphs/routing";
+import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { useNotify } from "../notify/context";
 import { useProgressiveItems } from "../../lib/progressive";
 import { propertyDisplayName } from "../properties/property-display";
@@ -607,7 +609,7 @@ function TagRow({
   canMoveUp: boolean;
   canMoveDown: boolean;
 }) {
-  const { graphId = "" } = useParams();
+  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "" } = useParams();
   const session = useSession();
   const notify = useNotify();
   const { message } = useI18n();
@@ -656,7 +658,7 @@ function TagRow({
           menu would be a control inside a control. */}
       <Link
         className="tag-row-name"
-        to={`/g/${graphId}/t/${tag.id}`}
+        to={graphPath(repositoryId, graphId, `t/${tag.id}`)}
         draggable={false}
         // A name is as long as somebody made it, and an ellipsis with no way to
         // read the rest is a name the reader cannot check.

@@ -11,12 +11,15 @@ export interface RemoteGraphMembership {
 
 export interface RemoteGraphListing {
   graph_id: string;
+  display_name: string;
+  created_at: string;
+  updated_at: string;
   role: RemoteRole;
   status: "active" | "read_only";
   membership_version: number;
 }
 
-class RemoteApiError extends Error {
+export class RemoteApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
@@ -50,19 +53,21 @@ async function request<T>(
 export async function createRemoteGraph(
   serverUrl: string,
   auth: AuthSession,
+  name: string,
+  graphId = `g-${crypto.randomUUID()}`,
 ): Promise<{ graph_id: string }> {
-  const graph_id = `g-${crypto.randomUUID()}`;
   return request(serverUrl, auth, "/v1/graphs", {
     method: "POST",
-    body: JSON.stringify({ graph_id }),
+    body: JSON.stringify({ graph_id: graphId, name }),
   });
 }
 
 export function listRemoteGraphs(
   serverUrl: string,
   auth: AuthSession,
+  signal?: AbortSignal,
 ): Promise<{ graphs: RemoteGraphListing[] }> {
-  return request(serverUrl, auth, "/v1/graphs");
+  return request(serverUrl, auth, "/v1/graphs", { signal });
 }
 
 export function listMemberships(

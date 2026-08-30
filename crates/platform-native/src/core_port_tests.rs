@@ -35,6 +35,7 @@ fn open_request(graph: &str, peer_id: u64) -> OpenGraphRequest {
     OpenGraphRequest {
         contract_version: CORE_PORT_VERSION,
         locator: GraphLocatorDto {
+            repository_id: "local".to_owned(),
             graph_id: graph.to_owned(),
         },
         peer_id,

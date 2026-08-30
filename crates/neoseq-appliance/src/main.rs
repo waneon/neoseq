@@ -11,6 +11,7 @@ use tokio::{
     process::{Child, Command},
     time::{sleep, timeout},
 };
+use url::Url;
 
 const POSTGRES_MAJOR: &str = "17";
 const POSTGRES_USER: &str = "neoseq";
@@ -18,6 +19,7 @@ const POSTGRES_DATABASE: &str = "neoseq";
 const INTERNAL_SERVER: &str = "http://127.0.0.1:8787";
 const INGRESS_HEALTH_PATH: &str = "/__neoseq/health";
 const INGRESS_HEALTH_RESPONSE: &str = "neoseq ingress ready";
+const RUNTIME_CONFIG_PATH: &str = "/__neoseq/config.json";
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(20);
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -36,6 +38,7 @@ struct Config {
     enable_dashboard: bool,
     database_mode: DatabaseMode,
     database_url: Option<String>,
+    neoseq_url: Option<String>,
     upstream_origin: Option<String>,
     http_listen: SocketAddr,
     dashboard_listen: SocketAddr,
@@ -101,6 +104,10 @@ impl Config {
             return Err(invalid("the server cannot run with the database disabled").into());
         }
 
+        let neoseq_url = optional("NEOSEQ_URL")
+            .map(canonical_neoseq_url)
+            .transpose()?;
+
         let upstream_origin = optional("NEOSEQ_UPSTREAM_ORIGIN");
         if enable_server && upstream_origin.is_some() {
             return Err(invalid(
@@ -145,6 +152,7 @@ impl Config {
             enable_dashboard,
             database_mode,
             database_url,
+            neoseq_url,
             upstream_origin,
             http_listen,
             dashboard_listen,
@@ -199,10 +207,12 @@ impl Config {
             "{\n\tadmin off\n\tauto_https off\n\tlog default {\n\t\toutput stdout\n\t\tformat json\n\t}\n}\n\n",
         );
         if self.main_ingress() {
+            let runtime_config = self.enable_client.then(|| self.runtime_config());
             output.push_str(&site(
                 self.http_listen,
                 self.backend_origin(),
                 self.enable_client.then_some(self.client_root.as_path()),
+                runtime_config.as_deref(),
             ));
         }
         if self.enable_dashboard {
@@ -210,11 +220,19 @@ impl Config {
                 self.dashboard_listen,
                 self.backend_origin(),
                 Some(self.dashboard_root.as_path()),
+                None,
             ));
         }
         output.truncate(output.trim_end().len());
         output.push('\n');
         output
+    }
+
+    fn runtime_config(&self) -> String {
+        match &self.neoseq_url {
+            Some(url) => serde_json::json!({ "url": url }).to_string(),
+            None => serde_json::json!({}).to_string(),
+        }
     }
 }
 
@@ -901,7 +919,12 @@ async fn successful(command: &mut Command, operation: &str) -> Result<()> {
     }
 }
 
-fn site(listen: SocketAddr, backend: Option<&str>, root: Option<&Path>) -> String {
+fn site(
+    listen: SocketAddr,
+    backend: Option<&str>,
+    root: Option<&Path>,
+    runtime_config: Option<&str>,
+) -> String {
     let bind = match listen.ip() {
         IpAddr::V4(address) => address.to_string(),
         IpAddr::V6(address) => format!("[{address}]"),
@@ -912,6 +935,13 @@ fn site(listen: SocketAddr, backend: Option<&str>, root: Option<&Path>) -> Strin
         "http://:{} {{\n\tbind {bind}\n\tlog\n\tencode zstd gzip\n\thandle {INGRESS_HEALTH_PATH} {{\n\t\trespond {response} 200\n\t}}\n",
         listen.port()
     );
+    if let Some(runtime_config) = runtime_config {
+        let runtime_config =
+            serde_json::to_string(runtime_config).expect("serialize runtime configuration");
+        output.push_str(&format!(
+            "\thandle {RUNTIME_CONFIG_PATH} {{\n\t\theader Content-Type \"application/json\"\n\t\theader Cache-Control \"no-store\"\n\t\trespond {runtime_config} 200\n\t}}\n"
+        ));
+    }
     if let Some(backend) = backend {
         let backend = serde_json::to_string(backend).expect("serialize backend origin");
         for path in ["/v1/*", "/livez", "/readyz"] {
@@ -1014,6 +1044,29 @@ fn optional(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.is_empty())
 }
 
+fn canonical_neoseq_url(value: String) -> Result<String> {
+    let url = Url::parse(&value).map_err(|_| invalid("NEOSEQ_URL must be an absolute URL"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(invalid("NEOSEQ_URL must use HTTP or HTTPS").into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(invalid("NEOSEQ_URL must not contain credentials").into());
+    }
+    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+        return Err(
+            invalid("NEOSEQ_URL must be an origin without a path, query, or fragment").into(),
+        );
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| invalid("NEOSEQ_URL must contain a host"))?;
+    let local = matches!(host, "localhost" | "127.0.0.1" | "::1");
+    if url.scheme() != "https" && !local {
+        return Err(invalid("NEOSEQ_URL requires HTTPS for non-local hosts").into());
+    }
+    Ok(url.origin().ascii_serialization())
+}
+
 fn read_secret(path: &Path, name: &str) -> Result<String> {
     let mut value = fs::read_to_string(path)
         .map_err(|error| io::Error::new(error.kind(), format!("could not read {name}: {error}")))?;
@@ -1059,6 +1112,7 @@ mod tests {
         "NEOSEQ_DATABASE_MODE",
         "DATABASE_URL",
         "DATABASE_URL_FILE",
+        "NEOSEQ_URL",
         "NEOSEQ_UPSTREAM_ORIGIN",
         "NEOSEQ_HTTP_LISTEN",
         "NEOSEQ_DASHBOARD_LISTEN",
@@ -1087,6 +1141,29 @@ mod tests {
         assert!(config.enable_server);
         assert!(config.enable_dashboard);
         assert_eq!(config.database_mode, DatabaseMode::Embedded);
+        assert_eq!(config.neoseq_url, None);
+    }
+
+    #[test]
+    fn validates_and_canonicalizes_neoseq_url() {
+        let _guard = environment();
+        set("NEOSEQ_URL", "https://NEOSEQ.example.test:443/");
+        let config = Config::from_environment().unwrap();
+        assert_eq!(
+            config.neoseq_url.as_deref(),
+            Some("https://neoseq.example.test")
+        );
+        assert!(
+            config
+                .caddyfile()
+                .contains("respond \"{\\\"url\\\":\\\"https://neoseq.example.test\\\"}\" 200")
+        );
+
+        set("NEOSEQ_URL", "https://neoseq.example.test/notes");
+        assert!(Config::from_environment().is_err());
+
+        set("NEOSEQ_URL", "http://neoseq.example.test");
+        assert!(Config::from_environment().is_err());
     }
 
     #[test]
@@ -1112,16 +1189,18 @@ mod tests {
         assert!(caddyfile.contains("http://:8081 {\n\tbind 0.0.0.0"));
         assert!(caddyfile.contains("/srv/neoseq/client"));
         assert!(caddyfile.contains("/srv/neoseq/dashboard"));
+        assert_eq!(caddyfile.matches(RUNTIME_CONFIG_PATH).count(), 1);
+        assert!(caddyfile.contains("respond \"{}\" 200"));
         assert_eq!(caddyfile.matches("handle /v1/*").count(), 2);
         assert_eq!(caddyfile.matches("handle /__neoseq/health").count(), 2);
     }
 
     #[test]
     fn caddy_separates_listener_binding_from_host_matching() {
-        let ipv4 = site("127.0.0.1:8080".parse().unwrap(), None, None);
+        let ipv4 = site("127.0.0.1:8080".parse().unwrap(), None, None, None);
         assert!(ipv4.starts_with("http://:8080 {\n\tbind 127.0.0.1\n"));
 
-        let ipv6 = site("[::1]:8081".parse().unwrap(), None, None);
+        let ipv6 = site("[::1]:8081".parse().unwrap(), None, None, None);
         assert!(ipv6.starts_with("http://:8081 {\n\tbind [::1]\n"));
         assert!(ipv6.contains("respond \"neoseq ingress ready\" 200"));
     }

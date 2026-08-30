@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import Markdown, { type Components } from "react-markdown";
-import { Link } from "react-router";
+import { Link, useParams } from "react-router";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -17,6 +17,8 @@ import { sourceOffsetFromPoint } from "./caret";
 import { markdownSanitizeSchema, markdownUrlTransform } from "./profile";
 import type { MarkdownActivationMethod } from "../blocks/editor/activation";
 import type { PageReferenceSpan } from "../../core-port/snapshot";
+import { graphPath } from "../graphs/routing";
+import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 
 export type MarkdownVariant = "block" | "compact";
 export type { MarkdownActivationMethod } from "../blocks/editor/activation";
@@ -65,6 +67,7 @@ function SafeLink({
   graphId?: string;
   pageReferencePrefix?: string;
 }) {
+  const { repositoryId = LOCAL_REPOSITORY_ID } = useParams();
   if (!href) return <span className="markdown-link-blocked">{children}</span>;
   if (pageReferencePrefix && href.startsWith(pageReferencePrefix) && graphId) {
     let pageId: string;
@@ -76,7 +79,7 @@ function SafeLink({
     return (
       <Link
         className="page-reference"
-        to={`/g/${encodeURIComponent(graphId)}/p/${encodeURIComponent(pageId)}`}
+        to={graphPath(repositoryId, graphId, `p/${pageId}`)}
         onClick={(event) => event.stopPropagation()}
       >
         {children}

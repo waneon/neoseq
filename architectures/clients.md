@@ -16,7 +16,7 @@ defines presentation-only localization.
 
 ## CorePort and Session
 
-The frontend depends on the asynchronous CorePort v1 operations:
+The frontend depends on the asynchronous CorePort v2 operations:
 
 ```text
 open_graph, execute, read, read_outline, query, subscribe, close_graph
@@ -55,22 +55,23 @@ test mode adds a storage contract page, deterministic time, and explicit fault
 controls. Those controls and the current CorePort corpus are test-only chunks,
 not public product routes.
 
-The graph picker exports `.neoseq` copies and imports each selected archive as a
-new local graph. The main thread transfers bytes but never decodes graph state;
+The graph picker presents the local repository and each connected remote account
+as tabs. It exports `.neoseq` copies and imports each selected archive as a new
+graph in the active repository. The main thread transfers bytes but never decodes graph state;
 the Worker delegates the bounded container to Wasm, validates source and cloned
 documents through the core, and atomically installs the clone before the browser
 directory publishes its suggested display name. See
 [`graph-archive.md`](graph-archive.md).
 
-Graph display names, local/remote kind, and remote server origin are
-browser-directory metadata in localStorage. A username and password are
-exchanged once for an opaque server session; that session is scoped to the
-server origin in sessionStorage and is never stored in graph data, localStorage,
-or URLs. The user never enters or manages a transport token. Canonical note data
-remains in the Loro repository. A Web Lock grants
-one tab a writable lease per graph; a competing tab is read-only. The Loro peer
-ID is generated once and persisted with graph metadata; only the transport
-session ID is fresh for each connection.
+Repository accounts and graph display metadata live in browser directories in
+localStorage. A username and password are exchanged once for an opaque server
+session; the session is scoped to the repository ID in sessionStorage and is
+never stored in graph data, localStorage, or URLs. The user never enters or
+manages a transport token. Canonical note data remains in the Loro repository.
+A Web Lock grants one tab a writable lease per repository-qualified graph; a
+competing tab is read-only. The Loro peer ID is generated once and persisted
+with replica metadata; only the transport session ID is fresh for each
+connection. See [`repositories.md`](repositories.md).
 
 The headless native CorePort in `platform-native` exercises equivalent runtime,
 SQLite, recovery, and DTO behavior. It is not yet a desktop or mobile UI.

@@ -1,35 +1,40 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { startOutline, typeInFocusedBlock } from "./helpers";
 
-test("remote graph creation keeps credentials out of URLs and remains local-first", async ({
+interface CreatedGraph {
+  graph_id: string;
+  name: string;
+}
+
+test("a remote repository lists and creates graphs without persisting credentials", async ({
   page,
   context,
 }) => {
-  await page.route("**/v1/graphs", async (route) => {
-    expect(route.request().headers().authorization).toBe("Bearer test-browser-token");
-    await route.fulfill({
-      status: 201,
-      contentType: "application/json",
-      body: JSON.stringify({ graph_id: "g-remote-browser" }),
-    });
-  });
+  const created = await installRemoteApi(page);
 
   await page.goto("/");
+  await addRemoteRepository(page);
+  await expect(page.getByRole("tab", { name: /browser-owner@/u })).toHaveAttribute(
+    "data-state",
+    "active",
+  );
+
   await page.getByTestId("new-graph-name").fill("Shared notes");
-  await page.getByTestId("create-remote-graph").click();
-  await page.getByLabel("Account ID").fill("browser-owner");
-  await page.getByLabel("Access token").fill("test-browser-token");
-  await page.getByRole("button", { name: "Create remote graph", exact: true }).last().click();
+  await page.getByTestId("create-graph").click();
 
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
+  expect(page.url()).toMatch(/\/r\/[^/]+\/g\/g-/u);
+  const remoteGraphId = graphId(page.url());
   expect(page.url()).not.toContain("test-browser-token");
   const storage = await page.evaluate(() => ({
     local: JSON.stringify(localStorage),
     session: JSON.stringify(sessionStorage),
   }));
   expect(storage.local).not.toContain("test-browser-token");
+  expect(storage.local).not.toContain("correct horse battery staple");
   expect(storage.session).toContain("test-browser-token");
+  expect(storage.session).not.toContain("correct horse battery staple");
 
   await context.setOffline(true);
   await startOutline(page);
@@ -39,6 +44,171 @@ test("remote graph creation keeps credentials out of URLs and remains local-firs
 
   await context.setOffline(false);
   await page.goto("/");
-  const card = page.getByTestId("open-graph-Shared notes");
-  await expect(card).toContainText("Remote");
+  await page.getByRole("tab", { name: /browser-owner@/u }).click();
+  await expect(page.getByTestId("open-graph-Shared notes")).toContainText("Owner");
+  expect(created).toEqual([{ graph_id: remoteGraphId, name: "Shared notes" }]);
 });
+
+test("imports an archive as a new graph in the selected remote repository", async ({ page }) => {
+  const created = await installRemoteApi(page);
+
+  await page.goto("/");
+  await page.getByTestId("new-graph-name").fill("Archive source");
+  await page.getByTestId("create-graph").click();
+  await startOutline(page);
+  await typeInFocusedBlock(page, "portable remote note");
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Actions for Archive source" }).click();
+  const downloadStarted = page.waitForEvent("download");
+  await page.getByTestId("export-graph-Archive source").click();
+  const archivePath = await (await downloadStarted).path();
+  if (!archivePath) throw new Error("the graph archive download has no local path");
+
+  await addRemoteRepository(page);
+  const chooseArchive = page.waitForEvent("filechooser");
+  await page.getByTestId("import-graph").click();
+  await (await chooseArchive).setFiles(archivePath);
+
+  await expect(page.getByTestId("journal-title")).toBeVisible();
+  await expect(page.getByText("portable remote note")).toBeVisible();
+  const importedId = graphId(page.url());
+  expect(created).toEqual([{ graph_id: importedId, name: "Archive source" }]);
+  expect(page.url()).toMatch(/\/r\/[^/]+\/g\//u);
+});
+
+test("repository tabs retain cached catalogs while revalidating without moving the picker", async ({
+  page,
+}) => {
+  const remoteGraph = {
+    graph_id: "g-stable-remote",
+    display_name: "Stable remote",
+    created_at: "2026-08-30T00:00:00Z",
+    updated_at: "2026-08-30T00:00:00Z",
+    role: "owner",
+    status: "active",
+    membership_version: 1,
+  };
+  let holdRefresh = false;
+  let refreshStarted = false;
+  let releaseRefresh: (() => void) | undefined;
+
+  await page.route("**/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        access_token: "test-browser-token",
+        account: { account_id: "account-browser-owner", username: "browser-owner" },
+      }),
+    });
+  });
+  await page.route("**/v1/graphs", async (route) => {
+    if (holdRefresh) {
+      refreshStarted = true;
+      await new Promise<void>((resolve) => {
+        releaseRefresh = resolve;
+      });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ graphs: [remoteGraph] }),
+    });
+  });
+
+  await page.goto("/");
+  await addRemoteRepository(page);
+  await expect(page.getByTestId("open-graph-Stable remote")).toBeVisible();
+
+  const picker = page.locator(".picker-inner");
+  const localTab = page.getByRole("tab", { name: "Local", exact: true });
+  const remoteTab = page.getByRole("tab", { name: /browser-owner@/u });
+  await localTab.click();
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  const localTop = (await picker.boundingBox())?.y;
+  expect(localTop).toBeDefined();
+
+  holdRefresh = true;
+  await remoteTab.click();
+  await expect.poll(() => refreshStarted).toBe(true);
+  await expect(page.getByTestId("open-graph-Stable remote")).toBeVisible();
+  await expect(page.getByTestId("graph-list-loading")).toHaveCount(0);
+  expect((await picker.boundingBox())?.y).toBeCloseTo(localTop!, 1);
+
+  await localTab.click();
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  releaseRefresh?.();
+  await expect(remoteTab).toHaveAttribute("data-state", "inactive");
+  await expect(page.getByTestId("open-graph-Stable remote")).toHaveCount(0);
+  expect((await picker.boundingBox())?.y).toBeCloseTo(localTop!, 1);
+});
+
+async function installRemoteApi(page: Page): Promise<CreatedGraph[]> {
+  const created: CreatedGraph[] = [];
+  await page.route("**/v1/auth/login", async (route) => {
+    const credentials = route.request().postDataJSON() as {
+      username: string;
+      password: string;
+    };
+    expect(credentials).toMatchObject({
+      username: "browser-owner",
+      password: "correct horse battery staple",
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        access_token: "test-browser-token",
+        account: { account_id: "account-browser-owner", username: "browser-owner" },
+      }),
+    });
+  });
+  await page.route("**/v1/graphs", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer test-browser-token");
+    if (route.request().method() === "POST") {
+      const request = route.request().postDataJSON() as { graph_id: string; name: string };
+      const graphId = request.graph_id;
+      created.push({ graph_id: graphId, name: request.name });
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ graph_id: graphId }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        graphs: created.map((graph) => ({
+          graph_id: graph.graph_id,
+          display_name: graph.name,
+          created_at: "2026-08-30T00:00:00Z",
+          updated_at: "2026-08-30T00:00:00Z",
+          role: "owner",
+          status: "active",
+          membership_version: 1,
+        })),
+      }),
+    });
+  });
+  return created;
+}
+
+async function addRemoteRepository(page: Page): Promise<void> {
+  const serverOrigin = new URL(page.url()).origin;
+  await page.getByTestId("add-repository").click();
+  await page.getByLabel("Server URL").fill(serverOrigin);
+  await page.getByLabel("Username").fill("browser-owner");
+  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+}
+
+function graphId(url: string): string {
+  const parsed = new URL(url);
+  const route = parsed.hash.startsWith("#/") ? parsed.hash.slice(1) : parsed.pathname;
+  const match = route.match(/\/g\/([^/]+)/u);
+  if (!match) throw new Error(`expected a graph route, received ${url}`);
+  return decodeURIComponent(match[1]);
+}

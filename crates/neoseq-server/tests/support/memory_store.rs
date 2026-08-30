@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use graph_core::checksum;
 use neoseq_server::store::{
     CommitOutcome, GraphAdmin, GraphListing, GraphLoad, GraphRole, GraphStatus, GraphStore,
-    Membership, MembershipListing, StoreError, StoredCheckpoint, StoredUpdate,
+    Membership, MembershipListing, NewGraph, StoreError, StoredCheckpoint, StoredUpdate,
 };
 use std::{
     collections::HashMap,
@@ -31,6 +31,7 @@ struct MemoryState {
 }
 
 struct MemoryGraph {
+    display_name: String,
     status: GraphStatus,
     schema_version: u32,
     byte_quota: u64,
@@ -82,6 +83,7 @@ impl MemoryStore {
             .insert(
                 graph_id.to_owned(),
                 MemoryGraph {
+                    display_name: graph_id.to_owned(),
                     status: GraphStatus::Active,
                     schema_version,
                     byte_quota,
@@ -367,22 +369,14 @@ impl GraphStore for MemoryStore {
 
 #[async_trait]
 impl GraphAdmin for MemoryStore {
-    async fn create_graph(
-        &self,
-        graph_id: &str,
-        owner_account_id: &str,
-        schema_version: u32,
-        byte_quota: u64,
-        snapshot: &[u8],
-        version_vector: &[u8],
-    ) -> Result<(), StoreError> {
+    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError> {
         let mut state = self.inner.lock().expect("memory store mutex");
-        if state.graphs.contains_key(graph_id) {
+        if state.graphs.contains_key(graph.graph_id) {
             return Err(StoreError::Database("graph already exists".into()));
         }
         let mut memberships = HashMap::new();
         memberships.insert(
-            owner_account_id.to_owned(),
+            graph.owner_account_id.to_owned(),
             MemoryMembership {
                 role: GraphRole::Owner,
                 version: 1,
@@ -390,19 +384,20 @@ impl GraphAdmin for MemoryStore {
             },
         );
         state.graphs.insert(
-            graph_id.to_owned(),
+            graph.graph_id.to_owned(),
             MemoryGraph {
+                display_name: graph.display_name.to_owned(),
                 status: GraphStatus::Active,
-                schema_version,
-                byte_quota,
+                schema_version: graph.schema_version,
+                byte_quota: graph.byte_quota,
                 history_epoch: 0,
-                used_bytes: snapshot.len() as u64,
+                used_bytes: graph.snapshot.len() as u64,
                 checkpoint: StoredCheckpoint {
                     history_epoch: 0,
                     included_cursor: 0,
-                    snapshot: snapshot.to_vec(),
-                    version_vector: version_vector.to_vec(),
-                    checksum: checksum(snapshot),
+                    snapshot: graph.snapshot.to_vec(),
+                    version_vector: graph.version_vector.to_vec(),
+                    checksum: checksum(graph.snapshot),
                 },
                 prior_checkpoint: None,
                 updates: Vec::new(),
@@ -423,6 +418,9 @@ impl GraphAdmin for MemoryStore {
                 let member = graph.memberships.get(account_id)?;
                 (!member.revoked).then_some(GraphListing {
                     graph_id: graph_id.clone(),
+                    display_name: graph.display_name.clone(),
+                    created_at: "1970-01-01T00:00:00Z".to_owned(),
+                    updated_at: "1970-01-01T00:00:00Z".to_owned(),
                     role: member.role,
                     status: graph.status,
                     membership_version: graph.membership_version,

@@ -35,6 +35,8 @@ import { tagColor, tagIcon } from "../../entities/tag-identity";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
+import { graphPath } from "../graphs/routing";
+import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 
 export function TagChips({
   owner,
@@ -49,7 +51,7 @@ export function TagChips({
    */
   variant?: "edit" | "reference";
 }) {
-  const { graphId = "" } = useParams();
+  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "" } = useParams();
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
@@ -99,7 +101,7 @@ export function TagChips({
               data-variant="reference"
               data-hue={(tag && tagColor(tag)) ?? undefined}
               key={tagId}
-              to={`/g/${graphId}/t/${tagId}`}
+              to={graphPath(repositoryId, graphId, `t/${tagId}`)}
               data-testid="tag-chip"
               aria-label={message("properties.openTag", { name: label })}
             >

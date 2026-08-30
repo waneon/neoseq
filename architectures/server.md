@@ -28,8 +28,11 @@ record, storing memberships, graph metadata, binary update
 chunks, checkpoints, and acknowledgement/audit data.
 
 Production ingress serves the static Neoseq dashboard on a private TLS origin
-and routes that origin's `/v1` path to this service. Admin credentials therefore
-remain same-origin and no direct browser-to-database path exists.
+and routes that origin's `/v1` path to this service. The graph API also permits
+cross-origin browser requests so a client may connect this server as a remote
+repository. Authority is always an explicit bearer or WebSocket subprotocol
+credential; the service does not use ambient cookies. No browser has a direct
+path to the database.
 
 ```text
 Neoseq dashboard -- authenticated HTTP -----> account/session authority
@@ -110,8 +113,8 @@ The logical PostgreSQL records are:
   server-wide user/admin role;
 - account session: credential digest, client/admin purpose, expiry, and
   revocation state;
-- graph metadata: ID, status, schema version, byte quota, history epoch, and
-  checkpoint pointer;
+- graph metadata: ID, display name, status, schema version, byte quota, history
+  epoch, timestamps, and checkpoint pointer;
 - membership: graph ID, account ID, role, revocation/version metadata; the
   owner membership is the canonical ownership record;
 - update: graph ID, server cursor, message ID, account ID, checksum, bytes,

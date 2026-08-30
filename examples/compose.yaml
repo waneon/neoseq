@@ -1,6 +1,6 @@
 services:
   neoseq:
-    image: neoseq:0.1.0
+    image: waneon/neoseq:latest
     container_name: neoseq
     restart: unless-stopped
     stop_grace_period: 1m
@@ -8,11 +8,11 @@ services:
       - "8080:8080" # Publish the client and synchronization API.
       - "8081:8081" # Publish the administration dashboard.
     environment:
+      # Canonical browser-facing URL used by the client and generated public links.
+      # NEOSEQ_URL: "https://neoseq.example.com"
       NEOSEQ_ENABLE_CLIENT: "true"
       NEOSEQ_ENABLE_SERVER: "true"
       NEOSEQ_ENABLE_DASHBOARD: "true"
-      NEOSEQ_HTTP_LISTEN: "0.0.0.0:8080"
-      NEOSEQ_DASHBOARD_LISTEN: "0.0.0.0:8081"
       # Match the owner of the host data and backup directories.
       NEOSEQ_UID: "10001"
       # Match the group of the host data and backup directories.

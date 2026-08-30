@@ -47,6 +47,13 @@ impl NativeCorePort {
                 false,
             ));
         }
+        if request.locator.repository_id != "local" {
+            return Err(port_error(
+                CorePortErrorCode::InvalidRequest,
+                "the native adapter exposes only the local repository",
+                false,
+            ));
+        }
         let graph_id = GraphId::new(&request.locator.graph_id).map_err(|error| {
             port_error(CorePortErrorCode::InvalidRequest, &error.to_string(), false)
         })?;

@@ -218,8 +218,9 @@ sync-state    key graph_id
 
 The Worker owns database access. The first open persists a random 53-bit
 `replica_id`; later opens reuse it so version vectors do not accumulate a peer
-for every browser runtime. Metadata uses the current complete shape; there is no
-upgrade or backfill path. Recovery selects Tail rows with the
+for every browser runtime. Metadata records carry the repository-qualified
+locator. Legacy records without one are read as local without rewriting their
+physical keys. Recovery selects Tail rows with the
 `[graph_id, local_sequence]` primary
 key range after the chosen Base rather than loading graph history and filtering
 it in memory. Each graph append updates metadata and inserts the update in one
@@ -229,9 +230,10 @@ update row instead of duplicating its payload. Only the initial sequence-zero
 bootstrap stores inline bytes because it has no update row.
 
 Portable import generates a new graph and replica ID outside the archive, then
-installs the validated shallow clone as a sequence-zero checkpoint. Metadata and
-checkpoint creation share one IndexedDB transaction and require the target graph
-to be absent, so an import is either a complete new local graph or no graph.
+installs the validated shallow clone as a sequence-zero checkpoint in the
+selected repository partition. Metadata and checkpoint creation share one
+IndexedDB transaction and require the target graph to be absent, so local
+installation is complete or absent.
 
 Acknowledgement removes the matching outbox record. A referenced Tail row stays
 pinned until acknowledgement and is deleted only when the fallback Base no
@@ -239,8 +241,8 @@ longer needs it.
 Storage capability `usage_bytes` reports logical bytes owned by this graph—Base,
 Tail, standalone bootstrap, and quarantine—not origin-wide Wasm, font, or HTTP
 cache allocation. Browser quota remains the origin quota reported by
-StorageManager. A Web Lock allows only one writable tab per graph; another tab
-opens read-only.
+StorageManager. A Web Lock allows only one writable tab per
+repository-qualified graph; another tab opens read-only.
 
 ## SQLite Adapter
 
