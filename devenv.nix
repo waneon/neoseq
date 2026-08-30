@@ -16,6 +16,39 @@ let
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString config.env.PGPORT}";
   databaseTest = "with-test-database cargo test -p neoseq-server --test postgres -- --ignored --nocapture";
   mkSource = pkgs.callPackage ./nix/libs/mk-source.nix { };
+  dashboardOutput = pkgs.callPackage ./nix/outputs/neoseq-dashboard.nix {
+    inherit mkSource;
+    nodejs = config.languages.javascript.package;
+    pnpm = config.languages.javascript.pnpm.package;
+  };
+  clientOutput = pkgs.callPackage ./nix/outputs/neoseq-client.nix {
+    inherit mkSource;
+    rustToolchain = config.languages.rust.toolchainPackage;
+    nodejs = config.languages.javascript.package;
+    pnpm = config.languages.javascript.pnpm.package;
+  };
+  serverOutput = pkgs.callPackage ./nix/outputs/neoseq-server.nix {
+    inherit mkSource;
+    rustToolchain = config.languages.rust.toolchainPackage;
+  };
+  applianceOutput = pkgs.callPackage ./nix/outputs/neoseq-appliance.nix {
+    inherit mkSource;
+    cargoDeps = serverOutput.cargoDeps;
+    rustToolchain = config.languages.rust.toolchainPackage;
+  };
+  dockerOutput =
+    if pkgs.stdenv.hostPlatform.isLinux then
+      pkgs.callPackage ./nix/outputs/neoseq-docker.nix {
+        appliance = applianceOutput;
+        client = clientOutput;
+        dashboard = dashboardOutput;
+        server = serverOutput;
+      }
+    else
+      pkgs.runCommand "neoseq-docker-linux-only" { } ''
+        echo 'outputs.neoseq-docker requires a Linux builder' >&2
+        exit 1
+      '';
 in
 {
   packages = [
@@ -273,21 +306,11 @@ in
   };
 
   outputs = {
-    neoseq-dashboard = pkgs.callPackage ./nix/outputs/neoseq-dashboard.nix {
-      inherit mkSource;
-      nodejs = config.languages.javascript.package;
-      pnpm = config.languages.javascript.pnpm.package;
-    };
-    neoseq-client = pkgs.callPackage ./nix/outputs/neoseq-client.nix {
-      inherit mkSource;
-      rustToolchain = config.languages.rust.toolchainPackage;
-      nodejs = config.languages.javascript.package;
-      pnpm = config.languages.javascript.pnpm.package;
-    };
-    neoseq-server = pkgs.callPackage ./nix/outputs/neoseq-server.nix {
-      inherit mkSource;
-      rustToolchain = config.languages.rust.toolchainPackage;
-    };
+    neoseq-appliance = applianceOutput;
+    neoseq-dashboard = dashboardOutput;
+    neoseq-client = clientOutput;
+    neoseq-server = serverOutput;
+    neoseq-docker = dockerOutput;
   };
 
   profiles.browser.module = ./nix/profiles/browser.nix;

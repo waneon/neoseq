@@ -3,7 +3,8 @@ use graph_core::checksum;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 
-pub const DATABASE_SCHEMA_VERSION: i32 = 1;
+const DATABASE_MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
+pub const DATABASE_SCHEMA_VERSION: i32 = DATABASE_MIGRATIONS.len() as i32;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -340,7 +341,7 @@ impl PgStore {
 
 async fn initialize_schema(pool: &PgPool) -> Result<(), StoreError> {
     let mut transaction = pool.begin().await?;
-    // Serializes first-start schema initialization across stateless instances.
+    // Serializes initialization and forward migrations across stateless instances.
     sqlx::query("SELECT pg_advisory_xact_lock(715887124)")
         .execute(&mut *transaction)
         .await?;
@@ -348,19 +349,34 @@ async fn initialize_schema(pool: &PgPool) -> Result<(), StoreError> {
         sqlx::query_scalar("SELECT to_regclass('public.neoseq_schema_version')::text")
             .fetch_one(&mut *transaction)
             .await?;
-    if table.is_some() {
-        let found: i32 =
-            sqlx::query_scalar("SELECT version FROM neoseq_schema_version WHERE singleton = TRUE")
-                .fetch_one(&mut *transaction)
-                .await?;
-        if found != DATABASE_SCHEMA_VERSION {
-            return Err(StoreError::SchemaMismatch {
-                found,
-                required: DATABASE_SCHEMA_VERSION,
-            });
-        }
+    let found = if table.is_some() {
+        sqlx::query_scalar("SELECT version FROM neoseq_schema_version WHERE singleton = TRUE")
+            .fetch_one(&mut *transaction)
+            .await?
     } else {
-        sqlx::raw_sql(include_str!("../schema.sql"))
+        sqlx::query(
+            "CREATE TABLE neoseq_schema_version (
+                singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+                version INTEGER NOT NULL CHECK (version >= 0)
+             )",
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query("INSERT INTO neoseq_schema_version(singleton, version) VALUES (TRUE, 0)")
+            .execute(&mut *transaction)
+            .await?;
+        0
+    };
+    if !(0..=DATABASE_SCHEMA_VERSION).contains(&found) {
+        return Err(StoreError::SchemaMismatch {
+            found,
+            required: DATABASE_SCHEMA_VERSION,
+        });
+    }
+    for (index, migration) in DATABASE_MIGRATIONS.iter().enumerate().skip(found as usize) {
+        sqlx::raw_sql(migration).execute(&mut *transaction).await?;
+        sqlx::query("UPDATE neoseq_schema_version SET version = $1 WHERE singleton = TRUE")
+            .bind((index + 1) as i32)
             .execute(&mut *transaction)
             .await?;
     }

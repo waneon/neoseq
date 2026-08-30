@@ -1,9 +1,3 @@
-CREATE TABLE neoseq_schema_version (
-    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
-    version INTEGER NOT NULL CHECK (version > 0)
-);
-INSERT INTO neoseq_schema_version(singleton, version) VALUES (TRUE, 1);
-
 CREATE TABLE account (
     account_id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,

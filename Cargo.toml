@@ -5,6 +5,7 @@ members = [
   "crates/domain",
   "crates/graph-archive",
   "crates/graph-core",
+  "crates/neoseq-appliance",
   "crates/platform-native",
   "crates/platform-web",
   "crates/query",
