@@ -216,16 +216,20 @@ export class CoreWorker implements CorePort {
 
   replaceRemote(
     graphHandle: string,
-    checkpoint: number[],
+    checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
   ): Promise<void> {
-    return this.request("sync_replace", {
-      graph_handle: graphHandle,
-      checkpoint,
-      history_epoch: historyEpoch,
-      server_version_vector: serverVersionVector,
-    });
+    return this.request(
+      "sync_replace",
+      {
+        graph_handle: graphHandle,
+        checkpoint,
+        history_epoch: historyEpoch,
+        server_version_vector: serverVersionVector,
+      },
+      checkpoint instanceof ArrayBuffer ? [checkpoint] : [],
+    );
   }
 
   encodeSyncMessage(message: unknown): Promise<ArrayBuffer> {

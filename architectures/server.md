@@ -62,7 +62,7 @@ authenticated graph HTTP surface creates and lists graphs and lets an owner
 list, grant, or revoke memberships by username while membership rows retain the
 account's immutable ID. Browser WebSockets carry the session credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
-`Authorization` header; the server selects only the stable `neoseq.v3`
+`Authorization` header; the server selects only the stable `neoseq.v4`
 application subprotocol. Credentials are never accepted in a URL.
 
 Graph creation has two forms. Ordinary creation commits a server-generated
@@ -70,20 +70,22 @@ empty checkpoint. Seeded creation accepts a bounded multipart checkpoint and its
 SHA-256 digest, validates it through `GraphCore` under the requested target ID,
 then creates graph metadata, owner membership, checkpoint, and audit event in
 one database transaction. An exact retry returns the existing graph; differing
-input for an occupied ID is a conflict.
+input for an occupied ID is a conflict. The default durable and reconstructed
+graph limit is 1 GiB; the migration raises graphs still using the former
+64 MiB default without changing explicitly customized quotas.
 
 ## Wire Protocol
 
 The binary protocol is versioned independently from the CRDT schema.
 `contracts/sync-protocol.json` declares that version and derives the
-`neoseq.v3` subprotocol name from it, generated for the server and the browser
+`neoseq.v4` subprotocol name from it, generated for the server and the browser
 client alike, so a bump cannot leave one side advertising the other's version.
 Messages are length-delimited envelopes:
 
 - `Hello`: exact protocol/schema versions, graph ID, session ID, history epoch,
   Loro version vector, and whether the local Base has server provenance;
-- `Welcome`: history epoch, server version vector, and either a missing update
-  or replacement checkpoint;
+- `Welcome`: history epoch, server version vector, and either a missing update,
+  an inline replacement checkpoint, or a bulk-checkpoint download marker;
 - `Update`: history epoch, client message ID, base version vector, and Loro bytes;
 - `Ack`: history epoch, client message ID, and durable server receipt cursor;
 - `Presence`: ephemeral cursor/selection state with expiry;
@@ -99,7 +101,10 @@ client keeps an outbox item until its message ID is acknowledged.
 2. Require the current protocol and document-schema versions exactly.
 3. If the replica lacks a server-approved Base, send a replacement checkpoint.
    Otherwise compare history epochs and Loro version vectors, exporting missing
-   operations within one epoch or replacing the checkpoint across epochs.
+   operations within one epoch or replacing the checkpoint across epochs. A
+   replacement that exceeds the update-frame budget is fetched from the
+   authenticated graph checkpoint endpoint rather than enlarged into a
+   WebSocket frame.
 4. For every client update, enforce limits and import into a temporary fork of
    the room document for validation.
 5. Persist the exact validated bytes transactionally, then import them into the
@@ -163,9 +168,13 @@ room then adopts the new Base and asks connected replicas to reconnect.
 A replica on the current epoch and a server-approved Base normally receives a
 version-vector delta. A replica without that Base, on an older epoch, or whose
 delta cannot be represented within the negotiated limit receives a replacement
-checkpoint and must atomically rebase only durable unacknowledged intent. With
-no such outbox intent the installed state is exactly the server Base; a shallow
-snapshot representation difference is never inferred to be a local edit.
+checkpoint and must atomically rebase only durable unacknowledged intent. Small
+checkpoints remain inline. Large checkpoints use an authorized, non-cacheable
+HTTP response whose checksum, history epoch, and version vector describe one
+room snapshot atomically. Live updates observed around that snapshot remain
+safe because Loro operation import is idempotent; epoch rotation still forces a
+reconnect. With no outbox intent the installed state is exactly the server Base;
+a shallow snapshot representation difference is never inferred to be a local edit.
 Compact receipts are capped at the most recent
 4,096 messages per graph; older retries may obtain a new transport cursor, but
 Loro operation identity keeps their content import idempotent.
@@ -188,7 +197,8 @@ Loro operation identity keeps their content import idempotent.
   changes an existing account. Routine account management occurs only through
   the Admin Web app.
 - Connection, session, frame, message, update-rate, graph-byte, presence, and
-  reconstructed-document limits are enforced at their owning boundaries.
+  reconstructed-document limits are enforced at their owning boundaries. The
+  1 MiB WebSocket frame limit is independent of the 1 GiB graph limit.
 - CRDT import is treated as untrusted parsing: malformed updates fail
   atomically, are counted in aggregate operational metrics, and are never broadcast.
 - Presence is rate-limited, size-limited, non-durable, and visible only to
@@ -229,7 +239,8 @@ rejected frames, slow consumers, and room reconstruction count.
   cover malformed and reconstructed-size limits.
 - Reconstruction tests build rooms from durable checkpoints and update tails.
 - Seeded-creation tests verify exact retry/conflict behavior and connect a fresh
-  second client over WebSocket to the imported server Base.
+  second client over WebSocket to the imported server Base, including the bulk
+  checkpoint path above the inline frame budget.
 - Epoch tests verify one-generation checkpoint/Tail retention and reclamation,
   replacement checkpoints, stale update rejection, and duplicate
   acknowledgement from compact receipts.

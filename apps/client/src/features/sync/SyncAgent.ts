@@ -4,6 +4,7 @@ import type { OutlineOwner } from "../../core-port/snapshot";
 import { SCHEMA_VERSION } from "../../generated/graph-schema";
 import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
 import { readAuthSession, validateAuthSession } from "./auth";
+import { downloadRemoteCheckpoint } from "./api";
 
 export type RemoteSyncState =
   | { kind: "local" }
@@ -41,7 +42,7 @@ export interface SyncAgentPort {
 interface SyncAgentDelegate {
   applyRemote(bytes: number[]): Promise<void>;
   replaceRemote(
-    checkpoint: number[],
+    checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
   ): Promise<void>;
@@ -208,15 +209,27 @@ export class SyncAgent {
     if (message.Welcome) {
       const welcome = message.Welcome;
       const missing = numberArray(welcome.missing_update);
-      const checkpoint = numberArray(welcome.checkpoint);
+      let checkpoint: number[] | ArrayBuffer = numberArray(welcome.checkpoint);
+      let historyEpoch = Number(welcome.history_epoch);
+      let serverVersionVector = numberArray(welcome.server_version_vector);
       if (Boolean(welcome.replace_checkpoint)) {
-        if (checkpoint.length === 0) throw new Error("replacement checkpoint is missing");
-        await this.delegate.replaceRemote(
-          checkpoint,
-          Number(welcome.history_epoch),
-          numberArray(welcome.server_version_vector),
-        );
-      } else if (checkpoint.length > 0) {
+        if (checkpointBytes(checkpoint) === 0 && Boolean(welcome.checkpoint_download)) {
+          const auth = readAuthSession(this.connection.repository_id);
+          if (!auth) throw new Error("checkpoint download requires authentication");
+          const downloaded = await downloadRemoteCheckpoint(
+            this.connection.server_url,
+            auth,
+            this.graphId,
+          );
+          checkpoint = downloaded.checkpoint;
+          historyEpoch = downloaded.history_epoch;
+          serverVersionVector = downloaded.server_version_vector;
+        }
+        if (checkpointBytes(checkpoint) === 0) {
+          throw new Error("replacement checkpoint is missing");
+        }
+        await this.delegate.replaceRemote(checkpoint, historyEpoch, serverVersionVector);
+      } else if (Array.isArray(checkpoint) && checkpoint.length > 0) {
         await this.delegate.applyRemote(checkpoint);
       }
       if (missing.length > 0) await this.delegate.applyRemote(missing);
@@ -395,6 +408,10 @@ export class SyncAgent {
 
 function numberArray(value: unknown): number[] {
   return Array.isArray(value) ? value.map(Number) : [];
+}
+
+function checkpointBytes(value: number[] | ArrayBuffer): number {
+  return value instanceof ArrayBuffer ? value.byteLength : value.length;
 }
 
 function base64Url(value: string): string {

@@ -48,7 +48,10 @@ valid local document whose Base has not been accepted by the server opens
 read-only while `SyncAgent` requests a replacement checkpoint. The Worker
 atomically adopts that checkpoint and records its provenance before
 `GraphSession` restores the lease's writable mode. An already accepted cached
-replica remains writable when offline.
+replica remains writable when offline. `Welcome` carries small replacements
+inline and directs larger replacements to an authenticated HTTP download;
+`SyncAgent` verifies its checksum and uses the response's atomic epoch and
+version vector before asking the Worker to adopt it.
 
 ## Browser Adapter
 

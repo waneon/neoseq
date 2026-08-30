@@ -16,6 +16,7 @@ use tokio::sync::{Mutex, OnceCell, mpsc};
 const SERVER_PEER_ID: u64 = u64::MAX - 1;
 const CHECKPOINT_TAIL_UPDATES: usize = 256;
 const CHECKPOINT_TAIL_BYTES: usize = 1024 * 1024;
+const INLINE_CHECKPOINT_FRAME_OVERHEAD: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RoomConfig {
@@ -98,6 +99,13 @@ impl RoomConnection {
 pub struct OpenedRoom {
     pub connection: RoomConnection,
     pub welcome: Welcome,
+}
+
+pub struct GraphCheckpoint {
+    pub history_epoch: u64,
+    pub server_version_vector: Vec<u8>,
+    pub checksum: String,
+    pub bytes: Vec<u8>,
 }
 
 pub struct RoomManager<S: GraphStore> {
@@ -193,7 +201,7 @@ impl<S: GraphStore> RoomManager<S> {
             || epoch_changed
             || invalid_vector
             || missing_update.len() > self.config.limits.max_update_bytes as usize;
-        let checkpoint = if replace_checkpoint {
+        let mut checkpoint = if replace_checkpoint {
             missing_update.clear();
             guard
                 .core
@@ -202,6 +210,12 @@ impl<S: GraphStore> RoomManager<S> {
         } else {
             Vec::new()
         };
+        let inline_checkpoint_bytes = (self.config.limits.max_frame_bytes as usize)
+            .saturating_sub(INLINE_CHECKPOINT_FRAME_OVERHEAD);
+        let checkpoint_download = checkpoint.len() > inline_checkpoint_bytes;
+        if checkpoint_download {
+            checkpoint.clear();
+        }
         let (outbound, receiver) =
             mpsc::channel(self.config.limits.session_queue_capacity as usize);
         guard.sessions.insert(
@@ -217,6 +231,7 @@ impl<S: GraphStore> RoomManager<S> {
             server_version_vector: guard.core.version_vector(),
             missing_update,
             checkpoint,
+            checkpoint_download,
             replace_checkpoint,
         };
         self.metrics.session_opened();
@@ -241,6 +256,35 @@ impl<S: GraphStore> RoomManager<S> {
                 outbound: Some(receiver),
             },
             welcome,
+        })
+    }
+
+    pub async fn export_checkpoint(
+        &self,
+        graph_id: &str,
+        account_id: &str,
+    ) -> Result<GraphCheckpoint, RoomError> {
+        let membership = self.store.authorize(graph_id, account_id).await?;
+        if membership.schema_version != SCHEMA_VERSION {
+            return Err(RoomError::UnsupportedSchema);
+        }
+        let room = self.room_for(graph_id).await?;
+        let guard = room.lock().await;
+        if !guard.valid {
+            return Err(RoomError::ReconnectRequired);
+        }
+        let bytes = guard
+            .core
+            .export_gc_checkpoint()
+            .map_err(|_| RoomError::InvalidUpdate)?;
+        if bytes.len() > self.config.limits.max_decompressed_bytes as usize {
+            return Err(StoreError::QuotaExceeded.into());
+        }
+        Ok(GraphCheckpoint {
+            history_epoch: guard.history_epoch,
+            server_version_vector: guard.core.version_vector(),
+            checksum: graph_core::checksum(&bytes),
+            bytes,
         })
     }
 

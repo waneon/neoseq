@@ -51,7 +51,9 @@ sync-state record has no server-Base provenance, so it remains read-only and say
 so in protocol `Hello`; the server responds with a replacement checkpoint even
 when its version vector would otherwise permit a delta. Installing that
 checkpoint and provenance marker is one transaction, after which later edits
-obey the same local durability contract as local graphs. Cached replicas with an
+obey the same local durability contract as local graphs. A replacement larger
+than the live frame budget is downloaded from the membership-protected graph
+checkpoint endpoint and verified before installation. Cached replicas with an
 accepted Base remain editable offline. Server role and status make viewer or
 revoked replicas read-only without changing their stored content.
 

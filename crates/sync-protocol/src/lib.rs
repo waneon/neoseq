@@ -12,6 +12,7 @@ pub use generated::wire::*;
 /// crosses a language boundary: only `encode` and `decode` below read it.
 pub const WIRE_VERSION: u16 = 1;
 pub const HEADER_LEN: usize = 10;
+pub const DEFAULT_MAX_GRAPH_BYTES: u32 = 1024 * 1024 * 1024;
 const MAGIC: [u8; 4] = *b"NSQP";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,7 +30,9 @@ impl Default for Limits {
         Self {
             max_frame_bytes: 1_048_576,
             max_update_bytes: 524_288,
-            max_decompressed_bytes: 524_288,
+            // Bulk checkpoints travel over authenticated HTTP rather than the
+            // bounded WebSocket control/update channel.
+            max_decompressed_bytes: DEFAULT_MAX_GRAPH_BYTES,
             max_presence_bytes: 4_096,
             session_queue_capacity: 64,
         }
@@ -57,8 +60,12 @@ pub struct Welcome {
     /// A Loro update containing operations absent from the client's version vector.
     pub missing_update: Vec<u8>,
     /// A Loro snapshot offered when an incremental update would exceed the
-    /// negotiated update limit. Empty when `missing_update` is used.
+    /// negotiated update limit. Empty when `missing_update` or the bulk HTTP
+    /// checkpoint path is used.
     pub checkpoint: Vec<u8>,
+    /// The replacement checkpoint is available from the graph's authenticated
+    /// HTTP checkpoint endpoint because it does not fit in one sync frame.
+    pub checkpoint_download: bool,
     /// The checkpoint replaces local canonical state rather than merging into
     /// it because the client's retained history predates the server epoch.
     pub replace_checkpoint: bool,
@@ -315,6 +322,10 @@ mod tests {
 
     #[test]
     fn enforces_frame_and_payload_limits() {
+        assert_eq!(
+            Limits::default().max_decompressed_bytes,
+            DEFAULT_MAX_GRAPH_BYTES
+        );
         assert_eq!(
             encode(&hello(), HEADER_LEN).unwrap_err().code,
             ErrorCode::FrameTooLarge

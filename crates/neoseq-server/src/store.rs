@@ -6,6 +6,7 @@ use thiserror::Error;
 const DATABASE_MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_initial.sql"),
     include_str!("../migrations/0002_graph_catalog.sql"),
+    include_str!("../migrations/0003_graph_quota.sql"),
 ];
 pub const DATABASE_SCHEMA_VERSION: i32 = DATABASE_MIGRATIONS.len() as i32;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;

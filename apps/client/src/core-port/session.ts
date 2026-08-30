@@ -72,7 +72,7 @@ export interface SessionPort extends CorePort {
   importRemote?(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
   replaceRemote?(
     graphHandle: string,
-    checkpoint: number[],
+    checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
   ): Promise<void>;
@@ -402,7 +402,7 @@ export class GraphSession {
   }
 
   private replaceRemote(
-    checkpoint: number[],
+    checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
   ): Promise<void> {
@@ -688,7 +688,7 @@ type RequiredSyncPort = SessionPort &
     importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
     replaceRemote(
       graphHandle: string,
-      checkpoint: number[],
+      checkpoint: number[] | ArrayBuffer,
       historyEpoch: number,
       serverVersionVector: number[],
     ): Promise<void>;

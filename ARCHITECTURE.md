@@ -204,7 +204,8 @@ clones the archive without publishing it; authenticated HTTP creation validates
 and commits that checkpoint as the server's initial Base; only then does the
 browser atomically install the exact accepted bytes and mark their provenance.
 A newly opened remote replica without that marker is read-only until WebSocket
-`Welcome` replaces it with the authoritative server checkpoint.
+`Welcome` replaces it with the authoritative server checkpoint, using an
+authenticated bulk download when that Base exceeds the live frame budget.
 
 Persistence is Base+Tail, not an unbounded event archive. Local graphs install
 a shallow Loro checkpoint after 128 uncompacted tail records or 512 KiB. The
@@ -229,7 +230,7 @@ into one referenced Tail/outbox record.
   purpose-specific opaque session. A client session may be remembered on one
   browser for a fixed 30 days; Admin sessions remain short-lived and ephemeral.
   Passwords never enter browser storage, graph data, or sync data.
-- The v3 remote protocol is not end-to-end encrypted; E2EE requires
+- The v4 remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 
 ## Repository Shape

@@ -1,7 +1,7 @@
 mod support;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
+use domain::{Command, CommandEnvelope, CommandId, GraphId, OutlineOwner, PageId};
 use futures_util::{SinkExt, StreamExt};
 use graph_core::GraphCore;
 use http_body_util::BodyExt;
@@ -202,6 +202,19 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     let graph_id = "seeded-remote-graph";
     let graph = GraphId::new(graph_id).unwrap();
     let mut core = GraphCore::new(graph.clone(), 77, "seed").unwrap();
+    let mut random_state = 0x9e37_79b9_u32;
+    let mut random_markdown = || {
+        (0..600 * 1024)
+            .map(|_| {
+                random_state ^= random_state << 13;
+                random_state ^= random_state >> 17;
+                random_state ^= random_state << 5;
+                char::from(b' ' + (random_state % 95) as u8)
+            })
+            .collect::<String>()
+    };
+    let large_markdown_a = random_markdown();
+    let large_markdown_b = random_markdown();
     core.execute(
         CommandEnvelope {
             graph_id: graph,
@@ -214,7 +227,41 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
         "seed",
     )
     .unwrap();
+    core.execute(
+        CommandEnvelope {
+            graph_id: GraphId::new(graph_id).unwrap(),
+            command_id: CommandId::new("seed-large-block").unwrap(),
+            command: Command::InsertBlock {
+                owner: OutlineOwner::Page {
+                    id: PageId::new("imported-page").unwrap(),
+                },
+                parent: None,
+                index: 0,
+                markdown: large_markdown_a,
+            },
+        },
+        "seed",
+    )
+    .unwrap();
+    core.execute(
+        CommandEnvelope {
+            graph_id: GraphId::new(graph_id).unwrap(),
+            command_id: CommandId::new("seed-large-block-b").unwrap(),
+            command: Command::InsertBlock {
+                owner: OutlineOwner::Page {
+                    id: PageId::new("imported-page").unwrap(),
+                },
+                parent: None,
+                index: 1,
+                markdown: large_markdown_b,
+            },
+        },
+        "seed",
+    )
+    .unwrap();
     let checkpoint = core.export_gc_checkpoint().unwrap();
+    assert!(checkpoint.len() > Limits::default().max_frame_bytes as usize);
+    assert!(checkpoint.len() < Limits::default().max_decompressed_bytes as usize);
 
     let created = authorized_multipart_request(
         &app,
@@ -278,6 +325,25 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     .await;
     assert_eq!(invalid.0, 400, "{}", invalid.1);
 
+    let downloaded = authorized_binary_request(
+        &app,
+        &format!("/v1/graphs/{graph_id}/checkpoint"),
+        OWNER_TOKEN,
+    )
+    .await;
+    assert_eq!(downloaded.0, 200);
+    assert_eq!(downloaded.2, checkpoint);
+    assert_eq!(
+        downloaded.1["x-neoseq-checkpoint-checksum"]
+            .to_str()
+            .unwrap(),
+        graph_core::checksum(&downloaded.2)
+    );
+    assert_eq!(
+        downloaded.1["x-neoseq-history-epoch"].to_str().unwrap(),
+        "0"
+    );
+
     // A second browser has no local provenance for this graph. Its Hello must
     // receive the exact server-owned Base rather than an incremental delta.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -318,8 +384,10 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
         other => panic!("expected Welcome, got {other:?}"),
     };
     assert!(welcome.replace_checkpoint);
+    assert!(welcome.checkpoint_download);
+    assert!(welcome.checkpoint.is_empty());
     let fresh =
-        GraphCore::from_snapshot(GraphId::new(graph_id).unwrap(), 79, &welcome.checkpoint).unwrap();
+        GraphCore::from_snapshot(GraphId::new(graph_id).unwrap(), 79, &downloaded.2).unwrap();
     assert!(
         fresh
             .summary()
@@ -421,6 +489,28 @@ async fn authorized_multipart_request(
     let status = response.status().as_u16();
     let body = response.into_body().collect().await.unwrap().to_bytes();
     (status, String::from_utf8(body.to_vec()).unwrap())
+}
+
+async fn authorized_binary_request(
+    app: &axum::Router,
+    path: &str,
+    token: &str,
+) -> (u16, axum::http::HeaderMap, Vec<u8>) {
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri(path)
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
+    let headers = response.headers().clone();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (status, headers, body.to_vec())
 }
 
 async fn receive_wire(

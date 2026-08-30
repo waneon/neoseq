@@ -34,6 +34,12 @@ export interface CreatedRemoteGraph {
   checkpoint_checksum: string;
 }
 
+export interface RemoteCheckpoint {
+  checkpoint: ArrayBuffer;
+  history_epoch: number;
+  server_version_vector: number[];
+}
+
 async function request<T>(
   serverUrl: string,
   auth: AuthSession,
@@ -96,6 +102,52 @@ export async function createSeededRemoteGraph(
   return response.json() as Promise<CreatedRemoteGraph>;
 }
 
+export async function downloadRemoteCheckpoint(
+  serverUrl: string,
+  auth: AuthSession,
+  graphId: string,
+  signal?: AbortSignal,
+): Promise<RemoteCheckpoint> {
+  const response = await fetch(
+    new URL(`/v1/graphs/${encodeURIComponent(graphId)}/checkpoint`, `${serverUrl}/`),
+    {
+      headers: { Authorization: `Bearer ${auth.token}` },
+      signal,
+    },
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new RemoteApiError(
+      response.status,
+      message || `checkpoint download failed (${response.status})`,
+    );
+  }
+  const encodedEpoch = response.headers.get("x-neoseq-history-epoch");
+  const historyEpoch = Number(encodedEpoch);
+  const encodedVersion = response.headers.get("x-neoseq-version-vector");
+  const expectedChecksum = response.headers.get("x-neoseq-checkpoint-checksum");
+  if (
+    encodedEpoch === null ||
+    !Number.isSafeInteger(historyEpoch) ||
+    historyEpoch < 0 ||
+    encodedVersion === null
+  ) {
+    throw new Error("checkpoint response metadata is invalid");
+  }
+  if (!expectedChecksum?.match(/^[0-9a-f]{64}$/)) {
+    throw new Error("checkpoint response checksum is invalid");
+  }
+  const checkpoint = await response.arrayBuffer();
+  if ((await sha256(checkpoint)) !== expectedChecksum) {
+    throw new Error("checkpoint response checksum mismatch");
+  }
+  return {
+    checkpoint,
+    history_epoch: historyEpoch,
+    server_version_vector: decodeBase64Url(encodedVersion),
+  };
+}
+
 export function listRemoteGraphs(
   serverUrl: string,
   auth: AuthSession,
@@ -144,4 +196,22 @@ export function revokeMembership(
       method: "DELETE",
     },
   );
+}
+
+function decodeBase64Url(value: string): number[] {
+  if (!value.match(/^[A-Za-z0-9_-]*$/)) throw new Error("checkpoint version vector is invalid");
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  try {
+    return [...atob(padded)].map((character) => character.charCodeAt(0));
+  } catch {
+    throw new Error("checkpoint version vector is invalid");
+  }
+}
+
+async function sha256(value: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", value);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

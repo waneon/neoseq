@@ -395,21 +395,34 @@ async fn postgres_schema_persistence_and_authorization() {
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();
-    sqlx::query("UPDATE neoseq_schema_version SET version = 3 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 4 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
     assert!(matches!(
         PgStore::from_pool(store.pool().clone()).await,
         Err(StoreError::SchemaMismatch {
-            found: 3,
-            required: 2
+            found: 4,
+            required: 3
         })
     ));
+    sqlx::query("UPDATE graph SET byte_quota = 67108864 WHERE graph_id = $1")
+        .bind(&graph_id)
+        .execute(store.pool())
+        .await
+        .unwrap();
     sqlx::query("UPDATE neoseq_schema_version SET version = 2 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
+    PgStore::from_pool(store.pool().clone()).await.unwrap();
+    let migrated_quota: i64 =
+        sqlx::query_scalar("SELECT byte_quota FROM graph WHERE graph_id = $1")
+            .bind(&graph_id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(migrated_quota, 1_073_741_824);
     sqlx::query("DELETE FROM graph WHERE graph_id = $1")
         .bind(&graph_id)
         .execute(store.pool())

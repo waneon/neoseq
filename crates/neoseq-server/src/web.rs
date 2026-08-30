@@ -16,7 +16,7 @@ use axum::{
         DefaultBodyLimit, Multipart, Path, State, WebSocketUpgrade,
         ws::{Message as WsMessage, WebSocket},
     },
-    http::{HeaderMap, HeaderValue, Method, Response, StatusCode, header},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, Response, StatusCode, header},
     response::IntoResponse,
     routing::{delete, get, patch, post, put},
 };
@@ -31,16 +31,19 @@ use std::{
     time::{Duration, Instant},
 };
 use sync_protocol::{
-    ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, decode, encode,
-    validate_message,
+    DEFAULT_MAX_GRAPH_BYTES, ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION,
+    SUBPROTOCOL, decode, encode, validate_message,
 };
 use tokio::sync::watch;
 use tokio::time::{interval, timeout};
 use tower_http::cors::{Any, CorsLayer};
 
-const GRAPH_BYTE_QUOTA: u64 = 64 * 1024 * 1024;
+const GRAPH_BYTE_QUOTA: u64 = DEFAULT_MAX_GRAPH_BYTES as u64;
 const MAX_SEEDED_GRAPH_BODY: usize = GRAPH_BYTE_QUOTA as usize + 64 * 1024;
 const SERVER_GRAPH_PEER_ID: u64 = u64::MAX - 2;
+const CHECKPOINT_EPOCH_HEADER: &str = "x-neoseq-history-epoch";
+const CHECKPOINT_VERSION_HEADER: &str = "x-neoseq-version-vector";
+const CHECKPOINT_CHECKSUM_HEADER: &str = "x-neoseq-checkpoint-checksum";
 
 pub struct AppState<S: GraphStore> {
     pub rooms: Arc<RoomManager<S>>,
@@ -118,6 +121,10 @@ pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
         .route("/v1/sync", get(sync_upgrade::<S>))
         .route("/v1/graphs", get(list_graphs::<S>).post(create_graph::<S>))
         .route(
+            "/v1/graphs/{graph_id}/checkpoint",
+            get(download_graph_checkpoint::<S>),
+        )
+        .route(
             "/v1/graphs/import",
             post(create_seeded_graph::<S>).layer(DefaultBodyLimit::max(MAX_SEEDED_GRAPH_BODY)),
         )
@@ -139,7 +146,12 @@ pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
                     Method::PATCH,
                     Method::DELETE,
                 ])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+                .expose_headers([
+                    HeaderName::from_static(CHECKPOINT_EPOCH_HEADER),
+                    HeaderName::from_static(CHECKPOINT_VERSION_HEADER),
+                    HeaderName::from_static(CHECKPOINT_CHECKSUM_HEADER),
+                ]),
         )
         .with_state(state)
 }
@@ -601,6 +613,53 @@ async fn create_seeded_graph<S: GraphAdmin>(
         Ok(outcome) => created_graph_response(outcome, request.graph_id, checkpoint_checksum),
         Err(error) => api_store_error(error),
     }
+}
+
+async fn download_graph_checkpoint<S: GraphAdmin>(
+    State(state): State<AppState<S>>,
+    headers: HeaderMap,
+    Path(graph_id): Path<String>,
+) -> Response<Body> {
+    let principal = match api_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let checkpoint = match state.rooms.export_checkpoint(&graph_id, &principal).await {
+        Ok(checkpoint) => checkpoint,
+        Err(RoomError::Store(error)) => return api_store_error(error),
+        Err(RoomError::InvalidGraph) => {
+            return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response();
+        }
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let metadata = [
+        (
+            CHECKPOINT_EPOCH_HEADER,
+            checkpoint.history_epoch.to_string(),
+        ),
+        (
+            CHECKPOINT_VERSION_HEADER,
+            URL_SAFE_NO_PAD.encode(&checkpoint.server_version_vector),
+        ),
+        (CHECKPOINT_CHECKSUM_HEADER, checkpoint.checksum),
+    ];
+    let mut response = Response::new(Body::from(checkpoint.bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/vnd.neoseq.checkpoint"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    for (name, value) in metadata {
+        let Ok(value) = HeaderValue::from_str(&value) else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static(name), value);
+    }
+    response
 }
 
 async fn read_seeded_graph_request(
