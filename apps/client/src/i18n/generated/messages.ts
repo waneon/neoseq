@@ -463,6 +463,8 @@ export interface MessageArgumentMap {
   "repository.availableOffline": undefined;
   "repository.cachedOnly": undefined;
   "repository.creating": undefined;
+  "repository.keepSignedIn": undefined;
+  "repository.keepSignedInDetail": undefined;
   "repository.listFailed": { readonly "detail": string | number };
   "repository.loading": undefined;
   "repository.local": undefined;

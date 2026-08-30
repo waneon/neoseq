@@ -8207,6 +8207,23 @@ button.tag-mark:focus-visible {
   margin-bottom: 0;
 }
 
+.repository-session-field .field-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-1);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.repository-session-field input[type="checkbox"] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .field-description {
   margin: 0;
   color: var(--ink-3);

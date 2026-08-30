@@ -16,7 +16,13 @@ describe("remote graph catalog requests", () => {
 
     await listRemoteGraphs(
       "https://notes.example.test",
-      { principal: "account-1", username: "owner", token: "session" },
+      {
+        principal: "account-1",
+        username: "owner",
+        token: "session",
+        expires_at: 4_102_444_800,
+        persistence: "persistent",
+      },
       controller.signal,
     );
 

@@ -70,6 +70,7 @@ impl IdentityService for TestIdentity {
         username: &str,
         _password: &str,
         purpose: SessionPurpose,
+        _persistent: bool,
     ) -> Result<LoginSession, AuthError> {
         if purpose != SessionPurpose::Client {
             return Err(AuthError::Invalid);
@@ -83,6 +84,7 @@ impl IdentityService for TestIdentity {
             access_token: token.to_owned(),
             account: Self::account(account_id, username),
             purpose,
+            expires_at: 4_102_444_800,
         })
     }
 

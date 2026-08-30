@@ -72,9 +72,11 @@ directory publishes its suggested display name. See
 
 Repository accounts and graph display metadata live in browser directories in
 localStorage. A username and password are exchanged once for an opaque server
-session; the session is scoped to the repository ID in sessionStorage and is
-never stored in graph data, localStorage, or URLs. The user never enters or
-manages a transport token. Canonical note data remains in the Loro repository.
+session. The user may retain that revocable client session for 30 days in
+localStorage or keep a 12-hour session in sessionStorage; its absolute server
+expiry is stored with it and checked before use. The password is never retained,
+and no credential enters graph data or URLs. The user never enters or manages a
+transport token. Canonical note data remains in the Loro repository.
 A Web Lock grants one tab a writable lease per repository-qualified graph; a
 competing tab is read-only. The Loro peer ID is generated once and persisted
 with replica metadata; only the transport session ID is fresh for each

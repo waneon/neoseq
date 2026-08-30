@@ -6,7 +6,7 @@ interface CreatedGraph {
   name: string;
 }
 
-test("a remote repository lists and creates graphs without persisting credentials", async ({
+test("a remote repository keeps its opaque session without persisting the password", async ({
   page,
   context,
 }) => {
@@ -34,10 +34,16 @@ test("a remote repository lists and creates graphs without persisting credential
     local: JSON.stringify(localStorage),
     session: JSON.stringify(sessionStorage),
   }));
-  expect(storage.local).not.toContain("test-browser-token");
+  expect(storage.local).toContain("test-browser-token");
   expect(storage.local).not.toContain("correct horse battery staple");
-  expect(storage.session).toContain("test-browser-token");
+  expect(storage.session).not.toContain("test-browser-token");
   expect(storage.session).not.toContain("correct horse battery staple");
+
+  // Closing a browser discards sessionStorage. The remembered opaque session
+  // remains sufficient to reopen the repository without retaining a password.
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId("journal-title")).toBeVisible();
 
   await context.setOffline(true);
   await startOutline(page);
@@ -80,6 +86,23 @@ test("imports an archive as a new graph in the selected remote repository", asyn
   expect(page.url()).toMatch(/\/r\/[^/]+\/g\//u);
 });
 
+test("can keep a remote session scoped to the current browser tab", async ({ page }) => {
+  await installRemoteApi(page, false);
+
+  await page.goto("/");
+  await addRemoteRepository(page, false);
+  await expect(page.getByRole("tab", { name: /browser-owner@/u })).toHaveAttribute(
+    "data-state",
+    "active",
+  );
+  const storage = await page.evaluate(() => ({
+    local: JSON.stringify(localStorage),
+    session: JSON.stringify(sessionStorage),
+  }));
+  expect(storage.local).not.toContain("test-browser-token");
+  expect(storage.session).toContain("test-browser-token");
+});
+
 test("repository tabs retain cached catalogs while revalidating without moving the picker", async ({
   page,
 }) => {
@@ -102,6 +125,7 @@ test("repository tabs retain cached catalogs while revalidating without moving t
       contentType: "application/json",
       body: JSON.stringify({
         access_token: "test-browser-token",
+        expires_at: 4_102_444_800,
         account: { account_id: "account-browser-owner", username: "browser-owner" },
       }),
     });
@@ -147,7 +171,7 @@ test("repository tabs retain cached catalogs while revalidating without moving t
   expect((await picker.boundingBox())?.y).toBeCloseTo(localTop!, 1);
 });
 
-async function installRemoteApi(page: Page): Promise<CreatedGraph[]> {
+async function installRemoteApi(page: Page, expectedPersistent = true): Promise<CreatedGraph[]> {
   const created: CreatedGraph[] = [];
   await page.route("**/v1/auth/login", async (route) => {
     const credentials = route.request().postDataJSON() as {
@@ -157,13 +181,29 @@ async function installRemoteApi(page: Page): Promise<CreatedGraph[]> {
     expect(credentials).toMatchObject({
       username: "browser-owner",
       password: "correct horse battery staple",
+      purpose: "client",
+      persistent: expectedPersistent,
     });
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         access_token: "test-browser-token",
+        expires_at: 4_102_444_800,
         account: { account_id: "account-browser-owner", username: "browser-owner" },
+      }),
+    });
+  });
+  await page.route("**/v1/auth/me", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer test-browser-token");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        account_id: "account-browser-owner",
+        username: "browser-owner",
+        server_role: "user",
+        purpose: "client",
       }),
     });
   });
@@ -259,12 +299,13 @@ async function markMockServerBase(page: Page): Promise<void> {
   );
 }
 
-async function addRemoteRepository(page: Page): Promise<void> {
+async function addRemoteRepository(page: Page, persistent = true): Promise<void> {
   const serverOrigin = new URL(page.url()).origin;
   await page.getByTestId("add-repository").click();
   await page.getByLabel("Server URL").fill(serverOrigin);
   await page.getByLabel("Username").fill("browser-owner");
   await page.getByLabel("Password").fill("correct horse battery staple");
+  if (!persistent) await page.getByLabel("Keep me signed in on this browser").uncheck();
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }
 

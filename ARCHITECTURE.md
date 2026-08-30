@@ -226,7 +226,9 @@ into one referenced Tail/outbox record.
   untrusted CRDT frames before acceptance.
 - People authenticate with a username and password once. The server stores only
   Argon2id verifiers and exchanges a successful login for a bounded, revocable,
-  purpose-specific opaque session; passwords never enter graph or sync data.
+  purpose-specific opaque session. A client session may be remembered on one
+  browser for a fixed 30 days; Admin sessions remain short-lived and ephemeral.
+  Passwords never enter browser storage, graph data, or sync data.
 - The v3 remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 

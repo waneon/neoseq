@@ -3,7 +3,7 @@ import type { RemoteGraphConnection } from "../../core-port/directory";
 import type { OutlineOwner } from "../../core-port/snapshot";
 import { SCHEMA_VERSION } from "../../generated/graph-schema";
 import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
-import { readAuthSession } from "./auth";
+import { readAuthSession, validateAuthSession } from "./auth";
 
 export type RemoteSyncState =
   | { kind: "local" }
@@ -95,7 +95,17 @@ export class SyncAgent {
       this.expirePresence();
       this.maintainConnectivity();
     }, 1_000);
-    void this.refreshPending().then(() => this.connect());
+    void this.refreshPending().then(async () => {
+      const auth = await validateAuthSession(
+        this.connection.repository_id,
+        this.connection.server_url,
+      );
+      if (!auth) {
+        this.patch({ sync: { kind: "paused", reason: "auth" }, live: "paused" });
+        return;
+      }
+      this.connect();
+    });
   }
 
   stop(): void {

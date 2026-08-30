@@ -200,6 +200,8 @@
   "repository.availableOffline": "오프라인에서 사용 가능",
   "repository.cachedOnly": "서버에 연결할 수 없어 이 기기에 저장된 그래프만 표시합니다.",
   "repository.creating": "만드는 중…",
+  "repository.keepSignedIn": "이 브라우저에서 로그인 유지",
+  "repository.keepSignedInDetail": "폐기 가능한 세션을 30일 동안 저장합니다. 비밀번호는 저장하지 않습니다.",
   "repository.listFailed": "이 저장소의 그래프 목록을 불러오지 못했습니다: {detail}",
   "repository.loading": "그래프 불러오는 중…",
   "repository.local": "로컬",

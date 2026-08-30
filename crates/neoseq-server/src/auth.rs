@@ -8,6 +8,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 const CLIENT_SESSION_SECONDS: i64 = 12 * 60 * 60;
+const PERSISTENT_CLIENT_SESSION_SECONDS: i64 = 30 * 24 * 60 * 60;
 const ADMIN_SESSION_SECONDS: i64 = 60 * 60;
 const PASSWORD_MAX_BYTES: usize = 1_024;
 
@@ -106,6 +107,9 @@ pub struct LoginSession {
     pub access_token: String,
     pub account: AccountView,
     pub purpose: SessionPurpose,
+    /// Unix timestamp in seconds. This is an absolute lifetime, not a sliding
+    /// promise that could keep a stolen credential alive indefinitely.
+    pub expires_at: i64,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -138,7 +142,7 @@ impl From<sqlx::Error> for AuthError {
 
 #[async_trait]
 pub trait IdentityService: Send + Sync + 'static {
-    /// Resolves a short-lived transport credential into a stable account.
+    /// Resolves a bounded, revocable transport credential into a stable account.
     /// Verification remains asynchronous so revocation and account status are
     /// authoritative for long-lived WebSocket sessions.
     async fn verify(&self, token: &str) -> Result<Principal, AuthError>;
@@ -147,6 +151,7 @@ pub trait IdentityService: Send + Sync + 'static {
         username: &str,
         password: &str,
         purpose: SessionPurpose,
+        persistent: bool,
     ) -> Result<LoginSession, AuthError>;
     async fn logout(&self, token: &str) -> Result<(), AuthError>;
     async fn change_password(
@@ -375,6 +380,7 @@ impl IdentityService for PgIdentity {
         username: &str,
         password: &str,
         purpose: SessionPurpose,
+        persistent: bool,
     ) -> Result<LoginSession, AuthError> {
         let username = normalize_username(username)?;
         let row = sqlx::query(
@@ -438,19 +444,21 @@ impl IdentityService for PgIdentity {
         .execute(&self.pool)
         .await?;
         let token = random_value("ns_", 32)?;
-        let ttl = match purpose {
-            SessionPurpose::Client => CLIENT_SESSION_SECONDS,
-            SessionPurpose::Admin => ADMIN_SESSION_SECONDS,
+        let ttl = match (purpose, persistent) {
+            (SessionPurpose::Client, true) => PERSISTENT_CLIENT_SESSION_SECONDS,
+            (SessionPurpose::Client, false) => CLIENT_SESSION_SECONDS,
+            (SessionPurpose::Admin, _) => ADMIN_SESSION_SECONDS,
         };
-        sqlx::query(
+        let expires_at: i64 = sqlx::query_scalar(
             "INSERT INTO account_session(session_id_hash, account_id, purpose, expires_at)
-             VALUES ($1, $2, $3, NOW() + make_interval(secs => $4::DOUBLE PRECISION))",
+             VALUES ($1, $2, $3, NOW() + make_interval(secs => $4::DOUBLE PRECISION))
+             RETURNING EXTRACT(EPOCH FROM expires_at)::BIGINT",
         )
         .bind(token_digest(&token))
         .bind(&account_id)
         .bind(purpose.as_str())
         .bind(ttl as f64)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
         self.audit(Some(&account_id), Some(&account_id), "session.login")
             .await?;
@@ -464,6 +472,7 @@ impl IdentityService for PgIdentity {
                 created_at: row.try_get("created_at")?,
             },
             purpose,
+            expires_at,
         })
     }
 

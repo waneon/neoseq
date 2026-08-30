@@ -49,20 +49,27 @@ async fn postgres_schema_persistence_and_authorization() {
                 &admin_username,
                 "wrong password long enough",
                 SessionPurpose::Admin,
+                false,
             )
             .await
             .is_err()
     );
     assert!(
         identity
-            .login(&admin_username, ignored_password, SessionPurpose::Admin)
+            .login(
+                &admin_username,
+                ignored_password,
+                SessionPurpose::Admin,
+                false,
+            )
             .await
             .is_err()
     );
     let admin_session = identity
-        .login(&admin_username, admin_password, SessionPurpose::Admin)
+        .login(&admin_username, admin_password, SessionPurpose::Admin, true)
         .await
         .unwrap();
+    assert_session_lifetime(&admin_session, 60 * 60);
     let admin_principal = identity.verify(&admin_session.access_token).await.unwrap();
     assert!(admin_principal.is_admin);
 
@@ -82,9 +89,15 @@ async fn postgres_schema_persistence_and_authorization() {
         user.account_id
     );
     let user_session = identity
-        .login(&user_username, first_password, SessionPurpose::Client)
+        .login(
+            &user_username,
+            first_password,
+            SessionPurpose::Client,
+            false,
+        )
         .await
         .unwrap();
+    assert_session_lifetime(&user_session, 12 * 60 * 60);
     assert_eq!(
         identity
             .verify(&user_session.access_token)
@@ -99,12 +112,16 @@ async fn postgres_schema_persistence_and_authorization() {
         .await
         .unwrap();
     assert!(identity.verify(&user_session.access_token).await.is_err());
-    assert!(
-        identity
-            .login(&user_username, replacement_password, SessionPurpose::Client,)
-            .await
-            .is_ok()
-    );
+    let persistent_session = identity
+        .login(
+            &user_username,
+            replacement_password,
+            SessionPurpose::Client,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_session_lifetime(&persistent_session, 30 * 24 * 60 * 60);
     identity
         .update_account(
             &admin_principal,
@@ -157,7 +174,12 @@ async fn postgres_schema_persistence_and_authorization() {
         .await
         .unwrap();
     let editor_session = identity
-        .login(&editor_username, editor_password, SessionPurpose::Client)
+        .login(
+            &editor_username,
+            editor_password,
+            SessionPurpose::Client,
+            false,
+        )
         .await
         .unwrap();
     let graph_id = format!("postgres-sync-{suffix}");
@@ -393,6 +415,18 @@ async fn postgres_schema_persistence_and_authorization() {
         .execute(store.pool())
         .await
         .unwrap();
+}
+
+fn assert_session_lifetime(session: &neoseq_server::LoginSession, expected_seconds: i64) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let remaining = session.expires_at - now;
+    assert!(
+        (expected_seconds - 5..=expected_seconds + 5).contains(&remaining),
+        "expected a {expected_seconds}s session, got {remaining}s"
+    );
 }
 
 async fn websocket_commit(

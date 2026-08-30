@@ -209,6 +209,8 @@ struct LoginRequest {
     password: String,
     #[serde(default = "client_purpose")]
     purpose: String,
+    #[serde(default)]
+    persistent: bool,
 }
 
 fn client_purpose() -> String {
@@ -218,6 +220,7 @@ fn client_purpose() -> String {
 #[derive(Serialize)]
 struct LoginResponse {
     access_token: String,
+    expires_at: i64,
     account: AccountView,
 }
 
@@ -274,11 +277,17 @@ async fn login<S: GraphStore>(
     };
     match state
         .identity
-        .login(&request.username, &request.password, purpose)
+        .login(
+            &request.username,
+            &request.password,
+            purpose,
+            purpose == SessionPurpose::Client && request.persistent,
+        )
         .await
     {
         Ok(session) => Json(LoginResponse {
             access_token: session.access_token,
+            expires_at: session.expires_at,
             account: session.account,
         })
         .into_response(),

@@ -523,6 +523,7 @@ function RepositoryDialog({
   const [serverUrl, setServerUrl] = useState(repository?.origin ?? neoseqUrl());
   const [username, setUsername] = useState(repository?.username ?? "");
   const [password, setPassword] = useState("");
+  const [persistent, setPersistent] = useState(true);
   const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
   const busy = request.status === "busy";
 
@@ -532,7 +533,7 @@ function RepositoryDialog({
     const repositoryId = repository?.id ?? createRepositoryId();
     try {
       const origin = normalizeServerOrigin(serverUrl);
-      const auth = await signIn(repositoryId, origin, username, password);
+      const auth = await signIn(repositoryId, origin, username, password, persistent);
       if (repository && auth.principal !== repository.account_id) {
         clearAuthSession(repositoryId);
         throw new Error("repository account changed");
@@ -589,6 +590,18 @@ function RepositoryDialog({
               onChange={(event) => setPassword(event.target.value)}
             />
             <FieldDescription>{message("repository.passwordDetail")}</FieldDescription>
+          </Field>
+          <Field className="repository-session-field">
+            <FieldLabel htmlFor="repository-persistent-session">
+              <input
+                id="repository-persistent-session"
+                type="checkbox"
+                checked={persistent}
+                onChange={(event) => setPersistent(event.target.checked)}
+              />
+              <span>{message("repository.keepSignedIn")}</span>
+            </FieldLabel>
+            <FieldDescription>{message("repository.keepSignedInDetail")}</FieldDescription>
           </Field>
         </FieldGroup>
         <div className="dialog-actions">

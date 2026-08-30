@@ -62,8 +62,11 @@ servers require HTTPS. A configured `NEOSEQ_URL` supplies the initial server
 URL; otherwise the dialog uses the browser's current origin. The password is
 sent only to the login endpoint and is discarded after exchange. Repository
 metadata is stored in localStorage; the opaque, revocable session is stored in
-sessionStorage under the repository ID. Passwords and sessions never enter
-routes, graph data, archives, or the durable repository directory.
+browser storage under the repository ID. The default remembered client session
+has a fixed 30-day server expiry and lives in localStorage; opting out keeps the
+ordinary 12-hour session in sessionStorage. Expired or unauthorized sessions are
+removed. Passwords and sessions never enter routes, graph data, archives, or the
+durable repository directory.
 
 Remote HTTP requests are cross-origin by design and always use an explicit
 bearer session. WebSocket authentication uses the protocol credential entry.

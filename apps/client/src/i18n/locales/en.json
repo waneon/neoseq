@@ -200,6 +200,8 @@
   "repository.availableOffline": "available offline",
   "repository.cachedOnly": "The server is unavailable. Showing graphs already saved on this device.",
   "repository.creating": "Creating…",
+  "repository.keepSignedIn": "Keep me signed in on this browser",
+  "repository.keepSignedInDetail": "Stores a revocable session for 30 days. Your password is never stored.",
   "repository.listFailed": "Could not list this repository: {detail}",
   "repository.loading": "Loading graphs…",
   "repository.local": "Local",

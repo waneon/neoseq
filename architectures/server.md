@@ -54,7 +54,10 @@ path.
 People submit a username and password only to the login endpoint. A successful
 login returns a bounded opaque session credential whose digest, purpose, expiry,
 and revocation state are durable. Client sessions authorize graph HTTP and WSS;
-shorter Admin sessions authorize only the account-management surface. The
+an ordinary client session expires after 12 hours and an explicitly persistent
+client session after 30 days. Both are fixed lifetimes rather than sliding
+sessions. Shorter one-hour Admin sessions ignore persistence requests and
+authorize only the account-management surface. The
 authenticated graph HTTP surface creates and lists graphs and lets an owner
 list, grant, or revoke memberships by username while membership rows retain the
 account's immutable ID. Browser WebSockets carry the session credential in
