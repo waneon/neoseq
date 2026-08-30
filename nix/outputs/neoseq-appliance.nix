@@ -1,17 +1,17 @@
 {
+  cargoDeps,
   lib,
-  mkSource,
-  stdenv,
   libiconv,
+  mkSource,
   rustPlatform,
   rustToolchain,
+  stdenv,
 }:
 
 let
-  pname = "neoseq-server";
+  pname = "neoseq-appliance";
   manifest = builtins.fromTOML (builtins.readFile ../../Cargo.toml);
   version = manifest.workspace.package.version;
-  cargoLockDigest = builtins.hashFile "sha256" ../../Cargo.lock;
   applicationFiles = lib.fileset.unions [
     ../../Cargo.lock
     ../../Cargo.toml
@@ -26,14 +26,13 @@ let
   };
 in
 stdenv.mkDerivation {
-  inherit pname version src;
+  inherit
+    cargoDeps
+    pname
+    src
+    version
+    ;
   strictDeps = true;
-
-  cargoDeps = rustPlatform.fetchCargoVendor {
-    inherit src;
-    name = "${pname}-${version}-${cargoLockDigest}";
-    hash = "sha256-iquXe56yAzJWjG0ai0VP1PbKnKPuwPfo54CetWMxpCw=";
-  };
 
   nativeBuildInputs = [
     rustToolchain
@@ -44,7 +43,7 @@ stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
 
-    cargo build --offline --frozen --release -p neoseq-server
+    cargo build --offline --frozen --release -p neoseq-appliance
 
     runHook postBuild
   '';
@@ -52,10 +51,10 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    install -Dm755 target/release/neoseq-server "$out/bin/neoseq-server"
+    install -Dm755 target/release/neoseq-appliance "$out/bin/neoseq-appliance"
 
     runHook postInstall
   '';
 
-  meta.mainProgram = "neoseq-server";
+  meta.mainProgram = "neoseq-appliance";
 }

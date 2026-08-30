@@ -1579,6 +1579,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "neoseq-appliance"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "neoseq-benchmarks"
 version = "0.1.0"
 dependencies = [

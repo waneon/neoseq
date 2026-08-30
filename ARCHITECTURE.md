@@ -86,6 +86,10 @@ persistence test boundary, not a shipped application shell.
   disposable graph rooms, presence, and operational endpoints. It does not
   own graph semantics or a relational graph projection; see
   [server architecture](architectures/server.md).
+- `neoseq-appliance` owns single-container process supervision, embedded
+  PostgreSQL lifecycle, ingress publication, health, backup, and restore. It
+  contains no product or graph semantics; see
+  [appliance architecture](architectures/appliance.md).
 
 Detailed contracts:
 
@@ -103,6 +107,7 @@ Detailed contracts:
 - [Internationalization](architectures/i18n.md)
 - [Build and verification](architectures/build.md)
 - [Synchronization server](architectures/server.md)
+- [All-in-one appliance](architectures/appliance.md)
 
 ## CorePort
 
@@ -221,8 +226,10 @@ crates/platform-web/       Wasm bindings
 crates/platform-native/    headless SQLite/CorePort adapter
 crates/sync-protocol/      versioned binary synchronization messages
 crates/neoseq-server/      PostgreSQL-backed WebSocket synchronization service
+crates/neoseq-appliance/   all-in-one process and database lifecycle controller
 apps/client/               React UI, Worker, IndexedDB, and browser tests
 apps/dashboard/            standalone neoseq-server administration Web app
+examples/compose.yaml      operator-facing Docker Compose example
 contracts/                 current source contracts
 fixtures/                  current cross-adapter corpus
 architectures/             component architecture documents

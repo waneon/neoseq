@@ -5,8 +5,9 @@
 devenv is the supported environment and command boundary for local development
 and CI. `devenv.lock`, `Cargo.lock`, and `pnpm-lock.yaml` pin external
 resolution. The current build targets are the static Web client, its Rust/Wasm
-core, and the Rust synchronization server. Native shells, signing, and release
-provenance enter only in the stages that implement them.
+core, the dashboard, the Rust synchronization server, and their Linux
+all-in-one OCI image. Native shells, signing, and release provenance enter only
+in the stages that implement them.
 
 The devenv configuration is composed around three developer-facing concerns:
 
@@ -20,14 +21,17 @@ The browser profile adds Playwright and its isolated collaboration processes.
 Database tests use the shared PostgreSQL service but own a temporary database
 per suite.
 
-`outputs.neoseq-client`, `outputs.neoseq-server`, and `outputs.neoseq-dashboard`
-own the deployable artifacts. They build from Git-tracked sources inside the Nix
-sandbox with dependencies fetched from the lockfiles. Fixed-output dependency
-names include their lockfile digest, so a lockfile change cannot reuse a
-previously validated store path. Devenv does not serve those outputs; its
-processes own the source-based development runtime, while tasks own checks and
-ephemeral database or browser setup. Package scripts do not define
-repository-wide build or verification flow.
+`outputs.neoseq-client`, `outputs.neoseq-server`,
+`outputs.neoseq-dashboard`, and `outputs.neoseq-appliance` own the deployable
+component artifacts. `outputs.neoseq-docker` composes their release outputs
+with pinned ingress, PostgreSQL, and init binaries as a reproducible Linux
+image. All build from Git-tracked sources inside the Nix sandbox with
+dependencies fetched from the lockfiles. Fixed-output dependency names include
+their lockfile digest, so a lockfile change cannot reuse a previously validated
+store path. Devenv does not serve those outputs; its processes own the
+source-based development runtime, while tasks own checks and ephemeral database
+or browser setup. Package scripts do not define repository-wide build or
+verification flow.
 
 ## Build flow
 
@@ -37,6 +41,9 @@ domain ──> query ──> graph-core ──> platform-web ──> Wasm bindin
    └──────────────────────┴──> platform-native / SQLite verification
 
 sync-protocol ──> neoseq-server ──> PostgreSQL / WebSocket verification
+
+client + dashboard + server + appliance controller + runtime tools
+  └──> neoseq-docker Linux OCI image
 ```
 
 The `neoseq-client` output compiles `platform-web`, generates Wasm bindings, checks the
@@ -60,8 +67,11 @@ Development and test-mode bindings remain checkout-local ignored artifacts;
 the production artifact exists only as a Nix output.
 
 The `neoseq-server` output builds the release service binary and installs it as a
-single Nix store artifact. The current PostgreSQL schema baseline is embedded in
-the binary.
+single Nix store artifact. Forward-only PostgreSQL migrations are embedded in
+the binary and run transactionally before readiness. The appliance output builds
+the small lifecycle controller. On Linux, the all-in-one output combines these
+with the two static sites, Caddy, `tini`, PostgreSQL 17, and runtime probes; build
+tools are not copied into the image.
 For local development, the supervised sync server waits for the persistent
 PostgreSQL service and exposes an HTTP readiness probe. Database-backed tests
 share the devenv-managed PostgreSQL service while each suite owns a uniquely
@@ -84,10 +94,12 @@ by their package managers. Running
 `treefmt` formats maintained files; the portable gate runs the same formatter
 set in CI mode and rejects drift.
 
-`devenv build outputs.neoseq-client`, `devenv build outputs.neoseq-server`, and
-`devenv build outputs.neoseq-dashboard` realize the production artifacts.
-Keeping artifact construction separate from tasks makes it reproducible and
-cacheable.
+`devenv build outputs.neoseq-client`, `devenv build outputs.neoseq-server`,
+`devenv build outputs.neoseq-dashboard`, and
+`devenv -s <linux-system> build outputs.neoseq-docker` realize the production
+artifacts. Keeping artifact construction separate from tasks makes it
+reproducible and cacheable. Linux CI realizes the all-in-one image after the
+portable gate so its filesystem layers and OCI metadata cannot drift unbuilt.
 
 `devenv --profile browser test` extends the portable gate with pinned
 Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and

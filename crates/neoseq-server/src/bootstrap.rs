@@ -32,11 +32,6 @@ impl BootstrapAdminConfig {
         if username.is_none() && password.is_none() && password_file.is_none() {
             return Ok(None);
         }
-        if password.is_some() && password_file.is_some() {
-            return Err(invalid_config(format!(
-                "{ADMIN_PASSWORD} and {ADMIN_PASSWORD_FILE} are mutually exclusive",
-            )));
-        }
         let Some(username) = username else {
             return Err(invalid_config(format!(
                 "{ADMIN_USERNAME} is required when an initial administrator password is configured",
@@ -45,19 +40,20 @@ impl BootstrapAdminConfig {
         let username = username
             .into_string()
             .map_err(|_| invalid_config(format!("{ADMIN_USERNAME} must be valid UTF-8")))?;
-        let password = match (password, password_file) {
-            (Some(value), None) => BootstrapPassword::Value(
-                value
-                    .into_string()
-                    .map_err(|_| invalid_config(format!("{ADMIN_PASSWORD} must be valid UTF-8")))?,
-            ),
-            (None, Some(path)) => BootstrapPassword::File(PathBuf::from(path)),
-            (None, None) => {
-                return Err(invalid_config(format!(
-                    "either {ADMIN_PASSWORD} or {ADMIN_PASSWORD_FILE} is required with {ADMIN_USERNAME}",
-                )));
+        let password = match password_file {
+            Some(path) => BootstrapPassword::File(PathBuf::from(path)),
+            None => {
+                let value = password.ok_or_else(|| {
+                    invalid_config(format!(
+                        "either {ADMIN_PASSWORD} or {ADMIN_PASSWORD_FILE} is required with {ADMIN_USERNAME}",
+                    ))
+                })?;
+                BootstrapPassword::Value(
+                    value.into_string().map_err(|_| {
+                        invalid_config(format!("{ADMIN_PASSWORD} must be valid UTF-8"))
+                    })?,
+                )
             }
-            (Some(_), Some(_)) => unreachable!("mutually exclusive sources checked above"),
         };
         Ok(Some(Self { username, password }))
     }
@@ -153,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn configuration_rejects_partial_or_ambiguous_values() {
+    fn configuration_rejects_partial_values() {
         let missing_password = BootstrapAdminConfig::from_values(Some("admin".into()), None, None)
             .err()
             .unwrap();
@@ -167,19 +163,10 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(missing_username.kind(), io::ErrorKind::InvalidInput);
-
-        let ambiguous = BootstrapAdminConfig::from_values(
-            Some("admin".into()),
-            Some("a deliberately long password".into()),
-            Some("/run/secrets/admin-password".into()),
-        )
-        .err()
-        .unwrap();
-        assert_eq!(ambiguous.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
-    fn password_file_removes_one_line_ending() {
+    fn password_file_takes_precedence_and_removes_one_line_ending() {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -191,7 +178,7 @@ mod tests {
         fs::write(&path, b"a password loaded from a secret\r\n").unwrap();
         let config = BootstrapAdminConfig::from_values(
             Some("admin".into()),
-            None,
+            Some("this value must be ignored".into()),
             Some(path.clone().into_os_string()),
         )
         .unwrap()

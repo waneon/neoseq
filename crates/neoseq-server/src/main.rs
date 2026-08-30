@@ -44,7 +44,19 @@ async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn shutdown_signal(shutdown: tokio::sync::watch::Sender<bool>) {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
+
     let _ = shutdown.send(true);
     tracing::info!("graceful shutdown requested");
 }

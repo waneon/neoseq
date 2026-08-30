@@ -5,23 +5,20 @@ fast, and hassle-free.
 
 ## Quick start
 
-Neoseq uses `devenv` to manage its development environment. With `devenv`, you
-can start the Web client, PostgreSQL, and synchronization server with a single
-command:
+Run Neoseq with the following command:
 
 ```sh
-devenv up
+docker run -p 8080:8080 -p 8081:8081 waneon/neoseq
 ```
 
-This starts the following services:
+The Neoseq Docker container runs the entire application stack, including the
+synchronization server and PostgreSQL. The Neoseq application is available on
+port `8080`, and the administration dashboard is available on port `8081`.
 
-- `neoseq-client`: the Neoseq client application on port `4173`
-- `neoseq-server`: the Neoseq synchronization server
-- `neoseq-dashboard`: the Web-based Neoseq account administration dashboard on port `4174`. By
-  default, an `admin` account is created with the password `change-me-later`.
+By default, an `admin` account is created with the password `change-me-later`.
 
-If a port is already in use, devenv automatically selects the next available
-port.
+For more detailed Docker configuration, see
+[`examples/compose.yaml`](examples/compose.yaml).
 
 ## Development
 

@@ -117,7 +117,7 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
         &app,
         "POST",
         "/v1/graphs",
-        &token,
+        token,
         &format!(r#"{{"graph_id":"{graph_id}"}}"#),
     )
     .await;
@@ -127,7 +127,7 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
         &app,
         "GET",
         &format!("/v1/graphs/{graph_id}/members"),
-        &token,
+        token,
         "",
     )
     .await;
@@ -139,7 +139,7 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
         &app,
         "PUT",
         &format!("/v1/graphs/{graph_id}/members/{INVITED_USERNAME}"),
-        &token,
+        token,
         r#"{"role":"editor"}"#,
     )
     .await;
@@ -150,7 +150,7 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
         &app,
         "DELETE",
         &format!("/v1/graphs/{graph_id}/members/{INVITED_USERNAME}"),
-        &token,
+        token,
         "",
     )
     .await;

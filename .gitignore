@@ -13,6 +13,14 @@
 /devenv.local.nix
 /devenv.local.yaml
 /.env
+/deployments/all-in-one/admin-password.txt
+/deployments/all-in-one/backups/
+/deployments/all-in-one/data/
+/deployments/all-in-one/.env
+/examples/admin-password.txt
+/examples/backups/
+/examples/data/
+/examples/.env
 /.DS_Store
 *.db
 *.db-shm

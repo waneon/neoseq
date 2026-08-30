@@ -164,11 +164,12 @@ Loro operation identity keeps their content import idempotent.
 - Password verification runs on the blocking pool with Argon2id, login failures
   are throttled, and errors do not reveal whether an account exists.
 - The first active administrator is an explicit one-time bootstrap operation.
-  The service accepts a username and exactly one password source through bootstrap
-  configuration; a mounted secret file is preferred over a direct environment
-  value. Configuration is required before an empty identity store can listen,
-  creates only when no active administrator exists, and never changes an existing
-  account. Routine account management occurs only through the Admin Web app.
+  The service accepts a username and at least one password source through bootstrap
+  configuration; a mounted secret file takes precedence over a direct environment
+  value when both are set. Configuration is required before an empty identity
+  store can listen, creates only when no active administrator exists, and never
+  changes an existing account. Routine account management occurs only through
+  the Admin Web app.
 - Connection, session, frame, message, update-rate, graph-byte, presence, and
   reconstructed-document limits are enforced at their owning boundaries.
 - CRDT import is treated as untrusted parsing: malformed updates fail
