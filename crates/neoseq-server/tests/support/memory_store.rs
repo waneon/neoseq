@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use graph_core::checksum;
 use neoseq_server::store::{
-    CommitOutcome, GraphAdmin, GraphListing, GraphLoad, GraphRole, GraphStatus, GraphStore,
-    Membership, MembershipListing, NewGraph, StoreError, StoredCheckpoint, StoredUpdate,
+    CommitOutcome, CreateGraphOutcome, GraphAdmin, GraphListing, GraphLoad, GraphRole, GraphStatus,
+    GraphStore, Membership, MembershipListing, NewGraph, StoreError, StoredCheckpoint,
+    StoredUpdate,
 };
 use std::{
     collections::HashMap,
@@ -369,10 +370,23 @@ impl GraphStore for MemoryStore {
 
 #[async_trait]
 impl GraphAdmin for MemoryStore {
-    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError> {
+    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError> {
         let mut state = self.inner.lock().expect("memory store mutex");
-        if state.graphs.contains_key(graph.graph_id) {
-            return Err(StoreError::Database("graph already exists".into()));
+        if let Some(existing) = state.graphs.get(graph.graph_id) {
+            let owner_matches = existing
+                .memberships
+                .get(graph.owner_account_id)
+                .is_some_and(|membership| {
+                    membership.role == GraphRole::Owner && !membership.revoked
+                });
+            if owner_matches
+                && existing.display_name == graph.display_name
+                && existing.schema_version == graph.schema_version
+                && existing.checkpoint.checksum == checksum(graph.snapshot)
+            {
+                return Ok(CreateGraphOutcome::Existing);
+            }
+            return Err(StoreError::GraphAlreadyExists);
         }
         let mut memberships = HashMap::new();
         memberships.insert(
@@ -406,7 +420,7 @@ impl GraphAdmin for MemoryStore {
                 membership_version: 1,
             },
         );
-        Ok(())
+        Ok(CreateGraphOutcome::Created)
     }
 
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError> {

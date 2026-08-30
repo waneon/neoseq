@@ -36,6 +36,7 @@ export interface SyncState {
   pending: number;
   replica_id: number;
   history_epoch: number;
+  has_server_base: boolean;
 }
 
 export interface OutboxMessage {
@@ -52,6 +53,13 @@ export interface ImportedGraphArchive {
   created_at: string;
 }
 
+export interface PreparedGraphArchive extends ImportedGraphArchive {
+  replica_id: number;
+  schema_version: number;
+  checkpoint: ArrayBuffer;
+  checkpoint_checksum: string;
+}
+
 export type WorkerOperation =
   | "open_graph"
   | "execute"
@@ -65,6 +73,8 @@ export type WorkerOperation =
   | "delete_graph"
   | "export_archive"
   | "import_archive"
+  | "prepare_archive"
+  | "install_archive"
   | "storage_capabilities"
   | "sync_configure"
   | "sync_state"
@@ -153,6 +163,31 @@ export class CoreWorker implements CorePort {
     },
   ): Promise<ImportedGraphArchive> {
     return this.request("import_archive", { bytes, locator }, [bytes]);
+  }
+
+  prepareArchive(bytes: ArrayBuffer, locator: GraphLocatorDto): Promise<PreparedGraphArchive> {
+    return this.request("prepare_archive", { bytes, locator }, [bytes]);
+  }
+
+  installArchive(
+    prepared: PreparedGraphArchive,
+    locator: GraphLocatorDto,
+    historyEpoch: number,
+    serverBase: boolean,
+  ): Promise<void> {
+    return this.request(
+      "install_archive",
+      {
+        locator,
+        replica_id: prepared.replica_id,
+        checkpoint: prepared.checkpoint,
+        checkpoint_checksum: prepared.checkpoint_checksum,
+        created_at: prepared.created_at,
+        history_epoch: historyEpoch,
+        server_base: serverBase,
+      },
+      [prepared.checkpoint],
+    );
   }
 
   storageCapabilities(graphHandle: string): Promise<StorageCapabilitiesDto> {

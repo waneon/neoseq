@@ -1,12 +1,14 @@
 mod support;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use futures_util::{SinkExt, StreamExt};
+use graph_core::GraphCore;
 use http_body_util::BodyExt;
 use neoseq_server::{AppState, GraphStore, RoomConfig, router};
 use std::{sync::Arc, time::Duration};
 use support::*;
-use sync_protocol::{Hello, Message, PROTOCOL_VERSION, SUBPROTOCOL, decode, encode};
+use sync_protocol::{Hello, Limits, Message, PROTOCOL_VERSION, SUBPROTOCOL, decode, encode};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{Message as WsMessage, client::IntoClientRequest, http::HeaderValue},
@@ -63,6 +65,7 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
         graph_id: GRAPH.into(),
         session_id: "websocket-client".into(),
         history_epoch: 0,
+        has_server_base: true,
         version_vector: fixture.base_version.clone(),
     });
     socket
@@ -186,6 +189,149 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     assert!(fixture.store.authorize(graph_id, INVITED).await.is_err());
 }
 
+#[tokio::test]
+async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is_idempotent() {
+    let fixture = fixture(RoomConfig::default());
+    let app = router(AppState::new(
+        fixture.manager,
+        Arc::new(TestIdentity),
+        Arc::new(neoseq_server::Metrics::default()),
+        32,
+        Duration::from_millis(50),
+    ));
+    let graph_id = "seeded-remote-graph";
+    let graph = GraphId::new(graph_id).unwrap();
+    let mut core = GraphCore::new(graph.clone(), 77, "seed").unwrap();
+    core.execute(
+        CommandEnvelope {
+            graph_id: graph,
+            command_id: CommandId::new("seed-page").unwrap(),
+            command: Command::EnsurePage {
+                page_id: PageId::new("imported-page").unwrap(),
+                title: "Imported page".to_owned(),
+            },
+        },
+        "seed",
+    )
+    .unwrap();
+    let checkpoint = core.export_gc_checkpoint().unwrap();
+
+    let created = authorized_multipart_request(
+        &app,
+        "/v1/graphs/import",
+        OWNER_TOKEN,
+        graph_id,
+        "Imported graph",
+        &checkpoint,
+    )
+    .await;
+    assert_eq!(created.0, 201, "{}", created.1);
+    assert!(created.1.contains(&graph_core::checksum(&checkpoint)));
+
+    let loaded = fixture.store.load_graph(graph_id).await.unwrap();
+    assert_eq!(loaded.checkpoint.snapshot, checkpoint);
+    let restored = GraphCore::from_snapshot(
+        GraphId::new(graph_id).unwrap(),
+        78,
+        &loaded.checkpoint.snapshot,
+    )
+    .unwrap();
+    assert!(
+        restored
+            .summary()
+            .unwrap()
+            .pages
+            .iter()
+            .any(|page| page.title == "Imported page")
+    );
+
+    let retried = authorized_multipart_request(
+        &app,
+        "/v1/graphs/import",
+        OWNER_TOKEN,
+        graph_id,
+        "Imported graph",
+        &loaded.checkpoint.snapshot,
+    )
+    .await;
+    assert_eq!(retried.0, 200, "{}", retried.1);
+
+    let conflict = authorized_multipart_request(
+        &app,
+        "/v1/graphs/import",
+        OWNER_TOKEN,
+        graph_id,
+        "Different graph",
+        &loaded.checkpoint.snapshot,
+    )
+    .await;
+    assert_eq!(conflict.0, 409, "{}", conflict.1);
+
+    let invalid = authorized_multipart_request(
+        &app,
+        "/v1/graphs/import",
+        OWNER_TOKEN,
+        "invalid-seeded-graph",
+        "Invalid graph",
+        b"not a loro checkpoint",
+    )
+    .await;
+    assert_eq!(invalid.0, 400, "{}", invalid.1);
+
+    // A second browser has no local provenance for this graph. Its Hello must
+    // receive the exact server-owned Base rather than an incremental delta.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let url = format!("ws://{address}/v1/sync");
+    let mut websocket_request = url.into_client_request().unwrap();
+    websocket_request.headers_mut().insert(
+        "sec-websocket-protocol",
+        HeaderValue::from_str(&format!(
+            "{SUBPROTOCOL}, neoseq.auth.{}",
+            URL_SAFE_NO_PAD.encode(OWNER_TOKEN)
+        ))
+        .unwrap(),
+    );
+    let (mut socket, _) = connect_async(websocket_request).await.unwrap();
+    let hello = Message::Hello(Hello {
+        protocol: PROTOCOL_VERSION,
+        schema: graph_core::SCHEMA_VERSION as u16,
+        graph_id: graph_id.to_owned(),
+        session_id: "fresh-import-reader".to_owned(),
+        history_epoch: 0,
+        has_server_base: false,
+        version_vector: Vec::new(),
+    });
+    socket
+        .send(WsMessage::Binary(
+            encode(&hello, Limits::default().max_frame_bytes as usize)
+                .unwrap()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let welcome = match receive_wire(&mut socket).await {
+        Message::Welcome(welcome) => welcome,
+        other => panic!("expected Welcome, got {other:?}"),
+    };
+    assert!(welcome.replace_checkpoint);
+    let fresh =
+        GraphCore::from_snapshot(GraphId::new(graph_id).unwrap(), 79, &welcome.checkpoint).unwrap();
+    assert!(
+        fresh
+            .summary()
+            .unwrap()
+            .pages
+            .iter()
+            .any(|page| page.title == "Imported page")
+    );
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
 async fn probe(app: &axum::Router, path: &str) -> (u16, String) {
     let response = app
         .clone()
@@ -218,6 +364,56 @@ async fn authorized_request(
                 .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(axum::body::Body::from(body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (status, String::from_utf8(body.to_vec()).unwrap())
+}
+
+async fn authorized_multipart_request(
+    app: &axum::Router,
+    path: &str,
+    token: &str,
+    graph_id: &str,
+    name: &str,
+    checkpoint: &[u8],
+) -> (u16, String) {
+    let boundary = "neoseq-seeded-graph-boundary";
+    let mut body = Vec::new();
+    let checkpoint_checksum = graph_core::checksum(checkpoint);
+    for (field, value) in [
+        ("graph_id", graph_id),
+        ("name", name),
+        ("checkpoint_checksum", checkpoint_checksum.as_str()),
+    ] {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n")
+                .as_bytes(),
+        );
+    }
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        b"Content-Disposition: form-data; name=\"checkpoint\"; filename=\"graph.loro\"\r\n",
+    );
+    body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+    body.extend_from_slice(checkpoint);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("authorization", format!("Bearer {token}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(axum::body::Body::from(body))
                 .unwrap(),
         )
         .await

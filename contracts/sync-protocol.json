@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Neoseq Sync Protocol v2",
-  "protocolVersion": 2,
+  "title": "Neoseq Sync Protocol v3",
+  "protocolVersion": 3,
   "subprotocolPrefix": "neoseq.v"
 }

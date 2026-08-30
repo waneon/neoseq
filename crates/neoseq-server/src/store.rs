@@ -74,6 +74,12 @@ pub struct NewGraph<'a> {
     pub version_vector: &'a [u8],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateGraphOutcome {
+    Created,
+    Existing,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MembershipListing {
     pub account_id: String,
@@ -134,6 +140,8 @@ pub enum StoreError {
     QuotaExceeded,
     #[error("message id was already committed with different bytes")]
     MessageConflict,
+    #[error("graph identifier is already in use")]
+    GraphAlreadyExists,
     #[error("history epoch changed while checkpoint was being installed")]
     StaleHistory,
     #[error("database schema {found} does not match required schema {required}")]
@@ -181,7 +189,7 @@ pub trait GraphStore: Send + Sync + 'static {
 
 #[async_trait]
 pub trait GraphAdmin: GraphStore {
-    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError>;
+    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError>;
 
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError>;
 
@@ -220,12 +228,13 @@ impl PgStore {
         &self.pool
     }
 
-    async fn insert_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError> {
+    async fn insert_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError> {
         let mut transaction = self.pool.begin().await?;
-        sqlx::query(
+        let inserted = sqlx::query(
             "INSERT INTO graph(
                 graph_id, display_name, schema_version, byte_quota, used_bytes
-             ) VALUES ($1, $2, $3, $4, $5)",
+             ) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT(graph_id) DO NOTHING",
         )
         .bind(graph.graph_id)
         .bind(graph.display_name)
@@ -236,7 +245,36 @@ impl PgStore {
         .bind(as_i64(graph.byte_quota)?)
         .bind(as_i64(graph.snapshot.len() as u64)?)
         .execute(&mut *transaction)
-        .await?;
+        .await?
+        .rows_affected()
+            == 1;
+        if !inserted {
+            let existing = sqlx::query(
+                "SELECT g.display_name, g.schema_version, c.checksum, m.account_id
+                 FROM graph g
+                 JOIN graph_checkpoint c ON c.checkpoint_id = g.checkpoint_id
+                 JOIN graph_membership m ON m.graph_id = g.graph_id
+                 WHERE g.graph_id = $1 AND m.role = 'owner' AND m.revoked_at IS NULL",
+            )
+            .bind(graph.graph_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            let digest = checksum(graph.snapshot);
+            let matches = existing.is_some_and(|row| {
+                row.try_get::<String, _>("display_name").ok().as_deref() == Some(graph.display_name)
+                    && row.try_get::<i32, _>("schema_version").ok()
+                        == i32::try_from(graph.schema_version).ok()
+                    && row.try_get::<String, _>("checksum").ok().as_deref() == Some(digest.as_str())
+                    && row.try_get::<String, _>("account_id").ok().as_deref()
+                        == Some(graph.owner_account_id)
+            });
+            transaction.commit().await?;
+            return if matches {
+                Ok(CreateGraphOutcome::Existing)
+            } else {
+                Err(StoreError::GraphAlreadyExists)
+            };
+        }
         sqlx::query(
             "INSERT INTO graph_membership(graph_id, account_id, role, version)
              VALUES ($1, $2, 'owner', 1)",
@@ -272,7 +310,7 @@ impl PgStore {
         )
         .await?;
         transaction.commit().await?;
-        Ok(())
+        Ok(CreateGraphOutcome::Created)
     }
 
     async fn upsert_membership(
@@ -729,7 +767,7 @@ impl GraphStore for PgStore {
 
 #[async_trait]
 impl GraphAdmin for PgStore {
-    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<(), StoreError> {
+    async fn create_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError> {
         self.insert_graph(graph).await
     }
 

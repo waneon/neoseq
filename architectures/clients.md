@@ -43,6 +43,13 @@ the disposable query index have independent readiness and cannot hold the shell
 on its opening screen. Capability publication follows open as a separate session
 update; query surfaces own the pending state of their first lazy index build.
 
+Remote readiness additionally distinguishes provenance from mere validity. A
+valid local document whose Base has not been accepted by the server opens
+read-only while `SyncAgent` requests a replacement checkpoint. The Worker
+atomically adopts that checkpoint and records its provenance before
+`GraphSession` restores the lease's writable mode. An already accepted cached
+replica remains writable when offline.
+
 ## Browser Adapter
 
 `core-worker.ts` implements CorePort messaging on the main thread;

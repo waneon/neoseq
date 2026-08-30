@@ -26,6 +26,9 @@ test("a remote repository lists and creates graphs without persisting credential
   await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
   expect(page.url()).toMatch(/\/r\/[^/]+\/g\/g-/u);
   const remoteGraphId = graphId(page.url());
+  await markMockServerBase(page);
+  await page.reload();
+  await expect(page.getByTestId("journal-title")).toBeVisible();
   expect(page.url()).not.toContain("test-browser-token");
   const storage = await page.evaluate(() => ({
     local: JSON.stringify(localStorage),
@@ -164,6 +167,24 @@ async function installRemoteApi(page: Page): Promise<CreatedGraph[]> {
       }),
     });
   });
+  await page.route("**/v1/graphs/import", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer test-browser-token");
+    const body = route.request().postDataBuffer();
+    if (!body) throw new Error("seeded graph request omitted its multipart body");
+    const graphId = multipartField(body, "graph_id");
+    const name = multipartField(body, "name");
+    const checkpointChecksum = multipartField(body, "checkpoint_checksum");
+    created.push({ graph_id: graphId, name });
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        graph_id: graphId,
+        history_epoch: 0,
+        checkpoint_checksum: checkpointChecksum,
+      }),
+    });
+  });
   await page.route("**/v1/graphs", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer test-browser-token");
     if (route.request().method() === "POST") {
@@ -173,7 +194,11 @@ async function installRemoteApi(page: Page): Promise<CreatedGraph[]> {
       await route.fulfill({
         status: 201,
         contentType: "application/json",
-        body: JSON.stringify({ graph_id: graphId }),
+        body: JSON.stringify({
+          graph_id: graphId,
+          history_epoch: 0,
+          checkpoint_checksum: "mock-empty-checkpoint",
+        }),
       });
       return;
     }
@@ -194,6 +219,44 @@ async function installRemoteApi(page: Page): Promise<CreatedGraph[]> {
     });
   });
   return created;
+}
+
+function multipartField(body: Buffer, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = body
+    .toString("latin1")
+    .match(new RegExp(`name="${escaped}"\\r\\n\\r\\n([^\\r\\n]*)`, "u"));
+  if (!match) throw new Error(`multipart field ${name} is missing`);
+  return match[1];
+}
+
+async function markMockServerBase(page: Page): Promise<void> {
+  const parsed = new URL(page.url());
+  const route = parsed.hash.startsWith("#/") ? parsed.hash.slice(1) : parsed.pathname;
+  const match = route.match(/\/r\/([^/]+)\/g\/([^/]+)/u);
+  if (!match) throw new Error(`expected a remote graph route, received ${page.url()}`);
+  const storageKey = `repository:${JSON.stringify([
+    decodeURIComponent(match[1]),
+    decodeURIComponent(match[2]),
+  ])}`;
+  await page.evaluate(
+    ({ key }) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open("neoseq-local-v1", 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction("sync-state", "readwrite");
+          transaction.objectStore("sync-state").put({ graph_id: key, server_base: true });
+          transaction.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      }),
+    { key: storageKey },
+  );
 }
 
 async function addRemoteRepository(page: Page): Promise<void> {

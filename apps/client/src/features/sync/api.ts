@@ -28,6 +28,12 @@ export class RemoteApiError extends Error {
   }
 }
 
+export interface CreatedRemoteGraph {
+  graph_id: string;
+  history_epoch: number;
+  checkpoint_checksum: string;
+}
+
 async function request<T>(
   serverUrl: string,
   auth: AuthSession,
@@ -55,11 +61,39 @@ export async function createRemoteGraph(
   auth: AuthSession,
   name: string,
   graphId = `g-${crypto.randomUUID()}`,
-): Promise<{ graph_id: string }> {
+): Promise<CreatedRemoteGraph> {
   return request(serverUrl, auth, "/v1/graphs", {
     method: "POST",
     body: JSON.stringify({ graph_id: graphId, name }),
   });
+}
+
+export async function createSeededRemoteGraph(
+  serverUrl: string,
+  auth: AuthSession,
+  graphId: string,
+  name: string,
+  checkpoint: ArrayBuffer,
+  checkpointChecksum: string,
+): Promise<CreatedRemoteGraph> {
+  const body = new FormData();
+  body.append("graph_id", graphId);
+  body.append("name", name);
+  body.append("checkpoint_checksum", checkpointChecksum);
+  body.append("checkpoint", new Blob([checkpoint]), "graph.loro");
+  const response = await fetch(new URL("/v1/graphs/import", `${serverUrl}/`), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${auth.token}` },
+    body,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new RemoteApiError(
+      response.status,
+      message || `remote request failed (${response.status})`,
+    );
+  }
+  return response.json() as Promise<CreatedRemoteGraph>;
 }
 
 export function listRemoteGraphs(

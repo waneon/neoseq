@@ -186,6 +186,7 @@ export class SyncAgent {
         graph_id: this.graphId,
         session_id: this.transportSessionId,
         history_epoch: state.history_epoch,
+        has_server_base: state.has_server_base,
         version_vector: state.version_vector,
       },
     });

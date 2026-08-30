@@ -200,6 +200,14 @@ intent is replayed and exported against the server version vector as at most one
 Tail record, and the outbox references that Tail. If rebase or commit fails, the
 old canonical state remains intact.
 
+The `sync-state` record distinguishes an arbitrary local checkpoint from a
+server-approved Base. Sync configuration does not create an update. A replica
+without the marker must install a replacement server checkpoint before it can
+mutate; checkpoint, epoch, provenance marker, rebased Tail, and outbox replacement
+commit atomically. When no durable outbox intent exists, replacement emits no
+Tail even if two shallow checkpoint encodings expose different internal
+frontiers.
+
 Quarantine records are not silently deleted or re-imported. The storage UI may
 export their opaque bytes by handle without treating them as graph data.
 
@@ -226,20 +234,22 @@ key range after the chosen Base rather than loading graph history and filtering
 it in memory. Each graph append updates metadata and inserts the update in one
 transaction. For a remote graph, that transaction also inserts an outbox message
 ID, causal base, and local sequence. Incremental outbox records reference the
-update row instead of duplicating its payload. Only the initial sequence-zero
-bootstrap stores inline bytes because it has no update row.
+update row instead of duplicating its payload. There is no sequence-zero
+bootstrap: initial remote state is installed as a server-approved Base, not
+transported as an update.
 
 Portable import generates a new graph and replica ID outside the archive, then
-installs the validated shallow clone as a sequence-zero checkpoint in the
-selected repository partition. Metadata and checkpoint creation share one
-IndexedDB transaction and require the target graph to be absent, so local
-installation is complete or absent.
+prepares a validated shallow clone. Local import installs it directly. Remote
+import first obtains server acceptance for the exact checkpoint, then installs
+metadata, checkpoint, history epoch, and server-Base marker in one IndexedDB
+transaction. Both paths require the target graph to be absent, so installation
+is complete or absent.
 
 Acknowledgement removes the matching outbox record. A referenced Tail row stays
 pinned until acknowledgement and is deleted only when the fallback Base no
 longer needs it.
 Storage capability `usage_bytes` reports logical bytes owned by this graph—Base,
-Tail, standalone bootstrap, and quarantine—not origin-wide Wasm, font, or HTTP
+Tail, and quarantine—not origin-wide Wasm, font, or HTTP
 cache allocation. Browser quota remains the origin quota reported by
 StorageManager. A Web Lock allows only one writable tab per
 repository-qualified graph; another tab opens read-only.
@@ -255,10 +265,11 @@ is implemented.
 
 ## Current Scope and Evolution
 
-Core graph locators contain only `graph_id`. The browser directory separately
-records whether a locally persisted replica is local-only or attached to a
-remote server. Transport credentials and presence are not canonical state. The
-RDF index is rebuilt on open and has no persisted cache.
+CorePort graph locators carry `repository_id` and `graph_id`; the repository ID
+partitions browser storage but never enters the canonical Loro document. The
+browser directory resolves remote connection metadata. Transport credentials,
+Base provenance, and presence are not canonical graph state. The RDF index is
+rebuilt on open and has no persisted cache.
 
 Before the first supported release, a canonical layout change replaces the
 current contract and all adapters reject the previous one. After release, a

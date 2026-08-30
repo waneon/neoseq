@@ -29,6 +29,9 @@ focused design boundaries under [`designs/`](designs/).
 - Graph archives are copy-only: every import creates an independent graph
   identity in the selected repository and never overwrites or merges an
   existing graph.
+- A remote replica becomes writable only after it has installed a Base whose
+  bytes and history epoch the server has accepted. Full-history CRDT exports are
+  never used to bootstrap an independently created server document.
 - User queries cannot access the filesystem, network, processes, or another graph.
 - Presentation preferences and localization never mutate graph semantics.
 - devenv provides reproducible development, build, and verification environments.
@@ -196,6 +199,13 @@ them only after a durable server acknowledgement, and imports validated remote
 bytes through the same Worker/core projection path. Network availability never
 changes the local save contract.
 
+Remote archive import is a prepare/commit/install flow. The Worker validates and
+clones the archive without publishing it; authenticated HTTP creation validates
+and commits that checkpoint as the server's initial Base; only then does the
+browser atomically install the exact accepted bytes and mark their provenance.
+A newly opened remote replica without that marker is read-only until WebSocket
+`Welcome` replaces it with the authoritative server checkpoint.
+
 Persistence is Base+Tail, not an unbounded event archive. Local graphs install
 a shallow Loro checkpoint after 128 uncompacted tail records or 512 KiB. The
 current and prior Base remain recoverable for one generation; covered Tail rows
@@ -217,7 +227,7 @@ into one referenced Tail/outbox record.
 - People authenticate with a username and password once. The server stores only
   Argon2id verifiers and exchanges a successful login for a bounded, revocable,
   purpose-specific opaque session; passwords never enter graph or sync data.
-- The v2 remote protocol is not end-to-end encrypted; E2EE requires
+- The v3 remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 
 ## Repository Shape

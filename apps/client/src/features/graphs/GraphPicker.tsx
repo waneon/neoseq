@@ -12,7 +12,8 @@ import { neoseqUrl } from "@/app/runtime-config";
 import {
   deleteGraph,
   exportGraphArchive,
-  importGraphArchive,
+  installPreparedGraph,
+  prepareGraphArchive,
   processPendingDelete,
   registerGraph,
   registerRemoteGraph,
@@ -30,7 +31,7 @@ import {
   type RemoteRepository,
   type Repository,
 } from "../repositories/directory";
-import { createRemoteGraph, listRemoteGraphs } from "../sync/api";
+import { createRemoteGraph, createSeededRemoteGraph, listRemoteGraphs } from "../sync/api";
 import { clearAuthSession, readAuthSession, signIn, writeAuthSession } from "../sync/auth";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
@@ -160,26 +161,34 @@ export function GraphPicker() {
     const graphId = `g-${crypto.randomUUID()}`;
     try {
       const bytes = await file.arrayBuffer();
-      const imported = await importGraphArchive(
+      const prepared = await prepareGraphArchive(
         bytes,
         message("graph.importedName"),
         selected.id,
         graphId,
       );
-      let ready = imported;
+      let ready;
       if (selected.kind === "remote") {
         const auth = readAuthSession(selected.id);
         if (!auth) throw new Error("remote authentication required");
-        try {
-          await createRemoteGraph(selected.origin, auth, imported.name, graphId);
-          ready = registerRemoteGraph(selected.id, graphId, imported.name, imported.created_at, {
-            role: "owner",
-            status: "active",
-          });
-        } catch (error) {
-          await deleteGraph(selected.id, graphId);
-          throw error;
+        const created = await createSeededRemoteGraph(
+          selected.origin,
+          auth,
+          graphId,
+          prepared.name,
+          prepared.checkpoint,
+          prepared.checkpoint_checksum,
+        );
+        if (created.checkpoint_checksum !== prepared.checkpoint_checksum) {
+          throw new Error("remote checkpoint checksum mismatch");
         }
+        ready = await installPreparedGraph(prepared, {
+          history_epoch: created.history_epoch,
+          role: "owner",
+          status: "active",
+        });
+      } else {
+        ready = await installPreparedGraph(prepared);
       }
       openGraph(ready);
     } catch (cause) {

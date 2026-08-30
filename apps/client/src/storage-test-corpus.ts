@@ -494,20 +494,29 @@ export async function runRemoteOutboxCorpus() {
     ensurePage(graph, "server-page", "server-page"),
   );
   await writer.configureSync(opened.graph_handle);
-  assert(
-    (await writer.syncState(opened.graph_handle)).pending === 1,
-    "replica bootstrap was not queued",
+  const unbased = await writer.syncState(opened.graph_handle);
+  assert(unbased.pending === 0, "sync configuration must not synthesize history updates");
+  assert(!unbased.has_server_base, "an unapproved local Base was marked server-owned");
+  await writer.replaceRemote(
+    opened.graph_handle,
+    serverBase.checkpoint,
+    0,
+    serverBase.version_vector,
   );
-  const bootstrap = await writer.nextOutbox(opened.graph_handle);
-  assert(bootstrap?.local_sequence === 0, "replica bootstrap must lead the durable outbox");
-  await writer.acknowledgeOutbox(opened.graph_handle, bootstrap.message_id);
+  assert(
+    (await writer.syncState(opened.graph_handle)).has_server_base,
+    "server checkpoint did not establish the replica Base",
+  );
   await writer.execute({
     graph_handle: opened.graph_handle,
     command: ensurePage(graph, "offline-page", "offline-page"),
     timeout_ms: 1_000,
   });
   const pending = await writer.syncState(opened.graph_handle);
-  assert(pending.pending === 1, "saved remote edit was not added to the durable outbox");
+  assert(
+    pending.pending === 1,
+    `saved remote edit was not added to the durable outbox: ${JSON.stringify(pending)}`,
+  );
   const referenced = await writer.storageStats(graph);
   assert(referenced.outbox_bytes === 0, "incremental outbox duplicated update payload bytes");
   const queued = await writer.nextOutbox(opened.graph_handle);
@@ -530,6 +539,7 @@ export async function runRemoteOutboxCorpus() {
   );
   const replaced = await writer.syncState(opened.graph_handle);
   assert(replaced.history_epoch === 1, "server history epoch was not installed");
+  assert(replaced.has_server_base, "history replacement lost server Base provenance");
   assert(replaced.pending === 1, "unacknowledged local intent was lost during rebase");
   const rebaseUndo = await writer.execute({
     graph_handle: opened.graph_handle,

@@ -147,17 +147,26 @@ export class GraphSession {
       this.handle = opened.graph_handle;
       if (this.closeRequested) return;
       const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
+      let mode = remoteReadonly ? "readonly" : this.lease.mode;
+      let syncPort: RequiredSyncPort | null = null;
+      if (this.remote) {
+        syncPort = requireSyncPort(this.port);
+        await syncPort.configureSync(this.handle);
+        const syncState = await syncPort.syncState(this.handle);
+        // A local replica without a server-approved Base may contain an empty
+        // bootstrap document or pre-v3 state. Keep it immutable until Welcome
+        // atomically installs the authoritative checkpoint.
+        if (!syncState.has_server_base) mode = "readonly";
+      }
       this.patch({
         status: "ready",
-        mode: remoteReadonly ? "readonly" : this.lease.mode,
+        mode,
         snapshot: mergeSummary(opened.summary as GraphSummary),
         capabilities: opened.capabilities ?? null,
         recovery: opened.recovery,
       });
       void this.refreshCapabilities().catch(() => undefined);
-      if (this.remote) {
-        const syncPort = requireSyncPort(this.port);
-        await syncPort.configureSync(this.handle);
+      if (this.remote && syncPort) {
         this.syncAgent = new SyncAgent(
           this.graphId,
           this.handle,
@@ -408,6 +417,8 @@ export class GraphSession {
         serverVersionVector,
       );
       await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
+      const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
+      this.patch({ mode: remoteReadonly ? "readonly" : (this.lease?.mode ?? "readonly") });
     });
     this.queue = run.catch(() => undefined);
     return run;

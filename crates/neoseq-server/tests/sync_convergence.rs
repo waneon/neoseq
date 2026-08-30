@@ -5,6 +5,43 @@ use support::*;
 use sync_protocol::Limits;
 
 #[tokio::test]
+async fn replica_without_server_base_is_forced_onto_the_authoritative_checkpoint() {
+    let fixture = fixture(RoomConfig::default());
+    let opened = fixture
+        .manager
+        .open_with_base_status(
+            GRAPH,
+            "unbased-client",
+            OWNER,
+            0,
+            &fixture.base_version,
+            false,
+        )
+        .await
+        .unwrap();
+
+    assert!(opened.welcome.replace_checkpoint);
+    assert!(opened.welcome.missing_update.is_empty());
+    assert!(!opened.welcome.checkpoint.is_empty());
+    let restored = graph_core::GraphCore::from_snapshot(
+        domain::GraphId::new(GRAPH).unwrap(),
+        9,
+        &opened.welcome.checkpoint,
+    )
+    .unwrap();
+    let expected = graph_core::GraphCore::from_snapshot(
+        domain::GraphId::new(GRAPH).unwrap(),
+        10,
+        &fixture.snapshot,
+    )
+    .unwrap();
+    assert_eq!(
+        expected.fingerprint().unwrap(),
+        restored.fingerprint().unwrap()
+    );
+}
+
+#[tokio::test]
 async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
     let fixture = fixture(RoomConfig::default());
     let (mut client_a, update_a) =

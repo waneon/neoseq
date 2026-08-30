@@ -2,7 +2,6 @@ import init, {
   WasmGraphCore,
   decodeGraphArchive,
   decodeSyncMessageJson,
-  emptyVersionVector,
   encodeGraphArchive,
   encodeSyncMessageJson,
 } from "./wasm/neoseq_core.js";
@@ -22,6 +21,7 @@ import type {
 import {
   IndexedDbGraphRepository,
   StorageError,
+  checksum,
   graphStorageKey,
   validChecksum,
   type QuarantineRecord,
@@ -136,6 +136,29 @@ self.onmessage = async (event: MessageEvent<Message>) => {
             },
           );
           break;
+        case "prepare_archive":
+          await ensureWasm();
+          value = await prepareArchive(
+            payload as {
+              bytes: ArrayBuffer | Uint8Array;
+              locator: GraphLocatorDto;
+            },
+          );
+          break;
+        case "install_archive":
+          await ensureWasm();
+          value = await installArchive(
+            payload as {
+              locator: GraphLocatorDto;
+              replica_id: number;
+              checkpoint: ArrayBuffer | Uint8Array;
+              checkpoint_checksum: string;
+              created_at: string;
+              history_epoch: number;
+              server_base: boolean;
+            },
+          );
+          break;
         case "storage_capabilities":
           value = await storageCapabilities(payload as { graph_handle: string });
           break;
@@ -178,7 +201,15 @@ self.onmessage = async (event: MessageEvent<Message>) => {
           throw failure("invalid_request", `unknown operation: ${operation}`, false);
       }
     }
-    if (value instanceof ArrayBuffer) {
+    if (
+      operation === "prepare_archive" &&
+      typeof value === "object" &&
+      value !== null &&
+      "checkpoint" in value &&
+      value.checkpoint instanceof ArrayBuffer
+    ) {
+      self.postMessage({ id, ok: true, value }, { transfer: [value.checkpoint] });
+    } else if (value instanceof ArrayBuffer) {
       self.postMessage({ id, ok: true, value }, { transfer: [value] });
     } else {
       self.postMessage({ id, ok: true, value });
@@ -588,6 +619,27 @@ async function importArchive(payload: {
   bytes: ArrayBuffer | Uint8Array;
   locator: GraphLocatorDto;
 }) {
+  const prepared = await prepareArchive(payload);
+  await installArchive({
+    locator: payload.locator,
+    replica_id: prepared.replica_id,
+    checkpoint: prepared.checkpoint,
+    checkpoint_checksum: prepared.checkpoint_checksum,
+    created_at: prepared.created_at,
+    history_epoch: 0,
+    server_base: false,
+  });
+  return {
+    graph_id: prepared.graph_id,
+    suggested_name: prepared.suggested_name,
+    created_at: prepared.created_at,
+  };
+}
+
+async function prepareArchive(payload: {
+  bytes: ArrayBuffer | Uint8Array;
+  locator: GraphLocatorDto;
+}) {
   try {
     const decoded = decodeGraphArchive(asUint8Array(payload.bytes));
     try {
@@ -624,17 +676,14 @@ async function importArchive(payload: {
       );
       validated.free();
       const createdAt = now();
-      await createRepository().installImportedGraph(
-        payload.locator,
-        replicaId,
-        SCHEMA_VERSION,
-        checkpoint,
-        createdAt,
-      );
       return {
         graph_id: graphId,
         suggested_name: manifest.suggested_name,
         created_at: createdAt,
+        replica_id: replicaId,
+        schema_version: SCHEMA_VERSION,
+        checkpoint,
+        checkpoint_checksum: await checksum(checkpoint),
       };
     } finally {
       decoded.free();
@@ -645,6 +694,37 @@ async function importArchive(payload: {
   }
 }
 
+async function installArchive(payload: {
+  locator: GraphLocatorDto;
+  replica_id: number;
+  checkpoint: ArrayBuffer | Uint8Array;
+  checkpoint_checksum: string;
+  created_at: string;
+  history_epoch: number;
+  server_base: boolean;
+}) {
+  const checkpoint = ownedBuffer(asUint8Array(payload.checkpoint));
+  if ((await checksum(checkpoint)) !== payload.checkpoint_checksum) {
+    throw failure("invalid_request", "prepared checkpoint checksum mismatch", false);
+  }
+  const validated = WasmGraphCore.fromSnapshot(
+    payload.locator.graph_id,
+    BigInt(payload.replica_id),
+    new Uint8Array(checkpoint),
+  );
+  validated.free();
+  await createRepository().installImportedGraph(
+    payload.locator,
+    payload.replica_id,
+    SCHEMA_VERSION,
+    checkpoint,
+    payload.created_at,
+    payload.history_epoch,
+    payload.server_base,
+  );
+  return null;
+}
+
 async function storageCapabilities(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   return state.repository.capabilities(state.storageKey);
@@ -653,14 +733,6 @@ async function storageCapabilities(payload: { graph_handle: string }) {
 async function configureSync(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   state.remote = true;
-  const history = ownedBuffer(state.core.exportAll());
-  await state.repository.initializeSync(
-    state.storageKey,
-    crypto.randomUUID(),
-    ownedBuffer(emptyVersionVector()),
-    history,
-    now(),
-  );
   return null;
 }
 
@@ -668,11 +740,13 @@ async function syncState(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
   const outbox = await state.repository.outbox(state.storageKey);
   const metadata = await state.repository.metadata(state.storageKey);
+  const sync = await state.repository.syncState(state.storageKey);
   return {
     version_vector: [...state.core.versionVector()],
     pending: outbox.length,
     replica_id: state.replicaId,
     history_epoch: metadata.history_epoch,
+    has_server_base: sync.server_base === true,
   };
 }
 
@@ -730,13 +804,18 @@ async function syncReplace(payload: {
   // Replay only durable, unacknowledged intent onto the new Base. If any old
   // update cannot be rebased, canonical state remains untouched and reconnect
   // can be retried or surfaced as recovery-required.
-  for (const record of await state.repository.outbox(state.storageKey)) {
+  const durableIntent = await state.repository.outbox(state.storageKey);
+  for (const record of durableIntent) {
     candidate.importUpdate(new Uint8Array(record.payload));
   }
   candidate.resetLocalHistory();
-  const rebasedTail = ownedBuffer(
-    candidate.exportUpdatesSince(new Uint8Array(serverVersionVector)),
-  );
+  // With no durable local intent the replacement is exactly the server Base.
+  // Do not infer intent by diffing two shallow checkpoint representations:
+  // their internal frontiers can differ without any user-authored operation.
+  const rebasedTail =
+    durableIntent.length === 0
+      ? new ArrayBuffer(0)
+      : ownedBuffer(candidate.exportUpdatesSince(new Uint8Array(serverVersionVector)));
   await state.repository.replaceHistory(
     state.storageKey,
     checkpoint,

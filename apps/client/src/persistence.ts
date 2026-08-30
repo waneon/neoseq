@@ -78,7 +78,7 @@ export interface OutboxRecord {
   message_id: string;
   local_sequence: number;
   base_version_vector: ArrayBuffer;
-  /** Bootstrap history has no update row. Incremental entries reference updates. */
+  /** Retained only for pre-v3 bootstrap records; current entries reference updates. */
   payload?: ArrayBuffer;
   created_at: string;
 }
@@ -89,6 +89,8 @@ export interface ResolvedOutboxRecord extends OutboxRecord {
 
 export interface SyncStateRecord {
   graph_id: string;
+  server_base?: boolean;
+  /** Retained only to recognize pre-v3 browser data during replacement sync. */
   initialized?: boolean;
 }
 
@@ -286,39 +288,6 @@ export class IndexedDbGraphRepository {
     return resolved;
   }
 
-  /** Durably queues the replica's existing history before later remote edits.
-   * The local checkpoint already owns these bytes, so sequence zero is a
-   * transport-only bootstrap record rather than another recovery-log entry. */
-  async initializeSync(
-    graphId: string,
-    messageId: string,
-    baseVersionVector: ArrayBuffer,
-    payload: ArrayBuffer,
-    now: string,
-  ): Promise<void> {
-    const database = await openDatabase();
-    const transaction = database.transaction([STORES.outbox, STORES.syncState], "readwrite");
-    const stateStore = transaction.objectStore(STORES.syncState);
-    const current = await request<SyncStateRecord | undefined>(stateStore.get(graphId));
-    if (!current?.initialized) {
-      transaction.objectStore(STORES.outbox).put({
-        graph_id: graphId,
-        message_id: messageId,
-        local_sequence: 0,
-        base_version_vector: baseVersionVector,
-        payload,
-        created_at: now,
-      } satisfies OutboxRecord);
-      stateStore.put({
-        ...current,
-        graph_id: graphId,
-        initialized: true,
-      } satisfies SyncStateRecord);
-    }
-    await complete(transaction);
-    database.close();
-  }
-
   async acknowledge(graphId: string, messageId: string): Promise<void> {
     const database = await openDatabase();
     const transaction = database.transaction(
@@ -407,12 +376,19 @@ export class IndexedDbGraphRepository {
     schemaVersion: number,
     checkpoint: ArrayBuffer,
     now: string,
+    historyEpoch = 0,
+    serverBase = false,
   ): Promise<MetadataRecord> {
     const normalizedLocator = normalizeLocator(locator);
     const storageKey = graphStorageKey(normalizedLocator);
     const digest = await checksum(checkpoint);
     const database = await openDatabase();
-    const transaction = database.transaction([STORES.metadata, STORES.checkpoints], "readwrite");
+    const transaction = database.transaction(
+      serverBase
+        ? [STORES.metadata, STORES.checkpoints, STORES.syncState]
+        : [STORES.metadata, STORES.checkpoints],
+      "readwrite",
+    );
     const metadataStore = transaction.objectStore(STORES.metadata);
     const existing = await request<MetadataRecord | undefined>(metadataStore.get(storageKey));
     if (existing) {
@@ -428,7 +404,7 @@ export class IndexedDbGraphRepository {
       graph_id: storageKey,
       locator: normalizedLocator,
       replica_id: replicaId,
-      history_epoch: 0,
+      history_epoch: historyEpoch,
       schema_version: schemaVersion,
       next_sequence: 1,
       compacted_through: 0,
@@ -447,6 +423,12 @@ export class IndexedDbGraphRepository {
       payload: checkpoint,
       created_at: now,
     } satisfies CheckpointRecord);
+    if (serverBase) {
+      transaction.objectStore(STORES.syncState).put({
+        graph_id: storageKey,
+        server_base: true,
+      } satisfies SyncStateRecord);
+    }
     await complete(transaction);
     database.close();
     return metadata;
@@ -621,7 +603,7 @@ export class IndexedDbGraphRepository {
     ]);
     const database = await openDatabase();
     const transaction = database.transaction(
-      [STORES.metadata, STORES.updates, STORES.checkpoints, STORES.outbox],
+      [STORES.metadata, STORES.updates, STORES.checkpoints, STORES.outbox, STORES.syncState],
       "readwrite",
     );
     const metadataStore = transaction.objectStore(STORES.metadata);
@@ -677,6 +659,10 @@ export class IndexedDbGraphRepository {
       tail_count: rebasedTail.byteLength > 0 ? 1 : 0,
       updated_at: now,
     });
+    transaction.objectStore(STORES.syncState).put({
+      graph_id: graphId,
+      server_base: true,
+    } satisfies SyncStateRecord);
     this.hooks?.beforeCommit?.(transaction);
     await complete(transaction);
     database.close();
@@ -833,7 +819,7 @@ function mapDomError(error: DOMException | null): StorageError {
   return new StorageError("storage_corrupt", error?.message ?? "IndexedDB operation failed", false);
 }
 
-async function checksum(payload: ArrayBuffer): Promise<string> {
+export async function checksum(payload: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", payload);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

@@ -5,13 +5,15 @@ use crate::{
     },
     metrics::Metrics,
     room::{RoomConnection, RoomError, RoomManager},
-    store::{GraphAdmin, GraphRole, GraphStatus, GraphStore, NewGraph, StoreError},
+    store::{
+        CreateGraphOutcome, GraphAdmin, GraphRole, GraphStatus, GraphStore, NewGraph, StoreError,
+    },
 };
 use axum::{
     Json, Router,
     body::Body,
     extract::{
-        Path, State, WebSocketUpgrade,
+        DefaultBodyLimit, Multipart, Path, State, WebSocketUpgrade,
         ws::{Message as WsMessage, WebSocket},
     },
     http::{HeaderMap, HeaderValue, Method, Response, StatusCode, header},
@@ -35,6 +37,10 @@ use sync_protocol::{
 use tokio::sync::watch;
 use tokio::time::{interval, timeout};
 use tower_http::cors::{Any, CorsLayer};
+
+const GRAPH_BYTE_QUOTA: u64 = 64 * 1024 * 1024;
+const MAX_SEEDED_GRAPH_BODY: usize = GRAPH_BYTE_QUOTA as usize + 64 * 1024;
+const SERVER_GRAPH_PEER_ID: u64 = u64::MAX - 2;
 
 pub struct AppState<S: GraphStore> {
     pub rooms: Arc<RoomManager<S>>,
@@ -111,6 +117,10 @@ pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
         )
         .route("/v1/sync", get(sync_upgrade::<S>))
         .route("/v1/graphs", get(list_graphs::<S>).post(create_graph::<S>))
+        .route(
+            "/v1/graphs/import",
+            post(create_seeded_graph::<S>).layer(DefaultBodyLimit::max(MAX_SEEDED_GRAPH_BODY)),
+        )
         .route("/v1/graphs/{graph_id}/members", get(list_memberships::<S>))
         .route(
             "/v1/graphs/{graph_id}/members/{username}",
@@ -164,6 +174,15 @@ fn default_graph_name() -> String {
 #[derive(Serialize)]
 struct CreatedGraphResponse {
     graph_id: String,
+    history_epoch: u64,
+    checkpoint_checksum: String,
+}
+
+struct SeededGraphRequest {
+    graph_id: String,
+    name: String,
+    checkpoint_checksum: String,
+    checkpoint: Vec<u8>,
 }
 
 #[derive(Serialize)]
@@ -475,13 +494,10 @@ async fn create_graph<S: GraphAdmin>(
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
     };
     let display_name = request.name.trim();
-    if display_name.is_empty()
-        || display_name.chars().count() > 160
-        || display_name.chars().any(char::is_control)
-    {
+    if !valid_graph_name(display_name) {
         return (StatusCode::BAD_REQUEST, "invalid graph name\n").into_response();
     }
-    let core = match graph_core::GraphCore::new(graph_id, u64::MAX - 2, "server:create") {
+    let core = match graph_core::GraphCore::new(graph_id, SERVER_GRAPH_PEER_ID, "server:create") {
         Ok(core) => core,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
     };
@@ -490,7 +506,8 @@ async fn create_graph<S: GraphAdmin>(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
     let version_vector = core.version_vector();
-    match state
+    let checkpoint_checksum = graph_core::checksum(&snapshot);
+    let result = state
         .rooms
         .store()
         .create_graph(NewGraph {
@@ -498,21 +515,169 @@ async fn create_graph<S: GraphAdmin>(
             display_name,
             owner_account_id: &principal,
             schema_version: graph_core::SCHEMA_VERSION,
-            byte_quota: 64 * 1024 * 1024,
+            byte_quota: GRAPH_BYTE_QUOTA,
             snapshot: &snapshot,
             version_vector: &version_vector,
         })
-        .await
-    {
-        Ok(()) => (
-            StatusCode::CREATED,
-            Json(CreatedGraphResponse {
-                graph_id: request.graph_id,
-            }),
-        )
-            .into_response(),
+        .await;
+    match result {
+        Ok(outcome) => created_graph_response(outcome, request.graph_id, checkpoint_checksum),
         Err(error) => api_store_error(error),
     }
+}
+
+async fn create_seeded_graph<S: GraphAdmin>(
+    State(state): State<AppState<S>>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Response<Body> {
+    let principal = match api_principal(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(response) => return *response,
+    };
+    let request = match read_seeded_graph_request(multipart).await {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let graph_id = match domain::GraphId::new(&request.graph_id) {
+        Ok(graph_id) => graph_id,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
+    };
+    let display_name = request.name.trim();
+    if !valid_graph_name(display_name) {
+        return (StatusCode::BAD_REQUEST, "invalid graph name\n").into_response();
+    }
+    if request.checkpoint.len() > state.rooms.limits().max_decompressed_bytes as usize {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "graph checkpoint is too large\n",
+        )
+            .into_response();
+    }
+    let checkpoint = request.checkpoint;
+    let checkpoint_checksum = graph_core::checksum(&checkpoint);
+    if checkpoint_checksum != request.checkpoint_checksum {
+        return (
+            StatusCode::BAD_REQUEST,
+            "graph checkpoint checksum mismatch\n",
+        )
+            .into_response();
+    }
+    let validated = tokio::task::spawn_blocking(move || {
+        graph_core::GraphCore::from_snapshot(graph_id, SERVER_GRAPH_PEER_ID, &checkpoint)
+            .map(|core| (checkpoint, core.version_vector()))
+    })
+    .await;
+    let (checkpoint, version_vector) = match validated {
+        Ok(Ok(validated)) => validated,
+        Ok(Err(_)) => {
+            return (StatusCode::BAD_REQUEST, "invalid graph checkpoint\n").into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    let result = state
+        .rooms
+        .store()
+        .create_graph(NewGraph {
+            graph_id: &request.graph_id,
+            display_name,
+            owner_account_id: &principal,
+            schema_version: graph_core::SCHEMA_VERSION,
+            byte_quota: GRAPH_BYTE_QUOTA,
+            snapshot: &checkpoint,
+            version_vector: &version_vector,
+        })
+        .await;
+    match result {
+        Ok(outcome) => created_graph_response(outcome, request.graph_id, checkpoint_checksum),
+        Err(error) => api_store_error(error),
+    }
+}
+
+async fn read_seeded_graph_request(
+    mut multipart: Multipart,
+) -> Result<SeededGraphRequest, Response<Body>> {
+    let mut graph_id = None;
+    let mut name = None;
+    let mut checkpoint_checksum = None;
+    let mut checkpoint = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response())?
+    {
+        match field.name() {
+            Some("graph_id") if graph_id.is_none() => {
+                graph_id = Some(field.text().await.map_err(|_| {
+                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
+                })?);
+            }
+            Some("name") if name.is_none() => {
+                name = Some(field.text().await.map_err(|_| {
+                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
+                })?);
+            }
+            Some("checkpoint_checksum") if checkpoint_checksum.is_none() => {
+                checkpoint_checksum = Some(field.text().await.map_err(|_| {
+                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
+                })?);
+            }
+            Some("checkpoint") if checkpoint.is_none() => {
+                checkpoint = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|_| {
+                            (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
+                        })?
+                        .to_vec(),
+                );
+            }
+            _ => {
+                return Err(
+                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
+                );
+            }
+        }
+    }
+    match (graph_id, name, checkpoint_checksum, checkpoint) {
+        (Some(graph_id), Some(name), Some(checkpoint_checksum), Some(checkpoint))
+            if !checkpoint.is_empty() =>
+        {
+            Ok(SeededGraphRequest {
+                graph_id,
+                name,
+                checkpoint_checksum,
+                checkpoint,
+            })
+        }
+        _ => Err((StatusCode::BAD_REQUEST, "incomplete graph import body\n").into_response()),
+    }
+}
+
+fn created_graph_response(
+    outcome: CreateGraphOutcome,
+    graph_id: String,
+    checkpoint_checksum: String,
+) -> Response<Body> {
+    (
+        match outcome {
+            CreateGraphOutcome::Created => StatusCode::CREATED,
+            CreateGraphOutcome::Existing => StatusCode::OK,
+        },
+        Json(CreatedGraphResponse {
+            graph_id,
+            history_epoch: 0,
+            checkpoint_checksum,
+        }),
+    )
+        .into_response()
+}
+
+fn valid_graph_name(display_name: &str) -> bool {
+    !display_name.is_empty()
+        && display_name.chars().count() <= 160
+        && !display_name.chars().any(char::is_control)
 }
 
 async fn list_memberships<S: GraphAdmin>(
@@ -708,6 +873,9 @@ fn api_store_error(error: StoreError) -> Response<Body> {
     match error {
         StoreError::AccessDenied | StoreError::ReadOnly => StatusCode::FORBIDDEN.into_response(),
         StoreError::QuotaExceeded => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        StoreError::GraphAlreadyExists => {
+            (StatusCode::CONFLICT, "graph already exists\n").into_response()
+        }
         StoreError::Database(message)
             if message.contains("duplicate key") || message.contains("already exists") =>
         {
@@ -872,12 +1040,13 @@ async fn session<S: GraphStore>(
 
     let opened = match state
         .rooms
-        .open(
+        .open_with_base_status(
             &hello.graph_id,
             &hello.session_id,
             &principal.id,
             hello.history_epoch,
             &hello.version_vector,
+            hello.has_server_base,
         )
         .await
     {

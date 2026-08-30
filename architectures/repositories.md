@@ -46,10 +46,14 @@ request cannot publish into another repository's panel. Initial loads reserve
 the ordinary catalog footprint; the picker header is anchored independently of
 catalog height.
 
-Opening an uncached remote graph creates its empty local replica, then ordinary
-version-vector synchronization materializes server history. Later edits obey
-the same local durability contract as local graphs. Server role and status make
-viewer or revoked replicas read-only without changing their stored content.
+Opening an uncached remote graph creates only a provisional local replica. Its
+sync-state record has no server-Base provenance, so it remains read-only and says
+so in protocol `Hello`; the server responds with a replacement checkpoint even
+when its version vector would otherwise permit a delta. Installing that
+checkpoint and provenance marker is one transaction, after which later edits
+obey the same local durability contract as local graphs. Cached replicas with an
+accepted Base remain editable offline. Server role and status make viewer or
+revoked replicas read-only without changing their stored content.
 
 ## Authentication
 
@@ -68,12 +72,13 @@ access by itself.
 
 ## Remote Import
 
-Archive import always generates the target graph ID locally. The Worker first
-validates and installs an independent clone in the selected repository
-partition. For a remote target, the client creates that same ID and suggested
-name in the authenticated server catalog. If catalog creation fails, it removes
-the staged clone. Opening a successful clone initializes sync with its complete
-history as the first durable outbox item.
+Archive import always generates the target graph ID locally. The Worker validates
+and prepares an independent shallow clone without installing it. For a remote
+target, authenticated seeded creation uploads that checkpoint and atomically
+establishes it as the server's initial Base, owner membership, and graph record.
+Only a successful response with the same checksum permits the browser to install
+the checkpoint with server-Base provenance. No sequence-zero history update is
+created.
 
 This is creation, not attachment: archive source identity and source sync state
 are provenance only and cannot select or merge an existing remote graph.

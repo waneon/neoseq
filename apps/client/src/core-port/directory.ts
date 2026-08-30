@@ -2,7 +2,7 @@
 // repository-qualified graph reference to its durable browser replica. Canonical
 // note data remains in the Worker-owned repository.
 
-import { CoreWorker } from "../core-worker";
+import { CoreWorker, type PreparedGraphArchive } from "../core-worker";
 import { CORE_PORT_VERSION, type GraphLocatorDto } from "../generated/core-port";
 import { LOCAL_REPOSITORY_ID, findRepository } from "../features/repositories/directory";
 
@@ -20,6 +20,11 @@ export interface GraphSummary {
   cached?: boolean;
   role?: "owner" | "editor" | "viewer";
   status?: "active" | "read_only";
+}
+
+export interface PreparedGraphImport extends PreparedGraphArchive {
+  repository_id: string;
+  name: string;
 }
 
 export interface RemoteGraphConnection {
@@ -306,14 +311,51 @@ export async function importGraphArchive(
   repositoryId = LOCAL_REPOSITORY_ID,
   graphId = `g-${crypto.randomUUID()}`,
 ): Promise<GraphSummary> {
+  const prepared = await prepareGraphArchive(bytes, fallbackName, repositoryId, graphId);
+  return installPreparedGraph(prepared);
+}
+
+export async function prepareGraphArchive(
+  bytes: ArrayBuffer,
+  fallbackName: string,
+  repositoryId = LOCAL_REPOSITORY_ID,
+  graphId = `g-${crypto.randomUUID()}`,
+): Promise<PreparedGraphImport> {
   const worker = new CoreWorker();
   try {
-    const imported = await worker.importArchive(bytes, {
+    const prepared = await worker.prepareArchive(bytes, {
       repository_id: repositoryId,
       graph_id: graphId,
     });
-    const name = imported.suggested_name?.trim() || fallbackName.trim();
-    return registerGraphEntry(repositoryId, imported.graph_id, name, imported.created_at);
+    return {
+      ...prepared,
+      repository_id: repositoryId,
+      name: prepared.suggested_name?.trim() || fallbackName.trim(),
+    };
+  } finally {
+    worker.terminate();
+  }
+}
+
+export async function installPreparedGraph(
+  prepared: PreparedGraphImport,
+  serverBase?: Pick<GraphSummary, "role" | "status"> & { history_epoch: number },
+): Promise<GraphSummary> {
+  const worker = new CoreWorker();
+  try {
+    await worker.installArchive(
+      prepared,
+      { repository_id: prepared.repository_id, graph_id: prepared.graph_id },
+      serverBase?.history_epoch ?? 0,
+      serverBase !== undefined,
+    );
+    return registerGraphEntry(
+      prepared.repository_id,
+      prepared.graph_id,
+      prepared.name,
+      prepared.created_at,
+      serverBase,
+    );
   } finally {
     worker.terminate();
   }

@@ -36,7 +36,8 @@ Export acquires the graph's browser write lease, requires no unresolved durable
 write, takes a normal Loro snapshot in the Worker, and packages it in Wasm. It
 does not mutate or compact the source graph.
 
-Import is staged entirely in the Worker:
+Local import is staged in the Worker. Remote import separates preparation from
+publication so the server and browser cannot acquire unrelated CRDT histories:
 
 1. Decode and bound the container, then verify the manifest and checksum.
 2. Require the current document schema and validate the source snapshot through
@@ -44,18 +45,23 @@ Import is staged entirely in the Worker:
 3. Generate the target graph and replica IDs locally and create a shallow clone
    baseline with the rewritten graph identity.
 4. Reopen the clone under its target identity and validate it again.
-5. Atomically install it in the selected repository's IndexedDB partition as a
-   sequence-zero Base plus metadata.
-6. For a remote repository, create the same new graph ID in the server catalog;
-   opening the clone initializes its outbox with the complete imported history.
-7. Publish the display-name entry and navigate to the new graph.
+5. For a local repository, atomically install it as a sequence-zero Base plus
+   metadata, then publish the directory entry.
+6. For a remote repository, upload the prepared checkpoint, target graph ID,
+   display name, and checksum to the authenticated seeded-creation endpoint.
+7. The server validates the exact target snapshot and atomically creates graph
+   metadata, owner membership, initial checkpoint, and audit record. Exact
+   retries are idempotent; an occupied ID with different input conflicts.
+8. After the returned checksum matches, atomically install those same bytes in
+   IndexedDB with the returned history epoch and a server-Base marker, then
+   publish the directory entry and navigate.
 
-No archive-supplied value selects a repository or existing row. A failed local
-validation publishes no graph; a failed remote catalog creation removes the
-staged browser clone. The imported shallow Base starts a new history and undo
-boundary. In a remote repository its initial sync bootstrap is the complete new
-history, never a merge with the archive's source graph. Attaching or merging
-graphs is outside this contract.
+No archive-supplied value selects a repository or existing row. Preparation has
+no durable side effect, so a failed remote creation leaves no staged browser
+graph to clean up. The imported shallow Base starts a new history and undo
+boundary. It is authoritative server state at creation, not an incremental
+update to an independently initialized document. Attaching or merging graphs is
+outside this contract.
 
 ## Evolution
 

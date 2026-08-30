@@ -2,9 +2,9 @@ use domain::GraphId;
 use futures_util::{SinkExt, StreamExt};
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use neoseq_server::{
-    AccountPatch, AccountStatus, AppState, GraphAdmin, GraphRole, GraphStore, IdentityService,
-    Metrics, NewGraph, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole, SessionPurpose,
-    StoreError, router,
+    AccountPatch, AccountStatus, AppState, CreateGraphOutcome, GraphAdmin, GraphRole, GraphStore,
+    IdentityService, Metrics, NewGraph, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole,
+    SessionPurpose, StoreError, router,
 };
 use std::{
     sync::Arc,
@@ -165,18 +165,50 @@ async fn postgres_schema_persistence_and_authorization() {
     let base = GraphCore::new(graph.clone(), 1, "base").unwrap();
     let snapshot = base.export_snapshot().unwrap();
     let version_vector = base.version_vector();
-    store
-        .create_graph(NewGraph {
-            graph_id: &graph_id,
-            display_name: "Postgres graph",
-            owner_account_id: &owner.account_id,
-            schema_version: SCHEMA_VERSION,
-            byte_quota: 8 * 1024 * 1024,
-            snapshot: &snapshot,
-            version_vector: &version_vector,
-        })
-        .await
-        .unwrap();
+    assert_eq!(
+        store
+            .create_graph(NewGraph {
+                graph_id: &graph_id,
+                display_name: "Postgres graph",
+                owner_account_id: &owner.account_id,
+                schema_version: SCHEMA_VERSION,
+                byte_quota: 8 * 1024 * 1024,
+                snapshot: &snapshot,
+                version_vector: &version_vector,
+            })
+            .await
+            .unwrap(),
+        CreateGraphOutcome::Created
+    );
+    assert_eq!(
+        store
+            .create_graph(NewGraph {
+                graph_id: &graph_id,
+                display_name: "Postgres graph",
+                owner_account_id: &owner.account_id,
+                schema_version: SCHEMA_VERSION,
+                byte_quota: 8 * 1024 * 1024,
+                snapshot: &snapshot,
+                version_vector: &version_vector,
+            })
+            .await
+            .unwrap(),
+        CreateGraphOutcome::Existing
+    );
+    assert!(matches!(
+        store
+            .create_graph(NewGraph {
+                graph_id: &graph_id,
+                display_name: "Conflicting graph",
+                owner_account_id: &owner.account_id,
+                schema_version: SCHEMA_VERSION,
+                byte_quota: 8 * 1024 * 1024,
+                snapshot: &snapshot,
+                version_vector: &version_vector,
+            })
+            .await,
+        Err(StoreError::GraphAlreadyExists)
+    ));
     store
         .grant_membership(&graph_id, &editor.account_id, GraphRole::Editor)
         .await
@@ -397,6 +429,7 @@ async fn websocket_commit(
         graph_id: graph_id.to_owned(),
         session_id: "postgres-websocket".into(),
         history_epoch: 0,
+        has_server_base: true,
         version_vector: base_version.to_vec(),
     });
     socket

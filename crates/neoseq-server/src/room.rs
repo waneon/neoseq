@@ -143,6 +143,26 @@ impl<S: GraphStore> RoomManager<S> {
         client_history_epoch: u64,
         client_version_vector: &[u8],
     ) -> Result<OpenedRoom, RoomError> {
+        self.open_with_base_status(
+            graph_id,
+            session_id,
+            account_id,
+            client_history_epoch,
+            client_version_vector,
+            true,
+        )
+        .await
+    }
+
+    pub async fn open_with_base_status(
+        &self,
+        graph_id: &str,
+        session_id: &str,
+        account_id: &str,
+        client_history_epoch: u64,
+        client_version_vector: &[u8],
+        has_server_base: bool,
+    ) -> Result<OpenedRoom, RoomError> {
         if session_id.is_empty() || session_id.len() > 128 {
             return Err(RoomError::InvalidSession);
         }
@@ -161,7 +181,7 @@ impl<S: GraphStore> RoomManager<S> {
             return Err(RoomError::LimitReached);
         }
         let epoch_changed = client_history_epoch != guard.history_epoch;
-        let (mut missing_update, invalid_vector) = if epoch_changed {
+        let (mut missing_update, invalid_vector) = if !has_server_base || epoch_changed {
             (Vec::new(), false)
         } else {
             match guard.core.export_updates_since(client_version_vector) {
@@ -169,7 +189,8 @@ impl<S: GraphStore> RoomManager<S> {
                 Err(_) => (Vec::new(), true),
             }
         };
-        let replace_checkpoint = epoch_changed
+        let replace_checkpoint = !has_server_base
+            || epoch_changed
             || invalid_vector
             || missing_update.len() > self.config.limits.max_update_bytes as usize;
         let checkpoint = if replace_checkpoint {

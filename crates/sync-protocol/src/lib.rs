@@ -44,6 +44,8 @@ pub struct Hello {
     pub session_id: String,
     /// History generation owned by the server checkpoint coordinator.
     pub history_epoch: u64,
+    /// Whether the local Base was installed from a server-approved checkpoint.
+    pub has_server_base: bool,
     /// Loro's encoded version vector. Transport cursors are never substituted here.
     pub version_vector: Vec<u8>,
 }
@@ -261,6 +263,7 @@ mod tests {
     struct HelloFixture {
         graph_id: String,
         session_id: String,
+        has_server_base: bool,
         version_vector: Vec<u8>,
         frame_hex: String,
     }
@@ -281,6 +284,7 @@ mod tests {
             graph_id: "graph-1".into(),
             session_id: "session-1".into(),
             history_epoch: 0,
+            has_server_base: true,
             version_vector: vec![1, 2, 3],
         })
     }
@@ -343,6 +347,7 @@ mod tests {
             graph_id: fixture.hello.graph_id,
             session_id: fixture.hello.session_id,
             history_epoch: 0,
+            has_server_base: fixture.hello.has_server_base,
             version_vector: fixture.hello.version_vector,
         });
         assert_eq!(
