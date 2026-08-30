@@ -63,7 +63,6 @@ export interface MessageArgumentMap {
   "create.error.invalid": undefined;
   "create.lede": undefined;
   "create.password": undefined;
-  "create.passwordHint": { readonly "count": string | number };
   "create.role": undefined;
   "create.title": undefined;
   "create.username": undefined;

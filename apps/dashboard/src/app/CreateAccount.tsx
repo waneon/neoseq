@@ -3,7 +3,7 @@
 
 import { useId, useState, type FormEvent } from "react";
 
-import { createAccount, PASSWORD_MIN_CHARS, passwordLength, type ServerRole } from "@/api";
+import { createAccount, type ServerRole } from "@/api";
 import { useI18n } from "@/i18n";
 import { Button } from "@/ui/shadcn/button";
 import { Callout, ChoiceField, TextField } from "@/ui/components";
@@ -18,7 +18,7 @@ export function CreateAccount({ token, perform }: { token: string; perform: Perf
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const complete = username.trim().length > 0 && passwordLength(password) >= PASSWORD_MIN_CHARS;
+  const complete = username.trim().length > 0;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -67,7 +67,6 @@ export function CreateAccount({ token, perform }: { token: string; perform: Perf
           label={message("create.password")}
           type="password"
           autoComplete="new-password"
-          hint={message("create.passwordHint", { count: PASSWORD_MIN_CHARS })}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />

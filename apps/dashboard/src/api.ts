@@ -21,18 +21,6 @@ interface LoginResponse {
   account: Account;
 }
 
-/**
- * The server's own rule, mirrored so the field can state it before the request
- * is made (`crates/neoseq-server/src/auth.rs` § PASSWORD_MIN_CHARS). The server
- * remains the authority: this only decides what the form says.
- */
-export const PASSWORD_MIN_CHARS = 15;
-
-/** Counts what a person typed, not what UTF-16 needed to store it. */
-export function passwordLength(value: string): number {
-  return Array.from(value).length;
-}
-
 export class ApiError extends Error {
   constructor(
     /** The HTTP status, or 0 when the request never reached the server. */

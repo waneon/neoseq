@@ -9,7 +9,6 @@ use thiserror::Error;
 
 const CLIENT_SESSION_SECONDS: i64 = 12 * 60 * 60;
 const ADMIN_SESSION_SECONDS: i64 = 60 * 60;
-const PASSWORD_MIN_CHARS: usize = 15;
 const PASSWORD_MAX_BYTES: usize = 1_024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -722,9 +721,9 @@ fn normalize_username(value: &str) -> Result<String, AuthError> {
 }
 
 fn validate_password(value: &str) -> Result<(), AuthError> {
-    if value.chars().count() < PASSWORD_MIN_CHARS || value.len() > PASSWORD_MAX_BYTES {
+    if value.len() > PASSWORD_MAX_BYTES {
         Err(AuthError::InvalidInput(
-            "password must be at least 15 characters and at most 1024 bytes",
+            "password must be at most 1024 bytes",
         ))
     } else {
         Ok(())
@@ -778,5 +777,13 @@ mod tests {
         assert_eq!(normalize_username(" Alice-1 ").unwrap(), "alice-1");
         assert!(normalize_username("한글").is_err());
         assert!(normalize_username("1alice").is_err());
+    }
+
+    #[test]
+    fn passwords_have_no_minimum_length_but_remain_bounded() {
+        assert!(validate_password("").is_ok());
+        assert!(validate_password("x").is_ok());
+        assert!(validate_password(&"x".repeat(PASSWORD_MAX_BYTES)).is_ok());
+        assert!(validate_password(&"x".repeat(PASSWORD_MAX_BYTES + 1)).is_err());
     }
 }

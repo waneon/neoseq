@@ -165,11 +165,25 @@ describe("account directory", () => {
     );
   });
 
-  it("refuses a password the server would refuse, and says the rule", async () => {
-    await signIn();
+  it("allows a new account without a minimum password length", async () => {
+    const user = await signIn();
 
-    expect(screen.getByText("At least 15 characters.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Add account" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Username"), "bob");
+
+    expect(screen.getByLabelText("Initial password")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Add account" })).toBeEnabled();
+    expect(screen.queryByText(/at least \d+ characters/i)).toBeNull();
+  });
+
+  it("allows resetting to a password without a minimum length", async () => {
+    const user = await signIn();
+
+    await user.click(actions("Alice").getByRole("button", { name: "Reset password" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    vi.mocked(api.resetPassword).mockResolvedValue();
+    await user.click(dialog.getByRole("button", { name: "Reset password" }));
+
+    expect(api.resetPassword).toHaveBeenCalledWith("token", "id-Alice", "");
   });
 
   it("returns to sign-in when the administrative session has ended", async () => {

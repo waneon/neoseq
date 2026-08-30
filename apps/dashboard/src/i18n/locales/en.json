@@ -48,7 +48,6 @@
   "create.error.invalid": "The server rejected these values. Check the username and password.",
   "create.lede": "A new account can sign in as soon as it is added.",
   "create.password": "Initial password",
-  "create.passwordHint": "At least {count} characters.",
   "create.role": "Server role",
   "create.title": "New account",
   "create.username": "Username",

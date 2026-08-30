@@ -4,7 +4,7 @@
 
 import { useState, type FormEvent } from "react";
 
-import { PASSWORD_MIN_CHARS, passwordLength, resetPassword, type Account } from "@/api";
+import { resetPassword, type Account } from "@/api";
 import { useI18n } from "@/i18n";
 import { Button } from "@/ui/shadcn/button";
 import {
@@ -32,11 +32,10 @@ export function ResetPassword({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const complete = passwordLength(password) >= PASSWORD_MIN_CHARS;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !complete) return;
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -75,7 +74,6 @@ export function ResetPassword({
             type="password"
             autoComplete="new-password"
             autoFocus
-            hint={message("create.passwordHint", { count: PASSWORD_MIN_CHARS })}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
@@ -83,7 +81,7 @@ export function ResetPassword({
             <Button variant="ghost" disabled={busy} onClick={onClose}>
               {message("confirm.cancel")}
             </Button>
-            <Button type="submit" disabled={busy || !complete}>
+            <Button type="submit" disabled={busy}>
               {busy && <span className="spinner" aria-hidden />}
               {busy ? message("reset.working") : message("reset.action")}
             </Button>

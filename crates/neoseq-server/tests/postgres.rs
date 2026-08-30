@@ -28,7 +28,7 @@ async fn postgres_schema_persistence_and_authorization() {
         .as_nanos();
     let identity = Arc::new(PgIdentity::new(store.pool().clone()).unwrap());
     let admin_username = format!("admin-{suffix}");
-    let admin_password = "a deliberately long admin passphrase";
+    let admin_password = "x";
     let admin = identity
         .bootstrap_admin_if_absent(&admin_username, admin_password)
         .await
@@ -67,7 +67,7 @@ async fn postgres_schema_persistence_and_authorization() {
     assert!(admin_principal.is_admin);
 
     let user_username = format!("member-{suffix}");
-    let first_password = "a first sufficiently long password";
+    let first_password = "";
     let user = identity
         .create_account(
             &admin_principal,
@@ -93,15 +93,18 @@ async fn postgres_schema_persistence_and_authorization() {
             .id,
         user.account_id
     );
+    let replacement_password = "y";
     identity
-        .reset_password(
-            &admin_principal,
-            &user.account_id,
-            "a replacement password that is long",
-        )
+        .reset_password(&admin_principal, &user.account_id, replacement_password)
         .await
         .unwrap();
     assert!(identity.verify(&user_session.access_token).await.is_err());
+    assert!(
+        identity
+            .login(&user_username, replacement_password, SessionPurpose::Client,)
+            .await
+            .is_ok()
+    );
     identity
         .update_account(
             &admin_principal,
