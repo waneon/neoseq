@@ -8,7 +8,6 @@ publish = false
 
 [dependencies]
 libc = "0.2"
-serde_json.workspace = true
 tokio = { version = "1.47", features = [
   "macros",
   "process",
@@ -16,4 +15,3 @@ tokio = { version = "1.47", features = [
   "signal",
   "time",
 ] }
-url.workspace = true

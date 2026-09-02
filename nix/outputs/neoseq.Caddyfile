@@ -1,0 +1,33 @@
+{
+	admin off
+}
+
+http://:8080 {
+	encode zstd gzip
+
+	@api path /v1/* /livez /readyz
+	handle @api {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * /srv/neoseq/client
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+http://:8081 {
+	encode zstd gzip
+
+	@api path /v1/* /livez /readyz
+	handle @api {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * /srv/neoseq/dashboard
+		try_files {path} /index.html
+		file_server
+	}
+}

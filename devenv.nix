@@ -31,15 +31,9 @@ let
     inherit mkSource;
     rustToolchain = config.languages.rust.toolchainPackage;
   };
-  applianceOutput = pkgs.callPackage ./nix/outputs/neoseq-appliance.nix {
-    inherit mkSource;
-    cargoDeps = serverOutput.cargoDeps;
-    rustToolchain = config.languages.rust.toolchainPackage;
-  };
   dockerOutput =
     if pkgs.stdenv.hostPlatform.isLinux then
       pkgs.callPackage ./nix/outputs/neoseq-docker.nix {
-        appliance = applianceOutput;
         client = clientOutput;
         dashboard = dashboardOutput;
         server = serverOutput;
@@ -306,7 +300,6 @@ in
   };
 
   outputs = {
-    neoseq-appliance = applianceOutput;
     neoseq-dashboard = dashboardOutput;
     neoseq-client = clientOutput;
     neoseq-server = serverOutput;

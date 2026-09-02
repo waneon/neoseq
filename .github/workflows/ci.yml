@@ -32,6 +32,15 @@ jobs:
       - name: Run verification
         run: devenv --profile browser test
 
+      - name: Build appliance image
+        id: appliance
+        run: |
+          archive="$(devenv build outputs.neoseq-docker | jq --raw-output --exit-status '."outputs.neoseq-docker"')"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test appliance image
+        run: ./scripts/smoke-appliance.sh "${{ steps.appliance.outputs.archive }}"
+
       - name: Upload playwright failure artifacts
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7

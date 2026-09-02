@@ -63,8 +63,8 @@ The connection dialog accepts server URL, username, and password. Plain HTTP
 is accepted so a personal appliance on a private network needs no certificate;
 the dialog states that HTTP carries the password and notes unencrypted, and the
 only scheme it refuses is one the browser itself blocks: an HTTP server from a
-page delivered over HTTPS. A configured `NEOSEQ_URL` supplies the initial
-server URL; otherwise the dialog uses the browser's current origin. A failed
+page delivered over HTTPS. The dialog initially uses the browser's current
+origin; users enter another origin only for a cross-origin server. A failed
 connection names its cause — an unusable URL, an unreachable server, or a
 rejected password — because each has a different remedy. The password is
 sent only to the login endpoint and is discarded after exchange. Repository

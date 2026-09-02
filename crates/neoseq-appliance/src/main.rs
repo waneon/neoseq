@@ -2,8 +2,9 @@ use std::{
     env,
     error::Error,
     fs, io,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    path::{Path, PathBuf},
+    io::{Read, Write},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream},
+    path::Path,
     process::{ExitStatus, Stdio},
     time::{Duration, Instant},
 };
@@ -11,228 +12,86 @@ use tokio::{
     process::{Child, Command},
     time::{sleep, timeout},
 };
-use url::Url;
 
 const POSTGRES_MAJOR: &str = "17";
 const POSTGRES_USER: &str = "neoseq";
 const POSTGRES_DATABASE: &str = "neoseq";
-const INTERNAL_SERVER: &str = "http://127.0.0.1:8787";
-const INGRESS_HEALTH_PATH: &str = "/__neoseq/health";
-const INGRESS_HEALTH_RESPONSE: &str = "neoseq ingress ready";
-const RUNTIME_CONFIG_PATH: &str = "/__neoseq/config.json";
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(20);
+const POSTGRES_DATA_DIR: &str = "/var/lib/neoseq/postgres/data";
+const LEGACY_POSTGRES_DATA_DIR: &str = "/var/lib/neoseq/postgres/17/data";
+const POSTGRES_SOCKET_DIR: &str = "/run/neoseq/postgres";
+const EMBEDDED_DATABASE_URL: &str = "postgresql:///neoseq?host=/run/neoseq/postgres&user=neoseq";
+const SERVER_PORT: u16 = 8787;
+const PUBLIC_PORT: u16 = 8080;
+const CADDYFILE: &str = "/etc/neoseq/Caddyfile";
+const CADDY_CONFIG_DIR: &str = "/run/neoseq/caddy/config";
+const CADDY_DATA_DIR: &str = "/run/neoseq/caddy/data";
+
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const SHUTDOWN_BUDGET: Duration = Duration::from_secs(50);
+const PROCESS_GRACE: Duration = Duration::from_secs(8);
+const POSTGRES_CTL_GRACE: Duration = Duration::from_secs(18);
+const POSTGRES_SIGNAL_GRACE: Duration = Duration::from_secs(5);
+const FORCED_REAP_GRACE: Duration = Duration::from_secs(2);
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DatabaseMode {
+#[derive(Debug, PartialEq, Eq)]
+enum Database {
     Embedded,
-    External,
-    Disabled,
+    External(String),
 }
 
-#[derive(Debug, Clone)]
-struct Config {
-    enable_client: bool,
-    enable_server: bool,
-    enable_dashboard: bool,
-    database_mode: DatabaseMode,
-    database_url: Option<String>,
-    neoseq_url: Option<String>,
-    upstream_origin: Option<String>,
-    http_listen: SocketAddr,
-    dashboard_listen: SocketAddr,
-    startup_timeout: Duration,
-    state_dir: PathBuf,
-    pgdata: PathBuf,
-    postgres_socket_dir: PathBuf,
-    client_root: PathBuf,
-    dashboard_root: PathBuf,
-}
-
-impl Config {
+impl Database {
     fn from_environment() -> Result<Self> {
-        let enable_client = boolean("NEOSEQ_ENABLE_CLIENT", true)?;
-        let enable_server = boolean("NEOSEQ_ENABLE_SERVER", true)?;
-        let enable_dashboard = boolean("NEOSEQ_ENABLE_DASHBOARD", true)?;
-        let database_mode = match value("NEOSEQ_DATABASE_MODE", "embedded").as_str() {
-            "embedded" => DatabaseMode::Embedded,
-            "external" => DatabaseMode::External,
-            "disabled" => DatabaseMode::Disabled,
-            other => {
-                return Err(invalid(format!(
-                    "NEOSEQ_DATABASE_MODE must be embedded, external, or disabled; got {other:?}"
-                ))
-                .into());
-            }
-        };
         let direct_url = optional("DATABASE_URL");
         let url_file = optional("DATABASE_URL_FILE");
-        if direct_url.is_some() && url_file.is_some() {
-            return Err(
-                invalid("DATABASE_URL and DATABASE_URL_FILE are mutually exclusive").into(),
-            );
-        }
-        let database_url = match (direct_url, url_file) {
-            (Some(url), None) => Some(url),
-            (None, Some(path)) => Some(read_secret(Path::new(&path), "DATABASE_URL_FILE")?),
-            (None, None) => None,
-            (Some(_), Some(_)) => unreachable!(),
-        };
-        match database_mode {
-            DatabaseMode::Embedded if database_url.is_some() => {
-                return Err(invalid(
-                    "DATABASE_URL is owned by the appliance in embedded database mode",
-                )
-                .into());
+        match (direct_url, url_file) {
+            (Some(_), Some(_)) => {
+                Err(invalid("DATABASE_URL and DATABASE_URL_FILE are mutually exclusive").into())
             }
-            DatabaseMode::External if database_url.is_none() => {
-                return Err(invalid(
-                    "DATABASE_URL_FILE or DATABASE_URL is required in external database mode",
-                )
-                .into());
-            }
-            DatabaseMode::Disabled if database_url.is_some() => {
-                return Err(invalid(
-                    "DATABASE_URL cannot be set when NEOSEQ_DATABASE_MODE is disabled",
-                )
-                .into());
-            }
-            _ => {}
+            (Some(url), None) => Ok(Self::External(url)),
+            (None, Some(path)) => Ok(Self::External(read_secret(
+                Path::new(&path),
+                "DATABASE_URL_FILE",
+            )?)),
+            (None, None) => Ok(Self::Embedded),
         }
-        if enable_server && database_mode == DatabaseMode::Disabled {
-            return Err(invalid("the server cannot run with the database disabled").into());
-        }
+    }
 
-        let neoseq_url = optional("NEOSEQ_URL")
-            .map(canonical_neoseq_url)
-            .transpose()?;
+    fn url(&self) -> &str {
+        match self {
+            Self::Embedded => EMBEDDED_DATABASE_URL,
+            Self::External(url) => url,
+        }
+    }
+}
 
-        let upstream_origin = optional("NEOSEQ_UPSTREAM_ORIGIN");
-        if enable_server && upstream_origin.is_some() {
-            return Err(invalid(
-                "NEOSEQ_UPSTREAM_ORIGIN cannot be set while the internal server is enabled",
-            )
-            .into());
-        }
-        if let Some(origin) = &upstream_origin
-            && !(origin.starts_with("http://") || origin.starts_with("https://"))
-        {
-            return Err(invalid("NEOSEQ_UPSTREAM_ORIGIN must be an HTTP or HTTPS origin").into());
-        }
-        if enable_dashboard && !enable_server && upstream_origin.is_none() {
-            return Err(invalid(
-                "the dashboard requires the internal server or NEOSEQ_UPSTREAM_ORIGIN",
-            )
-            .into());
-        }
+struct ServeConfig {
+    database: Database,
+    startup_timeout: Duration,
+}
 
-        let http_listen = socket("NEOSEQ_HTTP_LISTEN", "0.0.0.0:8080")?;
-        let dashboard_listen = socket("NEOSEQ_DASHBOARD_LISTEN", "0.0.0.0:8081")?;
-        let main_ingress = enable_client || enable_server || upstream_origin.is_some();
-        if enable_dashboard && main_ingress && http_listen == dashboard_listen {
-            return Err(invalid("client/API and dashboard listeners must be distinct").into());
-        }
-        if !main_ingress && !enable_dashboard && database_mode != DatabaseMode::Embedded {
-            return Err(invalid("the configuration enables no appliance component").into());
-        }
-
-        let startup_seconds = value("NEOSEQ_STARTUP_TIMEOUT_SECONDS", "60")
-            .parse::<u64>()
-            .map_err(|_| invalid("NEOSEQ_STARTUP_TIMEOUT_SECONDS must be an integer"))?;
-        if startup_seconds == 0 || startup_seconds > 3_600 {
-            return Err(
-                invalid("NEOSEQ_STARTUP_TIMEOUT_SECONDS must be between 1 and 3600").into(),
-            );
-        }
-
+impl ServeConfig {
+    fn from_environment() -> Result<Self> {
         Ok(Self {
-            enable_client,
-            enable_server,
-            enable_dashboard,
-            database_mode,
-            database_url,
-            neoseq_url,
-            upstream_origin,
-            http_listen,
-            dashboard_listen,
-            startup_timeout: Duration::from_secs(startup_seconds),
-            state_dir: path("NEOSEQ_STATE_DIR", "/run/neoseq"),
-            pgdata: path(
-                "NEOSEQ_POSTGRES_DATA_DIR",
-                "/var/lib/neoseq/postgres/17/data",
-            ),
-            postgres_socket_dir: path("NEOSEQ_POSTGRES_SOCKET_DIR", "/run/neoseq/postgres"),
-            client_root: path("NEOSEQ_CLIENT_ROOT", "/srv/neoseq/client"),
-            dashboard_root: path("NEOSEQ_DASHBOARD_ROOT", "/srv/neoseq/dashboard"),
+            database: Database::from_environment()?,
+            startup_timeout: startup_timeout_from_environment()?,
         })
     }
+}
 
-    fn main_ingress(&self) -> bool {
-        self.enable_client || self.backend_origin().is_some()
-    }
+struct RestoreConfig {
+    startup_timeout: Duration,
+}
 
-    fn ingress(&self) -> bool {
-        self.main_ingress() || self.enable_dashboard
-    }
-
-    fn backend_origin(&self) -> Option<&str> {
-        if self.enable_server {
-            Some(INTERNAL_SERVER)
-        } else {
-            self.upstream_origin.as_deref()
+impl RestoreConfig {
+    fn from_environment() -> Result<Self> {
+        if matches!(Database::from_environment()?, Database::External(_)) {
+            return Err(invalid("restore is supported only for embedded PostgreSQL").into());
         }
-    }
-
-    fn embedded_database_url(&self) -> String {
-        format!(
-            "postgresql:///{POSTGRES_DATABASE}?host={}&user={POSTGRES_USER}",
-            self.postgres_socket_dir.display()
-        )
-    }
-
-    fn server_database_url(&self) -> Result<String> {
-        match self.database_mode {
-            DatabaseMode::Embedded => Ok(self.embedded_database_url()),
-            DatabaseMode::External => self
-                .database_url
-                .clone()
-                .ok_or_else(|| invalid("external database URL is missing").into()),
-            DatabaseMode::Disabled => Err(invalid("database is disabled").into()),
-        }
-    }
-
-    fn caddyfile(&self) -> String {
-        let mut output = String::from(
-            "{\n\tadmin off\n\tauto_https off\n\tlog default {\n\t\toutput stdout\n\t\tformat json\n\t}\n}\n\n",
-        );
-        if self.main_ingress() {
-            let runtime_config = self.enable_client.then(|| self.runtime_config());
-            output.push_str(&site(
-                self.http_listen,
-                self.backend_origin(),
-                self.enable_client.then_some(self.client_root.as_path()),
-                runtime_config.as_deref(),
-            ));
-        }
-        if self.enable_dashboard {
-            output.push_str(&site(
-                self.dashboard_listen,
-                self.backend_origin(),
-                Some(self.dashboard_root.as_path()),
-                None,
-            ));
-        }
-        output.truncate(output.trim_end().len());
-        output.push('\n');
-        output
-    }
-
-    fn runtime_config(&self) -> String {
-        match &self.neoseq_url {
-            Some(url) => serde_json::json!({ "url": url }).to_string(),
-            None => serde_json::json!({}).to_string(),
-        }
+        Ok(Self {
+            startup_timeout: startup_timeout_from_environment()?,
+        })
     }
 }
 
@@ -266,66 +125,61 @@ async fn run() -> Result<()> {
     match command.as_str() {
         "serve" => {
             no_more_arguments(arguments)?;
-            serve(Config::from_environment()?).await
+            serve(ServeConfig::from_environment()?).await
         }
         "health" => {
             no_more_arguments(arguments)?;
-            health(&Config::from_environment()?).await
-        }
-        "doctor" => {
-            no_more_arguments(arguments)?;
-            doctor(&Config::from_environment()?)
+            health().await
         }
         "backup" => {
             let destination = required_argument(&mut arguments, "backup destination")?;
             no_more_arguments(arguments)?;
-            backup(&Config::from_environment()?, Path::new(&destination)).await
+            backup(Database::from_environment()?, Path::new(&destination)).await
         }
         "restore" => {
             let source = required_argument(&mut arguments, "backup source")?;
             no_more_arguments(arguments)?;
-            restore(&Config::from_environment()?, Path::new(&source)).await
+            restore(RestoreConfig::from_environment()?, Path::new(&source)).await
         }
-        _ => Err(invalid(
-            "usage: neoseq-appliance [serve|health|doctor|backup <path>|restore <path>]",
-        )
-        .into()),
+        _ => Err(
+            invalid("usage: neoseq-appliance [serve|health|backup <path>|restore <path>]").into(),
+        ),
     }
 }
 
-async fn serve(config: Config) -> Result<()> {
-    prepare_state(&config)?;
-    doctor(&config)?;
+async fn serve(config: ServeConfig) -> Result<()> {
+    prepare_runtime()?;
     let mut children = Children::new();
-
-    if let Err(error) = start_components(&config, &mut children).await {
-        shutdown(&config, &mut children).await;
+    let startup = match timeout(
+        config.startup_timeout,
+        start_components(&config.database, &mut children),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(invalid("timed out starting the appliance").into()),
+    };
+    if let Err(error) = startup {
+        shutdown(&mut children).await;
         return Err(error);
     }
 
-    if let Err(error) = fs::write(config.state_dir.join("ready"), b"ready\n") {
-        shutdown(&config, &mut children).await;
-        return Err(error.into());
-    }
     eprintln!("component=appliance level=info message=ready");
-
-    let event = wait_for_event(&mut children).await;
-    let _ = fs::remove_file(config.state_dir.join("ready"));
-    match event {
+    match wait_for_event(&mut children).await {
         Event::Shutdown => {
             eprintln!("component=appliance level=info message=shutdown-requested");
-            shutdown(&config, &mut children).await;
+            shutdown(&mut children).await;
             Ok(())
         }
         Event::Exited(component, status) => {
             eprintln!(
                 "component=appliance level=error message=child-exited child={component} status={status}"
             );
-            shutdown(&config, &mut children).await;
-            Err(invalid(format!("enabled child {component} exited unexpectedly")).into())
+            shutdown(&mut children).await;
+            Err(invalid(format!("child {component} exited unexpectedly")).into())
         }
         Event::WaitFailed(component, error) => {
-            shutdown(&config, &mut children).await;
+            shutdown(&mut children).await;
             Err(io::Error::new(
                 error.kind(),
                 format!("could not wait for {component}: {error}"),
@@ -335,106 +189,38 @@ async fn serve(config: Config) -> Result<()> {
     }
 }
 
-async fn start_components(config: &Config, children: &mut Children) -> Result<()> {
-    let database_url = if config.database_mode == DatabaseMode::Embedded {
-        initialize_postgres(config).await?;
-        let mut postgres = start_postgres(config)?;
-        write_pid(config, "postgres", &postgres)?;
-        wait_for_postgres(config, &mut postgres).await?;
-        ensure_database(config).await?;
-        children.postgres = Some(postgres);
-        Some(config.embedded_database_url())
-    } else {
-        config.database_url.clone()
-    };
-
-    if config.enable_server {
-        let mut server = Command::new("neoseq-server")
-            .env(
-                "DATABASE_URL",
-                database_url.ok_or_else(|| invalid("server database URL is missing"))?,
-            )
-            .env("NEOSEQ_BIND", "127.0.0.1:8787")
-            .stdin(Stdio::null())
-            .spawn()?;
-        write_pid(config, "server", &server)?;
-        wait_for_http(
-            "server",
-            "http://127.0.0.1:8787/readyz",
-            None,
-            &mut server,
-            config.startup_timeout,
+async fn start_components(database: &Database, children: &mut Children) -> Result<()> {
+    if database == &Database::Embedded {
+        initialize_postgres().await?;
+        children.postgres = Some(start_postgres()?);
+        wait_for_postgres(
+            children
+                .postgres
+                .as_mut()
+                .expect("PostgreSQL was just started"),
         )
         .await?;
-        children.server = Some(server);
+        ensure_database().await?;
     }
 
-    if config.ingress() {
-        let caddy_dir = config.state_dir.join("caddy");
-        fs::create_dir_all(&caddy_dir)?;
-        let caddyfile = caddy_dir.join("Caddyfile");
-        fs::write(&caddyfile, config.caddyfile())?;
-        let mut ingress = Command::new("caddy")
-            .args(["run", "--config"])
-            .arg(&caddyfile)
-            .args(["--adapter", "caddyfile"])
-            .env("XDG_CONFIG_HOME", caddy_dir.join("config"))
-            .env("XDG_DATA_HOME", caddy_dir.join("data"))
+    children.server = Some(
+        Command::new("neoseq-server")
+            .env("DATABASE_URL", database.url())
+            .env("NEOSEQ_BIND", "127.0.0.1:8787")
             .stdin(Stdio::null())
-            .spawn()?;
-        write_pid(config, "ingress", &ingress)?;
-        if config.main_ingress() {
-            wait_for_http(
-                "main ingress",
-                &ingress_health_url(config.http_listen),
-                Some(INGRESS_HEALTH_RESPONSE),
-                &mut ingress,
-                config.startup_timeout,
-            )
-            .await?;
-            if config.enable_client {
-                wait_for_http(
-                    "client ingress",
-                    &format!("{}/", health_origin(config.http_listen)),
-                    None,
-                    &mut ingress,
-                    config.startup_timeout,
-                )
-                .await?;
-            }
-            if config.backend_origin().is_some() {
-                wait_for_http(
-                    "public API ingress",
-                    &format!("{}/readyz", health_origin(config.http_listen)),
-                    None,
-                    &mut ingress,
-                    config.startup_timeout,
-                )
-                .await?;
-            }
-        }
-        if config.enable_dashboard {
-            wait_for_http(
-                "dashboard ingress",
-                &ingress_health_url(config.dashboard_listen),
-                Some(INGRESS_HEALTH_RESPONSE),
-                &mut ingress,
-                config.startup_timeout,
-            )
-            .await?;
-            wait_for_http(
-                "dashboard application",
-                &format!("{}/", health_origin(config.dashboard_listen)),
-                None,
-                &mut ingress,
-                config.startup_timeout,
-            )
-            .await?;
-        }
-        children.ingress = Some(ingress);
-    }
+            .spawn()?,
+    );
+    wait_for_server(children).await?;
 
-    Ok(())
+    children.ingress = Some(
+        Command::new("caddy")
+            .args(["run", "--config", CADDYFILE, "--adapter", "caddyfile"])
+            .env("XDG_CONFIG_HOME", CADDY_CONFIG_DIR)
+            .env("XDG_DATA_HOME", CADDY_DATA_DIR)
+            .stdin(Stdio::null())
+            .spawn()?,
+    );
+    wait_for_public_readiness(children).await
 }
 
 enum Event {
@@ -480,50 +266,124 @@ async fn wait_optional(child: &mut Option<Child>) -> io::Result<ExitStatus> {
     }
 }
 
-async fn shutdown(config: &Config, children: &mut Children) {
-    terminate(&mut children.ingress, libc::SIGTERM, "ingress").await;
-    terminate(&mut children.server, libc::SIGTERM, "server").await;
-    if let Some(postgres) = &mut children.postgres {
-        if postgres.try_wait().ok().flatten().is_none() {
-            let status = Command::new("pg_ctl")
-                .arg("-D")
-                .arg(&config.pgdata)
-                .args(["-m", "fast", "-t", "20", "-w", "stop"])
-                .status()
-                .await;
-            if !matches!(status, Ok(status) if status.success()) {
-                eprintln!("component=appliance level=warn message=postgres-fast-stop-failed");
-                terminate(&mut children.postgres, libc::SIGINT, "postgres").await;
-                return;
-            }
-        }
-        wait_or_kill(&mut children.postgres, "postgres").await;
-    }
+async fn shutdown(children: &mut Children) {
+    let deadline = Instant::now() + SHUTDOWN_BUDGET;
+    terminate(&mut children.ingress, libc::SIGTERM, "ingress", deadline).await;
+    terminate(&mut children.server, libc::SIGTERM, "server", deadline).await;
+    stop_postgres(&mut children.postgres, deadline).await;
 }
 
-async fn terminate(child: &mut Option<Child>, signal: i32, component: &str) {
-    let Some(process) = child.as_mut() else {
+async fn terminate(
+    slot: &mut Option<Child>,
+    signal: i32,
+    component: &str,
+    global_deadline: Instant,
+) {
+    let Some(mut child) = slot.take() else {
         return;
     };
-    if process.try_wait().ok().flatten().is_none()
-        && let Some(pid) = process.id()
-    {
+    if child_has_exited(&mut child, component) {
+        return;
+    }
+    if let Some(pid) = child.id() {
         send_signal(pid, signal);
     }
-    wait_or_kill(child, component).await;
+    if wait_until(
+        &mut child,
+        capped_deadline(global_deadline, PROCESS_GRACE),
+        component,
+    )
+    .await
+    {
+        return;
+    }
+    force_kill(child, component, global_deadline).await;
 }
 
-async fn wait_or_kill(child: &mut Option<Child>, component: &str) {
-    let Some(process) = child.as_mut() else {
+async fn stop_postgres(slot: &mut Option<Child>, global_deadline: Instant) {
+    let Some(mut postgres) = slot.take() else {
         return;
     };
-    if timeout(SHUTDOWN_TIMEOUT, process.wait()).await.is_err() {
-        eprintln!(
-            "component=appliance level=warn message=forced-child-termination child={component}"
-        );
-        let _ = process.start_kill();
-        let _ = process.wait().await;
+    if child_has_exited(&mut postgres, "postgres") {
+        return;
     }
+
+    let control_deadline = capped_deadline(global_deadline, POSTGRES_CTL_GRACE);
+    let timeout_seconds = POSTGRES_CTL_GRACE.as_secs().to_string();
+    let mut command = Command::new("pg_ctl");
+    command
+        .arg("-D")
+        .arg(POSTGRES_DATA_DIR)
+        .args(["-m", "fast", "-t", &timeout_seconds, "-w", "stop"])
+        .kill_on_drop(true);
+    let stopped = match timeout(remaining(control_deadline), command.status()).await {
+        Ok(Ok(status)) if status.success() => {
+            wait_until(&mut postgres, control_deadline, "postgres").await
+        }
+        _ => false,
+    };
+    if stopped {
+        return;
+    }
+
+    eprintln!("component=appliance level=warn message=postgres-fast-stop-failed");
+    if let Some(pid) = postgres.id() {
+        send_signal(pid, libc::SIGINT);
+    }
+    if wait_until(
+        &mut postgres,
+        capped_deadline(global_deadline, POSTGRES_SIGNAL_GRACE),
+        "postgres",
+    )
+    .await
+    {
+        return;
+    }
+    force_kill(postgres, "postgres", global_deadline).await;
+}
+
+fn child_has_exited(child: &mut Child, component: &str) -> bool {
+    match child.try_wait() {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(error) => {
+            eprintln!(
+                "component=appliance level=warn message=child-status-failed child={component} error={error}"
+            );
+            false
+        }
+    }
+}
+
+async fn wait_until(child: &mut Child, deadline: Instant, component: &str) -> bool {
+    if child_has_exited(child, component) {
+        return true;
+    }
+    match timeout(remaining(deadline), child.wait()).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(error)) => {
+            eprintln!(
+                "component=appliance level=warn message=child-wait-failed child={component} error={error}"
+            );
+            false
+        }
+        Err(_) => false,
+    }
+}
+
+async fn force_kill(mut child: Child, component: &str, global_deadline: Instant) {
+    eprintln!("component=appliance level=warn message=forced-child-termination child={component}");
+    let _ = child.start_kill();
+    let deadline = capped_deadline(global_deadline, FORCED_REAP_GRACE);
+    let _ = timeout(remaining(deadline), child.wait()).await;
+}
+
+fn capped_deadline(global_deadline: Instant, cap: Duration) -> Instant {
+    global_deadline.min(Instant::now() + cap)
+}
+
+fn remaining(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now())
 }
 
 fn send_signal(pid: u32, signal: i32) {
@@ -536,17 +396,20 @@ fn send_signal(pid: u32, signal: i32) {
     let _ = (pid, signal);
 }
 
-fn prepare_state(config: &Config) -> Result<()> {
-    fs::create_dir_all(&config.state_dir)?;
-    for entry in ["ready", "postgres.pid", "server.pid", "ingress.pid"] {
-        let _ = fs::remove_file(config.state_dir.join(entry));
-    }
+fn prepare_runtime() -> Result<()> {
+    fs::create_dir_all(CADDY_CONFIG_DIR)?;
+    fs::create_dir_all(CADDY_DATA_DIR)?;
     Ok(())
 }
 
-async fn initialize_postgres(config: &Config) -> Result<()> {
-    fs::create_dir_all(&config.postgres_socket_dir)?;
-    let version_file = config.pgdata.join("PG_VERSION");
+async fn initialize_postgres() -> Result<()> {
+    migrate_legacy_postgres_data(
+        Path::new(POSTGRES_DATA_DIR),
+        Path::new(LEGACY_POSTGRES_DATA_DIR),
+    )?;
+    fs::create_dir_all(POSTGRES_SOCKET_DIR)?;
+    let pgdata = Path::new(POSTGRES_DATA_DIR);
+    let version_file = pgdata.join("PG_VERSION");
     if version_file.exists() {
         let found = fs::read_to_string(&version_file)?.trim().to_owned();
         if found != POSTGRES_MAJOR {
@@ -557,72 +420,88 @@ async fn initialize_postgres(config: &Config) -> Result<()> {
         }
         return Ok(());
     }
-    if config.pgdata.exists() && fs::read_dir(&config.pgdata)?.next().is_some() {
+    if pgdata.exists() && fs::read_dir(pgdata)?.next().is_some() {
         return Err(invalid(format!(
             "PostgreSQL data directory {} is non-empty but has no PG_VERSION",
-            config.pgdata.display()
+            pgdata.display()
         ))
         .into());
     }
-    fs::create_dir_all(&config.pgdata)?;
-    successful(
-        Command::new("initdb").arg("-D").arg(&config.pgdata).args([
+    fs::create_dir_all(pgdata)?;
+    let mut command = Command::new("initdb");
+    command
+        .arg("-D")
+        .arg(pgdata)
+        .args([
             "--encoding=UTF8",
             "--locale=C",
             "--username=neoseq",
             "--auth-local=trust",
             "--auth-host=scram-sha-256",
             "--data-checksums",
-        ]),
-        "initdb",
-    )
-    .await
+        ])
+        .kill_on_drop(true);
+    successful(&mut command, "initdb").await
 }
 
-fn start_postgres(config: &Config) -> Result<Child> {
+fn migrate_legacy_postgres_data(current: &Path, legacy: &Path) -> Result<()> {
+    match (current.exists(), legacy.exists()) {
+        (true, true) => Err(invalid(format!(
+            "PostgreSQL data exists at both {} and {}; resolve the ambiguity before starting",
+            current.display(),
+            legacy.display()
+        ))
+        .into()),
+        (false, true) => {
+            fs::rename(legacy, current)?;
+            eprintln!(
+                "component=appliance level=info message=postgres-data-migrated from={} to={}",
+                legacy.display(),
+                current.display()
+            );
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn start_postgres() -> Result<Child> {
     Ok(Command::new("postgres")
         .arg("-D")
-        .arg(&config.pgdata)
+        .arg(POSTGRES_DATA_DIR)
         .arg("-c")
         .arg("listen_addresses=")
         .arg("-c")
-        .arg(format!(
-            "unix_socket_directories={}",
-            config.postgres_socket_dir.display()
-        ))
+        .arg(format!("unix_socket_directories={POSTGRES_SOCKET_DIR}"))
         .arg("-c")
         .arg("unix_socket_permissions=0700")
         .stdin(Stdio::null())
         .spawn()?)
 }
 
-async fn wait_for_postgres(config: &Config, child: &mut Child) -> Result<()> {
-    let started = Instant::now();
+async fn wait_for_postgres(child: &mut Child) -> Result<()> {
     loop {
         if let Some(status) = child.try_wait()? {
             return Err(invalid(format!("PostgreSQL exited during startup with {status}")).into());
         }
-        if Command::new("pg_isready")
+        let mut command = Command::new("pg_isready");
+        command
             .arg("-h")
-            .arg(&config.postgres_socket_dir)
+            .arg(POSTGRES_SOCKET_DIR)
             .args(["-U", POSTGRES_USER, "-d", "postgres", "-q"])
-            .status()
-            .await?
-            .success()
-        {
+            .kill_on_drop(true);
+        if command.status().await?.success() {
             return Ok(());
         }
-        if started.elapsed() >= config.startup_timeout {
-            return Err(invalid("timed out waiting for PostgreSQL readiness").into());
-        }
-        sleep(Duration::from_millis(250)).await;
+        sleep(STARTUP_POLL_INTERVAL).await;
     }
 }
 
-async fn ensure_database(config: &Config) -> Result<()> {
-    let output = Command::new("psql")
+async fn ensure_database() -> Result<()> {
+    let mut inspect = Command::new("psql");
+    inspect
         .arg("-h")
-        .arg(&config.postgres_socket_dir)
+        .arg(POSTGRES_SOCKET_DIR)
         .args([
             "-U",
             POSTGRES_USER,
@@ -631,185 +510,101 @@ async fn ensure_database(config: &Config) -> Result<()> {
             "-tAc",
             "SELECT 1 FROM pg_database WHERE datname = 'neoseq'",
         ])
-        .output()
-        .await?;
+        .kill_on_drop(true);
+    let output = inspect.output().await?;
     if !output.status.success() {
         return Err(invalid("could not inspect the embedded PostgreSQL cluster").into());
     }
     if String::from_utf8(output.stdout)?.trim() != "1" {
-        successful(
-            Command::new("createdb")
-                .arg("-h")
-                .arg(&config.postgres_socket_dir)
-                .args(["-U", POSTGRES_USER, POSTGRES_DATABASE]),
-            "create Neoseq database",
-        )
-        .await?;
+        let mut create = Command::new("createdb");
+        create
+            .arg("-h")
+            .arg(POSTGRES_SOCKET_DIR)
+            .args(["-U", POSTGRES_USER, POSTGRES_DATABASE])
+            .kill_on_drop(true);
+        successful(&mut create, "create Neoseq database").await?;
     }
     Ok(())
 }
 
-async fn wait_for_http(
-    component: &str,
-    url: &str,
-    expected_body: Option<&str>,
-    child: &mut Child,
-    limit: Duration,
-) -> Result<()> {
-    let started = Instant::now();
+async fn wait_for_server(children: &mut Children) -> Result<()> {
     loop {
-        if let Some(status) = child.try_wait()? {
-            return Err(invalid(format!("{component} exited during startup with {status}")).into());
-        }
-        if http_ready(url, expected_body).await {
+        check_startup_child(&mut children.server, "server")?;
+        check_startup_child(&mut children.postgres, "postgres")?;
+        if readiness_probe(SERVER_PORT).await {
             return Ok(());
         }
-        if started.elapsed() >= limit {
-            return Err(invalid(format!("timed out waiting for {component} at {url}")).into());
-        }
-        sleep(Duration::from_millis(250)).await;
+        sleep(STARTUP_POLL_INTERVAL).await;
     }
 }
 
-async fn http_ready(url: &str, expected_body: Option<&str>) -> bool {
-    let Ok(output) = Command::new("curl")
-        .args(["--fail", "--silent", "--show-error", "--max-time", "2", url])
-        .stderr(Stdio::null())
-        .output()
+async fn wait_for_public_readiness(children: &mut Children) -> Result<()> {
+    loop {
+        check_startup_child(&mut children.ingress, "ingress")?;
+        check_startup_child(&mut children.server, "server")?;
+        check_startup_child(&mut children.postgres, "postgres")?;
+        if readiness_probe(PUBLIC_PORT).await {
+            return Ok(());
+        }
+        sleep(STARTUP_POLL_INTERVAL).await;
+    }
+}
+
+fn check_startup_child(child: &mut Option<Child>, component: &str) -> Result<()> {
+    if let Some(child) = child
+        && let Some(status) = child.try_wait()?
+    {
+        return Err(invalid(format!("{component} exited during startup with {status}")).into());
+    }
+    Ok(())
+}
+
+async fn readiness_probe(port: u16) -> bool {
+    tokio::task::spawn_blocking(move || readiness_probe_blocking(port))
         .await
-    else {
+        .unwrap_or(false)
+}
+
+fn readiness_probe_blocking(port: u16) -> bool {
+    let timeout = Duration::from_secs(2);
+    let address = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, timeout) else {
         return false;
     };
-    output.status.success()
-        && expected_body.is_none_or(|expected| output.stdout.as_slice() == expected.as_bytes())
+    if stream.set_read_timeout(Some(timeout)).is_err()
+        || stream.set_write_timeout(Some(timeout)).is_err()
+        || write!(
+            stream,
+            "GET /readyz HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        )
+        .is_err()
+    {
+        return false;
+    }
+
+    let mut response = Vec::new();
+    if stream.take(8 * 1024).read_to_end(&mut response).is_err() {
+        return false;
+    }
+    readiness_response(&response)
 }
 
-async fn health(config: &Config) -> Result<()> {
-    if !config.state_dir.join("ready").is_file() {
-        return Err(invalid("appliance has not reached readiness").into());
-    }
-    for component in ["postgres", "server", "ingress"] {
-        let path = config.state_dir.join(format!("{component}.pid"));
-        if path.exists() {
-            let pid = fs::read_to_string(&path)?
-                .trim()
-                .parse::<u32>()
-                .map_err(|_| invalid(format!("invalid {component} PID record")))?;
-            if !pid_running(pid) {
-                return Err(invalid(format!("{component} process is not running")).into());
-            }
-        }
-    }
-    if config.database_mode == DatabaseMode::Embedded
-        && !Command::new("pg_isready")
-            .arg("-h")
-            .arg(&config.postgres_socket_dir)
-            .args(["-U", POSTGRES_USER, "-d", POSTGRES_DATABASE, "-q"])
-            .status()
-            .await?
-            .success()
-    {
-        return Err(invalid("embedded PostgreSQL is not ready").into());
-    }
-    if config.enable_server && !http_ready("http://127.0.0.1:8787/readyz", None).await {
-        return Err(invalid("server is not ready").into());
-    }
-    if config.main_ingress()
-        && !http_ready(
-            &ingress_health_url(config.http_listen),
-            Some(INGRESS_HEALTH_RESPONSE),
-        )
-        .await
-    {
-        return Err(invalid("main ingress is not ready").into());
-    }
-    if config.enable_client
-        && !http_ready(&format!("{}/", health_origin(config.http_listen)), None).await
-    {
-        return Err(invalid("client ingress is not ready").into());
-    }
-    if config.backend_origin().is_some()
-        && !http_ready(
-            &format!("{}/readyz", health_origin(config.http_listen)),
-            None,
-        )
-        .await
-    {
-        return Err(invalid("public API ingress is not ready").into());
-    }
-    if config.enable_dashboard
-        && !http_ready(
-            &ingress_health_url(config.dashboard_listen),
-            Some(INGRESS_HEALTH_RESPONSE),
-        )
-        .await
-    {
-        return Err(invalid("dashboard ingress is not ready").into());
-    }
-    if config.enable_dashboard
-        && !http_ready(
-            &format!("{}/", health_origin(config.dashboard_listen)),
-            None,
-        )
-        .await
-    {
-        return Err(invalid("dashboard application is not ready").into());
-    }
-    Ok(())
+fn readiness_response(response: &[u8]) -> bool {
+    let Some(header_end) = response.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+        return false;
+    };
+    response.starts_with(b"HTTP/1.1 200 ") && response[header_end + 4..] == *b"ready\n"
 }
 
-fn doctor(config: &Config) -> Result<()> {
-    for command in ["curl", "caddy", "pg_dump", "pg_restore"] {
-        executable(command)?;
+async fn health() -> Result<()> {
+    if readiness_probe(PUBLIC_PORT).await {
+        Ok(())
+    } else {
+        Err(invalid("appliance is not ready").into())
     }
-    if config.database_mode == DatabaseMode::Embedded {
-        for command in [
-            "initdb",
-            "postgres",
-            "pg_ctl",
-            "pg_isready",
-            "psql",
-            "createdb",
-            "dropdb",
-        ] {
-            executable(command)?;
-        }
-        if config.pgdata.join("PG_VERSION").exists() {
-            let found = fs::read_to_string(config.pgdata.join("PG_VERSION"))?;
-            if found.trim() != POSTGRES_MAJOR {
-                return Err(invalid(format!(
-                    "PostgreSQL data major {} does not match image major {POSTGRES_MAJOR}",
-                    found.trim()
-                ))
-                .into());
-            }
-        }
-    }
-    if config.enable_server {
-        executable("neoseq-server")?;
-    }
-    if config.enable_client && !config.client_root.join("index.html").is_file() {
-        return Err(invalid(format!(
-            "client release is missing from {}",
-            config.client_root.display()
-        ))
-        .into());
-    }
-    if config.enable_dashboard && !config.dashboard_root.join("index.html").is_file() {
-        return Err(invalid(format!(
-            "dashboard release is missing from {}",
-            config.dashboard_root.display()
-        ))
-        .into());
-    }
-    eprintln!(
-        "component=appliance level=info message=configuration-valid client={} server={} dashboard={} database={:?}",
-        config.enable_client, config.enable_server, config.enable_dashboard, config.database_mode
-    );
-    Ok(())
 }
 
-async fn backup(config: &Config, destination: &Path) -> Result<()> {
+async fn backup(database: Database, destination: &Path) -> Result<()> {
     if destination.exists() {
         return Err(invalid(format!(
             "backup destination already exists: {}",
@@ -817,7 +612,6 @@ async fn backup(config: &Config, destination: &Path) -> Result<()> {
         ))
         .into());
     }
-    let url = config.server_database_url()?;
     let temporary = destination.with_extension(format!(
         "{}.partial",
         destination
@@ -832,7 +626,7 @@ async fn backup(config: &Config, destination: &Path) -> Result<()> {
         Command::new("pg_dump")
             .args(["--format=custom", "--no-owner", "--file"])
             .arg(&temporary)
-            .arg(&url),
+            .arg(database.url()),
         "database backup",
     )
     .await;
@@ -848,10 +642,7 @@ async fn backup(config: &Config, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn restore(config: &Config, source: &Path) -> Result<()> {
-    if config.database_mode != DatabaseMode::Embedded {
-        return Err(invalid("restore is supported only for embedded PostgreSQL").into());
-    }
+async fn restore(config: RestoreConfig, source: &Path) -> Result<()> {
     if optional("NEOSEQ_RESTORE_CONFIRM").as_deref() != Some("replace-neoseq-data") {
         return Err(invalid(
             "set NEOSEQ_RESTORE_CONFIRM=replace-neoseq-data for destructive restore",
@@ -861,28 +652,49 @@ async fn restore(config: &Config, source: &Path) -> Result<()> {
     if !source.is_file() {
         return Err(invalid(format!("backup does not exist: {}", source.display())).into());
     }
-    if config.state_dir.join("ready").exists() || config.pgdata.join("postmaster.pid").exists() {
-        return Err(invalid("restore requires a stopped appliance and PostgreSQL cluster").into());
+    if [POSTGRES_DATA_DIR, LEGACY_POSTGRES_DATA_DIR]
+        .iter()
+        .any(|directory| Path::new(directory).join("postmaster.pid").exists())
+    {
+        return Err(invalid("restore requires a stopped PostgreSQL cluster").into());
     }
 
-    prepare_state(config)?;
-    initialize_postgres(config).await?;
-    let mut postgres = start_postgres(config)?;
+    prepare_runtime()?;
+    let mut postgres = None;
+    let startup = match timeout(config.startup_timeout, async {
+        initialize_postgres().await?;
+        postgres = Some(start_postgres()?);
+        wait_for_postgres(postgres.as_mut().expect("PostgreSQL was just started")).await
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(invalid("timed out starting PostgreSQL for restore").into()),
+    };
+    if let Err(error) = startup {
+        stop_postgres(&mut postgres, Instant::now() + SHUTDOWN_BUDGET).await;
+        return Err(error);
+    }
+
     let restore_result = async {
-        wait_for_postgres(config, &mut postgres).await?;
-        ensure_database(config).await?;
         successful(
             Command::new("dropdb")
                 .arg("-h")
-                .arg(&config.postgres_socket_dir)
-                .args(["-U", POSTGRES_USER, "--force", POSTGRES_DATABASE]),
+                .arg(POSTGRES_SOCKET_DIR)
+                .args([
+                    "-U",
+                    POSTGRES_USER,
+                    "--if-exists",
+                    "--force",
+                    POSTGRES_DATABASE,
+                ]),
             "drop database for restore",
         )
         .await?;
         successful(
             Command::new("createdb")
                 .arg("-h")
-                .arg(&config.postgres_socket_dir)
+                .arg(POSTGRES_SOCKET_DIR)
                 .args(["-U", POSTGRES_USER, POSTGRES_DATABASE]),
             "create database for restore",
         )
@@ -890,7 +702,7 @@ async fn restore(config: &Config, source: &Path) -> Result<()> {
         successful(
             Command::new("pg_restore")
                 .args(["--exit-on-error", "--no-owner", "--dbname"])
-                .arg(config.embedded_database_url())
+                .arg(EMBEDDED_DATABASE_URL)
                 .arg(source),
             "database restore",
         )
@@ -898,13 +710,7 @@ async fn restore(config: &Config, source: &Path) -> Result<()> {
     }
     .await;
 
-    let _ = Command::new("pg_ctl")
-        .arg("-D")
-        .arg(&config.pgdata)
-        .args(["-m", "fast", "-t", "20", "-w", "stop"])
-        .status()
-        .await;
-    let _ = postgres.wait().await;
+    stop_postgres(&mut postgres, Instant::now() + SHUTDOWN_BUDGET).await;
     restore_result?;
     eprintln!("component=appliance level=info message=restore-complete");
     Ok(())
@@ -919,147 +725,19 @@ async fn successful(command: &mut Command, operation: &str) -> Result<()> {
     }
 }
 
-fn site(
-    listen: SocketAddr,
-    backend: Option<&str>,
-    root: Option<&Path>,
-    runtime_config: Option<&str>,
-) -> String {
-    let bind = match listen.ip() {
-        IpAddr::V4(address) => address.to_string(),
-        IpAddr::V6(address) => format!("[{address}]"),
-    };
-    let response =
-        serde_json::to_string(INGRESS_HEALTH_RESPONSE).expect("serialize health response");
-    let mut output = format!(
-        "http://:{} {{\n\tbind {bind}\n\tlog\n\tencode zstd gzip\n\thandle {INGRESS_HEALTH_PATH} {{\n\t\trespond {response} 200\n\t}}\n",
-        listen.port()
-    );
-    if let Some(runtime_config) = runtime_config {
-        let runtime_config =
-            serde_json::to_string(runtime_config).expect("serialize runtime configuration");
-        output.push_str(&format!(
-            "\thandle {RUNTIME_CONFIG_PATH} {{\n\t\theader Content-Type \"application/json\"\n\t\theader Cache-Control \"no-store\"\n\t\trespond {runtime_config} 200\n\t}}\n"
-        ));
+fn startup_timeout_from_environment() -> Result<Duration> {
+    let seconds = env::var("NEOSEQ_STARTUP_TIMEOUT_SECONDS")
+        .unwrap_or_else(|_| "60".into())
+        .parse::<u64>()
+        .map_err(|_| invalid("NEOSEQ_STARTUP_TIMEOUT_SECONDS must be an integer"))?;
+    if seconds == 0 || seconds > 3_600 {
+        return Err(invalid("NEOSEQ_STARTUP_TIMEOUT_SECONDS must be between 1 and 3600").into());
     }
-    if let Some(backend) = backend {
-        let backend = serde_json::to_string(backend).expect("serialize backend origin");
-        for path in ["/v1/*", "/livez", "/readyz"] {
-            output.push_str(&format!(
-                "\thandle {path} {{\n\t\treverse_proxy {backend}\n\t}}\n"
-            ));
-        }
-    }
-    if let Some(root) = root {
-        let root = serde_json::to_string(&root.display().to_string()).expect("serialize root path");
-        output.push_str(&format!(
-            "\thandle {{\n\t\troot * {root}\n\t\ttry_files {{path}} /index.html\n\t\tfile_server\n\t}}\n"
-        ));
-    } else {
-        output.push_str("\thandle {\n\t\trespond \"not found\" 404\n\t}\n");
-    }
-    output.push_str("}\n\n");
-    output
-}
-
-fn health_origin(listen: SocketAddr) -> String {
-    let address = match listen.ip() {
-        IpAddr::V4(address) if address.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        IpAddr::V6(address) if address.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        address => address,
-    };
-    format!("http://{}", SocketAddr::new(address, listen.port()))
-}
-
-fn ingress_health_url(listen: SocketAddr) -> String {
-    format!("{}{INGRESS_HEALTH_PATH}", health_origin(listen))
-}
-
-fn write_pid(config: &Config, component: &str, child: &Child) -> Result<()> {
-    let pid = child
-        .id()
-        .ok_or_else(|| invalid(format!("{component} has no process ID")))?;
-    fs::write(
-        config.state_dir.join(format!("{component}.pid")),
-        pid.to_string(),
-    )?;
-    Ok(())
-}
-
-fn pid_running(pid: u32) -> bool {
-    #[cfg(unix)]
-    // SAFETY: signal zero performs a process-existence check and dereferences no memory.
-    unsafe {
-        libc::kill(pid as i32, 0) == 0
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        true
-    }
-}
-
-fn executable(command: &str) -> Result<()> {
-    let path = env::var_os("PATH").unwrap_or_default();
-    if env::split_paths(&path).any(|directory| directory.join(command).is_file()) {
-        Ok(())
-    } else {
-        Err(invalid(format!(
-            "required executable is missing from PATH: {command}"
-        ))
-        .into())
-    }
-}
-
-fn boolean(name: &str, default: bool) -> Result<bool> {
-    match env::var(name) {
-        Ok(value) => match value.as_str() {
-            "true" | "1" => Ok(true),
-            "false" | "0" => Ok(false),
-            _ => Err(invalid(format!(
-                "{name} must be true, false, 1, or 0; got {value:?}"
-            ))
-            .into()),
-        },
-        Err(env::VarError::NotPresent) => Ok(default),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn socket(name: &str, default: &str) -> Result<SocketAddr> {
-    value(name, default)
-        .parse()
-        .map_err(|_| invalid(format!("{name} must be an IP socket address")).into())
-}
-
-fn path(name: &str, default: &str) -> PathBuf {
-    PathBuf::from(value(name, default))
-}
-
-fn value(name: &str, default: &str) -> String {
-    env::var(name).unwrap_or_else(|_| default.into())
+    Ok(Duration::from_secs(seconds))
 }
 
 fn optional(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.is_empty())
-}
-
-fn canonical_neoseq_url(value: String) -> Result<String> {
-    let url = Url::parse(&value).map_err(|_| invalid("NEOSEQ_URL must be an absolute URL"))?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(invalid("NEOSEQ_URL must use HTTP or HTTPS").into());
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(invalid("NEOSEQ_URL must not contain credentials").into());
-    }
-    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
-        return Err(
-            invalid("NEOSEQ_URL must be an origin without a path, query, or fragment").into(),
-        );
-    }
-    url.host_str()
-        .ok_or_else(|| invalid("NEOSEQ_URL must contain a host"))?;
-    Ok(url.origin().ascii_serialization())
 }
 
 fn read_secret(path: &Path, name: &str) -> Result<String> {
@@ -1101,17 +779,10 @@ mod tests {
 
     static ENVIRONMENT: Mutex<()> = Mutex::new(());
     const VARIABLES: &[&str] = &[
-        "NEOSEQ_ENABLE_CLIENT",
-        "NEOSEQ_ENABLE_SERVER",
-        "NEOSEQ_ENABLE_DASHBOARD",
-        "NEOSEQ_DATABASE_MODE",
         "DATABASE_URL",
         "DATABASE_URL_FILE",
-        "NEOSEQ_URL",
-        "NEOSEQ_UPSTREAM_ORIGIN",
-        "NEOSEQ_HTTP_LISTEN",
-        "NEOSEQ_DASHBOARD_LISTEN",
         "NEOSEQ_STARTUP_TIMEOUT_SECONDS",
+        "NEOSEQ_RESTORE_CONFIRM",
     ];
 
     fn environment() -> MutexGuard<'static, ()> {
@@ -1129,93 +800,101 @@ mod tests {
     }
 
     #[test]
-    fn all_application_components_default_to_enabled() {
+    fn database_defaults_to_embedded() {
         let _guard = environment();
-        let config = Config::from_environment().unwrap();
-        assert!(config.enable_client);
-        assert!(config.enable_server);
-        assert!(config.enable_dashboard);
-        assert_eq!(config.database_mode, DatabaseMode::Embedded);
-        assert_eq!(config.neoseq_url, None);
+        assert_eq!(Database::from_environment().unwrap(), Database::Embedded);
     }
 
     #[test]
-    fn validates_and_canonicalizes_neoseq_url() {
+    fn database_url_selects_external_database() {
         let _guard = environment();
-        set("NEOSEQ_URL", "https://NEOSEQ.example.test:443/");
-        let config = Config::from_environment().unwrap();
+        set("DATABASE_URL", "postgresql://database.example/neoseq");
         assert_eq!(
-            config.neoseq_url.as_deref(),
-            Some("https://neoseq.example.test")
+            Database::from_environment().unwrap(),
+            Database::External("postgresql://database.example/neoseq".into())
         );
-        assert!(
-            config
-                .caddyfile()
-                .contains("respond \"{\\\"url\\\":\\\"https://neoseq.example.test\\\"}\" 200")
-        );
-
-        set("NEOSEQ_URL", "https://neoseq.example.test/notes");
-        assert!(Config::from_environment().is_err());
-
-        // A personal appliance on a home network has no certificate; the
-        // browser client works over plain HTTP, so the origin is accepted.
-        set("NEOSEQ_URL", "http://nas.local:8080/");
-        let config = Config::from_environment().unwrap();
-        assert_eq!(config.neoseq_url.as_deref(), Some("http://nas.local:8080"));
     }
 
     #[test]
-    fn rejects_ambiguous_or_incomplete_dependencies() {
+    fn database_url_file_selects_external_database() {
         let _guard = environment();
-        set("NEOSEQ_DATABASE_MODE", "external");
-        assert!(Config::from_environment().is_err());
+        let path = env::temp_dir().join(format!(
+            "neoseq-appliance-database-url-{}",
+            std::process::id()
+        ));
+        fs::write(&path, "postgresql://database.example/neoseq\n").unwrap();
+        set("DATABASE_URL_FILE", path.to_str().unwrap());
+        assert_eq!(
+            Database::from_environment().unwrap(),
+            Database::External("postgresql://database.example/neoseq".into())
+        );
+        fs::remove_file(path).unwrap();
+    }
 
+    #[test]
+    fn database_url_sources_are_mutually_exclusive() {
+        let _guard = environment();
         set("DATABASE_URL", "postgresql:///neoseq");
-        set("NEOSEQ_ENABLE_SERVER", "false");
-        assert!(Config::from_environment().is_err());
-
-        set("NEOSEQ_UPSTREAM_ORIGIN", "https://sync.example.test");
-        assert!(Config::from_environment().is_ok());
+        set("DATABASE_URL_FILE", "/run/secrets/database-url");
+        assert!(Database::from_environment().is_err());
     }
 
     #[test]
-    fn caddy_keeps_the_two_rooted_apps_on_distinct_sites() {
+    fn startup_timeout_is_bounded() {
         let _guard = environment();
-        let config = Config::from_environment().unwrap();
-        let caddyfile = config.caddyfile();
-        assert!(caddyfile.contains("http://:8080 {\n\tbind 0.0.0.0"));
-        assert!(caddyfile.contains("http://:8081 {\n\tbind 0.0.0.0"));
-        assert!(caddyfile.contains("/srv/neoseq/client"));
-        assert!(caddyfile.contains("/srv/neoseq/dashboard"));
-        assert_eq!(caddyfile.matches(RUNTIME_CONFIG_PATH).count(), 1);
-        assert!(caddyfile.contains("respond \"{}\" 200"));
-        assert_eq!(caddyfile.matches("handle /v1/*").count(), 2);
-        assert_eq!(caddyfile.matches("handle /__neoseq/health").count(), 2);
+        set("NEOSEQ_STARTUP_TIMEOUT_SECONDS", "0");
+        assert!(ServeConfig::from_environment().is_err());
+        set("NEOSEQ_STARTUP_TIMEOUT_SECONDS", "3601");
+        assert!(ServeConfig::from_environment().is_err());
+        set("NEOSEQ_STARTUP_TIMEOUT_SECONDS", "75");
+        assert_eq!(
+            ServeConfig::from_environment().unwrap().startup_timeout,
+            Duration::from_secs(75)
+        );
     }
 
     #[test]
-    fn caddy_separates_listener_binding_from_host_matching() {
-        let ipv4 = site("127.0.0.1:8080".parse().unwrap(), None, None, None);
-        assert!(ipv4.starts_with("http://:8080 {\n\tbind 127.0.0.1\n"));
-
-        let ipv6 = site("[::1]:8081".parse().unwrap(), None, None, None);
-        assert!(ipv6.starts_with("http://:8081 {\n\tbind [::1]\n"));
-        assert!(ipv6.contains("respond \"neoseq ingress ready\" 200"));
+    fn restore_rejects_external_database_configuration() {
+        let _guard = environment();
+        set("DATABASE_URL", "postgresql:///neoseq");
+        assert!(RestoreConfig::from_environment().is_err());
     }
 
     #[test]
-    fn listener_health_uses_loopback_for_wildcard_binds() {
+    fn migrates_only_the_unambiguous_legacy_postgres_directory() {
+        let _guard = environment();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = env::temp_dir().join(format!(
+            "neoseq-appliance-postgres-migration-{}-{nonce}",
+            std::process::id(),
+        ));
+        let current = root.join("data");
+        let legacy = root.join("17/data");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("PG_VERSION"), "17\n").unwrap();
+
+        migrate_legacy_postgres_data(&current, &legacy).unwrap();
         assert_eq!(
-            health_origin("0.0.0.0:8080".parse().unwrap()),
-            "http://127.0.0.1:8080"
+            fs::read_to_string(current.join("PG_VERSION")).unwrap(),
+            "17\n"
         );
-        assert_eq!(
-            health_origin("[::]:8080".parse().unwrap()),
-            "http://[::1]:8080"
-        );
-        assert_eq!(
-            ingress_health_url("0.0.0.0:8080".parse().unwrap()),
-            "http://127.0.0.1:8080/__neoseq/health"
-        );
+        assert!(!legacy.exists());
+
+        fs::create_dir_all(&legacy).unwrap();
+        assert!(migrate_legacy_postgres_data(&current, &legacy).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn readiness_requires_success_and_the_expected_body() {
+        let ready = b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nready\n";
+        assert!(readiness_response(ready));
+
+        let unavailable = b"HTTP/1.1 503 Service Unavailable\r\n\r\nnot ready\n";
+        assert!(!readiness_response(unavailable));
+        assert!(!readiness_response(b"HTTP/1.1 200 OK\r\n\r\nok\n"));
     }
 }

@@ -32,7 +32,7 @@ stdenv.mkDerivation {
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
     name = "${pname}-${version}-${cargoLockDigest}";
-    hash = "sha256-3K0qeMorMiIuOlJnpATRXpV01o632WUeO1wW6mQh0gw=";
+    hash = "sha256-08DKNT4fWY375FBcO9Y1clhvBqkmL/eThNQVwErfMNQ=";
   };
 
   nativeBuildInputs = [
@@ -44,7 +44,7 @@ stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
 
-    cargo build --offline --frozen --release -p neoseq-server
+    cargo build --offline --frozen --release -p neoseq-appliance -p neoseq-server
 
     runHook postBuild
   '';
@@ -52,6 +52,7 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
+    install -Dm755 target/release/neoseq-appliance "$out/bin/neoseq-appliance"
     install -Dm755 target/release/neoseq-server "$out/bin/neoseq-server"
 
     runHook postInstall

@@ -9,7 +9,6 @@ import {
   PlusIcon,
   UploadIcon,
 } from "lucide-react";
-import { neoseqUrl } from "@/app/runtime-config";
 import {
   deleteGraph,
   exportGraphArchive,
@@ -593,7 +592,7 @@ function RepositoryDialog({
   onConnected: (repository: RemoteRepository) => void;
 }) {
   const { message } = useI18n();
-  const [serverUrl, setServerUrl] = useState(repository?.origin ?? neoseqUrl());
+  const [serverUrl, setServerUrl] = useState(repository?.origin ?? window.location.origin);
   const [username, setUsername] = useState(repository?.username ?? "");
   const [password, setPassword] = useState("");
   const [persistent, setPersistent] = useState(true);
