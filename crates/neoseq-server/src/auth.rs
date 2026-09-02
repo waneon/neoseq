@@ -392,21 +392,23 @@ impl IdentityService for PgIdentity {
         .bind(&username)
         .fetch_optional(&self.pool)
         .await?;
-        let password_hash = row
-            .as_ref()
-            .and_then(|row| row.try_get::<String, _>("password_hash").ok())
-            .unwrap_or_else(|| self.dummy_password_hash.to_string());
-        let password_valid = verify_password(password.to_owned(), password_hash).await?;
         let Some(row) = row else {
+            // An unknown username costs exactly one verification, so the
+            // response time does not say whether the account exists.
+            verify_password(password.to_owned(), self.dummy_password_hash.to_string()).await?;
             return Err(AuthError::Invalid);
         };
         let account_id: String = row.try_get("account_id")?;
         let blocked: bool = row.try_get("blocked")?;
         let status = AccountStatus::parse(row.try_get("status")?)?;
         let role = ServerRole::parse(row.try_get("server_role")?)?;
+        // A locked or disabled account is refused before the hash is checked:
+        // the lockout exists to stop paying for guesses against it.
         if blocked || status != AccountStatus::Active {
             return Err(AuthError::Invalid);
         }
+        let password_hash: String = row.try_get("password_hash")?;
+        let password_valid = verify_password(password.to_owned(), password_hash).await?;
         if !password_valid {
             sqlx::query(
                 "UPDATE account SET

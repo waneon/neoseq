@@ -8,6 +8,7 @@ import { Button } from "@/ui/shadcn/button";
 import {
   grantMembership,
   listMemberships,
+  RemoteApiError,
   revokeMembership,
   type RemoteGraphMembership,
 } from "./api";
@@ -30,16 +31,31 @@ export function RemoteMembersDialog({
   const [invite, setInvite] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("editor");
   const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
+  // The password form appears only while there is no usable session: on
+  // arrival without one, or after the server rejects the one we had.
+  const [needsSignIn, setNeedsSignIn] = useState(
+    () => readAuthSession(connection.repository_id) === null,
+  );
   const busy = request.status === "busy";
 
   const refresh = useCallback(
     async (auth = readAuthSession(connection.repository_id)) => {
-      if (!auth) return;
+      if (!auth) {
+        setNeedsSignIn(true);
+        return;
+      }
       setRequest({ status: "busy" });
       try {
         setMembers((await listMemberships(connection.server_url, auth, graphId)).memberships);
+        setNeedsSignIn(false);
         setRequest({ status: "idle" });
-      } catch {
+      } catch (error) {
+        if (error instanceof RemoteApiError && error.status === 401) {
+          clearAuthSession(connection.repository_id);
+          setNeedsSignIn(true);
+          setRequest({ status: "failed", message: message("repository.signInRequired") });
+          return;
+        }
         // Each verb reports its own failure — a rejected invite is not a
         // network outage, and the sentence names what the user actually tried.
         setRequest({ status: "failed", message: message("graph.membersLoadFailed") });
@@ -91,31 +107,33 @@ export function RemoteMembersDialog({
     <Dialog title={message("graph.membersTitle")} onClose={onClose}>
       <p className="dialog-lede">{message("graph.membersDetail")}</p>
       {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
-      <form className="remote-account-form" onSubmit={saveAccount}>
-        <label className="field-label" htmlFor="member-account-username">
-          {message("graph.username")}
-        </label>
-        <Input id="member-account-username" autoComplete="username" value={username} disabled />
-        <label className="field-label" htmlFor="member-account-password">
-          {message("graph.password")}
-        </label>
-        <div className="remote-account-row">
-          <Input
-            id="member-account-password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <Button
-            variant="secondary"
-            type="submit"
-            disabled={!username.trim() || !password || busy}
-          >
-            {message("graph.signIn")}
-          </Button>
-        </div>
-      </form>
+      {needsSignIn && (
+        <form className="remote-account-form" onSubmit={saveAccount}>
+          <label className="field-label" htmlFor="member-account-username">
+            {message("graph.username")}
+          </label>
+          <Input id="member-account-username" autoComplete="username" value={username} disabled />
+          <label className="field-label" htmlFor="member-account-password">
+            {message("graph.password")}
+          </label>
+          <div className="remote-account-row">
+            <Input
+              id="member-account-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <Button
+              variant="secondary"
+              type="submit"
+              disabled={!username.trim() || !password || busy}
+            >
+              {message("graph.signIn")}
+            </Button>
+          </div>
+        </form>
+      )}
       <ul className="member-list" aria-busy={busy}>
         {members.map((member) => (
           <li key={member.account_id}>

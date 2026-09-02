@@ -1057,13 +1057,8 @@ fn canonical_neoseq_url(value: String) -> Result<String> {
             invalid("NEOSEQ_URL must be an origin without a path, query, or fragment").into(),
         );
     }
-    let host = url
-        .host_str()
+    url.host_str()
         .ok_or_else(|| invalid("NEOSEQ_URL must contain a host"))?;
-    let local = matches!(host, "localhost" | "127.0.0.1" | "::1");
-    if url.scheme() != "https" && !local {
-        return Err(invalid("NEOSEQ_URL requires HTTPS for non-local hosts").into());
-    }
     Ok(url.origin().ascii_serialization())
 }
 
@@ -1162,8 +1157,11 @@ mod tests {
         set("NEOSEQ_URL", "https://neoseq.example.test/notes");
         assert!(Config::from_environment().is_err());
 
-        set("NEOSEQ_URL", "http://neoseq.example.test");
-        assert!(Config::from_environment().is_err());
+        // A personal appliance on a home network has no certificate; the
+        // browser client works over plain HTTP, so the origin is accepted.
+        set("NEOSEQ_URL", "http://nas.local:8080/");
+        let config = Config::from_environment().unwrap();
+        assert_eq!(config.neoseq_url.as_deref(), Some("http://nas.local:8080"));
     }
 
     #[test]

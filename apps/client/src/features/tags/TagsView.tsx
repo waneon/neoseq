@@ -83,6 +83,7 @@ import {
   useQueryExecution,
 } from "../query/execution";
 import { TagIdentityPicker, TagMark } from "./TagIdentity";
+import { randomUUID } from "@/lib/crypto";
 
 /**
  * How many things carry each tag, in one query for the whole screen. It is the
@@ -835,7 +836,7 @@ function NewTagRow({
       });
       return;
     }
-    const tagId = `t-${crypto.randomUUID()}`;
+    const tagId = `t-${randomUUID()}`;
     const owner = { kind: "tag", tag_id: tagId } as const;
     const siblings = existing.filter((tag) => tagGroup(tag) === group);
     try {

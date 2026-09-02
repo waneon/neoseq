@@ -8,6 +8,7 @@ import type {
 } from "../../core-port/snapshot";
 import { journalDate } from "../../core-port/snapshot";
 import { propertyCopyPolicy } from "../../entities/properties";
+import { writeClipboard } from "@/lib/clipboard";
 
 export const NEOSEQ_OUTLINE_MIME = "application/vnd.neoseq.outline+json";
 export const NEOSEQ_OUTLINE_WEB_MIME = `web ${NEOSEQ_OUTLINE_MIME}`;
@@ -154,33 +155,14 @@ export function setClipboardData(
   clipboard.setData("text/plain", bundle.plain);
 }
 
-export async function writeClipboardBundle(bundle: OutlineClipboardBundle): Promise<void> {
-  const write = navigator.clipboard?.write?.bind(navigator.clipboard);
-  if (write && typeof ClipboardItem !== "undefined") {
-    const standard = {
-      "text/plain": new Blob([bundle.plain], { type: "text/plain" }),
-      "text/html": new Blob([bundle.html], { type: "text/html" }),
-    };
-    try {
-      await write([
-        new ClipboardItem({
-          ...standard,
-          [NEOSEQ_OUTLINE_WEB_MIME]: new Blob([bundle.json], {
-            type: NEOSEQ_OUTLINE_MIME,
-          }),
-        }),
-      ]);
-      return;
-    } catch {
-      // Some browsers expose ClipboardItem but not web custom formats. The
-      // HTML representation still carries the fragment as a round-trip hint.
-      await write([new ClipboardItem(standard)]);
-      return;
-    }
-  }
-  const writeText = navigator.clipboard?.writeText?.bind(navigator.clipboard);
-  if (!writeText) throw new Error("Clipboard API unavailable");
-  await writeText(bundle.plain);
+export function writeClipboardBundle(bundle: OutlineClipboardBundle): Promise<void> {
+  // The HTML representation also carries the fragment, so a clipboard that
+  // drops the custom format still round-trips the outline.
+  return writeClipboard({
+    "text/plain": bundle.plain,
+    "text/html": bundle.html,
+    [NEOSEQ_OUTLINE_WEB_MIME]: bundle.json,
+  });
 }
 
 export function readOutlineFragment(

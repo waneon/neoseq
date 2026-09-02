@@ -23,6 +23,15 @@ const ACCENT_KEY = "neoseq.accent-hue";
 /** Iris. The hue the product ships with, and one of the offered steps. */
 export const DEFAULT_ACCENT_HUE = 277;
 
+const themeListeners = new Set<() => void>();
+
+/** Every surface that shows the current mode reads this store, so the palette
+ * row and the settings control cannot disagree. */
+export function subscribeTheme(listener: () => void): () => void {
+  themeListeners.add(listener);
+  return () => themeListeners.delete(listener);
+}
+
 export function storedTheme(): Theme {
   try {
     const value = localStorage.getItem(KEY);
@@ -42,6 +51,7 @@ export function setTheme(theme: Theme): void {
   } catch {
     // A rejected write only costs persistence; the current page still applies.
   }
+  for (const listener of themeListeners) listener();
 }
 
 /** Cycles System → Light → Dark → System, for the palette's one-key toggle. */

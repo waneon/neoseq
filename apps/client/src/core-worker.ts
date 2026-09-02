@@ -19,6 +19,7 @@ import type {
   StorageCapabilitiesDto,
 } from "./generated/core-port";
 import type { MetadataRecord } from "./persistence";
+import { randomUUID } from "@/lib/crypto";
 
 export type GraphMetadata = Pick<
   MetadataRecord,
@@ -159,7 +160,7 @@ export class CoreWorker implements CorePort {
     bytes: ArrayBuffer,
     locator: GraphLocatorDto = {
       repository_id: "local",
-      graph_id: `g-${crypto.randomUUID()}`,
+      graph_id: `g-${randomUUID()}`,
     },
   ): Promise<ImportedGraphArchive> {
     return this.request("import_archive", { bytes, locator }, [bytes]);

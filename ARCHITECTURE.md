@@ -223,8 +223,13 @@ into one referenced Tail/outbox record.
   selection, federation, SPARQL Update, and other I/O-capable forms are rejected.
 - Raw internal errors stay behind typed stable error codes; the UI localizes
   safe messages.
-- Remote endpoints require TLS, authenticated membership, and limits on
-  untrusted CRDT frames before acceptance.
+- Remote endpoints require authenticated membership and limits on untrusted
+  CRDT frames before acceptance. TLS terminates at the deployment ingress and
+  is the operator's responsibility once the server is reachable beyond a
+  private network; the client works over plain HTTP and says what that costs.
+- The client depends on no secure-context-only browser API: identities,
+  digests, the tab lease, and the clipboard each have one implementation that
+  behaves the same on `https://`, `http://localhost`, and a LAN address.
 - People authenticate with a username and password once. The server stores only
   Argon2id verifiers and exchanges a successful login for a bounded, revocable,
   purpose-specific opaque session. A client session may be remembered on one

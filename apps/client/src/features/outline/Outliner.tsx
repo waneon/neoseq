@@ -168,6 +168,7 @@ import {
 } from "../blocks/editor/inline-content";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { createQueryCommand } from "../query/commands";
+import { randomUUID } from "@/lib/crypto";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -2304,7 +2305,7 @@ export function Outliner({
         draftStateRef.current.pageReferences.get(id) ?? row.block.page_references ?? [];
       const pendingText = planInlineEdit(id, baseline, baselineReferences, draft);
       const currentReferences = pendingText?.references ?? baselineReferences;
-      const pageId = chosen.create ? `p-${crypto.randomUUID()}` : chosen.id;
+      const pageId = chosen.create ? `p-${randomUUID()}` : chosen.id;
       const replacement = planPageReference(
         id,
         draft,

@@ -35,7 +35,8 @@ import { DefaultQueriesSection } from "./DefaultQueries";
 import { ToneChoice } from "./ToneChoice";
 import { tonePresentation } from "../tasks/tone-presentation";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
-import { setTheme, storedTheme, type Theme } from "../../ui/theme";
+import { setTheme, storedTheme, subscribeTheme, type Theme } from "../../ui/theme";
+import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { MenuSelect } from "@/ui/menu-select";
@@ -49,6 +50,7 @@ import {
   type LocalePreference,
   type MessageKey,
 } from "../../i18n";
+import { writeClipboardText } from "@/lib/clipboard";
 
 const THEMES: Theme[] = ["system", "light", "dark"];
 const THEME_MESSAGE = {
@@ -200,7 +202,7 @@ function SectionTab({
 function AppearanceSection() {
   const { message } = useI18n();
   const heading = useId();
-  const [theme, setThemeState] = useState<Theme>(storedTheme);
+  const theme = useSyncExternalStore<Theme>(subscribeTheme, storedTheme, storedTheme);
   return (
     <section className="settings-section">
       <h2 id={heading}>{message("settings.appearance")}</h2>
@@ -217,10 +219,7 @@ function AppearanceSection() {
             key={option}
             type="button"
             aria-pressed={theme === option}
-            onClick={() => {
-              setTheme(option);
-              setThemeState(option);
-            }}
+            onClick={() => setTheme(option)}
           >
             {message(THEME_MESSAGE[option])}
           </button>
@@ -531,16 +530,11 @@ function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId
   // A blocked clipboard costs the shortcut, not the value: the id stays on
   // screen and selectable. The button going nowhere still needs explaining.
   const copyGraphId = () => {
-    try {
-      void navigator.clipboard
-        ?.writeText(graphId)
-        .then(() => setCopied(true))
-        .catch((error: unknown) => {
-          notify.failure(message("failure.copyGraphId"), error);
-        });
-    } catch (error) {
-      notify.failure(message("failure.copyGraphId"), error);
-    }
+    void writeClipboardText(graphId)
+      .then(() => setCopied(true))
+      .catch((error: unknown) => {
+        notify.failure(message("failure.copyGraphId"), error);
+      });
   };
 
   return (
@@ -595,6 +589,9 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const deleteStarted = useRef(false);
+  // A local graph has one copy and deleting it is final. A remote graph lives
+  // on the server; here only this device's replica goes.
+  const local = repositoryId === LOCAL_REPOSITORY_ID;
 
   const closeConfirmation = () => {
     setConfirmDelete(false);
@@ -607,7 +604,7 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
   return (
     <section className="settings-section settings-danger">
       <h2>{message("settings.danger")}</h2>
-      <p>{message("settings.deleteDescription")}</p>
+      <p>{message(local ? "settings.deleteDescription" : "settings.removeReplicaDescription")}</p>
       <Button
         ref={deleteButtonRef}
         variant="destructive"
@@ -615,13 +612,13 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
         data-testid="settings-delete-graph"
         onClick={() => setConfirmDelete(true)}
       >
-        {message("settings.deleteGraph")}
+        {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
       </Button>
       {confirmDelete && (
         <ConfirmDialog
-          title={message("graph.deleteTitle")}
+          title={message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}
           cancelLabel={message("common.cancel")}
-          confirmLabel={message("common.deleteForever")}
+          confirmLabel={message(local ? "common.deleteForever" : "graph.removeReplicaAction")}
           testId="settings-confirm-delete"
           returnFocus={() => deleteButtonRef.current}
           onClose={closeConfirmation}
@@ -640,7 +637,9 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
             )
           }
         >
-          {message("graph.deleteConfirm", { name: graphName(repositoryId, graphId) })}
+          {message(local ? "graph.deleteConfirm" : "graph.removeReplicaConfirm", {
+            name: graphName(repositoryId, graphId),
+          })}
         </ConfirmDialog>
       )}
     </section>

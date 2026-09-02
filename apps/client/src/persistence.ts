@@ -4,6 +4,7 @@ import type {
   StorageCapabilitiesDto,
 } from "./generated/core-port";
 import { SCHEMA_VERSION } from "./generated/graph-schema";
+import { sha256Hex } from "@/lib/crypto";
 
 const DATABASE = "neoseq-local-v1";
 const VERSION = 1;
@@ -819,9 +820,8 @@ function mapDomError(error: DOMException | null): StorageError {
   return new StorageError("storage_corrupt", error?.message ?? "IndexedDB operation failed", false);
 }
 
-export async function checksum(payload: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", payload);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export function checksum(payload: ArrayBuffer): Promise<string> {
+  return sha256Hex(payload);
 }
 
 export async function validChecksum(expected: string, payload: ArrayBuffer): Promise<boolean> {

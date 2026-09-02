@@ -8,7 +8,9 @@ services:
       - "8080:8080" # Publish the client and synchronization API.
       - "8081:8081" # Publish the administration dashboard.
     environment:
-      # Canonical browser-facing URL used by the client and generated public links.
+      # Canonical browser-facing origin, offered to clients as the default server
+      # URL. Plain HTTP is accepted for a private network; use HTTPS behind a
+      # TLS-terminating reverse proxy whenever the server is reachable beyond it.
       # NEOSEQ_URL: "https://neoseq.example.com"
       NEOSEQ_ENABLE_CLIENT: "true"
       NEOSEQ_ENABLE_SERVER: "true"
@@ -31,7 +33,10 @@ services:
     volumes:
       # Persist the embedded database and appliance state.
       - ./data:/var/lib/neoseq
-      # Keep logical backups outside the application data volume.
+      # Keep logical backups outside the application data volume. Both host
+      # directories must be owned by NEOSEQ_UID:NEOSEQ_GID. Write a backup with
+      #   docker compose exec --user 10001 neoseq \
+      #     neoseq-appliance backup /backups/neoseq-$(date +%F).dump
       - ./backups:/backups
     # secrets:
     #   # Mount the initial administrator password read-only.

@@ -1,4 +1,5 @@
 import type { AuthSession } from "../sync/auth";
+import { randomUUID } from "@/lib/crypto";
 
 export const LOCAL_REPOSITORY_ID = "local";
 
@@ -72,7 +73,7 @@ export function findRepository(repositoryId: string): Repository | null {
 }
 
 export function createRepositoryId(): string {
-  return `r-${crypto.randomUUID()}`;
+  return `r-${randomUUID()}`;
 }
 
 export function registerRemoteRepository(
@@ -98,16 +99,38 @@ export function registerRemoteRepository(
   return repository;
 }
 
+export function removeRemoteRepository(repositoryId: string): void {
+  writeRemoteRepositories(readRemoteRepositories().filter(({ id }) => id !== repositoryId));
+}
+
 export function repositoryLabel(repository: Repository, localLabel: string): string {
   if (repository.kind === "local") return localLabel;
   const host = new URL(repository.origin).host;
   return `${repository.username}@${host}`;
 }
 
+export type ServerUrlProblem = "invalid" | "mixed-content";
+
+export class ServerUrlError extends Error {
+  constructor(public readonly problem: ServerUrlProblem) {
+    super(problem === "invalid" ? "invalid server URL" : "insecure server from a secure page");
+  }
+}
+
+/** The origin a typed server URL denotes. Plain HTTP is accepted: a personal
+ * appliance on a home network has no certificate, and the browser itself is
+ * the only party that can rule it out — a page delivered over HTTPS cannot
+ * open an HTTP connection at all, which is the one case reported here. */
 export function normalizeServerOrigin(value: string): string {
-  const url = new URL(value || window.location.origin, window.location.origin);
-  if (!["http:", "https:"].includes(url.protocol)) throw new Error("unsupported server protocol");
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !local) throw new Error("remote servers require HTTPS");
+  let url: URL;
+  try {
+    url = new URL(value || window.location.origin, window.location.origin);
+  } catch {
+    throw new ServerUrlError("invalid");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) throw new ServerUrlError("invalid");
+  if (window.location.protocol === "https:" && url.protocol === "http:") {
+    throw new ServerUrlError("mixed-content");
+  }
   return url.origin;
 }

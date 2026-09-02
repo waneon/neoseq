@@ -144,3 +144,22 @@ if (!window.matchMedia) {
     dispatchEvent: () => false,
   })) as typeof window.matchMedia;
 }
+
+// jsdom has no Web Locks. Grant every request so a session opens writable at
+// once, the way a secure-context browser does. lease.test.ts removes this to
+// exercise the BroadcastChannel election that insecure contexts fall back to.
+if (!("locks" in navigator)) {
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (
+        name: string,
+        options: LockOptions | ((lock: Lock | null) => unknown),
+        callback?: (lock: Lock | null) => unknown,
+      ) => {
+        const run = typeof options === "function" ? options : callback;
+        return Promise.resolve(run?.({ name, mode: "exclusive" } as Lock));
+      },
+    },
+  });
+}

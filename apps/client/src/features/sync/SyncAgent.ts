@@ -5,6 +5,7 @@ import { SCHEMA_VERSION } from "../../generated/graph-schema";
 import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
 import { readAuthSession, validateAuthSession } from "./auth";
 import { downloadRemoteCheckpoint } from "./api";
+import { randomUUID } from "@/lib/crypto";
 
 export type RemoteSyncState =
   | { kind: "local" }
@@ -96,17 +97,28 @@ export class SyncAgent {
       this.expirePresence();
       this.maintainConnectivity();
     }, 1_000);
-    void this.refreshPending().then(async () => {
-      const auth = await validateAuthSession(
-        this.connection.repository_id,
-        this.connection.server_url,
-      );
-      if (!auth) {
-        this.patch({ sync: { kind: "paused", reason: "auth" }, live: "paused" });
-        return;
-      }
-      this.connect();
-    });
+    void this.refreshPending()
+      .then(async () => {
+        const auth = await validateAuthSession(
+          this.connection.repository_id,
+          this.connection.server_url,
+        );
+        if (!auth) {
+          this.patch({ sync: { kind: "paused", reason: "auth" }, live: "paused" });
+          return;
+        }
+        this.connect();
+      })
+      .catch((error: unknown) => this.failToStart(error));
+  }
+
+  // A Worker or storage failure before the first connection would otherwise
+  // leave the slots on "connecting" forever with nothing to retry. Report it as
+  // an ordinary sync error and let the reconnect timer try again.
+  private failToStart(error: unknown): void {
+    if (this.stopped) return;
+    this.patch({ sync: { kind: "error", message: String(error) }, live: "offline" });
+    this.scheduleReconnect();
   }
 
   stop(): void {
@@ -161,7 +173,7 @@ export class SyncAgent {
     this.patch({ live: "connecting" });
     const url = new URL("/v1/sync", `${this.connection.server_url}/`);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    this.transportSessionId = `${this.sessionId}:${crypto.randomUUID()}`;
+    this.transportSessionId = `${this.sessionId}:${randomUUID()}`;
     const socket = new WebSocket(url, [SUBPROTOCOL, `neoseq.auth.${base64Url(auth.token)}`]);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
@@ -316,7 +328,7 @@ export class SyncAgent {
       if (!decoded.session_id || decoded.session_id === this.transportSessionId) return;
       this.presence.set(decoded.session_id, {
         ...decoded,
-        expires_at: Date.now() + Math.min(Number(raw.expires_in_ms), PRESENCE_TTL_MS),
+        expires_at: Date.now() + presenceTtl(raw.expires_in_ms),
       });
       this.patch({ presence: new Map(this.presence) });
     } catch {
@@ -402,8 +414,18 @@ export class SyncAgent {
   private onAuthChanged = () => {
     this.abandonSocket("credentials changed");
     this.patch({ live: "connecting", sync: { kind: "pending", count: 0 } });
-    void this.refreshPending().then(() => this.connect());
+    void this.refreshPending()
+      .then(() => this.connect())
+      .catch((error: unknown) => this.failToStart(error));
   };
+}
+
+/** A peer-supplied lifetime, clamped to the protocol ceiling. Anything that is
+ * not a finite number expires immediately: a payload that cannot say how long
+ * it lives must not live forever. */
+function presenceTtl(value: unknown): number {
+  const requested = Number(value);
+  return Number.isFinite(requested) ? Math.max(0, Math.min(requested, PRESENCE_TTL_MS)) : 0;
 }
 
 function numberArray(value: unknown): number[] {

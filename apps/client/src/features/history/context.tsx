@@ -11,6 +11,7 @@ import {
   pageKind,
   type OutlineOwner,
 } from "../../core-port/snapshot";
+import { randomUUID } from "@/lib/crypto";
 
 export type HistoryInvocation =
   | { kind: "outline"; owner: OutlineOwner; blockId: string }
@@ -109,7 +110,7 @@ export function HistoryProvider({
         return;
       }
       const request: HistoryRevealRequest = {
-        token: crypto.randomUUID(),
+        token: randomUUID(),
         blockId: target.id,
         focus,
       };

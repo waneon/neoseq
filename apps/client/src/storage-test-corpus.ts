@@ -4,6 +4,7 @@ import { SCHEMA_VERSION } from "./generated/graph-schema";
 import golden from "../../../fixtures/core-port/current.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
+import { randomUUID } from "@/lib/crypto";
 
 interface Snapshot {
   schema_version: number;
@@ -13,7 +14,7 @@ interface Snapshot {
 }
 
 function graphId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${randomUUID()}`;
 }
 
 function openRequest(graph: string, peer: number): OpenGraphRequest {

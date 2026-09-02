@@ -78,6 +78,7 @@ import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 import { useSessionSelector } from "../shell/session-context";
 import { CellValue, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
+import { randomUUID } from "@/lib/crypto";
 
 const EDIT_DEBOUNCE_MS = 400;
 
@@ -629,7 +630,7 @@ export function useQueryResultEditor({
         current.references,
         current.draft,
       );
-      const pageId = option.create ? `p-${crypto.randomUUID()}` : option.id;
+      const pageId = option.create ? `p-${randomUUID()}` : option.id;
       const replacement = planPageReference(
         blockId,
         current.draft,

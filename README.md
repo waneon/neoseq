@@ -5,20 +5,57 @@ fast, and hassle-free.
 
 ## Quick start
 
-Run Neoseq with the following command:
+Run the whole stack — the Web client, the synchronization server, and its
+PostgreSQL database — as one container:
 
 ```sh
-docker run -p 8080:8080 -p 8081:8081 waneon/neoseq
+docker run -d --name neoseq \
+  -p 8080:8080 -p 8081:8081 \
+  -v neoseq-data:/var/lib/neoseq \
+  waneon/neoseq
 ```
 
-The Neoseq Docker container runs the entire application stack, including the
-synchronization server and PostgreSQL. The Neoseq application is available on
-port `8080`, and the administration dashboard is available on port `8081`.
+Open `http://<host>:8080` from any device on your network. Graphs created there
+stay in that browser until you connect the server: press `+` beside the
+**Local** tab, sign in, and create or import a graph in the account's tab. The
+same graph opened from another browser stays in sync.
 
-By default, an `admin` account is created with the password `change-me-later`.
+The administration dashboard is on port `8081`. It creates accounts, resets
+passwords, and revokes sessions. The server starts with one administrator,
+`admin` with the password `change-me-later`; reset that password before anyone
+else can reach the server.
 
-For more detailed Docker configuration, see
-[`examples/compose.yaml`](examples/compose.yaml).
+Everything the server stores lives in the `neoseq-data` volume; a container
+without one starts empty every time. Plain HTTP is enough on a private network.
+Before exposing the server beyond it, put a TLS-terminating reverse proxy in
+front of both ports and set `NEOSEQ_URL` to the public origin.
+
+Persistent configuration, secret files, an external database, and a backup
+mount are shown in [`examples/compose.yaml`](examples/compose.yaml).
+
+### Backups
+
+The database is the server's only durable state. Write a logical backup into a
+directory mounted at `/backups` and owned by the appliance user (`10001` unless
+`NEOSEQ_UID` says otherwise):
+
+```sh
+docker exec --user 10001 neoseq \
+  neoseq-appliance backup /backups/neoseq-$(date +%F).dump
+```
+
+Restoring replaces the database and runs only against a stopped appliance.
+Start the image once with the same volumes, the confirmation variable, and the
+`restore` command:
+
+```sh
+docker stop neoseq
+docker run --rm \
+  -v neoseq-data:/var/lib/neoseq -v "$PWD/backups:/backups" \
+  -e NEOSEQ_RESTORE_CONFIRM=replace-neoseq-data \
+  waneon/neoseq restore /backups/neoseq-2026-09-02.dump
+docker start neoseq
+```
 
 ## Development
 

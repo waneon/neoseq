@@ -109,12 +109,17 @@ export function propertyGlyph(key: string, valueType?: PropertyValueType): React
 }
 
 /**
- * The stored key a picker query means. A bare name is a user property — typing
- * `effort` creates `user.effort` — while a dotted name is taken literally so
- * full keys keep working.
+ * The stored key a picker query means. A typed name is a user property — `Effort`
+ * or `v1.2 estimate` becomes `user.effort` or `user.v1-2-estimate` — while a
+ * fully qualified key is taken literally so full keys keep working. A name with
+ * no key-safe characters is passed through for validation to describe.
  */
 export function storageKeyForQuery(query: string): string {
   const trimmed = query.trim();
-  if (trimmed.length === 0 || trimmed.includes(".")) return trimmed;
-  return `${USER_PREFIX}${trimmed.toLocaleLowerCase().replace(/\s+/gu, "-")}`;
+  if (trimmed.length === 0 || /^(?:builtin|user)\./u.test(trimmed)) return trimmed;
+  const slug = trimmed
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  return `${USER_PREFIX}${slug || trimmed}`;
 }

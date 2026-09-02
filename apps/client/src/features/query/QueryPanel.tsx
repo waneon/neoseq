@@ -139,6 +139,7 @@ import {
   rememberQueryResultsOpen,
 } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
+import { randomUUID } from "@/lib/crypto";
 
 const PLAN_SAVE_DEBOUNCE_MS = 600;
 
@@ -675,7 +676,7 @@ function QueryPanelSurface({
 
   /** A new view opens on itself: adding one and not landing on it says nothing. */
   const addView = (kind: QueryViewKind) => {
-    const id = `v-${crypto.randomUUID()}`;
+    const id = `v-${randomUUID()}`;
     const name = nextAvailableEntityName(
       message(kind === "table" ? "query.viewTable" : "query.viewList"),
       views.map((view) => view.name),
@@ -707,7 +708,7 @@ function QueryPanelSurface({
   };
 
   const duplicateView = (view: QueryView) => {
-    const id = `v-${crypto.randomUUID()}`;
+    const id = `v-${randomUUID()}`;
     const name = nextAvailableEntityName(
       view.name,
       views.map((item) => item.name),

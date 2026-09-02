@@ -4,6 +4,7 @@ import {
   CloudIcon,
   DownloadIcon,
   HardDriveIcon,
+  LogOutIcon,
   MoreHorizontalIcon,
   PlusIcon,
   UploadIcon,
@@ -13,6 +14,7 @@ import {
   deleteGraph,
   exportGraphArchive,
   installPreparedGraph,
+  listGraphs,
   prepareGraphArchive,
   processPendingDelete,
   registerGraph,
@@ -25,13 +27,20 @@ import {
   listRepositories,
   normalizeServerOrigin,
   registerRemoteRepository,
+  removeRemoteRepository,
   repositoryLabel,
+  ServerUrlError,
   subscribeRepositoryDirectory,
   LOCAL_REPOSITORY_ID,
   type RemoteRepository,
   type Repository,
 } from "../repositories/directory";
-import { createRemoteGraph, createSeededRemoteGraph, listRemoteGraphs } from "../sync/api";
+import {
+  createRemoteGraph,
+  createSeededRemoteGraph,
+  listRemoteGraphs,
+  RemoteApiError,
+} from "../sync/api";
 import { clearAuthSession, readAuthSession, signIn, writeAuthSession } from "../sync/auth";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
@@ -54,11 +63,13 @@ import { useI18n } from "../../i18n";
 import type { AsyncRequestState } from "../../lib/async";
 import { graphPath } from "./routing";
 import { repositoryCatalog, useRepositoryCatalogs } from "./useRepositoryCatalogs";
+import { randomUUID } from "@/lib/crypto";
 
 type GraphDialog =
   | { kind: "rename"; graph: GraphSummary }
   | { kind: "delete"; graph: GraphSummary }
   | { kind: "repository"; repository?: RemoteRepository }
+  | { kind: "forget"; repository: RemoteRepository }
   | null;
 
 const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
@@ -116,6 +127,13 @@ export function GraphPicker() {
     setSelectedId(repositoryId);
   };
 
+  // Signing out keeps the account and its cached copies; only the session goes,
+  // so the tab asks for the password again and everything is still there.
+  const signOut = (repository: RemoteRepository) => {
+    clearAuthSession(repository.id);
+    refreshSelected();
+  };
+
   const openGraph = (graph: GraphSummary) => {
     if (graph.kind === "remote") {
       registerRemoteGraph(graph.repository_id, graph.id, graph.name, graph.created_at, {
@@ -158,7 +176,7 @@ export function GraphPicker() {
   const importArchive = async (file: File) => {
     if (!selected) return;
     setImporting(true);
-    const graphId = `g-${crypto.randomUUID()}`;
+    const graphId = `g-${randomUUID()}`;
     try {
       const bytes = await file.arrayBuffer();
       const prepared = await prepareGraphArchive(
@@ -236,6 +254,40 @@ export function GraphPicker() {
             >
               <PlusIcon aria-hidden />
             </Button>
+            {remote && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={message("repository.actions")}
+                    data-testid="repository-actions"
+                  >
+                    <MoreHorizontalIcon aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      disabled={!readAuthSession(remote.id)}
+                      onSelect={() => signOut(remote)}
+                    >
+                      <LogOutIcon aria-hidden />
+                      {message("repository.signOut")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => setDialog({ kind: "forget", repository: remote })}
+                    >
+                      {message("repository.forget")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
 
           {repositories.map((repository) => {
@@ -250,11 +302,25 @@ export function GraphPicker() {
                 value={repository.id}
                 aria-busy={busy}
               >
-                {catalog.status === "failed" && (
-                  <Callout tone="danger">
-                    {message("repository.listFailed", { detail: message("error.internal") })}
-                  </Callout>
-                )}
+                {catalog.status === "failed" &&
+                  (repositoryRemote ? (
+                    <div className="repository-auth-required">
+                      <Callout tone="danger">
+                        {message("repository.unreachable", {
+                          host: new URL(repositoryRemote.origin).host,
+                        })}
+                      </Callout>
+                      <Button variant="secondary" onClick={refreshSelected}>
+                        {message("common.retry")}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Callout tone="danger">
+                      {message("repository.listFailed", {
+                        detail: message("error.storageCorrupt"),
+                      })}
+                    </Callout>
+                  ))}
                 {catalog.status === "auth" && repositoryRemote && (
                   <div className="repository-auth-required">
                     <Callout>{message("repository.signInRequired")}</Callout>
@@ -397,6 +463,17 @@ export function GraphPicker() {
           }}
         />
       )}
+      {dialog?.kind === "forget" && (
+        <ForgetRepositoryDialog
+          repository={dialog.repository}
+          onClose={() => setDialog(null)}
+          onForgotten={() => {
+            setDialog(null);
+            chooseRepository(LOCAL_REPOSITORY_ID);
+            setRepositories(listRepositories());
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -489,16 +566,12 @@ function GraphList({
                           : message("graph.export")}
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
-                    {graph.kind === "local" && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem variant="destructive" onSelect={() => onDelete(graph)}>
-                            {message("graph.delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </>
-                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem variant="destructive" onSelect={() => onDelete(graph)}>
+                        {message(graph.kind === "local" ? "graph.delete" : "graph.removeReplica")}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -545,9 +618,32 @@ function RepositoryDialog({
         clearAuthSession(repositoryId);
       }
       onConnected(connected);
-    } catch {
-      setRequest({ status: "failed", message: message("graph.signInFailed") });
+    } catch (error) {
+      setRequest({ status: "failed", message: connectFailure(error, serverUrl) });
     }
+  };
+
+  // Three different things go wrong here and each has its own remedy: a URL the
+  // browser cannot use, a server it cannot reach, or a password it rejected.
+  const connectFailure = (error: unknown, url: string): string => {
+    if (error instanceof ServerUrlError) {
+      return message(
+        error.problem === "mixed-content" ? "repository.urlMixedContent" : "repository.urlInvalid",
+      );
+    }
+    if (error instanceof RemoteApiError && (error.status === 401 || error.status === 403)) {
+      return message("graph.signInFailed");
+    }
+    if (error instanceof Error && error.message === "repository account changed") {
+      return message("graph.signInFailed");
+    }
+    let host = url.trim();
+    try {
+      host = new URL(url, window.location.origin).host;
+    } catch {
+      // The typed text is the best name we have for a server we never parsed.
+    }
+    return message("repository.unreachable", { host });
   };
 
   return (
@@ -676,11 +772,14 @@ function DeleteDialog({
 }) {
   const { message } = useI18n();
   const notify = useNotify();
+  // Deleting a local graph destroys the only copy; removing a remote graph
+  // drops this device's replica while the server keeps the graph.
+  const local = graph.kind === "local";
   return (
     <ConfirmDialog
-      title={message("graph.deleteTitle")}
+      title={message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}
       cancelLabel={message("common.cancel")}
-      confirmLabel={message("common.deleteForever")}
+      confirmLabel={message(local ? "common.deleteForever" : "graph.removeReplicaAction")}
       testId="confirm-delete-graph"
       returnFocus={returnFocus}
       onClose={onClose}
@@ -692,7 +791,47 @@ function DeleteDialog({
         notify.failure(message("failure.deleteGraph", { name: graph.name }), cause)
       }
     >
-      {message("graph.deleteConfirm", { name: graph.name })}
+      {message(local ? "graph.deleteConfirm" : "graph.removeReplicaConfirm", { name: graph.name })}
+    </ConfirmDialog>
+  );
+}
+
+function ForgetRepositoryDialog({
+  repository,
+  onClose,
+  onForgotten,
+}: {
+  repository: RemoteRepository;
+  onClose: () => void;
+  onForgotten: () => void;
+}) {
+  const { message } = useI18n();
+  const notify = useNotify();
+  const host = new URL(repository.origin).host;
+  return (
+    <ConfirmDialog
+      title={message("repository.forgetTitle")}
+      cancelLabel={message("common.cancel")}
+      confirmLabel={message("repository.forgetAction")}
+      testId="confirm-forget-repository"
+      returnFocus={() =>
+        document.querySelector<HTMLButtonElement>("[data-testid=repository-actions]")
+      }
+      onClose={onClose}
+      onConfirm={async () => {
+        // Replicas first: a directory entry that outlives its account is
+        // recoverable by reconnecting, a replica without its directory is not.
+        const replicas = (await listGraphs(repository.id)).filter((graph) => graph.cached);
+        for (const replica of replicas) await deleteGraph(repository.id, replica.id);
+        clearAuthSession(repository.id);
+        removeRemoteRepository(repository.id);
+        onForgotten();
+      }}
+      onConfirmError={(cause) =>
+        notify.failure(message("failure.forgetRepository", { host }), cause)
+      }
+    >
+      {message("repository.forgetConfirm", { account: repository.username, host })}
     </ConfirmDialog>
   );
 }

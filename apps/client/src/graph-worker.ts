@@ -27,6 +27,7 @@ import {
   type QuarantineRecord,
 } from "./persistence";
 import { TestIndexedDbGraphRepository, type FaultPoint } from "./testing/test-persistence";
+import { randomUUID } from "@/lib/crypto";
 
 interface Message {
   id: number;
@@ -444,7 +445,7 @@ async function execute(request: ExecuteRequest) {
     commandId: command.command_id ?? "",
     result: execution.result,
     createdAt: now(),
-    messageId: crypto.randomUUID(),
+    messageId: randomUUID(),
     baseVersionVector,
   };
   state.pending = pending;
@@ -605,7 +606,7 @@ function exportArchive(payload: { graph_handle: string; suggested_name: string }
       encodeGraphArchive(
         state.core.exportSnapshot(),
         state.graphId,
-        `archive-${crypto.randomUUID()}`,
+        `archive-${randomUUID()}`,
         now(),
         payload.suggested_name,
       ),
@@ -822,7 +823,7 @@ async function syncReplace(payload: {
     payload.history_epoch,
     serverVersionVector,
     rebasedTail,
-    crypto.randomUUID(),
+    randomUUID(),
     SCHEMA_VERSION,
     now(),
   );

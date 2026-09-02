@@ -36,6 +36,7 @@ import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./s
 import { applyAcknowledgedContentSplices } from "./content-patch";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 import { LOCAL_REPOSITORY_ID } from "../features/repositories/directory";
+import { randomUUID } from "@/lib/crypto";
 
 const COMMAND_TIMEOUT_MS = 10_000;
 
@@ -44,9 +45,16 @@ export type SaveState =
   | { kind: "saving" }
   | { kind: "unsaved"; code: CorePortError["code"]; message: string; retryable: boolean };
 
+/** Why a ready graph refuses commands. `lease`: another tab of this browser
+ * holds the writable lease. `viewer`: the server grants this account read
+ * access only. `awaiting_base`: the replica has no server-accepted Base yet
+ * and becomes writable once Welcome installs one. */
+export type ReadonlyReason = "lease" | "viewer" | "awaiting_base";
+
 export interface SessionState {
   status: "opening" | "ready" | "error" | "closed";
   mode: LeaseMode;
+  readonlyReason: ReadonlyReason | null;
   snapshot: GraphSnapshot;
   save: SaveState;
   capabilities: StorageCapabilitiesDto | null;
@@ -98,7 +106,7 @@ export class GraphSession {
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
   private syncAgent: SyncAgent | null = null;
-  private readonly sessionId = `neoseq-client:${tabId()}:${crypto.randomUUID()}`;
+  private readonly sessionId = `neoseq-client:${tabId()}:${randomUUID()}`;
 
   constructor(
     public readonly graphId: string,
@@ -109,6 +117,7 @@ export class GraphSession {
     this.state = {
       status: "opening",
       mode: "exclusive",
+      readonlyReason: null,
       snapshot: EMPTY_SNAPSHOT,
       save: { kind: "saved", sequence: 0 },
       capabilities: null,
@@ -147,20 +156,19 @@ export class GraphSession {
       this.handle = opened.graph_handle;
       if (this.closeRequested) return;
       const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
-      let mode = remoteReadonly ? "readonly" : this.lease.mode;
+      let hasServerBase = true;
       let syncPort: RequiredSyncPort | null = null;
       if (this.remote) {
         syncPort = requireSyncPort(this.port);
         await syncPort.configureSync(this.handle);
-        const syncState = await syncPort.syncState(this.handle);
         // A local replica without a server-approved Base may contain an empty
-        // bootstrap document or pre-v3 state. Keep it immutable until Welcome
-        // atomically installs the authoritative checkpoint.
-        if (!syncState.has_server_base) mode = "readonly";
+        // bootstrap document. Keep it immutable until Welcome atomically
+        // installs the authoritative checkpoint.
+        hasServerBase = (await syncPort.syncState(this.handle)).has_server_base;
       }
       this.patch({
         status: "ready",
-        mode,
+        ...accessFor(remoteReadonly, this.lease.mode, hasServerBase),
         snapshot: mergeSummary(opened.summary as GraphSummary),
         capabilities: opened.capabilities ?? null,
         recovery: opened.recovery,
@@ -310,6 +318,9 @@ export class GraphSession {
       });
       throw error;
     }
+    // A command rejected before it applies leaves canonical state and the
+    // save state it started from untouched, so remember that state here.
+    const stableSave = this.state.save;
     this.patch({ save: { kind: "saving" } });
     try {
       const response = await this.port.execute({
@@ -362,9 +373,7 @@ export class GraphSession {
           true,
         );
       } else {
-        // The command was rejected before applying; canonical state and the
-        // previous save state are unchanged.
-        this.patch({ save: this.previousStableSave() });
+        this.patch({ save: stableSave });
       }
       throw new CorePortFailure(detail);
     }
@@ -418,7 +427,7 @@ export class GraphSession {
       );
       await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
       const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
-      this.patch({ mode: remoteReadonly ? "readonly" : (this.lease?.mode ?? "readonly") });
+      this.patch(accessFor(remoteReadonly, this.lease?.mode ?? "readonly"));
     });
     this.queue = run.catch(() => undefined);
     return run;
@@ -529,10 +538,6 @@ export class GraphSession {
     } catch {
       return false;
     }
-  }
-
-  private previousStableSave(): SaveState {
-    return this.state.save.kind === "saving" ? { kind: "saved", sequence: 0 } : this.state.save;
   }
 
   private patch(partial: Partial<SessionState>): void {
@@ -677,9 +682,27 @@ const TAB_ID_KEY = "neoseq.tab-id.v1";
 function tabId(): string {
   const existing = sessionStorage.getItem(TAB_ID_KEY);
   if (existing) return existing;
-  const value = crypto.randomUUID();
+  const value = randomUUID();
   sessionStorage.setItem(TAB_ID_KEY, value);
   return value;
+}
+
+/** The one place the three read-only causes are ranked: the server's word
+ * about the account, then this browser's lease, then a replica still waiting
+ * for its first server Base. */
+function accessFor(
+  remoteReadonly: boolean,
+  lease: LeaseMode,
+  hasServerBase = true,
+): Pick<SessionState, "mode" | "readonlyReason"> {
+  const readonlyReason: ReadonlyReason | null = remoteReadonly
+    ? "viewer"
+    : lease === "readonly"
+      ? "lease"
+      : hasServerBase
+        ? null
+        : "awaiting_base";
+  return { mode: readonlyReason ? "readonly" : "exclusive", readonlyReason };
 }
 
 type RequiredSyncPort = SessionPort &

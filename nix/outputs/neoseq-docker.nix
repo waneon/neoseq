@@ -199,7 +199,7 @@ dockerTools.buildLayeredImage {
     };
     StopSignal = "SIGTERM";
     Labels = {
-      "org.opencontainers.image.title" = "Neosesq";
+      "org.opencontainers.image.title" = "Neoseq";
       "org.opencontainers.image.version" = version;
       "org.opencontainers.image.licenses" = "AGPL-3.0-only";
     };

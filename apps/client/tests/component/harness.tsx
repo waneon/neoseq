@@ -1,7 +1,16 @@
 // Component test harness: real GraphSession over the in-memory FakeCorePort,
 // mounted inside the app's route shape so router hooks resolve.
 
-import { act, fireEvent, render, screen, waitFor, type RenderResult } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  type RenderResult,
+} from "@testing-library/react";
+import { afterEach } from "vitest";
 import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { useMemo, type ReactElement, type ReactNode } from "react";
@@ -26,6 +35,18 @@ import {
 } from "../../src/features/commands/context";
 
 export const GRAPH_ID = "test-graph";
+
+// A session holds the graph lease until it closes, exactly as in the browser,
+// so every mounted session is closed once its tree is gone: on an explicit
+// unmount, and after each test for the trees testing-library tears down.
+const openSessions = new Set<GraphSession>();
+
+afterEach(async () => {
+  cleanup();
+  const sessions = [...openSessions];
+  openSessions.clear();
+  await Promise.all(sessions.map((session) => session.close()));
+});
 
 export interface Harness {
   session: GraphSession;
@@ -89,6 +110,7 @@ export async function mountAt(initialPath: string, custom?: ReactElement): Promi
   resetAppSettingsCache();
   resetQueryDisclosure();
   const { session, port } = await openFakeSession(GRAPH_ID);
+  openSessions.add(session);
   // GraphSession is an external store. Production receives its notifications
   // from Worker promises; component tests must mark that same boundary as a
   // React update instead of forcing every test to wrap domain setup commands.
@@ -146,6 +168,12 @@ export async function mountAt(initialPath: string, custom?: ReactElement): Promi
     return value;
   }
   await settle();
+  const unmount = view.unmount.bind(view);
+  view.unmount = () => {
+    unmount();
+    openSessions.delete(session);
+    void session.close();
+  };
   return { session, port, view, router, settle };
 }
 

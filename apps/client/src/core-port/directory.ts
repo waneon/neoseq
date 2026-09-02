@@ -5,6 +5,7 @@
 import { CoreWorker, type PreparedGraphArchive } from "../core-worker";
 import { CORE_PORT_VERSION, type GraphLocatorDto } from "../generated/core-port";
 import { LOCAL_REPOSITORY_ID, findRepository } from "../features/repositories/directory";
+import { randomUUID } from "@/lib/crypto";
 
 export interface GraphRef {
   repository_id: string;
@@ -107,7 +108,7 @@ if (typeof window !== "undefined") {
 }
 
 export function registerGraph(name: string): GraphSummary {
-  const id = `g-${crypto.randomUUID()}`;
+  const id = `g-${randomUUID()}`;
   return registerGraphEntry(LOCAL_REPOSITORY_ID, id, name, new Date().toISOString());
 }
 
@@ -309,7 +310,7 @@ export async function importGraphArchive(
   bytes: ArrayBuffer,
   fallbackName: string,
   repositoryId = LOCAL_REPOSITORY_ID,
-  graphId = `g-${crypto.randomUUID()}`,
+  graphId = `g-${randomUUID()}`,
 ): Promise<GraphSummary> {
   const prepared = await prepareGraphArchive(bytes, fallbackName, repositoryId, graphId);
   return installPreparedGraph(prepared);
@@ -319,7 +320,7 @@ export async function prepareGraphArchive(
   bytes: ArrayBuffer,
   fallbackName: string,
   repositoryId = LOCAL_REPOSITORY_ID,
-  graphId = `g-${crypto.randomUUID()}`,
+  graphId = `g-${randomUUID()}`,
 ): Promise<PreparedGraphImport> {
   const worker = new CoreWorker();
   try {

@@ -1416,12 +1416,6 @@ fn validate_query(
     if dataset.is_some() {
         return Err(QueryError::Disallowed("FROM/FROM NAMED".into()));
     }
-    if sse.contains("(service ") {
-        return Err(QueryError::Disallowed("SERVICE".into()));
-    }
-    if sse.contains("(graph ") {
-        return Err(QueryError::Disallowed("GRAPH".into()));
-    }
     if sse.bytes().filter(|byte| *byte == b'(').count() > max_operators {
         return Err(QueryError::AlgebraBudget);
     }
@@ -1467,9 +1461,11 @@ fn collect_text_calls(
             collect_text_calls(inner, bindings, calls)?;
             collect_text_calls_in_expression(expr, bindings, calls)?;
         }
-        GraphPattern::Graph { inner, .. }
-        | GraphPattern::Service { inner, .. }
-        | GraphPattern::Project { inner, .. }
+        // The sandbox is decided on the algebra, wherever the form is nested:
+        // a named graph selects another dataset and SERVICE reaches the network.
+        GraphPattern::Graph { .. } => return Err(QueryError::Disallowed("GRAPH".into())),
+        GraphPattern::Service { .. } => return Err(QueryError::Disallowed("SERVICE".into())),
+        GraphPattern::Project { inner, .. }
         | GraphPattern::Distinct { inner }
         | GraphPattern::Reduced { inner }
         | GraphPattern::Slice { inner, .. } => collect_text_calls(inner, bindings, calls)?,
@@ -2848,6 +2844,26 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn rejects_dataset_and_federation_forms_wherever_they_nest() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        for source in [
+            "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { GRAPH <urn:other> { ?item neo:content ?content } }",
+            "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { SERVICE <https://example.test/sparql> { ?item neo:content ?content } }",
+            "PREFIX neo: <urn:neoseq:vocab:v1:> ASK { ?item neo:content ?content . FILTER EXISTS { SERVICE SILENT <https://example.test/sparql> { ?item neo:content ?other } } }",
+            "PREFIX neo: <urn:neoseq:vocab:v1:> SELECT ?item WHERE { { ?item neo:content ?content } UNION { GRAPH ?g { ?item neo:content ?content } } }",
+            "PREFIX neo: <urn:neoseq:vocab:v1:> SELECT ?item FROM <urn:other> WHERE { ?item neo:content ?content }",
+        ] {
+            assert!(
+                matches!(
+                    index.execute(request(source)),
+                    Err(QueryError::Disallowed(_))
+                ),
+                "{source}"
+            );
+        }
     }
 
     #[test]

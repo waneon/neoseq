@@ -80,8 +80,13 @@ localStorage or keep a 12-hour session in sessionStorage; its absolute server
 expiry is stored with it and checked before use. The password is never retained,
 and no credential enters graph data or URLs. The user never enters or manages a
 transport token. Canonical note data remains in the Loro repository.
-A Web Lock grants one tab a writable lease per repository-qualified graph; a
-competing tab is read-only. The Loro peer ID is generated once and persisted
+One tab holds the writable lease per repository-qualified graph and a
+competing tab is read-only. The lease is a Web Lock where the browser offers
+one; in an insecure context, where Web Locks, `crypto.randomUUID`,
+`crypto.subtle`, and the asynchronous clipboard are all absent, tabs elect a
+holder over a BroadcastChannel, identifiers and digests come from `lib/crypto`,
+and programmatic copies go through the document's `copy` event. No feature
+asks which context it is in. The Loro peer ID is generated once and persisted
 with replica metadata; only the transport session ID is fresh for each
 connection. See [`repositories.md`](repositories.md).
 
@@ -297,7 +302,8 @@ local data loss:
 - unsaved: a persistent error reason and retry action;
 - sync: pending, synced, paused for auth/revocation/incompatibility, or error;
 - live: connecting, live, offline, or paused;
-- read-only: a persistent lease label.
+- read-only: a persistent label naming its cause — another tab's lease, viewer
+  access, or a replica still awaiting its first server Base.
 
 Steady saved/synced/live states remain visually quiet but available to assistive
 technology. Deviations become visible. Remote editing always commits locally

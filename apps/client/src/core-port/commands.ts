@@ -10,6 +10,7 @@ import type {
   OutlineOwner,
 } from "./snapshot";
 import type { OutlineFragment } from "./fragment";
+import { randomUUID } from "@/lib/crypto";
 
 export type EntityRef =
   | { kind: "page"; id: string }
@@ -194,5 +195,5 @@ export interface HistoryEffect {
 }
 
 export function envelope(graphId: string, command: Command): CommandEnvelope {
-  return { graph_id: graphId, command_id: crypto.randomUUID(), command };
+  return { graph_id: graphId, command_id: randomUUID(), command };
 }

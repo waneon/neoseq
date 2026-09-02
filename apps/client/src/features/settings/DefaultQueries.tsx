@@ -71,6 +71,7 @@ import { planSummary, summaryLabel } from "../query/summary";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
+import { randomUUID } from "@/lib/crypto";
 
 /** The two layouts a journal may read an answer through. */
 const LAYOUTS: QueryViewKind[] = ["list", "table"];
@@ -91,7 +92,7 @@ export function DefaultQueriesSection() {
 
   /** A new query opens on itself: adding one and not landing on it says nothing. */
   const create = (plan: QueryPlan) => {
-    const id = `dq-${crypto.randomUUID()}`;
+    const id = `dq-${randomUUID()}`;
     void session
       .execute({
         type: "create_default_query",

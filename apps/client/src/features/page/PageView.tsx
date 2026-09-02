@@ -34,6 +34,7 @@ import { configuredTimezone } from "../../entities/journal";
 import { useI18n } from "../../i18n";
 import { graphPath } from "../graphs/routing";
 import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
+import { writeClipboardText } from "@/lib/clipboard";
 
 /** Where a context menu was summoned, in viewport coordinates. */
 interface MenuPoint {
@@ -319,7 +320,7 @@ function PageMenu({
                           value: { type: "checkbox", value: true },
                         },
                   )
-                  .catch((error: unknown) => notify.failure(message("failure.saveQuery"), error));
+                  .catch((error: unknown) => notify.failure(message("failure.favourite"), error));
               }}
             >
               {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
@@ -415,7 +416,7 @@ function PageInfoDialog({ page, onClose }: { page: PageSnapshot; onClose: () => 
             onClick={() => {
               // The label swap is the acknowledgement; only its absence needs
               // reporting, because a button that does nothing looks broken.
-              void navigator.clipboard?.writeText(page.id).then(
+              void writeClipboardText(page.id).then(
                 () => setCopied(true),
                 (error: unknown) => {
                   notify.failure(message("failure.copyPageId"), error);

@@ -23,6 +23,7 @@ import { Input } from "@/ui/shadcn/input";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
+import { randomUUID } from "@/lib/crypto";
 
 interface Option {
   id: string;
@@ -98,7 +99,7 @@ export function PageAutocomplete({
   const pick = async (option: Option) => {
     try {
       if (option.create) {
-        const id = `${kind === "tag" ? "t" : "p"}-${crypto.randomUUID()}`;
+        const id = `${kind === "tag" ? "t" : "p"}-${randomUUID()}`;
         const ensure =
           kind === "tag"
             ? { type: "ensure_tag" as const, tag_id: id, name: option.label }

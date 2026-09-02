@@ -28,8 +28,15 @@ import type { HistoryActions, HistoryInvocation } from "../history/context";
 import { graphPath } from "../graphs/routing";
 import type { Notifier } from "../notify/context";
 import type { CommandBridge } from "./context";
+import type { ReadonlyReason } from "../../core-port/session";
 import type { Command } from "./registry";
 import { formatBindingParts, type Binding, type ShortcutId } from "./shortcuts";
+
+const READONLY_REASON = {
+  lease: "commands.readonlyReason",
+  viewer: "commands.readonlyViewerReason",
+  awaiting_base: "commands.readonlyAwaitingReason",
+} as const satisfies Record<ReadonlyReason, string>;
 
 export interface CommandInputs {
   pages: PageSnapshot[];
@@ -38,7 +45,7 @@ export interface CommandInputs {
   graphId: string;
   today: string;
   currentDate: string | null;
-  readonly: boolean;
+  readonlyReason: ReadonlyReason | null;
   theme: Theme;
   railCollapsed: boolean;
   navigate: (to: string) => void;
@@ -90,7 +97,7 @@ export function buildCommands(input: CommandInputs): Command[] {
     graphId,
     today,
     currentDate,
-    readonly,
+    readonlyReason,
     theme,
     navigate,
     createPage,
@@ -107,7 +114,7 @@ export function buildCommands(input: CommandInputs): Command[] {
     history,
     commandAvailability,
   } = input;
-  const blocked = readonly ? message("commands.readonlyReason") : null;
+  const blocked = readonlyReason ? message(READONLY_REASON[readonlyReason]) : null;
   const noPropertyTarget = commandAvailability.properties
     ? null
     : message("commands.noPropertyTargetReason");

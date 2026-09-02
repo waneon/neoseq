@@ -37,11 +37,12 @@ TLS terminates at an operator-managed reverse proxy in front of the container.
 ## Configuration
 
 `NEOSEQ_URL` optionally defines the canonical browser-facing origin of the
-deployment. The appliance exposes it to runtime clients, and server features
-use the same value when producing public URLs. It must be an HTTP origin for a
-local host or an HTTPS origin for any other host. Without it, browser clients
-use their current origin and features that require a canonical public URL must
-remain unavailable or derive one from explicit request context.
+deployment, which the appliance offers to runtime clients as their default
+server URL. It must be a bare HTTP or HTTPS origin; plain HTTP is accepted
+because a personal appliance on a private network has no certificate, and TLS
+belongs to the reverse proxy in front of the container once the server is
+reachable beyond that network. Without it, browser clients use their current
+origin.
 
 `NEOSEQ_ENABLE_CLIENT`, `NEOSEQ_ENABLE_SERVER`, and
 `NEOSEQ_ENABLE_DASHBOARD` are strict booleans and default to `true`.

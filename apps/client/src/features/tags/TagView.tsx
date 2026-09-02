@@ -49,6 +49,7 @@ import { QueryPanel } from "../query/QueryPanel";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { TagDefaults } from "./TagDefaults";
 import { TagIdentityPicker, TagMark } from "./TagIdentity";
+import { writeClipboardText } from "@/lib/clipboard";
 
 /** Where a context menu was summoned, in viewport coordinates. */
 interface MenuPoint {
@@ -435,7 +436,7 @@ function TagInfoDialog({
             onClick={() => {
               // The label swap is the acknowledgement; only its absence needs
               // reporting, because a button that does nothing looks broken.
-              void navigator.clipboard?.writeText(tag.id).then(
+              void writeClipboardText(tag.id).then(
                 () => setCopied(true),
                 (error: unknown) => {
                   notify.failure(message("failure.copyPageId"), error);

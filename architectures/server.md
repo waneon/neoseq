@@ -181,9 +181,10 @@ Loro operation identity keeps their content import idempotent.
 
 ## Security and Abuse Controls
 
-- TLS is mandatory at the deployment ingress (the service itself binds plain
-  HTTP behind that boundary); bearer/session credentials are never accepted in
-  URL query strings or stored in graph updates.
+- TLS terminates at the deployment ingress whenever the service is reachable
+  beyond a private network (the service itself binds plain HTTP behind that
+  boundary); bearer/session credentials are never accepted in URL query strings
+  or stored in graph updates.
 - Authorization is checked outside the CRDT for every graph operation.
 - Usernames are normalized, bounded identifiers but never relational identity;
   graph membership and audit records use the immutable account ID.

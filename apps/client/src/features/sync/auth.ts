@@ -1,3 +1,5 @@
+import { RemoteApiError } from "./api";
+
 export interface AuthSession {
   /** Stable account id used by sync presence and graph memberships. */
   principal: string;
@@ -142,7 +144,7 @@ export async function signIn(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password, purpose: "client", persistent }),
   });
-  if (!response.ok) throw new Error("sign in failed");
+  if (!response.ok) throw new RemoteApiError(response.status, "sign in failed");
   const body = (await response.json()) as LoginResponse;
   const session: AuthSession = {
     principal: body.account.account_id,

@@ -430,12 +430,13 @@ test("pastes a rich outline fragment with properties and tags as one history ste
   await page.getByLabel("Block text").evaluate((target) => {
     const fragment = {
       kind: "neoseq.outline",
-      version: 1,
+      version: 2,
       source_graph_id: "external-graph",
       items: [
         {
           depth: 0,
           markdown: "portable block",
+          page_references: [],
           properties: [
             {
               key: "builtin.task-status",
@@ -582,11 +583,12 @@ test("scrolling a tag's outline leaves no gap where a row belongs", async ({ pag
         "application/vnd.neoseq.outline+json",
         JSON.stringify({
           kind: "neoseq.outline",
-          version: 1,
+          version: 2,
           source_graph_id: "external-graph",
           items: Array.from({ length: 15 }, (_, index) => ({
             depth: 0,
             markdown: `tagged thing ${index}`,
+            page_references: [],
             properties: [],
             tags: ["design"],
           })),

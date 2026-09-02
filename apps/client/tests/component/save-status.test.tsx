@@ -30,6 +30,7 @@ describe("save status", () => {
     await waitFor(() =>
       expect(screen.getByTestId("save-status")).toHaveAttribute("data-save", "saved"),
     );
+    await session.close();
   });
 
   it("labels storage-full failures distinctly", async () => {
@@ -43,5 +44,6 @@ describe("save status", () => {
       session.execute({ type: "rename_page", page_id: "home", title: "Again" }),
     ).rejects.toThrow();
     expect(screen.getByTestId("save-status")).toHaveTextContent("Storage full");
+    await session.close();
   });
 });

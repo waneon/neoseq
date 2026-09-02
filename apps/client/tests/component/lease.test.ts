@@ -1,6 +1,13 @@
 import { FakeCorePort } from "../../src/core-port/testing/fake-core-port";
 import { GraphSession } from "../../src/core-port/session";
 
+/** A fresh module instance stands in for another tab: each tab keeps its own
+ * lease table and speaks to the others only over the BroadcastChannel. */
+async function anotherTab() {
+  vi.resetModules();
+  return import("../../src/core-port/lease");
+}
+
 describe("graph lease lifecycle", () => {
   const originalLocks = navigator.locks;
 
@@ -41,6 +48,33 @@ describe("graph lease lifecycle", () => {
     expect(active.getState()).toMatchObject({ status: "ready", mode: "exclusive" });
 
     await active.close();
+  });
+
+  it("elects one writable tab over a BroadcastChannel when Web Locks are unavailable", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const first = await anotherTab();
+    const second = await anotherTab();
+    const third = await anotherTab();
+
+    const holder = await first.acquireLease("elected-graph");
+    expect(holder.mode).toBe("exclusive");
+    const reader = await second.acquireLease("elected-graph");
+    expect(reader.mode).toBe("readonly");
+
+    holder.release();
+    reader.release();
+    const successor = await third.acquireLease("elected-graph");
+    expect(successor.mode).toBe("exclusive");
+    successor.release();
+  });
+
+  it("settles simultaneous claims on exactly one writable tab", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const tabs = [await anotherTab(), await anotherTab(), await anotherTab()];
+    const leases = await Promise.all(tabs.map((tab) => tab.acquireLease("contended-graph")));
+
+    expect(leases.filter((lease) => lease.mode === "exclusive")).toHaveLength(1);
+    for (const lease of leases) lease.release();
   });
 
   it("never reuses a runtime peer id after a tab session closes", async () => {

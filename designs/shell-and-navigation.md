@@ -92,8 +92,10 @@ bounded graph cards, and a restrained accent atmosphere. Once a graph is open,
 decoration yields to structure and authored content.
 
 Repositories form one horizontal index above the graph list. Local is the
-stable first tab; each remote tab represents exactly one server account, and an
-adjacent `+` opens the connection dialog. Selecting a tab changes the scope of
+stable first tab; each remote tab represents exactly one server account, an
+adjacent `+` opens the connection dialog, and a remote tab's own menu signs
+out or forgets that account. A remote graph card offers to remove this device's
+copy; only a local graph can be deleted, because only its browser holds it. Selecting a tab changes the scope of
 listing, creation, and archive import together. The active tab uses a single
 accent underline rather than a filled pill, keeping the graph cards as the
 screen's primary objects. Tabs may scroll horizontally without wrapping or

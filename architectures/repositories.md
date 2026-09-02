@@ -59,9 +59,14 @@ revoked replicas read-only without changing their stored content.
 
 ## Authentication
 
-The connection dialog accepts server URL, username, and password. Non-local
-servers require HTTPS. A configured `NEOSEQ_URL` supplies the initial server
-URL; otherwise the dialog uses the browser's current origin. The password is
+The connection dialog accepts server URL, username, and password. Plain HTTP
+is accepted so a personal appliance on a private network needs no certificate;
+the dialog states that HTTP carries the password and notes unencrypted, and the
+only scheme it refuses is one the browser itself blocks: an HTTP server from a
+page delivered over HTTPS. A configured `NEOSEQ_URL` supplies the initial
+server URL; otherwise the dialog uses the browser's current origin. A failed
+connection names its cause — an unusable URL, an unreachable server, or a
+rejected password — because each has a different remedy. The password is
 sent only to the login endpoint and is discarded after exchange. Repository
 metadata is stored in localStorage; the opaque, revocable session is stored in
 browser storage under the repository ID. The default remembered client session
@@ -70,7 +75,11 @@ ordinary 12-hour session in sessionStorage. Expired or unauthorized sessions are
 removed. Passwords and sessions never enter routes, graph data, archives, or the
 durable repository directory.
 
-Remote HTTP requests are cross-origin by design and always use an explicit
+A remote repository can be signed out of, which discards only the session, or
+forgotten, which removes its cached replicas, its session, and its directory
+entry together. A cached remote replica can be removed from the device on its
+own; the graph itself is never deleted from the browser because the server owns
+it. Remote HTTP requests are cross-origin by design and always use an explicit
 bearer session. WebSocket authentication uses the protocol credential entry.
 The service has no cookie authority, so allowing browser origins does not grant
 access by itself.

@@ -1,4 +1,5 @@
 import type { AuthSession } from "./auth";
+import { randomUUID, sha256Hex } from "@/lib/crypto";
 
 export type RemoteRole = "owner" | "editor" | "viewer";
 
@@ -66,7 +67,7 @@ export async function createRemoteGraph(
   serverUrl: string,
   auth: AuthSession,
   name: string,
-  graphId = `g-${crypto.randomUUID()}`,
+  graphId = `g-${randomUUID()}`,
 ): Promise<CreatedRemoteGraph> {
   return request(serverUrl, auth, "/v1/graphs", {
     method: "POST",
@@ -138,7 +139,7 @@ export async function downloadRemoteCheckpoint(
     throw new Error("checkpoint response checksum is invalid");
   }
   const checkpoint = await response.arrayBuffer();
-  if ((await sha256(checkpoint)) !== expectedChecksum) {
+  if ((await sha256Hex(checkpoint)) !== expectedChecksum) {
     throw new Error("checkpoint response checksum mismatch");
   }
   return {
@@ -209,9 +210,4 @@ function decodeBase64Url(value: string): number[] {
   } catch {
     throw new Error("checkpoint version vector is invalid");
   }
-}
-
-async function sha256(value: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", value);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

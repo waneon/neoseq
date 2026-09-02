@@ -29,7 +29,7 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import { clearTestHook, createCoreWorker, injectStorageFault } from "virtual:neoseq-worker-factory";
-import { GraphSession } from "../../core-port/session";
+import { GraphSession, type ReadonlyReason } from "../../core-port/session";
 import type { Command as CoreCommand } from "../../core-port/commands";
 import {
   graphConnection,
@@ -61,7 +61,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
-import { setTheme, storedTheme, type Theme } from "../../ui/theme";
+import { setTheme, storedTheme, subscribeTheme, type Theme } from "../../ui/theme";
 import { todayLocalDate } from "../../entities/journal";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
@@ -101,6 +101,24 @@ import { RemoteMembersDialog } from "../sync/RemoteMembersDialog";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { useProgressiveItems } from "../../lib/progressive";
 import { HistoryProvider, useHistoryActions } from "../history/context";
+import { randomUUID } from "@/lib/crypto";
+
+// Three reasons a graph opens read-only, each with its own remedy. Saying
+// "open in another tab" to a viewer would send them to close a tab that
+// does not exist.
+const READONLY_COPY = {
+  lease: { label: "shell.readonly", title: "shell.readonlyTitle", detail: "shell.readonlyDetail" },
+  viewer: {
+    label: "shell.readonlyViewer",
+    title: "shell.readonlyViewerTitle",
+    detail: "shell.readonlyViewerDetail",
+  },
+  awaiting_base: {
+    label: "shell.readonlyAwaiting",
+    title: "shell.readonlyAwaitingTitle",
+    detail: "shell.readonlyAwaitingDetail",
+  },
+} as const satisfies Record<ReadonlyReason, unknown>;
 
 declare global {
   interface Window {
@@ -210,6 +228,7 @@ function ShellBody({
     (left, right) =>
       left.status === right.status &&
       left.mode === right.mode &&
+      left.readonlyReason === right.readonlyReason &&
       left.snapshot === right.snapshot &&
       left.recovery === right.recovery,
   );
@@ -228,7 +247,7 @@ function ShellBody({
     () => graphName(repositoryId, graphId),
   );
   const [overlay, setOverlay] = useState<ShellOverlay>(null);
-  const [theme, setThemeState] = useState<Theme>(storedTheme);
+  const theme = useSyncExternalStore<Theme>(subscribeTheme, storedTheme, storedTheme);
   const [railCollapsed, setRailCollapsed] = useState(() => {
     try {
       return localStorage.getItem(RAIL_KEY) === "collapsed";
@@ -241,10 +260,11 @@ function ShellBody({
   const blockProperties = useRef(createContextualHandlerRegistry<(key?: string) => void>());
   const pageProperties = useRef<((key?: string) => void) | null>(null);
   const pageActions = useRef<PageActions | null>(null);
-  const readonlyAnnounced = useRef(false);
+  const readonlyAnnounced = useRef<ReadonlyReason | null>(null);
   const recoveryAnnounced = useRef(false);
 
   const readonly = state.mode === "readonly";
+  const readonlyReason = state.readonlyReason;
   const remote = graphConnection(repositoryId, graphId);
 
   // The open settings section lives in the URL, so the browser's own Back closes
@@ -291,7 +311,7 @@ function ShellBody({
 
   const createPage = useCallback(
     async (title?: string) => {
-      const pageId = `p-${crypto.randomUUID()}`;
+      const pageId = `p-${randomUUID()}`;
       const pageName =
         title ?? nextAvailableEntityName(message("page.untitled"), pages.map(pageTitle));
       try {
@@ -368,7 +388,6 @@ function ShellBody({
 
   const applyTheme = useCallback((next: Theme) => {
     setTheme(next);
-    setThemeState(next);
   }, []);
 
   // One listener, one arbitration order — and one more rule than before: a modal
@@ -448,16 +467,17 @@ function ShellBody({
   // what carries the condition after the report has expired. Once really means
   // once: a remount must not reopen a notice the user already closed.
   useEffect(() => {
-    if (!readonly || readonlyAnnounced.current) return;
-    readonlyAnnounced.current = true;
+    if (!readonlyReason || readonlyAnnounced.current === readonlyReason) return;
+    readonlyAnnounced.current = readonlyReason;
+    const copy = READONLY_COPY[readonlyReason];
     notify.show({
       tone: "info",
-      key: "readonly-lease",
+      key: `readonly-${readonlyReason}`,
       duration: 12000,
-      title: message("shell.readonlyTitle"),
-      detail: message("shell.readonlyDetail"),
+      title: message(copy.title),
+      detail: message(copy.detail),
     });
-  }, [message, notify, readonly]);
+  }, [message, notify, readonlyReason]);
 
   // Quarantined records are a fact about data the user cannot see from here, so
   // they are reported once rather than pinned above the writing surface. The
@@ -632,7 +652,7 @@ SELECT ?entity ?content WHERE {
     graphId,
     today,
     currentDate,
-    readonly,
+    readonlyReason,
     theme,
     navigate,
     createPage,
@@ -835,9 +855,9 @@ SELECT ?entity ?content WHERE {
             <div className="topbar-right">
               <SessionSaveStatus />
               <SessionCollaborationStatus />
-              {readonly && (
+              {readonlyReason && (
                 <span className="readonly-label" data-testid="readonly-pill">
-                  {message("shell.readonly")}
+                  {message(READONLY_COPY[readonlyReason].label)}
                 </span>
               )}
               <OverflowMenu
