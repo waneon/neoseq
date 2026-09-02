@@ -2686,6 +2686,10 @@ mod tests {
         }
     }
 
+    fn bag(fields: impl IntoIterator<Item = PropertyField>) -> PropertyBag {
+        PropertyBag::try_from_fields(fields).unwrap()
+    }
+
     fn snapshot() -> GraphSnapshot {
         GraphSnapshot {
             schema_version: domain::SCHEMA_VERSION,
@@ -2694,7 +2698,7 @@ mod tests {
             pages: vec![PageSnapshot {
                 id: PageId::new("today").unwrap(),
                 title: "Today".into(),
-                properties: vec![
+                properties: bag([
                     single("user.count", PropertyValue::Number(3.5)),
                     single("user.flag", PropertyValue::Checkbox(true)),
                     single(
@@ -2716,19 +2720,19 @@ mod tests {
                         cardinality: Cardinality::Single,
                         values: vec![],
                     },
-                ],
+                ]),
                 tags: vec![TagId::new("project").unwrap()],
                 blocks: vec![BlockSnapshot {
                     id: BlockId::new("todo-1").unwrap(),
                     markdown: "Ship the Query Engine".into(),
                     page_references: vec![],
-                    properties: vec![
+                    properties: bag([
                         single("builtin.task-status", PropertyValue::String("todo".into())),
                         single(
                             "builtin.task-deadline",
                             PropertyValue::Date(LocalDate::new("2026-08-05").unwrap()),
                         ),
-                    ],
+                    ]),
                     tags: vec![TagId::new("project").unwrap()],
                     children: vec![],
                 }],
@@ -2736,11 +2740,11 @@ mod tests {
             tags: vec![TagSnapshot {
                 id: TagId::new("project").unwrap(),
                 name: "Project".into(),
-                properties: vec![],
-                defaults: vec![single(
+                properties: PropertyBag::new(),
+                defaults: bag([single(
                     "builtin.task-priority",
                     PropertyValue::String("high".into()),
-                )],
+                )]),
                 blocks: vec![],
             }],
             settings: GraphSettings::default(),
@@ -2756,14 +2760,14 @@ mod tests {
             pages: vec![PageSnapshot {
                 id: PageId::new("ordered-page").unwrap(),
                 title: "Ordered".into(),
-                properties: vec![],
+                properties: PropertyBag::new(),
                 tags: vec![],
                 blocks: (0..block_count)
                     .map(|index| BlockSnapshot {
                         id: BlockId::new(format!("block-{index:05}")).unwrap(),
                         markdown: format!("Block {index}"),
                         page_references: vec![],
-                        properties: vec![
+                        properties: bag([
                             single("builtin.task-status", PropertyValue::String("todo".into())),
                             single(
                                 "builtin.task-deadline",
@@ -2772,7 +2776,7 @@ mod tests {
                                         .unwrap(),
                                 ),
                             ),
-                        ],
+                        ]),
                         tags: vec![],
                         children: vec![],
                     })
@@ -3060,7 +3064,7 @@ mod tests {
             id: BlockId::new("tag-note").unwrap(),
             markdown: "Notes about this tag".into(),
             page_references: vec![],
-            properties: vec![],
+            properties: PropertyBag::new(),
             tags: vec![],
             children: vec![],
         });
@@ -3290,7 +3294,13 @@ mod tests {
     fn differential_incremental_and_rebuilt_results_match() {
         let mut source = snapshot();
         let mut incremental = GraphIndex::new(&source).unwrap();
-        source.pages[0].blocks[0].properties[0].values = vec![PropertyValue::String("done".into())];
+        source.pages[0].blocks[0]
+            .properties
+            .insert(single(
+                "builtin.task-status",
+                PropertyValue::String("done".into()),
+            ))
+            .unwrap();
         incremental.refresh(&source).unwrap();
         let rebuilt = GraphIndex::new(&source).unwrap();
         let query = request(
@@ -3382,8 +3392,13 @@ mod tests {
         assert!(index.property_index.exact(&predicate, &todo).contains(id));
         assert!(!index.property_index.exact(&predicate, &done).contains(id));
 
-        source.pages[0].blocks[0].properties[0] =
-            single("builtin.task-status", PropertyValue::String("done".into()));
+        source.pages[0].blocks[0]
+            .properties
+            .insert(single(
+                "builtin.task-status",
+                PropertyValue::String("done".into()),
+            ))
+            .unwrap();
         index
             .apply_delta(IndexDelta {
                 pages: vec![source.pages[0].clone()],

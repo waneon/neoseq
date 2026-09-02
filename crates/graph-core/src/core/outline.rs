@@ -1,5 +1,6 @@
-use super::{CoreError, GraphCore, MAX_BLOCK_TEXT_BYTES, MAX_STRUCTURAL_TARGETS};
-use domain::{BlockId, BlockSnapshot, OutlineOwner};
+use super::{CoreError, GraphCore, MAX_BLOCK_TEXT_BYTES, MAX_STRUCTURAL_TARGETS, block_id};
+use domain::{BlockId, OutlineOwner};
+use loro::{LoroTree, TreeID};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone)]
@@ -30,27 +31,36 @@ pub(super) struct OutlineState {
 }
 
 impl OutlineState {
-    fn from_blocks(blocks: &[BlockSnapshot]) -> Self {
+    fn from_tree(outline: &LoroTree) -> Result<Self, CoreError> {
         let mut state = Self {
             parents: BTreeMap::new(),
             children: BTreeMap::new(),
             document_order: Vec::new(),
         };
-        state.add_blocks(blocks, None);
-        state
+        state.add_nodes(outline, &outline.roots(), None)?;
+        Ok(state)
     }
 
-    fn add_blocks(&mut self, blocks: &[BlockSnapshot], parent: Option<BlockId>) {
-        let ids = blocks
-            .iter()
-            .map(|block| block.id.clone())
-            .collect::<Vec<_>>();
+    fn add_nodes(
+        &mut self,
+        outline: &LoroTree,
+        nodes: &[TreeID],
+        parent: Option<BlockId>,
+    ) -> Result<(), CoreError> {
+        let ids = nodes.iter().copied().map(block_id).collect::<Vec<_>>();
         self.children.insert(parent.clone(), ids);
-        for block in blocks {
-            self.parents.insert(block.id.clone(), parent.clone());
-            self.document_order.push(block.id.clone());
-            self.add_blocks(&block.children, Some(block.id.clone()));
+        for node in nodes {
+            let id = block_id(*node);
+            // `children` returns `None` for leaves as well as unknown nodes, so
+            // keep the old fallible node lookup before treating `None` as an
+            // empty child list.
+            outline.get_meta(*node)?;
+            self.parents.insert(id.clone(), parent.clone());
+            self.document_order.push(id.clone());
+            let children = outline.children(*node).unwrap_or_default();
+            self.add_nodes(outline, &children, Some(id))?;
         }
+        Ok(())
     }
 
     fn roots(&self, requested: &[BlockId]) -> Result<Vec<BlockId>, CoreError> {
@@ -251,9 +261,8 @@ impl OutlineState {
 
 impl GraphCore {
     pub(super) fn outline_state(&self, owner: &OutlineOwner) -> Result<OutlineState, CoreError> {
-        Ok(OutlineState::from_blocks(
-            &self.outline_snapshot(owner)?.blocks,
-        ))
+        self.require_live_outline_owner(owner)?;
+        OutlineState::from_tree(&self.outline(owner)?)
     }
 
     pub(super) fn plan_move_blocks(

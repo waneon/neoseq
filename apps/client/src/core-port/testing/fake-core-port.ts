@@ -157,7 +157,10 @@ export class FakeCorePort implements SessionPort {
       this.restore(before);
       throw error;
     }
-    if (command.type !== "undo" && command.type !== "redo" && result.changed) {
+    if (!result.changed) {
+      return { result, save_status: { status: "unchanged" } };
+    }
+    if (command.type !== "undo" && command.type !== "redo") {
       this.history.push(before);
       if (historyEntry) this.historyEntries.push(this.finishHistory(historyEntry, result));
       this.future = [];

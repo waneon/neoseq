@@ -9,8 +9,8 @@ use domain::{
     StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
 };
 use graph_core::{
-    EventBatch, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository, RuntimeError,
-    SCHEMA_VERSION, recover_graph,
+    EventBatch, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository, RecoveryError,
+    RuntimeError, RuntimePersistence, SCHEMA_VERSION, StorageErrorKind, recover_graph,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -76,8 +76,8 @@ impl NativeCorePort {
         )
         .map_err(map_storage_error)?;
         let recovered_at = self.now();
-        let (core, recovery) = recover_graph(&mut repository, graph_id, &recovered_at)
-            .map_err(|error| map_recovery_error(&error.to_string()))?;
+        let (core, recovery) =
+            recover_graph(&mut repository, graph_id, &recovered_at).map_err(map_recovery_error)?;
         let recovered_metadata = repository.metadata().map_err(map_storage_error)?;
         if recovered_metadata.schema_version != SCHEMA_VERSION
             || repository
@@ -134,48 +134,20 @@ impl NativeCorePort {
         let command: CommandEnvelope =
             serde_json::from_value(request.command).map_err(map_json_error)?;
         let runtime = self.runtime_mut(&request.graph_handle)?;
-        let result = runtime.execute(command).map_err(map_runtime_error)?;
-        let metadata = runtime
-            .repository_mut()
-            .metadata()
-            .map_err(map_storage_error)?;
-        let local_sequence = metadata.next_sequence.saturating_sub(1);
-        let checksum = runtime
-            .repository_mut()
-            .updates_after(local_sequence.saturating_sub(1))
-            .map_err(map_storage_error)?
-            .last()
-            .map_or_else(String::new, |record| record.checksum.clone());
-        let uncompacted = runtime
-            .repository_mut()
-            .updates_after(metadata.compacted_through)
-            .map_err(map_storage_error)?;
-        let uncompacted_bytes = uncompacted
-            .iter()
-            .map(|record| record.bytes.len() as u64)
-            .sum::<u64>();
-        if uncompacted.len() as u64 >= COMPACT_TAIL_UPDATES
-            || uncompacted_bytes >= COMPACT_TAIL_BYTES
-        {
-            let checkpoint = runtime
-                .core()
-                .export_gc_checkpoint()
-                .map_err(map_core_error)?;
-            let checkpointed_at = metadata.updated_at.clone();
-            // The command is already durable. A maintenance failure leaves the
-            // previous checkpoint and tail readable and is retried later.
-            let _ = runtime.repository_mut().install_checkpoint(
-                &checkpoint,
-                local_sequence,
-                &checkpointed_at,
-            );
-        }
+        let execution = runtime.execute(command).map_err(map_runtime_error)?;
+        let save_status = match execution.persistence {
+            RuntimePersistence::Appended(receipt) => {
+                compact_after_append(runtime);
+                SaveStatusDto::SavedLocally {
+                    local_sequence: receipt.local_sequence,
+                    checksum: receipt.checksum,
+                }
+            }
+            RuntimePersistence::Unchanged => SaveStatusDto::Unchanged,
+        };
         Ok(ExecuteResponse {
-            result: serde_json::to_value(result).map_err(map_json_error)?,
-            save_status: SaveStatusDto::SavedLocally {
-                local_sequence,
-                checksum,
-            },
+            result: serde_json::to_value(execution.result).map_err(map_json_error)?,
+            save_status,
         })
     }
 
@@ -309,6 +281,26 @@ impl NativeCorePort {
     }
 }
 
+/// Compaction is maintenance after the command is already durable. Any read,
+/// export, or checkpoint failure leaves the existing Base+Tail recoverable and
+/// must not turn the acknowledged command into an error.
+fn compact_after_append(runtime: &mut NativeRuntime) {
+    let Ok(metadata) = runtime.repository_mut().metadata() else {
+        return;
+    };
+    if metadata.tail_count < COMPACT_TAIL_UPDATES && metadata.tail_bytes < COMPACT_TAIL_BYTES {
+        return;
+    }
+    let Ok(checkpoint) = runtime.core().export_gc_checkpoint() else {
+        return;
+    };
+    let _ = runtime.repository_mut().install_checkpoint(
+        &checkpoint,
+        metadata.next_sequence.saturating_sub(1),
+        &metadata.updated_at,
+    );
+}
+
 fn graph_not_open() -> CorePortError {
     port_error(
         CorePortErrorCode::GraphNotOpen,
@@ -319,21 +311,25 @@ fn graph_not_open() -> CorePortError {
 
 fn map_runtime_error(error: RuntimeError) -> CorePortError {
     match error {
-        RuntimeError::DirtyUnsaved(message) => {
-            let code = if message.to_ascii_lowercase().contains("busy") {
-                CorePortErrorCode::StorageBusy
-            } else if message.to_ascii_lowercase().contains("full") {
-                CorePortErrorCode::StorageFull
-            } else {
-                CorePortErrorCode::DirtyUnsaved
+        RuntimeError::DirtyUnsaved { kind, message } => {
+            // The stage matters more than the repository cause here: the
+            // command already changed memory and exact bytes are pending.
+            // Storage-full remains distinct because the save surface gives it
+            // dedicated remediation; every other cause shares one pending
+            // state so clients cannot mistake the command for rejected.
+            let (code, retryable) = match kind {
+                StorageErrorKind::Full => (CorePortErrorCode::StorageFull, true),
+                StorageErrorKind::Corrupt | StorageErrorKind::NotFound => {
+                    (CorePortErrorCode::DirtyUnsaved, false)
+                }
+                StorageErrorKind::Busy
+                | StorageErrorKind::Unavailable
+                | StorageErrorKind::Other => (CorePortErrorCode::DirtyUnsaved, true),
             };
-            port_error(code, &message, true)
+            port_error(code, &message, retryable)
         }
         RuntimeError::Core(error) => map_core_error(error),
         RuntimeError::Query(error) => map_query_error(error),
-        RuntimeError::Repository(message) => {
-            port_error(CorePortErrorCode::Internal, &message, true)
-        }
         RuntimeError::ZeroEventCapacity => port_error(
             CorePortErrorCode::InvalidRequest,
             "event capacity must be positive",
@@ -376,15 +372,32 @@ fn map_storage_error(error: SqliteRepositoryError) -> CorePortError {
     port_error(code, &error.to_string(), retryable)
 }
 
-fn map_recovery_error(message: &str) -> CorePortError {
-    let code = if message.contains("unsupported schema") {
-        CorePortErrorCode::UnsupportedSchema
-    } else if message.contains("corrupt") || message.contains("none are valid") {
-        CorePortErrorCode::StorageCorrupt
-    } else {
-        CorePortErrorCode::Internal
+fn map_recovery_error(error: RecoveryError) -> CorePortError {
+    let (code, retryable) = match &error {
+        RecoveryError::Core(graph_core::CoreError::UnsupportedSchema(_)) => {
+            (CorePortErrorCode::UnsupportedSchema, false)
+        }
+        RecoveryError::Core(_) => (CorePortErrorCode::StorageCorrupt, false),
+        RecoveryError::NoValidCheckpoint
+        | RecoveryError::Repository {
+            kind: StorageErrorKind::Corrupt,
+            ..
+        } => (CorePortErrorCode::StorageCorrupt, false),
+        RecoveryError::Repository {
+            kind: StorageErrorKind::Busy,
+            ..
+        } => (CorePortErrorCode::StorageBusy, true),
+        RecoveryError::Repository {
+            kind: StorageErrorKind::Full,
+            ..
+        } => (CorePortErrorCode::StorageFull, true),
+        RecoveryError::Repository {
+            kind: StorageErrorKind::NotFound,
+            ..
+        } => (CorePortErrorCode::GraphNotOpen, false),
+        RecoveryError::Repository { .. } => (CorePortErrorCode::Internal, true),
     };
-    port_error(code, message, false)
+    port_error(code, &error.to_string(), retryable)
 }
 
 fn map_json_error(error: serde_json::Error) -> CorePortError {
@@ -396,5 +409,50 @@ fn port_error(code: CorePortErrorCode, message: &str, retryable: bool) -> CorePo
         code,
         message: message.to_owned(),
         retryable,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dirty_write_preserves_the_pending_stage_and_retryability() {
+        let cases = [
+            (
+                StorageErrorKind::Busy,
+                CorePortErrorCode::DirtyUnsaved,
+                true,
+            ),
+            (StorageErrorKind::Full, CorePortErrorCode::StorageFull, true),
+            (
+                StorageErrorKind::Corrupt,
+                CorePortErrorCode::DirtyUnsaved,
+                false,
+            ),
+            (
+                StorageErrorKind::NotFound,
+                CorePortErrorCode::DirtyUnsaved,
+                false,
+            ),
+            (
+                StorageErrorKind::Unavailable,
+                CorePortErrorCode::DirtyUnsaved,
+                true,
+            ),
+            (
+                StorageErrorKind::Other,
+                CorePortErrorCode::DirtyUnsaved,
+                true,
+            ),
+        ];
+        for (kind, code, retryable) in cases {
+            let mapped = map_runtime_error(RuntimeError::DirtyUnsaved {
+                kind,
+                message: "write failed".to_owned(),
+            });
+            assert_eq!(mapped.code, code);
+            assert_eq!(mapped.retryable, retryable);
+        }
     }
 }

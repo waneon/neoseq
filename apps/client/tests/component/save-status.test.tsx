@@ -8,6 +8,24 @@ import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
 import { SaveStatus } from "../../src/features/shell/SaveStatus";
 
 describe("save status", () => {
+  it("preserves the last durable sequence when a command is unchanged", async () => {
+    const { session } = await openFakeSession();
+
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    const stableSave = session.getState().save;
+    expect(stableSave).toEqual({ kind: "saved", sequence: 1 });
+
+    const unchanged = await session.execute({
+      type: "ensure_page",
+      page_id: "home",
+      title: "Home",
+    });
+
+    expect(unchanged.changed).toBe(false);
+    expect(session.getState().save).toEqual(stableSave);
+    await session.close();
+  });
+
   it("tracks saved → unsaved → retried states", async () => {
     const { session, port } = await openFakeSession();
     const user = userEvent.setup();

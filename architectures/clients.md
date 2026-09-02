@@ -16,7 +16,7 @@ defines presentation-only localization.
 
 ## CorePort and Session
 
-The frontend depends on the asynchronous CorePort v2 operations:
+The frontend depends on the asynchronous CorePort v3 operations:
 
 ```text
 open_graph, execute, read, read_outline, query, subscribe, close_graph

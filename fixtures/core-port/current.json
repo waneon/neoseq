@@ -1,5 +1,5 @@
 {
-  "contract_version": 2,
+  "contract_version": 3,
   "operations": [
     "open_graph",
     "execute",
@@ -34,7 +34,7 @@
   "transcript": {
     "open": "summary_available",
     "execute": "saved_locally",
-    "read": "schema_v5_summary",
+    "read": "schema_v6_summary",
     "read_outline": "outline_snapshot",
     "query": "select_result",
     "subscribe": ["semantic", "saved_locally"],

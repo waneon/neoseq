@@ -104,11 +104,16 @@ plan leaves no document change or undo item. The UI supplies targets and a move
 destination, but never operation order or undo-group controls. The pure outline
 model and these structural planners live together in `core/outline.rs`.
 
-The runtime prepares a non-history command once before opening its transaction.
+The runtime prepares a non-batch, non-history command once before opening its
+transaction.
 The private `PreparedCommand` owns its semantic event, history plan, and any
-authoritative outline, tag-detach, or fragment-resolution plan. Validation,
-history navigation, and mutation therefore cannot repeat an expensive structural
-read or disagree about the state against which one intent was accepted.
+authoritative outline, tag-detach, or fragment-resolution plan. For an
+individual command, validation, history navigation, and mutation therefore do
+not repeat an expensive structural read or disagree about the state against
+which one intent was accepted. A batch first validates its complete sequence on
+a disposable fork. Because structural IDs generated there are document-local,
+only portable history scope crosses the fork boundary; each step resolves its
+plan against the live result of the prior step during the one live transaction.
 
 `split_block` is the Enter gesture's atomic boundary. A leading split creates
 an empty sibling before the target and leaves the target `BlockId`, content,
@@ -246,7 +251,11 @@ Durable runtimes add a pending-write state. A command mutates the owned CRDT, bu
 semantic and `SavedLocally` events are withheld until append commits. On failure
 the exact bytes and event metadata remain in memory; another mutation and clean
 close are rejected until retry succeeds. After-commit retries are idempotent at
-the repository checksum boundary.
+the repository checksum boundary. A duplicate or semantic no-op returns the
+explicit `Unchanged` save outcome and never borrows a receipt from another
+update. CorePort adapters preserve this post-mutation stage as `dirty_unsaved`
+(`storage_full` remains the actionable special case), rather than exposing a
+repository cause that a client could mistake for a pre-mutation rejection.
 
 The core exposes full snapshots for history-preserving interchange and shallow
 GC checkpoints for coordinated retention. Platform code may install a shallow

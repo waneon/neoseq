@@ -24,7 +24,10 @@ pub struct GraphMetadata {
     pub next_sequence: u64,
     pub compacted_through: u64,
     pub checkpoint_bytes: u64,
+    /// Durable updates newer than `compacted_through`; retained fallback
+    /// generations are deliberately excluded.
     pub tail_bytes: u64,
+    /// Number of durable updates newer than `compacted_through`.
     pub tail_count: u64,
     pub created_at: String,
     pub updated_at: String,
@@ -72,8 +75,26 @@ pub struct AppendReceipt {
     pub checksum: String,
 }
 
+/// Stable, platform-neutral classification for persistence failures.
+///
+/// Repository implementations retain their concrete error for diagnostics, but
+/// runtimes must not recover behavior by inspecting that error's display text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageErrorKind {
+    Busy,
+    Full,
+    Corrupt,
+    NotFound,
+    Unavailable,
+    Other,
+}
+
 pub trait GraphRepository {
     type Error: std::error::Error + Send + Sync + 'static;
+
+    fn error_kind(_error: &Self::Error) -> StorageErrorKind {
+        StorageErrorKind::Other
+    }
 
     fn append_update(
         &mut self,
@@ -120,8 +141,11 @@ pub struct RecoveryReport {
 pub enum RecoveryError {
     #[error(transparent)]
     Core(#[from] CoreError),
-    #[error("repository operation failed: {0}")]
-    Repository(String),
+    #[error("repository operation failed: {message}")]
+    Repository {
+        kind: StorageErrorKind,
+        message: String,
+    },
     #[error("stored graph has checkpoints but none are valid")]
     NoValidCheckpoint,
 }
@@ -139,7 +163,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
     graph_id: GraphId,
     now: &str,
 ) -> Result<(GraphCore, RecoveryReport), RecoveryError> {
-    let metadata = repository.metadata().map_err(repository_error)?;
+    let metadata = repository.metadata().map_err(repository_error::<R>)?;
     let peer_id = metadata.replica_id;
     if metadata.schema_version != SCHEMA_VERSION {
         return Err(RecoveryError::Core(CoreError::UnsupportedSchema(
@@ -151,7 +175,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
 
     let checkpoints = repository
         .checkpoints_descending()
-        .map_err(repository_error)?;
+        .map_err(repository_error::<R>)?;
     let had_checkpoints = !checkpoints.is_empty();
     for checkpoint in checkpoints {
         let reason = if checkpoint.schema_version != SCHEMA_VERSION {
@@ -185,7 +209,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
                     bytes: checkpoint.bytes,
                     created_at: now.to_owned(),
                 })
-                .map_err(repository_error)?;
+                .map_err(repository_error::<R>)?;
             quarantined.push(export_handle);
         }
     }
@@ -203,7 +227,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
     let mut corrupt_tail = Vec::new();
     for update in repository
         .updates_after(checkpoint_sequence)
-        .map_err(repository_error)?
+        .map_err(repository_error::<R>)?
     {
         let reason = if tail_is_corrupt {
             Some("after-corrupt-tail".to_owned())
@@ -239,7 +263,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
         let checkpoint = core.export_gc_checkpoint()?;
         repository
             .repair_corrupt_tail(&checkpoint, valid_through, &corrupt_tail, now)
-            .map_err(repository_error)?;
+            .map_err(repository_error::<R>)?;
     }
 
     // Recovery is a hard session-local undo boundary. Tail updates may carry
@@ -257,8 +281,11 @@ pub fn recover_graph<R: LocalGraphRepository>(
     ))
 }
 
-fn repository_error(error: impl std::fmt::Display) -> RecoveryError {
-    RecoveryError::Repository(error.to_string())
+fn repository_error<R: GraphRepository>(error: R::Error) -> RecoveryError {
+    RecoveryError::Repository {
+        kind: R::error_kind(&error),
+        message: error.to_string(),
+    }
 }
 
 #[cfg(test)]

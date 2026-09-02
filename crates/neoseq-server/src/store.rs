@@ -1,5 +1,7 @@
 use async_trait::async_trait;
+use domain::GraphId;
 use graph_core::checksum;
+use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 
@@ -11,13 +13,36 @@ const DATABASE_MIGRATIONS: &[&str] = &[
 pub const DATABASE_SCHEMA_VERSION: i32 = DATABASE_MIGRATIONS.len() as i32;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GraphStatus {
     Active,
     ReadOnly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl GraphStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::ReadOnly => "read_only",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "read_only" => Some(Self::ReadOnly),
+            _ => None,
+        }
+    }
+
+    fn from_database(value: &str) -> Result<Self, StoreError> {
+        Self::parse(value).ok_or(StoreError::Corrupt("invalid graph status"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GraphRole {
     Owner,
     Editor,
@@ -25,7 +50,7 @@ pub enum GraphRole {
 }
 
 impl GraphRole {
-    fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Owner => "owner",
             Self::Editor => "editor",
@@ -33,13 +58,17 @@ impl GraphRole {
         }
     }
 
-    fn parse(value: &str) -> Result<Self, StoreError> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "owner" => Ok(Self::Owner),
-            "editor" => Ok(Self::Editor),
-            "viewer" => Ok(Self::Viewer),
-            _ => Err(StoreError::Corrupt("invalid membership role")),
+            "owner" => Some(Self::Owner),
+            "editor" => Some(Self::Editor),
+            "viewer" => Some(Self::Viewer),
+            _ => None,
         }
+    }
+
+    fn from_database(value: &str) -> Result<Self, StoreError> {
+        Self::parse(value).ok_or(StoreError::Corrupt("invalid membership role"))
     }
 
     pub const fn can_write(self) -> bool {
@@ -56,7 +85,7 @@ pub struct Membership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphListing {
-    pub graph_id: String,
+    pub graph_id: GraphId,
     pub display_name: String,
     pub created_at: String,
     pub updated_at: String,
@@ -66,7 +95,7 @@ pub struct GraphListing {
 }
 
 pub struct NewGraph<'a> {
-    pub graph_id: &'a str,
+    pub graph_id: &'a GraphId,
     pub display_name: &'a str,
     pub owner_account_id: &'a str,
     pub schema_version: u32,
@@ -91,18 +120,13 @@ pub struct MembershipListing {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredUpdate {
     pub cursor: u64,
-    pub message_id: String,
-    pub checksum: String,
     pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredCheckpoint {
-    pub history_epoch: u64,
     pub included_cursor: u64,
     pub snapshot: Vec<u8>,
-    pub version_vector: Vec<u8>,
-    pub checksum: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,13 +189,17 @@ impl From<sqlx::Error> for StoreError {
 pub trait GraphStore: Send + Sync + 'static {
     async fn ready(&self) -> Result<(), StoreError>;
 
-    async fn authorize(&self, graph_id: &str, account_id: &str) -> Result<Membership, StoreError>;
+    async fn authorize(
+        &self,
+        graph_id: &GraphId,
+        account_id: &str,
+    ) -> Result<Membership, StoreError>;
 
-    async fn load_graph(&self, graph_id: &str) -> Result<GraphLoad, StoreError>;
+    async fn load_graph(&self, graph_id: &GraphId) -> Result<GraphLoad, StoreError>;
 
     async fn commit_update(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         account_id: &str,
         message_id: &str,
         bytes: &[u8],
@@ -179,7 +207,7 @@ pub trait GraphStore: Send + Sync + 'static {
 
     async fn install_checkpoint(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         expected_epoch: u64,
         included_cursor: u64,
         schema_version: u32,
@@ -194,16 +222,28 @@ pub trait GraphAdmin: GraphStore {
 
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError>;
 
-    async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError>;
+    async fn list_memberships(
+        &self,
+        graph_id: &GraphId,
+    ) -> Result<Vec<MembershipListing>, StoreError>;
 
+    /// Verifies that `actor_account_id` is the current owner in the same
+    /// transaction that changes membership state.
     async fn grant_membership(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
+        actor_account_id: &str,
         account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError>;
 
-    async fn revoke_membership(&self, graph_id: &str, account_id: &str) -> Result<u64, StoreError>;
+    /// Verifies current owner authority atomically and never revokes an owner.
+    async fn revoke_membership(
+        &self,
+        graph_id: &GraphId,
+        actor_account_id: &str,
+        account_id: &str,
+    ) -> Result<u64, StoreError>;
 }
 
 #[derive(Clone)]
@@ -237,7 +277,7 @@ impl PgStore {
              ) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT(graph_id) DO NOTHING",
         )
-        .bind(graph.graph_id)
+        .bind(graph.graph_id.as_str())
         .bind(graph.display_name)
         .bind(
             i32::try_from(graph.schema_version)
@@ -257,7 +297,7 @@ impl PgStore {
                  JOIN graph_membership m ON m.graph_id = g.graph_id
                  WHERE g.graph_id = $1 AND m.role = 'owner' AND m.revoked_at IS NULL",
             )
-            .bind(graph.graph_id)
+            .bind(graph.graph_id.as_str())
             .fetch_optional(&mut *transaction)
             .await?;
             let digest = checksum(graph.snapshot);
@@ -280,7 +320,7 @@ impl PgStore {
             "INSERT INTO graph_membership(graph_id, account_id, role, version)
              VALUES ($1, $2, 'owner', 1)",
         )
-        .bind(graph.graph_id)
+        .bind(graph.graph_id.as_str())
         .bind(graph.owner_account_id)
         .execute(&mut *transaction)
         .await?;
@@ -290,7 +330,7 @@ impl PgStore {
              ) VALUES ($1, 0, $2, $3, $4, $5)
              RETURNING checkpoint_id",
         )
-        .bind(graph.graph_id)
+        .bind(graph.graph_id.as_str())
         .bind(graph.snapshot)
         .bind(graph.version_vector)
         .bind(checksum(graph.snapshot))
@@ -298,7 +338,7 @@ impl PgStore {
         .fetch_one(&mut *transaction)
         .await?;
         sqlx::query("UPDATE graph SET checkpoint_id = $2 WHERE graph_id = $1")
-            .bind(graph.graph_id)
+            .bind(graph.graph_id.as_str())
             .bind(checkpoint_id)
             .execute(&mut *transaction)
             .await?;
@@ -316,7 +356,8 @@ impl PgStore {
 
     async fn upsert_membership(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
+        actor_account_id: &str,
         account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
@@ -324,6 +365,12 @@ impl PgStore {
             return Err(StoreError::InvalidMembershipRole);
         }
         let mut transaction = self.pool.begin().await?;
+        lock_and_authorize_owner(&mut transaction, graph_id, actor_account_id).await?;
+        if active_membership_role(&mut transaction, graph_id, account_id).await?
+            == Some(GraphRole::Owner)
+        {
+            return Err(StoreError::InvalidMembershipRole);
+        }
         let version = bump_membership_version(&mut transaction, graph_id).await?;
         sqlx::query(
             "INSERT INTO graph_membership(graph_id, account_id, role, version, revoked_at)
@@ -331,7 +378,7 @@ impl PgStore {
              ON CONFLICT(graph_id, account_id) DO UPDATE
              SET role = EXCLUDED.role, version = EXCLUDED.version, revoked_at = NULL",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(account_id)
         .bind(role.as_str())
         .bind(as_i64(version)?)
@@ -340,7 +387,7 @@ impl PgStore {
         audit(
             &mut transaction,
             graph_id,
-            account_id,
+            actor_account_id,
             "membership.grant",
             "ok",
         )
@@ -351,17 +398,24 @@ impl PgStore {
 
     async fn revoke_membership_row(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
+        actor_account_id: &str,
         account_id: &str,
     ) -> Result<u64, StoreError> {
         let mut transaction = self.pool.begin().await?;
+        lock_and_authorize_owner(&mut transaction, graph_id, actor_account_id).await?;
+        match active_membership_role(&mut transaction, graph_id, account_id).await? {
+            Some(GraphRole::Owner) => return Err(StoreError::InvalidMembershipRole),
+            Some(GraphRole::Editor | GraphRole::Viewer) => {}
+            None => return Err(StoreError::AccessDenied),
+        }
         let version = bump_membership_version(&mut transaction, graph_id).await?;
         let affected = sqlx::query(
             "UPDATE graph_membership
              SET revoked_at = NOW(), version = $3
              WHERE graph_id = $1 AND account_id = $2 AND revoked_at IS NULL",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(account_id)
         .bind(as_i64(version)?)
         .execute(&mut *transaction)
@@ -373,7 +427,7 @@ impl PgStore {
         audit(
             &mut transaction,
             graph_id,
-            account_id,
+            actor_account_id,
             "membership.revoke",
             "ok",
         )
@@ -381,6 +435,40 @@ impl PgStore {
         transaction.commit().await?;
         Ok(version)
     }
+}
+
+async fn lock_and_authorize_owner(
+    transaction: &mut Transaction<'_, Postgres>,
+    graph_id: &GraphId,
+    actor_account_id: &str,
+) -> Result<(), StoreError> {
+    sqlx::query_scalar::<_, i32>("SELECT 1 FROM graph WHERE graph_id = $1 FOR UPDATE")
+        .bind(graph_id.as_str())
+        .fetch_optional(&mut **transaction)
+        .await?
+        .ok_or(StoreError::AccessDenied)?;
+
+    match active_membership_role(transaction, graph_id, actor_account_id).await? {
+        Some(GraphRole::Owner) => Ok(()),
+        Some(GraphRole::Editor | GraphRole::Viewer) | None => Err(StoreError::AccessDenied),
+    }
+}
+
+async fn active_membership_role(
+    transaction: &mut Transaction<'_, Postgres>,
+    graph_id: &GraphId,
+    account_id: &str,
+) -> Result<Option<GraphRole>, StoreError> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT role FROM graph_membership
+         WHERE graph_id = $1 AND account_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(graph_id.as_str())
+    .bind(account_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .map(|role| GraphRole::from_database(&role))
+    .transpose()
 }
 
 async fn initialize_schema(pool: &PgPool) -> Result<(), StoreError> {
@@ -430,13 +518,13 @@ async fn initialize_schema(pool: &PgPool) -> Result<(), StoreError> {
 
 async fn bump_membership_version(
     transaction: &mut Transaction<'_, Postgres>,
-    graph_id: &str,
+    graph_id: &GraphId,
 ) -> Result<u64, StoreError> {
     let version: i64 = sqlx::query_scalar(
         "UPDATE graph SET membership_version = membership_version + 1
          WHERE graph_id = $1 RETURNING membership_version",
     )
-    .bind(graph_id)
+    .bind(graph_id.as_str())
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(StoreError::AccessDenied)?;
@@ -445,7 +533,7 @@ async fn bump_membership_version(
 
 async fn audit(
     transaction: &mut Transaction<'_, Postgres>,
-    graph_id: &str,
+    graph_id: &GraphId,
     account_id: &str,
     action: &str,
     result: &str,
@@ -454,7 +542,7 @@ async fn audit(
         "INSERT INTO graph_audit_event(graph_id, account_id, action, result_code)
          VALUES ($1, $2, $3, $4)",
     )
-    .bind(graph_id)
+    .bind(graph_id.as_str())
     .bind(account_id)
     .bind(action)
     .bind(result)
@@ -470,34 +558,38 @@ impl GraphStore for PgStore {
         Ok(())
     }
 
-    async fn authorize(&self, graph_id: &str, account_id: &str) -> Result<Membership, StoreError> {
+    async fn authorize(
+        &self,
+        graph_id: &GraphId,
+        account_id: &str,
+    ) -> Result<Membership, StoreError> {
         let row = sqlx::query(
             "SELECT m.role, m.version, g.schema_version
              FROM graph_membership m
              JOIN graph g ON g.graph_id = m.graph_id
              WHERE m.graph_id = $1 AND m.account_id = $2 AND m.revoked_at IS NULL",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(account_id)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::AccessDenied)?;
         Ok(Membership {
-            role: GraphRole::parse(row.try_get("role")?)?,
+            role: GraphRole::from_database(row.try_get("role")?)?,
             version: as_u64(row.try_get("version")?)?,
             schema_version: as_u32(row.try_get("schema_version")?)?,
         })
     }
 
-    async fn load_graph(&self, graph_id: &str) -> Result<GraphLoad, StoreError> {
+    async fn load_graph(&self, graph_id: &GraphId) -> Result<GraphLoad, StoreError> {
         let row = sqlx::query(
             "SELECT g.schema_version, g.history_epoch, c.history_epoch AS checkpoint_epoch,
-                    c.included_cursor, c.snapshot, c.version_vector, c.checksum
+                    c.included_cursor, c.snapshot, c.checksum
              FROM graph g
              JOIN graph_checkpoint c ON c.checkpoint_id = g.checkpoint_id
              WHERE g.graph_id = $1",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::AccessDenied)?;
@@ -512,11 +604,11 @@ impl GraphStore for PgStore {
             return Err(StoreError::Corrupt("checkpoint history epoch mismatch"));
         }
         let update_rows = sqlx::query(
-            "SELECT cursor, message_id, checksum, payload
+            "SELECT cursor, checksum, payload
              FROM graph_update
              WHERE graph_id = $1 AND cursor > $2 ORDER BY cursor",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(as_i64(included_cursor)?)
         .fetch_all(&self.pool)
         .await?;
@@ -529,8 +621,6 @@ impl GraphStore for PgStore {
             }
             updates.push(StoredUpdate {
                 cursor: as_u64(update.try_get("cursor")?)?,
-                message_id: update.try_get("message_id")?,
-                checksum: expected,
                 bytes,
             });
         }
@@ -538,11 +628,8 @@ impl GraphStore for PgStore {
             schema_version: as_u32(row.try_get("schema_version")?)?,
             history_epoch,
             checkpoint: StoredCheckpoint {
-                history_epoch,
                 included_cursor,
                 snapshot,
-                version_vector: row.try_get("version_vector")?,
-                checksum: snapshot_checksum,
             },
             updates,
         })
@@ -550,7 +637,7 @@ impl GraphStore for PgStore {
 
     async fn commit_update(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         account_id: &str,
         message_id: &str,
         bytes: &[u8],
@@ -565,13 +652,15 @@ impl GraphStore for PgStore {
              WHERE g.graph_id = $1 AND m.account_id = $2 AND m.revoked_at IS NULL
              FOR UPDATE OF g",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(account_id)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(StoreError::AccessDenied)?;
-        let role = GraphRole::parse(row.try_get("role")?)?;
-        if !role.can_write() || parse_status(row.try_get("status")?)? == GraphStatus::ReadOnly {
+        let role = GraphRole::from_database(row.try_get("role")?)?;
+        if !role.can_write()
+            || GraphStatus::from_database(row.try_get("status")?)? == GraphStatus::ReadOnly
+        {
             return Err(StoreError::ReadOnly);
         }
         let digest = checksum(bytes);
@@ -583,7 +672,7 @@ impl GraphStore for PgStore {
              WHERE graph_id = $1 AND message_id = $2
              LIMIT 1",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(message_id)
         .fetch_optional(&mut *transaction)
         .await?
@@ -611,7 +700,7 @@ impl GraphStore for PgStore {
              ) VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING cursor",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(message_id)
         .bind(account_id)
         .bind(&digest)
@@ -623,7 +712,7 @@ impl GraphStore for PgStore {
             "UPDATE graph SET used_bytes = $2, updated_at = NOW()
              WHERE graph_id = $1",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(as_i64(next_used)?)
         .execute(&mut *transaction)
         .await?;
@@ -644,7 +733,7 @@ impl GraphStore for PgStore {
 
     async fn install_checkpoint(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         expected_epoch: u64,
         included_cursor: u64,
         schema_version: u32,
@@ -656,7 +745,7 @@ impl GraphStore for PgStore {
             "SELECT history_epoch, byte_quota, checkpoint_id FROM graph
              WHERE graph_id = $1 FOR UPDATE",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(StoreError::AccessDenied)?;
@@ -671,7 +760,7 @@ impl GraphStore for PgStore {
             "SELECT included_cursor, size_bytes FROM graph_checkpoint
              WHERE graph_id = $1 AND checkpoint_id = $2",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(prior_checkpoint_id)
         .fetch_one(&mut *transaction)
         .await?;
@@ -684,7 +773,7 @@ impl GraphStore for PgStore {
             "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM graph_update
              WHERE graph_id = $1 AND cursor > $2",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(as_i64(prior_cursor)?)
         .fetch_one(&mut *transaction)
         .await?;
@@ -703,7 +792,7 @@ impl GraphStore for PgStore {
              ) VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING checkpoint_id",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(as_i64(next_epoch)?)
         .bind(as_i64(included_cursor)?)
         .bind(snapshot)
@@ -719,7 +808,7 @@ impl GraphStore for PgStore {
                FROM graph_update WHERE graph_id = $1 AND cursor <= $2
              ON CONFLICT(graph_id, message_id) DO NOTHING",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(as_i64(included_cursor)?)
         .execute(&mut *transaction)
         .await?;
@@ -730,12 +819,12 @@ impl GraphStore for PgStore {
                  WHERE graph_id = $1 ORDER BY cursor DESC LIMIT $2
              )",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(as_i64(MAX_RETAINED_RECEIPTS as u64)?)
         .execute(&mut *transaction)
         .await?;
         sqlx::query("DELETE FROM graph_update WHERE graph_id = $1 AND cursor <= $2")
-            .bind(graph_id)
+            .bind(graph_id.as_str())
             .bind(as_i64(prior_cursor)?)
             .execute(&mut *transaction)
             .await?;
@@ -745,7 +834,7 @@ impl GraphStore for PgStore {
                               updated_at = NOW()
              WHERE graph_id = $1",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(checkpoint_id)
         .bind(as_i64(next_epoch)?)
         .bind(i32::try_from(schema_version).map_err(|_| StoreError::Corrupt("schema overflow"))?)
@@ -756,7 +845,7 @@ impl GraphStore for PgStore {
             "DELETE FROM graph_checkpoint
              WHERE graph_id = $1 AND checkpoint_id NOT IN ($2, $3)",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .bind(checkpoint_id)
         .bind(prior_checkpoint_id)
         .execute(&mut *transaction)
@@ -789,33 +878,36 @@ impl GraphAdmin for PgStore {
         rows.into_iter()
             .map(|row| {
                 Ok(GraphListing {
-                    graph_id: row.try_get("graph_id")?,
+                    graph_id: graph_id_from_database(row.try_get("graph_id")?)?,
                     display_name: row.try_get("display_name")?,
                     created_at: row.try_get("created_at")?,
                     updated_at: row.try_get("updated_at")?,
-                    role: GraphRole::parse(row.try_get("role")?)?,
-                    status: parse_status(row.try_get("status")?)?,
+                    role: GraphRole::from_database(row.try_get("role")?)?,
+                    status: GraphStatus::from_database(row.try_get("status")?)?,
                     membership_version: as_u64(row.try_get("membership_version")?)?,
                 })
             })
             .collect()
     }
 
-    async fn list_memberships(&self, graph_id: &str) -> Result<Vec<MembershipListing>, StoreError> {
+    async fn list_memberships(
+        &self,
+        graph_id: &GraphId,
+    ) -> Result<Vec<MembershipListing>, StoreError> {
         let rows = sqlx::query(
             "SELECT account_id, role, version
              FROM graph_membership
              WHERE graph_id = $1 AND revoked_at IS NULL
              ORDER BY account_id",
         )
-        .bind(graph_id)
+        .bind(graph_id.as_str())
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
             .map(|row| {
                 Ok(MembershipListing {
                     account_id: row.try_get("account_id")?,
-                    role: GraphRole::parse(row.try_get("role")?)?,
+                    role: GraphRole::from_database(row.try_get("role")?)?,
                     version: as_u64(row.try_get("version")?)?,
                 })
             })
@@ -824,28 +916,32 @@ impl GraphAdmin for PgStore {
 
     async fn grant_membership(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
+        actor_account_id: &str,
         account_id: &str,
         role: GraphRole,
     ) -> Result<u64, StoreError> {
-        self.upsert_membership(graph_id, account_id, role).await
+        self.upsert_membership(graph_id, actor_account_id, account_id, role)
+            .await
     }
 
-    async fn revoke_membership(&self, graph_id: &str, account_id: &str) -> Result<u64, StoreError> {
-        self.revoke_membership_row(graph_id, account_id).await
-    }
-}
-
-fn parse_status(value: &str) -> Result<GraphStatus, StoreError> {
-    match value {
-        "active" => Ok(GraphStatus::Active),
-        "read_only" => Ok(GraphStatus::ReadOnly),
-        _ => Err(StoreError::Corrupt("invalid graph status")),
+    async fn revoke_membership(
+        &self,
+        graph_id: &GraphId,
+        actor_account_id: &str,
+        account_id: &str,
+    ) -> Result<u64, StoreError> {
+        self.revoke_membership_row(graph_id, actor_account_id, account_id)
+            .await
     }
 }
 
 fn as_u64(value: i64) -> Result<u64, StoreError> {
     u64::try_from(value).map_err(|_| StoreError::Corrupt("negative database integer"))
+}
+
+fn graph_id_from_database(value: String) -> Result<GraphId, StoreError> {
+    GraphId::new(value).map_err(|_| StoreError::Corrupt("invalid graph identifier"))
 }
 
 fn as_u32(value: i32) -> Result<u32, StoreError> {
@@ -854,4 +950,35 @@ fn as_u32(value: i32) -> Result<u32, StoreError> {
 
 fn as_i64(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::Corrupt("database integer overflow"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_enums_share_database_and_json_names() {
+        assert_eq!(GraphRole::parse("owner"), Some(GraphRole::Owner));
+        assert_eq!(GraphStatus::parse("read_only"), Some(GraphStatus::ReadOnly));
+        assert_eq!(
+            serde_json::to_string(&GraphRole::Editor).unwrap(),
+            "\"editor\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GraphStatus::ReadOnly).unwrap(),
+            "\"read_only\""
+        );
+        assert!(matches!(
+            GraphRole::from_database("writer"),
+            Err(StoreError::Corrupt("invalid membership role"))
+        ));
+        assert!(matches!(
+            GraphStatus::from_database("archived"),
+            Err(StoreError::Corrupt("invalid graph status"))
+        ));
+        assert!(matches!(
+            graph_id_from_database(String::new()),
+            Err(StoreError::Corrupt("invalid graph identifier"))
+        ));
+    }
 }

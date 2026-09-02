@@ -4,11 +4,10 @@ use crate::{
 };
 use domain::GraphId;
 use graph_core::{GraphCore, SCHEMA_VERSION};
-#[cfg(debug_assertions)]
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::{collections::HashMap, sync::Arc};
 use sync_protocol::{
     Ack, ErrorCode, ErrorMessage, Limits, Message, Presence, ResyncRequired, Update, Welcome,
+    WelcomePayload,
 };
 use thiserror::Error;
 use tokio::sync::{Mutex, OnceCell, mpsc};
@@ -39,8 +38,6 @@ impl Default for RoomConfig {
 pub enum RoomError {
     #[error(transparent)]
     Store(#[from] StoreError),
-    #[error("invalid graph identifier")]
-    InvalidGraph,
     #[error("invalid Loro version vector")]
     InvalidVersionVector,
     #[error("invalid Loro update")]
@@ -80,7 +77,7 @@ struct SessionState {
 }
 
 pub struct RoomConnection {
-    pub graph_id: String,
+    pub graph_id: GraphId,
     pub session_id: String,
     pub account_id: String,
     pub membership_version: u64,
@@ -108,44 +105,30 @@ pub struct GraphCheckpoint {
     pub bytes: Vec<u8>,
 }
 
-pub struct RoomManager<S: GraphStore> {
-    store: Arc<S>,
+pub struct RoomManager {
+    store: Arc<dyn GraphStore>,
     config: RoomConfig,
     metrics: Arc<Metrics>,
-    rooms: Mutex<HashMap<String, Arc<RoomSlot>>>,
-    #[cfg(debug_assertions)]
-    fail_live_apply_once: AtomicBool,
+    rooms: Mutex<HashMap<GraphId, Arc<RoomSlot>>>,
 }
 
-impl<S: GraphStore> RoomManager<S> {
-    pub fn new(store: Arc<S>, config: RoomConfig, metrics: Arc<Metrics>) -> Self {
+impl RoomManager {
+    pub fn new(store: Arc<dyn GraphStore>, config: RoomConfig, metrics: Arc<Metrics>) -> Self {
         Self {
             store,
             config,
             metrics,
             rooms: Mutex::new(HashMap::new()),
-            #[cfg(debug_assertions)]
-            fail_live_apply_once: AtomicBool::new(false),
         }
-    }
-
-    pub fn store(&self) -> &Arc<S> {
-        &self.store
     }
 
     pub fn limits(&self) -> Limits {
         self.config.limits
     }
 
-    #[cfg(debug_assertions)]
-    /// Debug-build fault hook for the commit/live-import boundary.
-    pub fn inject_live_apply_failure_once(&self) {
-        self.fail_live_apply_once.store(true, Ordering::SeqCst);
-    }
-
     pub async fn open(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         session_id: &str,
         account_id: &str,
         client_history_epoch: u64,
@@ -164,7 +147,7 @@ impl<S: GraphStore> RoomManager<S> {
 
     pub async fn open_with_base_status(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         session_id: &str,
         account_id: &str,
         client_history_epoch: u64,
@@ -189,33 +172,29 @@ impl<S: GraphStore> RoomManager<S> {
             return Err(RoomError::LimitReached);
         }
         let epoch_changed = client_history_epoch != guard.history_epoch;
-        let (mut missing_update, invalid_vector) = if !has_server_base || epoch_changed {
-            (Vec::new(), false)
+        let missing_update = if !has_server_base || epoch_changed {
+            None
         } else {
-            match guard.core.export_updates_since(client_version_vector) {
-                Ok(update) => (update, false),
-                Err(_) => (Vec::new(), true),
+            guard.core.export_updates_since(client_version_vector).ok()
+        };
+        let payload = match missing_update {
+            Some(update) if update.len() <= self.config.limits.max_update_bytes as usize => {
+                WelcomePayload::Delta { update }
+            }
+            _ => {
+                let checkpoint = guard
+                    .core
+                    .export_gc_checkpoint()
+                    .map_err(|_| RoomError::InvalidUpdate)?;
+                let inline_checkpoint_bytes = (self.config.limits.max_frame_bytes as usize)
+                    .saturating_sub(INLINE_CHECKPOINT_FRAME_OVERHEAD);
+                if checkpoint.len() > inline_checkpoint_bytes {
+                    WelcomePayload::ReplaceDownload {}
+                } else {
+                    WelcomePayload::ReplaceInline { checkpoint }
+                }
             }
         };
-        let replace_checkpoint = !has_server_base
-            || epoch_changed
-            || invalid_vector
-            || missing_update.len() > self.config.limits.max_update_bytes as usize;
-        let mut checkpoint = if replace_checkpoint {
-            missing_update.clear();
-            guard
-                .core
-                .export_gc_checkpoint()
-                .map_err(|_| RoomError::InvalidUpdate)?
-        } else {
-            Vec::new()
-        };
-        let inline_checkpoint_bytes = (self.config.limits.max_frame_bytes as usize)
-            .saturating_sub(INLINE_CHECKPOINT_FRAME_OVERHEAD);
-        let checkpoint_download = checkpoint.len() > inline_checkpoint_bytes;
-        if checkpoint_download {
-            checkpoint.clear();
-        }
         let (outbound, receiver) =
             mpsc::channel(self.config.limits.session_queue_capacity as usize);
         guard.sessions.insert(
@@ -229,13 +208,10 @@ impl<S: GraphStore> RoomManager<S> {
         let welcome = Welcome {
             history_epoch: guard.history_epoch,
             server_version_vector: guard.core.version_vector(),
-            missing_update,
-            checkpoint,
-            checkpoint_download,
-            replace_checkpoint,
+            payload,
         };
         self.metrics.session_opened();
-        let graph_log_id = telemetry_id(graph_id);
+        let graph_log_id = telemetry_id(graph_id.as_str());
         let session_log_id = telemetry_id(session_id);
         let account_log_id = telemetry_id(account_id);
         tracing::info!(
@@ -248,7 +224,7 @@ impl<S: GraphStore> RoomManager<S> {
         drop(guard);
         Ok(OpenedRoom {
             connection: RoomConnection {
-                graph_id: graph_id.to_owned(),
+                graph_id: graph_id.clone(),
                 session_id: session_id.to_owned(),
                 account_id: account_id.to_owned(),
                 membership_version: membership.version,
@@ -261,7 +237,7 @@ impl<S: GraphStore> RoomManager<S> {
 
     pub async fn export_checkpoint(
         &self,
-        graph_id: &str,
+        graph_id: &GraphId,
         account_id: &str,
     ) -> Result<GraphCheckpoint, RoomError> {
         let membership = self.store.authorize(graph_id, account_id).await?;
@@ -288,8 +264,7 @@ impl<S: GraphStore> RoomManager<S> {
         })
     }
 
-    async fn room_for(&self, graph_id: &str) -> Result<Arc<Mutex<Room>>, RoomError> {
-        GraphId::new(graph_id).map_err(|_| RoomError::InvalidGraph)?;
+    async fn room_for(&self, graph_id: &GraphId) -> Result<Arc<Mutex<Room>>, RoomError> {
         let slot = {
             let mut rooms = self.rooms.lock().await;
             if let Some(slot) = rooms.get(graph_id) {
@@ -301,7 +276,7 @@ impl<S: GraphStore> RoomManager<S> {
                 let slot = Arc::new(RoomSlot {
                     room: OnceCell::new(),
                 });
-                rooms.insert(graph_id.to_owned(), slot.clone());
+                rooms.insert(graph_id.clone(), slot.clone());
                 slot
             }
         };
@@ -312,28 +287,21 @@ impl<S: GraphStore> RoomManager<S> {
         Ok(room.clone())
     }
 
-    async fn reconstruct(&self, graph_id: &str) -> Result<Arc<Mutex<Room>>, RoomError> {
+    async fn reconstruct(&self, graph_id: &GraphId) -> Result<Arc<Mutex<Room>>, RoomError> {
         let durable = self.store.load_graph(graph_id).await?;
         if durable.schema_version != SCHEMA_VERSION {
             return Err(RoomError::UnsupportedSchema);
         }
-        if graph_core::checksum(&durable.checkpoint.snapshot) != durable.checkpoint.checksum {
-            return Err(StoreError::Corrupt("checkpoint checksum mismatch").into());
-        }
         if durable.checkpoint.snapshot.len() > self.config.limits.max_decompressed_bytes as usize {
             return Err(StoreError::QuotaExceeded.into());
         }
-        let graph = GraphId::new(graph_id).map_err(|_| RoomError::InvalidGraph)?;
         let mut core = GraphCore::from_recovery_snapshot(
-            graph.clone(),
+            graph_id.clone(),
             SERVER_PEER_ID,
             &durable.checkpoint.snapshot,
         )
         .map_err(|_| StoreError::Corrupt("checkpoint Loro snapshot is invalid"))?;
         for update in &durable.updates {
-            if graph_core::checksum(&update.bytes) != update.checksum {
-                return Err(StoreError::Corrupt("update checksum mismatch").into());
-            }
             core.import_recovery_update(&update.bytes)
                 .map_err(|_| StoreError::Corrupt("durable Loro update is invalid"))?;
         }
@@ -348,7 +316,7 @@ impl<S: GraphStore> RoomManager<S> {
             .sum();
         core.reset_local_history();
         self.metrics.room_opened();
-        let graph_log_id = telemetry_id(graph_id);
+        let graph_log_id = telemetry_id(graph_id.as_str());
         tracing::info!(
             graph_id = graph_log_id,
             cursor = durable.latest_cursor(),
@@ -400,23 +368,13 @@ impl<S: GraphStore> RoomManager<S> {
             return Err(RoomError::InvalidSession);
         }
         room.core
-            .export_updates_since(&update.base_version_vector)
+            .validate_version_vector(&update.base_version_vector)
             .map_err(|_| RoomError::InvalidVersionVector)?;
-        let snapshot = room
+        let candidate = room
             .core
-            .export_snapshot()
+            .prepare_server_remote_update(&update.bytes)
             .map_err(|_| RoomError::InvalidUpdate)?;
-        let graph_id = room.core.graph_id().clone();
-        let mut candidate = GraphCore::from_snapshot(graph_id, SERVER_PEER_ID, &snapshot)
-            .map_err(|_| RoomError::InvalidUpdate)?;
-        candidate
-            .import_remote(&update.bytes)
-            .map_err(|_| RoomError::InvalidUpdate)?;
-        let candidate_size = candidate
-            .export_gc_checkpoint()
-            .map_err(|_| RoomError::InvalidUpdate)?
-            .len();
-        if candidate_size > self.config.limits.max_decompressed_bytes as usize {
+        if candidate.gc_checkpoint_len() > self.config.limits.max_decompressed_bytes as usize {
             return Err(StoreError::QuotaExceeded.into());
         }
 
@@ -440,19 +398,7 @@ impl<S: GraphStore> RoomManager<S> {
         };
 
         if outcome.inserted {
-            #[cfg(debug_assertions)]
-            let injected = self.fail_live_apply_once.swap(false, Ordering::SeqCst);
-            #[cfg(not(debug_assertions))]
-            let injected = false;
-            if injected || room.core.import_remote(&update.bytes).is_err() {
-                invalidate_room(&mut room, ErrorCode::Internal);
-                drop(room);
-                self.evict(&connection.graph_id).await;
-                // Rehydrate before reporting the no-ack outcome. A reconnect and
-                // retry will observe the durable duplicate and receive its cursor.
-                let _ = self.room_for(&connection.graph_id).await?;
-                return Err(RoomError::ReconnectRequired);
-            }
+            room.core = candidate.into_server_baseline();
             room.cursor = outcome.cursor;
             room.tail_updates += 1;
             room.tail_bytes += update.bytes.len();
@@ -494,7 +440,7 @@ impl<S: GraphStore> RoomManager<S> {
                 self.metrics.slow_consumer();
             }
             self.metrics.update_accepted();
-            let graph_log_id = telemetry_id(&connection.graph_id);
+            let graph_log_id = telemetry_id(connection.graph_id.as_str());
             let session_log_id = telemetry_id(&connection.session_id);
             tracing::info!(
                 graph_id = graph_log_id,
@@ -513,7 +459,7 @@ impl<S: GraphStore> RoomManager<S> {
             // a later update can retry without turning success into a false NACK.
             if let Err(error) = self.rotate_history(&connection.graph_id, &mut room).await {
                 tracing::warn!(
-                    graph_id = telemetry_id(&connection.graph_id),
+                    graph_id = telemetry_id(connection.graph_id.as_str()),
                     error = %error,
                     "history checkpoint rotation deferred"
                 );
@@ -522,7 +468,7 @@ impl<S: GraphStore> RoomManager<S> {
         Ok(())
     }
 
-    async fn rotate_history(&self, graph_id: &str, room: &mut Room) -> Result<(), RoomError> {
+    async fn rotate_history(&self, graph_id: &GraphId, room: &mut Room) -> Result<(), RoomError> {
         let snapshot = room
             .core
             .export_gc_checkpoint()
@@ -624,7 +570,7 @@ impl<S: GraphStore> RoomManager<S> {
         let mut room = connection.room.lock().await;
         room.sessions.remove(&connection.session_id);
         self.metrics.session_closed();
-        let graph_log_id = telemetry_id(&connection.graph_id);
+        let graph_log_id = telemetry_id(connection.graph_id.as_str());
         let session_log_id = telemetry_id(&connection.session_id);
         let account_log_id = telemetry_id(&connection.account_id);
         tracing::info!(
@@ -635,7 +581,7 @@ impl<S: GraphStore> RoomManager<S> {
         );
     }
 
-    pub async fn evict(&self, graph_id: &str) {
+    pub async fn evict(&self, graph_id: &GraphId) {
         let slot = self.rooms.lock().await.remove(graph_id);
         if slot.as_ref().is_some_and(|slot| slot.room.initialized()) {
             self.metrics.room_closed();

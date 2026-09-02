@@ -1,5 +1,6 @@
 //! Versioned, size-bounded binary protocol shared by sync clients and the server.
 
+use domain::GraphId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -43,7 +44,7 @@ impl Default for Limits {
 pub struct Hello {
     pub protocol: u16,
     pub schema: u16,
-    pub graph_id: String,
+    pub graph_id: GraphId,
     pub session_id: String,
     /// History generation owned by the server checkpoint coordinator.
     pub history_epoch: u64,
@@ -57,18 +58,19 @@ pub struct Hello {
 pub struct Welcome {
     pub history_epoch: u64,
     pub server_version_vector: Vec<u8>,
-    /// A Loro update containing operations absent from the client's version vector.
-    pub missing_update: Vec<u8>,
-    /// A Loro snapshot offered when an incremental update would exceed the
-    /// negotiated update limit. Empty when `missing_update` or the bulk HTTP
-    /// checkpoint path is used.
-    pub checkpoint: Vec<u8>,
-    /// The replacement checkpoint is available from the graph's authenticated
-    /// HTTP checkpoint endpoint because it does not fit in one sync frame.
-    pub checkpoint_download: bool,
-    /// The checkpoint replaces local canonical state rather than merging into
-    /// it because the client's retained history predates the server epoch.
-    pub replace_checkpoint: bool,
+    pub payload: WelcomePayload,
+}
+
+/// The one synchronization action selected for a newly opened session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum WelcomePayload {
+    /// Import the Loro operations absent from the client's current version vector.
+    Delta { update: Vec<u8> },
+    /// Replace local canonical state with this server-owned checkpoint.
+    ReplaceInline { checkpoint: Vec<u8> },
+    /// Download the replacement checkpoint from the authenticated HTTP endpoint.
+    ReplaceDownload {},
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,9 +211,7 @@ pub fn decode(frame: &[u8], max_frame_bytes: usize) -> Result<Message, ProtocolE
 pub fn validate_message(message: &Message, limits: Limits) -> Result<(), ProtocolError> {
     match message {
         Message::Hello(hello) => {
-            if hello.graph_id.is_empty()
-                || hello.graph_id.len() > 128
-                || hello.session_id.is_empty()
+            if hello.session_id.is_empty()
                 || hello.session_id.len() > 128
                 || hello.version_vector.len() > 16_384
             {
@@ -288,7 +288,7 @@ mod tests {
         Message::Hello(Hello {
             protocol: PROTOCOL_VERSION,
             schema: 6,
-            graph_id: "graph-1".into(),
+            graph_id: GraphId::new("graph-1").unwrap(),
             session_id: "session-1".into(),
             history_epoch: 0,
             has_server_base: true,
@@ -301,6 +301,69 @@ mod tests {
         let frame = encode(&hello(), 1024).unwrap();
         assert_eq!(&frame[..4], b"NSQP");
         assert_eq!(decode(&frame, 1024).unwrap(), hello());
+    }
+
+    #[test]
+    fn welcome_payload_selects_exactly_one_sync_action() {
+        let cases = [
+            WelcomePayload::Delta { update: vec![1, 2] },
+            WelcomePayload::ReplaceInline {
+                checkpoint: vec![3, 4],
+            },
+            WelcomePayload::ReplaceDownload {},
+        ];
+        for payload in cases {
+            let message = Message::Welcome(Welcome {
+                history_epoch: 7,
+                server_version_vector: vec![8, 9],
+                payload,
+            });
+            let frame = encode(&message, 1024).unwrap();
+            assert_eq!(decode(&frame, 1024).unwrap(), message);
+        }
+
+        assert_eq!(
+            serde_json::to_value(WelcomePayload::Delta { update: vec![1] }).unwrap(),
+            serde_json::json!({ "delta": { "update": [1] } })
+        );
+        assert_eq!(
+            serde_json::to_value(WelcomePayload::ReplaceInline {
+                checkpoint: vec![2]
+            })
+            .unwrap(),
+            serde_json::json!({ "replace_inline": { "checkpoint": [2] } })
+        );
+        assert_eq!(
+            serde_json::to_value(WelcomePayload::ReplaceDownload {}).unwrap(),
+            serde_json::json!({ "replace_download": {} })
+        );
+        assert!(
+            serde_json::from_value::<WelcomePayload>(serde_json::json!({
+                "delta": { "update": [1], "checkpoint": [2] }
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn hello_graph_ids_follow_domain_validation() {
+        let hello_json = |graph_id: String| {
+            serde_json::json!({
+                "Hello": {
+                    "protocol": PROTOCOL_VERSION,
+                    "schema": 6,
+                    "graph_id": graph_id,
+                    "session_id": "session-1",
+                    "history_epoch": 0,
+                    "has_server_base": true,
+                    "version_vector": []
+                }
+            })
+        };
+
+        assert!(serde_json::from_value::<Message>(hello_json("g".repeat(160))).is_ok());
+        assert!(serde_json::from_value::<Message>(hello_json("g".repeat(161))).is_err());
+        assert!(serde_json::from_value::<Message>(hello_json(String::new())).is_err());
     }
 
     #[test]
@@ -355,7 +418,7 @@ mod tests {
         let message = Message::Hello(Hello {
             protocol: fixture.protocol_version,
             schema: fixture.schema_version,
-            graph_id: fixture.hello.graph_id,
+            graph_id: GraphId::new(fixture.hello.graph_id).unwrap(),
             session_id: fixture.hello.session_id,
             history_epoch: 0,
             has_server_base: fixture.hello.has_server_base,

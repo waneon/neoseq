@@ -1,6 +1,6 @@
 use domain::{
     BlockId, BlockSnapshot, Cardinality, GraphId, GraphSettings, GraphSnapshot, LocalDate, PageId,
-    PageSnapshot, PropertyField, PropertyKey, PropertyValue, TagId, TagSnapshot,
+    PageSnapshot, PropertyBag, PropertyField, PropertyKey, PropertyValue, TagId, TagSnapshot,
 };
 use query::{IndexUnit, QUERY_LANGUAGE, QueryBudget, QueryRequest, RdfTerm};
 use std::{collections::BTreeMap, convert::Infallible};
@@ -25,7 +25,7 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
             PageSnapshot {
                 id: page_id_value(page_index),
                 title: format!("Benchmark page {page_index}"),
-                properties: Vec::new(),
+                properties: PropertyBag::new(),
                 tags: vec![tag_id(page_index % TAG_COUNT)],
                 blocks: (first_block..end_block).map(block).collect(),
             }
@@ -35,8 +35,8 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
         .map(|index| TagSnapshot {
             id: tag_id(index),
             name: format!("Benchmark tag {index}"),
-            properties: Vec::new(),
-            defaults: Vec::new(),
+            properties: PropertyBag::new(),
+            defaults: PropertyBag::new(),
             blocks: Vec::new(),
         })
         .collect();
@@ -60,8 +60,8 @@ pub fn streaming_units(block_count: usize) -> impl Iterator<Item = Result<IndexU
         IndexUnit::Tag(TagSnapshot {
             id: tag_id(index),
             name: format!("Benchmark tag {index}"),
-            properties: Vec::new(),
-            defaults: Vec::new(),
+            properties: PropertyBag::new(),
+            defaults: PropertyBag::new(),
             blocks: Vec::new(),
         })
     });
@@ -71,7 +71,7 @@ pub fn streaming_units(block_count: usize) -> impl Iterator<Item = Result<IndexU
         IndexUnit::Page(PageSnapshot {
             id: page_id_value(page_index),
             title: format!("Benchmark page {page_index}"),
-            properties: Vec::new(),
+            properties: PropertyBag::new(),
             tags: vec![tag_id(page_index % TAG_COUNT)],
             blocks: (first_block..end_block).map(block).collect(),
         })
@@ -127,7 +127,7 @@ fn block(index: usize) -> BlockSnapshot {
         id: BlockId::new(format!("block-{index:06}")).expect("generated benchmark block id"),
         markdown,
         page_references: Vec::new(),
-        properties: vec![
+        properties: PropertyBag::try_from_fields([
             single(
                 "builtin.task-status",
                 PropertyValue::String(status.to_owned()),
@@ -139,7 +139,8 @@ fn block(index: usize) -> BlockSnapshot {
                         .expect("generated benchmark date"),
                 ),
             ),
-        ],
+        ])
+        .expect("benchmark property keys are distinct and values are valid"),
         tags: vec![tag_id(index % TAG_COUNT)],
         children: Vec::new(),
     }

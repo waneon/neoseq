@@ -4,7 +4,7 @@ import type { OutlineOwner } from "../../core-port/snapshot";
 import { SCHEMA_VERSION } from "../../generated/graph-schema";
 import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
 import { readAuthSession, validateAuthSession } from "./auth";
-import { downloadRemoteCheckpoint } from "./api";
+import { downloadRemoteCheckpoint, type RemoteCheckpoint } from "./api";
 import { randomUUID } from "@/lib/crypto";
 
 export type RemoteSyncState =
@@ -40,13 +40,16 @@ export interface SyncAgentPort {
   decodeSyncMessage(frame: ArrayBuffer): Promise<unknown>;
 }
 
-interface SyncAgentDelegate {
+interface WelcomeTarget {
   applyRemote(bytes: number[]): Promise<void>;
   replaceRemote(
     checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
   ): Promise<void>;
+}
+
+interface SyncAgentDelegate extends WelcomeTarget {
   changed(state: SyncAgentState): void;
 }
 
@@ -220,31 +223,11 @@ export class SyncAgent {
     const message = (await this.port.decodeSyncMessage(frame)) as WireMessage;
     if (message.Welcome) {
       const welcome = message.Welcome;
-      const missing = numberArray(welcome.missing_update);
-      let checkpoint: number[] | ArrayBuffer = numberArray(welcome.checkpoint);
-      let historyEpoch = Number(welcome.history_epoch);
-      let serverVersionVector = numberArray(welcome.server_version_vector);
-      if (Boolean(welcome.replace_checkpoint)) {
-        if (checkpointBytes(checkpoint) === 0 && Boolean(welcome.checkpoint_download)) {
-          const auth = readAuthSession(this.connection.repository_id);
-          if (!auth) throw new Error("checkpoint download requires authentication");
-          const downloaded = await downloadRemoteCheckpoint(
-            this.connection.server_url,
-            auth,
-            this.graphId,
-          );
-          checkpoint = downloaded.checkpoint;
-          historyEpoch = downloaded.history_epoch;
-          serverVersionVector = downloaded.server_version_vector;
-        }
-        if (checkpointBytes(checkpoint) === 0) {
-          throw new Error("replacement checkpoint is missing");
-        }
-        await this.delegate.replaceRemote(checkpoint, historyEpoch, serverVersionVector);
-      } else if (Array.isArray(checkpoint) && checkpoint.length > 0) {
-        await this.delegate.applyRemote(checkpoint);
-      }
-      if (missing.length > 0) await this.delegate.applyRemote(missing);
+      await applyWelcomePayload(welcome, this.delegate, async () => {
+        const auth = readAuthSession(this.connection.repository_id);
+        if (!auth) throw new Error("checkpoint download requires authentication");
+        return downloadRemoteCheckpoint(this.connection.server_url, auth, this.graphId);
+      });
       this.welcomed = true;
       this.retry = 0;
       this.patch({ live: "live" });
@@ -420,6 +403,56 @@ export class SyncAgent {
   };
 }
 
+/** Applies the single synchronization action carried by a Welcome. Keeping this
+ * interpretation separate makes the Rust sum type explicit at the TypeScript
+ * boundary instead of recreating a matrix of booleans and empty byte arrays. */
+export async function applyWelcomePayload(
+  welcome: Record<string, unknown>,
+  target: WelcomeTarget,
+  downloadCheckpoint: () => Promise<RemoteCheckpoint>,
+): Promise<void> {
+  const payload = record(welcome.payload, "welcome payload");
+  const variants = Object.keys(payload);
+  if (variants.length !== 1) throw new Error("welcome payload is invalid");
+
+  if (variants[0] === "replace_download") {
+    exactKeys(record(payload.replace_download, "welcome download"), [], "welcome download");
+    const downloaded = await downloadCheckpoint();
+    if (checkpointBytes(downloaded.checkpoint) === 0) {
+      throw new Error("replacement checkpoint is missing");
+    }
+    await target.replaceRemote(
+      downloaded.checkpoint,
+      downloaded.history_epoch,
+      downloaded.server_version_vector,
+    );
+    return;
+  }
+
+  if (variants[0] === "delta") {
+    const delta = record(payload.delta, "welcome delta");
+    exactKeys(delta, ["update"], "welcome delta");
+    const update = byteArray(delta.update, "welcome delta");
+    if (update.length > 0) await target.applyRemote(update);
+    return;
+  }
+
+  if (variants[0] === "replace_inline") {
+    const replacement = record(payload.replace_inline, "welcome replacement");
+    exactKeys(replacement, ["checkpoint"], "welcome replacement");
+    const checkpoint = byteArray(replacement.checkpoint, "welcome replacement");
+    if (checkpoint.length === 0) throw new Error("replacement checkpoint is missing");
+    await target.replaceRemote(
+      checkpoint,
+      Number(welcome.history_epoch),
+      numberArray(welcome.server_version_vector),
+    );
+    return;
+  }
+
+  throw new Error("welcome payload is invalid");
+}
+
 /** A peer-supplied lifetime, clamped to the protocol ceiling. Anything that is
  * not a finite number expires immediately: a payload that cannot say how long
  * it lives must not live forever. */
@@ -430,6 +463,31 @@ function presenceTtl(value: unknown): number {
 
 function numberArray(value: unknown): number[] {
   return Array.isArray(value) ? value.map(Number) : [];
+}
+
+function byteArray(value: unknown, label: string): number[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((byte) => !Number.isInteger(byte) || Number(byte) < 0 || Number(byte) > 255)
+  ) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value.map(Number);
+}
+
+function record(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(value: Record<string, unknown>, expected: string[], label: string): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new Error(`${label} is invalid`);
+  }
 }
 
 function checkpointBytes(value: number[] | ArrayBuffer): number {

@@ -2864,6 +2864,7 @@ dependencies = [
 name = "sync-protocol"
 version = "0.1.0"
 dependencies = [
+ "domain",
  "hex",
  "postcard",
  "serde",

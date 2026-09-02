@@ -1,7 +1,7 @@
 mod bootstrap;
 
 use bootstrap::bootstrap_admin_from_environment;
-use neoseq_server::{AppState, Metrics, PgIdentity, PgStore, RoomConfig, RoomManager, router};
+use neoseq_server::{AppState, Metrics, PgIdentity, PgStore, RoomConfig, router};
 use std::{env, io, net::SocketAddr, sync::Arc, time::Duration};
 use tracing_subscriber::EnvFilter;
 
@@ -28,12 +28,14 @@ async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
     let bind = env::var("NEOSEQ_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let address: SocketAddr = bind.parse()?;
     let metrics = Arc::new(Metrics::default());
-    let rooms = Arc::new(RoomManager::new(
+    let state = AppState::new(
         store,
+        identity,
+        metrics,
         RoomConfig::default(),
-        metrics.clone(),
-    ));
-    let state = AppState::new(rooms, identity, metrics, 4_096, Duration::from_secs(5));
+        4_096,
+        Duration::from_secs(5),
+    );
     let shutdown = state.shutdown_handle();
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "sync server listening");

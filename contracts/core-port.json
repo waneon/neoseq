@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Neoseq CorePort v2",
-  "contractVersion": 2,
+  "title": "Neoseq CorePort v3",
+  "contractVersion": 3,
   "operations": [
     "open_graph",
     "execute",

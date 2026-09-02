@@ -1,6 +1,6 @@
 //! Browser Wasm adapter for the graph core.
 
-use graph_core::{GraphChangeSet, GraphCore};
+use graph_core::{GraphCore, apply_index_changes};
 use query::{GraphIndex, QueryRequest};
 use sync_protocol::{Message, decode, encode};
 use wasm_bindgen::prelude::*;
@@ -77,36 +77,6 @@ impl WasmDecodedGraphArchive {
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
-}
-
-fn apply_index_changes(
-    inner: &GraphCore,
-    index: &mut GraphIndex,
-    changes: &GraphChangeSet,
-) -> Result<(), JsValue> {
-    match inner.index_delta(changes).map_err(js_error)? {
-        Some(delta) => {
-            if index.apply_delta(delta).is_err() {
-                index
-                    .rebuild_from_units(
-                        inner.graph_id().clone(),
-                        inner.frontier(),
-                        inner.index_units().map_err(js_error)?,
-                    )
-                    .map_err(js_error)?;
-            }
-        }
-        None => {
-            index
-                .rebuild_from_units(
-                    inner.graph_id().clone(),
-                    inner.frontier(),
-                    inner.index_units().map_err(js_error)?,
-                )
-                .map_err(js_error)?;
-        }
-    }
-    Ok(())
 }
 
 #[wasm_bindgen]
@@ -190,7 +160,7 @@ impl WasmGraphCore {
         let envelope = serde_json::from_str(command).map_err(js_error)?;
         let execution = self.inner.execute(envelope, now).map_err(js_error)?;
         if let Some(index) = self.index.as_mut() {
-            apply_index_changes(&self.inner, index, &execution.changes)?;
+            apply_index_changes(&self.inner, index, &execution.changes).map_err(js_error)?;
         }
         self.pending_update = Some(execution.update);
         serde_json::to_string(&serde_json::json!({
@@ -213,7 +183,7 @@ impl WasmGraphCore {
             .import_remote_with_changes(update)
             .map_err(js_error)?;
         if let Some(index) = self.index.as_mut() {
-            apply_index_changes(&self.inner, index, &changes)?;
+            apply_index_changes(&self.inner, index, &changes).map_err(js_error)?;
         }
         Ok(())
     }

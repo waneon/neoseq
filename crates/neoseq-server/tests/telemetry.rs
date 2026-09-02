@@ -1,5 +1,6 @@
 mod support;
 
+use domain::GraphId;
 use neoseq_server::RoomConfig;
 use std::{
     io::{self, Write},
@@ -43,6 +44,7 @@ async fn structured_telemetry_excludes_content_credentials_and_raw_updates() {
         .finish();
     let _guard = tracing::subscriber::set_default(subscriber);
     let fixture = fixture(RoomConfig::default());
+    let graph_id = GraphId::new(GRAPH).unwrap();
     let (_, update) = client_update(
         &fixture.snapshot,
         2,
@@ -54,7 +56,13 @@ async fn structured_telemetry_excludes_content_credentials_and_raw_updates() {
     let raw_update_hex = hex::encode(&update.bytes);
     let mut opened = fixture
         .manager
-        .open(GRAPH, "telemetry-session", OWNER, 0, &fixture.base_version)
+        .open(
+            &graph_id,
+            "telemetry-session",
+            OWNER,
+            0,
+            &fixture.base_version,
+        )
         .await
         .unwrap()
         .connection;

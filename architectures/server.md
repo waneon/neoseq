@@ -62,7 +62,7 @@ authenticated graph HTTP surface creates and lists graphs and lets an owner
 list, grant, or revoke memberships by username while membership rows retain the
 account's immutable ID. Browser WebSockets carry the session credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
-`Authorization` header; the server selects only the stable `neoseq.v4`
+`Authorization` header; the server selects only the stable `neoseq.v5`
 application subprotocol. Credentials are never accepted in a URL.
 
 Graph creation has two forms. Ordinary creation commits a server-generated
@@ -78,14 +78,15 @@ graph limit is 1 GiB; the migration raises graphs still using the former
 
 The binary protocol is versioned independently from the CRDT schema.
 `contracts/sync-protocol.json` declares that version and derives the
-`neoseq.v4` subprotocol name from it, generated for the server and the browser
+`neoseq.v5` subprotocol name from it, generated for the server and the browser
 client alike, so a bump cannot leave one side advertising the other's version.
 Messages are length-delimited envelopes:
 
 - `Hello`: exact protocol/schema versions, graph ID, session ID, history epoch,
   Loro version vector, and whether the local Base has server provenance;
-- `Welcome`: history epoch, server version vector, and either a missing update,
-  an inline replacement checkpoint, or a bulk-checkpoint download marker;
+- `Welcome`: history epoch, server version vector, and exactly one payload: a
+  missing-update delta, an inline replacement checkpoint, or a bulk-checkpoint
+  download marker;
 - `Update`: history epoch, client message ID, base version vector, and Loro bytes;
 - `Ack`: history epoch, client message ID, and durable server receipt cursor;
 - `Presence`: ephemeral cursor/selection state with expiry;
@@ -105,18 +106,18 @@ client keeps an outbox item until its message ID is acknowledged.
    replacement that exceeds the update-frame budget is fetched from the
    authenticated graph checkpoint endpoint rather than enlarged into a
    WebSocket frame.
-4. For every client update, enforce limits and import into a temporary fork of
-   the room document for validation.
-5. Persist the exact validated bytes transactionally, then import them into the
-   live room document.
+4. For every client update, enforce limits and prepare a validated candidate on
+   a temporary fork of the room document.
+5. Persist the exact validated bytes transactionally, then adopt the prepared
+   candidate only when a new durable record was inserted.
 6. Acknowledge only after commit, then broadcast to other sessions.
 7. On reconnect, repeat version-vector reconciliation; no correctness depends on
    having observed all broadcasts.
 
-If database commit fails, the validation fork is discarded and no live session
-can observe the update. If applying to the live room fails after commit, the
-room is discarded and reconstructed from durable state before any
-acknowledgement.
+If database commit fails, or reports a duplicate receipt, the candidate is
+discarded and the live room remains unchanged. Adoption is an ownership transfer
+of already-validated state, so there is no second import failure boundary after
+commit.
 
 The service periodically re-checks authorization for long-lived connections and
 closes revoked sessions.
@@ -234,8 +235,9 @@ rejected frames, slow consumers, and room reconstruction count.
 - Authorization tests cover revocation during live sessions and graph isolation.
 - HTTP and browser tests provision ordinary accounts through the same bootstrap,
   administration, login, and opaque-session path used by the product.
-- Fault tests inject failure before/after database commit and at the committed
-  update/live-import boundary, then verify acknowledgement semantics.
+- Fault tests inject failure before and after database commit, then verify that
+  prepared candidates are adopted only for newly inserted durable updates and
+  that acknowledgement semantics remain unchanged.
 - Envelope tests cover malformed/version/size failures, and Loro import tests
   cover malformed and reconstructed-size limits.
 - Reconstruction tests build rooms from durable checkpoints and update tails.

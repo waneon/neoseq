@@ -44,7 +44,7 @@ focused design boundaries under [`designs/`](designs/).
 flowchart LR
     UI[React UI] --> Session[GraphSession]
     UI --> Directory[Repository + graph directory]
-    Session --> Port[CorePort v2]
+    Session --> Port[CorePort v3]
     Session --> Agent[SyncAgent]
     Port --> Worker[Web Worker adapter]
     Worker --> Core[Rust/Wasm graph core]
@@ -117,13 +117,13 @@ Detailed contracts:
 
 ## CorePort
 
-The asynchronous CorePort v2 contract has seven operations. Every graph locator
+The asynchronous CorePort v3 contract has seven operations. Every graph locator
 contains a client repository ID and the graph ID assigned within that
 repository:
 
 ```text
 open_graph(locator) -> graph_handle + graph_summary
-execute(graph_handle, command) -> command_result
+execute(graph_handle, command) -> command_result + saved receipt | unchanged
 read(graph_handle) -> graph_summary
 read_outline(graph_handle, page_or_tag_owner) -> outline_view
 query(graph_handle, sparql_request) -> select_result | ask_result
@@ -180,10 +180,12 @@ CorePort.
 
 One user intent becomes one prepared domain command, one Loro transaction, one
 local undo item, one durable update, and one semantic event. Preparation validates
-the complete change and fixes its structural plan and history metadata before
-mutation; later stages consume that same plan rather than deriving it again. An
-update is reported saved only after the repository append commits; a failed append
-holds the exact bytes for retry and blocks additional mutation.
+an individual change and fixes its structural plan and history metadata before
+mutation. A batch validates its complete ordered sequence on a fork, then resolves
+each live step against the result of the prior step because fork-generated CRDT IDs
+are not portable. An update is reported saved only after the repository append
+commits; a failed append holds the exact bytes for retry and blocks additional
+mutation.
 
 ## Local Write Flow
 

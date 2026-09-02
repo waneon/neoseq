@@ -1,4 +1,4 @@
-use crate::{CoreError, GraphChangeSet, GraphCore};
+use crate::{AppendReceipt, CoreError, GraphChangeSet, GraphCore, StorageErrorKind};
 use domain::{
     CommandEnvelope, CommandResult, GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot,
 };
@@ -83,12 +83,27 @@ pub enum RuntimeError {
     Core(#[from] CoreError),
     #[error(transparent)]
     Query(#[from] QueryError),
-    #[error("repository append failed: {0}")]
-    Repository(String),
-    #[error("graph has an update that is not saved locally: {0}")]
-    DirtyUnsaved(String),
+    #[error("graph has an update that is not saved locally: {message}")]
+    DirtyUnsaved {
+        kind: StorageErrorKind,
+        message: String,
+    },
     #[error("event capacity must be positive")]
     ZeroEventCapacity,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeExecution {
+    pub result: CommandResult,
+    pub persistence: RuntimePersistence,
+}
+
+/// Durable effect of one successful runtime command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimePersistence {
+    Appended(AppendReceipt),
+    /// A duplicate or semantic no-op produced no bytes that needed persistence.
+    Unchanged,
 }
 
 /// Single-owner message loop for one graph. Platform adapters enqueue the four
@@ -140,13 +155,13 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         })
     }
 
-    pub fn execute(&mut self, command: CommandEnvelope) -> Result<CommandResult, RuntimeError> {
+    pub fn execute(&mut self, command: CommandEnvelope) -> Result<RuntimeExecution, RuntimeError> {
         self.require_clean()?;
         let now = self.clock.now();
         let command_id = command.command_id.to_string();
         let execution = self.core.execute(command, &now)?;
-        self.apply_index_changes(&execution.changes)?;
-        if !execution.duplicate && !execution.update.is_empty() {
+        apply_index_changes(&self.core, &mut self.index, &execution.changes)?;
+        let persistence = if !execution.duplicate && !execution.update.is_empty() {
             self.pending = Some(PendingWrite {
                 update: execution.update,
                 created_at: now,
@@ -154,15 +169,20 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
                 semantic: execution.semantic,
                 command_id: Some(command_id),
             });
-            self.persist_pending()?;
-        }
-        Ok(execution.result)
+            RuntimePersistence::Appended(self.persist_pending()?)
+        } else {
+            RuntimePersistence::Unchanged
+        };
+        Ok(RuntimeExecution {
+            result: execution.result,
+            persistence,
+        })
     }
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), RuntimeError> {
         self.require_clean()?;
         let changes = self.core.import_remote_with_changes(update)?;
-        self.apply_index_changes(&changes)?;
+        apply_index_changes(&self.core, &mut self.index, &changes)?;
         self.pending = Some(PendingWrite {
             update: update.to_vec(),
             created_at: self.clock.now(),
@@ -170,7 +190,7 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             semantic: "RemoteImported".to_owned(),
             command_id: None,
         });
-        self.persist_pending()
+        self.persist_pending().map(|_| ())
     }
 
     pub fn read(&self) -> Result<GraphSnapshot, RuntimeError> {
@@ -234,56 +254,39 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         if self.pending.is_none() {
             return Ok(());
         }
-        self.persist_pending()
-    }
-
-    fn apply_index_changes(&mut self, changes: &GraphChangeSet) -> Result<(), RuntimeError> {
-        match self.core.index_delta(changes)? {
-            Some(delta) => {
-                if self.index.apply_delta(delta).is_err() {
-                    self.index.rebuild_from_units(
-                        self.core.graph_id().clone(),
-                        self.core.frontier(),
-                        self.core.index_units()?,
-                    )?;
-                }
-            }
-            None => {
-                self.index.rebuild_from_units(
-                    self.core.graph_id().clone(),
-                    self.core.frontier(),
-                    self.core.index_units()?,
-                )?;
-            }
-        }
-        Ok(())
+        self.persist_pending().map(|_| ())
     }
 
     pub fn close(self) -> Result<(R, C), RuntimeError> {
         if self.pending.is_some() {
-            return Err(RuntimeError::DirtyUnsaved(
-                "close rejected until the pending update is durable".to_owned(),
-            ));
+            return Err(RuntimeError::DirtyUnsaved {
+                kind: StorageErrorKind::Other,
+                message: "close rejected until the pending update is durable".to_owned(),
+            });
         }
         Ok((self.repository, self.clock))
     }
 
     fn require_clean(&self) -> Result<(), RuntimeError> {
         if self.pending.is_some() {
-            Err(RuntimeError::DirtyUnsaved(
-                "retry the pending update before another mutation".to_owned(),
-            ))
+            Err(RuntimeError::DirtyUnsaved {
+                kind: StorageErrorKind::Other,
+                message: "retry the pending update before another mutation".to_owned(),
+            })
         } else {
             Ok(())
         }
     }
 
-    fn persist_pending(&mut self) -> Result<(), RuntimeError> {
+    fn persist_pending(&mut self) -> Result<AppendReceipt, RuntimeError> {
         let pending = self.pending.as_ref().expect("pending write checked above");
         let receipt = self
             .repository
             .append_update(&pending.update, &pending.created_at)
-            .map_err(|error| RuntimeError::DirtyUnsaved(error.to_string()))?;
+            .map_err(|error| RuntimeError::DirtyUnsaved {
+                kind: R::error_kind(&error),
+                message: error.to_string(),
+            })?;
         let pending = self
             .pending
             .take()
@@ -304,10 +307,10 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             pending.source,
             GraphEventKind::SavedLocally {
                 local_sequence: receipt.local_sequence,
-                checksum: receipt.checksum,
+                checksum: receipt.checksum.clone(),
             },
         );
-        Ok(())
+        Ok(receipt)
     }
 
     fn push(&mut self, source: EventSource, kind: GraphEventKind) {
@@ -321,6 +324,34 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             self.events.pop_front();
         }
     }
+}
+
+/// Advances a disposable query index to the core's current committed revision.
+/// Both native and Wasm adapters use this single fallback policy.
+pub fn apply_index_changes(
+    core: &GraphCore,
+    index: &mut GraphIndex,
+    changes: &GraphChangeSet,
+) -> Result<(), RuntimeError> {
+    match core.index_delta(changes)? {
+        Some(delta) => {
+            if index.apply_delta(delta).is_err() {
+                index.rebuild_from_units(
+                    core.graph_id().clone(),
+                    core.frontier(),
+                    core.index_units()?,
+                )?;
+            }
+        }
+        None => {
+            index.rebuild_from_units(
+                core.graph_id().clone(),
+                core.frontier(),
+                core.index_units()?,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -396,7 +427,11 @@ mod tests {
         let graph = GraphId::new("runtime").unwrap();
         let mut runtime = new_runtime(&graph, InMemoryRepository::default(), 2);
         for number in 0..3 {
-            runtime.execute(envelope(&graph, number)).unwrap();
+            let execution = runtime.execute(envelope(&graph, number)).unwrap();
+            let RuntimePersistence::Appended(receipt) = execution.persistence else {
+                panic!("new page command must append an update");
+            };
+            assert_eq!(receipt.local_sequence, number as u64 + 1);
         }
         assert_eq!(runtime.repository().updates.len(), 3);
         assert!(matches!(
@@ -449,6 +484,7 @@ mod tests {
                 },
             })
             .unwrap()
+            .result
             .created_block
             .unwrap();
         runtime
@@ -487,6 +523,10 @@ mod tests {
     impl GraphRepository for FailingRepository {
         type Error = InjectedFailure;
 
+        fn error_kind(_error: &Self::Error) -> StorageErrorKind {
+            StorageErrorKind::Busy
+        }
+
         fn append_update(
             &mut self,
             update: &[u8],
@@ -516,7 +556,10 @@ mod tests {
         );
         assert!(matches!(
             runtime.execute(envelope(&graph, 1)),
-            Err(RuntimeError::DirtyUnsaved(_))
+            Err(RuntimeError::DirtyUnsaved {
+                kind: StorageErrorKind::Busy,
+                ..
+            })
         ));
         assert!(runtime.is_dirty_unsaved());
         assert!(matches!(
@@ -525,7 +568,7 @@ mod tests {
         ));
         assert!(matches!(
             runtime.execute(envelope(&graph, 2)),
-            Err(RuntimeError::DirtyUnsaved(_))
+            Err(RuntimeError::DirtyUnsaved { .. })
         ));
         runtime.repository_mut().fail = false;
         runtime.retry_pending().unwrap();

@@ -5,10 +5,12 @@ use domain::{Command, CommandEnvelope, CommandId, GraphId, OutlineOwner, PageId}
 use futures_util::{SinkExt, StreamExt};
 use graph_core::GraphCore;
 use http_body_util::BodyExt;
-use neoseq_server::{AppState, GraphStore, RoomConfig, router};
+use neoseq_server::{AppState, GraphAdmin, GraphRole, GraphStore, RoomConfig, StoreError, router};
 use std::{sync::Arc, time::Duration};
 use support::*;
-use sync_protocol::{Hello, Limits, Message, PROTOCOL_VERSION, SUBPROTOCOL, decode, encode};
+use sync_protocol::{
+    Hello, Limits, Message, PROTOCOL_VERSION, SUBPROTOCOL, WelcomePayload, decode, encode,
+};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{Message as WsMessage, client::IntoClientRequest, http::HeaderValue},
@@ -18,12 +20,14 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let fixture = fixture(RoomConfig::default());
+    let graph_id = GraphId::new(GRAPH).unwrap();
     let identity = Arc::new(TestIdentity);
     let token = OWNER_TOKEN;
     let state = AppState::new(
-        fixture.manager.clone(),
+        fixture.store.clone(),
         identity,
         Arc::new(neoseq_server::Metrics::default()),
+        RoomConfig::default(),
         32,
         Duration::from_millis(50),
     );
@@ -62,7 +66,7 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let hello = Message::Hello(Hello {
         protocol: PROTOCOL_VERSION,
         schema: graph_core::SCHEMA_VERSION as u16,
-        graph_id: GRAPH.into(),
+        graph_id: graph_id.clone(),
         session_id: "websocket-client".into(),
         history_epoch: 0,
         has_server_base: true,
@@ -98,9 +102,61 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
         }
         other => panic!("expected durable ack, got {other:?}"),
     }
-    assert_eq!(fixture.store.update_count(GRAPH), 1);
+    assert_eq!(fixture.store.update_count(&graph_id), 1);
     socket.close(None).await.unwrap();
     server.abort();
+}
+
+#[tokio::test]
+async fn membership_mutation_requires_the_current_owner_at_the_store_boundary() {
+    let fixture = fixture(RoomConfig::default());
+    let graph_id = GraphId::new(GRAPH).unwrap();
+
+    assert!(matches!(
+        fixture
+            .store
+            .grant_membership(&graph_id, PEER, INVITED, GraphRole::Viewer)
+            .await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert!(matches!(
+        fixture
+            .store
+            .grant_membership(&graph_id, OWNER, INVITED, GraphRole::Owner)
+            .await,
+        Err(StoreError::InvalidMembershipRole)
+    ));
+    assert!(matches!(
+        fixture
+            .store
+            .revoke_membership(&graph_id, OWNER, OWNER)
+            .await,
+        Err(StoreError::InvalidMembershipRole)
+    ));
+    assert!(fixture.store.authorize(&graph_id, OWNER).await.is_ok());
+
+    // Simulate the old check/use seam: authority existed, then was revoked
+    // before the mutation reached storage. The mutation must recheck it.
+    fixture.store.revoke(&graph_id, OWNER);
+    assert!(matches!(
+        fixture
+            .store
+            .grant_membership(&graph_id, OWNER, INVITED, GraphRole::Editor)
+            .await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert!(matches!(
+        fixture
+            .store
+            .revoke_membership(&graph_id, OWNER, PEER)
+            .await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert!(matches!(
+        fixture.store.authorize(&graph_id, INVITED).await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert!(fixture.store.authorize(&graph_id, PEER).await.is_ok());
 }
 
 #[tokio::test]
@@ -109,9 +165,10 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     let identity = Arc::new(TestIdentity);
     let token = OWNER_TOKEN;
     let app = router(AppState::new(
-        fixture.manager,
+        fixture.store.clone(),
         identity,
         Arc::new(neoseq_server::Metrics::default()),
+        RoomConfig::default(),
         32,
         Duration::from_millis(50),
     ));
@@ -137,7 +194,19 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
             .unwrap(),
         "*"
     );
+    let invalid_graph_id = "x".repeat(161);
+    let invalid_create = authorized_request(
+        &app,
+        "POST",
+        "/v1/graphs",
+        token,
+        &format!(r#"{{"graph_id":"{invalid_graph_id}","name":"Invalid"}}"#),
+    )
+    .await;
+    assert_eq!(invalid_create, (400, "invalid graph id\n".to_owned()));
+
     let graph_id = "remote-api-graph";
+    let graph = GraphId::new(graph_id).unwrap();
     let response = authorized_request(
         &app,
         "POST",
@@ -147,10 +216,12 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     )
     .await;
     assert_eq!(response.0, 201, "{}", response.1);
+    assert!(response.1.contains(r#""graph_id":"remote-api-graph""#));
 
     let graphs = authorized_request(&app, "GET", "/v1/graphs", token, "").await;
     assert_eq!(graphs.0, 200, "{}", graphs.1);
     assert!(graphs.1.contains("Remote notes"));
+    assert!(graphs.1.contains(r#""graph_id":"remote-api-graph""#));
     assert!(graphs.1.contains("created_at"));
     assert!(graphs.1.contains("updated_at"));
 
@@ -166,6 +237,67 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     assert!(members.1.contains(OWNER_USERNAME));
     assert!(members.1.contains("owner"));
 
+    let unauthorized = authorized_request(
+        &app,
+        "PUT",
+        &format!("/v1/graphs/{graph_id}/members/{INVITED_USERNAME}"),
+        PEER_TOKEN,
+        r#"{"role":"editor"}"#,
+    )
+    .await;
+    let unknown_target = authorized_request(
+        &app,
+        "PUT",
+        &format!("/v1/graphs/{graph_id}/members/unknown-account"),
+        PEER_TOKEN,
+        r#"{"role":"editor"}"#,
+    )
+    .await;
+    let unknown_graph = authorized_request(
+        &app,
+        "PUT",
+        &format!("/v1/graphs/unknown-graph/members/{INVITED_USERNAME}"),
+        token,
+        r#"{"role":"editor"}"#,
+    )
+    .await;
+    let invalid_graph = authorized_request(
+        &app,
+        "PUT",
+        &format!("/v1/graphs/{invalid_graph_id}/members/{INVITED_USERNAME}"),
+        token,
+        r#"{"role":"editor"}"#,
+    )
+    .await;
+    assert_eq!(unauthorized, unknown_target);
+    assert_eq!(unauthorized, unknown_graph);
+    assert_eq!(invalid_graph, unknown_graph);
+    assert_eq!(unauthorized.0, 403);
+    assert!(fixture.store.authorize(&graph, INVITED).await.is_err());
+
+    let immutable_owner = authorized_request(
+        &app,
+        "DELETE",
+        &format!("/v1/graphs/{graph_id}/members/{OWNER_USERNAME}"),
+        token,
+        "",
+    )
+    .await;
+    assert_eq!(immutable_owner.0, 400);
+    assert_eq!(immutable_owner.1, "owner membership cannot be revoked\n");
+    assert!(fixture.store.authorize(&graph, OWNER).await.is_ok());
+
+    let owner_role = authorized_request(
+        &app,
+        "PUT",
+        &format!("/v1/graphs/{graph_id}/members/{INVITED_USERNAME}"),
+        token,
+        r#"{"role":"owner"}"#,
+    )
+    .await;
+    assert_eq!(owner_role.0, 400);
+    assert_eq!(owner_role.1, "role must be editor or viewer\n");
+
     let granted = authorized_request(
         &app,
         "PUT",
@@ -175,7 +307,7 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     )
     .await;
     assert_eq!(granted.0, 204, "{}", granted.1);
-    assert!(fixture.store.authorize(graph_id, INVITED).await.is_ok());
+    assert!(fixture.store.authorize(&graph, INVITED).await.is_ok());
 
     let revoked = authorized_request(
         &app,
@@ -186,16 +318,17 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
     )
     .await;
     assert_eq!(revoked.0, 204, "{}", revoked.1);
-    assert!(fixture.store.authorize(graph_id, INVITED).await.is_err());
+    assert!(fixture.store.authorize(&graph, INVITED).await.is_err());
 }
 
 #[tokio::test]
 async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is_idempotent() {
     let fixture = fixture(RoomConfig::default());
     let app = router(AppState::new(
-        fixture.manager,
+        fixture.store.clone(),
         Arc::new(TestIdentity),
         Arc::new(neoseq_server::Metrics::default()),
+        RoomConfig::default(),
         32,
         Duration::from_millis(50),
     ));
@@ -217,7 +350,7 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     let large_markdown_b = random_markdown();
     core.execute(
         CommandEnvelope {
-            graph_id: graph,
+            graph_id: graph.clone(),
             command_id: CommandId::new("seed-page").unwrap(),
             command: Command::EnsurePage {
                 page_id: PageId::new("imported-page").unwrap(),
@@ -275,7 +408,7 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     assert_eq!(created.0, 201, "{}", created.1);
     assert!(created.1.contains(&graph_core::checksum(&checkpoint)));
 
-    let loaded = fixture.store.load_graph(graph_id).await.unwrap();
+    let loaded = fixture.store.load_graph(&graph).await.unwrap();
     assert_eq!(loaded.checkpoint.snapshot, checkpoint);
     let restored = GraphCore::from_snapshot(
         GraphId::new(graph_id).unwrap(),
@@ -313,6 +446,7 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     )
     .await;
     assert_eq!(conflict.0, 409, "{}", conflict.1);
+    assert_eq!(conflict.1, "graph already exists\n");
 
     let invalid = authorized_multipart_request(
         &app,
@@ -343,6 +477,15 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
         downloaded.1["x-neoseq-history-epoch"].to_str().unwrap(),
         "0"
     );
+    let invalid_graph_id = "x".repeat(161);
+    let invalid_download = authorized_binary_request(
+        &app,
+        &format!("/v1/graphs/{invalid_graph_id}/checkpoint"),
+        OWNER_TOKEN,
+    )
+    .await;
+    assert_eq!(invalid_download.0, 403);
+    assert!(invalid_download.2.is_empty());
 
     // A second browser has no local provenance for this graph. Its Hello must
     // receive the exact server-owned Base rather than an incremental delta.
@@ -365,7 +508,7 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     let hello = Message::Hello(Hello {
         protocol: PROTOCOL_VERSION,
         schema: graph_core::SCHEMA_VERSION as u16,
-        graph_id: graph_id.to_owned(),
+        graph_id: GraphId::new(graph_id).unwrap(),
         session_id: "fresh-import-reader".to_owned(),
         history_epoch: 0,
         has_server_base: false,
@@ -383,9 +526,7 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
         Message::Welcome(welcome) => welcome,
         other => panic!("expected Welcome, got {other:?}"),
     };
-    assert!(welcome.replace_checkpoint);
-    assert!(welcome.checkpoint_download);
-    assert!(welcome.checkpoint.is_empty());
+    assert_eq!(welcome.payload, WelcomePayload::ReplaceDownload {});
     let fresh =
         GraphCore::from_snapshot(GraphId::new(graph_id).unwrap(), 79, &downloaded.2).unwrap();
     assert!(

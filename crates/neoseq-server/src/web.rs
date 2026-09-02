@@ -4,7 +4,7 @@ use crate::{
         ServerRole, SessionPurpose,
     },
     metrics::Metrics,
-    room::{RoomConnection, RoomError, RoomManager},
+    room::{RoomConfig, RoomConnection, RoomError, RoomManager},
     store::{
         CreateGraphOutcome, GraphAdmin, GraphRole, GraphStatus, GraphStore, NewGraph, StoreError,
     },
@@ -21,20 +21,18 @@ use axum::{
     routing::{delete, get, patch, post, put},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use futures_util::{SinkExt, StreamExt};
+use domain::GraphId;
+use futures_util::{Sink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 use sync_protocol::{
     DEFAULT_MAX_GRAPH_BYTES, ErrorCode, ErrorMessage, Hello, Message, PROTOCOL_VERSION,
     SUBPROTOCOL, decode, encode, validate_message,
 };
-use tokio::sync::watch;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::time::{interval, timeout};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -45,44 +43,35 @@ const CHECKPOINT_EPOCH_HEADER: &str = "x-neoseq-history-epoch";
 const CHECKPOINT_VERSION_HEADER: &str = "x-neoseq-version-vector";
 const CHECKPOINT_CHECKSUM_HEADER: &str = "x-neoseq-checkpoint-checksum";
 
-pub struct AppState<S: GraphStore> {
-    pub rooms: Arc<RoomManager<S>>,
+#[derive(Clone)]
+pub struct AppState {
+    rooms: Arc<RoomManager>,
+    store: Arc<dyn GraphAdmin>,
     identity: Arc<dyn IdentityService>,
     pub metrics: Arc<Metrics>,
-    connections: Arc<AtomicUsize>,
-    max_connections: usize,
+    connections: Arc<Semaphore>,
     membership_recheck: Duration,
     shutdown: watch::Sender<bool>,
 }
 
-impl<S: GraphStore> Clone for AppState<S> {
-    fn clone(&self) -> Self {
-        Self {
-            rooms: self.rooms.clone(),
-            identity: self.identity.clone(),
-            metrics: self.metrics.clone(),
-            connections: self.connections.clone(),
-            max_connections: self.max_connections,
-            membership_recheck: self.membership_recheck,
-            shutdown: self.shutdown.clone(),
-        }
-    }
-}
-
-impl<S: GraphStore> AppState<S> {
+impl AppState {
+    /// Composes HTTP administration and live rooms from one backend instance so
+    /// both paths necessarily observe the same durable graph state.
     pub fn new(
-        rooms: Arc<RoomManager<S>>,
+        store: Arc<dyn GraphAdmin>,
         identity: Arc<dyn IdentityService>,
         metrics: Arc<Metrics>,
+        room_config: RoomConfig,
         max_connections: usize,
         membership_recheck: Duration,
     ) -> Self {
+        let room_store: Arc<dyn GraphStore> = store.clone();
         Self {
-            rooms,
+            rooms: Arc::new(RoomManager::new(room_store, room_config, metrics.clone())),
+            store,
             identity,
             metrics,
-            connections: Arc::new(AtomicUsize::new(0)),
-            max_connections,
+            connections: Arc::new(Semaphore::new(max_connections)),
             membership_recheck,
             shutdown: watch::channel(false).0,
         }
@@ -93,45 +82,42 @@ impl<S: GraphStore> AppState<S> {
     }
 }
 
-pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/livez", get(liveness))
-        .route("/readyz", get(readiness::<S>))
-        .route("/metrics", get(metrics::<S>))
-        .route("/v1/auth/login", post(login::<S>))
-        .route("/v1/auth/logout", post(logout::<S>))
-        .route("/v1/auth/me", get(current_account::<S>))
-        .route("/v1/auth/password", put(change_password::<S>))
+        .route("/readyz", get(readiness))
+        .route("/metrics", get(metrics))
+        .route("/v1/auth/login", post(login))
+        .route("/v1/auth/logout", post(logout))
+        .route("/v1/auth/me", get(current_account))
+        .route("/v1/auth/password", put(change_password))
         .route(
             "/v1/admin/accounts",
-            get(list_accounts::<S>).post(create_account::<S>),
+            get(list_accounts).post(create_account),
         )
-        .route(
-            "/v1/admin/accounts/{account_id}",
-            patch(update_account::<S>),
-        )
+        .route("/v1/admin/accounts/{account_id}", patch(update_account))
         .route(
             "/v1/admin/accounts/{account_id}/password",
-            put(reset_account_password::<S>),
+            put(reset_account_password),
         )
         .route(
             "/v1/admin/accounts/{account_id}/sessions",
-            delete(revoke_account_sessions::<S>),
+            delete(revoke_account_sessions),
         )
-        .route("/v1/sync", get(sync_upgrade::<S>))
-        .route("/v1/graphs", get(list_graphs::<S>).post(create_graph::<S>))
+        .route("/v1/sync", get(sync_upgrade))
+        .route("/v1/graphs", get(list_graphs).post(create_graph))
         .route(
             "/v1/graphs/{graph_id}/checkpoint",
-            get(download_graph_checkpoint::<S>),
+            get(download_graph_checkpoint),
         )
         .route(
             "/v1/graphs/import",
-            post(create_seeded_graph::<S>).layer(DefaultBodyLimit::max(MAX_SEEDED_GRAPH_BODY)),
+            post(create_seeded_graph).layer(DefaultBodyLimit::max(MAX_SEEDED_GRAPH_BODY)),
         )
-        .route("/v1/graphs/{graph_id}/members", get(list_memberships::<S>))
+        .route("/v1/graphs/{graph_id}/members", get(list_memberships))
         .route(
             "/v1/graphs/{graph_id}/members/{username}",
-            put(grant_membership::<S>).delete(revoke_membership::<S>),
+            put(grant_membership).delete(revoke_membership),
         )
         // The client can deliberately connect to repositories on other HTTPS
         // origins. API authentication is bearer-only (never ambient cookies),
@@ -158,12 +144,12 @@ pub fn router<S: GraphAdmin>(state: AppState<S>) -> Router {
 
 #[derive(Serialize)]
 struct GraphResponse {
-    graph_id: String,
+    graph_id: GraphId,
     display_name: String,
     created_at: String,
     updated_at: String,
-    role: &'static str,
-    status: &'static str,
+    role: GraphRole,
+    status: GraphStatus,
     membership_version: u64,
 }
 
@@ -185,7 +171,7 @@ fn default_graph_name() -> String {
 
 #[derive(Serialize)]
 struct CreatedGraphResponse {
-    graph_id: String,
+    graph_id: GraphId,
     history_epoch: u64,
     checkpoint_checksum: String,
 }
@@ -201,7 +187,7 @@ struct SeededGraphRequest {
 struct MembershipResponse {
     account_id: String,
     username: String,
-    role: &'static str,
+    role: GraphRole,
     version: u64,
 }
 
@@ -226,7 +212,7 @@ struct LoginRequest {
 }
 
 fn client_purpose() -> String {
-    "client".into()
+    SessionPurpose::Client.as_str().into()
 }
 
 #[derive(Serialize)]
@@ -240,8 +226,8 @@ struct LoginResponse {
 struct CurrentAccountResponse {
     account_id: String,
     username: String,
-    server_role: &'static str,
-    purpose: &'static str,
+    server_role: ServerRole,
+    purpose: SessionPurpose,
 }
 
 #[derive(Deserialize)]
@@ -264,7 +250,7 @@ struct CreateAccountRequest {
 }
 
 fn user_role() -> String {
-    "user".into()
+    ServerRole::User.as_str().into()
 }
 
 #[derive(Deserialize)]
@@ -278,16 +264,78 @@ struct ResetPasswordRequest {
     password: String,
 }
 
-async fn login<S: GraphStore>(
-    State(state): State<AppState<S>>,
-    Json(request): Json<LoginRequest>,
-) -> Response<Body> {
-    let purpose = match request.purpose.as_str() {
-        "client" => SessionPurpose::Client,
-        "admin" => SessionPurpose::Admin,
-        _ => return (StatusCode::BAD_REQUEST, "invalid session purpose\n").into_response(),
-    };
-    match state
+type ApiResult<T = Response<Body>> = Result<T, ApiError>;
+
+/// HTTP-only error vocabulary. Domain services remain transport-agnostic; this
+/// boundary owns the stable status and response-body contract exposed by the API.
+enum ApiError {
+    Status(StatusCode),
+    Message(StatusCode, &'static str),
+    Auth(AuthError),
+    Store(StoreError),
+}
+
+impl ApiError {
+    const fn status(status: StatusCode) -> Self {
+        Self::Status(status)
+    }
+
+    const fn message(status: StatusCode, message: &'static str) -> Self {
+        Self::Message(status, message)
+    }
+}
+
+impl From<AuthError> for ApiError {
+    fn from(error: AuthError) -> Self {
+        Self::Auth(error)
+    }
+}
+
+impl From<StoreError> for ApiError {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response<Body> {
+        match self {
+            Self::Status(status) => status.into_response(),
+            Self::Message(status, message) => (status, message).into_response(),
+            Self::Auth(error) => match error {
+                AuthError::Invalid => StatusCode::UNAUTHORIZED.into_response(),
+                AuthError::Forbidden => StatusCode::FORBIDDEN.into_response(),
+                AuthError::Conflict => {
+                    (StatusCode::CONFLICT, "account already exists\n").into_response()
+                }
+                AuthError::InvalidInput(message) => {
+                    (StatusCode::BAD_REQUEST, message).into_response()
+                }
+                AuthError::LastAdmin => (
+                    StatusCode::CONFLICT,
+                    "the last active administrator cannot be changed\n",
+                )
+                    .into_response(),
+                AuthError::Unavailable => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            },
+            Self::Store(error) => match error {
+                StoreError::AccessDenied | StoreError::ReadOnly => {
+                    StatusCode::FORBIDDEN.into_response()
+                }
+                StoreError::QuotaExceeded => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+                StoreError::GraphAlreadyExists => {
+                    (StatusCode::CONFLICT, "graph already exists\n").into_response()
+                }
+                _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            },
+        }
+    }
+}
+
+async fn login(State(state): State<AppState>, Json(request): Json<LoginRequest>) -> ApiResult {
+    let purpose = SessionPurpose::parse(&request.purpose)
+        .ok_or_else(|| ApiError::message(StatusCode::BAD_REQUEST, "invalid session purpose\n"))?;
+    let session = state
         .identity
         .login(
             &request.username,
@@ -296,129 +344,91 @@ async fn login<S: GraphStore>(
             purpose == SessionPurpose::Client && request.persistent,
         )
         .await
-    {
-        Ok(session) => Json(LoginResponse {
-            access_token: session.access_token,
-            expires_at: session.expires_at,
-            account: session.account,
-        })
-        .into_response(),
-        Err(AuthError::Invalid | AuthError::Forbidden) => {
-            (StatusCode::UNAUTHORIZED, "invalid username or password\n").into_response()
-        }
-        Err(error) => auth_error_response(error),
-    }
+        .map_err(|error| match error {
+            AuthError::Invalid | AuthError::Forbidden => {
+                ApiError::message(StatusCode::UNAUTHORIZED, "invalid username or password\n")
+            }
+            error => error.into(),
+        })?;
+    Ok(Json(LoginResponse {
+        access_token: session.access_token,
+        expires_at: session.expires_at,
+        account: session.account,
+    })
+    .into_response())
 }
 
-async fn logout<S: GraphStore>(
-    State(state): State<AppState<S>>,
-    headers: HeaderMap,
-) -> Response<Body> {
-    let Some(token) = bearer_token(&headers) else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
-    match state.identity.logout(token).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => auth_error_response(error),
-    }
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiResult {
+    let token = bearer_token(&headers).ok_or_else(|| ApiError::status(StatusCode::UNAUTHORIZED))?;
+    state.identity.logout(token).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn current_account<S: GraphStore>(
-    State(state): State<AppState<S>>,
-    headers: HeaderMap,
-) -> Response<Body> {
-    match authenticated_principal(&state, &headers, None).await {
-        Ok(principal) => Json(CurrentAccountResponse {
-            account_id: principal.id,
-            username: principal.username,
-            server_role: if principal.is_admin { "admin" } else { "user" },
-            purpose: principal.purpose.as_str(),
-        })
-        .into_response(),
-        Err(response) => *response,
-    }
+async fn current_account(State(state): State<AppState>, headers: HeaderMap) -> ApiResult {
+    let principal = authenticated_principal(&state, &headers, None).await?;
+    Ok(Json(CurrentAccountResponse {
+        account_id: principal.id,
+        username: principal.username,
+        server_role: principal.server_role,
+        purpose: principal.purpose,
+    })
+    .into_response())
 }
 
-async fn change_password<S: GraphStore>(
-    State(state): State<AppState<S>>,
+async fn change_password(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
-) -> Response<Body> {
-    let principal = match authenticated_principal(&state, &headers, None).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    match state
+) -> ApiResult {
+    let principal = authenticated_principal(&state, &headers, None).await?;
+    state
         .identity
         .change_password(&principal, &request.current_password, &request.new_password)
-        .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => auth_error_response(error),
-    }
+        .await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn list_accounts<S: GraphStore>(
-    State(state): State<AppState<S>>,
-    headers: HeaderMap,
-) -> Response<Body> {
-    let actor = match admin_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    match state.identity.list_accounts(&actor).await {
-        Ok(accounts) => Json(AccountsResponse { accounts }).into_response(),
-        Err(error) => auth_error_response(error),
-    }
+async fn list_accounts(State(state): State<AppState>, headers: HeaderMap) -> ApiResult {
+    let actor = admin_principal(&state, &headers).await?;
+    let accounts = state.identity.list_accounts(&actor).await?;
+    Ok(Json(AccountsResponse { accounts }).into_response())
 }
 
-async fn create_account<S: GraphStore>(
-    State(state): State<AppState<S>>,
+async fn create_account(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<CreateAccountRequest>,
-) -> Response<Body> {
-    let actor = match admin_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    let role = match parse_server_role(&request.server_role) {
-        Ok(role) => role,
-        Err(error) => return auth_error_response(error),
-    };
-    match state
+) -> ApiResult {
+    let actor = admin_principal(&state, &headers).await?;
+    let role = parse_server_role(&request.server_role)?;
+    let account = state
         .identity
         .create_account(&actor, &request.username, &request.password, role)
-        .await
-    {
-        Ok(account) => (StatusCode::CREATED, Json(account)).into_response(),
-        Err(error) => auth_error_response(error),
-    }
+        .await?;
+    Ok((StatusCode::CREATED, Json(account)).into_response())
 }
 
-async fn update_account<S: GraphStore>(
-    State(state): State<AppState<S>>,
+async fn update_account(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path(account_id): Path<String>,
     Json(request): Json<UpdateAccountRequest>,
-) -> Response<Body> {
-    let actor = match admin_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    let status = match request.status.as_deref() {
-        None => None,
-        Some("active") => Some(AccountStatus::Active),
-        Some("disabled") => Some(AccountStatus::Disabled),
-        Some(_) => return (StatusCode::BAD_REQUEST, "invalid account status\n").into_response(),
-    };
+) -> ApiResult {
+    let actor = admin_principal(&state, &headers).await?;
+    let status = request
+        .status
+        .as_deref()
+        .map(|status| {
+            AccountStatus::parse(status).ok_or_else(|| {
+                ApiError::message(StatusCode::BAD_REQUEST, "invalid account status\n")
+            })
+        })
+        .transpose()?;
     let server_role = match request.server_role.as_deref() {
         None => None,
-        Some(role) => match parse_server_role(role) {
-            Ok(role) => Some(role),
-            Err(error) => return auth_error_response(error),
-        },
+        Some(role) => Some(parse_server_role(role)?),
     };
-    match state
+    let account = state
         .identity
         .update_account(
             &actor,
@@ -428,111 +438,80 @@ async fn update_account<S: GraphStore>(
                 server_role,
             },
         )
-        .await
-    {
-        Ok(account) => Json(account).into_response(),
-        Err(error) => auth_error_response(error),
-    }
+        .await?;
+    Ok(Json(account).into_response())
 }
 
-async fn reset_account_password<S: GraphStore>(
-    State(state): State<AppState<S>>,
+async fn reset_account_password(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path(account_id): Path<String>,
     Json(request): Json<ResetPasswordRequest>,
-) -> Response<Body> {
-    let actor = match admin_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    match state
+) -> ApiResult {
+    let actor = admin_principal(&state, &headers).await?;
+    state
         .identity
         .reset_password(&actor, &account_id, &request.password)
-        .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => auth_error_response(error),
-    }
+        .await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn revoke_account_sessions<S: GraphStore>(
-    State(state): State<AppState<S>>,
+async fn revoke_account_sessions(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path(account_id): Path<String>,
-) -> Response<Body> {
-    let actor = match admin_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    match state.identity.revoke_sessions(&actor, &account_id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => auth_error_response(error),
-    }
+) -> ApiResult {
+    let actor = admin_principal(&state, &headers).await?;
+    state.identity.revoke_sessions(&actor, &account_id).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn list_graphs<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
-    headers: HeaderMap,
-) -> Response<Body> {
-    let principal = match api_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    match state.rooms.store().list_graphs(&principal).await {
-        Ok(graphs) => Json(GraphsResponse {
-            graphs: graphs
-                .into_iter()
-                .map(|graph| GraphResponse {
-                    graph_id: graph.graph_id,
-                    display_name: graph.display_name,
-                    created_at: graph.created_at,
-                    updated_at: graph.updated_at,
-                    role: role_name(graph.role),
-                    status: match graph.status {
-                        GraphStatus::Active => "active",
-                        GraphStatus::ReadOnly => "read_only",
-                    },
-                    membership_version: graph.membership_version,
-                })
-                .collect(),
-        })
-        .into_response(),
-        Err(error) => api_store_error(error),
-    }
+async fn list_graphs(State(state): State<AppState>, headers: HeaderMap) -> ApiResult {
+    let principal = api_principal(&state, &headers).await?;
+    let graphs = state.store.list_graphs(&principal).await?;
+    Ok(Json(GraphsResponse {
+        graphs: graphs
+            .into_iter()
+            .map(|graph| GraphResponse {
+                graph_id: graph.graph_id,
+                display_name: graph.display_name,
+                created_at: graph.created_at,
+                updated_at: graph.updated_at,
+                role: graph.role,
+                status: graph.status,
+                membership_version: graph.membership_version,
+            })
+            .collect(),
+    })
+    .into_response())
 }
 
-async fn create_graph<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
+async fn create_graph(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<CreateGraphRequest>,
-) -> Response<Body> {
-    let principal = match api_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    let graph_id = match domain::GraphId::new(&request.graph_id) {
-        Ok(graph_id) => graph_id,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
-    };
+) -> ApiResult {
+    let principal = api_principal(&state, &headers).await?;
+    let graph_id = GraphId::new(&request.graph_id)
+        .map_err(|_| ApiError::message(StatusCode::BAD_REQUEST, "invalid graph id\n"))?;
     let display_name = request.name.trim();
     if !valid_graph_name(display_name) {
-        return (StatusCode::BAD_REQUEST, "invalid graph name\n").into_response();
+        return Err(ApiError::message(
+            StatusCode::BAD_REQUEST,
+            "invalid graph name\n",
+        ));
     }
-    let core = match graph_core::GraphCore::new(graph_id, SERVER_GRAPH_PEER_ID, "server:create") {
-        Ok(core) => core,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
-    };
-    let snapshot = match core.export_snapshot() {
-        Ok(snapshot) => snapshot,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
+    let core = graph_core::GraphCore::new(graph_id.clone(), SERVER_GRAPH_PEER_ID, "server:create")
+        .map_err(|_| ApiError::message(StatusCode::BAD_REQUEST, "invalid graph id\n"))?;
+    let snapshot = core
+        .export_snapshot()
+        .map_err(|_| ApiError::status(StatusCode::INTERNAL_SERVER_ERROR))?;
     let version_vector = core.version_vector();
     let checkpoint_checksum = graph_core::checksum(&snapshot);
-    let result = state
-        .rooms
-        .store()
+    let outcome = state
+        .store
         .create_graph(NewGraph {
-            graph_id: &request.graph_id,
+            graph_id: &graph_id,
             display_name,
             owner_account_id: &principal,
             schema_version: graph_core::SCHEMA_VERSION,
@@ -540,67 +519,64 @@ async fn create_graph<S: GraphAdmin>(
             snapshot: &snapshot,
             version_vector: &version_vector,
         })
-        .await;
-    match result {
-        Ok(outcome) => created_graph_response(outcome, request.graph_id, checkpoint_checksum),
-        Err(error) => api_store_error(error),
-    }
+        .await?;
+    Ok(created_graph_response(
+        outcome,
+        graph_id,
+        checkpoint_checksum,
+    ))
 }
 
-async fn create_seeded_graph<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
+async fn create_seeded_graph(
+    State(state): State<AppState>,
     headers: HeaderMap,
     multipart: Multipart,
-) -> Response<Body> {
-    let principal = match api_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
-    let request = match read_seeded_graph_request(multipart).await {
-        Ok(request) => request,
-        Err(response) => return response,
-    };
-    let graph_id = match domain::GraphId::new(&request.graph_id) {
-        Ok(graph_id) => graph_id,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response(),
-    };
+) -> ApiResult {
+    let principal = api_principal(&state, &headers).await?;
+    let request = read_seeded_graph_request(multipart).await?;
+    let graph_id = GraphId::new(&request.graph_id)
+        .map_err(|_| ApiError::message(StatusCode::BAD_REQUEST, "invalid graph id\n"))?;
     let display_name = request.name.trim();
     if !valid_graph_name(display_name) {
-        return (StatusCode::BAD_REQUEST, "invalid graph name\n").into_response();
+        return Err(ApiError::message(
+            StatusCode::BAD_REQUEST,
+            "invalid graph name\n",
+        ));
     }
     if request.checkpoint.len() > state.rooms.limits().max_decompressed_bytes as usize {
-        return (
+        return Err(ApiError::message(
             StatusCode::PAYLOAD_TOO_LARGE,
             "graph checkpoint is too large\n",
-        )
-            .into_response();
+        ));
     }
     let checkpoint = request.checkpoint;
     let checkpoint_checksum = graph_core::checksum(&checkpoint);
     if checkpoint_checksum != request.checkpoint_checksum {
-        return (
+        return Err(ApiError::message(
             StatusCode::BAD_REQUEST,
             "graph checkpoint checksum mismatch\n",
-        )
-            .into_response();
+        ));
     }
+    let validation_graph_id = graph_id.clone();
     let validated = tokio::task::spawn_blocking(move || {
-        graph_core::GraphCore::from_snapshot(graph_id, SERVER_GRAPH_PEER_ID, &checkpoint)
+        graph_core::GraphCore::from_snapshot(validation_graph_id, SERVER_GRAPH_PEER_ID, &checkpoint)
             .map(|core| (checkpoint, core.version_vector()))
     })
     .await;
     let (checkpoint, version_vector) = match validated {
         Ok(Ok(validated)) => validated,
         Ok(Err(_)) => {
-            return (StatusCode::BAD_REQUEST, "invalid graph checkpoint\n").into_response();
+            return Err(ApiError::message(
+                StatusCode::BAD_REQUEST,
+                "invalid graph checkpoint\n",
+            ));
         }
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        Err(_) => return Err(ApiError::status(StatusCode::INTERNAL_SERVER_ERROR)),
     };
-    let result = state
-        .rooms
-        .store()
+    let outcome = state
+        .store
         .create_graph(NewGraph {
-            graph_id: &request.graph_id,
+            graph_id: &graph_id,
             display_name,
             owner_account_id: &principal,
             schema_version: graph_core::SCHEMA_VERSION,
@@ -608,29 +584,25 @@ async fn create_seeded_graph<S: GraphAdmin>(
             snapshot: &checkpoint,
             version_vector: &version_vector,
         })
-        .await;
-    match result {
-        Ok(outcome) => created_graph_response(outcome, request.graph_id, checkpoint_checksum),
-        Err(error) => api_store_error(error),
-    }
+        .await?;
+    Ok(created_graph_response(
+        outcome,
+        graph_id,
+        checkpoint_checksum,
+    ))
 }
 
-async fn download_graph_checkpoint<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
+async fn download_graph_checkpoint(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path(graph_id): Path<String>,
-) -> Response<Body> {
-    let principal = match api_principal(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(response) => return *response,
-    };
+) -> ApiResult {
+    let principal = api_principal(&state, &headers).await?;
+    let graph_id = private_graph_id(&graph_id)?;
     let checkpoint = match state.rooms.export_checkpoint(&graph_id, &principal).await {
         Ok(checkpoint) => checkpoint,
-        Err(RoomError::Store(error)) => return api_store_error(error),
-        Err(RoomError::InvalidGraph) => {
-            return (StatusCode::BAD_REQUEST, "invalid graph id\n").into_response();
-        }
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(RoomError::Store(error)) => return Err(error.into()),
+        Err(_) => return Err(ApiError::status(StatusCode::SERVICE_UNAVAILABLE)),
     };
     let metadata = [
         (
@@ -652,60 +624,36 @@ async fn download_graph_checkpoint<S: GraphAdmin>(
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     for (name, value) in metadata {
-        let Ok(value) = HeaderValue::from_str(&value) else {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        };
+        let value = HeaderValue::from_str(&value)
+            .map_err(|_| ApiError::status(StatusCode::INTERNAL_SERVER_ERROR))?;
         response
             .headers_mut()
             .insert(HeaderName::from_static(name), value);
     }
-    response
+    Ok(response)
 }
 
-async fn read_seeded_graph_request(
-    mut multipart: Multipart,
-) -> Result<SeededGraphRequest, Response<Body>> {
+async fn read_seeded_graph_request(mut multipart: Multipart) -> ApiResult<SeededGraphRequest> {
+    let invalid_body = || ApiError::message(StatusCode::BAD_REQUEST, "invalid graph import body\n");
     let mut graph_id = None;
     let mut name = None;
     let mut checkpoint_checksum = None;
     let mut checkpoint = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response())?
-    {
+    while let Some(field) = multipart.next_field().await.map_err(|_| invalid_body())? {
         match field.name() {
             Some("graph_id") if graph_id.is_none() => {
-                graph_id = Some(field.text().await.map_err(|_| {
-                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
-                })?);
+                graph_id = Some(field.text().await.map_err(|_| invalid_body())?);
             }
             Some("name") if name.is_none() => {
-                name = Some(field.text().await.map_err(|_| {
-                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
-                })?);
+                name = Some(field.text().await.map_err(|_| invalid_body())?);
             }
             Some("checkpoint_checksum") if checkpoint_checksum.is_none() => {
-                checkpoint_checksum = Some(field.text().await.map_err(|_| {
-                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
-                })?);
+                checkpoint_checksum = Some(field.text().await.map_err(|_| invalid_body())?);
             }
             Some("checkpoint") if checkpoint.is_none() => {
-                checkpoint = Some(
-                    field
-                        .bytes()
-                        .await
-                        .map_err(|_| {
-                            (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
-                        })?
-                        .to_vec(),
-                );
+                checkpoint = Some(field.bytes().await.map_err(|_| invalid_body())?.to_vec());
             }
-            _ => {
-                return Err(
-                    (StatusCode::BAD_REQUEST, "invalid graph import body\n").into_response()
-                );
-            }
+            _ => return Err(invalid_body()),
         }
     }
     match (graph_id, name, checkpoint_checksum, checkpoint) {
@@ -719,13 +667,16 @@ async fn read_seeded_graph_request(
                 checkpoint,
             })
         }
-        _ => Err((StatusCode::BAD_REQUEST, "incomplete graph import body\n").into_response()),
+        _ => Err(ApiError::message(
+            StatusCode::BAD_REQUEST,
+            "incomplete graph import body\n",
+        )),
     }
 }
 
 fn created_graph_response(
     outcome: CreateGraphOutcome,
-    graph_id: String,
+    graph_id: GraphId,
     checkpoint_checksum: String,
 ) -> Response<Body> {
     (
@@ -748,218 +699,151 @@ fn valid_graph_name(display_name: &str) -> bool {
         && !display_name.chars().any(char::is_control)
 }
 
-async fn list_memberships<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
+async fn list_memberships(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path(graph_id): Path<String>,
-) -> Response<Body> {
-    if let Err(response) = require_owner(&state, &headers, &graph_id).await {
-        return *response;
+) -> ApiResult {
+    let (_, graph_id) = owner_for_private_graph_lookup(&state, &headers, &graph_id).await?;
+    let memberships = state.store.list_memberships(&graph_id).await?;
+    let mut response = Vec::with_capacity(memberships.len());
+    for membership in memberships {
+        let username = state
+            .identity
+            .username_for(&membership.account_id)
+            .await?
+            .ok_or_else(|| ApiError::status(StatusCode::INTERNAL_SERVER_ERROR))?;
+        response.push(MembershipResponse {
+            account_id: membership.account_id,
+            username,
+            role: membership.role,
+            version: membership.version,
+        });
     }
-    match state.rooms.store().list_memberships(&graph_id).await {
-        Ok(memberships) => {
-            let mut response = Vec::with_capacity(memberships.len());
-            for membership in memberships {
-                let username = match state.identity.username_for(&membership.account_id).await {
-                    Ok(Some(username)) => username,
-                    Ok(None) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-                    Err(error) => return auth_error_response(error),
-                };
-                response.push(MembershipResponse {
-                    account_id: membership.account_id,
-                    username,
-                    role: role_name(membership.role),
-                    version: membership.version,
-                });
-            }
-            Json(MembershipsResponse {
-                memberships: response,
-            })
-            .into_response()
-        }
-        Err(error) => api_store_error(error),
-    }
+    Ok(Json(MembershipsResponse {
+        memberships: response,
+    })
+    .into_response())
 }
 
-async fn grant_membership<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
+async fn grant_membership(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path((graph_id, username)): Path<(String, String)>,
     Json(request): Json<GrantRequest>,
-) -> Response<Body> {
-    if let Err(response) = require_owner(&state, &headers, &graph_id).await {
-        return *response;
-    }
-    let role = match request.role.as_str() {
-        "editor" => GraphRole::Editor,
-        "viewer" => GraphRole::Viewer,
-        _ => return (StatusCode::BAD_REQUEST, "role must be editor or viewer\n").into_response(),
-    };
-    let account_id = match membership_account(&state, &username).await {
-        Ok(account_id) => account_id,
-        Err(response) => return response,
-    };
-    match state
-        .rooms
-        .store()
-        .grant_membership(&graph_id, &account_id, role)
+) -> ApiResult {
+    let (actor_account_id, graph_id) =
+        owner_for_private_graph_lookup(&state, &headers, &graph_id).await?;
+    let role = GraphRole::parse(&request.role)
+        .filter(|role| *role != GraphRole::Owner)
+        .ok_or_else(|| {
+            ApiError::message(StatusCode::BAD_REQUEST, "role must be editor or viewer\n")
+        })?;
+    let account_id = membership_account(&state, &username).await?;
+    state
+        .store
+        .grant_membership(&graph_id, &actor_account_id, &account_id, role)
         .await
-    {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => api_store_error(error),
-    }
+        .map_err(|error| match error {
+            StoreError::InvalidMembershipRole => ApiError::message(
+                StatusCode::BAD_REQUEST,
+                "owner membership cannot be changed\n",
+            ),
+            error => error.into(),
+        })?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn revoke_membership<S: GraphAdmin>(
-    State(state): State<AppState<S>>,
+async fn revoke_membership(
+    State(state): State<AppState>,
     headers: HeaderMap,
     Path((graph_id, username)): Path<(String, String)>,
-) -> Response<Body> {
-    let owner = match require_owner(&state, &headers, &graph_id).await {
-        Ok(owner) => owner,
-        Err(response) => return *response,
-    };
-    let account_id = match membership_account(&state, &username).await {
-        Ok(account_id) => account_id,
-        Err(response) => return response,
-    };
-    if owner == account_id {
-        return (
-            StatusCode::BAD_REQUEST,
-            "owner membership cannot be revoked\n",
-        )
-            .into_response();
-    }
-    match state
-        .rooms
-        .store()
-        .revoke_membership(&graph_id, &account_id)
+) -> ApiResult {
+    let (actor_account_id, graph_id) =
+        owner_for_private_graph_lookup(&state, &headers, &graph_id).await?;
+    let account_id = membership_account(&state, &username).await?;
+    state
+        .store
+        .revoke_membership(&graph_id, &actor_account_id, &account_id)
         .await
-    {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => api_store_error(error),
-    }
+        .map_err(|error| match error {
+            StoreError::InvalidMembershipRole => ApiError::message(
+                StatusCode::BAD_REQUEST,
+                "owner membership cannot be revoked\n",
+            ),
+            error => error.into(),
+        })?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn api_principal<S: GraphStore>(
-    state: &AppState<S>,
-    headers: &HeaderMap,
-) -> Result<String, Box<Response<Body>>> {
+async fn api_principal(state: &AppState, headers: &HeaderMap) -> ApiResult<String> {
     authenticated_principal(state, headers, Some(SessionPurpose::Client))
         .await
         .map(|principal| principal.id)
 }
 
-async fn require_owner<S: GraphStore>(
-    state: &AppState<S>,
+/// Read-only privacy gate before resolving graph-scoped identifiers such as a
+/// target username. Membership mutations still reauthorize the actor inside
+/// their store transaction; this check is not their authority boundary.
+async fn owner_for_private_graph_lookup(
+    state: &AppState,
     headers: &HeaderMap,
     graph_id: &str,
-) -> Result<String, Box<Response<Body>>> {
+) -> ApiResult<(String, GraphId)> {
     let principal = api_principal(state, headers).await?;
-    match state.rooms.store().authorize(graph_id, &principal).await {
-        Ok(membership) if membership.role == GraphRole::Owner => Ok(principal),
-        Ok(_) | Err(StoreError::AccessDenied) => {
-            Err(Box::new(StatusCode::FORBIDDEN.into_response()))
-        }
-        Err(error) => Err(Box::new(api_store_error(error))),
+    let graph_id = private_graph_id(graph_id)?;
+    match state.store.authorize(&graph_id, &principal).await {
+        Ok(membership) if membership.role == GraphRole::Owner => Ok((principal, graph_id)),
+        Ok(_) | Err(StoreError::AccessDenied) => Err(ApiError::status(StatusCode::FORBIDDEN)),
+        Err(error) => Err(error.into()),
     }
 }
 
-async fn authenticated_principal<S: GraphStore>(
-    state: &AppState<S>,
+fn private_graph_id(value: &str) -> ApiResult<GraphId> {
+    GraphId::new(value).map_err(|_| ApiError::status(StatusCode::FORBIDDEN))
+}
+
+async fn authenticated_principal(
+    state: &AppState,
     headers: &HeaderMap,
     expected_purpose: Option<SessionPurpose>,
-) -> Result<Principal, Box<Response<Body>>> {
-    let token =
-        bearer_token(headers).ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
+) -> ApiResult<Principal> {
+    let token = bearer_token(headers).ok_or_else(|| ApiError::status(StatusCode::UNAUTHORIZED))?;
     let principal = state
         .identity
         .verify(token)
         .await
-        .map_err(|_| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
+        .map_err(|_| ApiError::status(StatusCode::UNAUTHORIZED))?;
     if expected_purpose.is_some_and(|purpose| purpose != principal.purpose) {
-        return Err(Box::new(StatusCode::FORBIDDEN.into_response()));
+        return Err(ApiError::status(StatusCode::FORBIDDEN));
     }
     Ok(principal)
 }
 
-async fn admin_principal<S: GraphStore>(
-    state: &AppState<S>,
-    headers: &HeaderMap,
-) -> Result<Principal, Box<Response<Body>>> {
+async fn admin_principal(state: &AppState, headers: &HeaderMap) -> ApiResult<Principal> {
     let principal = authenticated_principal(state, headers, Some(SessionPurpose::Admin)).await?;
-    if principal.is_admin {
+    if principal.is_admin() {
         Ok(principal)
     } else {
-        Err(Box::new(StatusCode::FORBIDDEN.into_response()))
+        Err(ApiError::status(StatusCode::FORBIDDEN))
     }
 }
 
-async fn membership_account<S: GraphStore>(
-    state: &AppState<S>,
-    username: &str,
-) -> Result<String, Response<Body>> {
-    state
-        .identity
-        .resolve_username(username)
-        .await
-        .map_err(auth_error_response)
+async fn membership_account(state: &AppState, username: &str) -> ApiResult<String> {
+    Ok(state.identity.resolve_username(username).await?)
 }
 
 fn parse_server_role(value: &str) -> Result<ServerRole, AuthError> {
-    match value {
-        "user" => Ok(ServerRole::User),
-        "admin" => Ok(ServerRole::Admin),
-        _ => Err(AuthError::InvalidInput("invalid server role")),
-    }
-}
-
-fn auth_error_response(error: AuthError) -> Response<Body> {
-    match error {
-        AuthError::Invalid => StatusCode::UNAUTHORIZED.into_response(),
-        AuthError::Forbidden => StatusCode::FORBIDDEN.into_response(),
-        AuthError::Conflict => (StatusCode::CONFLICT, "account already exists\n").into_response(),
-        AuthError::InvalidInput(message) => (StatusCode::BAD_REQUEST, message).into_response(),
-        AuthError::LastAdmin => (
-            StatusCode::CONFLICT,
-            "the last active administrator cannot be changed\n",
-        )
-            .into_response(),
-        AuthError::Unavailable => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
-}
-
-fn role_name(role: GraphRole) -> &'static str {
-    match role {
-        GraphRole::Owner => "owner",
-        GraphRole::Editor => "editor",
-        GraphRole::Viewer => "viewer",
-    }
-}
-
-fn api_store_error(error: StoreError) -> Response<Body> {
-    match error {
-        StoreError::AccessDenied | StoreError::ReadOnly => StatusCode::FORBIDDEN.into_response(),
-        StoreError::QuotaExceeded => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-        StoreError::GraphAlreadyExists => {
-            (StatusCode::CONFLICT, "graph already exists\n").into_response()
-        }
-        StoreError::Database(message)
-            if message.contains("duplicate key") || message.contains("already exists") =>
-        {
-            (StatusCode::CONFLICT, "graph already exists\n").into_response()
-        }
-        _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
+    ServerRole::parse(value).ok_or(AuthError::InvalidInput("invalid server role"))
 }
 
 async fn liveness() -> &'static str {
     "ok\n"
 }
 
-async fn readiness<S: GraphStore>(State(state): State<AppState<S>>) -> impl IntoResponse {
+async fn readiness(State(state): State<AppState>) -> impl IntoResponse {
     let request_id = state.metrics.next_request_id();
-    match state.rooms.store().ready().await {
+    match state.store.ready().await {
         Ok(()) => {
             tracing::info!(request_id, endpoint = "readyz", result = "ready");
             (StatusCode::OK, "ready\n")
@@ -971,7 +855,7 @@ async fn readiness<S: GraphStore>(State(state): State<AppState<S>>) -> impl Into
     }
 }
 
-async fn metrics<S: GraphStore>(State(state): State<AppState<S>>) -> Response<Body> {
+async fn metrics(State(state): State<AppState>) -> Response<Body> {
     let mut response = Response::new(Body::from(state.metrics.render()));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -980,8 +864,8 @@ async fn metrics<S: GraphStore>(State(state): State<AppState<S>>) -> Response<Bo
     response
 }
 
-async fn sync_upgrade<S: GraphStore>(
-    State(state): State<AppState<S>>,
+async fn sync_upgrade(
+    State(state): State<AppState>,
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
@@ -998,8 +882,7 @@ async fn sync_upgrade<S: GraphStore>(
     if principal.purpose != SessionPurpose::Client {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let Some(permit) = ConnectionPermit::acquire(state.connections.clone(), state.max_connections)
-    else {
+    let Ok(permit) = state.connections.clone().try_acquire_owned() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let max_frame = state.rooms.limits().max_frame_bytes as usize;
@@ -1032,32 +915,11 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
-struct ConnectionPermit {
-    connections: Arc<AtomicUsize>,
-}
-
-impl ConnectionPermit {
-    fn acquire(connections: Arc<AtomicUsize>, max: usize) -> Option<Self> {
-        connections
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-                (current < max).then_some(current + 1)
-            })
-            .ok()?;
-        Some(Self { connections })
-    }
-}
-
-impl Drop for ConnectionPermit {
-    fn drop(&mut self) {
-        self.connections.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-async fn session<S: GraphStore>(
+async fn session(
     mut socket: WebSocket,
-    state: AppState<S>,
+    state: AppState,
     token: String,
-    _permit: ConnectionPermit,
+    _permit: OwnedSemaphorePermit,
 ) {
     let Some(principal) = state.identity.verify(&token).await.ok() else {
         return;
@@ -1136,10 +998,7 @@ async fn session<S: GraphStore>(
     run_session(socket, state, opened.connection, token).await;
 }
 
-async fn receive_hello<S: GraphStore>(
-    socket: &mut WebSocket,
-    state: &AppState<S>,
-) -> Result<Hello, Message> {
+async fn receive_hello(socket: &mut WebSocket, state: &AppState) -> Result<Hello, Message> {
     let frame = match socket.recv().await {
         Some(Ok(WsMessage::Binary(frame))) => frame,
         _ => {
@@ -1169,9 +1028,9 @@ async fn receive_hello<S: GraphStore>(
     }
 }
 
-async fn run_session<S: GraphStore>(
+async fn run_session(
     socket: WebSocket,
-    state: AppState<S>,
+    state: AppState,
     mut connection: RoomConnection,
     token: String,
 ) {
@@ -1194,11 +1053,7 @@ async fn run_session<S: GraphStore>(
             }
             outgoing = outbound.recv() => {
                 let Some(message) = outgoing else { break };
-                let frame = match encode(&message, state.rooms.limits().max_frame_bytes as usize) {
-                    Ok(frame) => frame,
-                    Err(_) => break,
-                };
-                if sink.send(WsMessage::Binary(frame.into())).await.is_err() {
+                if send_message(&mut sink, &state, &message).await.is_err() {
                     break;
                 }
             }
@@ -1217,7 +1072,7 @@ async fn run_session<S: GraphStore>(
                     Err(error) => {
                         state.metrics.frame_rejected();
                         let message = error_message(error.code, true, error.diagnostic);
-                        if send_sink(&mut sink, &state, &message).await.is_err() { break; }
+                        if send_message(&mut sink, &state, &message).await.is_err() { break; }
                         continue;
                     }
                 };
@@ -1250,7 +1105,7 @@ async fn run_session<S: GraphStore>(
                 };
                 if let Err(error) = result {
                     let message = room_error_message(&error);
-                    if send_sink(&mut sink, &state, &message).await.is_err() { break; }
+                    if send_message(&mut sink, &state, &message).await.is_err() { break; }
                     if matches!(
                         error,
                         RoomError::Store(StoreError::AccessDenied)
@@ -1268,7 +1123,7 @@ async fn run_session<S: GraphStore>(
                 }
                 if let Err(error) = state.rooms.recheck(&connection).await {
                     let message = room_error_message(&error);
-                    let _ = send_sink(&mut sink, &state, &message).await;
+                    let _ = send_message(&mut sink, &state, &message).await;
                     break;
                 }
             }
@@ -1277,22 +1132,9 @@ async fn run_session<S: GraphStore>(
     state.rooms.disconnect(&connection).await;
 }
 
-async fn send_message<S: GraphStore>(
-    socket: &mut WebSocket,
-    state: &AppState<S>,
-    message: &Message,
-) -> Result<(), ()> {
-    let frame = encode(message, state.rooms.limits().max_frame_bytes as usize).map_err(|_| ())?;
-    socket
-        .send(WsMessage::Binary(frame.into()))
-        .await
-        .map_err(|_| ())
-}
-
-async fn send_sink<S, T>(sink: &mut T, state: &AppState<S>, message: &Message) -> Result<(), ()>
+async fn send_message<S>(sink: &mut S, state: &AppState, message: &Message) -> Result<(), ()>
 where
-    S: GraphStore,
-    T: futures_util::Sink<WsMessage> + Unpin,
+    S: Sink<WsMessage> + Unpin,
 {
     let frame = encode(message, state.rooms.limits().max_frame_bytes as usize).map_err(|_| ())?;
     sink.send(WsMessage::Binary(frame.into()))
@@ -1300,14 +1142,17 @@ where
         .map_err(|_| ())
 }
 
-async fn send_error<S: GraphStore>(
-    socket: &mut WebSocket,
-    state: &AppState<S>,
+async fn send_error<S>(
+    sink: &mut S,
+    state: &AppState,
     code: ErrorCode,
     recoverable: bool,
     diagnostic: &str,
-) -> Result<(), ()> {
-    send_message(socket, state, &error_message(code, recoverable, diagnostic)).await
+) -> Result<(), ()>
+where
+    S: Sink<WsMessage> + Unpin,
+{
+    send_message(sink, state, &error_message(code, recoverable, diagnostic)).await
 }
 
 fn error_message(code: ErrorCode, recoverable: bool, diagnostic: &str) -> Message {
@@ -1346,9 +1191,7 @@ fn room_error_message(error: &RoomError) -> Message {
             true,
             "durable storage is unavailable",
         ),
-        RoomError::InvalidGraph | RoomError::InvalidSession => {
-            (ErrorCode::InvalidMessage, false, "invalid session metadata")
-        }
+        RoomError::InvalidSession => (ErrorCode::InvalidMessage, false, "invalid session metadata"),
         RoomError::InvalidVersionVector | RoomError::InvalidUpdate => (
             ErrorCode::InvalidUpdate,
             true,

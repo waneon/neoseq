@@ -4,6 +4,7 @@ use graph_core::{
     GraphCore, GraphLocator, GraphRepository, GraphRuntime, InMemoryClock, LocalGraphRepository,
     recover_graph,
 };
+use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
 
 struct TempDb(PathBuf);
@@ -118,6 +119,10 @@ fn persistence_sqlite_conformance_reopens_checkpoint_and_tail() {
             },
         ))
         .unwrap();
+    let metadata = runtime.repository_mut().metadata().unwrap();
+    assert_eq!(metadata.compacted_through, checkpoint_sequence);
+    assert_eq!(metadata.tail_count, 1);
+    assert!(metadata.tail_bytes > 0);
     let expected = runtime.core().fingerprint().unwrap();
     assert_eq!(runtime.repository().journal_mode().unwrap(), "wal");
     assert_eq!(
@@ -167,6 +172,7 @@ fn checkpoint_rotation_keeps_one_fallback_generation_then_reclaims_it() {
         .unwrap();
     assert_eq!(runtime.repository().checkpoint_count().unwrap(), 2);
     assert_eq!(runtime.repository().update_count().unwrap(), 1);
+    assert_eq!(runtime.repository_mut().metadata().unwrap().tail_count, 0);
 
     runtime
         .execute(envelope(
@@ -185,6 +191,7 @@ fn checkpoint_rotation_keeps_one_fallback_generation_then_reclaims_it() {
         .unwrap();
     assert_eq!(runtime.repository().checkpoint_count().unwrap(), 2);
     assert_eq!(runtime.repository().update_count().unwrap(), 1);
+    assert_eq!(runtime.repository_mut().metadata().unwrap().tail_count, 0);
     assert_eq!(
         runtime.repository_mut().updates_after(0).unwrap()[0].local_sequence,
         2
@@ -197,6 +204,104 @@ fn checkpoint_rotation_keeps_one_fallback_generation_then_reclaims_it() {
     ));
     assert_eq!(runtime.repository().checkpoint_count().unwrap(), 2);
     assert_eq!(runtime.repository().update_count().unwrap(), 1);
+}
+
+#[test]
+fn sqlite_v1_open_normalizes_legacy_tail_counters_before_next_compaction_decision() {
+    const COMPACTION_THRESHOLD: usize = 128;
+
+    let database = TempDb::new("legacy-tail-counters");
+    let graph = GraphId::new("legacy-tail-counters").unwrap();
+    let (mut runtime, _) = open(database.path(), &graph, 44);
+    ensure_page(&mut runtime, &graph);
+    for index in 1..COMPACTION_THRESHOLD {
+        runtime
+            .execute(envelope(
+                &graph,
+                &format!("legacy-rename-{index}"),
+                Command::RenamePage {
+                    page_id: PageId::new("home").unwrap(),
+                    title: format!("Legacy title {index}"),
+                },
+            ))
+            .unwrap();
+    }
+    let checkpoint_sequence = runtime.repository_mut().metadata().unwrap().next_sequence - 1;
+    let checkpoint = runtime.core().export_gc_checkpoint().unwrap();
+    runtime
+        .repository_mut()
+        .install_checkpoint(&checkpoint, checkpoint_sequence, "2026-08-03T12:04:00Z")
+        .unwrap();
+    assert_eq!(checkpoint_sequence, COMPACTION_THRESHOLD as u64);
+    assert_eq!(
+        runtime.repository().update_count().unwrap(),
+        COMPACTION_THRESHOLD
+    );
+    assert_eq!(runtime.repository_mut().metadata().unwrap().tail_count, 0);
+    drop(runtime);
+
+    // Recreate the schema-v1 representation written before logical Tail
+    // counters excluded the physically retained fallback generation.
+    let legacy = Connection::open(database.path()).unwrap();
+    assert_eq!(
+        legacy
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        SQLITE_SCHEMA_VERSION
+    );
+    let (legacy_tail_bytes, legacy_tail_count): (i64, i64) = legacy
+        .query_row(
+            "SELECT COALESCE(SUM(LENGTH(payload)), 0), COUNT(*)
+             FROM graph_update WHERE graph_id = ?1",
+            [graph.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(legacy_tail_bytes > 0);
+    assert_eq!(legacy_tail_count, COMPACTION_THRESHOLD as i64);
+    legacy
+        .execute(
+            "UPDATE graph_metadata SET tail_bytes = ?2, tail_count = ?3
+             WHERE graph_id = ?1",
+            params![graph.as_str(), legacy_tail_bytes, legacy_tail_count],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let mut repository = SqliteGraphRepository::open(
+        database.path(),
+        GraphLocator::local(graph.clone()),
+        "2026-08-03T12:05:00Z",
+        45,
+    )
+    .unwrap();
+    let normalized = repository.metadata().unwrap();
+    assert_eq!(normalized.compacted_through, checkpoint_sequence);
+    assert_eq!(normalized.tail_bytes, 0);
+    assert_eq!(normalized.tail_count, 0);
+    assert_eq!(repository.update_count().unwrap(), COMPACTION_THRESHOLD);
+
+    let (core, report) =
+        recover_graph(&mut repository, graph.clone(), "2026-08-03T12:05:01Z").unwrap();
+    assert_eq!(report.checkpoint_sequence, checkpoint_sequence);
+    assert_eq!(report.replayed_updates, 0);
+    let mut reopened =
+        GraphRuntime::from_core(core, repository, InMemoryClock::new("normalized-v1"), 32).unwrap();
+    reopened
+        .execute(envelope(
+            &graph,
+            "after-v1-normalization",
+            Command::EnsurePage {
+                page_id: PageId::new("after-v1-normalization").unwrap(),
+                title: "After v1 normalization".to_owned(),
+            },
+        ))
+        .unwrap();
+    let after_write = reopened.repository_mut().metadata().unwrap();
+    assert_eq!(after_write.compacted_through, checkpoint_sequence);
+    assert_eq!(after_write.tail_count, 1);
+    assert!(after_write.tail_bytes > 0);
+    assert!(after_write.tail_count < COMPACTION_THRESHOLD as u64);
 }
 
 #[test]
@@ -222,7 +327,7 @@ fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let first_session_undo = reopened
         .execute(envelope(&graph, "first-session-undo", Command::Undo))
         .unwrap();
-    assert!(first_session_undo.changed);
+    assert!(first_session_undo.result.changed);
     assert_eq!(reopened.core().summary().unwrap().pages[0].title, "Home");
     reopened
         .execute(envelope(
@@ -245,7 +350,7 @@ fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let old_session = durable
         .execute(envelope(&graph, "old-session-undo", Command::Undo))
         .unwrap();
-    assert!(!old_session.changed);
+    assert!(!old_session.result.changed);
     durable
         .execute(envelope(
             &graph,
@@ -259,7 +364,7 @@ fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let current_session = durable
         .execute(envelope(&graph, "current-session-undo", Command::Undo))
         .unwrap();
-    assert!(current_session.changed);
+    assert!(current_session.result.changed);
     assert_eq!(
         durable.core().summary().unwrap().pages[0].title,
         "After reopen"

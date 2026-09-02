@@ -19,7 +19,7 @@ opaque browser-generated values. Server graph IDs remain server-local, so two
 servers may expose the same graph ID without sharing browser storage, routes,
 locks, or sync state.
 
-CorePort v2 carries this pair in `GraphLocatorDto`. IndexedDB retains its
+CorePort v3 carries this pair in `GraphLocatorDto`. IndexedDB retains its
 existing physical schema: local replicas keep their legacy graph key and remote
 replicas use an encoded repository-qualified partition key. The encoded key is
 an adapter detail and never becomes a canonical graph ID.

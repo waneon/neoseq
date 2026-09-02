@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const CORE_PORT_VERSION: u32 = 2;
+pub const CORE_PORT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphLocatorDto {
@@ -54,7 +54,7 @@ pub enum SaveStatusDto {
         local_sequence: u64,
         checksum: String,
     },
-    DirtyUnsaved,
+    Unchanged,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

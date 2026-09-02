@@ -79,7 +79,7 @@ pub enum SaveStatusDto {
         local_sequence: u64,
         checksum: String,
     },
-    DirtyUnsaved,
+    Unchanged,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -166,7 +166,7 @@ export interface RecoveryDto { checkpoint_sequence: number; replayed_updates: nu
 export interface OpenGraphRequest { contract_version: number; locator: GraphLocatorDto; peer_id: number; }
 export interface OpenGraphResponse { graph_handle: string; summary: unknown; capabilities?: StorageCapabilitiesDto | null; recovery: RecoveryDto; }
 export interface ExecuteRequest { graph_handle: string; command: unknown; timeout_ms: number; }
-export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; checksum: string } | { status: "dirty_unsaved" };
+export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; checksum: string } | { status: "unchanged" };
 export interface ExecuteResponse { result: unknown; save_status: SaveStatusDto; }
 export interface ReadRequest { graph_handle: string; }
 export interface ReadResponse { summary: unknown; }

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -11,6 +11,10 @@ const CLIENT_SESSION_SECONDS: i64 = 12 * 60 * 60;
 const PERSISTENT_CLIENT_SESSION_SECONDS: i64 = 30 * 24 * 60 * 60;
 const ADMIN_SESSION_SECONDS: i64 = 60 * 60;
 const PASSWORD_MAX_BYTES: usize = 1_024;
+const ACCOUNT_MUTATION_LOCK_ID: i64 = 715_887_125;
+const INSERT_ACCOUNT_AUDIT: &str = "INSERT INTO account_audit_event(
+        actor_account_id, subject_account_id, action, result_code
+     ) VALUES ($1, $2, $3, 'ok')";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,19 +24,23 @@ pub enum SessionPurpose {
 }
 
 impl SessionPurpose {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Client => "client",
             Self::Admin => "admin",
         }
     }
 
-    fn parse(value: &str) -> Result<Self, AuthError> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "client" => Ok(Self::Client),
-            "admin" => Ok(Self::Admin),
-            _ => Err(AuthError::Invalid),
+            "client" => Some(Self::Client),
+            "admin" => Some(Self::Admin),
+            _ => None,
         }
+    }
+
+    fn from_database(value: &str) -> Result<Self, AuthError> {
+        Self::parse(value).ok_or(AuthError::Unavailable)
     }
 }
 
@@ -41,8 +49,14 @@ pub struct Principal {
     /// Stable account identity used by memberships and audit records.
     pub id: String,
     pub username: String,
-    pub is_admin: bool,
+    pub server_role: ServerRole,
     pub purpose: SessionPurpose,
+}
+
+impl Principal {
+    pub const fn is_admin(&self) -> bool {
+        matches!(self.server_role, ServerRole::Admin)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,19 +67,23 @@ pub enum AccountStatus {
 }
 
 impl AccountStatus {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Active => "active",
             Self::Disabled => "disabled",
         }
     }
 
-    fn parse(value: &str) -> Result<Self, AuthError> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "active" => Ok(Self::Active),
-            "disabled" => Ok(Self::Disabled),
-            _ => Err(AuthError::Unavailable),
+            "active" => Some(Self::Active),
+            "disabled" => Some(Self::Disabled),
+            _ => None,
         }
+    }
+
+    fn from_database(value: &str) -> Result<Self, AuthError> {
+        Self::parse(value).ok_or(AuthError::Unavailable)
     }
 }
 
@@ -77,19 +95,23 @@ pub enum ServerRole {
 }
 
 impl ServerRole {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::User => "user",
             Self::Admin => "admin",
         }
     }
 
-    fn parse(value: &str) -> Result<Self, AuthError> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "user" => Ok(Self::User),
-            "admin" => Ok(Self::Admin),
-            _ => Err(AuthError::Unavailable),
+            "user" => Some(Self::User),
+            "admin" => Some(Self::Admin),
+            _ => None,
         }
+    }
+
+    fn from_database(value: &str) -> Result<Self, AuthError> {
+        Self::parse(value).ok_or(AuthError::Unavailable)
     }
 }
 
@@ -220,9 +242,7 @@ impl PgIdentity {
         let password_hash = hash_password(password).await?;
         let account_id = random_value("acct_", 18)?;
         let mut transaction = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(715887125)")
-            .execute(&mut *transaction)
-            .await?;
+        lock_account_mutations(&mut transaction).await?;
         let existing: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM account WHERE status = 'active' AND server_role = 'admin'",
         )
@@ -240,10 +260,16 @@ impl PgIdentity {
         .bind(password_hash)
         .execute(&mut *transaction)
         .await?;
+        audit_in_transaction(
+            &mut transaction,
+            None,
+            Some(&account_id),
+            "account.bootstrap",
+        )
+        .await?;
+        let account = account_in_transaction(&mut transaction, &account_id).await?;
         transaction.commit().await?;
-        self.audit(None, Some(&account_id), "account.bootstrap")
-            .await?;
-        self.account(&account_id).await.map(Some)
+        Ok(Some(account))
     }
 
     /// Reports whether routine account administration is already bootstrapped.
@@ -260,7 +286,7 @@ impl PgIdentity {
 
     async fn insert_account(
         &self,
-        actor: Option<&Principal>,
+        actor: &Principal,
         username: &str,
         password: &str,
         role: ServerRole,
@@ -269,6 +295,12 @@ impl PgIdentity {
         validate_password(password)?;
         let password_hash = hash_password(password).await?;
         let account_id = random_value("acct_", 18)?;
+        // Argon2 is deliberately completed before acquiring a connection and
+        // the account-mutation lock. Authorization is still rechecked inside
+        // the transaction before any state changes.
+        let mut transaction = self.pool.begin().await?;
+        lock_account_mutations(&mut transaction).await?;
+        require_admin(&mut transaction, actor).await?;
         let result = sqlx::query(
             "INSERT INTO account(account_id, username, password_hash, server_role)
              VALUES ($1, $2, $3, $4)",
@@ -277,7 +309,7 @@ impl PgIdentity {
         .bind(&username)
         .bind(password_hash)
         .bind(role.as_str())
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await;
         if let Err(error) = result {
             if error
@@ -290,45 +322,16 @@ impl PgIdentity {
             }
             return Err(AuthError::Unavailable);
         }
-        self.audit(
-            actor.map(|actor| actor.id.as_str()),
+        audit_in_transaction(
+            &mut transaction,
+            Some(&actor.id),
             Some(&account_id),
             "account.create",
         )
         .await?;
-        self.account(&account_id).await
-    }
-
-    async fn account(&self, account_id: &str) -> Result<AccountView, AuthError> {
-        let row = sqlx::query(
-            "SELECT account_id, username, status, server_role, created_at::TEXT AS created_at
-             FROM account WHERE account_id = $1",
-        )
-        .bind(account_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or(AuthError::InvalidInput("unknown account"))?;
-        account_view(&row)
-    }
-
-    async fn require_admin(&self, actor: &Principal) -> Result<(), AuthError> {
-        if !actor.is_admin || actor.purpose != SessionPurpose::Admin {
-            return Err(AuthError::Forbidden);
-        }
-        let allowed: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
-                SELECT 1 FROM account
-                WHERE account_id = $1 AND status = 'active' AND server_role = 'admin'
-             )",
-        )
-        .bind(&actor.id)
-        .fetch_one(&self.pool)
-        .await?;
-        if allowed {
-            Ok(())
-        } else {
-            Err(AuthError::Forbidden)
-        }
+        let account = account_in_transaction(&mut transaction, &account_id).await?;
+        transaction.commit().await?;
+        Ok(account)
     }
 
     async fn audit(
@@ -337,18 +340,94 @@ impl PgIdentity {
         subject: Option<&str>,
         action: &str,
     ) -> Result<(), AuthError> {
-        sqlx::query(
-            "INSERT INTO account_audit_event(
-                actor_account_id, subject_account_id, action, result_code
-             ) VALUES ($1, $2, $3, 'ok')",
-        )
+        sqlx::query(INSERT_ACCOUNT_AUDIT)
+            .bind(actor)
+            .bind(subject)
+            .bind(action)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+}
+
+async fn lock_account_mutations(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), AuthError> {
+    // Account administration is rare. Serializing it keeps an actor's
+    // transaction-local authorization stable against concurrent demotion and
+    // shares the same last-admin boundary as bootstrap and role changes.
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ACCOUNT_MUTATION_LOCK_ID)
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
+async fn require_admin(
+    transaction: &mut Transaction<'_, Postgres>,
+    actor: &Principal,
+) -> Result<(), AuthError> {
+    if !actor.is_admin() || actor.purpose != SessionPurpose::Admin {
+        return Err(AuthError::Forbidden);
+    }
+    let allowed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM account
+            WHERE account_id = $1 AND status = 'active' AND server_role = 'admin'
+         )",
+    )
+    .bind(&actor.id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(AuthError::Forbidden)
+    }
+}
+
+async fn account_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    account_id: &str,
+) -> Result<AccountView, AuthError> {
+    let row = sqlx::query(
+        "SELECT account_id, username, status, server_role, created_at::TEXT AS created_at
+         FROM account WHERE account_id = $1",
+    )
+    .bind(account_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(AuthError::InvalidInput("unknown account"))?;
+    account_view(&row)
+}
+
+async fn revoke_account_sessions(
+    transaction: &mut Transaction<'_, Postgres>,
+    account_id: &str,
+) -> Result<(), AuthError> {
+    sqlx::query(
+        "UPDATE account_session SET revoked_at = NOW()
+         WHERE account_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(account_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn audit_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    actor: Option<&str>,
+    subject: Option<&str>,
+    action: &str,
+) -> Result<(), AuthError> {
+    sqlx::query(INSERT_ACCOUNT_AUDIT)
         .bind(actor)
         .bind(subject)
         .bind(action)
-        .execute(&self.pool)
+        .execute(&mut **transaction)
         .await?;
-        Ok(())
-    }
+    Ok(())
 }
 
 #[async_trait]
@@ -371,8 +450,8 @@ impl IdentityService for PgIdentity {
         Ok(Principal {
             id: row.try_get("account_id")?,
             username: row.try_get("username")?,
-            is_admin: row.try_get::<String, _>("server_role")? == "admin",
-            purpose: SessionPurpose::parse(row.try_get("purpose")?)?,
+            server_role: ServerRole::from_database(row.try_get("server_role")?)?,
+            purpose: SessionPurpose::from_database(row.try_get("purpose")?)?,
         })
     }
     async fn login(
@@ -400,8 +479,8 @@ impl IdentityService for PgIdentity {
         };
         let account_id: String = row.try_get("account_id")?;
         let blocked: bool = row.try_get("blocked")?;
-        let status = AccountStatus::parse(row.try_get("status")?)?;
-        let role = ServerRole::parse(row.try_get("server_role")?)?;
+        let status = AccountStatus::from_database(row.try_get("status")?)?;
+        let role = ServerRole::from_database(row.try_get("server_role")?)?;
         // A locked or disabled account is refused before the hash is checked:
         // the lockout exists to stop paying for guesses against it.
         if blocked || status != AccountStatus::Active {
@@ -504,44 +583,51 @@ impl IdentityService for PgIdentity {
         .fetch_optional(&self.pool)
         .await?
         .ok_or(AuthError::Invalid)?;
-        if !verify_password(current_password.to_owned(), password_hash).await? {
+        if !verify_password(current_password.to_owned(), password_hash.clone()).await? {
             return Err(AuthError::Invalid);
         }
         let next_hash = hash_password(new_password).await?;
         let mut transaction = self.pool.begin().await?;
-        sqlx::query(
+        // Password verification is deliberately outside the transaction. The
+        // old hash and active status make this update the authoritative
+        // transaction-local recheck, so a concurrent reset cannot be lost.
+        let updated = sqlx::query(
             "UPDATE account SET password_hash = $2, updated_at = NOW()
-             WHERE account_id = $1",
+             WHERE account_id = $1 AND status = 'active' AND password_hash = $3",
         )
         .bind(&principal.id)
         .bind(next_hash)
+        .bind(password_hash)
         .execute(&mut *transaction)
-        .await?;
-        sqlx::query(
-            "UPDATE account_session SET revoked_at = NOW()
-             WHERE account_id = $1 AND revoked_at IS NULL",
-        )
-        .bind(&principal.id)
-        .execute(&mut *transaction)
-        .await?;
-        transaction.commit().await?;
-        self.audit(
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Err(AuthError::Invalid);
+        }
+        revoke_account_sessions(&mut transaction, &principal.id).await?;
+        audit_in_transaction(
+            &mut transaction,
             Some(&principal.id),
             Some(&principal.id),
             "account.password.change",
         )
-        .await
+        .await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     async fn list_accounts(&self, actor: &Principal) -> Result<Vec<AccountView>, AuthError> {
-        self.require_admin(actor).await?;
+        let mut transaction = self.pool.begin().await?;
+        require_admin(&mut transaction, actor).await?;
         let rows = sqlx::query(
             "SELECT account_id, username, status, server_role, created_at::TEXT AS created_at
              FROM account ORDER BY username, account_id",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *transaction)
         .await?;
-        rows.iter().map(account_view).collect()
+        let accounts = rows.iter().map(account_view).collect::<Result<_, _>>()?;
+        transaction.commit().await?;
+        Ok(accounts)
     }
 
     async fn create_account(
@@ -551,9 +637,7 @@ impl IdentityService for PgIdentity {
         password: &str,
         role: ServerRole,
     ) -> Result<AccountView, AuthError> {
-        self.require_admin(actor).await?;
-        self.insert_account(Some(actor), username, password, role)
-            .await
+        self.insert_account(actor, username, password, role).await
     }
 
     async fn update_account(
@@ -562,24 +646,22 @@ impl IdentityService for PgIdentity {
         account_id: &str,
         patch: AccountPatch,
     ) -> Result<AccountView, AuthError> {
-        self.require_admin(actor).await?;
+        let mut transaction = self.pool.begin().await?;
+        lock_account_mutations(&mut transaction).await?;
+        require_admin(&mut transaction, actor).await?;
         if patch.status.is_none() && patch.server_role.is_none() {
             return Err(AuthError::InvalidInput("no account fields were supplied"));
         }
-        let mut transaction = self.pool.begin().await?;
         // Global account authority changes are rare and serialized so two
         // administrators cannot concurrently demote the final active pair.
-        sqlx::query("SELECT pg_advisory_xact_lock(715887125)")
-            .execute(&mut *transaction)
-            .await?;
         let current =
             sqlx::query("SELECT status, server_role FROM account WHERE account_id = $1 FOR UPDATE")
                 .bind(account_id)
                 .fetch_optional(&mut *transaction)
                 .await?
                 .ok_or(AuthError::InvalidInput("unknown account"))?;
-        let current_status = AccountStatus::parse(current.try_get("status")?)?;
-        let current_role = ServerRole::parse(current.try_get("server_role")?)?;
+        let current_status = AccountStatus::from_database(current.try_get("status")?)?;
+        let current_role = ServerRole::from_database(current.try_get("server_role")?)?;
         let next_status = patch.status.unwrap_or(current_status);
         let next_role = patch.server_role.unwrap_or(current_role);
         if current_status == AccountStatus::Active
@@ -606,17 +688,17 @@ impl IdentityService for PgIdentity {
         .bind(next_role.as_str())
         .execute(&mut *transaction)
         .await?;
-        sqlx::query(
-            "UPDATE account_session SET revoked_at = NOW()
-             WHERE account_id = $1 AND revoked_at IS NULL",
+        revoke_account_sessions(&mut transaction, account_id).await?;
+        audit_in_transaction(
+            &mut transaction,
+            Some(&actor.id),
+            Some(account_id),
+            "account.update",
         )
-        .bind(account_id)
-        .execute(&mut *transaction)
         .await?;
+        let account = account_in_transaction(&mut transaction, account_id).await?;
         transaction.commit().await?;
-        self.audit(Some(&actor.id), Some(account_id), "account.update")
-            .await?;
-        self.account(account_id).await
+        Ok(account)
     }
 
     async fn reset_password(
@@ -625,10 +707,11 @@ impl IdentityService for PgIdentity {
         account_id: &str,
         password: &str,
     ) -> Result<(), AuthError> {
-        self.require_admin(actor).await?;
         validate_password(password)?;
         let password_hash = hash_password(password).await?;
         let mut transaction = self.pool.begin().await?;
+        lock_account_mutations(&mut transaction).await?;
+        require_admin(&mut transaction, actor).await?;
         let updated = sqlx::query(
             "UPDATE account SET password_hash = $2,
                                 failed_login_attempts = 0,
@@ -644,37 +727,40 @@ impl IdentityService for PgIdentity {
         if updated == 0 {
             return Err(AuthError::InvalidInput("unknown account"));
         }
-        sqlx::query(
-            "UPDATE account_session SET revoked_at = NOW()
-             WHERE account_id = $1 AND revoked_at IS NULL",
+        revoke_account_sessions(&mut transaction, account_id).await?;
+        audit_in_transaction(
+            &mut transaction,
+            Some(&actor.id),
+            Some(account_id),
+            "account.password.reset",
         )
-        .bind(account_id)
-        .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        self.audit(Some(&actor.id), Some(account_id), "account.password.reset")
-            .await
+        Ok(())
     }
 
     async fn revoke_sessions(&self, actor: &Principal, account_id: &str) -> Result<(), AuthError> {
-        self.require_admin(actor).await?;
+        let mut transaction = self.pool.begin().await?;
+        lock_account_mutations(&mut transaction).await?;
+        require_admin(&mut transaction, actor).await?;
         let exists: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account WHERE account_id = $1)")
                 .bind(account_id)
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *transaction)
                 .await?;
         if !exists {
             return Err(AuthError::InvalidInput("unknown account"));
         }
-        sqlx::query(
-            "UPDATE account_session SET revoked_at = NOW()
-             WHERE account_id = $1 AND revoked_at IS NULL",
+        revoke_account_sessions(&mut transaction, account_id).await?;
+        audit_in_transaction(
+            &mut transaction,
+            Some(&actor.id),
+            Some(account_id),
+            "account.sessions.revoke",
         )
-        .bind(account_id)
-        .execute(&self.pool)
         .await?;
-        self.audit(Some(&actor.id), Some(account_id), "account.sessions.revoke")
-            .await
+        transaction.commit().await?;
+        Ok(())
     }
 
     async fn resolve_username(&self, username: &str) -> Result<String, AuthError> {
@@ -705,8 +791,8 @@ fn account_view(row: &sqlx::postgres::PgRow) -> Result<AccountView, AuthError> {
     Ok(AccountView {
         account_id: row.try_get("account_id")?,
         username: row.try_get("username")?,
-        status: AccountStatus::parse(row.try_get("status")?)?,
-        server_role: ServerRole::parse(row.try_get("server_role")?)?,
+        status: AccountStatus::from_database(row.try_get("status")?)?,
+        server_role: ServerRole::from_database(row.try_get("server_role")?)?,
         created_at: row.try_get("created_at")?,
     })
 }
@@ -796,5 +882,42 @@ mod tests {
         assert!(validate_password("x").is_ok());
         assert!(validate_password(&"x".repeat(PASSWORD_MAX_BYTES)).is_ok());
         assert!(validate_password(&"x".repeat(PASSWORD_MAX_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn identity_enums_share_database_and_json_names() {
+        assert_eq!(
+            SessionPurpose::parse("client"),
+            Some(SessionPurpose::Client)
+        );
+        assert_eq!(
+            AccountStatus::parse("disabled"),
+            Some(AccountStatus::Disabled)
+        );
+        assert_eq!(ServerRole::parse("admin"), Some(ServerRole::Admin));
+        assert_eq!(
+            serde_json::to_string(&SessionPurpose::Admin).unwrap(),
+            "\"admin\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AccountStatus::Active).unwrap(),
+            "\"active\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerRole::User).unwrap(),
+            "\"user\""
+        );
+        assert!(matches!(
+            ServerRole::from_database("superuser"),
+            Err(AuthError::Unavailable)
+        ));
+
+        let principal = Principal {
+            id: "account".into(),
+            username: "admin".into(),
+            server_role: ServerRole::Admin,
+            purpose: SessionPurpose::Admin,
+        };
+        assert!(principal.is_admin());
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     LocalDate, PageId, PropertyKey, QueryView, QueryViewId, QueryViewKind, QueryViewOptions,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use thiserror::Error;
 
 pub const REGISTRY_VERSION: u32 = 9;
@@ -388,7 +388,116 @@ pub struct PropertyField {
     pub values: Vec<PropertyValue>,
 }
 
-pub type PropertyBag = Vec<PropertyField>;
+/// A property map with an array-shaped wire representation.
+///
+/// Fields are kept in key order, so iteration and serialization are stable,
+/// while construction and deserialization reject duplicate keys. Mutation is
+/// deliberately limited to operations that preserve those invariants.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct PropertyBag(Vec<PropertyField>);
+
+impl PropertyBag {
+    pub const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn try_from_fields(
+        fields: impl IntoIterator<Item = PropertyField>,
+    ) -> Result<Self, PropertyError> {
+        let mut fields = fields.into_iter().collect::<Vec<_>>();
+        for field in &fields {
+            validate_projected_property_field(field)?;
+        }
+        fields.sort_by(|left, right| left.key.cmp(&right.key));
+        if let Some(duplicate) = fields
+            .windows(2)
+            .find(|pair| pair[0].key == pair[1].key)
+            .map(|pair| pair[0].key.to_string())
+        {
+            return Err(PropertyError::DuplicateKey(duplicate));
+        }
+        Ok(Self(fields))
+    }
+
+    pub fn get(&self, key: &str) -> Option<&PropertyField> {
+        self.0
+            .binary_search_by(|field| field.key.as_str().cmp(key))
+            .ok()
+            .map(|index| &self.0[index])
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, PropertyField> {
+        self.0.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn insert(&mut self, field: PropertyField) -> Result<Option<PropertyField>, PropertyError> {
+        validate_projected_property_field(&field)?;
+        match self.0.binary_search_by(|item| item.key.cmp(&field.key)) {
+            Ok(index) => Ok(Some(std::mem::replace(&mut self.0[index], field))),
+            Err(index) => {
+                self.0.insert(index, field);
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn remove(&mut self, key: &str) -> Option<PropertyField> {
+        self.0
+            .binary_search_by(|field| field.key.as_str().cmp(key))
+            .ok()
+            .map(|index| self.0.remove(index))
+    }
+
+    pub fn retain(&mut self, mut keep: impl FnMut(&PropertyField) -> bool) {
+        self.0.retain(|field| keep(field));
+    }
+}
+
+impl TryFrom<Vec<PropertyField>> for PropertyBag {
+    type Error = PropertyError;
+
+    fn try_from(fields: Vec<PropertyField>) -> Result<Self, Self::Error> {
+        Self::try_from_fields(fields)
+    }
+}
+
+impl<'de> Deserialize<'de> for PropertyBag {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let fields = Vec::<PropertyField>::deserialize(deserializer)?;
+        Self::try_from(fields).map_err(de::Error::custom)
+    }
+}
+
+impl<'a> IntoIterator for &'a PropertyBag {
+    type Item = &'a PropertyField;
+    type IntoIter = std::slice::Iter<'a, PropertyField>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl IntoIterator for PropertyBag {
+    type Item = PropertyField;
+    type IntoIter = std::vec::IntoIter<PropertyField>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PropertySpec {
@@ -685,6 +794,8 @@ pub enum PropertyError {
     CoreManaged(String),
     #[error("single-valued property {0} contains more than one value")]
     TooManySingleValues(String),
+    #[error("property bag contains duplicate key {0}")]
+    DuplicateKey(String),
     #[error("unsupported property document {schema} v{version}")]
     UnsupportedDocument { schema: String, version: u32 },
     #[error("invalid property document: {0}")]
@@ -778,6 +889,17 @@ pub fn validate_property_shape(
 }
 
 pub fn validate_property_field(field: &PropertyField) -> Result<(), PropertyError> {
+    validate_property_field_inner(field, false)
+}
+
+fn validate_projected_property_field(field: &PropertyField) -> Result<(), PropertyError> {
+    validate_property_field_inner(field, true)
+}
+
+fn validate_property_field_inner(
+    field: &PropertyField,
+    allow_unsupported_document: bool,
+) -> Result<(), PropertyError> {
     validate_property_shape(&field.key, field.value_type, field.cardinality)?;
     if field.cardinality == Cardinality::Single && field.values.len() > 1 {
         return Err(PropertyError::TooManySingleValues(field.key.to_string()));
@@ -789,6 +911,12 @@ pub fn validate_property_field(field: &PropertyField) -> Result<(), PropertyErro
                 expected: field.value_type,
                 actual: value.property_type(),
             });
+        }
+        // An unsupported document is a valid forward-compatible read
+        // projection, though the strict command validator below still rejects
+        // writing it back into canonical storage.
+        if allow_unsupported_document && matches!(value, PropertyValue::UnsupportedDocument(_)) {
+            continue;
         }
         validate_property(&field.key, value, field.cardinality)?;
     }
@@ -872,6 +1000,103 @@ mod tests {
 
     fn key(value: &str) -> PropertyKey {
         PropertyKey::new(value).unwrap()
+    }
+
+    fn string_field(raw_key: &str, value: &str) -> PropertyField {
+        PropertyField {
+            key: key(raw_key),
+            value_type: PropertyType::String,
+            cardinality: Cardinality::Single,
+            values: vec![PropertyValue::String(value.to_owned())],
+        }
+    }
+
+    #[test]
+    fn property_bag_keeps_array_json_and_orders_fields_by_key() {
+        let bag = PropertyBag::try_from_fields([
+            string_field("user.z-last", "last"),
+            string_field("user.a-first", "first"),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            bag.iter()
+                .map(|field| field.key.as_str())
+                .collect::<Vec<_>>(),
+            ["user.a-first", "user.z-last"]
+        );
+        assert_eq!(
+            bag.get("user.a-first").unwrap().values,
+            [PropertyValue::String("first".to_owned())]
+        );
+        let json = serde_json::to_value(&bag).unwrap();
+        assert!(json.is_array());
+        assert_eq!(json[0]["key"], "user.a-first");
+        assert_eq!(serde_json::from_value::<PropertyBag>(json).unwrap(), bag);
+    }
+
+    #[test]
+    fn property_bag_rejects_duplicate_keys_at_every_input_boundary() {
+        let fields = vec![
+            string_field("user.same", "one"),
+            string_field("user.same", "two"),
+        ];
+        assert!(matches!(
+            PropertyBag::try_from(fields.clone()),
+            Err(PropertyError::DuplicateKey(key)) if key == "user.same"
+        ));
+
+        let json = serde_json::to_value(fields).unwrap();
+        let error = serde_json::from_value::<PropertyBag>(json).unwrap_err();
+        assert!(error.to_string().contains("duplicate key user.same"));
+    }
+
+    #[test]
+    fn property_bag_validates_field_shape_and_replaces_by_key_safely() {
+        let invalid = PropertyField {
+            key: key("user.invalid"),
+            value_type: PropertyType::Number,
+            cardinality: Cardinality::Single,
+            values: vec![PropertyValue::String("not a number".to_owned())],
+        };
+        assert!(matches!(
+            PropertyBag::try_from_fields([invalid]),
+            Err(PropertyError::WrongType { .. })
+        ));
+
+        let mut bag = PropertyBag::try_from_fields([string_field("user.value", "before")])
+            .expect("valid field");
+        let replaced = bag
+            .insert(string_field("user.value", "after"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            replaced.values,
+            [PropertyValue::String("before".to_owned())]
+        );
+        assert_eq!(bag.len(), 1);
+        assert_eq!(
+            bag.get("user.value").unwrap().values,
+            [PropertyValue::String("after".to_owned())]
+        );
+    }
+
+    #[test]
+    fn property_bag_preserves_forward_compatible_document_projections() {
+        let field = PropertyField {
+            key: key(QUERY_PROPERTY_KEY),
+            value_type: PropertyType::Document,
+            cardinality: Cardinality::Single,
+            values: vec![PropertyValue::UnsupportedDocument(PropertyDocumentHeader {
+                schema: "future.query".to_owned(),
+                version: 99,
+            })],
+        };
+        let bag = PropertyBag::try_from_fields([field]).unwrap();
+        let json = serde_json::to_value(&bag).unwrap();
+
+        assert_eq!(serde_json::from_value::<PropertyBag>(json).unwrap(), bag);
+        assert!(validate_property_field(bag.get(QUERY_PROPERTY_KEY).unwrap()).is_err());
     }
 
     #[test]

@@ -188,10 +188,15 @@ frontier.
 Local-only graphs install a GC checkpoint after 128 uncompacted Tail records or
 512 KiB. Checkpoint write, retention, Tail deletion, metadata accounting, and pointer
 advance are one transaction. Exactly the current and prior Base are retained.
+The metadata Tail counters describe only updates newer than the current Base;
+rows retained solely for the prior Base's fallback generation do not trigger
+another compaction.
 Tail rows covered by the current Base stay for its first generation so the prior
 Base remains usable; the next checkpoint reclaims the now-obsolete generation.
-Clean close also attempts this maintenance, but correctness does not depend on
-close firing.
+Metadata reads, snapshot export, and checkpoint installation in this maintenance
+path are best effort after append; their failure never changes an already durable
+command into a rejected response. Clean close also attempts maintenance, but
+correctness does not depend on close firing.
 
 Remote replicas cannot choose a GC frontier independently. They retain mergeable
 history until the server publishes a new `history_epoch`. Adopting that epoch is

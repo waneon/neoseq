@@ -331,12 +331,7 @@ export class GraphSession {
       const save: SaveState =
         response.save_status.status === "saved_locally"
           ? { kind: "saved", sequence: response.save_status.local_sequence }
-          : {
-              kind: "unsaved",
-              code: "dirty_unsaved",
-              message: "the last change is not durable yet",
-              retryable: true,
-            };
+          : stableSave;
       const result = response.result as CommandResult;
       const content = contentSplices(command);
       const patched =

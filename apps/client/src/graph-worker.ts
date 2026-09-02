@@ -428,14 +428,9 @@ async function execute(request: ExecuteRequest) {
   };
   const update = ownedBuffer(state.core.takeUpdate());
   if (execution.duplicate || update.byteLength === 0) {
-    const metadata = await state.repository.metadata(state.storageKey);
     return {
       result: execution.result,
-      save_status: {
-        status: "saved_locally",
-        local_sequence: metadata.next_sequence - 1,
-        checksum: "",
-      },
+      save_status: { status: "unchanged" },
     };
   }
   const command = request.command as { command_id?: string };
@@ -453,7 +448,10 @@ async function execute(request: ExecuteRequest) {
     const receipt = await persistPending(state);
     return { result: execution.result, save_status: { status: "saved_locally", ...receipt } };
   } catch (error) {
-    if (error instanceof StorageError && error.code === "storage_full") throw error;
+    if (error instanceof StorageError) {
+      if (error.code === "storage_full") throw error;
+      throw failure("dirty_unsaved", error.message, error.retryable);
+    }
     throw failure("dirty_unsaved", error instanceof Error ? error.message : String(error), true);
   }
 }

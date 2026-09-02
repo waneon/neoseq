@@ -73,6 +73,33 @@ export async function runIndexedDbPersistenceCorpus() {
   });
   assert(saved.save_status.status === "saved_locally", "execute must acknowledge local durability");
   assert(saved.save_status.checksum.length === 64, "saved update checksum must be SHA-256");
+  const later = await creator.execute({
+    graph_handle: opened.graph_handle,
+    command: renamePage(graph, "rename-before-retry", "home", "Home later"),
+    timeout_ms: 1_000,
+  });
+  assert(later.save_status.status === "saved_locally", "later edit must be durable");
+  const beforeUnchanged = await creator.storageStats(graph);
+  const duplicate = await creator.execute({
+    graph_handle: opened.graph_handle,
+    command: ensurePage(graph, "create-home", "home"),
+    timeout_ms: 1_000,
+  });
+  assert(
+    duplicate.save_status.status === "unchanged",
+    "a duplicate must not borrow a later update receipt",
+  );
+  const noOp = await creator.execute({
+    graph_handle: opened.graph_handle,
+    command: ensurePage(graph, "ensure-existing-home", "home"),
+    timeout_ms: 1_000,
+  });
+  assert(noOp.save_status.status === "unchanged", "a no-op must not invent a durable update");
+  const afterUnchanged = await creator.storageStats(graph);
+  assert(
+    afterUnchanged.update_count === beforeUnchanged.update_count,
+    "duplicate and no-op commands must not append IndexedDB updates",
+  );
   for (let index = 0; index < 130; index += 1) {
     await creator.execute({
       graph_handle: opened.graph_handle,

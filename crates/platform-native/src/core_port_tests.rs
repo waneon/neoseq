@@ -121,7 +121,7 @@ fn core_port_native_contract_suite_matches_current_golden() {
         .unwrap();
     assert_eq!(read.summary["schema_version"], SCHEMA_VERSION);
     assert_eq!(read.summary["pages"].as_array().unwrap().len(), 1);
-    assert_eq!(golden["transcript"]["read"], "schema_v5_summary");
+    assert_eq!(golden["transcript"]["read"], "schema_v6_summary");
     let outline = port
         .read_outline(ReadOutlineRequest {
             graph_handle: opened.graph_handle.clone(),
@@ -166,6 +166,37 @@ fn core_port_native_contract_suite_matches_current_golden() {
         json!(["semantic", "saved_locally"])
     );
 
+    let later = port
+        .execute(ExecuteRequest {
+            graph_handle: opened.graph_handle.clone(),
+            command: command("port-native", "command-2", "later"),
+            timeout_ms: 1_000,
+        })
+        .unwrap();
+    assert!(matches!(
+        later.save_status,
+        SaveStatusDto::SavedLocally {
+            local_sequence: 2,
+            ..
+        }
+    ));
+    let duplicate = port
+        .execute(ExecuteRequest {
+            graph_handle: opened.graph_handle.clone(),
+            command: command("port-native", "command-1", "home"),
+            timeout_ms: 1_000,
+        })
+        .unwrap();
+    assert_eq!(duplicate.save_status, SaveStatusDto::Unchanged);
+    let no_op = port
+        .execute(ExecuteRequest {
+            graph_handle: opened.graph_handle.clone(),
+            command: command("port-native", "no-op", "home"),
+            timeout_ms: 1_000,
+        })
+        .unwrap();
+    assert_eq!(no_op.save_status, SaveStatusDto::Unchanged);
+
     assert_eq!(
         port.execute(ExecuteRequest {
             graph_handle: opened.graph_handle.clone(),
@@ -208,7 +239,7 @@ fn core_port_native_contract_suite_matches_current_golden() {
         })
         .unwrap_err()
         .code,
-        CorePortErrorCode::StorageBusy
+        CorePortErrorCode::DirtyUnsaved
     );
     port.retry_pending(&opened.graph_handle).unwrap();
     port.inject_fault(&opened.graph_handle, FaultPoint::DiskFull)
@@ -224,6 +255,26 @@ fn core_port_native_contract_suite_matches_current_golden() {
         CorePortErrorCode::StorageFull
     );
     port.retry_pending(&opened.graph_handle).unwrap();
+
+    // A compaction probe happens only after the append is durable. Failure to
+    // read its maintenance metadata must not reject the acknowledged command.
+    port.inject_fault(&opened.graph_handle, FaultPoint::MetadataRead)
+        .unwrap();
+    let maintenance_read_failed = port
+        .execute(ExecuteRequest {
+            graph_handle: opened.graph_handle.clone(),
+            command: command("port-native", "metadata-read", "metadata-read"),
+            timeout_ms: 1_000,
+        })
+        .unwrap();
+    assert!(matches!(
+        maintenance_read_failed.save_status,
+        SaveStatusDto::SavedLocally {
+            local_sequence: 6,
+            ..
+        }
+    ));
+
     assert!(
         port.close_graph(CloseGraphRequest {
             graph_handle: opened.graph_handle.clone(),
@@ -233,8 +284,8 @@ fn core_port_native_contract_suite_matches_current_golden() {
     );
 
     let reopened = port.open_graph(open_request("port-native", 93)).unwrap();
-    assert_eq!(reopened.summary["pages"].as_array().unwrap().len(), 4);
-    assert_eq!(reopened.recovery.checkpoint_sequence, 4);
+    assert_eq!(reopened.summary["pages"].as_array().unwrap().len(), 6);
+    assert_eq!(reopened.recovery.checkpoint_sequence, 6);
     port.close_graph(CloseGraphRequest {
         graph_handle: reopened.graph_handle,
     })

@@ -6,14 +6,14 @@ use async_trait::async_trait;
 use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use neoseq_server::{
-    AccountPatch, AccountStatus, AccountView, AuthError, GraphRole, GraphStore, IdentityService,
-    LoginSession, Metrics, Principal, RoomConfig, RoomManager, ServerRole, SessionPurpose,
+    AccountPatch, AccountStatus, AccountView, AuthError, GraphRole, IdentityService, LoginSession,
+    Metrics, Principal, RoomConfig, RoomManager, ServerRole, SessionPurpose,
 };
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use sync_protocol::{Message, Update};
+use sync_protocol::{Message, Update, WelcomePayload};
 use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
@@ -39,7 +39,7 @@ impl TestIdentity {
         Principal {
             id: account_id.to_owned(),
             username: username.to_owned(),
-            is_admin: false,
+            server_role: ServerRole::User,
             purpose: SessionPurpose::Client,
         }
     }
@@ -162,26 +162,26 @@ impl IdentityService for TestIdentity {
 
 pub struct Fixture {
     pub store: Arc<MemoryStore>,
-    pub manager: Arc<RoomManager<MemoryStore>>,
+    pub manager: Arc<RoomManager>,
     pub snapshot: Vec<u8>,
     pub base_version: Vec<u8>,
 }
 
 pub fn fixture(config: RoomConfig) -> Fixture {
     let graph = GraphId::new(GRAPH).unwrap();
-    let base = GraphCore::new(graph, 1, "base").unwrap();
+    let base = GraphCore::new(graph.clone(), 1, "base").unwrap();
     let snapshot = base.export_snapshot().unwrap();
     let base_version = base.version_vector();
     let store = Arc::new(MemoryStore::new());
     store.seed_graph(
-        GRAPH,
+        &graph,
         OWNER,
         SCHEMA_VERSION,
         8 * 1024 * 1024,
         snapshot.clone(),
         base_version.clone(),
     );
-    store.grant(GRAPH, PEER, GraphRole::Editor);
+    store.grant(&graph, PEER, GraphRole::Editor);
     let metrics = Arc::new(Metrics::default());
     let manager = Arc::new(RoomManager::new(store.clone(), config, metrics));
     Fixture {
@@ -263,9 +263,9 @@ pub async fn assert_no_ack_or_update(receiver: &mut mpsc::Receiver<Message>) {
     }
 }
 
-pub async fn room_fingerprint<S: GraphStore>(
-    manager: &RoomManager<S>,
-    graph_id: &str,
+pub async fn room_fingerprint(
+    manager: &RoomManager,
+    graph_id: &GraphId,
     account_id: &str,
 ) -> String {
     static SESSION: AtomicU64 = AtomicU64::new(1);
@@ -281,13 +281,11 @@ pub async fn room_fingerprint<S: GraphStore>(
         )
         .await
         .unwrap();
-    assert!(opened.welcome.replace_checkpoint);
-    let core = GraphCore::from_snapshot(
-        GraphId::new(graph_id).unwrap(),
-        u64::MAX - 10,
-        &opened.welcome.checkpoint,
-    )
-    .unwrap();
+    let checkpoint = match &opened.welcome.payload {
+        WelcomePayload::ReplaceInline { checkpoint } => checkpoint,
+        payload => panic!("expected inline replacement, got {payload:?}"),
+    };
+    let core = GraphCore::from_snapshot(graph_id.clone(), u64::MAX - 10, checkpoint).unwrap();
     manager.disconnect(&opened.connection).await;
     core.fingerprint().unwrap()
 }

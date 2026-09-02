@@ -3,7 +3,7 @@ use futures_util::{SinkExt, StreamExt};
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use neoseq_server::{
     AccountPatch, AccountStatus, AppState, CreateGraphOutcome, GraphAdmin, GraphRole, GraphStore,
-    IdentityService, Metrics, NewGraph, PgIdentity, PgStore, RoomConfig, RoomManager, ServerRole,
+    IdentityService, Metrics, NewGraph, PgIdentity, PgStore, RoomConfig, ServerRole,
     SessionPurpose, StoreError, router,
 };
 use std::{
@@ -71,7 +71,7 @@ async fn postgres_schema_persistence_and_authorization() {
         .unwrap();
     assert_session_lifetime(&admin_session, 60 * 60);
     let admin_principal = identity.verify(&admin_session.access_token).await.unwrap();
-    assert!(admin_principal.is_admin);
+    assert!(admin_principal.is_admin());
 
     let user_username = format!("member-{suffix}");
     let first_password = "";
@@ -182,8 +182,8 @@ async fn postgres_schema_persistence_and_authorization() {
         )
         .await
         .unwrap();
-    let graph_id = format!("postgres-sync-{suffix}");
-    let graph = GraphId::new(&graph_id).unwrap();
+    let graph_id = GraphId::new(format!("postgres-sync-{suffix}")).unwrap();
+    let graph = graph_id.clone();
     let base = GraphCore::new(graph.clone(), 1, "base").unwrap();
     let snapshot = base.export_snapshot().unwrap();
     let version_vector = base.version_vector();
@@ -231,18 +231,83 @@ async fn postgres_schema_persistence_and_authorization() {
             .await,
         Err(StoreError::GraphAlreadyExists)
     ));
+    assert!(matches!(
+        store
+            .grant_membership(
+                &graph_id,
+                &editor.account_id,
+                &viewer.account_id,
+                GraphRole::Viewer,
+            )
+            .await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert!(matches!(
+        store
+            .grant_membership(
+                &graph_id,
+                &owner.account_id,
+                &editor.account_id,
+                GraphRole::Owner,
+            )
+            .await,
+        Err(StoreError::InvalidMembershipRole)
+    ));
+    assert!(matches!(
+        store
+            .revoke_membership(&graph_id, &owner.account_id, &owner.account_id)
+            .await,
+        Err(StoreError::InvalidMembershipRole)
+    ));
+    assert_eq!(
+        store
+            .authorize(&graph_id, &owner.account_id)
+            .await
+            .unwrap()
+            .role,
+        GraphRole::Owner
+    );
     store
-        .grant_membership(&graph_id, &editor.account_id, GraphRole::Editor)
+        .grant_membership(
+            &graph_id,
+            &owner.account_id,
+            &editor.account_id,
+            GraphRole::Editor,
+        )
         .await
         .unwrap();
     store
-        .grant_membership(&graph_id, &viewer.account_id, GraphRole::Viewer)
+        .grant_membership(
+            &graph_id,
+            &owner.account_id,
+            &viewer.account_id,
+            GraphRole::Viewer,
+        )
         .await
         .unwrap();
     store
-        .grant_membership(&graph_id, &api_editor.account_id, GraphRole::Editor)
+        .grant_membership(
+            &graph_id,
+            &owner.account_id,
+            &api_editor.account_id,
+            GraphRole::Editor,
+        )
         .await
         .unwrap();
+    assert!(matches!(
+        store
+            .revoke_membership(&graph_id, &editor.account_id, &viewer.account_id)
+            .await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert_eq!(
+        store
+            .authorize(&graph_id, &viewer.account_id)
+            .await
+            .unwrap()
+            .role,
+        GraphRole::Viewer
+    );
     let memberships = store.list_memberships(&graph_id).await.unwrap();
     assert!(memberships.iter().any(|membership| {
         membership.account_id == api_editor.account_id && membership.role == GraphRole::Editor
@@ -328,13 +393,13 @@ async fn postgres_schema_persistence_and_authorization() {
     assert!(compacted.updates.is_empty());
     let retained_checkpoints: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM graph_checkpoint WHERE graph_id = $1")
-            .bind(&graph_id)
+            .bind(graph_id.as_str())
             .fetch_one(store.pool())
             .await
             .unwrap();
     let retained_tail: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM graph_update WHERE graph_id = $1")
-            .bind(&graph_id)
+            .bind(graph_id.as_str())
             .fetch_one(store.pool())
             .await
             .unwrap();
@@ -356,7 +421,7 @@ async fn postgres_schema_persistence_and_authorization() {
     );
     let reclaimed_tail: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM graph_update WHERE graph_id = $1")
-            .bind(&graph_id)
+            .bind(graph_id.as_str())
             .fetch_one(store.pool())
             .await
             .unwrap();
@@ -374,7 +439,7 @@ async fn postgres_schema_persistence_and_authorization() {
     assert_eq!(compacted_duplicate.cursor, durable_cursor);
 
     store
-        .revoke_membership(&graph_id, &editor.account_id)
+        .revoke_membership(&graph_id, &owner.account_id, &editor.account_id)
         .await
         .unwrap();
     assert!(matches!(
@@ -382,7 +447,7 @@ async fn postgres_schema_persistence_and_authorization() {
         Err(StoreError::AccessDenied)
     ));
     store
-        .revoke_membership(&graph_id, &api_editor.account_id)
+        .revoke_membership(&graph_id, &owner.account_id, &api_editor.account_id)
         .await
         .unwrap();
     assert!(
@@ -407,7 +472,7 @@ async fn postgres_schema_persistence_and_authorization() {
         })
     ));
     sqlx::query("UPDATE graph SET byte_quota = 67108864 WHERE graph_id = $1")
-        .bind(&graph_id)
+        .bind(graph_id.as_str())
         .execute(store.pool())
         .await
         .unwrap();
@@ -418,13 +483,13 @@ async fn postgres_schema_persistence_and_authorization() {
     PgStore::from_pool(store.pool().clone()).await.unwrap();
     let migrated_quota: i64 =
         sqlx::query_scalar("SELECT byte_quota FROM graph WHERE graph_id = $1")
-            .bind(&graph_id)
+            .bind(graph_id.as_str())
             .fetch_one(store.pool())
             .await
             .unwrap();
     assert_eq!(migrated_quota, 1_073_741_824);
     sqlx::query("DELETE FROM graph WHERE graph_id = $1")
-        .bind(&graph_id)
+        .bind(graph_id.as_str())
         .execute(store.pool())
         .await
         .unwrap();
@@ -446,17 +511,20 @@ async fn websocket_commit(
     store: &PgStore,
     identity: Arc<PgIdentity>,
     token: &str,
-    graph_id: &str,
+    graph_id: &GraphId,
     base_version: &[u8],
     update: sync_protocol::Update,
 ) -> u64 {
     let metrics = Arc::new(Metrics::default());
-    let rooms = Arc::new(RoomManager::new(
-        Arc::new(store.clone()),
+    let store = Arc::new(store.clone());
+    let state = AppState::new(
+        store,
+        identity,
+        metrics,
         RoomConfig::default(),
-        metrics.clone(),
-    ));
-    let state = AppState::new(rooms, identity, metrics, 8, Duration::from_secs(1));
+        8,
+        Duration::from_secs(1),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -473,7 +541,7 @@ async fn websocket_commit(
     let hello = Message::Hello(Hello {
         protocol: PROTOCOL_VERSION,
         schema: SCHEMA_VERSION as u16,
-        graph_id: graph_id.to_owned(),
+        graph_id: graph_id.clone(),
         session_id: "postgres-websocket".into(),
         history_epoch: 0,
         has_server_base: true,

@@ -51,80 +51,114 @@ const MAX_PROPERTY_CHANGES: usize = 64;
 const MAX_BATCH_COMMANDS: usize = 64;
 
 #[derive(Debug)]
-enum CommandPlan {
-    None,
-    Merge(MergePlan),
-    Move(MovePlan),
-    Outline(OutlinePlan),
-    TagDetach(TagDetachPlan),
-    Fragment(FragmentResolution),
+enum PreparedCommandKind<'a> {
+    Direct(&'a Command),
+    ContentEdit {
+        command: &'a Command,
+        edit: PreparedContentEdit<'a>,
+    },
+    MergeBlockBackward {
+        command: &'a Command,
+        plan: MergePlan,
+    },
+    MoveBlocks {
+        command: &'a Command,
+        plan: MovePlan,
+    },
+    IndentBlocks {
+        command: &'a Command,
+        plan: OutlinePlan,
+    },
+    OutdentBlocks {
+        command: &'a Command,
+        plan: OutlinePlan,
+    },
+    DeleteBlocks {
+        command: &'a Command,
+        plan: OutlinePlan,
+    },
+    DeleteTag {
+        command: &'a Command,
+        plan: TagDetachPlan,
+    },
+    PasteOutline {
+        command: &'a Command,
+        resolution: FragmentResolution,
+    },
+    Batch {
+        command: &'a Command,
+        plan: PreparedBatch,
+    },
 }
 
-impl CommandPlan {
-    fn outline(&self) -> &OutlinePlan {
+impl<'a> PreparedCommandKind<'a> {
+    fn command(&self) -> &'a Command {
         match self {
-            Self::Move(plan) => &plan.outline,
-            Self::Outline(plan) => plan,
-            _ => unreachable!("structural command was prepared without an outline plan"),
+            Self::Direct(command)
+            | Self::ContentEdit { command, .. }
+            | Self::MergeBlockBackward { command, .. }
+            | Self::MoveBlocks { command, .. }
+            | Self::IndentBlocks { command, .. }
+            | Self::OutdentBlocks { command, .. }
+            | Self::DeleteBlocks { command, .. }
+            | Self::DeleteTag { command, .. }
+            | Self::PasteOutline { command, .. }
+            | Self::Batch { command, .. } => command,
         }
-    }
-
-    fn move_blocks(&self) -> &MovePlan {
-        let Self::Move(plan) = self else {
-            unreachable!("block move was prepared without a move plan")
-        };
-        plan
-    }
-
-    fn merge_block(&self) -> &MergePlan {
-        let Self::Merge(plan) = self else {
-            unreachable!("block merge was prepared without a merge plan")
-        };
-        plan
-    }
-
-    fn tag_detach(&self) -> &TagDetachPlan {
-        let Self::TagDetach(plan) = self else {
-            unreachable!("tag deletion was prepared without a detach plan")
-        };
-        plan
-    }
-
-    fn fragment(&self) -> &FragmentResolution {
-        let Self::Fragment(resolution) = self else {
-            unreachable!("outline paste was prepared without a fragment resolution")
-        };
-        resolution
     }
 }
 
 #[derive(Debug)]
+struct PreparedContentEdit<'a> {
+    owner: &'a OutlineOwner,
+    splices: Vec<PreparedContentSplice<'a>>,
+}
+
+#[derive(Debug)]
+struct PreparedContentSplice<'a> {
+    block_id: &'a BlockId,
+    index: usize,
+    delete: usize,
+    insert: PreparedContentInsert<'a>,
+}
+
+#[derive(Debug)]
+struct PreparedBatch {
+    affected_outlines: Vec<OutlineOwner>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PreparedContentInsert<'a> {
+    Markdown(&'a str),
+    Inline(&'a [InlineContent]),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ContentEditRange {
+    ReplaceAll,
+    Splice { index: usize, delete: usize },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ContentEditInput<'a> {
+    block_id: &'a BlockId,
+    range: ContentEditRange,
+    insert: PreparedContentInsert<'a>,
+}
+
+#[derive(Debug)]
 struct PreparedCommand<'a> {
-    command: &'a Command,
-    plan: CommandPlan,
+    kind: PreparedCommandKind<'a>,
     history: Option<HistoryPlan>,
-    semantic: &'static str,
 }
 
 impl PreparedCommand<'_> {
-    fn outline(&self) -> &OutlinePlan {
-        self.plan.outline()
+    fn command(&self) -> &Command {
+        self.kind.command()
     }
 
-    fn move_blocks(&self) -> &MovePlan {
-        self.plan.move_blocks()
-    }
-
-    fn merge_block(&self) -> &MergePlan {
-        self.plan.merge_block()
-    }
-
-    fn tag_detach(&self) -> &TagDetachPlan {
-        self.plan.tag_detach()
-    }
-
-    fn fragment(&self) -> &FragmentResolution {
-        self.plan.fragment()
+    fn semantic(&self) -> &'static str {
+        semantic_name(self.command())
     }
 }
 
@@ -299,6 +333,37 @@ pub struct GraphCore {
     command_order: VecDeque<String>,
     undo_history: Vec<HistoryEntry>,
     redo_history: Vec<HistoryEntry>,
+}
+
+/// Opaque server-room candidate containing one already imported and validated
+/// remote update.
+///
+/// Preparing this value does not mutate the live core. The server may persist
+/// the exact update bytes and consume the candidate only after that commit is
+/// known to have inserted a new record. Converting it into a server baseline
+/// deliberately starts fresh local command and undo history; interactive client
+/// runtimes must continue to use [`GraphCore::import_remote`].
+#[must_use = "a prepared server update must be adopted after durable insertion or discarded"]
+pub struct PreparedServerRemoteUpdate {
+    baseline: GraphCore,
+    gc_checkpoint_len: usize,
+}
+
+impl PreparedServerRemoteUpdate {
+    /// Size of a garbage-collected checkpoint exported from the validated
+    /// candidate state.
+    pub fn gc_checkpoint_len(&self) -> usize {
+        self.gc_checkpoint_len
+    }
+
+    /// Consumes the prepared state as a disposable server-room baseline.
+    ///
+    /// The returned core intentionally has no session-local command cache or
+    /// undo/redo history. This is an infallible ownership transfer, not another
+    /// remote import or validation pass.
+    pub fn into_server_baseline(self) -> GraphCore {
+        self.baseline
+    }
 }
 
 impl HistoryPlan {
@@ -788,7 +853,7 @@ impl GraphCore {
             }
             command => {
                 let prepared = self.prepare(command)?;
-                semantic = prepared.semantic.to_owned();
+                semantic = prepared.semantic().to_owned();
                 history_plan = prepared.history.clone();
                 self.undo.group_start()?;
                 self.doc.set_next_commit_origin("local:command");
@@ -804,7 +869,11 @@ impl GraphCore {
         }
 
         let changes = change_tracker.finish(&self.doc);
-        let update = self.doc.export(ExportMode::updates(&before))?;
+        let update = if self.doc.oplog_vv() == before {
+            Vec::new()
+        } else {
+            self.doc.export(ExportMode::updates(&before))?
+        };
         if !update.is_empty()
             && let Some(plan) = history_plan
         {
@@ -841,21 +910,64 @@ impl GraphCore {
         Ok(change_tracker.finish(&self.doc))
     }
 
-    /// Validates a remote update without mutating canonical state. Persistence
-    /// adapters use this before durably appending the bytes, then call
-    /// `import_remote` after the append commits.
+    /// Validates a remote update without mutating canonical state.
     pub fn validate_remote(&self, update: &[u8]) -> Result<(), CoreError> {
+        self.validated_remote_candidate_doc(update).map(|_| ())
+    }
+
+    /// Prepares a remote update for a durable server room without mutating its
+    /// live baseline.
+    ///
+    /// The update is imported exactly once into a disposable fork. Dependency,
+    /// graph/schema, entity-name, and tag-outline invariants are validated there,
+    /// and the garbage-collected checkpoint size is measured before this method
+    /// returns. After the matching bytes are durably inserted, the server adopts
+    /// the returned candidate with
+    /// [`PreparedServerRemoteUpdate::into_server_baseline`]. A duplicate or
+    /// failed durable outcome must discard it.
+    ///
+    /// Adoption creates a fresh server baseline and therefore does not preserve
+    /// local command idempotency or undo/redo history. Client runtimes should use
+    /// [`GraphCore::import_remote`] instead.
+    pub fn prepare_server_remote_update(
+        &self,
+        update: &[u8],
+    ) -> Result<PreparedServerRemoteUpdate, CoreError> {
+        let candidate = self.validated_remote_candidate_doc(update)?;
+        let frontiers = candidate.oplog_frontiers();
+        let gc_checkpoint_len = candidate
+            .export(ExportMode::shallow_snapshot(&frontiers))?
+            .len();
+        let undo = UndoManager::new(&candidate);
+        Ok(PreparedServerRemoteUpdate {
+            baseline: Self {
+                graph_id: self.graph_id.clone(),
+                doc: candidate,
+                undo,
+                command_results: BTreeMap::new(),
+                command_order: VecDeque::new(),
+                undo_history: Vec::new(),
+                redo_history: Vec::new(),
+            },
+            gc_checkpoint_len,
+        })
+    }
+
+    fn validated_remote_candidate_doc(&self, update: &[u8]) -> Result<LoroDoc, CoreError> {
         // Validate on a deep fork first: a rejected remote update must not
-        // partially enter the canonical document.
+        // partially enter the canonical document. A fork receives a new random
+        // peer, so restore the live server/client peer before it can be adopted.
         let candidate = self.doc.fork();
+        configure_inline_content(&candidate);
+        candidate.set_peer_id(self.doc.peer_id())?;
         let status = candidate.import(update)?;
         if status.pending.is_some() {
             return Err(CoreError::MissingDependencies);
         }
         verify_schema(&candidate, &self.graph_id)?;
         validate_unique_entity_names(&candidate)?;
-        validate_tag_outlines(&candidate)?;
-        Ok(())
+        enable_outlines(&candidate)?;
+        Ok(candidate)
     }
 
     pub fn export_snapshot(&self) -> Result<Vec<u8>, CoreError> {
@@ -914,6 +1026,13 @@ impl GraphCore {
     /// Durable transport cursors deliberately do not participate in this value.
     pub fn version_vector(&self) -> Vec<u8> {
         self.doc.oplog_vv().encode()
+    }
+
+    /// Validates only the binary encoding of a Loro version vector without
+    /// exporting or allocating a missing-update payload.
+    pub fn validate_version_vector(&self, encoded: &[u8]) -> Result<(), CoreError> {
+        VersionVector::decode(encoded)?;
+        Ok(())
     }
 
     /// Exports operations absent from an encoded remote Loro version vector.
@@ -1206,44 +1325,233 @@ impl GraphCore {
     /// happen here exactly once; history and mutation never re-plan against a
     /// subtly different view of the document.
     fn prepare<'a>(&self, command: &'a Command) -> Result<PreparedCommand<'a>, CoreError> {
-        self.validate(command)?;
-        let plan = match command {
-            Command::MoveBlocks {
-                block_ids,
-                owner,
-                parent,
-                after,
-            } => CommandPlan::Move(self.plan_move_blocks(
-                owner,
-                block_ids,
-                parent.as_ref(),
-                after.as_ref(),
-            )?),
-            Command::IndentBlocks { owner, block_ids } => {
-                CommandPlan::Outline(self.plan_indent_blocks(owner, block_ids)?)
+        let kind = if let Some(edit) = self.prepare_content_edit(command)? {
+            PreparedCommandKind::ContentEdit { command, edit }
+        } else {
+            self.validate(command)?;
+            match command {
+                Command::MoveBlocks {
+                    block_ids,
+                    owner,
+                    parent,
+                    after,
+                } => PreparedCommandKind::MoveBlocks {
+                    command,
+                    plan: self.plan_move_blocks(
+                        owner,
+                        block_ids,
+                        parent.as_ref(),
+                        after.as_ref(),
+                    )?,
+                },
+                Command::IndentBlocks { owner, block_ids } => PreparedCommandKind::IndentBlocks {
+                    command,
+                    plan: self.plan_indent_blocks(owner, block_ids)?,
+                },
+                Command::OutdentBlocks { owner, block_ids } => PreparedCommandKind::OutdentBlocks {
+                    command,
+                    plan: self.plan_outdent_blocks(owner, block_ids)?,
+                },
+                Command::DeleteBlocks { owner, block_ids } => PreparedCommandKind::DeleteBlocks {
+                    command,
+                    plan: self.plan_delete_blocks(owner, block_ids)?,
+                },
+                Command::MergeBlockBackward { owner, block_id } => {
+                    PreparedCommandKind::MergeBlockBackward {
+                        command,
+                        plan: self.plan_merge_block_backward(owner, block_id)?,
+                    }
+                }
+                Command::DeleteTag { tag_id } => PreparedCommandKind::DeleteTag {
+                    command,
+                    plan: self.plan_delete_tag(tag_id)?,
+                },
+                Command::PasteOutline { fragment, .. } => PreparedCommandKind::PasteOutline {
+                    command,
+                    resolution: self.resolve_outline_fragment(fragment)?,
+                },
+                Command::Batch { commands } => PreparedCommandKind::Batch {
+                    command,
+                    plan: self.prepare_batch(commands)?,
+                },
+                _ => PreparedCommandKind::Direct(command),
             }
-            Command::OutdentBlocks { owner, block_ids } => {
-                CommandPlan::Outline(self.plan_outdent_blocks(owner, block_ids)?)
-            }
-            Command::DeleteBlocks { owner, block_ids } => {
-                CommandPlan::Outline(self.plan_delete_blocks(owner, block_ids)?)
-            }
-            Command::MergeBlockBackward { owner, block_id } => {
-                CommandPlan::Merge(self.plan_merge_block_backward(owner, block_id)?)
-            }
-            Command::DeleteTag { tag_id } => CommandPlan::TagDetach(self.plan_delete_tag(tag_id)?),
-            Command::PasteOutline { fragment, .. } => {
-                CommandPlan::Fragment(self.resolve_outline_fragment(fragment)?)
-            }
-            _ => CommandPlan::None,
         };
-        let history = self.plan_history(command, &plan)?;
-        Ok(PreparedCommand {
-            command,
-            plan,
-            history,
-            semantic: semantic_name(command),
-        })
+        let history = self.plan_history(&kind)?;
+        Ok(PreparedCommand { kind, history })
+    }
+
+    fn prepare_content_edit<'a>(
+        &self,
+        command: &'a Command,
+    ) -> Result<Option<PreparedContentEdit<'a>>, CoreError> {
+        let (owner, inputs, batch_name) = match command {
+            Command::EditMarkdown {
+                owner,
+                block_id,
+                markdown,
+            } => (
+                owner,
+                vec![ContentEditInput {
+                    block_id,
+                    range: ContentEditRange::ReplaceAll,
+                    insert: PreparedContentInsert::Markdown(markdown),
+                }],
+                None,
+            ),
+            Command::SpliceMarkdown {
+                owner,
+                block_id,
+                index,
+                delete,
+                insert,
+            } => (
+                owner,
+                vec![ContentEditInput {
+                    block_id,
+                    range: ContentEditRange::Splice {
+                        index: *index,
+                        delete: *delete,
+                    },
+                    insert: PreparedContentInsert::Markdown(insert),
+                }],
+                None,
+            ),
+            Command::SpliceMarkdowns { owner, splices } => (
+                owner,
+                splices
+                    .iter()
+                    .map(|splice| ContentEditInput {
+                        block_id: &splice.block_id,
+                        range: ContentEditRange::Splice {
+                            index: splice.index,
+                            delete: splice.delete,
+                        },
+                        insert: PreparedContentInsert::Markdown(&splice.insert),
+                    })
+                    .collect(),
+                Some("markdown splice"),
+            ),
+            Command::SpliceBlockContent {
+                owner,
+                block_id,
+                index,
+                delete,
+                insert,
+            } => (
+                owner,
+                vec![ContentEditInput {
+                    block_id,
+                    range: ContentEditRange::Splice {
+                        index: *index,
+                        delete: *delete,
+                    },
+                    insert: PreparedContentInsert::Inline(insert),
+                }],
+                None,
+            ),
+            Command::SpliceBlockContents { owner, splices } => (
+                owner,
+                splices
+                    .iter()
+                    .map(|splice| ContentEditInput {
+                        block_id: &splice.block_id,
+                        range: ContentEditRange::Splice {
+                            index: splice.index,
+                            delete: splice.delete,
+                        },
+                        insert: PreparedContentInsert::Inline(&splice.insert),
+                    })
+                    .collect(),
+                Some("block content splice"),
+            ),
+            _ => return Ok(None),
+        };
+
+        if let Some(batch_name) = batch_name
+            && (inputs.is_empty() || inputs.len() > MAX_STRUCTURAL_TARGETS)
+        {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "{batch_name} batch must contain between 1 and {MAX_STRUCTURAL_TARGETS} blocks"
+            )));
+        }
+
+        let mut seen = BTreeSet::new();
+        let mut splices = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            if let Some(batch_name) = batch_name
+                && !seen.insert(input.block_id.clone())
+            {
+                return Err(CoreError::InvalidHierarchy(format!(
+                    "{batch_name} batch contains a duplicate block"
+                )));
+            }
+            self.require_block(owner, input.block_id)?;
+            match input.insert {
+                PreparedContentInsert::Markdown(insert) => {
+                    validate_text(insert, MAX_BLOCK_TEXT_BYTES)?;
+                }
+                PreparedContentInsert::Inline(insert) => validate_inline_content(self, insert)?,
+            }
+            let text = self.block_text(owner, input.block_id)?;
+            let (index, delete) = match input.range {
+                ContentEditRange::ReplaceAll => (0, text.len_unicode()),
+                ContentEditRange::Splice { index, delete } => {
+                    if index.saturating_add(delete) > text.len_unicode() {
+                        let operation = match input.insert {
+                            PreparedContentInsert::Markdown(_) => "markdown splice",
+                            PreparedContentInsert::Inline(_) => "block content splice",
+                        };
+                        return Err(CoreError::InvalidHierarchy(format!(
+                            "{operation} is out of bounds"
+                        )));
+                    }
+                    (index, delete)
+                }
+            };
+            splices.push(PreparedContentSplice {
+                block_id: input.block_id,
+                index,
+                delete,
+                insert: input.insert,
+            });
+        }
+        Ok(Some(PreparedContentEdit { owner, splices }))
+    }
+
+    fn prepare_batch(&self, commands: &[Command]) -> Result<PreparedBatch, CoreError> {
+        // Later steps may intentionally target an entity created by an earlier
+        // one. Prepare and apply them against a disposable fork in order. Plans
+        // may contain fork-local generated TreeIDs, so only portable history
+        // scope leaves this validation boundary.
+        let mut staged = self.validation_fork();
+        let mut affected_outlines = Vec::new();
+        for command in commands {
+            if matches!(
+                command,
+                Command::Batch { .. } | Command::Undo | Command::Redo
+            ) {
+                return Err(CoreError::InvalidBatch(
+                    "nested batches and history commands are not allowed".into(),
+                ));
+            }
+            let prepared = staged.prepare(command)?;
+            let mut result = CommandResult {
+                command_id: CommandId::new("batch-preflight")
+                    .expect("the fixed preflight command id is valid"),
+                created_page: None,
+                created_block: None,
+                created_tag: None,
+                changed: true,
+                history_effect: None,
+            };
+            if let Some(history) = &prepared.history {
+                affected_outlines.extend(history.entry.affected_outlines.iter().cloned());
+            }
+            staged.apply(&prepared, "1970-01-01T00:00:00Z", &mut result)?;
+            staged.doc.commit();
+        }
+        Ok(PreparedBatch { affected_outlines })
     }
 
     fn validation_fork(&self) -> Self {
@@ -1370,84 +1678,12 @@ impl GraphCore {
                     }
                 }
             }
-            Command::EditMarkdown {
-                owner,
-                block_id,
-                markdown,
-            } => {
-                self.require_block(owner, block_id)?;
-                validate_text(markdown, MAX_BLOCK_TEXT_BYTES)?;
-            }
-            Command::SpliceMarkdown {
-                owner,
-                block_id,
-                insert,
-                ..
-            } => {
-                self.require_block(owner, block_id)?;
-                validate_text(insert, MAX_BLOCK_TEXT_BYTES)?;
-            }
-            Command::SpliceMarkdowns { owner, splices } => {
-                if splices.is_empty() || splices.len() > MAX_STRUCTURAL_TARGETS {
-                    return Err(CoreError::InvalidHierarchy(format!(
-                        "markdown splice batch must contain between 1 and {MAX_STRUCTURAL_TARGETS} blocks"
-                    )));
-                }
-                let mut seen = BTreeSet::new();
-                for splice in splices {
-                    if !seen.insert(splice.block_id.clone()) {
-                        return Err(CoreError::InvalidHierarchy(
-                            "markdown splice batch contains a duplicate block".into(),
-                        ));
-                    }
-                    self.require_block(owner, &splice.block_id)?;
-                    validate_text(&splice.insert, MAX_BLOCK_TEXT_BYTES)?;
-                    let text = self.block_text(owner, &splice.block_id)?;
-                    if splice.index.saturating_add(splice.delete) > text.len_unicode() {
-                        return Err(CoreError::InvalidHierarchy(
-                            "markdown splice is out of bounds".into(),
-                        ));
-                    }
-                }
-            }
-            Command::SpliceBlockContent {
-                owner,
-                block_id,
-                index,
-                delete,
-                insert,
-            } => {
-                self.require_block(owner, block_id)?;
-                validate_inline_content(self, insert)?;
-                let text = self.block_text(owner, block_id)?;
-                if index.saturating_add(*delete) > text.len_unicode() {
-                    return Err(CoreError::InvalidHierarchy(
-                        "block content splice is out of bounds".into(),
-                    ));
-                }
-            }
-            Command::SpliceBlockContents { owner, splices } => {
-                if splices.is_empty() || splices.len() > MAX_STRUCTURAL_TARGETS {
-                    return Err(CoreError::InvalidHierarchy(format!(
-                        "block content splice batch must contain between 1 and {MAX_STRUCTURAL_TARGETS} blocks"
-                    )));
-                }
-                let mut seen = BTreeSet::new();
-                for splice in splices {
-                    if !seen.insert(splice.block_id.clone()) {
-                        return Err(CoreError::InvalidHierarchy(
-                            "block content splice batch contains a duplicate block".into(),
-                        ));
-                    }
-                    self.require_block(owner, &splice.block_id)?;
-                    validate_inline_content(self, &splice.insert)?;
-                    let text = self.block_text(owner, &splice.block_id)?;
-                    if splice.index.saturating_add(splice.delete) > text.len_unicode() {
-                        return Err(CoreError::InvalidHierarchy(
-                            "block content splice is out of bounds".into(),
-                        ));
-                    }
-                }
+            Command::EditMarkdown { .. }
+            | Command::SpliceMarkdown { .. }
+            | Command::SpliceMarkdowns { .. }
+            | Command::SpliceBlockContent { .. }
+            | Command::SpliceBlockContents { .. } => {
+                unreachable!("content edits are validated while building their prepared form")
             }
             Command::MoveBlocks { .. }
             | Command::IndentBlocks { .. }
@@ -1759,30 +1995,6 @@ impl GraphCore {
                         "at most one page, block, and tag creation may report a result".into(),
                     ));
                 }
-
-                // Later steps may intentionally target an entity created by an
-                // earlier one. Validate against a disposable fork in order;
-                // canonical state remains untouched if any step is rejected.
-                let mut staged = self.validation_fork();
-                for step in commands {
-                    if matches!(step, Command::Batch { .. } | Command::Undo | Command::Redo) {
-                        return Err(CoreError::InvalidBatch(
-                            "nested batches and history commands are not allowed".into(),
-                        ));
-                    }
-                    let prepared = staged.prepare(step)?;
-                    let mut result = CommandResult {
-                        command_id: CommandId::new("batch-preflight")
-                            .expect("the fixed preflight command id is valid"),
-                        created_page: None,
-                        created_block: None,
-                        created_tag: None,
-                        changed: true,
-                        history_effect: None,
-                    };
-                    staged.apply(&prepared, "1970-01-01T00:00:00Z", &mut result)?;
-                    staged.doc.commit();
-                }
             }
             Command::EnsureJournal { .. } | Command::Undo | Command::Redo => {}
         }
@@ -1795,7 +2007,14 @@ impl GraphCore {
         now: &str,
         result: &mut CommandResult,
     ) -> Result<(), CoreError> {
-        let command = prepared.command;
+        if let PreparedCommandKind::ContentEdit { edit, .. } = &prepared.kind {
+            self.apply_content_edit(edit)?;
+            if result.changed {
+                self.touch_content_edit(edit, now)?;
+            }
+            return Ok(());
+        }
+        let command = prepared.command();
         match command {
             Command::EnsurePage { page_id, title } => {
                 result.created_page =
@@ -1833,7 +2052,10 @@ impl GraphCore {
                 self.require_tag(tag_id)?.insert("name", name.as_str())?;
             }
             Command::DeleteTag { tag_id } => {
-                self.apply_delete_tag(tag_id, prepared.tag_detach(), now)?;
+                let PreparedCommandKind::DeleteTag { plan, .. } = &prepared.kind else {
+                    unreachable!("tag deletion was not prepared as a tag deletion")
+                };
+                self.apply_delete_tag(tag_id, plan, now)?;
             }
             Command::RestoreTag { tag_id } => {
                 remove_property_field(
@@ -1907,7 +2129,9 @@ impl GraphCore {
                 result.created_block = Some(block_id(node));
             }
             Command::MergeBlockBackward { owner, .. } => {
-                let plan = prepared.merge_block();
+                let PreparedCommandKind::MergeBlockBackward { plan, .. } = &prepared.kind else {
+                    unreachable!("block merge was not prepared as a block merge")
+                };
                 let target = self.block_text(owner, &plan.target)?;
                 let source = self.block_text(owner, &plan.source)?;
                 let target_length = target.len_unicode();
@@ -1960,7 +2184,9 @@ impl GraphCore {
                 replace,
                 fragment,
             } => {
-                let resolution = prepared.fragment();
+                let PreparedCommandKind::PasteOutline { resolution, .. } = &prepared.kind else {
+                    unreachable!("outline paste was not prepared as an outline paste")
+                };
                 for (target_id, reference) in &resolution.new_pages {
                     if let Some(date) = &reference.journal_date {
                         self.ensure_page(target_id, "journal", None, Some(date.clone()), now)?;
@@ -2003,72 +2229,17 @@ impl GraphCore {
                     },
                 )?;
             }
-            Command::EditMarkdown {
-                owner,
-                block_id,
-                markdown,
-            } => {
-                let text = self.block_text(owner, block_id)?;
-                if text.len_unicode() > 0 {
-                    text.delete(0, text.len_unicode())?;
-                }
-                text.insert(0, markdown)?;
-            }
-            Command::SpliceMarkdown {
-                owner,
-                block_id,
-                index,
-                delete,
-                insert,
-            } => {
-                let text = self.block_text(owner, block_id)?;
-                if index.saturating_add(*delete) > text.len_unicode() {
-                    return Err(CoreError::InvalidHierarchy(
-                        "markdown splice is out of bounds".into(),
-                    ));
-                }
-                if *delete > 0 {
-                    text.delete(*index, *delete)?;
-                }
-                if !insert.is_empty() {
-                    text.insert(*index, insert)?;
-                }
-            }
-            Command::SpliceMarkdowns { owner, splices } => {
-                for splice in splices {
-                    let text = self.block_text(owner, &splice.block_id)?;
-                    if splice.delete > 0 {
-                        text.delete(splice.index, splice.delete)?;
-                    }
-                    if !splice.insert.is_empty() {
-                        text.insert(splice.index, &splice.insert)?;
-                    }
-                }
-            }
-            Command::SpliceBlockContent {
-                owner,
-                block_id,
-                index,
-                delete,
-                insert,
-            } => {
-                let text = self.block_text(owner, block_id)?;
-                if *delete > 0 {
-                    text.delete(*index, *delete)?;
-                }
-                apply_inline_content(&text, *index, insert)?;
-            }
-            Command::SpliceBlockContents { owner, splices } => {
-                for splice in splices {
-                    let text = self.block_text(owner, &splice.block_id)?;
-                    if splice.delete > 0 {
-                        text.delete(splice.index, splice.delete)?;
-                    }
-                    apply_inline_content(&text, splice.index, &splice.insert)?;
-                }
+            Command::EditMarkdown { .. }
+            | Command::SpliceMarkdown { .. }
+            | Command::SpliceMarkdowns { .. }
+            | Command::SpliceBlockContent { .. }
+            | Command::SpliceBlockContents { .. } => {
+                unreachable!("content edits use their canonical prepared form")
             }
             Command::MoveBlocks { owner, .. } => {
-                let plan = prepared.move_blocks();
+                let PreparedCommandKind::MoveBlocks { plan, .. } = &prepared.kind else {
+                    unreachable!("block move was not prepared as a block move")
+                };
                 self.move_blocks(
                     &plan.outline.roots,
                     owner,
@@ -2077,19 +2248,25 @@ impl GraphCore {
                 )?;
             }
             Command::IndentBlocks { owner, .. } => {
-                let plan = prepared.outline();
+                let PreparedCommandKind::IndentBlocks { plan, .. } = &prepared.kind else {
+                    unreachable!("block indent was not prepared as a block indent")
+                };
                 for block_id in &plan.roots {
                     self.indent(owner, block_id)?;
                 }
             }
             Command::OutdentBlocks { owner, .. } => {
-                let plan = prepared.outline();
+                let PreparedCommandKind::OutdentBlocks { plan, .. } = &prepared.kind else {
+                    unreachable!("block outdent was not prepared as a block outdent")
+                };
                 for block_id in &plan.roots {
                     self.outdent(owner, block_id)?;
                 }
             }
             Command::DeleteBlocks { owner, .. } => {
-                let plan = prepared.outline();
+                let PreparedCommandKind::DeleteBlocks { plan, .. } = &prepared.kind else {
+                    unreachable!("block deletion was not prepared as a block deletion")
+                };
                 let outline = self.outline(owner)?;
                 for block_id in &plan.roots {
                     self.touch_block(owner, block_id, now)?;
@@ -2268,9 +2445,16 @@ impl GraphCore {
                 self.entity_tags(entity)?.delete(tag_id.as_str())?;
             }
             Command::Batch { commands } => {
+                let PreparedCommandKind::Batch { .. } = &prepared.kind else {
+                    unreachable!("batch was not prepared as a batch")
+                };
                 result.changed = false;
-                for step in commands {
-                    let prepared = self.prepare(step)?;
+                for command in commands {
+                    // Preflight proved the complete sequence valid, but opaque
+                    // TreeIDs created on its fork cannot safely cross into the
+                    // live document. Resolve each live plan against the state
+                    // produced by the preceding live step.
+                    let prepared = self.prepare(command)?;
                     let mut nested = CommandResult {
                         command_id: result.command_id.clone(),
                         created_page: None,
@@ -2292,6 +2476,37 @@ impl GraphCore {
             self.touch_command(command, result, now)?;
         }
         Ok(())
+    }
+
+    fn apply_content_edit(&self, edit: &PreparedContentEdit<'_>) -> Result<(), CoreError> {
+        for splice in &edit.splices {
+            let text = self.block_text(edit.owner, splice.block_id)?;
+            if splice.delete > 0 {
+                text.delete(splice.index, splice.delete)?;
+            }
+            match splice.insert {
+                PreparedContentInsert::Markdown(insert) => {
+                    if !insert.is_empty() {
+                        text.insert(splice.index, insert)?;
+                    }
+                }
+                PreparedContentInsert::Inline(insert) => {
+                    apply_inline_content(&text, splice.index, insert)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn touch_content_edit(
+        &self,
+        edit: &PreparedContentEdit<'_>,
+        now: &str,
+    ) -> Result<(), CoreError> {
+        for splice in &edit.splices {
+            self.touch_block(edit.owner, splice.block_id, now)?;
+        }
+        self.touch_outline_owner(edit.owner, now)
     }
 
     fn insert_outline_items<T>(
@@ -2424,29 +2639,12 @@ impl GraphCore {
             Command::InsertOutline { owner, .. } | Command::PasteOutline { owner, .. } => {
                 self.touch_outline_owner(owner, now)?
             }
-            Command::EditMarkdown {
-                owner, block_id, ..
-            }
-            | Command::SpliceMarkdown {
-                owner, block_id, ..
-            }
-            | Command::SpliceBlockContent {
-                owner, block_id, ..
-            } => {
-                self.touch_block(owner, block_id, now)?;
-                self.touch_outline_owner(owner, now)?;
-            }
-            Command::SpliceMarkdowns { owner, splices } => {
-                for splice in splices {
-                    self.touch_block(owner, &splice.block_id, now)?;
-                }
-                self.touch_outline_owner(owner, now)?;
-            }
-            Command::SpliceBlockContents { owner, splices } => {
-                for splice in splices {
-                    self.touch_block(owner, &splice.block_id, now)?;
-                }
-                self.touch_outline_owner(owner, now)?;
+            Command::EditMarkdown { .. }
+            | Command::SpliceMarkdown { .. }
+            | Command::SpliceMarkdowns { .. }
+            | Command::SpliceBlockContent { .. }
+            | Command::SpliceBlockContents { .. } => {
+                unreachable!("content edits touch owners from their prepared form")
             }
             Command::MoveBlocks {
                 owner, block_ids, ..
@@ -2573,35 +2771,33 @@ impl GraphCore {
         now: &str,
     ) -> Result<Option<PageId>, CoreError> {
         let pages = self.doc.get_map("pages");
-        let existed = pages.get(page_id.as_str()).is_some();
+        if pages.get(page_id.as_str()).is_some() {
+            return Ok(None);
+        }
         let page = pages.ensure_mergeable_map(page_id.as_str())?;
         let root = page.ensure_mergeable_map("root")?;
         initialize_node(&root, "")?;
         let properties = root.ensure_mergeable_map("properties")?;
         let outline = page.ensure_mergeable_tree("outline")?;
         outline.enable_fractional_index(0);
-        if !existed {
-            replace_text(
-                &root.ensure_mergeable_text("content")?,
-                title.unwrap_or_default(),
-            )?;
+        replace_text(
+            &root.ensure_mergeable_text("content")?,
+            title.unwrap_or_default(),
+        )?;
+        set_single(
+            &properties,
+            &key("builtin.page-kind"),
+            &PropertyValue::String(kind.to_owned()),
+        )?;
+        if let Some(date) = date {
             set_single(
                 &properties,
-                &key("builtin.page-kind"),
-                &PropertyValue::String(kind.to_owned()),
+                &key("builtin.journal-date"),
+                &PropertyValue::Date(date),
             )?;
-            if let Some(date) = date {
-                set_single(
-                    &properties,
-                    &key("builtin.journal-date"),
-                    &PropertyValue::Date(date),
-                )?;
-            }
-            initialize_lifecycle(&properties, now)?;
-            Ok(Some(page_id.clone()))
-        } else {
-            Ok(None)
         }
+        initialize_lifecycle(&properties, now)?;
+        Ok(Some(page_id.clone()))
     }
 
     /// Normal graph creation uses the deterministic graph/date ID. A portable
@@ -2625,14 +2821,12 @@ impl GraphCore {
                 return;
             };
             let (fields, _) = decode_bag(&properties);
-            let is_journal = fields.iter().any(|field| {
-                field.key.as_str() == "builtin.page-kind"
-                    && field.values == [PropertyValue::String("journal".to_owned())]
-            });
-            let is_date = fields.iter().any(|field| {
-                field.key.as_str() == "builtin.journal-date"
-                    && field.values == [PropertyValue::Date(date.clone())]
-            });
+            let is_journal = fields
+                .get("builtin.page-kind")
+                .is_some_and(|field| field.values == [PropertyValue::String("journal".to_owned())]);
+            let is_date = fields
+                .get("builtin.journal-date")
+                .is_some_and(|field| field.values == [PropertyValue::Date(date.clone())]);
             if is_journal && is_date {
                 matches.push(page_id);
             }
@@ -2651,15 +2845,14 @@ impl GraphCore {
         now: &str,
     ) -> Result<Option<TagId>, CoreError> {
         let tags = self.doc.get_map("tags");
-        let existed = tags.get(tag_id.as_str()).is_some();
+        if tags.get(tag_id.as_str()).is_some() {
+            return Ok(None);
+        }
         let tag = tags.ensure_mergeable_map(tag_id.as_str())?;
         let properties = tag.ensure_mergeable_map("properties")?;
         let _ = tag.ensure_mergeable_map("defaults")?;
         let outline = tag.ensure_mergeable_tree("outline")?;
         outline.enable_fractional_index(0);
-        if existed {
-            return Ok(None);
-        }
         tag.insert("name", name)?;
         initialize_lifecycle(&properties, now)?;
         Ok(Some(tag_id.clone()))
@@ -2889,100 +3082,11 @@ impl GraphCore {
                 .all(|field| property_copy_policy(&field.key) != PropertyCopyPolicy::Portable))
     }
 
-    fn batch_affected_outlines(
-        &self,
-        commands: &[Command],
-    ) -> Result<Vec<OutlineOwner>, CoreError> {
-        let mut owners = Vec::new();
-        for command in commands {
-            match command {
-                Command::EnsurePage { page_id, .. }
-                | Command::RenamePage { page_id, .. }
-                | Command::DeletePage { page_id }
-                | Command::RestorePage { page_id } => {
-                    owners.push(OutlineOwner::Page {
-                        id: page_id.clone(),
-                    });
-                }
-                Command::EnsureJournal { date } => owners.push(OutlineOwner::Page {
-                    id: self.journal_page_id(date),
-                }),
-                Command::InsertBlock { owner, .. }
-                | Command::SplitBlock { owner, .. }
-                | Command::MergeBlockBackward { owner, .. }
-                | Command::InsertOutline { owner, .. }
-                | Command::PasteOutline { owner, .. }
-                | Command::EditMarkdown { owner, .. }
-                | Command::SpliceMarkdown { owner, .. }
-                | Command::SpliceMarkdowns { owner, .. }
-                | Command::SpliceBlockContent { owner, .. }
-                | Command::SpliceBlockContents { owner, .. }
-                | Command::MoveBlocks { owner, .. }
-                | Command::IndentBlocks { owner, .. }
-                | Command::OutdentBlocks { owner, .. }
-                | Command::DeleteBlocks { owner, .. } => owners.push(owner.clone()),
-                Command::EnsureProperty { owner, .. }
-                | Command::SetProperty { owner, .. }
-                | Command::SetProperties { owner, .. }
-                | Command::ClearPropertyValues { owner, .. }
-                | Command::RemoveProperty { owner, .. }
-                | Command::AddRepeatedProperty { owner, .. }
-                | Command::RemoveRepeatedProperty { owner, .. } => match owner {
-                    PropertyOwner::Page { id } => {
-                        owners.push(OutlineOwner::Page { id: id.clone() });
-                    }
-                    PropertyOwner::Block { owner, .. } => owners.push(owner.clone()),
-                    PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => {}
-                },
-                Command::SetQuerySource { owner, .. }
-                | Command::SpliceQuerySource { owner, .. }
-                | Command::SetQueryPlan { owner, .. }
-                | Command::ClearQueryPlan { owner, .. }
-                | Command::PutQueryView { owner, .. }
-                | Command::RemoveQueryView { owner, .. }
-                | Command::SetQueryDefaultView { owner, .. } => match owner {
-                    QueryOwner::Page { id } => {
-                        owners.push(OutlineOwner::Page { id: id.clone() });
-                    }
-                    QueryOwner::Block { owner, .. } => owners.push(owner.clone()),
-                    QueryOwner::Tag { .. } | QueryOwner::GraphDefault { .. } => {}
-                },
-                Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
-                    match entity {
-                        EntityId::Page { id } => owners.push(OutlineOwner::Page { id: id.clone() }),
-                        EntityId::Block { owner, .. } => owners.push(owner.clone()),
-                    }
-                }
-                Command::DeleteTag { tag_id } => owners.extend(
-                    self.plan_delete_tag(tag_id)?
-                        .outlines
-                        .into_iter()
-                        .map(|entry| entry.owner),
-                ),
-                Command::Batch { commands } => {
-                    owners.extend(self.batch_affected_outlines(commands)?);
-                }
-                Command::EnsureTag { .. }
-                | Command::RenameTag { .. }
-                | Command::RestoreTag { .. }
-                | Command::CreateDefaultQuery { .. }
-                | Command::RenameDefaultQuery { .. }
-                | Command::MoveDefaultQuery { .. }
-                | Command::DeleteDefaultQuery { .. }
-                | Command::Undo
-                | Command::Redo => {}
-            }
-        }
-        owners.sort();
-        owners.dedup();
-        Ok(owners)
-    }
-
     fn plan_history(
         &self,
-        command: &Command,
-        prepared: &CommandPlan,
+        prepared: &PreparedCommandKind<'_>,
     ) -> Result<Option<HistoryPlan>, CoreError> {
+        let command = prepared.command();
         let plan = |scope,
                     mut affected_outlines: Vec<OutlineOwner>,
                     undo_candidates,
@@ -3056,6 +3160,22 @@ impl GraphCore {
                 .map_or_else(graph_plan, |owner| owner_plan(&owner))
         };
 
+        if let PreparedCommandKind::ContentEdit { edit, .. } = prepared {
+            let candidates = edit
+                .splices
+                .iter()
+                .map(|splice| block(edit.owner, splice.block_id))
+                .collect::<Vec<_>>();
+            return Ok(plan(
+                HistoryScope::Entity,
+                vec![edit.owner.clone()],
+                candidates.clone(),
+                candidates,
+                false,
+                false,
+            ));
+        }
+
         Ok(match command {
             Command::EnsurePage { page_id, .. } => plan(
                 HistoryScope::Outline,
@@ -3115,12 +3235,14 @@ impl GraphCore {
             }
             Command::DeleteTag { .. } => plan(
                 HistoryScope::Graph,
-                prepared
-                    .tag_detach()
-                    .outlines
-                    .iter()
-                    .map(|entry| entry.owner.clone())
-                    .collect(),
+                match prepared {
+                    PreparedCommandKind::DeleteTag { plan, .. } => plan,
+                    _ => unreachable!("tag deletion was not prepared as a tag deletion"),
+                }
+                .outlines
+                .iter()
+                .map(|entry| entry.owner.clone())
+                .collect(),
                 Vec::new(),
                 Vec::new(),
                 false,
@@ -3156,8 +3278,8 @@ impl GraphCore {
             ),
             Command::MergeBlockBackward { owner, .. } => {
                 let merge = match prepared {
-                    CommandPlan::Merge(merge) => merge,
-                    _ => unreachable!("block merge was prepared without a merge plan"),
+                    PreparedCommandKind::MergeBlockBackward { plan, .. } => plan,
+                    _ => unreachable!("block merge was not prepared as a block merge"),
                 };
                 let parent = merge.before.parents.get(&merge.source).cloned().flatten();
                 let index = merge
@@ -3182,55 +3304,23 @@ impl GraphCore {
                     false,
                 )
             }
-            Command::EditMarkdown {
-                owner, block_id, ..
-            }
-            | Command::SpliceMarkdown {
-                owner, block_id, ..
-            }
-            | Command::SpliceBlockContent {
-                owner, block_id, ..
-            } => plan(
-                HistoryScope::Entity,
-                vec![owner.clone()],
-                vec![block(owner, block_id)],
-                vec![block(owner, block_id)],
-                false,
-                false,
-            ),
-            Command::SpliceMarkdowns { owner, splices } => {
-                let candidates = splices
-                    .iter()
-                    .map(|splice| block(owner, &splice.block_id))
-                    .collect::<Vec<_>>();
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    candidates.clone(),
-                    candidates,
-                    false,
-                    false,
-                )
-            }
-            Command::SpliceBlockContents { owner, splices } => {
-                let candidates = splices
-                    .iter()
-                    .map(|splice| block(owner, &splice.block_id))
-                    .collect::<Vec<_>>();
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    candidates.clone(),
-                    candidates,
-                    false,
-                    false,
-                )
+            Command::EditMarkdown { .. }
+            | Command::SpliceMarkdown { .. }
+            | Command::SpliceMarkdowns { .. }
+            | Command::SpliceBlockContent { .. }
+            | Command::SpliceBlockContents { .. } => {
+                unreachable!("content edits plan history from their prepared form")
             }
             Command::MoveBlocks { owner, .. }
             | Command::IndentBlocks { owner, .. }
             | Command::OutdentBlocks { owner, .. } => {
-                let candidates = prepared
-                    .outline()
+                let outline = match prepared {
+                    PreparedCommandKind::MoveBlocks { plan, .. } => &plan.outline,
+                    PreparedCommandKind::IndentBlocks { plan, .. }
+                    | PreparedCommandKind::OutdentBlocks { plan, .. } => plan,
+                    _ => unreachable!("structural command was not prepared as structural work"),
+                };
+                let candidates = outline
                     .roots
                     .iter()
                     .map(|id| block(owner, id))
@@ -3246,7 +3336,9 @@ impl GraphCore {
                 )
             }
             Command::DeleteBlocks { owner, .. } => {
-                let outline = prepared.outline();
+                let PreparedCommandKind::DeleteBlocks { plan: outline, .. } = prepared else {
+                    unreachable!("block deletion was not prepared as a block deletion")
+                };
                 let state = &outline.before;
                 let undo_candidates = outline
                     .roots
@@ -3314,14 +3406,19 @@ impl GraphCore {
             Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
                 entity_plan(entity)
             }
-            Command::Batch { commands } => plan(
-                HistoryScope::Graph,
-                self.batch_affected_outlines(commands)?,
-                Vec::new(),
-                Vec::new(),
-                false,
-                false,
-            ),
+            Command::Batch { .. } => {
+                let PreparedCommandKind::Batch { plan: batch, .. } = prepared else {
+                    unreachable!("batch was not prepared as a batch")
+                };
+                plan(
+                    HistoryScope::Graph,
+                    batch.affected_outlines.clone(),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
+                    false,
+                )
+            }
             Command::Undo | Command::Redo => None,
         })
     }
@@ -4221,10 +4318,10 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
         let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) else {
             return;
         };
-        let is_journal = snapshot.properties.iter().any(|entry| {
-            entry.key.as_str() == "builtin.page-kind"
-                && entry.values == [PropertyValue::String("journal".to_owned())]
-        });
+        let is_journal = snapshot
+            .properties
+            .get("builtin.page-kind")
+            .is_some_and(|entry| entry.values == [PropertyValue::String("journal".to_owned())]);
         if !is_journal {
             names.push((page_id, snapshot.title));
         }
@@ -5139,15 +5236,11 @@ fn remove_property_field(map: &LoroMap, key: &PropertyKey) -> Result<(), CoreErr
     Ok(())
 }
 
-fn bag_has_key(bag: &PropertyBag, key: &str) -> bool {
-    bag.iter().any(|entry| entry.key.as_str() == key)
-}
-
 fn decode_bag_child(page: &LoroMap, name: &str) -> (PropertyBag, Vec<String>) {
     match page.get(name).and_then(value_into_map) {
         Some(map) => decode_bag(&map),
         None => (
-            Vec::new(),
+            PropertyBag::new(),
             vec![format!("property-bag:{name}:missing-or-invalid")],
         ),
     }
@@ -5273,7 +5366,9 @@ fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
             .sort_by_key(|value| serde_json::to_string(value).unwrap_or_default());
     }
     issues.sort();
-    (fields.into_values().collect(), issues)
+    let fields = PropertyBag::try_from_fields(fields.into_values())
+        .expect("property fields decoded from distinct Loro map slots are valid and unique");
+    (fields, issues)
 }
 
 fn page_metadata(
@@ -5306,7 +5401,7 @@ fn page_metadata(
             false
         }
     });
-    if bag_has_key(&properties, "builtin.deleted-at") {
+    if properties.contains_key("builtin.deleted-at") {
         return None;
     }
     let tags = decode_tag_refs(&root, &format!("page:{page_id}"), live_tags, quarantined);
@@ -5340,15 +5435,13 @@ fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirec
         };
         let (properties, mut issues) = decode_bag_child(&root, "properties");
         quarantined.append(&mut issues);
-        let journal_date = properties.iter().find_map(|field| {
-            (field.key.as_str() == "builtin.journal-date")
-                .then(|| field.values.first())
-                .flatten()
-                .and_then(|value| match value {
-                    PropertyValue::Date(date) => Some(date.clone()),
-                    _ => None,
-                })
-        });
+        let journal_date = properties
+            .get("builtin.journal-date")
+            .and_then(|field| field.values.first())
+            .and_then(|value| match value {
+                PropertyValue::Date(date) => Some(date.clone()),
+                _ => None,
+            });
         if let Some(date) = &journal_date {
             title = date.to_string();
         }
@@ -5358,7 +5451,7 @@ fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirec
                 id: page_id,
                 title,
                 journal_date,
-                deleted: bag_has_key(&properties, "builtin.deleted-at"),
+                deleted: properties.contains_key("builtin.deleted-at"),
             },
         );
     });
@@ -5533,7 +5626,7 @@ fn tag_summary(tag_id: &TagId, tag: &LoroMap, quarantined: &mut Vec<String>) -> 
     };
     let (mut properties, mut issues) = decode_bag_child(tag, "properties");
     quarantined.append(&mut issues);
-    if bag_has_key(&properties, "builtin.deleted-at") {
+    if properties.contains_key("builtin.deleted-at") {
         return None;
     }
     properties
@@ -5712,7 +5805,9 @@ fn map_bool(map: &LoroMap, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::{CommandId, LocalDate, MarkdownSplice, QueryViewFieldSort, QueryViewSort};
+    use domain::{
+        BlockContentSplice, CommandId, LocalDate, MarkdownSplice, QueryViewFieldSort, QueryViewSort,
+    };
 
     fn graph() -> GraphId {
         GraphId::new("test-graph").unwrap()
@@ -5775,28 +5870,22 @@ mod tests {
         .unwrap();
     }
 
-    fn property_string<'a>(bag: &'a [PropertyField], raw_key: &str) -> Option<&'a str> {
-        bag.iter().find_map(|field| {
-            if field.key.as_str() != raw_key {
-                return None;
-            }
-            match field.values.first()? {
-                PropertyValue::String(value) => Some(value.as_str()),
-                _ => None,
-            }
-        })
+    fn property_bag(fields: Vec<PropertyField>) -> PropertyBag {
+        PropertyBag::try_from(fields).unwrap()
     }
 
-    fn property_date<'a>(bag: &'a [PropertyField], raw_key: &str) -> Option<&'a str> {
-        bag.iter().find_map(|field| {
-            if field.key.as_str() != raw_key {
-                return None;
-            }
-            match field.values.first()? {
-                PropertyValue::Date(value) => Some(value.as_str()),
-                _ => None,
-            }
-        })
+    fn property_string<'a>(bag: &'a PropertyBag, raw_key: &str) -> Option<&'a str> {
+        match bag.get(raw_key)?.values.first()? {
+            PropertyValue::String(value) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
+    fn property_date<'a>(bag: &'a PropertyBag, raw_key: &str) -> Option<&'a str> {
+        match bag.get(raw_key)?.values.first()? {
+            PropertyValue::Date(value) => Some(value.as_str()),
+            _ => None,
+        }
     }
 
     #[test]
@@ -5846,6 +5935,49 @@ mod tests {
         let snapshot = core.snapshot().unwrap();
         assert!(snapshot.tags.is_empty());
         assert!(snapshot.pages[0].blocks[0].tags.is_empty());
+    }
+
+    #[test]
+    fn batch_resolves_generated_tree_ids_on_the_live_document() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let source = insert_root(&mut core, "source", &page(), 0, "source");
+        let owner = OutlineOwner::Page { id: page() };
+
+        let execution = core
+            .execute(
+                envelope(
+                    "insert-and-merge",
+                    Command::Batch {
+                        commands: vec![
+                            Command::InsertBlock {
+                                owner: owner.clone(),
+                                parent: None,
+                                index: 0,
+                                markdown: "target".into(),
+                            },
+                            Command::MergeBlockBackward {
+                                owner,
+                                block_id: source.clone(),
+                            },
+                        ],
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+
+        let created = execution.result.created_block.unwrap();
+        let outline = core.page_snapshot(&page()).unwrap();
+        assert_eq!(outline.blocks.len(), 1);
+        assert_eq!(outline.blocks[0].id, created);
+        assert_eq!(outline.blocks[0].markdown, "targetsource");
+
+        core.execute(envelope("undo-batch", Command::Undo), "t4")
+            .unwrap();
+        let outline = core.page_snapshot(&page()).unwrap();
+        assert_eq!(outline.blocks.len(), 1);
+        assert_eq!(outline.blocks[0].markdown, "source");
     }
 
     #[test]
@@ -7048,6 +7180,74 @@ mod tests {
     }
 
     #[test]
+    fn existing_ensure_commands_are_true_crdt_noops() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let tag_id = TagId::new("project").unwrap();
+        let date = LocalDate::new("2026-08-03").unwrap();
+        core.execute(
+            envelope(
+                "create-page",
+                Command::EnsurePage {
+                    page_id: page(),
+                    title: "Home".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "create-tag",
+                Command::EnsureTag {
+                    tag_id: tag_id.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        core.execute(
+            envelope(
+                "create-journal",
+                Command::EnsureJournal { date: date.clone() },
+            ),
+            "t1",
+        )
+        .unwrap();
+        let baseline = core.version_vector();
+
+        for command in [
+            envelope(
+                "ensure-page-again",
+                Command::EnsurePage {
+                    page_id: page(),
+                    title: "Home".into(),
+                },
+            ),
+            envelope(
+                "ensure-tag-again",
+                Command::EnsureTag {
+                    tag_id,
+                    name: "Project".into(),
+                },
+            ),
+            envelope("ensure-journal-again", Command::EnsureJournal { date }),
+        ] {
+            let execution = core.execute(command, "t2").unwrap();
+            assert!(!execution.duplicate);
+            assert!(!execution.result.changed);
+            assert!(
+                execution.update.is_empty(),
+                "{} emitted {} update bytes",
+                execution.semantic,
+                execution.update.len()
+            );
+            assert_eq!(execution.changes, GraphChangeSet::default());
+            assert_eq!(core.version_vector(), baseline);
+        }
+    }
+
+    #[test]
     fn page_local_outlines_isolate_root_indices() {
         let first_page = page();
         let second_page = PageId::new("second").unwrap();
@@ -7600,7 +7800,7 @@ mod tests {
                                 index: 4,
                                 page_id: target.clone(),
                             }],
-                            properties: Vec::new(),
+                            properties: PropertyBag::new(),
                             tags: Vec::new(),
                         }],
                         tags: Vec::new(),
@@ -7665,6 +7865,180 @@ mod tests {
         assert_eq!(restored.blocks.len(), 2);
         assert_eq!(restored.blocks[0].markdown, "one tail");
         assert_eq!(restored.blocks[1].markdown, "next words");
+    }
+
+    #[test]
+    fn content_edit_wire_variants_share_one_prepared_representation() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let first = insert_root(&mut core, "first", &page(), 0, "한글tail");
+        let second = insert_root(&mut core, "second", &page(), 1, "second");
+        let owner = OutlineOwner::Page { id: page() };
+        let commands = [
+            Command::EditMarkdown {
+                owner: owner.clone(),
+                block_id: first.clone(),
+                markdown: "replacement".into(),
+            },
+            Command::SpliceMarkdown {
+                owner: owner.clone(),
+                block_id: first.clone(),
+                index: 2,
+                delete: 4,
+                insert: "end".into(),
+            },
+            Command::SpliceMarkdowns {
+                owner: owner.clone(),
+                splices: vec![
+                    MarkdownSplice {
+                        block_id: first.clone(),
+                        index: 2,
+                        delete: 4,
+                        insert: "end".into(),
+                    },
+                    MarkdownSplice {
+                        block_id: second.clone(),
+                        index: 0,
+                        delete: 1,
+                        insert: "S".into(),
+                    },
+                ],
+            },
+            Command::SpliceBlockContent {
+                owner: owner.clone(),
+                block_id: first.clone(),
+                index: 2,
+                delete: 4,
+                insert: vec![InlineContent::Markdown {
+                    value: "end".into(),
+                }],
+            },
+            Command::SpliceBlockContents {
+                owner: owner.clone(),
+                splices: vec![
+                    BlockContentSplice {
+                        block_id: first.clone(),
+                        index: 2,
+                        delete: 4,
+                        insert: vec![InlineContent::Markdown {
+                            value: "end".into(),
+                        }],
+                    },
+                    BlockContentSplice {
+                        block_id: second,
+                        index: 0,
+                        delete: 1,
+                        insert: vec![InlineContent::Markdown { value: "S".into() }],
+                    },
+                ],
+            },
+        ];
+
+        for (index, command) in commands.iter().enumerate() {
+            let prepared = core.prepare(command).unwrap();
+            let PreparedCommandKind::ContentEdit {
+                command: prepared_command,
+                edit,
+            } = &prepared.kind
+            else {
+                panic!("content-edit wire command did not normalize")
+            };
+            assert!(std::ptr::eq(*prepared_command, command));
+            assert_eq!(edit.owner, &owner);
+            assert_eq!(
+                edit.splices.len(),
+                if index == 2 || index == 4 { 2 } else { 1 }
+            );
+            assert_eq!(
+                prepared
+                    .history
+                    .as_ref()
+                    .unwrap()
+                    .entry
+                    .affected_outlines
+                    .as_slice(),
+                std::slice::from_ref(&owner)
+            );
+            assert_eq!(
+                prepared
+                    .history
+                    .as_ref()
+                    .unwrap()
+                    .entry
+                    .undo_candidates
+                    .len(),
+                edit.splices.len()
+            );
+        }
+
+        let prepared = core.prepare(&commands[0]).unwrap();
+        let PreparedCommandKind::ContentEdit { edit, .. } = prepared.kind else {
+            unreachable!()
+        };
+        assert_eq!(edit.splices[0].index, 0);
+        assert_eq!(edit.splices[0].delete, 6);
+        assert!(matches!(
+            edit.splices[0].insert,
+            PreparedContentInsert::Markdown("replacement")
+        ));
+    }
+
+    #[test]
+    fn plural_inline_splice_preserves_unicode_references_and_undoes_once() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "home", &page());
+        let referenced_page = PageId::new("roadmap").unwrap();
+        ensure_regular_page(&mut core, "roadmap", &referenced_page);
+        let first = insert_root(&mut core, "first", &page(), 0, "한글 tail");
+        let second = insert_root(&mut core, "second", &page(), 1, "next");
+
+        core.execute(
+            envelope(
+                "splice-inline-many",
+                Command::SpliceBlockContents {
+                    owner: OutlineOwner::Page { id: page() },
+                    splices: vec![
+                        BlockContentSplice {
+                            block_id: first.clone(),
+                            index: 3,
+                            delete: 4,
+                            insert: vec![InlineContent::PageReference {
+                                page_id: referenced_page.clone(),
+                            }],
+                        },
+                        BlockContentSplice {
+                            block_id: second.clone(),
+                            index: 0,
+                            delete: 4,
+                            insert: vec![InlineContent::Markdown {
+                                value: "done".into(),
+                            }],
+                        },
+                    ],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        let changed = core.page_snapshot(&page()).unwrap();
+        assert_eq!(changed.blocks[0].markdown, "한글 [[roadmap]]");
+        assert_eq!(changed.blocks[0].page_references.len(), 1);
+        assert_eq!(changed.blocks[0].page_references[0].index, 3);
+        assert_eq!(
+            changed.blocks[0].page_references[0].page_id,
+            referenced_page
+        );
+        assert_eq!(changed.blocks[1].markdown, "done");
+
+        core.execute(envelope("undo-inline-many", Command::Undo), "t4")
+            .unwrap();
+        let restored = core.page_snapshot(&page()).unwrap();
+        assert_eq!(restored.blocks[0].id, first);
+        assert_eq!(restored.blocks[0].markdown, "한글 tail");
+        assert!(restored.blocks[0].page_references.is_empty());
+        assert_eq!(restored.blocks[1].id, second);
+        assert_eq!(restored.blocks[1].markdown, "next");
     }
 
     #[test]
@@ -7820,7 +8194,7 @@ mod tests {
                             depth: 0,
                             markdown: "ship it".into(),
                             page_references: Vec::new(),
-                            properties: vec![
+                            properties: property_bag(vec![
                                 PropertyField {
                                     key: key("builtin.task-status"),
                                     value_type: PropertyType::String,
@@ -7843,7 +8217,7 @@ mod tests {
                                         ),
                                     )],
                                 },
-                            ],
+                            ]),
                             tags: vec![tag_id.clone()],
                         }],
                         tags: vec![domain::OutlineFragmentTag {
@@ -7902,14 +8276,14 @@ mod tests {
                 depth: 0,
                 markdown: "untrusted".into(),
                 page_references: Vec::new(),
-                properties: vec![PropertyField {
+                properties: property_bag(vec![PropertyField {
                     key: key("user.embedded-document"),
                     value_type: PropertyType::Document,
                     cardinality: Cardinality::Single,
                     values: vec![PropertyValue::Document(PropertyDocument::default_query(
                         "SELECT * WHERE {}".into(),
                     ))],
-                }],
+                }]),
                 tags: Vec::new(),
             }],
             tags: Vec::new(),
@@ -7940,7 +8314,7 @@ mod tests {
                 depth: 0,
                 markdown: "untrusted".into(),
                 page_references: Vec::new(),
-                properties: Vec::new(),
+                properties: PropertyBag::new(),
                 tags: Vec::new(),
             }],
             tags: vec![domain::OutlineFragmentTag {
@@ -8027,12 +8401,12 @@ mod tests {
                             depth: 0,
                             markdown: "portable".into(),
                             page_references: Vec::new(),
-                            properties: vec![PropertyField {
+                            properties: property_bag(vec![PropertyField {
                                 key: key("user.related"),
                                 value_type: PropertyType::Page,
                                 cardinality: Cardinality::Single,
                                 values: vec![PropertyValue::Page(source_page.clone())],
-                            }],
+                            }]),
                             tags: vec![source_tag.clone()],
                         }],
                         tags: vec![domain::OutlineFragmentTag {
@@ -8878,6 +9252,64 @@ mod tests {
             .find(|item| item.id == page())
             .unwrap();
         assert_eq!(home.title, "Home");
+    }
+
+    #[test]
+    fn prepared_server_remote_update_is_an_immutable_fresh_history_baseline() {
+        let mut server = GraphCore::new(graph(), 1, "t0").unwrap();
+        server
+            .execute(
+                envelope(
+                    "local-page",
+                    Command::EnsurePage {
+                        page_id: page(),
+                        title: "Home".into(),
+                    },
+                ),
+                "t1",
+            )
+            .unwrap();
+        let base = server.export_snapshot().unwrap();
+        let mut remote = GraphCore::from_snapshot(graph(), 2, &base).unwrap();
+        let remote_page = PageId::new("remote").unwrap();
+        let update = remote
+            .execute(
+                envelope(
+                    "remote-page",
+                    Command::EnsurePage {
+                        page_id: remote_page.clone(),
+                        title: "Remote".into(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap()
+            .update;
+
+        let live_before = server.fingerprint().unwrap();
+        let prepared = server.prepare_server_remote_update(&update).unwrap();
+        assert_eq!(server.fingerprint().unwrap(), live_before);
+
+        let measured_checkpoint_len = prepared.gc_checkpoint_len();
+        server = prepared.into_server_baseline();
+        assert_eq!(
+            server.export_gc_checkpoint().unwrap().len(),
+            measured_checkpoint_len
+        );
+        assert_eq!(server.fingerprint().unwrap(), remote.fingerprint().unwrap());
+
+        let undo = server
+            .execute(envelope("undo", Command::Undo), "t3")
+            .unwrap();
+        assert!(!undo.result.changed);
+        assert!(
+            server
+                .summary()
+                .unwrap()
+                .pages
+                .iter()
+                .any(|candidate| candidate.id == remote_page)
+        );
     }
 
     #[test]

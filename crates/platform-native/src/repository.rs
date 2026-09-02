@@ -1,7 +1,7 @@
 use graph_core::{
     AppendReceipt, CheckpointRecord, GraphLocator, GraphMetadata, GraphRepository,
-    LocalGraphRepository, QuarantineRecord, SCHEMA_VERSION, StorageCapabilities, UpdateRecord,
-    checksum,
+    LocalGraphRepository, QuarantineRecord, SCHEMA_VERSION, StorageCapabilities, StorageErrorKind,
+    UpdateRecord, checksum,
 };
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use std::path::Path;
@@ -16,6 +16,7 @@ pub enum FaultPoint {
     AppendAfterCommit,
     CheckpointBeforeCommit,
     CheckpointAfterCommit,
+    MetadataRead,
     Busy,
     DiskFull,
 }
@@ -107,6 +108,7 @@ impl SqliteGraphRepository {
                 params![locator.graph_id.as_str(), as_i64(suggested_replica_id)?],
             )
             .map_err(SqliteRepositoryError::from)?;
+        normalize_tail_counters(&connection, &locator)?;
         Ok(Self {
             connection,
             locator,
@@ -209,6 +211,18 @@ impl SqliteGraphRepository {
 impl GraphRepository for SqliteGraphRepository {
     type Error = SqliteRepositoryError;
 
+    fn error_kind(error: &Self::Error) -> StorageErrorKind {
+        match error {
+            SqliteRepositoryError::Busy => StorageErrorKind::Busy,
+            SqliteRepositoryError::DiskFull => StorageErrorKind::Full,
+            SqliteRepositoryError::Corrupt(_) => StorageErrorKind::Corrupt,
+            SqliteRepositoryError::NotFound => StorageErrorKind::NotFound,
+            #[cfg(debug_assertions)]
+            SqliteRepositoryError::Injected(_) => StorageErrorKind::Unavailable,
+            SqliteRepositoryError::Sqlite(_) => StorageErrorKind::Unavailable,
+        }
+    }
+
     fn append_update(
         &mut self,
         update: &[u8],
@@ -270,6 +284,10 @@ impl GraphRepository for SqliteGraphRepository {
 
 impl LocalGraphRepository for SqliteGraphRepository {
     fn metadata(&mut self) -> Result<GraphMetadata, Self::Error> {
+        #[cfg(debug_assertions)]
+        if self.take_fault(FaultPoint::MetadataRead) {
+            return Err(SqliteRepositoryError::Injected("metadata-read"));
+        }
         let row = self
             .connection
             .query_row(
@@ -444,8 +462,9 @@ impl LocalGraphRepository for SqliteGraphRepository {
         let (tail_bytes, tail_count): (i64, i64) = transaction
             .query_row(
                 "SELECT COALESCE(SUM(LENGTH(payload)), 0), COUNT(*)
-                 FROM graph_update WHERE graph_id = ?1",
-                [self.locator.graph_id.as_str()],
+                 FROM graph_update
+                 WHERE graph_id = ?1 AND local_sequence > ?2",
+                params![self.locator.graph_id.as_str(), sequence],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(SqliteRepositoryError::from)?;
@@ -582,9 +601,11 @@ impl LocalGraphRepository for SqliteGraphRepository {
             .query_row(
                 "SELECT
                     (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM graph_checkpoint WHERE graph_id = ?1),
-                    (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM graph_update WHERE graph_id = ?1),
-                    (SELECT COUNT(*) FROM graph_update WHERE graph_id = ?1)",
-                [self.locator.graph_id.as_str()],
+                    (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM graph_update
+                     WHERE graph_id = ?1 AND local_sequence > ?2),
+                    (SELECT COUNT(*) FROM graph_update
+                     WHERE graph_id = ?1 AND local_sequence > ?2)",
+                params![self.locator.graph_id.as_str(), as_i64(valid_through)?],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(SqliteRepositoryError::from)?;
@@ -733,6 +754,38 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), SqliteRepository
             .map_err(SqliteRepositoryError::from)?;
         transaction.commit().map_err(SqliteRepositoryError::from)?;
     }
+    Ok(())
+}
+
+/// Restores the logical Tail counters derived from the current checkpoint.
+///
+/// Early schema-v1 databases counted every physically retained update, including
+/// the fallback generation at or before `compacted_through`. These columns are
+/// derived data, so normalizing them whenever a graph is opened is both an
+/// idempotent v1 migration and protection against an interrupted older client.
+fn normalize_tail_counters(
+    connection: &Connection,
+    locator: &GraphLocator,
+) -> Result<(), SqliteRepositoryError> {
+    connection
+        .execute(
+            "UPDATE graph_metadata
+             SET tail_bytes = (
+                     SELECT COALESCE(SUM(LENGTH(payload)), 0)
+                     FROM graph_update
+                     WHERE graph_update.graph_id = graph_metadata.graph_id
+                       AND local_sequence > graph_metadata.compacted_through
+                 ),
+                 tail_count = (
+                     SELECT COUNT(*)
+                     FROM graph_update
+                     WHERE graph_update.graph_id = graph_metadata.graph_id
+                       AND local_sequence > graph_metadata.compacted_through
+                 )
+             WHERE graph_id = ?1",
+            [locator.graph_id.as_str()],
+        )
+        .map_err(SqliteRepositoryError::from)?;
     Ok(())
 }
 
